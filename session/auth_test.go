@@ -2976,8 +2976,9 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 
 	userID := impulse.Must(impulse.NewUUID())
 	sessionID := impulse.Must(impulse.NewUUID())
+	temporary := hashed(t, "temporary")
 	marked := func() *sessionstorage.SessionUser {
-		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "temporary"), PasswordChangeRequired: true}
+		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: temporary, PasswordChangeRequired: true}
 	}
 	request := func(method string, body any) *http.Request {
 		var payload *strings.Reader
@@ -3022,8 +3023,8 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil).Times(2)
 		gomock.InOrder(
+			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, temporary, gomock.Not(gomock.Nil())).Return(nil),
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
 		)
 		createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID {
@@ -3074,14 +3075,17 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 
 	userID := impulse.Must(impulse.NewUUID())
 
-	t.Run("changing the password destroys the user's sessions by UserId, clears the mark and continues in a new session that records the password", func(t *testing.T) {
+	t.Run("changing the password writes the new one on proof of the hash the old one matched, then destroys the user's sessions by UserId and continues in a new session that records the password", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old"), PasswordChangeRequired: true}, nil)
+		old := hashed(t, "old")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old, PasswordChangeRequired: true}, nil)
+		// The store is handed the hash the old password was compared against, and clears
+		// the mark with the write; the mock refuses the write that names the user alone.
 		gomock.InOrder(
+			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil),
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
 		)
 		createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID || !cmp.Equal(req.AuthEvents, []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}) {
@@ -3091,6 +3095,26 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 
 		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "new"}); err != nil {
 			t.Errorf("ChangeSessionUserPassword() error = %v", err)
+		}
+	})
+
+	t.Run("a password that changed after the old one was compared is not changed again: no session is destroyed or started, the name's attempts stay, and the caller is told to try again", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		old := hashed(t, "old")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
+		// The mock refuses a call it was not told of: no session is destroyed or created.
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).
+			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry"))
+
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "new"})
+		want := "Your password has changed since you entered it, so this change was not made: try again with your current password"
+		if !errors.Is(err, sessionstorage.ErrPasswordChanged) || !httpio.HasConflict(err) || httpio.Message(err) != want {
+			t.Errorf("ChangeSessionUserPassword() error = %v (message %q), want ErrPasswordChanged as a Conflict saying %q", err, httpio.Message(err), want)
+		}
+		if _, _, clears := f.counts(); clears != 0 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was changed", clears)
 		}
 	})
 

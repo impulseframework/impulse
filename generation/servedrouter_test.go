@@ -645,7 +645,7 @@ func Test_servedRouterData(t *testing.T) {
 					}
 					paths = append(paths, route.Method+" "+route.Path+" "+route.Handler+guard)
 				}
-				want := "GET /api/user/methods Methods,GET /api/user/session Authenticated,DELETE /api/user/session Logout,GET /api/user/pending PendingStatus," +
+				want := "GET /api/user/methods Methods,GET /api/user/session Authenticated,DELETE /api/user/session Logout,GET /api/user/pending PendingStatus,GET /api/user/sign-in-means SignInMeans," +
 					"GET /api/user/azure/login AzureLogin,GET /api/user/azure/callback AzureCallback,GET /api/user/azure/logout AzureFrontChannelLogout," +
 					"POST /api/user/pending/confirm PendingConfirmWithPassword (xsrf),POST /api/user/pending/cancel PendingCancel (xsrf)," +
 					"POST /api/user/pending/code PendingSendCode (xsrf),POST /api/user/pending/code/verify PendingVerifyCode (xsrf),POST /api/user/pending/email PendingEnrollEmail (xsrf),POST /api/user/browser/forget ForgetBrowser (xsrf),POST /api/user/name ChangeName (xsrf),POST /api/user/look ChangeLook (xsrf)," +
@@ -654,8 +654,8 @@ func Test_servedRouterData(t *testing.T) {
 				if got := strings.Join(paths, ","); got != want {
 					t.Errorf("routes = %s, want %s", got, want)
 				}
-				if len(o.OpenRoutes) != 7 || len(o.GuardedRoutes) != 9 || len(o.ValidatedRoutes) != 3 {
-					t.Errorf("open, guarded, validated = %d, %d, %d; want 7, 9, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
+				if len(o.OpenRoutes) != 8 || len(o.GuardedRoutes) != 9 || len(o.ValidatedRoutes) != 3 {
+					t.Errorf("open, guarded, validated = %d, %d, %d; want 8, 9, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
 				}
 				if o.Invitation != (servedInvitation{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}) || o.Email != (servedEmail{Add: "/api/user/email", Verify: "/api/user/email/verify"}) || o.SignUp != nil {
 					t.Errorf("invitation, email, sign-up = %+v, %+v, %+v; want the invitation without sign-up, the email routes, no sign-up", o.Invitation, o.Email, o.SignUp)
@@ -691,7 +691,7 @@ func Test_servedRouterData(t *testing.T) {
 				for _, route := range data.Outlets[0].Routes {
 					crewRoutes = append(crewRoutes, route.Method+" "+route.Path)
 				}
-				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
+				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
 					"POST /api/user/pending/code,POST /api/user/pending/code/verify,POST /api/user/pending/email,POST /api/user/browser/forget,POST /api/user/name,POST /api/user/look," +
 					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/invitation/accept,POST /api/user/email,POST /api/user/email/verify," +
 					"GET /api/user/tokens,POST /api/user/tokens,POST /api/user/tokens/revoke,GET /api/user/device,POST /api/user/device/approve,POST /api/user/device/deny"; strings.Join(crewRoutes, ",") != want {
@@ -1043,7 +1043,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"// Package router serves the application.",
 				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams",
 				"//\tdefault (/api), sessions (azure):",
-				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
+				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
 				"//\t  + ValidateXSRFToken: POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
 				"//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Default, generatedRoutes",
 				"\t// The default outlet's session surface.\n\tDefaultSession\n",
@@ -1051,6 +1051,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\tMethods(list *session.MethodList) http.HandlerFunc\n",
 				"\tPendingStatus() http.HandlerFunc\n\tPendingConfirmWithPassword() http.HandlerFunc\n\tPendingCancel() http.HandlerFunc\n\tPendingSendCode() http.HandlerFunc\n\tPendingVerifyCode() http.HandlerFunc\n\tPendingEnrollEmail() http.HandlerFunc\n\t// ForgetBrowser forgets the browser the second factor remembered for the signed-in\n\t// person, from their account page (session.Auth.ForgetBrowser); it validates the\n\t// session itself.\n\tForgetBrowser() http.HandlerFunc\n" +
 					"\t// ChangeName writes the signed-in person's own name, from their account page\n\t// (session.Auth.ChangeName); it validates the session itself.\n\tChangeName() http.HandlerFunc\n" +
+					"\t// SignInMeans answers what the signed-in person signs in with, a password or none\n\t// and the directory sign-ins linked to them, to their account page\n\t// (session.Auth.SignInMeans); it validates the session itself.\n\tSignInMeans() http.HandlerFunc\n" +
 					"\t// ChangeLook keeps the look the signed-in person chose, so it follows them to\n\t// every browser (session.Auth.ChangeLook); it validates the session itself.\n\tChangeLook() http.HandlerFunc\n" +
 					"\t// The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it.\n\tInvitationOpen() http.HandlerFunc\n" +
 					"\t// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).\n\tInvitationAccept() http.HandlerFunc\n" +
@@ -1060,6 +1061,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit))\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n\t\tbounded.Get(\"/api/user/methods\", h.Methods(&session.MethodList{\n\t\t\tMethods: []session.AdvertisedMethod{\n\t\t\t\t{Name: \"azure\", Label: \"Microsoft\", Path: \"/api/user/azure/login\"},\n\t\t\t},\n\t\t\tPending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", Confirm: \"/api/user/pending/confirm\", Cancel: \"/api/user/pending/cancel\",\n\t\t\t\tSendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",\n\t\t\t},\n" +
 					"\t\t\tForgetBrowser: \"/api/user/browser/forget\",\n" +
 					"\t\t\tChangeName:    \"/api/user/name\",\n" +
+					"\t\t\tSignInMeans:   \"/api/user/sign-in-means\",\n" +
 					"\t\t\tChangeLook:    \"/api/user/look\",\n" +
 					"\t\t\tInvitation:    session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:         session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\"},\n\t\t}))\n",
 				"\t\tguarded.Post(\"/api/user/invitation\", h.InvitationOpen())\n",
@@ -1160,7 +1162,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 			},
 			wantRouter: []string{
 				"//\tdefault (/api), sessions of the crew auth (password):",
-				"//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending",
+				"//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means",
 				"//\t  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
 				"//\tportal (/portal/api), sessions of the members auth (google):",
 				"//\t  + ValidateSession, ValidateXSRFToken, hooks.Default: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify, GET /api/user/tokens, POST /api/user/tokens, POST /api/user/tokens/revoke, GET /api/user/device, POST /api/user/device/approve, POST /api/user/device/deny",
@@ -1315,7 +1317,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 			outlets: []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona").InvitedUsers()}}}},
 			wantRouter: []string{
 				"//\tdefault (/api), sessions (password, persona):",
-				"GET /api/user/pending, GET /api/user/persona/login, GET /api/user/persona/callback\n",
+				"GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/persona/login, GET /api/user/persona/callback\n",
 				"\t// The persona registration's login and callback (oidc.Method), where the Auth registered it: the persona provider is configured in the first environment and its pull requests, and the handlers are nil elsewhere.\n\tPersonaLogin() http.HandlerFunc\n\tPersonaCallback() http.HandlerFunc\n}",
 				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit))\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n" +
 					"\t\t// A method the Auth registers only where its provider is configured (persona): the\n\t\t// surface has its handlers there and nil elsewhere, so its routes are mounted and\n\t\t// the login page is told of it only where it is.\n" +

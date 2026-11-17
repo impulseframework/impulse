@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	gomock "go.uber.org/mock/gomock"
@@ -224,26 +225,35 @@ func Test_userStorage_SetUserUsername(t *testing.T) {
 	}
 }
 
-func Test_userStorage_SetUserPasswordHash(t *testing.T) {
+// Test_userStorage_UpgradeUserPasswordHash proves the upgrade hands the driver the
+// proven hash beside the new one and propagates the driver's answer, and that an
+// upgrade with no new hash never reaches the driver, where it would remove the password.
+func Test_userStorage_UpgradeUserPasswordHash(t *testing.T) {
 	t.Parallel()
 	userID := impulse.Must(impulse.NewUUID())
-	hash, err := securehash.New(securehash.Argon2()).Hash("password")
+	hasher := securehash.New(securehash.Argon2())
+	proven, err := hasher.Hash("password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := hasher.Hash("password")
 	if err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
-		name    string
-		id      impulse.UUID
-		hash    *securehash.Hash
-		prepare func(mockDB *Mockdb)
-		wantErr bool
+		name        string
+		id          impulse.UUID
+		hash        *securehash.Hash
+		prepare     func(mockDB *Mockdb)
+		wantErr     bool
+		wantChanged bool
 	}{
 		{
 			name: "success",
 			id:   userID,
 			hash: hash,
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(nil)
+				mockDB.EXPECT().UpgradeUserPasswordHash(gomock.Any(), userID, proven, hash).Return(nil)
 			},
 		},
 		{
@@ -251,8 +261,23 @@ func Test_userStorage_SetUserPasswordHash(t *testing.T) {
 			id:   userID,
 			hash: hash,
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(errors.New("db error"))
+				mockDB.EXPECT().UpgradeUserPasswordHash(gomock.Any(), userID, proven, hash).Return(errors.New("db error"))
 			},
+			wantErr: true,
+		},
+		{
+			name: "the password changed since it was proved",
+			id:   userID,
+			hash: hash,
+			prepare: func(mockDB *Mockdb) {
+				mockDB.EXPECT().UpgradeUserPasswordHash(gomock.Any(), userID, proven, hash).Return(httpio.NewConflictMessageWithError(ErrPasswordChanged, "changed"))
+			},
+			wantErr:     true,
+			wantChanged: true,
+		},
+		{
+			name:    "no new hash is refused before the driver",
+			id:      userID,
 			wantErr: true,
 		},
 	}
@@ -269,8 +294,12 @@ func Test_userStorage_SetUserPasswordHash(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
-			if err := storage.SetUserPasswordHash(context.Background(), tt.id, tt.hash); (err != nil) != tt.wantErr {
-				t.Errorf("userStorage.SetUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
+			err := storage.UpgradeUserPasswordHash(context.Background(), tt.id, proven, tt.hash)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("userStorage.UpgradeUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if changed := errors.Is(err, ErrPasswordChanged) && httpio.HasConflict(err); changed != tt.wantChanged {
+				t.Errorf("userStorage.UpgradeUserPasswordHash() error = %v, want ErrPasswordChanged as a Conflict = %t", err, tt.wantChanged)
 			}
 		})
 	}

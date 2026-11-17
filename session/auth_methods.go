@@ -83,8 +83,10 @@ type signInMethods[Tx any] struct {
 	// because the directory will not). refuseBeside holds the rule both ways.
 	syncing string
 	// listed holds the names Methods was given, the methods the login page offers, in
-	// the page's order; nil when the application wired its page without Methods.
+	// the page's order; nil when the application wired its page without Methods. labels
+	// holds the label Methods was given for each, the words its button carries.
 	listed []string
+	labels map[string]string
 	// hasher and autoUpgrade are the password method's settings. They keep their
 	// defaults when it is not registered, since user management still hashes
 	// passwords.

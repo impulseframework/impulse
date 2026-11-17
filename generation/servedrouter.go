@@ -35,6 +35,11 @@ const (
 	// (session.Auth.ChangeName).
 	userNameSuffix    = "/user/name"
 	changeNameHandler = "ChangeName"
+	// userSignInMeansSuffix is where a signed-in person's account page reads what they
+	// sign in with: a password or none, and the directory sign-ins linked to them
+	// (session.Auth.SignInMeans).
+	userSignInMeansSuffix = "/user/sign-in-means"
+	signInMeansHandler    = "SignInMeans"
 	// userLookSuffix is where a signed-in person's pages keep the look the person chose
 	// (session.Auth.ChangeLook).
 	userLookSuffix    = "/user/look"
@@ -612,6 +617,9 @@ type servedOutlet struct {
 	// ChangeName is where the account page writes the person's own name, told to the
 	// browser beside the methods.
 	ChangeName string
+	// SignInMeans is where the account page reads what the person signs in with, told
+	// to the browser beside the methods.
+	SignInMeans string
 	// ChangeLook is where the person's pages keep the look the person chose, told to
 	// the browser beside the methods.
 	ChangeLook string
@@ -1121,6 +1129,17 @@ func linkTokenIssuers(data *servedRouterData) {
 	}
 }
 
+// servedAccountPathsOf names the routes of the signed-in person's account page under
+// the outlet's prefix, as the router tells them to the browser beside the methods:
+// forgetting the remembered browser, the person's own name, what the person signs in
+// with, and the look the person chose.
+func servedAccountPathsOf(so *servedOutlet, prefix string) {
+	so.ForgetBrowser = prefix + userForgetBrowserSuffix
+	so.ChangeName = prefix + userNameSuffix
+	so.SignInMeans = prefix + userSignInMeansSuffix
+	so.ChangeLook = prefix + userLookSuffix
+}
+
 // servedSessionOf fills a session outlet's methods and routes from its auth's methods:
 // the session's own routes, then each method's login (and callback and front-channel
 // logout) under the registration's name, the ones outside the XSRF guard first and the
@@ -1140,6 +1159,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodGet, userSessionSuffix, "Authenticated", false),
 		route(http.MethodDelete, userSessionSuffix, "Logout", false),
 		route(http.MethodGet, userPendingSuffix, pendingStatusHandler, false),
+		route(http.MethodGet, userSignInMeansSuffix, signInMeansHandler, false),
 	}
 	var guarded []servedRoute
 	kinds := make([]string, 0, len(o.auth.methods))
@@ -1202,9 +1222,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodPost, userNameSuffix, changeNameHandler, true),
 		route(http.MethodPost, userLookSuffix, changeLookHandler, true),
 	)
-	so.ForgetBrowser = prefix + userForgetBrowserSuffix
-	so.ChangeName = prefix + userNameSuffix
-	so.ChangeLook = prefix + userLookSuffix
+	servedAccountPathsOf(so, prefix)
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
 	so.OpenRoutes, so.GuardedRoutes, so.ValidatedRoutes = open, guarded, validatedRoutes
 	so.Routes = slices.Concat(open, guarded, validatedRoutes)
@@ -1627,6 +1645,10 @@ type {{ .SessionInterface }} interface {
 	// ChangeName writes the signed-in person's own name, from their account page
 	// (session.Auth.ChangeName); it validates the session itself.
 	ChangeName() http.HandlerFunc
+	// SignInMeans answers what the signed-in person signs in with, a password or none
+	// and the directory sign-ins linked to them, to their account page
+	// (session.Auth.SignInMeans); it validates the session itself.
+	SignInMeans() http.HandlerFunc
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
@@ -1868,6 +1890,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- end }}
 			ForgetBrowser: "{{ $outlet.ForgetBrowser }}",
 			ChangeName: "{{ $outlet.ChangeName }}",
+			SignInMeans: "{{ $outlet.SignInMeans }}",
 			ChangeLook: "{{ $outlet.ChangeLook }}",
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
 			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}"},

@@ -1440,6 +1440,7 @@ export const apiDescriptor = defineApiDescriptor({
       label: 'Crew',
       tenant: 'Sector',
       tenantResource: Resources.Sectors,
+      signIns: [{ method: 'google', label: 'Lodestar' }, { method: 'google', label: 'Google' }, { method: 'oidc', label: 'Persona' }],
       sides: [
         {
           scope: 'global',
@@ -1458,6 +1459,7 @@ export const apiDescriptor = defineApiDescriptor({
       label: 'Members',
       tenant: 'Sector',
       tenantResource: Resources.Sectors,
+      signIns: [{ method: 'google', label: 'Company directory' }],
       sides: [
         {
           scope: 'global',

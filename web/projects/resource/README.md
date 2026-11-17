@@ -493,6 +493,14 @@ continues, or `refused` with the server's words (the password did not match, or 
 sign-in is linked to the person, whose password is then their only way in). A server whose
 list names no such path does not serve it, and the call throws saying so.
 
+A page offers the removal only where it can happen. Where the methods list names
+`signInMeans`, `signInMeans()` reads what the signed-in person signs in with: `{ password,
+directories }`, whether they hold a password and the sign-in methods of the login page that
+a directory sign-in linked to them goes through, each by its registration `name` and the
+`label` its button carries. It answers `undefined` where the server names no such path or
+answers anything else, and a page then offers what the methods list offers. The server's
+refusals stand whatever a page hides.
+
 A browser the second factor remembered (the person ticked "Remember this browser" at the
 emailed code) is forgotten from the account page: the session read carries
 `browserRemembered: true` while the browser holds the person's remembered entry, the list
@@ -574,7 +582,9 @@ address a directory asserted at a sign-in, offered as a prefill and trusted for 
 
 An Auth whose management is generated (`GenerateIdentity`) is named in the descriptor's
 `identity` block: `auth`, `label`, `tenant` (the tenant record's name, where the application
-has one) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
+has one), `signIns` (the Auth's directory sign-ins, each the `method` its identities carry and
+the `label` its button on the login page carries, by which a page names the directories a
+person signs in through) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
 each with its `lists` (`users`, `roles`, `identities`, `invitations`, `sessions`,
 `signInAttempts`) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
 `removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,

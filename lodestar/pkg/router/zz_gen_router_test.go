@@ -88,6 +88,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/session", suffix: "/user/session", method: http.MethodGet, handler: "Authenticated"},
 		{url: "/console/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "Logout"},
 		{url: "/console/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
+		{url: "/console/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "SignInMeans"},
 		{url: "/console/api/user/google/login", suffix: "/user/google/login", method: http.MethodGet, handler: "GoogleLogin"},
 		{url: "/console/api/user/google/callback", suffix: "/user/google/callback", method: http.MethodGet, handler: "GoogleCallback"},
 		{url: "/console/api/user/sign-up/login", suffix: "/user/sign-up/login", method: http.MethodGet, handler: "SignUpLogin"},
@@ -123,6 +124,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/session", suffix: "/user/session", method: http.MethodGet, handler: "PortalAuthenticated"},
 		{url: "/portal/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "PortalLogout"},
 		{url: "/portal/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PortalPendingStatus"},
+		{url: "/portal/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "PortalSignInMeans"},
 		{url: "/portal/api/user/directory/login", suffix: "/user/directory/login", method: http.MethodGet, handler: "PortalDirectoryLogin"},
 		{url: "/portal/api/user/directory/callback", suffix: "/user/directory/callback", method: http.MethodGet, handler: "PortalDirectoryCallback"},
 		{url: "/portal/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PortalPendingConfirmWithPassword", xsrf: true},
@@ -1496,6 +1498,10 @@ func (s *routerDefaultSessionStub) PendingStatus() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingStatus")
 }
 
+func (s *routerDefaultSessionStub) SignInMeans() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
+}
+
 func (s *routerDefaultSessionStub) GoogleLogin() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "GoogleLogin")
 }
@@ -1665,6 +1671,10 @@ func (s *routerPortalSessionStub) Logout() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) PendingStatus() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingStatus")
+}
+
+func (s *routerPortalSessionStub) SignInMeans() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
 }
 
 func (s *routerPortalSessionStub) DirectoryLogin() http.HandlerFunc {

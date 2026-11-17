@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
@@ -23,6 +24,16 @@ func TestAuth_StoreMethods(t *testing.T) {
 	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "sub"}
 	event := sessioninfo.AuthEvent{Method: "email-otp"}
 	refused := httpio.NewConflictMessageWithError(ErrLastSignInMethod, "last")
+	changed := httpio.NewConflictMessageWithError(ErrPasswordChanged, "changed")
+	hasher := securehash.New(securehash.Argon2())
+	proven, err := hasher.Hash("proven")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chosen, err := hasher.Hash("chosen")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name    string
@@ -72,6 +83,36 @@ func TestAuth_StoreMethods(t *testing.T) {
 			wantErr: ErrLastSignInMethod,
 		},
 		{
+			name:    "RemoveProvenUserPassword hands the driver the proven hash",
+			prepare: func(db *Mockdb) { db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven).Return(nil) },
+			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
+				return nil, a.RemoveProvenUserPassword(ctx, userID, proven)
+			},
+		},
+		{
+			name:    "RemoveProvenUserPassword propagates the refusal of a password that changed since it was proved",
+			prepare: func(db *Mockdb) { db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven).Return(changed) },
+			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
+				return nil, a.RemoveProvenUserPassword(ctx, userID, proven)
+			},
+			wantErr: ErrPasswordChanged,
+		},
+		{
+			name:    "ChangeUserPassword hands the driver the proven hash beside the new one",
+			prepare: func(db *Mockdb) { db.EXPECT().ChangeUserPassword(gomock.Any(), userID, proven, chosen).Return(nil) },
+			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
+				return nil, a.ChangeUserPassword(ctx, userID, proven, chosen)
+			},
+		},
+		{
+			name:    "ChangeUserPassword propagates the refusal of a password that changed since it was proved",
+			prepare: func(db *Mockdb) { db.EXPECT().ChangeUserPassword(gomock.Any(), userID, proven, chosen).Return(changed) },
+			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
+				return nil, a.ChangeUserPassword(ctx, userID, proven, chosen)
+			},
+			wantErr: ErrPasswordChanged,
+		},
+		{
 			name:    "DestroyUserSessions forwards the user",
 			prepare: func(db *Mockdb) { db.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil) },
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
@@ -112,5 +153,21 @@ func TestAuth_StoreMethods(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAuth_ChangeUserPasswordNeedsAHash proves a change with no new hash never reaches
+// the driver, where it would remove the password without the removal's rule.
+func TestAuth_ChangeUserPasswordNeedsAHash(t *testing.T) {
+	t.Parallel()
+
+	proven, err := securehash.New(securehash.Argon2()).Hash("proven")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Auth[struct{}]{userStorage: userStorage{sessionStorage: sessionStorage{db: NewMockdb(gomock.NewController(t))}}}
+
+	if err := a.ChangeUserPassword(t.Context(), impulse.Must(impulse.NewUUID()), proven, nil); err == nil {
+		t.Error("ChangeUserPassword() with no new hash error = nil, want a refusal before the driver is called")
 	}
 }
