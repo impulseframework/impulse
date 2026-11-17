@@ -50,8 +50,10 @@ type Config struct {
 	// of the tenant is refused by every standard rule (guest_account). With one or
 	// several listed tenants open sign-up is refused at registration; with any tenant
 	// or personal accounts members of the directory is refused unless a rule is given
-	// to SignIn, since it would sign up the world. A rule given to SignIn runs first
-	// and may leave the decision to this one with signin.Standard.
+	// to SignIn, since it would sign up the world, and seeded users only
+	// (signin.SeededUsersOnly, for a provider whose names are the application's own)
+	// is refused. A rule given to SignIn runs first and may leave the decision to this
+	// one with signin.Standard.
 	Accounts signin.StandardAccountRule
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
@@ -165,8 +167,8 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 // refuseShape is the registration's startup check of the organization slot against the
 // role sync slot and the account rules, each refusal naming its field: the slot's own
 // rules (validate), role synchronization with other than one tenant, open sign-up with
-// listed tenants only, and members of the directory with an open slot and no rule of
-// the application's own.
+// listed tenants only, members of the directory with an open slot and no rule of the
+// application's own, and seeded users only with an open slot.
 func refuseShape(tenants TenantSet, roleSync signin.RoleSyncConfig, accounts signin.StandardAccountRule, noRule bool) error {
 	if err := tenants.validate(); err != nil {
 		return err
@@ -184,6 +186,9 @@ func refuseShape(tenants TenantSet, roleSync signin.RoleSyncConfig, accounts sig
 	case accounts == signin.MembersOfDirectory && tenants.open() && noRule:
 		return errors.New("Accounts: members of the directory with any tenant or personal accounts would sign up the world; " +
 			"use signin.InvitedUsersOnly, signin.OpenSignUp, or give SignIn a rule of the application's own")
+	case accounts == signin.SeededUsersOnly && tenants.open():
+		return errors.New("Accounts: seeded users only takes the provider's names for the application's own, which any tenant or personal accounts is not; " +
+			"a registration open to them takes signin.InvitedUsersOnly")
 	}
 
 	return nil

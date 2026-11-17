@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -113,6 +114,15 @@ type InvitationAcceptor[Tx any] func(ctx context.Context, tx Tx, userID impulse.
 // left that gave nothing.
 type DirectorySeater[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 
+// OnlyInTenant is the application's half of the rule on a first link made on a name
+// alone (linkUser): it reports whether tenant is the only place userID holds anything,
+// read through tx, the transaction that would make the link. The user holds a role, or
+// a place in a group, in tenant itself, and nothing in another tenant, in every tenant
+// or outside the tenants: a tenant's directory vouches for the people who are the
+// tenant's alone, since the link hands its directory everything the account holds. It
+// is held to what InvitationAcceptor is for its reads: tx alone.
+type OnlyInTenant[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
+
 // TrustedDeviceCheck reports whether the browser signing in is a trusted device of
 // userID: a device the person asked to be remembered after a second factor, named by
 // the trusted device cookie and live in the trusted devices table. The Auth supplies
@@ -136,9 +146,13 @@ type Rules[Tx any] struct {
 	Accept InvitationAcceptor[Tx]
 	// Directories reads the declaration of the directory an identity came through at a
 	// person's first sign-in through it, nil for none, and Seat seats the person with
-	// the default seat the declaration names, nil for none; see standardRule.
+	// the default seat the declaration names, nil for none; see standardRule. OnlyIn
+	// reports whether a tenant is the only place a person holds anything, nil for
+	// none: with Directories it decides a first link made on a name alone; see
+	// linkUser.
 	Directories signin.DirectoryReader[Tx]
 	Seat        DirectorySeater[Tx]
+	OnlyIn      OnlyInTenant[Tx]
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
 	TrustedDevice TrustedDeviceCheck
@@ -711,11 +725,11 @@ type unlinkedUser struct {
 func resolveUnlinked[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
 ) (resolved unlinkedUser, stop, err error) {
-	res, byInvitation, stop, err := decideAccount(ctx, d, tx, req, rules)
+	res, how, stop, err := decideAccount(ctx, d, tx, req, rules)
 	if err != nil || stop != nil {
 		return unlinkedUser{}, stop, err
 	}
-	source, tenant, live, stop, err := applyResolution(ctx, d, tx, req, res, byInvitation)
+	source, tenant, live, stop, err := applyResolution(ctx, d, tx, req, res, how, rules)
 	if err != nil || stop != nil {
 		return unlinkedUser{}, stop, err
 	}
@@ -734,11 +748,11 @@ func resolveUnlinked[Tx any](
 // the custom rule answers signin.Standard. A refusal the standard rule makes before any
 // row is written is returned as stop. The standard rule's tenant key is the
 // organization the method names, or the identity's connection when it names none,
-// unless the custom rule's Standard names another. byInvitation reports that the
-// invitation the sign-in carries is what admitted the person.
+// unless the custom rule's Standard names another. how says what the answer rests on
+// (decided): a custom rule's own answer rests on the rule's own evidence.
 func decideAccount[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
-) (res *signin.Resolution, byInvitation bool, stop, err error) {
+) (res *signin.Resolution, how decided, stop, err error) {
 	rule, standard := rules.Account, rules.Standard
 	tenant := req.Identity.Organization
 	if tenant == "" {
@@ -747,20 +761,33 @@ func decideAccount[Tx any](
 	if rule != nil {
 		res, err = rule(ctx, tx, req)
 		if err != nil {
-			return nil, false, nil, errors.Wrap(err, "signin.AccountRule()")
+			return nil, decided{}, nil, errors.Wrap(err, "signin.AccountRule()")
 		}
 		if res == nil || res.Outcome() != signin.ApplyStandardRule {
-			return res, false, nil, nil
+			return res, decided{}, nil, nil
 		}
 		if res.Tenant() != "" {
 			tenant = res.Tenant()
 		}
 	}
 	if standard == "" {
-		return nil, false, nil, errors.Newf("the %s sign-in method has no standard account rule: its account rule must decide the identity itself", req.Identity.Method)
+		return nil, decided{}, nil, errors.Newf("the %s sign-in method has no standard account rule: its account rule must decide the identity itself", req.Identity.Method)
 	}
 
 	return standardRule(ctx, d, tx, req, standard, tenant, rules)
+}
+
+// decided is what the account rules' answer for an unlinked identity rests on.
+type decided struct {
+	// byInvitation reports that the invitation the sign-in carries is what admitted
+	// the person, so a dead one is a refusal.
+	byInvitation bool
+	// onName reports that the standard rule found an account created ahead by the
+	// sign-in name or the address the identity asserts, and by nothing else: the link
+	// of such an account that has never signed in is held to firstLink. It is false
+	// under signin.SeededUsersOnly, where the registration declares the provider's
+	// names the application's own, and for a custom rule's answer.
+	onName bool
 }
 
 // standardRule applies the standard account rule to an unlinked identity, inside tx.
@@ -770,59 +797,68 @@ func decideAccount[Tx any](
 // matched without regard to case, or one who holds the identity's verified address
 // (preCreatedUser), is confirmed with its password when it has one and linked when it
 // has none (applyResolution refuses the link when such a user already signs in through
-// another connection). The link is the person's first sign-in through the directory,
+// another connection, and when the user has never signed in and nothing but the name
+// vouches for the link: see firstLink, which signin.SeededUsersOnly alone is not held
+// to). The link is the person's first sign-in through the directory,
 // so the tenant whose directory it is gives them its default seat with it, when the
 // application reads the declarations (rules.Directories): at once for a user linked
 // here, and once the password has confirmed the link for a user who has one
 // (LinkConfirmed). A person no user was created for goes to the tenant's
 // declaration of the directory first (see declaredRule), and otherwise is provisioned
-// under the sign-in name, or refused by the invited-users-only rule unless the sign-in
-// carries an invitation, which that rule takes as the account it asks for.
+// under the sign-in name, or refused by the invited-users-only and seeded-users-only
+// rules unless the sign-in carries an invitation, which those rules take as the account
+// they ask for.
 func standardRule[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rule signin.StandardAccountRule, tenant string, rules Rules[Tx],
-) (res *signin.Resolution, byInvitation bool, stop, err error) {
+) (res *signin.Resolution, how decided, stop, err error) {
 	switch {
 	case req.Identity.Guest:
-		return nil, false, Refusal("", sessioninfo.RefusedGuestAccount, signin.ErrGuestAccount, "guest accounts are not members of the directory"), nil
+		return nil, decided{}, Refusal("", sessioninfo.RefusedGuestAccount, signin.ErrGuestAccount, "guest accounts are not members of the directory"), nil
 	case req.RoleNames != nil && len(req.RoleNames) == 0:
-		return nil, false, Refusal("", sessioninfo.RefusedNoRoles, signin.ErrNoRoles, "Unauthorized: user has no roles"), nil
+		return nil, decided{}, Refusal("", sessioninfo.RefusedNoRoles, signin.ErrNoRoles, "Unauthorized: user has no roles"), nil
 	case req.Identity.SignInName == "":
-		return nil, false, Refusal("", sessioninfo.RefusedNoEmail, signin.ErrNoSignInName, "the identity carries no sign-in name"), nil
+		return nil, decided{}, Refusal("", sessioninfo.RefusedNoEmail, signin.ErrNoSignInName, "the identity carries no sign-in name"), nil
 	}
 
 	user, err := preCreatedUser(ctx, d, tx, req.Identity)
 	if err != nil {
-		return nil, false, nil, err
+		return nil, decided{}, nil, err
 	}
 	if user != nil && user.HasPassword {
-		return signin.Confirm(user.ID, signin.Tenant(tenant)), false, nil, nil
+		return signin.Confirm(user.ID, signin.Tenant(tenant)), decided{}, nil, nil
 	}
 
 	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
 	if err != nil {
-		return nil, false, nil, err
+		return nil, decided{}, nil, err
 	}
 	switch {
 	case user != nil:
-		return signin.Link(user.ID, false, signin.Tenant(tenant), signin.Seats(defaultSeats(declared)...)), false, nil, nil
+		// Nothing but the name, or the address, ties the account to the identity,
+		// unless the registration declares the provider's names the application's own.
+		onName := rule != signin.SeededUsersOnly
+
+		return signin.Link(user.ID, false, signin.Tenant(tenant), signin.Seats(defaultSeats(declared)...)), decided{onName: onName}, nil, nil
 	case len(declared) > 0:
-		return declaredRule(req, declared, tenant)
+		res, byInvitation, stop := declaredRule(req, declared, tenant)
+
+		return res, decided{byInvitation: byInvitation}, stop, nil
 	}
 
 	switch rule {
 	case signin.MembersOfDirectory, signin.OpenSignUp:
-		return signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant)), false, nil, nil
-	case signin.InvitedUsersOnly:
+		return signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant)), decided{}, nil, nil
+	case signin.InvitedUsersOnly, signin.SeededUsersOnly:
 		// The invitation the browser carries is the account the rule asks for: the
 		// person was invited by address, and SignIn has already held the directory's
 		// address to the invited one.
 		if req.Invitation != nil {
-			return signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant)), true, nil, nil
+			return signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant)), decided{byInvitation: true}, nil, nil
 		}
 
-		return nil, false, Refusal("", sessioninfo.RefusedNotInvited, signin.ErrNotInvited, "no account was created for this person"), nil
+		return nil, decided{}, notInvitedRefusal(), nil
 	default:
-		return nil, false, nil, errors.Newf("unknown standard account rule %q", string(rule))
+		return nil, decided{}, nil, errors.Newf("unknown standard account rule %q", string(rule))
 	}
 }
 
@@ -837,18 +873,16 @@ func standardRule[Tx any](
 // people by invitation only: the invitation the browser carries is
 // the account, as under the invited-users-only rule, and without one the sign-in is
 // refused (invitation_only) and nothing is written.
-func declaredRule(
-	req *sessioninfo.NewSessionRequest, declared []signin.DeclaredDirectory, tenant string,
-) (res *signin.Resolution, byInvitation bool, stop, err error) {
+func declaredRule(req *sessioninfo.NewSessionRequest, declared []signin.DeclaredDirectory, tenant string) (res *signin.Resolution, byInvitation bool, stop error) {
 	seats := defaultSeats(declared)
 	newUser := &signin.NewUser{Username: req.Identity.SignInName}
 	switch {
 	case len(seats) > 0:
-		return signin.Provision(newUser, nil, signin.Tenant(tenant), signin.Seats(seats...)), false, nil, nil
+		return signin.Provision(newUser, nil, signin.Tenant(tenant), signin.Seats(seats...)), false, nil
 	case req.Invitation != nil:
-		return signin.Provision(newUser, nil, signin.Tenant(tenant)), true, nil, nil
+		return signin.Provision(newUser, nil, signin.Tenant(tenant)), true, nil
 	default:
-		return nil, false, Refusal("", sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly, "this organization signs people in by invitation: ask your administrator to invite you"), nil
+		return nil, false, invitationOnlyRefusal()
 	}
 }
 
@@ -911,10 +945,10 @@ func preCreatedUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *
 // and its tenant, and consumes the invitation the sign-in carries, if any, once the
 // user is linked or about to be written (live reports that it was): a refusal or a
 // pending confirmation, returned as stop, consumes nothing, and neither does a
-// disabled user, who is refused once the sign-in is decided. byInvitation says the
-// invitation alone admitted the person, so a dead one is a refusal.
+// disabled user, who is refused once the sign-in is decided. how says what the answer
+// rests on (decided).
 func applyResolution[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool,
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, how decided, rules Rules[Tx],
 ) (source sessioninfo.UserSource, tenant string, live bool, stop, err error) {
 	if res == nil {
 		res = signin.Reject("")
@@ -924,14 +958,14 @@ func applyResolution[Tx any](
 	case signin.RejectIdentity:
 		return "", "", false, Refusal(res.Refusal(), sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected"), nil
 	case signin.LinkIdentity:
-		live, stop, err = linkUser(ctx, d, tx, req, res)
+		live, stop, err = linkUser(ctx, d, tx, req, res, how.onName, rules)
 		if err != nil || stop != nil {
 			return "", "", false, stop, err
 		}
 
 		return sessioninfo.UserNewLink, res.Tenant(), live, nil, nil
 	case signin.ProvisionUser:
-		live, stop, err = provisionUser(ctx, d, tx, req, res, byInvitation)
+		live, stop, err = provisionUser(ctx, d, tx, req, res, how.byInvitation)
 		if err != nil || stop != nil {
 			return "", "", false, stop, err
 		}
@@ -957,8 +991,12 @@ func applyResolution[Tx any](
 // the user on the request, and consumes the invitation the sign-in carries unless the
 // user is disabled. An untrusted link to a user with a password, or from a connection
 // a password-less user does not sign in through, is a refusal (stop) and links
-// nothing.
-func linkUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution) (live bool, stop, err error) {
+// nothing. So is the standard rule's link, made on the name alone (onName), of a user
+// with no password and no link, in a tenanted application, that nothing vouches for
+// (firstLink).
+func linkUser[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, onName bool, rules Rules[Tx],
+) (live bool, stop, err error) {
 	// The row is held until the transaction ends, so two link decisions for one
 	// user run one after the other and the second sees the first's link.
 	user, err := d.LockUserIn(ctx, tx, res.UserID())
@@ -968,12 +1006,19 @@ func linkUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo
 	if user.HasPassword && !res.Trusted() {
 		return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
 	}
+	byInvitation := false
 	if !user.HasPassword && !res.Trusted() {
-		crosses, err := linksAnotherConnection(ctx, d, tx, res.UserID(), req.Identity)
+		links, err := d.IdentitiesByUserIn(ctx, tx, res.UserID())
 		if err != nil {
-			return false, nil, err
+			return false, nil, errors.Wrap(err, "Driver.IdentitiesByUserIn()")
 		}
-		if crosses {
+		switch {
+		case len(links) == 0 && onName:
+			byInvitation, stop, err = firstLink(ctx, d, tx, req, user, rules)
+			if err != nil || stop != nil {
+				return false, stop, err
+			}
+		case linksAnotherConnection(links, req.Identity):
 			return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link"), nil
 		}
 	}
@@ -984,9 +1029,104 @@ func linkUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo
 	if user.Disabled {
 		return false, nil, nil
 	}
-	live, err = consumeInvitation(ctx, d, tx, req, false)
+	live, err = consumeInvitation(ctx, d, tx, req, byInvitation)
 
 	return live, nil, err
+}
+
+// firstLink decides the standard rule's link to a user who has no password and no link:
+// an account that exists ahead of its first sign-in (an administrator's create that gave
+// no password, a seed's), which nothing but its name ties to the person signing in. A
+// custom rule's link rests on the rule's own evidence and does not come here, and
+// neither does the link of a registration under signin.SeededUsersOnly, which declares
+// the provider's names the application's own. In an application whose tenants have
+// directories (rules.Directories), a directory asserts the names it likes, and an
+// organization's own provider is not held to any domain, so the name alone links
+// nothing. The link hands whoever the directory signs in everything the account holds,
+// so it is made when something vouches for it:
+//
+//   - the sign-in came through the directory of the one tenant the user belongs to
+//     (rules.OnlyIn): the user holds a role there and nothing anywhere else, so the
+//     tenant's directory is given nothing the tenant's own administrators could not
+//     give. A user who also holds a role in another tenant, in every tenant or outside
+//     the tenants is not the tenant's alone, and a role the tenant's administrator
+//     gives such a user changes nothing;
+//   - the sign-in carries the user's own invitation (ownInvitation): the person holds
+//     the link mailed to the account's address. byInvitation then says the invitation
+//     admitted the link, so a dead one ends the sign-in and links nothing. A disabled
+//     user accepts no invitation, so theirs vouches for nothing.
+//
+// Any other sign-in under the name is refused as a person no account was created for
+// is, with that refusal's code and words, which say nothing of the account: by
+// invitation only through a directory some tenant has, not invited through any other.
+// An application with no tenant directories has only the directories its deployment
+// registered for itself, and the link is made as before.
+func firstLink[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, rules Rules[Tx],
+) (byInvitation bool, stop, err error) {
+	if rules.Directories == nil {
+		return false, nil, nil
+	}
+	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
+	if err != nil {
+		return false, nil, err
+	}
+	if rules.OnlyIn != nil {
+		for _, declaration := range declared {
+			alone, err := rules.OnlyIn(ctx, tx, user.ID, declaration.Tenant)
+			if err != nil {
+				return false, nil, errors.Wrap(err, "OnlyInTenant()")
+			}
+			if alone {
+				return false, nil, nil
+			}
+		}
+	}
+	own, err := ownInvitation(ctx, d, tx, user, req.Invitation)
+	if err != nil {
+		return false, nil, err
+	}
+	if own && !user.Disabled {
+		return true, nil, nil
+	}
+	if len(declared) > 0 {
+		return false, invitationOnlyRefusal(), nil
+	}
+
+	return false, notInvitedRefusal(), nil
+}
+
+// ownInvitation reports whether the invitation a sign-in carries was mailed to user's
+// own address: the address is the user's username, or the user holds it, verified or
+// not (an account that has never signed in has proven no address; the one it holds is
+// the one it was created with). What ties the person signing in to the account is the
+// link itself, which was mailed to that address and to nobody else: the address the
+// directory asserts, which SignIn held to the invited one, is the directory's word and
+// proves nothing here.
+func ownInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, user *dbtype.User, inv *sessioninfo.Invitation) (bool, error) {
+	if inv == nil || inv.Email == "" {
+		return false, nil
+	}
+	if sameAddress(inv.Email, user.Username) {
+		return true, nil
+	}
+	holder, err := d.UserByEmailIn(ctx, tx, inv.Email)
+	if err != nil {
+		return false, errors.Wrap(err, "Driver.UserByEmailIn()")
+	}
+
+	return holder != nil && holder.ID == user.ID, nil
+}
+
+// invitationOnlyRefusal is the refusal of a person no account was created for who
+// comes through a directory whose tenant admits its people by invitation only, and
+// notInvitedRefusal that of one the invited-users-only rule refuses.
+func invitationOnlyRefusal() error {
+	return Refusal("", sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly, "this organization signs people in by invitation: ask your administrator to invite you")
+}
+
+func notInvitedRefusal() error {
+	return Refusal("", sessioninfo.RefusedNotInvited, signin.ErrNotInvited, "no account was created for this person")
 }
 
 // provisionUser writes the user the rule provisioned (signin.ProvisionUser), linked to
@@ -1300,25 +1440,20 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 	return sessioninfo.NewLoginRefusal(code, httpio.NewUnauthorizedMessageWithError(cause, message))
 }
 
-// linksAnotherConnection reports whether identity would attach a new connection to
-// userID: the user has links, and none of them is on identity's (Method, Connection).
-// A user without a password cannot confirm a link, so an untrusted link of a connection
-// the user does not sign in through yet is refused: the rule's evidence is the only
-// check, and a custom rule must say so with trusted. A connection the user already signs in
-// through, however many others they have, adds nothing and is not checked.
-func linksAnotherConnection[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, identity *sessioninfo.Identity) (bool, error) {
-	links, err := d.IdentitiesByUserIn(ctx, tx, userID)
-	if err != nil {
-		return false, errors.Wrap(err, "Driver.IdentitiesByUserIn()")
-	}
-	if len(links) == 0 {
-		return false, nil
-	}
+// linksAnotherConnection reports whether identity would attach a new connection to a
+// user who signs in through links already: none of them is on identity's (Method,
+// Connection). A user without a password cannot confirm a link, so an untrusted link of
+// a connection the user does not sign in through yet is refused: the rule's evidence is
+// the only check, and a custom rule must say so with trusted. A connection the user
+// already signs in through, however many others they have, adds nothing and is not
+// checked. A user with no link at all links, unless the standard rule matched the user
+// on the name alone, which firstLink decides.
+func linksAnotherConnection(links []*dbtype.SessionIdentity, identity *sessioninfo.Identity) bool {
 	for _, link := range links {
 		if link.Method == identity.Method && link.Connection == identity.Connection {
-			return false, nil
+			return false
 		}
 	}
 
-	return true, nil
+	return len(links) > 0
 }

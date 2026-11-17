@@ -40,7 +40,12 @@ type NewAccount struct {
 // CreateUser buffers a new user and the memberships that give them their roles, in the
 // caller's transaction. Without a password the person signs in through a directory, or
 // follows an invitation and chooses their own; with one (NewAccount.Password) it is a
-// temporary password, which the person changes before anything else is served. It
+// temporary password, which the person changes before anything else is served. In an
+// application whose tenants have directories, the sign-in that first links such an
+// account, on the name the directory asserts, is made through the directory of the one
+// tenant the person belongs to or with their own invitation (the session library's rule
+// on a first link made on a name alone): a person created in two tenants, or holding a
+// role in every tenant or outside them, is invited or given a temporary password. It
 // answers the id the row is created under, so the caller may write its own rows beside
 // it before anything is committed. A username or an address another user holds is
 // refused by the table's unique indexes when the transaction commits.

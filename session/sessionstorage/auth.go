@@ -478,6 +478,10 @@ type SignInRules[Tx any] struct {
 	Accept      signinflow.InvitationAcceptor[Tx]
 	Directories signin.DirectoryReader[Tx]
 	Seat        signinflow.DirectorySeater[Tx]
+	// OnlyIn reports whether a tenant is the only place a person holds anything (nil
+	// for none): with Directories it decides a first link made on a name alone to an
+	// account that has never signed in.
+	OnlyIn signinflow.OnlyInTenant[Tx]
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
@@ -496,7 +500,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Standard: rules.Standard, Policy: rules.Policy, Accept: rules.Accept,
-		Directories: rules.Directories, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, TrustedDevice: rules.TrustedDevice,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

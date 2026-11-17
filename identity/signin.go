@@ -88,8 +88,21 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 // that gave nothing.
 //
 // auth names the Auth in the log line a given role leaves.
+//
+// The hook's other half answers whether a tenant is the only place a person holds
+// anything, read in the same transaction: the session library asks it before it links
+// an identity, on its sign-in name alone, to an account that has no password and has
+// never signed in, which a tenant's directory vouches for only when the account is the
+// tenant's alone. It reads what places a person anywhere (holds): the roles of their
+// own and their places in groups, one whose period has not begun counted where it will
+// count and one whose period has ended left out. The account is the tenant's alone when
+// all of it is held in the tenant itself and some of it is: a role in another tenant, in
+// every tenant or outside the tenants, or a place in a group kept anywhere else, makes
+// it more than one tenant's, and the link would hand the tenant's directory all of it.
+// It is the fact a tenant's own methods are held to before they change a person's name,
+// address or password (the list's heldElsewhere and heldGlobally).
 func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
-	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+	seat := func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
 		given, err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, userID, username, seats)
 		if err != nil {
@@ -104,6 +117,16 @@ func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*span
 			}
 		}, nil
 	}
+	onlyIn := func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
+		held, err := m.holds(ctx, resource.NewSpannerReadWriteTransaction(tx), userID)
+		if err != nil {
+			return false, err
+		}
+
+		return onlyInTenant(held, accesstypes.DomainPolicyScope(tenant)), nil
+	}
+
+	return session.DirectorySeatedHook[*spanner.ReadWriteTransaction]{Seat: seat, OnlyIn: onlyIn}
 }
 
 // giveInvitedRoles buffers the memberships an accepted invitation gives the person:
@@ -178,6 +201,19 @@ func (m *Manager) giveDirectoryRoles(
 	}
 
 	return given, nil
+}
+
+// onlyInTenant reports whether everything held is held in the tenant scope names, and
+// something is.
+func onlyInTenant(held []access.MembershipKey, scope accesstypes.PolicyScope) bool {
+	want := access.NewMembershipKey(scope, "", "")
+	for i := range held {
+		if held[i].Kind != want.Kind || held[i].Axis != want.Axis || held[i].Domain != want.Domain {
+			return false
+		}
+	}
+
+	return len(held) > 0
 }
 
 // inTenant reports whether one of the memberships is held in the tenant scope names.

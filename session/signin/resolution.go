@@ -38,7 +38,14 @@ type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSe
 // one who holds the identity's address verified when the method verified it
 // (Identity.EmailVerified), is linked: after a password confirmation when the user has
 // a password, outright when the user has none and signs in through no other connection
-// yet. The rules differ in what happens to a person no user was created for.
+// yet. In an application whose tenants have directories (the Auth's directory
+// admission), a user who has no password and has never signed in is linked on the name
+// only when something vouches for the link: the sign-in came through the directory of
+// the one tenant the user belongs to, holding a role there and nothing anywhere else,
+// or it carries the user's own invitation; any other
+// sign-in under the name is refused as a person no user was created for is, since a
+// directory asserts the names it likes. The rules differ in what happens to a person no
+// user was created for, and SeededUsersOnly in what it takes a name for.
 type StandardAccountRule string
 
 const (
@@ -54,6 +61,15 @@ const (
 	// It is for public applications, with any organization or personal accounts; a
 	// registration serving one organization refuses it at startup.
 	OpenSignUp StandardAccountRule = "open-sign-up"
+	// SeededUsersOnly is InvitedUsersOnly for a provider whose names are the
+	// application's own: it declares that an identity of this registration under the
+	// name of a user created ahead is that user, so the user is linked on the name
+	// alone, whatever tenant has the provider as its directory and whatever the user
+	// holds. It is for the provider a deployment runs for the accounts it seeds, as the
+	// persona provider of the test environments is for the cast, and never for an
+	// organization's directory, whose names are the organization's to assert: a
+	// registration open to any organization refuses it at startup.
+	SeededUsersOnly StandardAccountRule = "seeded-users-only"
 )
 
 // Validate refuses a value that is not one of the standard rules. The empty value is
@@ -61,10 +77,10 @@ const (
 // requires an AccountRule, which the core checks itself.
 func (r StandardAccountRule) Validate() error {
 	switch r {
-	case MembersOfDirectory, InvitedUsersOnly, OpenSignUp:
+	case MembersOfDirectory, InvitedUsersOnly, OpenSignUp, SeededUsersOnly:
 		return nil
 	default:
-		return errors.Newf("%q is not a standard account rule: use signin.MembersOfDirectory, signin.InvitedUsersOnly or signin.OpenSignUp", string(r))
+		return errors.Newf("%q is not a standard account rule: use signin.MembersOfDirectory, signin.InvitedUsersOnly, signin.OpenSignUp or signin.SeededUsersOnly", string(r))
 	}
 }
 
@@ -194,9 +210,11 @@ func Standard(opts ...ResolutionOption) *Resolution {
 // sign-in provisioned) cannot confirm, so the rule's own evidence is the only
 // check: an untrusted link of an identity from another connection than the ones such
 // a user already signs in through is refused (ErrLinkCrossConnection); the same
-// connection, or a user with no identity yet, links. Never choose userID by an email
-// address or another claim the identity's provider does not verify, unless the
-// connection itself is one the application trusts, and then say so with trusted.
+// connection, or a user with no identity yet, links (the standard rule's own link of
+// such a user, made on the name, is held to more: see StandardAccountRule). Never
+// choose userID by an email address or another claim the identity's provider does not
+// verify, unless the connection itself is one the application trusts, and then say so
+// with trusted.
 func Link(userID impulse.UUID, trusted bool, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: LinkIdentity, userID: userID, trusted: trusted}
 	for _, opt := range opts {

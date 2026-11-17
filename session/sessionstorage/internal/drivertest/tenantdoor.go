@@ -83,6 +83,28 @@ func (s *seats) tenants(userID impulse.UUID) []accesstypes.Domain {
 	return tenants
 }
 
+// onlyIn reports whether tenant is the only place the account holds anything, as the
+// rule on a first link made on a name alone asks: it holds a role in tenant itself, and
+// none in another tenant, in every tenant or outside the tenants.
+func (s *seats) onlyIn(_ context.Context, _ HookTx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return onlyIn(s.held[accesstypes.User(userID.String())], tenant), nil
+}
+
+// onlyIn reports whether every role of held is held in tenant itself, and one is.
+func onlyIn(held accesstypes.RoleCollection, tenant accesstypes.Domain) bool {
+	own := accesstypes.DomainPolicyScope(tenant)
+	for scope, roles := range held {
+		if len(roles) > 0 && scope != own {
+			return false
+		}
+	}
+
+	return len(held[own]) > 0
+}
+
 // seat is the directory seat hook: the default seats are held once the transaction
 // that provisions or links the person has committed.
 func (s *seats) seat(_ context.Context, _ HookTx, userID impulse.UUID, _ string, granted []signin.DirectorySeat) (func(ctx context.Context), error) {
@@ -110,6 +132,10 @@ type doorWorld struct {
 	declared map[accesstypes.Domain]*signin.TenantDeclaration
 	// defaultSeats are the default seat each tenant's directory row names, "" for none.
 	defaultSeats map[accesstypes.Domain]accesstypes.Role
+	// accounts is the registrations' standard account rule, members of the directory
+	// when it is not set, and resolve the registrations' own account rule, nil for none.
+	accounts signin.StandardAccountRule
+	resolve  func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
 
 	mu      sync.Mutex
 	deleted map[accesstypes.Domain]bool
@@ -182,16 +208,20 @@ func (w *doorWorld) reached(userID impulse.UUID, identity *sessioninfo.Identity)
 }
 
 // start builds the case's Auth over a fresh database: members of a directory are
-// provisioned by the registration's rule, the tenants' declarations decide a stranger
-// first, an invitation's roles and a directory's default seat are held once they
-// commit, and the tenant policy decides the sign-in.
+// provisioned by the registration's rule (or the case's own, accounts), the tenants'
+// declarations decide a stranger first, an invitation's roles and a directory's default
+// seat are held once they commit, and the tenant policy decides the sign-in.
 func (w *doorWorld) start(ctx context.Context, t *testing.T, h *AuthHarness) *AuthInstance {
 	t.Helper()
 
+	accounts := w.accounts
+	if accounts == "" {
+		accounts = signin.MembersOfDirectory
+	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Accept: w.seats.accept,
+		Auth: true, Resolve: w.resolve, Accounts: accounts, Accept: w.seats.accept,
 		Policy:    signin.TenantPolicy(w.seats, w.declaration),
-		Admission: &DirectoryAdmission{Directories: w.directories, Seat: w.seats.seat},
+		Admission: &DirectoryAdmission{Directories: w.directories, Seat: w.seats.seat, OnlyIn: w.seats.onlyIn},
 	})
 	for tenant, declaration := range w.declared {
 		h.Record(ctx, t, in.Raw, declarationKeyPrefix+string(tenant), declarationValue(declaration))

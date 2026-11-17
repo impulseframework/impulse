@@ -263,6 +263,9 @@ func TestRefuseShape(t *testing.T) {
 		{name: "any tenant as members of the directory with no rule", tenants: AnyTenant(), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "Accounts: members of the directory with any tenant or personal accounts would sign up the world"},
 		{name: "personal accounts as members of the directory with no rule", tenants: PersonalAccounts(), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "would sign up the world"},
 		{name: "a listed tenant beside any tenant is still an open slot", tenants: Tenants(Tenant(tenantLake), AnyTenant()), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "would sign up the world"},
+		{name: "one tenant with seeded users only", tenants: Tenant(tenantLake), roleSync: off, accounts: signin.SeededUsersOnly, noRule: true},
+		{name: "any tenant with seeded users only", tenants: AnyTenant(), roleSync: off, accounts: signin.SeededUsersOnly, wantErr: "Accounts: seeded users only takes the provider's names for the application's own"},
+		{name: "personal accounts with seeded users only", tenants: PersonalAccounts(), roleSync: off, accounts: signin.SeededUsersOnly, noRule: true, wantErr: "Accounts: seeded users only takes the provider's names for the application's own"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

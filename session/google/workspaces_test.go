@@ -116,6 +116,9 @@ func TestRefuseShape(t *testing.T) {
 		{name: "members of the directory with any Google account and no rule is refused", workspaces: AnyGoogleAccount(), roleSync: DisableRoleSync(), accounts: signin.MembersOfDirectory, wantErrHas: "would sign up the world"},
 		{name: "members of the directory with any Workspace and a rule of the application's own", workspaces: AnyWorkspace(), roleSync: DisableRoleSync(), accounts: signin.MembersOfDirectory, rule: true},
 		{name: "invited users only with any Google account", workspaces: AnyGoogleAccount(), roleSync: DisableRoleSync(), accounts: signin.InvitedUsersOnly},
+		{name: "seeded users only with one Workspace", workspaces: one, roleSync: DisableRoleSync(), accounts: signin.SeededUsersOnly},
+		{name: "seeded users only with any Workspace is refused", workspaces: AnyWorkspace(), roleSync: DisableRoleSync(), accounts: signin.SeededUsersOnly, rule: true, wantErrHas: "Accounts: seeded users only takes the provider's names for the application's own"},
+		{name: "seeded users only with any Google account is refused", workspaces: AnyGoogleAccount(), roleSync: DisableRoleSync(), accounts: signin.SeededUsersOnly, wantErrHas: "Accounts: seeded users only takes the provider's names for the application's own"},
 		{name: "a missing role sync slot is left to the role sync check", workspaces: one, roleSync: nil, accounts: signin.MembersOfDirectory},
 	}
 	for _, tt := range tests {

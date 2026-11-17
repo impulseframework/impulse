@@ -217,6 +217,14 @@ DML what a later rule must read.
   - `signin.OpenSignUp`: anyone who signs in gets an account under their sign-in name.
     It is for public applications and refused on a registration that serves one
     organization.
+  - `signin.SeededUsersOnly`: invited users only, for a provider whose names are the
+    application's own. The registration declares that an identity under the name of a
+    user created ahead is that user, so the user is linked on the name alone (see "A
+    first link on a name alone" below, which every other rule is held to). It is for
+    the provider a deployment runs for the accounts it seeds, as the persona provider
+    of the test environments is for the cast, and never for an organization's
+    directory, whose names are the organization's to assert: a Google or Entra
+    registration open to any organization refuses it at startup.
 
   In a tenanted application the **tenant's declaration decides a stranger first**.
   With `auth.SetDirectoryAdmission(directoryLookup, seatHook)` (see "The
@@ -228,7 +236,41 @@ DML what a later rule must read.
   that account, under the sign-in name. That link is their first sign-in through the
   directory, so the tenant's default seat is given at it too, through the hook, in
   the transaction that makes the link, whether the link is made at once or after
-  their password confirmed it. A
+  their password confirmed it.
+
+  **A first link on a name alone needs something to vouch for it.** An account created
+  ahead with no password, which has never signed in (an administrator's create that
+  gave none), has neither a password to confirm a link with nor a link to compare a
+  new one to: nothing but its name ties it to whoever signs in next under that name,
+  and a directory asserts the names it likes (an organization's own OpenID Connect
+  provider is held to no domain). The link hands whoever the directory signs in
+  everything the account holds. So in a tenanted application the identity is linked to
+  such an account only when the sign-in came through the directory of the one tenant
+  the account belongs to (the hook's `OnlyIn`: the account holds a role, or a place in
+  a group, in the tenant itself, and nothing in another tenant, in every tenant or
+  outside the tenants, so the tenant's directory is given nothing the tenant's own
+  administrators could not give, and a role a tenant's administrator gives an account
+  that holds something elsewhere changes nothing), or when it carries the account's
+  own invitation, the one mailed to the account's address, which must still be live;
+  a disabled account accepts no invitation, so its own vouches for nothing. A person
+  created ahead in two tenants, or holding a role in every tenant or outside them, is
+  therefore linked at a first sign-in only with their invitation, or once they have a
+  password to confirm with. Any other sign-in under the name is refused as a
+  person no account was created for is, with that refusal's own code and words, which
+  say nothing of the account (`invitation_only` through a directory some tenant has,
+  `not_invited` through any other), and nothing is linked, seated or accepted. An
+  account with a password keeps the confirmation above, and one that already signs in
+  through a connection keeps the rule on another connection. The rule is the standard
+  rules' own: a registration's custom rule that answers `signin.Link` links on its own
+  evidence, as before, and a registration under `signin.SeededUsersOnly` declares its
+  provider's names the application's own and links such an account on the name. An
+  account an application's seed creates with no password and with roles in every tenant
+  or in none, as the cast of the persona sign-in is, signs in through such a
+  registration; under any other rule it has no tenant whose directory could vouch for
+  it and is linked only with its own invitation. An application whose
+  tenants have no directories (no `SetDirectoryAdmission`) has only the directories its
+  deployment registered for itself, and links such an account under its name as
+  before. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
   seated with it in the tenant, through the hook, in the transaction
   that creates the account and links it. The hook is called once for a link, never
@@ -384,15 +426,21 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   (`signin.DeclaredDirectory`: the tenant and the role, `""` for none; a directory
   belongs to one tenant, which the application's schema holds, so the answer carries
   one tenant at most), in the sign-in's first transaction; `seatHook`, a
-  `session.DirectorySeatedHook[Tx]`, seats the person with the seat the declaration
+  `session.DirectorySeatedHook[Tx]`, is the application's two functions over a
+  person's roles. Its `Seat` seats the person with the seat the declaration
   names (`signin.DirectorySeat`), inside the transaction that links the identity to
   the user, which it is handed, so the link is made and the seat given together or
-  neither is, under the contract the invitation hook has (see "Invitations"). The
-  hook is called at a person's first sign-in through the directory, the one that
+  neither is, under the contract the invitation hook has (see "Invitations"). Its
+  `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
+  that transaction, which the library asks before it links an identity on its name
+  alone to an account that has never signed in (see "A first link on a name alone"
+  above).
+  `Seat` is called at a person's first sign-in through the directory, the one that
   makes the link, whether the account is created in it or stood before: a person
   given a role ahead of their first sign-in, or invited by another tenant, has an
-  account, which the sign-in links to at once when it holds no password and after
-  the pending confirmation (`Pending().Confirm()`) when it holds one, and the hook
+  account, which the sign-in links to after the pending confirmation
+  (`Pending().Confirm()`) when it holds a password, and at once when it holds none
+  and the link is vouched for, and the hook
   runs in the transaction of that link (the storage's `LinkConfirmedIdentity` for
   the confirmed one, which an `AuthStore` of the application's own must implement).
   It is called once for a link: a later sign-in finds the link and calls nothing.

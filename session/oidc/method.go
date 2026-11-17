@@ -49,8 +49,14 @@ type Config struct {
 	// time: signin.MembersOfDirectory (the default) provisions an account under the
 	// sign-in name, signin.InvitedUsersOnly links only a pre-created user under that
 	// name and refuses anyone else, signin.OpenSignUp provisions anyone. The provider
-	// is the directory: whoever it authenticates is a member of it. A rule given to
-	// SignIn runs first and may leave the decision to this one with signin.Standard.
+	// is the directory: whoever it authenticates is a member of it. A provider asserts
+	// the names it likes, so in an application whose tenants have directories a user
+	// created ahead who has never signed in is linked on the name only through the
+	// directory of the one tenant they belong to, or with their own invitation;
+	// signin.SeededUsersOnly is invited users only for a provider whose names are the
+	// application's own, the one a deployment runs for the accounts it seeds, and
+	// links such a user on the name alone. A rule given to SignIn runs first and may
+	// leave the decision to this one with signin.Standard.
 	Accounts signin.StandardAccountRule
 	// Attesting declares that the provider enforces a second factor at every sign-in,
 	// so a sign-in through it carries the attestation by declaration and is never

@@ -2212,8 +2212,11 @@ func TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat(t *testing.T) {
 			if tt.admission {
 				f.auth.SetDirectoryAdmission(
 					func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
-					func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
-						return nil, nil
+					DirectorySeatedHook[mockTx]{
+						Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+							return nil, nil
+						},
+						OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) { return false, nil },
 					},
 				)
 				handed = gomock.Not(gomock.Nil())
