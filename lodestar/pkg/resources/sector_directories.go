@@ -20,7 +20,9 @@ type (
 	// sector that is directory only.
 	//
 	// Nobody types a directory in. The row is written from a sign-in through the
-	// directory: the create-sector route sets the one its creator came through, and
+	// directory: the first sign-in of the person invited to found a sector sets the one
+	// they came through, with the role the invitation names for its people to start
+	// with, as the create-sector route sets the one its creator came through; and
 	// afterwards the sector's marshal, signed in through their organization's directory,
 	// makes it the sector's on the Sign-in page, under the record's Create grant
 	// (SectorMarshal; the governor holds it in every sector). The create takes no method

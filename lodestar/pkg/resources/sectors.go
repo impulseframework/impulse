@@ -14,13 +14,14 @@ type (
 	// instance holds a roster of its keys (resource.TenantRoster, built by the generated
 	// NewSectorRoster) that the generated DomainGuard asks before a sector-scoped request
 	// runs. The application derives its domain universe from this table rather than a
-	// fixed in-code list, and the roster keeps up without a restart: the generated create
-	// and delete paths add and remove the sector in the writing instance's roster after
-	// the commit and signal the tenants kind, so every other instance reloads at once, and
-	// a role held in every sector reaches the new sector with nothing written for it.
-	// Charting a sector is a data change, not a release, a migration or a new login.
+	// fixed in-code list, and the roster keeps up without a restart: the generated paths
+	// that make a sector and delete one add and remove it in the writing instance's
+	// roster after the commit and signal the tenants kind, so every other instance
+	// reloads at once, and a role held in every sector reaches the new sector with
+	// nothing written for it. Charting a sector is a data change, not a release, a
+	// migration or a new login.
 	//
-	// The primary key is an id the create path generates, as every record's is, and the
+	// The primary key is an id the record's create generates, as every record's is, and the
 	// generator refuses any other key on the tenant record: the id is written into every
 	// row the sector owns and is the domain of every role held in it, so it never changes
 	// and is never used twice. What people call the sector is its name, an ordinary field
@@ -38,9 +39,23 @@ type (
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
 	// concern. The place switcher lists only the sectors a login holds a grant in.
 	//
-	// Who may chart a sector is decided in the running application, apart from who may
-	// enter one, and there are two ways: the surveyor's, Create on Sectors under a global
-	// role, through the create path above; and the pioneer's, one generated route (POST
+	// Nobody creates a sector directly: a create operation on the record is refused,
+	// saying how a sector is made. There are two ways, apart from who may enter one.
+	// Headquarters and the surveyor bring an organization in by inviting one person
+	// (POST /console/api/invite-crew-sector, the crew auth's generated InviteCrewSector):
+	// the invitation carries the sector's details, the fields below as staff entered
+	// them, checked against this record's create under the sender's Create grant on
+	// Sectors when it is sent, and the role the people of the sector's directory start
+	// with. The invited person's first sign-in makes the sector from those details
+	// (the generated NewSectorMaker), seats them as its marshal and, where they signed
+	// in through an organization's directory, makes that directory the sector's own, in
+	// one transaction; the invited person enters nothing. Until then no sector exists,
+	// the invitations that wait are listed with their details for whoever may read
+	// them on this record (CrewInvitedSectors), and Headquarters changes one by
+	// withdrawing it and sending another. An invitation that says directory only is
+	// accepted through a directory alone, and a first sign-in through a directory
+	// another sector has is refused; either way nothing is made and the invitation
+	// stands. The other way is the pioneer's, one generated route (POST
 	// /console/api/create-sector) for a person who signed in holding no sector, and names
 	// their own. The pioneer's way is open while a fleet administrator has a sign-in
 	// method of the crew auth open to sign-up (the console's Sign-in page), which is how
@@ -77,7 +92,7 @@ type (
 	// the row's transaction, and is refused when another sector has it. The record's
 	// change events (DataChangeEvents, Config) are the audit of every edit.
 	//
-	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.creator-directory, @order, @page.
+	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.creator-directory, @order, @page.
 	//
 	// @resource
 	// @tenant
@@ -93,10 +108,11 @@ type (
 		Established civil.Date `spanner:"Established"`
 		// DirectoryOnly says the sector's people enter through its directory only: no
 		// other sign-in reaches the sector, and the flag closes this sector alone. Set by
-		// whoever holds the record's Update grant on the column (Headquarters), never at
-		// charting: a new sector declares nothing beyond its creator's directory. The
-		// generated update refuses turning it on until the sector has its directory, and
-		// unless the caller is signed in through it.
+		// whoever holds the record's Update grant on the column (Headquarters), or from
+		// the start by an invitation that says so, which is accepted through the
+		// directory the sector will be only of and no other way. The generated update
+		// refuses turning it on until the sector has its directory, and unless the caller
+		// is signed in through it.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

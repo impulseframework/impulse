@@ -1104,7 +1104,10 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 
 -- The crew's mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it;
+-- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- or, for an invitation that brings an organization in, the sector its first sign-in
+-- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
+-- directory only, and its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); or a sign-up a person starts by giving their address. The mail
 -- carries an opaque token and the row keeps its hash; the row is accepted only while it
@@ -1121,6 +1124,7 @@ CREATE TABLE CrewSessionMailLinks (
     UserId     STRING(36),
     TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
+    NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
@@ -1181,7 +1185,10 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 
 -- The members' mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it;
+-- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- or, for an invitation that brings an organization in, the sector its first sign-in
+-- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
+-- directory only, and its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); or a sign-up a person starts by giving their address. The mail
 -- carries an opaque token and the row keeps its hash; the row is accepted only while it
@@ -1198,6 +1205,7 @@ CREATE TABLE MembersSessionMailLinks (
     UserId     STRING(36),
     TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
+    NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,

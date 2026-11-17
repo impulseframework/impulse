@@ -431,13 +431,13 @@ func (a *App) TenantRoster() *resource.TenantRoster {
 }
 
 // SectorAdministratorRoles names the domain roles the person who charts a sector through
-// the generated create-sector route holds in it from then on, and the surveyor who
-// charts one through the record's create path the same: SectorMarshal, the full
+// the generated create-sector route holds in it from then on: SectorMarshal, the full
 // authority in a sector the marshal holds at Anvil (crew.AdministratorRoles), so the
-// pioneer can crew her own sector, give and take its roles, and fly it, and the
-// surveyor makes Dawn's first marshal and leaves. Both paths give the person the roles
-// through the crew auth's generated identity client, in the transaction that writes the
-// sector's row.
+// pioneer can crew her own sector, give and take its roles, and fly it. The person
+// invited to found a sector is given the same roles at their first sign-in, by the crew
+// auth's identity client, which the auth hands them to (identity.WithAdministratorRoles).
+// Both paths give the person the roles through that client, in the transaction that
+// writes the sector's row.
 //
 // Demonstrates: tenancy.self-service, tenancy.creator-seat.
 func (a *App) SectorAdministratorRoles() []accesstypes.Role {
