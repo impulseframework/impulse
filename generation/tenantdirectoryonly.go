@@ -14,8 +14,8 @@ import (
 // page shows what it would do before it is saved. The generator writes both for a
 // record that declares the switch and the directories record it is only of:
 //
-//   - the record's generated update asks the rules before it buffers a write of the
-//     switch (resource.TenantDirectoryRules.DirectoryOnly; the splice is
+//   - the record's generated update, and its create, ask the rules before they buffer
+//     a write of the switch (resource.TenantDirectoryRules.DirectoryOnly; the splice is
 //     directoryOnlyHeld): refused until the tenant has its directory, and unless the
 //     caller is signed in through it;
 //   - a read, GET <prefix>/directory-only?domain=<tenant>, answers what turning the
@@ -27,9 +27,9 @@ import (
 // and the application's.
 const directoryOnlyHandlerFunc = "DirectoryOnly"
 
-// HoldsDirectoryOnly reports whether the resource is a tenant record whose update is
-// held to the rules of the directory-only switch: it declares the switch and the
-// directories record.
+// HoldsDirectoryOnly reports whether the resource is a tenant record whose update and
+// create are held to the rules of the directory-only switch: it declares the switch and
+// the directories record.
 func (r *resourceInfo) HoldsDirectoryOnly() bool {
 	return r.IsTenant && r.HasDeclaration() && r.DirectoryOnlyField != nil
 }

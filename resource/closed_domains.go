@@ -33,8 +33,11 @@ var (
 // routes answer the session as a tenant that does not exist. It tells the person
 // nothing new: they hold a seat there.
 //
-// The permissions SessionPermissions composes answer it. Any other UserPermissions,
-// and an application that keeps no declarations, list none.
+// The permissions SessionPermissions composes answer it, for a person's own sign-in.
+// A session that views the application as someone else, and one that acts as a role,
+// list none: the list is the word a person is given about their own seats and their
+// own sign-in, and such a session is neither. Any other UserPermissions, and an
+// application that keeps no declarations, list none.
 func ClosedDomains(ctx context.Context, perms UserPermissions) ([]accesstypes.Domain, error) {
 	lister, ok := perms.(closedDomainLister)
 	if !ok {
@@ -54,7 +57,7 @@ func ClosedDomains(ctx context.Context, perms UserPermissions) ([]accesstypes.Do
 // admitted checker holds nothing.
 func (p rosterPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Domain, error) {
 	closed := []accesstypes.Domain{}
-	if p.roster == nil || p.admission == nil {
+	if p.roster == nil || p.admission == nil || !p.ownSignIn {
 		return closed, nil
 	}
 	all, err := p.roster(ctx)
@@ -82,9 +85,8 @@ func (p rosterPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Dom
 	return slices.Compact(closed), nil
 }
 
-// ClosedDomains passes through: a mask attenuates what the session may do, never where
-// it may go, and a tenant that is closed to the session is closed whatever the mask
-// leaves it.
+// ClosedDomains passes through. A mask belongs to an impersonated session, which is
+// told of no closed tenant, so the permissions under it answer none.
 func (m *maskedPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Domain, error) {
 	return ClosedDomains(ctx, m.UserPermissions)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,12 +18,18 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
+// namedFlag is a type named over a boolean, as an application may type its
+// directory-only field.
+type namedFlag bool
+
 // switchPermissions scripts the grant the directory-only switch is written under:
 // Update on the tenant record and on its directory-only field, in the global scope.
 type switchPermissions struct {
 	stubPermissions
 	denied []accesstypes.Resource
-	asked  []accesstypes.Resource
+	// conditional are the resources the grant holds on a condition.
+	conditional []accesstypes.Resource
+	asked       []accesstypes.Resource
 }
 
 func (s *switchPermissions) Check(_ context.Context, _ accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
@@ -33,10 +40,11 @@ func (s *switchPermissions) Check(_ context.Context, _ accesstypes.Environment, 
 	decisions := accesstypes.Decisions{}
 	for _, res := range resources {
 		decisions[res] = accesstypes.Granted()
-		for _, denied := range s.denied {
-			if res == denied {
-				decisions[res] = accesstypes.Denied()
-			}
+		if slices.Contains(s.conditional, res) {
+			decisions[res] = accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{res}})
+		}
+		if slices.Contains(s.denied, res) {
+			decisions[res] = accesstypes.Denied()
 		}
 	}
 
@@ -72,6 +80,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 
 	const (
 		noDirectory = "This station has no directory, so it cannot be directory only: nobody could enter it. Set its directory first: sign in through your organization's directory, make it this station's directory, then turn directory only on."
+		onAlready   = "This station is directory only already: only people who sign in through its directory enter it. There is nothing to turn on."
 		notThrough  = "Directory only is turned on by a person who is signed in through this station's directory, Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001: that shows the directory works, and that you will not shut yourself out. %s Sign in through Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001 and try again."
 	)
 	writeTests := []struct {
@@ -109,6 +118,8 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		{name: "a write that leaves it on turns nothing on", ctx: password, station: "alpha", value: true},
 		{name: "a pointer to true is the flag turned on", ctx: password, station: "gamma", value: new(true), wantRefusal: noDirectory},
 		{name: "a write that carries no flag turns nothing on", ctx: password, station: "gamma", value: nil},
+		{name: "a flag of a type named over a boolean is the flag all the same", ctx: password, station: "gamma", value: namedFlag(true), wantRefusal: noDirectory},
+		{name: "a value that is no boolean is held to the rule, never waved through", ctx: password, station: "gamma", value: "true", wantRefusal: noDirectory},
 	}
 	for _, tt := range writeTests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,13 +189,12 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			},
 		},
 		{
-			name: "a station that is directory only already is answered as it stands, whoever asks", ctx: password, station: "alpha", outsiders: []DirectoryOutsiders{reader(zed, bo)},
-			want: &DirectoryOnlyConsequence{
-				Directory: "Google Workspace frontier.example", Connection: "frontier.example",
-				Sentence: "Only people who sign in through frontier.example will be able to enter this station. 2 people seated here sign in another way and will lose access.",
-				People:   []DirectoryOutsider{bo, zed},
-				Confirm:  "Admit only people who sign in through frontier.example",
-			},
+			name: "a station that is directory only already has nothing to turn on, and the refusal names neither its directory nor its people", ctx: password, station: "alpha", outsiders: []DirectoryOutsiders{reader(zed, bo)},
+			wantRefusal: onAlready,
+		},
+		{
+			name: "nor to a caller who is signed in through its directory", ctx: through(workspace), station: "alpha", outsiders: []DirectoryOutsiders{reader(zed, bo)},
+			wantRefusal: onAlready,
 		},
 		{name: "a station with no directory is refused as the write is", ctx: through(entra), station: "gamma", wantRefusal: noDirectory},
 		{
@@ -262,6 +272,14 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			rr := serve(through(entra), &switchPermissions{denied: []accesstypes.Resource{denied}}, "?domain=beta")
 			if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "6f2c1b7e") {
 				t.Errorf("without Update on %s: status = %d, body %q, want 403 that names no directory", denied, rr.Code, rr.Body.String())
+			}
+		}
+		// A grant that holds on a condition is no grant to the read: the condition is
+		// judged against the row a write changes.
+		for _, conditional := range []accesstypes.Resource{"Stations", "Stations.directoryOnly"} {
+			rr := serve(through(entra), &switchPermissions{conditional: []accesstypes.Resource{conditional}}, "?domain=beta")
+			if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "6f2c1b7e") {
+				t.Errorf("with Update on %s held on a condition: status = %d, body %q, want 403 that names no directory", conditional, rr.Code, rr.Body.String())
 			}
 		}
 		// The refusal is the write's, in the same words.

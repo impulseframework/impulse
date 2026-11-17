@@ -841,13 +841,14 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantClosed:  []accesstypes.Domain{anvil},
 		},
 		{
+			// The tenant is refused and not listed as closed: that list is a person's own
+			// sign-in's, and this session views the application as someone else.
 			name:        "an impersonated session is established by its impersonation, which a directory-only tenant refuses",
 			ctx:         sessionCtx("bob", asBob, impersonation),
 			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
 			holds:       []accesstypes.Domain{anvil, bastion},
 			wantDomains: []accesstypes.Domain{bastion},
 			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
 		},
 		{
 			name:        "an impersonated session reaches by its actor's rights: a super administrator's reaches the directory-only tenant",
@@ -867,7 +868,6 @@ func TestSessionPermissions_admission(t *testing.T) {
 			super:       true,
 			wantDomains: []accesstypes.Domain{bastion},
 			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
 		},
 		{
 			// The role checker (stubRolePermissions) holds a grant in "tenant" alone, so

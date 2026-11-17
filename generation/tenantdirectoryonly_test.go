@@ -13,10 +13,10 @@ import (
 )
 
 // Test_tenantRecord_updateHoldsDirectoryOnly pins the tenant record's generated update
-// for a record that declares the directory-only switch: a write of the switch is held to
-// its rules before the patch is buffered, the caller's grants asked first, in the
-// record's own handler and in the consolidated one; a record that declares no switch
-// asks nothing.
+// and create for a record that declares the directory-only switch: a write of the switch
+// is held to its rules before the patch is buffered, the caller's grants asked first, in
+// the record's own handler and in the consolidated one, on a create as on an update; a
+// record that declares no switch asks nothing.
 func Test_tenantRecord_updateHoldsDirectoryOnly(t *testing.T) {
 	t.Parallel()
 
@@ -82,6 +82,18 @@ func Test_tenantRecord_updateHoldsDirectoryOnly(t *testing.T) {
 
 					continue
 				}
+				// A create that carries the switch on turns it on, so it is held as an update
+				// is, under the key the create generated.
+				assertInOrder(t, out,
+					"case resource.OperationCreate:",
+					".NewHarborCreatePatchFromPatchSet(patchSet)",
+					`if patchSet.IsSet("DirectoryOnly") {`,
+					"if err := patchSet.Permitted(ctx, txn); err != nil {",
+					`if err := NewHarborDirectoryRules().DirectoryOnly(ctx, txn, accesstypes.Domain(patch.ID().String()), patchSet.Get("DirectoryOnly")); err != nil {`,
+					`return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")`,
+					"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+					"case resource.OperationUpdate:",
+				)
 				// The caller's grants answer before the rules do, and the rules before the
 				// write is buffered.
 				assertInOrder(t, out,
@@ -363,7 +375,8 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			wantContains: []string{
 				"OutsideDirectory bool ",
 				"CannotEnter      *string ",
-				"JOIN Sectors ts ON ts.Id = t.DomainId",
+				// Outer joins both: the facts drop no row of the list.
+				"\nLEFT JOIN Sectors ts ON ts.Id = t.DomainId",
 				"LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id",
 				"SELECT 1 FROM CrewSessionIdentities di",
 				"WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection",

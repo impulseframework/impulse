@@ -73,9 +73,12 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
     NULL) AS CannotEnter`
 
 	// identityTenantDirectoryJoins join each row of a tenant's list to its tenant's row
-	// and to the tenant's directory, where it has one: a tenant has one directory.
+	// and to the tenant's directory, where it has one: a tenant has one directory. Both
+	// are outer joins, so the facts add columns and drop no row: a membership whose
+	// domain the tenant record no longer holds lists as it did before the facts, with
+	// nobody outside a directory there.
 	identityTenantDirectoryJoins = `
-JOIN {{ .TenantTable }} ts ON ts.{{ .TenantKey }} = t.DomainId
+LEFT JOIN {{ .TenantTable }} ts ON ts.{{ .TenantKey }} = t.DomainId
 LEFT JOIN {{ .TenantDirectory.Table }} td ON td.{{ .TenantDirectory.TenantColumn }} = ts.{{ .TenantKey }}`
 
 	// identityTenantUsersTemplate declares the tenant's people.

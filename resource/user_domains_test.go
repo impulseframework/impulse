@@ -158,9 +158,9 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in with a personal Google account."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
-			name:     "a session viewed as someone else is told so",
+			name:     "a session that views the application as someone else lists the tenants it reaches and none closed: the word is for a person's own sign-in",
 			ctx:      sessionCtx("dana", &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("dana")}, sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: "alice"}),
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. This session is viewing the application as someone else, which is no sign-in through its directory."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a session that records no sign-in is told it did not come through the directory",

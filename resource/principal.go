@@ -65,8 +65,9 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // the tenant is not among its domains, so the picker never offers it as a place
 // to open and the generated domain guard refuses a direct request for it as it
 // refuses a domain that is not a tenant (UserPermissions.Reaches). The person
-// holds a seat there all the same, so the session's tenant list carries the
-// tenant closed, with the reason (ClosedDomains, UserDomainsHandler). An
+// holds a seat there all the same, so the tenant list of a person's own sign-in
+// carries the tenant closed, with the reason (ClosedDomains, UserDomainsHandler);
+// an impersonated session and a session that acts as a role are told of none. An
 // application that keeps no declarations passes nil, and every tenant admits
 // every session.
 //
@@ -140,6 +141,7 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 			reached:               map[accesstypes.Domain]bool{},
 		}
 		perms.UserPermissionChecker = perms.admission
+		perms.ownSignIn = isUser && !impersonated
 	}
 
 	return Masked(perms, mask)
@@ -177,6 +179,10 @@ type rosterPermissions struct {
 	// application keeps declarations; nil when it keeps none, and the session reaches
 	// every domain.
 	admission *admittedPermissions
+	// ownSignIn says the session is a person's own sign-in: a user principal that
+	// nobody is viewing the application as. Only such a session is told which tenants
+	// are closed to it (ClosedDomains).
+	ownSignIn bool
 }
 
 // Domains lists the roster's domains where the checker holds a grant, sorted;

@@ -119,7 +119,19 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 			wantClosed:  []accesstypes.Domain{"lakeside"},
 		},
 		{
-			name: "a mask leaves a closed tenant closed: it attenuates what the session may do, never where it may go",
+			name: "a session that views the application as someone else reaches as that session does, and is told of no closed tenant: the list is a person's own sign-in's",
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"lakeside": {Directories: []signin.Directory{lakeside}, DirectoryOnly: true},
+			},
+			seated:      []accesstypes.Domain{"lakeside", "riverside"},
+			established: sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: "alice"},
+			impersonation: &sessioninfo.Impersonation{
+				Actor: "alice", Principal: accesstypes.UserPrincipal("bob"),
+			},
+			wantReached: []accesstypes.Domain{"riverside"},
+		},
+		{
+			name: "nor under a mask",
 			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
 				"lakeside": {Directories: []signin.Directory{lakeside}, DirectoryOnly: true},
 			},
@@ -129,7 +141,6 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 				Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read),
 			},
 			wantReached: []accesstypes.Domain{"riverside"},
-			wantClosed:  []accesstypes.Domain{"lakeside"},
 		},
 	}
 	roster := func(context.Context) ([]accesstypes.Domain, error) {
@@ -191,11 +202,31 @@ func TestClosedDomains_otherPermissions(t *testing.T) {
 	forUser := func(user accesstypes.User) *stubPermissions {
 		return &stubPermissions{user: user, domains: []accesstypes.Domain{"lakeside"}}
 	}
+	// The role checker of these tests holds a grant in the domain "tenant" alone, and
+	// that tenant admits its own directory only.
+	roleRoster := func(context.Context) ([]accesstypes.Domain, error) {
+		return []accesstypes.Domain{"tenant"}, nil
+	}
+	forRole := func(role accesstypes.Role) *stubRolePermissions {
+		return &stubRolePermissions{role: role}
+	}
+	directoryOnly := &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{
+		"tenant": {Directories: []signin.Directory{{Method: sessioninfo.MethodGoogle, Connection: "lakeside.example"}}, DirectoryOnly: true},
+	}}
+	asRole := resolvedAs(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), accesstypes.RolePrincipal("PartnerViewer"))
 	tests := []struct {
 		name  string
 		perms UserPermissions
+		// wantUnreached is a tenant the permissions hold a grant in and do not reach, so
+		// the empty list is no accident of a tenant that is open.
+		wantUnreached accesstypes.Domain
 	}{
 		{name: "permissions that are not a session's", perms: &stubPermissions{user: "alice", domains: []accesstypes.Domain{"lakeside"}}},
+		{
+			name:          "a session that acts as a role: its role holds a grant in a tenant this sign-in does not open, and the list is a person's own",
+			perms:         SessionPermissions(asRole, forUser, forRole, roleRoster, directoryOnly.read),
+			wantUnreached: "tenant",
+		},
 		{
 			name:  "an application that keeps no declarations",
 			perms: SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, nil),
@@ -215,6 +246,16 @@ func TestClosedDomains_otherPermissions(t *testing.T) {
 			}
 			if closed == nil || len(closed) != 0 {
 				t.Errorf("ClosedDomains() = %v, want an empty list, never nil", closed)
+			}
+			if tt.wantUnreached == "" {
+				return
+			}
+			reaches, err := tt.perms.Reaches(context.Background(), tt.wantUnreached)
+			if err != nil {
+				t.Fatalf("Reaches(%s) error = %v", tt.wantUnreached, err)
+			}
+			if reaches {
+				t.Errorf("Reaches(%s) = true, want the tenant not reached", tt.wantUnreached)
 			}
 		})
 	}

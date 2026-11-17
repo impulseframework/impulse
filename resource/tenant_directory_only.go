@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -79,7 +80,8 @@ type DirectoryOnlyConsequence struct {
 // Nobody is exempt, a super administrator included: the rule is about the directory,
 // not about who may enter. The generated update of the tenant record asks it once the
 // caller's grants have answered (PatchSet.Permitted), for a record that declares the
-// switch (@directoryOnly) and a directories record.
+// switch (@directoryOnly) and a directories record, and so does its generated create: a
+// tenant created with the switch on is turned on by its create, and has no directory.
 func (r *TenantDirectoryRules) DirectoryOnly(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, value any) error {
 	if !turnsOn(value) {
 		return nil
@@ -102,7 +104,10 @@ func (r *TenantDirectoryRules) DirectoryOnly(ctx context.Context, txn ReadWriteT
 // each auth whose people the tenant seats. It refuses as DirectoryOnly refuses, with
 // the same sentences, so a page that asks first shows the refusal instead of a
 // confirmation; a tenant the record does not hold is NotFound. A tenant that is
-// directory only already is answered as it stands: the people its switch keeps out now.
+// directory only already has nothing to turn on, and the read is refused as a Conflict
+// that says so and names neither its directory nor its people: the write that leaves the
+// switch on is plain whoever makes it, and the read answers nobody what that write
+// would not ask them to prove.
 func (r *TenantDirectoryRules) Consequence(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, outsiders ...DirectoryOutsiders) (*DirectoryOnlyConsequence, error) {
 	on, found, err := r.switchState(ctx, txn, tenant)
 	if err != nil {
@@ -111,12 +116,10 @@ func (r *TenantDirectoryRules) Consequence(ctx context.Context, txn ReadWriteTra
 	if !found {
 		return nil, httpio.NewNotFoundMessagef("This %s does not exist.", r.word)
 	}
-	var directory signin.Directory
 	if on {
-		directory, _, err = r.directoryOf(ctx, txn, tenant)
-	} else {
-		directory, err = r.turnOn(ctx, txn, tenant)
+		return nil, httpio.NewConflictMessagef("This %[1]s is directory only already: only people who sign in through its directory enter it. There is nothing to turn on.", r.word)
 	}
+	directory, err := r.turnOn(ctx, txn, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -231,17 +234,27 @@ func (r *TenantDirectoryRules) directoryOf(ctx context.Context, txn ReadWriteTra
 	return signin.Directory{}, false, nil
 }
 
-// turnsOn reports whether a write's value for the directory-only flag is true: the
-// flag as a decoded patch carries it.
+// turnsOn reports whether a write's value for the directory-only flag turns the switch
+// on: the flag as a decoded patch carries it, a boolean or a pointer to one, of the
+// field's own type or a type named over it. A write that carries no flag, and a nil
+// pointer, turn nothing on. A value that is no boolean is taken as turning it on: the
+// rule is asked, never skipped over a type this reading does not know.
 func turnsOn(value any) bool {
-	switch on := value.(type) {
-	case bool:
-		return on
-	case *bool:
-		return on != nil && *on
-	default:
+	flag := reflect.ValueOf(value)
+	for flag.IsValid() && (flag.Kind() == reflect.Pointer || flag.Kind() == reflect.Interface) {
+		if flag.IsNil() {
+			return false
+		}
+		flag = flag.Elem()
+	}
+	if !flag.IsValid() {
 		return false
 	}
+	if flag.Kind() == reflect.Bool {
+		return flag.Bool()
+	}
+
+	return true
 }
 
 // DirectoryOnlyHandler serves the read a tenant's Sign-in page calls before it saves
@@ -250,7 +263,9 @@ func turnsOn(value any) bool {
 // refusal the write itself would answer, in the same words. It is asked under the
 // grant the write is: Update on the tenant record and on its directory-only field, in
 // the global scope, where a caller without it is Forbidden and learns nothing of the
-// tenant. Nothing is written.
+// tenant. A grant that holds on a condition is refused the same way: the condition is
+// judged against the row a write changes, and the read changes none. Nothing is
+// written.
 //
 // resourceName is the tenant record's resource and field the directory-only field as
 // grants name it; client runs the read in one transaction, and outsiders are the
@@ -274,8 +289,10 @@ func DirectoryOnlyHandler(
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.UserPermissions.Check()"))
 		}
-		if denied := decisions.DeniedResources(); len(denied) > 0 {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", accesstypes.GlobalScope(), perms.User(), accesstypes.Update, denied))
+		if refused := slices.Concat(decisions.DeniedResources(), decisions.ConditionalResources()); len(refused) > 0 {
+			slices.Sort(refused)
+
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", accesstypes.GlobalScope(), perms.User(), accesstypes.Update, refused))
 		}
 
 		var consequence *DirectoryOnlyConsequence

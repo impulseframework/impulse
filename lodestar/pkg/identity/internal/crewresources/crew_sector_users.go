@@ -116,7 +116,7 @@ FROM (
   WHERE m.Kind = 'every' AND m.Axis = ''
 ) t
 JOIN CrewSessionUsers u ON u.Id = t.UserId
-JOIN Sectors ts ON ts.Id = t.DomainId
+LEFT JOIN Sectors ts ON ts.Id = t.DomainId
 LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id
 `
 

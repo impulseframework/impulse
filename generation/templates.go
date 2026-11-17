@@ -922,14 +922,18 @@ const (
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
 
-	// directoryOnlyHeld is spliced into the tenant record's update, before the write is
-	// buffered (patchSet and id, which the splice's place sets), for a record that
+	// directoryOnlyHeld is spliced into the tenant record's update and its create, before
+	// the write is buffered (patchSet, which the splice's place sets), for a record that
 	// declares the directory-only switch and the directories record it is only of: a
 	// write of the switch is held to its rules (resource.TenantDirectoryRules.DirectoryOnly),
 	// which refuse turning it on until the tenant has its directory and unless the
-	// caller is signed in through it, and pass every other write. The caller's grants
-	// are asked before the rules, as on the directories record. The splice reads the
-	// resource as its dot.
+	// caller is signed in through it, and pass every other write. A create that carries
+	// the switch on turns it on, and a tenant that is being created has no directory, so
+	// the rules refuse it. The caller's grants are asked before the rules, as on the
+	// directories record. The splice reads the resource as its dot, and the record's key
+	// as the expression its place declares in $directoryOnlyKey: the update's id, and the
+	// key the create's patch generated (a tenant record's key is always one its create
+	// generates, so the create that takes its key from the path carries no splice).
 	directoryOnlyHeld = `// Turning directory only on closes the {{ .DirectoryOnlyWord }} to every sign-in but one
 					// through its directory, so it is held to its rules: the {{ .DirectoryOnlyWord }} has its
 					// directory, and the caller is signed in through it. The caller's grants
@@ -938,7 +942,7 @@ const (
 						if err := patchSet.Permitted(ctx, txn); err != nil {
 							return errors.Wrap(err, "resource.PatchSet.Permitted()")
 						}
-						if err := {{ .DirectoryOnlyRules }}.DirectoryOnly(ctx, txn, accesstypes.Domain(id.String()), patchSet.Get({{ printf "%q" .DirectoryOnlyField.Name }})); err != nil {
+						if err := {{ .DirectoryOnlyRules }}.DirectoryOnly(ctx, txn, accesstypes.Domain({{ $directoryOnlyKey }}.String()), patchSet.Get({{ printf "%q" .DirectoryOnlyField.Name }})); err != nil {
 							return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")
 						}
 					}`
@@ -2569,6 +2573,12 @@ import (
 					` + directoryStamped + `
 					{{- end }}
 					{{- end }}
+					{{- if .Resource.HoldsDirectoryOnly }}
+					{{- $directoryOnlyKey := printf "patch.%s()" .Resource.PrimaryKey.Name }}
+					{{- with .Resource }}
+					` + directoryOnlyHeld + `
+					{{- end }}
+					{{- end }}
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
@@ -2609,6 +2619,7 @@ import (
 				{{- else }}
 					id := httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id")
 					{{- if .Resource.HoldsDirectoryOnly }}
+					{{- $directoryOnlyKey := "id" }}
 					{{- with .Resource }}
 					` + directoryOnlyHeld + `
 					{{- end }}
@@ -2896,6 +2907,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- if .IsTenantDirectory }}
 							` + directoryStamped + `
 							{{- end }}
+							{{- if .HoldsDirectoryOnly }}
+							{{- $directoryOnlyKey := printf "patch.%s()" .PrimaryKey.Name }}
+							` + directoryOnlyHeld + `
+							{{- end }}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
@@ -2941,6 +2956,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- else}}
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
 							{{- if .HoldsDirectoryOnly }}
+							{{- $directoryOnlyKey := "id" }}
 							` + directoryOnlyHeld + `
 							{{- end }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}UpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {

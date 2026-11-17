@@ -21,7 +21,9 @@ import (
 // admits and how they signed in ("Acme admits only people who sign in through its own
 // directory. You signed in with a password."). It is empty, and absent from the JSON,
 // for a tenant the session reaches. A picker shows a closed tenant marked, with the
-// reason, and never as a place to open.
+// reason, and never as a place to open. Only a person's own sign-in is told of one: a
+// session that views the application as someone else, and one that acts as a role,
+// list none closed.
 type UserDomain struct {
 	Domain accesstypes.Domain `json:"domain"`
 	Name   string             `json:"name"`
