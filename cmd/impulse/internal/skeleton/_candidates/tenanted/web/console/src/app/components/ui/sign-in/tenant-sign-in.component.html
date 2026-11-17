@@ -96,7 +96,9 @@
       @if (!canClose()) {
         <p class="empty">The application's administrator sets this, on the tenant record.</p>
       } @else if (!directory()) {
-        <p class="empty">Set a directory first: directory only with no directory admits nobody but staff.</p>
+        <p class="empty">
+          Set a directory first: directory only with no directory admits nobody but a super administrator.
+        </p>
       }
     } @else {
       <p class="empty">Your role does not cover the tenant record, which carries this setting.</p>

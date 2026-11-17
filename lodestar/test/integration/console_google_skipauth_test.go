@@ -23,7 +23,9 @@ import (
 // persona's login is not taken at the directory's word: the sign-in waits for that
 // persona's password, which links the identity and opens the session as the persona.
 // That is the persona's first sign-in through Cinder's directory, so the link gives
-// her Cinder's default role beside the seats she held. The fleet administers its Workspace
+// her Cinder's default role beside the seats she held; her directory session then
+// enters Cinder, whose directory it came through, and her password session the sectors
+// that admit a password. The fleet administers its Workspace
 // (auth.Directory.Administered), so a sign-in through the directory carries the
 // Workspace's second factor and is never asked for the sign-in code, the sign-in a
 // password confirmed included.
@@ -107,11 +109,17 @@ func TestConsoleGoogleLogin(t *testing.T) {
 	if sess := taken.session(ctx); sess["authenticated"] != true || sess["username"] != "marshal" {
 		t.Fatalf("session after the confirmation = %v, want authenticated as marshal", sess)
 	}
-	if got, want := taken.domains(ctx), []string{anvil, cinder}; !slices.Equal(got, want) {
-		t.Errorf("user-domains after the directory signed the marshal in = %v, want %v: Anvil, hers before, and Cinder, by its directory's default role", got, want)
+	// One account, whichever way she signs in: the role the link gave is hers in both
+	// sessions. Her password session charts Anvil, hers before, and Cinder, by its
+	// directory's default role, since both admit a password. Her directory session
+	// charts Cinder alone, the sector whose directory she came through: Anvil has no
+	// directory, and the global roles she holds exempt nobody from a sector's
+	// declaration, which a super administrator alone is.
+	if got, want := marshal.domains(ctx), []string{anvil, cinder}; !slices.Equal(got, want) {
+		t.Errorf("user-domains of the marshal's password session = %v, want %v: Anvil, hers before, and Cinder, by its directory's default role", got, want)
 	}
-	if got, want := marshal.domains(ctx), taken.domains(ctx); !slices.Equal(got, want) {
-		t.Errorf("user-domains of the marshal's password session = %v, want the same %v: one account, whichever way she signs in", got, want)
+	if got, want := taken.domains(ctx), []string{cinder}; !slices.Equal(got, want) {
+		t.Errorf("user-domains after the directory signed the marshal in = %v, want %v: the sector whose directory she came through", got, want)
 	}
 }
 

@@ -95,7 +95,9 @@
       @if (!canClose()) {
         <p class="empty">Headquarters sets this, on the sector record.</p>
       } @else if (!directory()) {
-        <p class="empty">Set a directory first: directory only with no directory admits nobody but staff.</p>
+        <p class="empty">
+          Set a directory first: directory only with no directory admits nobody but a super administrator.
+        </p>
       }
     } @else {
       <p class="empty">Your role does not cover the sector record, which carries this setting.</p>

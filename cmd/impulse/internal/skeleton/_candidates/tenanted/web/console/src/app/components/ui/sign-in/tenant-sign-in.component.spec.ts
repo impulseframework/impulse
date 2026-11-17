@@ -244,7 +244,7 @@ describe('TenantSignInComponent', () => {
     expect(toggle).not.toBeNull();
     expect(toggle?.textContent?.replace(/\s+/g, ' ').trim()).toContain('Passwords admitted');
     expect(texts('.empty')).not.toContain(
-      'Set a directory first: directory only with no directory admits nobody but staff.',
+      'Set a directory first: directory only with no directory admits nobody but a super administrator.',
     );
 
     await fixture.componentInstance.close(true);
