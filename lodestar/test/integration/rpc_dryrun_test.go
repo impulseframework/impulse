@@ -3,6 +3,7 @@ package integration
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,4 +71,90 @@ func doDryRunAs(t *testing.T, h http.Handler, user accesstypes.User, target, bod
 	h.ServeHTTP(rr, req)
 
 	return rr.Code, rr.Body.Bytes()
+}
+
+// TestHeadersTakeTrueOrAreAbsent sends each kind of generated method frame a request
+// whose X-Dry-Run or X-Warning header says something other than true. The two headers
+// ask a frame for something in place of the call, so a value a frame does not take is
+// refused, 400 naming the header and the value it takes, and the call is not run: a
+// client that sends "1" to rehearse a write is told so and writes nothing.
+func TestHeadersTakeTrueOrAreAbsent(t *testing.T) {
+	t.Parallel()
+
+	brief := uploadFile{name: "brief.pdf", contentType: "application/pdf", content: []byte("%PDF-1.7 escort brief")}
+	headers := []string{resource.DryRunHeader, resource.WarningHeader}
+	values := []string{"1", "false", "yes", ""}
+
+	t.Run("a method that runs in a transaction is refused and writes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, db, h := demoWorld(t)
+		before := readColumn[string](ctx, t, db, "Missions", spanner.Key{missionConvoyID}, "StatusId")
+		for _, header := range headers {
+			for _, value := range values {
+				status, body := doHeaderAs(t, h, "marshal", sectorPath(anvil, "hold-mission"), "application/json", strings.NewReader(fmt.Sprintf(`{"missionId":%q,"reason":"debris"}`, missionConvoyID)), header, value)
+				assertHeaderRefused(t, status, body, header, value)
+			}
+		}
+		if after := readColumn[string](ctx, t, db, "Missions", spanner.Key{missionConvoyID}, "StatusId"); after != before {
+			t.Errorf("Missions.StatusId = %q after the refused calls, want %q: a refused call writes nothing", after, before)
+		}
+	})
+
+	t.Run("a method that runs outside a transaction is refused by the header's own rule", func(t *testing.T) {
+		t.Parallel()
+
+		_, h, _ := sharedWorld(t)
+		for _, header := range headers {
+			for _, value := range values {
+				status, body := doHeaderAs(t, h, "marshal", sectorPath(anvil, "compile-briefing"), "application/json", strings.NewReader(`{}`), header, value)
+				assertHeaderRefused(t, status, body, header, value)
+			}
+		}
+	})
+
+	t.Run("an upload is refused and stores nothing", func(t *testing.T) {
+		t.Parallel()
+
+		h, stores := documentWorld(t)
+		for _, header := range headers {
+			for _, value := range values {
+				form, contentType := multipartBody(t, fmt.Sprintf(`{"missionId":%q,"title":"Escort brief"}`, missionConvoyID), brief)
+				status, body := doHeaderAs(t, h, "marshal", sectorPath(anvil, "attach-mission-document"), contentType, form, header, value)
+				assertHeaderRefused(t, status, body, header, value)
+			}
+		}
+		if stored := stores.documents.Keys(); len(stored) != 0 {
+			t.Errorf("the Documents store holds %v after the refused uploads, want nothing", stored)
+		}
+		if rows := readRows(t, h, "marshal", sectorPath(anvil, "mission-documents")); len(rows) != 0 {
+			t.Errorf("the mission has %d documents after the refused uploads, want none", len(rows))
+		}
+	})
+}
+
+// doHeaderAs posts the body as the user with one header set to the value.
+func doHeaderAs(t *testing.T, h http.Handler, user accesstypes.User, target, contentType string, body io.Reader, header, value string) (statusCode int, respBody []byte) {
+	t.Helper()
+
+	ctx := sessionContext(t, user)
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, target, body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set(header, value)
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	return rr.Code, rr.Body.Bytes()
+}
+
+// assertHeaderRefused fails unless the answer is the refusal of a header value a frame
+// does not take: 400, naming the header, the value it takes and what was sent.
+func assertHeaderRefused(t *testing.T, status int, body []byte, header, value string) {
+	t.Helper()
+
+	want := fmt.Sprintf("the %s header takes the value true, or is left off the request: %q is not a value it takes, so the call was not run", header, value)
+	if status != http.StatusBadRequest || !strings.Contains(string(body), strings.ReplaceAll(want, `"`, `\"`)) {
+		t.Errorf("%s: %q answered %d %s, want 400 saying %q", header, value, status, body, want)
+	}
 }

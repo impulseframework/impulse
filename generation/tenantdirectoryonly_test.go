@@ -117,12 +117,20 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			Make: tenantOwnMethod{Name: "MakeHarborDirectoryOnly", Typed: "close"}, End: tenantOwnMethod{Name: "EndHarborDirectoryOnly"},
 			StateFunc: "DirectoryOnly", StateRoute: "directory-only",
 			DomainRoute: "harbors/{harborID}", KeyType: "impulse.UUID", KeyIsUUID: true, People: people,
+			Rules:               "NewHarborDirectoryRules()",
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
 	}
 	textKey := data()
 	textKey.KeyType, textKey.KeyIsUUID, textKey.FlagType = "string", false, "resources.Flag"
+	// The rules of a program that generates two auths' management are named by both.
+	const namedRules = "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)"
+	named := data(
+		&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}},
+		&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
+	)
+	named.Rules = namedRules
 	tests := []struct {
 		name            string
 		data            *directoryOnlyData
@@ -132,10 +140,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	}{
 		{
 			name: "each method asks its grant, then the warning or the rules, then writes the flag; the warning names each auth's people list",
-			data: data(
-				&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}},
-				&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
-			),
+			data: named,
 			wantInOrder: []string{
 				"func (a *App) MakeHarborDirectoryOnly() http.HandlerFunc {",
 				`return harborDirectoryOnly(a, "MakeHarborDirectoryOnly", true)`,
@@ -143,13 +148,15 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				`return harborDirectoryOnly(a, "EndHarborDirectoryOnly", false)`,
 				"func harborDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {",
 				`resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())`,
+				// The rules' sentences name the directory as each auth's registrations do.
+				"rules := " + namedRules + "\n",
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
 				"ctx = resource.WithCaller(ctx, caller)",
-				"asksWarning := resource.AsksWarning(r)",
-				"if asksWarning && !only {",
+				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning && !only {",
 				`httpio.NewBadRequestMessagef("%s declares no warning: send the call without the X-Warning header", method)`,
 				"id, err := impulse.UUIDFromString(string(domain))",
+				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif err := a.ResourceClient().ExecuteFunc(",
 				"if asksWarning {",
 				"said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,",
 				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders},`,
@@ -164,7 +171,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 				"func (a *App) DirectoryOnly() http.HandlerFunc {",
-				`return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewHarborDirectoryRules(), a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
+				"return resource.DirectoryOnlyStateHandler(a.ResourceClient(), " + namedRules + `, a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
 			},
 			wantContains: []string{
 				"POST <prefix>/harbors/{harborID}/make-harbor-directory-only",
@@ -178,8 +185,8 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		{
 			name:            "a program that generates no auth's management counts and names no person",
 			data:            data(),
-			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)"},
-			wantNotContains: []string{"resource.DirectoryPeople{"},
+			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)", "rules := NewHarborDirectoryRules()\n"},
+			wantNotContains: []string{"resource.DirectoryPeople{", "NamedBy("},
 		},
 		{
 			name:            "a record keyed by text, with a flag of a type named over a boolean",
@@ -229,7 +236,8 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 		return &directoryRoleData{
 			Source: "resources", Package: "app", Name: "Harbor", Word: "harbor", Directories: "HarborDirectory", Field: "DefaultSeat",
 			Open: tenantOwnMethod{Name: "OpenHarborToDirectory", Typed: "open"}, InviteOnly: tenantOwnMethod{Name: "MakeHarborInviteOnly"},
-			DomainRoute: "harbors/{harborID}", SeatIsPointer: true, Auth: "Staff", IdentityAccessor: "StaffIdentity", Picker: "StaffHarborRoles",
+			DomainRoute: "harbors/{harborID}", SeatIsPointer: true, Auth: "Staff", IdentityAccessor: "StaffIdentity", Picker: "StaffHarborDirectoryRoles",
+			Rules:               "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
@@ -250,11 +258,12 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"func (a *App) OpenHarborToDirectory() http.HandlerFunc {",
 				"Role string `json:\"role\"`",
 				`resource.MustNewRPCDecoder[request](a, "OpenHarborToDirectory", accesstypes.Execute).WithCollection(router.Collection())`,
+				// The warning names the directory as the auth's registrations do.
+				"rules := NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)\n",
 				"req, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
 				"ctx = resource.WithCaller(ctx, caller)",
 				"role := accesstypes.Role(strings.TrimSpace(req.Role))",
-				"asksWarning := resource.AsksWarning(r)",
-				`if role == "" && !asksWarning {`,
+				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tvar warning *resource.Warning\n\t\tif role == \"\" && !asksWarning {",
 				"directory, err := rules.Directory(ctx, txn, domain)",
 				`if role != "" {`,
 				"if err := a.StaffIdentity().DirectoryRole(ctx, txn, domain, role); err != nil {",
@@ -269,8 +278,9 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)",
 				"func (a *App) MakeHarborInviteOnly() http.HandlerFunc {",
 				`resource.MustNewRPCDecoder[request](a, "MakeHarborInviteOnly", accesstypes.Execute).WithCollection(router.Collection())`,
+				"rules := NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)\n",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
-				"if resource.AsksWarning(r) {",
+				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning {",
 				`httpio.NewBadRequestMessage("MakeHarborInviteOnly declares no warning: send the call without the X-Warning header")`,
 				"directory, err := rules.Directory(ctx, txn, domain)",
 				`if directory.DefaultRole != "" {`,
@@ -281,7 +291,7 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"POST <prefix>/harbors/{harborID}/open-harbor-to-directory",
 				"POST <prefix>/harbors/{harborID}/make-harbor-invite-only",
 				`which a person types "open" under`,
-				"(StaffHarborRoles)",
+				"(StaffHarborDirectoryRoles)",
 			},
 		},
 		{
@@ -608,11 +618,65 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		}
 	})
 
-	t.Run("the role is picked from the roles of the auth that judges it", func(t *testing.T) {
+	t.Run("the list the role is picked from is written for the auth that serves the methods, and for no other", func(t *testing.T) {
+		t.Parallel()
+
+		served := []string{defaultOutletName, "members", "machines"}
+		tests := []struct {
+			name  string
+			auths []string
+			inst  func() *identityInstance
+			// outlets are the outlets the sources name on the directories record.
+			outlets []string
+			want    bool
+		}{
+			{name: "every session outlet that serves the directories record signs people in through the auth", auths: []string{staffAuth}, inst: func() *identityInstance { return staff(false) }, outlets: served, want: true},
+			{name: "another auth signs people in on one of them", auths: []string{staffAuth, "example.com/app/pkg/auth/members"}, inst: func() *identityInstance { return staff(false) }, outlets: served},
+			{name: "a directory writes the auth's roles", auths: []string{staffAuth}, inst: func() *identityInstance { return staff(true) }, outlets: served},
+			{name: "no session outlet serves the directories record", auths: []string{staffAuth}, inst: func() *identityInstance { return staff(false) }, outlets: []string{"machines"}},
+			{
+				name: "the directories record carries no default seat", auths: []string{staffAuth}, outlets: served,
+				inst: func() *identityInstance {
+					inst := staff(false)
+					inst.tenant.directorySeat = ""
+
+					return inst
+				},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				inst := tt.inst()
+				inst.tenant.directoryOutlets = tt.outlets
+				r := generator(t, tt.auths, []*identityInstance{inst}, "Harbor", "HarborDirectory")
+				if got := r.identityOpensToDirectory(inst); got != tt.want {
+					t.Errorf("identityOpensToDirectory() = %v, want %v", got, tt.want)
+				}
+				// The reading before the load agrees with where the methods are served
+				// once the packages are loaded, and the generator holds the two together.
+				serves := r.directoryRole() != nil
+				if tt.outlets[0] == defaultOutletName && serves != tt.want {
+					t.Errorf("directoryRole() serves the methods = %v, and the list is written = %v: the two agree", serves, tt.want)
+				}
+				inst.opensToDirectory = serves
+				if err := r.holdIdentityDirectoryRole(); err != nil {
+					t.Errorf("holdIdentityDirectoryRole() error = %v where the two readings agree", err)
+				}
+				inst.opensToDirectory = !serves
+				if err := r.holdIdentityDirectoryRole(); err == nil || !strings.Contains(err.Error(), "fault of the generator") {
+					t.Errorf("holdIdentityDirectoryRole() error = %v where the two readings differ, want the generator's fault", err)
+				}
+			})
+		}
+	})
+
+	t.Run("the role is picked from the roles the caller may give, of the auth that judges it", func(t *testing.T) {
 		t.Parallel()
 
 		r := generator(t, []string{staffAuth}, []*identityInstance{staff(false)}, "Harbor", "HarborDirectory")
-		if got, want := r.directoryRolePicker(), "StaffHarborRoles"; got != want {
+		if got, want := r.directoryRolePicker(), "StaffHarborDirectoryRoles"; got != want {
 			t.Errorf("directoryRolePicker() = %q, want %q", got, want)
 		}
 		none := generator(t, nil, nil, "Harbor", "HarborDirectory")
@@ -721,7 +785,7 @@ func Test_directoryOnlyClient(t *testing.T) {
 		wantMeta   []string
 	}{
 		{
-			name: "the client of the outlet that serves the record", collection: served.Data(), picker: "StaffHarborRoles", want: all("StaffHarborRoles"),
+			name: "the client of the outlet that serves the record", collection: served.Data(), picker: "StaffHarborDirectoryRoles", want: all("StaffHarborDirectoryRoles"),
 			wantMeta: []string{
 				"export interface MakeHarborDirectoryOnlyConfig {}\nexport interface MakeHarborDirectoryOnly {}",
 				"export interface EndHarborDirectoryOnlyConfig {}\nexport interface EndHarborDirectoryOnly {}",
@@ -730,7 +794,7 @@ func Test_directoryOnlyClient(t *testing.T) {
 				"export interface MakeHarborInviteOnlyConfig {}\nexport interface MakeHarborInviteOnly {}",
 				"[Methods.MakeHarborDirectoryOnly]: {\n    route: 'make-harbor-directory-only',\n    dryRun: true,\n    warning: { typed: 'close' },\n    fields: [],\n  },",
 				"[Methods.EndHarborDirectoryOnly]: {\n    route: 'end-harbor-directory-only',\n    dryRun: true,\n    fields: [],\n  },",
-				"[Methods.OpenHarborToDirectory]: {\n    route: 'open-harbor-to-directory',\n    dryRun: true,\n    warning: { typed: 'open' },\n    fields: [\n      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffHarborRoles, required: true },\n    ],\n  },",
+				"[Methods.OpenHarborToDirectory]: {\n    route: 'open-harbor-to-directory',\n    dryRun: true,\n    warning: { typed: 'open' },\n    fields: [\n      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffHarborDirectoryRoles, required: true },\n    ],\n  },",
 				"[Methods.MakeHarborInviteOnly]: {\n    route: 'make-harbor-invite-only',\n    dryRun: true,\n    fields: [],\n  },",
 				"import { Methods, Resources } from './zz_gen_constants';",
 			},
@@ -866,22 +930,30 @@ func Test_tenantDirectoryIn(t *testing.T) {
 		// wantSeat is the directories record's default seat column, which is read
 		// whether the record declares the switch or not.
 		wantSeat string
+		// wantOutlets are the outlets the directories record is served on, the default
+		// outlet where it names none and nil where the package declares no such record.
+		wantOutlets []string
 	}{
 		{
-			name:    "the switch's column and the directories record's table and columns",
-			structs: []string{record, directories},
-			want:    &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			name:        "the switch's column and the directories record's table and columns",
+			structs:     []string{record, directories},
+			want:        &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			wantOutlets: []string{defaultOutletName},
 		},
 		{
-			name:     "the default seat column of a directories record that carries one",
-			structs:  []string{record, directoriesSeated},
-			want:     &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
-			wantSeat: "DefaultSeat",
+			name:        "the default seat column of a directories record that carries one, and the outlets it names",
+			structs:     []string{record, strings.Replace(directoriesSeated, "// @tenantDirectory", "// @tenantDirectory\n\t// @outlet(console, portal)", 1)},
+			want:        &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			wantSeat:    "DefaultSeat",
+			wantOutlets: []string{"console", "portal"},
 		},
-		{name: "a record that declares no switch", structs: []string{recordWithoutSwitch, directories}},
-		{name: "a record that declares no switch keeps its directories record's default seat", structs: []string{recordWithoutSwitch, directoriesSeated}, wantSeat: "DefaultSeat"},
+		{name: "a record that declares no switch", structs: []string{recordWithoutSwitch, directories}, wantOutlets: []string{defaultOutletName}},
+		{
+			name:    "a record that declares no switch keeps its directories record's default seat",
+			structs: []string{recordWithoutSwitch, directoriesSeated}, wantSeat: "DefaultSeat", wantOutlets: []string{defaultOutletName},
+		},
 		{name: "a package with no directories record", structs: []string{record}},
-		{name: "a column the syntax does not name", structs: []string{record, directoriesUntagged}},
+		{name: "a column the syntax does not name", structs: []string{record, directoriesUntagged}, wantOutlets: []string{defaultOutletName}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -892,7 +964,7 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "resources.go"), []byte(source), 0o600); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)
 			}
-			got, seat, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
+			got, seat, outlets, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
 				return strings.TrimSuffix(name, "y") + "ies"
 			})
 			if err != nil {
@@ -903,6 +975,9 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			}
 			if seat != tt.wantSeat {
 				t.Errorf("tenantDirectoryIn() default seat column = %q, want %q", seat, tt.wantSeat)
+			}
+			if diff := cmp.Diff(tt.wantOutlets, outlets); diff != "" {
+				t.Errorf("tenantDirectoryIn() outlets of the directories record (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -987,12 +1062,17 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				"LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id",
 				"SELECT 1 FROM CrewSessionIdentities di",
 				"WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection",
-				"WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'",
+				// The super administrator is the person who holds the role now: the
+				// membership counts inside its period alone, as the sign-in rule reads it.
+				"WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'\n      AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())\n  )",
 				") AS OutsideDirectory,",
 				"IF(ts.DirectoryOnly AND td.SectorId IS NOT NULL",
-				"CONCAT('Has not signed in through ', td.Connection, ', so cannot enter while this sector is directory only')",
+				// The sentence speaks of the tenant's directory and never says its connection.
+				`'Has not signed in through this sector\'s directory, so cannot enter while this sector is directory only',`,
 				"NULL) AS CannotEnter",
 			},
+			// A connection is a key, for a Microsoft Entra tenant an id: no sentence is made of it.
+			wantNotContains: []string{"CONCAT(", "through ', td.Connection"},
 		},
 		{
 			name: "an auth that keeps no identities signs nobody in through a directory",

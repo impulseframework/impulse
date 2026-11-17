@@ -69,7 +69,7 @@ interface Digests {
 
 const administratorGrants: PermissionDigest = {
   TenantDirectories: { List: 'granted', Create: 'granted', Delete: 'granted' },
-  StaffTenantRoles: { List: 'granted' },
+  StaffTenantDirectoryRoles: { List: 'granted' },
   MakeTenantDirectoryOnly: { Execute: 'granted' },
   EndTenantDirectoryOnly: { Execute: 'granted' },
   OpenTenantToDirectory: { Execute: 'granted' },
@@ -152,7 +152,7 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
         return { status: 200, body: { directoryOnly: world.directoryOnly ?? false } };
       case `${environment.apiUrl}/tenants/${acmeID}/tenant-directories`:
         return { status: 200, body: world.directories ?? [] };
-      case `${environment.apiUrl}/tenants/${acmeID}/staff-tenant-roles`:
+      case `${environment.apiUrl}/tenants/${acmeID}/staff-tenant-directory-roles`:
         return { status: 200, body: tenantRoles };
       // Every write rides the consolidated route as one operation.
       case `${environment.apiUrl}/resources`:

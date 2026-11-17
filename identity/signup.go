@@ -234,10 +234,12 @@ func (m *Manager) mayGiveBySignUp(ctx context.Context, txn resource.ReadWriteTra
 // application or is the Super Administrator role, and one whose role the caller may not
 // give a person directly (403): nobody signs up holding nothing, nobody signs up
 // administering the application, and nobody gives through a sign-in method what they
-// could not give by hand. In an application with tenants (CreatesTenant) it refuses a
-// request that names a role, since a person who signs up there creates a tenant of
-// their own. The row keeps whom the method admits as it is registered now, and opens
-// the method for that audience alone.
+// could not give by hand. The grant answers before the role is looked for, so a caller
+// who may not give a role is refused the same way whether or not it exists. In an
+// application with tenants (CreatesTenant) it refuses a request that names a role,
+// since a person who signs up there creates a tenant of their own. The row keeps whom
+// the method admits as it is registered now, and opens the method for that audience
+// alone.
 func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransaction, open *SignUp) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -345,20 +347,17 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 	return &registered[i], nil
 }
 
-// requireSignUpRole holds a default role to its rule: a role held for the whole
-// application, by the rule a membership's role is held to, never the Super
-// Administrator role, and one the request's caller may give a person directly
-// (mayGiveBySignUp), refused with 403 naming the role otherwise.
+// requireSignUpRole holds a default role to its rule: never the Super Administrator
+// role, one the request's caller may give a person directly (mayGiveBySignUp), refused
+// with 403 naming the role otherwise, and a role held for the whole application, by the
+// rule a membership's role is held to. The grant answers before the role is looked
+// for, so the refusal says the same of a role the application holds and of one it does
+// not: a caller learns of no role the grant keeps from them. The Super Administrator
+// role is the framework's own, the same in every application, so refusing it first
+// tells nobody anything.
 func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
 		return httpio.NewBadRequestMessagef("the %s role is never a default role: every person who signed up would administer the application; choose another role", string(role))
-	}
-	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope()})
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return httpio.NewBadRequestMessagef("%q is not a role held for the whole application: choose one of the roles the picker lists", string(role))
 	}
 	may, err := m.mayGiveBySignUp(ctx, txn, role)
 	if err != nil {
@@ -368,6 +367,13 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 		return httpio.NewForbiddenMessagef(
 			"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
 			string(role), string(role))
+	}
+	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope()})
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return httpio.NewBadRequestMessagef("%q is not a role held for the whole application: choose one of the roles the picker lists", string(role))
 	}
 
 	return nil

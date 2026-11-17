@@ -136,6 +136,58 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	if status, body := warns(marshal, "SectorMarshal"); status != http.StatusForbidden || !strings.Contains(string(body), mayNotGive) {
 		t.Errorf("asking what opening Cinder with SectorMarshal would do, as a marshal: status %d, want 403 saying %q: %s", status, mayNotGive, body)
 	}
+	// The role is picked from the roles the caller may give in the sector, and no other
+	// (CrewSectorDirectoryRoles): the marshal's list leaves her own role out, as the
+	// method refuses it. The governor's list is the same. A request made under a sector
+	// is judged by the grant of the sector's method that gives a role, which the governor
+	// holds as the marshal of every sector, and that grant gives nobody the marshal's
+	// role: a marshal is made through the whole application's method. So the list leaves
+	// the role out for the governor too, and the method refuses it from the governor as
+	// it does from the marshal. The role file writes no condition on the list: the grant
+	// of the method that gives a role is what the list reads. Each role the list offers
+	// the marshal is one the method takes from her.
+	offered := func(b *browser) []string {
+		t.Helper()
+		status, body := b.do(ctx, http.MethodGet, sectorPath(cinder, "crew-sector-directory-roles"), nil)
+		if status != http.StatusOK {
+			t.Fatalf("listing the roles Cinder may be opened with: status %d: %s", status, body)
+		}
+		var rows []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(body, &rows); err != nil {
+			t.Fatalf("the roles Cinder may be opened with: %v: %s", err, body)
+		}
+		names := make([]string, 0, len(rows))
+		for _, row := range rows {
+			if row.Description == "" {
+				t.Errorf("the role %s is listed with no description, want what the role is for beside its name", row.Name)
+			}
+			names = append(names, row.Name)
+		}
+
+		return names
+	}
+	marshalRoles, governorRoles := offered(marshal), offered(governor)
+	if slices.Contains(marshalRoles, "SectorMarshal") || !slices.Contains(marshalRoles, "Pilot") || !slices.Contains(marshalRoles, "SectorCrew") {
+		t.Errorf("the roles the marshal is offered = %v, want the sector's roles she may give: Pilot and SectorCrew among them, and never SectorMarshal", marshalRoles)
+	}
+	if !slices.Equal(governorRoles, marshalRoles) {
+		t.Errorf("the roles the governor is offered = %v, want the marshal's %v: under a sector both are judged by the grant of the sector's method that gives a role", governorRoles, marshalRoles)
+	}
+	if status, body := open(governor, "SectorMarshal"); status != http.StatusForbidden || !strings.Contains(string(body), mayNotGive) {
+		t.Errorf("opening Cinder with SectorMarshal as the governor: status %d, want 403 saying %q, since the list leaves the role out and offers what the method takes: %s", status, mayNotGive, body)
+	}
+	for _, role := range marshalRoles {
+		dry := marshal.doWith(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": role}), map[string]string{"X-Dry-Run": "true"})
+		if err := dry.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if dry.StatusCode != http.StatusOK {
+			t.Errorf("a dry run of opening Cinder with %s, a role the list offers the marshal: status %d, want 200: the list offers what the method takes", role, dry.StatusCode)
+		}
+	}
 	// A role that is not the sector's is refused, and so is a call that names none.
 	if status, body := open(marshal, "Headquarters"); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this sector") {
 		t.Errorf("opening Cinder with a role held for the whole application: status %d, want 400 saying it is no role of the sector: %s", status, body)
@@ -153,6 +205,28 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	}
 	if dry.StatusCode != http.StatusOK || seat() != "Pilot" {
 		t.Errorf("a dry run of opening Cinder with SectorCrew: status %d and the default role %q, want 200 and Pilot still", dry.StatusCode, seat())
+	}
+	// Either header takes the value true or is left off the request: a request that says
+	// anything else is refused and writes nothing, on the method that opens the sector
+	// and on the one that makes it invite only.
+	for _, header := range []string{"X-Dry-Run", "X-Warning"} {
+		for route, body := range map[string][]byte{
+			"open-sector-to-directory": jsonBody(t, map[string]string{"role": "SectorCrew"}),
+			"make-sector-invite-only":  []byte(`{}`),
+		} {
+			refused := marshal.doWith(ctx, http.MethodPost, sectorPath(cinder, route), body, map[string]string{header: "1"})
+			said, err := io.ReadAll(refused.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := refused.Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+			want := "the " + header + ` header takes the value true, or is left off the request: \"1\" is not a value it takes, so the call was not run`
+			if refused.StatusCode != http.StatusBadRequest || !strings.Contains(string(said), want) || seat() != "Pilot" {
+				t.Errorf("%s with %s: 1: status %d %s and the default role %q, want 400 saying %s and Pilot still", route, header, refused.StatusCode, said, seat(), want)
+			}
+		}
 	}
 
 	// The record shows the role and never writes it: a patch that carries it is refused,

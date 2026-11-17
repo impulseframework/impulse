@@ -114,6 +114,8 @@ type storeSignIn struct {
 	signUp signinflow.SignUpSeater[mockTx]
 	// proven is the password proof the sign-in was handed to the store with.
 	proven sessionstorage.PasswordProof
+	// oneOrganization is what the store was told of the registration's width.
+	oneOrganization bool
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -425,7 +427,7 @@ func (f *authFixture) expectSignIn(id impulse.UUID, prepare func(req *sessioninf
 	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
 			rule, method, policy, accept := rules.Account, rules.Method, rules.Policy, rules.Accept
-			f.signedIn = &storeSignIn{req: req, rule: rule, method: method, policy: policy, accept: accept, signUp: rules.SignUp, proven: rules.Proven}
+			f.signedIn = &storeSignIn{req: req, rule: rule, method: method, policy: policy, accept: accept, signUp: rules.SignUp, proven: rules.Proven, oneOrganization: rules.OneOrganization}
 			if external := !namesItsUser(req.Identity); (method != "") != external || (rule != nil && !external) {
 				f.t.Errorf("SignIn() given the account rule %v and the method %q; want a method's name only for an external identity, not a %s one", rule != nil, method, req.Identity.Method)
 			}
@@ -2445,8 +2447,11 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 
 // TestAuth_AccountRulesGivenToTheStore proves a registration hands the store what decides
 // a person it has no account for: the name it is registered under, by which the store
-// reads what an administrator chose for it, and the application's own rule only when
-// one was given.
+// reads what an administrator chose for it, the application's own rule only when
+// one was given, and how wide the registration is: whether it admits exactly one
+// organization and nobody else, which is the width at which the deployment's seeded
+// account is linked on its name. The width is counted as the registration lists its
+// organizations, so two tenants that read alike are two.
 func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 	t.Parallel()
 
@@ -2454,14 +2459,24 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 	custom := func(context.Context, mockTx, *azure.Identity) (*signin.Resolution, error) {
 		return signin.Standard(), nil
 	}
-
 	tests := []struct {
 		name     string
 		rule     azure.AccountRule[mockTx]
 		wantRule bool
+		// tenants is the registration's organization slot, one tenant where it is not
+		// set, and wantWide that the store is told it admits more than one organization.
+		tenants  *azure.TenantSet
+		wantWide bool
 	}{
 		{name: "no rule: the method's name alone, for the library's standard rule"},
 		{name: "a custom rule beside the method's name", rule: custom, wantRule: true},
+		{name: "a registration of two tenants is wider than one organization", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantOther))), wantWide: true},
+		{name: "a registration of one tenant and any other is wider", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.AnyTenant())), wantWide: true},
+		{name: "a registration of one tenant and personal accounts is wider", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.PersonalAccounts())), wantWide: true},
+		{
+			name:    "two tenants that read alike, one named as the other is labeled, are two",
+			tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.NamedTenant(tenantOther, "the Microsoft Entra tenant "+tenantLake))), wantWide: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2478,7 +2493,11 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 
 					return "/next", "", nil
 				})
-			entra := azure.SignIn(f.auth, "staff-directory", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Authenticator: authn})
+			tenants := azure.Tenant(tenantLake)
+			if tt.tenants != nil {
+				tenants = *tt.tenants
+			}
+			entra := azure.SignIn(f.auth, "staff-directory", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: tenants, Authenticator: authn})
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 				req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "p.lee@lakeside.edu"
 			}, nil)
@@ -2490,6 +2509,9 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 			}
 			if f.signedIn.method != "staff-directory" || (f.signedIn.rule != nil) != tt.wantRule {
 				t.Errorf("SignIn() given the method %q and a custom rule = %v, want the registration's name and %v", f.signedIn.method, f.signedIn.rule != nil, tt.wantRule)
+			}
+			if f.signedIn.oneOrganization == tt.wantWide {
+				t.Errorf("SignIn() told the registration admits one organization alone = %v, want %v", f.signedIn.oneOrganization, !tt.wantWide)
 			}
 			if tt.wantRule {
 				res, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req)
@@ -2530,6 +2552,81 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	got, err := a.API().StartAuthenticatedSession(context.Background(), rr, userID, []sessioninfo.AuthEvent{{Method: "api-key"}})
 	if err != nil || got != sessionID || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("StartAuthenticatedSession() = %s, %v; want %s with its cookies", got, err, sessionID)
+	}
+}
+
+// TestAuth_SetDirectoryAdmission_seeded pins that the directory admission's word on a
+// seeded account reaches the sign-in: the store is handed the hook's Seeded as it was
+// given, which the rule on a first link made on a name alone asks of the deployment's
+// first administrator, and none where the hook names none.
+func TestAuth_SetDirectoryAdmission_seeded(t *testing.T) {
+	t.Parallel()
+
+	seedID := SeedUserIDThrough("members", "directory", "ada@lakeside.edu")
+	tests := []struct {
+		name   string
+		seeded func(userID impulse.UUID, username, registration string) bool
+	}{
+		{
+			name: "a hook that recognizes its seed is asked by the sign-in",
+			seeded: func(userID impulse.UUID, username, registration string) bool {
+				return userID == SeedUserIDThrough("members", registration, username)
+			},
+		},
+		{name: "a hook that names no seed hands the sign-in none"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			store := newAuthStoreMock(ctrl)
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+			if err != nil {
+				t.Fatalf("NewAuth() error = %v", err)
+			}
+			a.SetDirectoryAdmission(
+				func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
+				DirectorySeatedHook[mockTx]{
+					Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+						return nil, nil
+					},
+					OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) { return false, nil },
+					Seeded: tt.seeded,
+				},
+			)
+			userID := impulse.Must(impulse.NewUUID())
+			sessionID := impulse.Must(impulse.NewUUID())
+			store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+			store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
+					if rules.Directories == nil || rules.OnlyIn == nil {
+						t.Error("SignIn() given no directory reader or no OnlyIn, want the admission's")
+					}
+					if rules.OneOrganization {
+						t.Error("SignIn() told a session that came through no registration that its registration admits one organization")
+					}
+					if (rules.Seeded != nil) != (tt.seeded != nil) {
+						t.Fatalf("SignIn() given a Seeded = %v, want %v", rules.Seeded != nil, tt.seeded != nil)
+					}
+					if rules.Seeded == nil {
+						return sessionID, nil
+					}
+					if !rules.Seeded(seedID, "Ada@Lakeside.edu", "directory") {
+						t.Error("the Seeded the sign-in was handed does not recognize the account seeded for the registration")
+					}
+					if rules.Seeded(seedID, "ada@lakeside.edu", "okta") || rules.Seeded(userID, "ada@lakeside.edu", "directory") {
+						t.Error("the Seeded the sign-in was handed recognizes an account seeded for another registration, or one under another id")
+					}
+
+					return sessionID, nil
+				})
+			store.EXPECT().TouchUserSignIn(gomock.Any(), userID).Return(nil)
+
+			if _, err := a.API().StartAuthenticatedSession(context.Background(), httptest.NewRecorder(), userID, []sessioninfo.AuthEvent{{Method: "api-key"}}); err != nil {
+				t.Fatalf("StartAuthenticatedSession() error = %v", err)
+			}
+		})
 	}
 }
 

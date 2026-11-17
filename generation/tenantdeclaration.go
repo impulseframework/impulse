@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"fmt"
 	"go/types"
 	"slices"
 	"strings"
@@ -285,6 +286,7 @@ func (r *resourceGenerator) validateTenantDeclaration() error {
 	}
 	record.declaration = &tenantDeclaration{Directories: directories}
 	directories.directoryOf = record
+	directories.directoryRules = r.namedDirectoryRules(record)
 
 	return nil
 }
@@ -380,17 +382,58 @@ func (r *resourceGenerator) directoryTenantWord(record *resourceInfo) string {
 	return strings.ToLower(r.tenantWord(record).One)
 }
 
-// DirectoryRules is the expression of the rules of a tenant's directory the
-// directories record's write paths ask: a call of New<Record>DirectoryRules, which the
-// tenant record's roster file declares in the handler package. It is a call and never
-// a package variable: a handler file that named a variable another file declares would
-// read to the import resolution as naming a package. Empty on every other resource.
-func (r *resourceInfo) DirectoryRules() string {
-	if r.directoryOf == nil {
+// directoryNamers are the expressions that name a directory in a generated frame of
+// the handler package: the DirectoryName of the generated identity client of every
+// auth whose management the program generates, in declaration order, each read through
+// the application's accessor (a.CrewIdentity().DirectoryName). A sentence that speaks
+// of a directory says it as the auths' sign-in registrations call it
+// (resource.DirectoryWords), a name from any auth before a label from another.
+func (r *resourceGenerator) directoryNamers() []string {
+	namers := make([]string, 0, len(r.identity))
+	for _, inst := range r.identity {
+		namers = append(namers, fmt.Sprintf("%s.%s().DirectoryName", r.receiverName, inst.accessor()))
+	}
+
+	return namers
+}
+
+// closedTenantNamers are the namers the generated tenant list names a session's
+// directory by in a closed tenant's reason, as the arguments of its option
+// (resource.WithDirectoryNames): the program's (directoryNamers) where the package
+// declares a tenant's directories, and none where it declares none, since no tenant is
+// then closed to a session.
+func (r *resourceGenerator) closedTenantNamers() string {
+	if r.tenantDirectoryRecord() == nil {
 		return ""
 	}
 
-	return "New" + r.directoryOf.Name() + "DirectoryRules()"
+	return strings.Join(r.directoryNamers(), ", ")
+}
+
+// namedDirectoryRules is the expression of the rules of a tenant record's directory as
+// a generated frame of the handler package builds them: a call of
+// New<Record>DirectoryRules, which the record's roster file declares there, named by
+// the program's auths (directoryNamers, resource.TenantDirectoryRules.NamedBy) so the
+// rules' sentences say a directory in words a person knows and never by its
+// connection. A program that generates no auth's management names the rules by nobody.
+func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
+	rules := "New" + record.Name() + "DirectoryRules()"
+	namers := r.directoryNamers()
+	if len(namers) == 0 {
+		return rules
+	}
+
+	return rules + ".NamedBy(" + strings.Join(namers, ", ") + ")"
+}
+
+// DirectoryRules is the expression of the rules of a tenant's directory the
+// directories record's write paths ask: a call of New<Record>DirectoryRules, which the
+// tenant record's roster file declares in the handler package, named by the program's
+// auths (namedDirectoryRules). It is a call and never a package variable: a handler
+// file that named a variable another file declares would read to the import resolution
+// as naming a package. Empty on every other resource.
+func (r *resourceInfo) DirectoryRules() string {
+	return r.directoryRules
 }
 
 // DirectoryTenantWord is the word for one tenant in the comments the directories

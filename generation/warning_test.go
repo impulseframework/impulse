@@ -110,7 +110,7 @@ func Test_rpcHandlerTemplate_warning(t *testing.T) {
 			name:   "a method that declares a warning answers it and rolls back",
 			method: inspect(&rpcWarning{Typed: "open"}),
 			wantContains: []string{
-				"asksWarning := resource.AsksWarning(r)",
+				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tvar warning *resource.Warning",
 				"said, err := p.Warning(ctx, txn, a.RPCClient())",
 				`resource.CheckWarning("Inspect", said)`,
 				"warning = said\n\n\t\t\t\treturn resource.ErrWarningAsked",
@@ -125,11 +125,13 @@ func Test_rpcHandlerTemplate_warning(t *testing.T) {
 			name:   "a transaction-form method that declares none refuses the header",
 			method: inspect(nil),
 			wantContains: []string{
-				"if resource.AsksWarning(r) {",
+				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning {",
 				`httpio.NewBadRequestMessage("Inspect declares no warning: send the call without the X-Warning header")`,
 			},
-			wantNotContains: []string{"asksWarning", "p.Warning(", "ErrWarningAsked"},
-			wantOrder:       []string{"decoder.DecodeCaller(r,", "if resource.AsksWarning(r) {", "ExecuteFunc("},
+			wantNotContains: []string{"var warning *resource.Warning", "p.Warning(", "ErrWarningAsked"},
+			// A header that says anything but true is refused before the call runs, as a
+			// request that asks for a warning the method does not declare is.
+			wantOrder: []string{"decoder.DecodeCaller(r,", "asksWarning, err := resource.AsksWarning(r)", "if asksWarning {", "ExecuteFunc("},
 		},
 		{
 			name:   "a client-form method refuses the header",
@@ -137,8 +139,11 @@ func Test_rpcHandlerTemplate_warning(t *testing.T) {
 			wantContains: []string{
 				`httpio.NewBadRequestMessage("Notify declares no warning: send the call without the X-Warning header")`,
 			},
-			wantNotContains: []string{"asksWarning", "p.Warning("},
-			wantOrder:       []string{"decoder.DecodeCaller(r,", "if resource.AsksWarning(r) {", "p.Execute(ctx, a.ResourceClient(), a.RPCClient())"},
+			wantNotContains: []string{"var warning *resource.Warning", "p.Warning("},
+			wantOrder: []string{
+				"decoder.DecodeCaller(r,", "asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning {",
+				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif dryRun {", "p.Execute(ctx, a.ResourceClient(), a.RPCClient())",
+			},
 		},
 	}
 	for _, tt := range tests {

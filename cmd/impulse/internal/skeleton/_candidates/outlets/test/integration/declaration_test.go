@@ -195,7 +195,11 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// words, which say what to do. The console's staff sign in by password, so here
 	// nobody can turn it on until a directory method joins the staff auth. A tenant with
 	// no directory has nothing to be only of. Nothing is written.
-	notThroughIt := "Directory only is turned on by a person who is signed in through this tenant's directory, Microsoft Entra tenant " + entra.Connection + ": that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through Microsoft Entra tenant " + entra.Connection + " and try again."
+	// The sentence says the directory in words a person knows: the registration lists its
+	// tenant by its id alone, which names nothing, so the directory is said by the label
+	// of the button the portal's members sign in to it with, and never by the tenant's id.
+	const itsDirectory = "your organization's Microsoft directory"
+	notThroughIt := "Directory only is turned on by a person who is signed in through this tenant's directory, " + itsDirectory + ": that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through " + itsDirectory + " and try again."
 	if status, body := warns(admin, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
 		t.Errorf("asking what directory only would do to north, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
 	}
@@ -246,9 +250,15 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	inviteOnly := func(headers map[string]string) (int, []byte) {
 		return admin.doWith(ctx, http.MethodPost, consoleAPI+"/tenants/"+north+"/make-tenant-invite-only", []byte(`{}`), headers)
 	}
-	opens := "Anyone who signs in through " + entra.Connection + " will be able to enter this tenant without an invitation and gets the role TenantAdministrator."
-	if status, body := open("TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) {
-		t.Errorf("the warning of opening north to its directory: status %d: %s, want 200 saying %q", status, body, opens)
+	// The role is picked from the roles the caller may give in the tenant, and no other
+	// (StaffTenantDirectoryRoles): the tenant's administrator gives every role of the
+	// tenant, so the list offers each.
+	if status, body := admin.do(ctx, http.MethodGet, consoleAPI+"/tenants/"+north+"/staff-tenant-directory-roles", nil); status != http.StatusOK || !strings.Contains(string(body), `"name":"TenantAdministrator"`) {
+		t.Errorf("listing the roles the tenant may be opened with: status %d: %s, want 200 with TenantAdministrator among them", status, body)
+	}
+	opens := "Anyone who signs in through " + itsDirectory + " will be able to enter this tenant without an invitation and gets the role TenantAdministrator."
+	if status, body := open("TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) || strings.Contains(string(body), entra.Connection) {
+		t.Errorf("the warning of opening north to its directory: status %d: %s, want 200 saying %q and never the tenant's id", status, body, opens)
 	}
 	if status, body := open("Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this tenant") {
 		t.Errorf("opening north with a role it does not have: status %d, want 400 saying so: %s", status, body)
@@ -321,7 +331,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// says they cannot enter; the administrator's, a super administrator, says nothing.
 	// The warning a page asks before turning it on has nothing to turn on: it says so, and
 	// names neither the directory nor the people.
-	keptOut := "Has not signed in through " + entra.Connection + ", so cannot enter while this tenant is directory only"
+	keptOut := "Has not signed in through this tenant's directory, so cannot enter while this tenant is directory only"
 	people := tenantRows(ctx, t, admin, north, "staff-tenant-users")
 	if got, _ := people[s.memberID]["cannotEnter"].(string); got != keptOut {
 		t.Errorf("north's people: the staff member's row says %q, want %q", got, keptOut)

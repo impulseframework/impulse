@@ -77,7 +77,9 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	type request struct{}
 
 	decoder := resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())
-	rules := NewTenantDirectoryRules()
+	// The rules' sentences say the tenant's directory as each auth's sign-in
+	// registrations call it, never by its connection.
+	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -97,7 +99,12 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		// and checked as the call is. Turning the switch on answers its warning in
 		// place of running the call: the transaction below rolls back. Turning it
 		// off declares none, so the request is refused and never runs the call.
-		asksWarning := resource.AsksWarning(r)
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if asksWarning && !only {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("%s declares no warning: send the call without the X-Warning header", method))
 		}
@@ -109,7 +116,10 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		eventSource := resource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
 				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
@@ -168,5 +178,5 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 // grant of either method that turns it, Execute on MakeTenantDirectoryOnly or on EndTenantDirectoryOnly in the
 // tenant, and writes nothing (resource.DirectoryOnlyStateHandler).
 func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules(), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
+	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName), a.UserPermissions, router.Domain, "MakeTenantDirectoryOnly", "EndTenantDirectoryOnly")
 }

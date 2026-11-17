@@ -229,3 +229,36 @@ func TestWorkspaceSet_admitsAddress(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkspaceSet_nameOf pins what a sentence calls the organization behind a link's
+// connection: the application's name for a named Workspace, the domain of one admitted
+// as any Workspace, and nothing for an account in no Workspace or a connection the set
+// does not admit.
+func TestWorkspaceSet_nameOf(t *testing.T) {
+	t.Parallel()
+
+	one := Workspace("lakeside", "lakeside.edu")
+
+	tests := []struct {
+		name       string
+		workspaces WorkspaceSet
+		connection string
+		want       string
+	}{
+		{name: "a named Workspace is its name", workspaces: one, connection: "lakeside", want: "lakeside"},
+		{name: "a Workspace admitted as any Workspace is its domain", workspaces: AnyWorkspace(), connection: "riverside.edu", want: "riverside.edu"},
+		{name: "a named Workspace beside any Workspace keeps its name", workspaces: Workspaces(one, AnyWorkspace()), connection: "lakeside", want: "lakeside"},
+		{name: "an account in no Workspace is no organization", workspaces: Workspaces(one, AnyGoogleAccount()), connection: AnyAccountConnection},
+		{name: "a Workspace the set does not admit", workspaces: one, connection: "riverside.edu"},
+		{name: "no connection", workspaces: one, connection: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.workspaces.nameOf(tt.connection); got != tt.want {
+				t.Errorf("nameOf(%q) = %q, want %q", tt.connection, got, tt.want)
+			}
+		})
+	}
+}

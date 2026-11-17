@@ -36,6 +36,7 @@ export const Resources = {
   StaffSessions: 'StaffSessions' as Resource,
   StaffSignInMethods: 'StaffSignInMethods' as Resource,
   StaffSignInWays: 'StaffSignInWays' as Resource,
+  StaffTenantDirectoryRoles: 'StaffTenantDirectoryRoles' as Resource,
   StaffTenantGroupRoles: 'StaffTenantGroupRoles' as Resource,
   StaffTenantGroupUsers: 'StaffTenantGroupUsers' as Resource,
   StaffTenantGroups: 'StaffTenantGroups' as Resource,
@@ -498,6 +499,17 @@ export namespace StaffSignInWays {
     through: 'StaffSignInWays.through' as Resource,
     userId: 'StaffSignInWays.userId' as Resource,
     way: 'StaffSignInWays.way' as Resource,
+  };
+}
+
+export namespace StaffTenantDirectoryRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'StaffTenantDirectoryRoles.description' as Resource,
+    name: 'StaffTenantDirectoryRoles.name' as Resource,
   };
 }
 

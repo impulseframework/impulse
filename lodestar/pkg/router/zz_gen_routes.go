@@ -202,6 +202,8 @@ type GeneratedHandlers interface {
 
 	CrewRoleGrants() http.HandlerFunc
 
+	CrewSectorDirectoryRoles() http.HandlerFunc
+
 	CrewSectorGroups() http.HandlerFunc
 	CrewSectorGroup() http.HandlerFunc
 
@@ -697,6 +699,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewRoleGrantsHandler := h.CrewRoleGrants()
 	bounded.Get("/console/api/crew-role-grants", crewRoleGrantsHandler)
 	bounded.Post("/console/api/crew-role-grants", crewRoleGrantsHandler)
+
+	crewSectorDirectoryRolesHandler := domainGuard(h.CrewSectorDirectoryRoles())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-directory-roles", crewSectorDirectoryRolesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-directory-roles", crewSectorDirectoryRolesHandler)
 
 	crewSectorGroupsHandler := domainGuard(h.CrewSectorGroups())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-groups", crewSectorGroupsHandler)

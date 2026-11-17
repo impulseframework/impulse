@@ -204,6 +204,10 @@ func (a *App) CrewUserRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewUserRoles()
 }
 
+func (a *App) CrewSectorDirectoryRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSectorDirectoryRoles()
+}
+
 func (a *App) CrewSectorRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorRoles()
 }

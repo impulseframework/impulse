@@ -787,7 +787,10 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 
 		name := Feature(req.Name)
 		eventSource := UserEvent(ctx)
-		dryRun := IsDryRun(r)
+		dryRun, err := IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 			if err := bufferFeatureWrite(ctx, txn, name, req.Enabled, eventSource); err != nil {
 				return err

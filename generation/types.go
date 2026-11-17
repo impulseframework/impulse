@@ -1372,8 +1372,11 @@ type resourceInfo struct {
 	declaration *tenantDeclaration
 	// directoryOf is the tenant record the directories record belongs to, set with the
 	// record's declaration; nil on every other resource. The directories record's
-	// generated write paths name the record's directory rules by it.
-	directoryOf *resourceInfo
+	// generated write paths name the record's directory rules by it, and
+	// directoryRules is the expression that builds those rules in a generated frame of
+	// the handler package (resourceGenerator.namedDirectoryRules), set with it.
+	directoryOf    *resourceInfo
+	directoryRules string
 
 	// ListsAcrossTenants marks a tenant-scoped resource whose list is also served
 	// without the tenant's segment (@listAcrossTenants): one request reads its rows in

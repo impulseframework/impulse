@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"go/format"
 	"slices"
 	"testing"
 
@@ -101,7 +102,8 @@ func Test_formatResourceInterfaceTypes_computed(t *testing.T) {
 
 // Test_tenantComputedSources pins where the roles of a tenant are declared: beside the
 // methods of an auth whose roles a tenant gives by hand, in a file named for the
-// resource, and nowhere else.
+// resource, and nowhere else. The roles a tenant may be opened to its directory's
+// people with are declared beside them for the auth whose management judges that role.
 func Test_tenantComputedSources(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +118,15 @@ func Test_tenantComputedSources(t *testing.T) {
 		{name: "a tenant gives roles by hand", inst: identityInstance{tenant: ship}, tables: []identityTable{identityUsers, identityMemberships}, want: []string{"crew_ship_roles"}},
 		{name: "a directory writes the roles: nobody picks one", inst: identityInstance{tenant: ship, rolesSynced: true}, tables: []identityTable{identityUsers, identityMemberships}},
 		{name: "no memberships: no role is held, so none is picked", inst: identityInstance{tenant: ship}, tables: []identityTable{identityUsers}},
+		{
+			name: "the auth that judges the role a tenant is opened to its directory with lists the roles the caller may give beside them",
+			inst: identityInstance{tenant: ship, opensToDirectory: true}, tables: []identityTable{identityUsers, identityMemberships},
+			want: []string{"crew_ship_roles", "crew_ship_directory_roles"},
+		},
+		{
+			name: "and never where a directory writes the roles",
+			inst: identityInstance{tenant: ship, rolesSynced: true, opensToDirectory: true}, tables: []identityTable{identityUsers, identityMemberships},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -142,6 +153,37 @@ func Test_tenantComputedSources(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_identityDirectoryRoleChoicesTemplate pins how the list of the roles a tenant may be
+// opened with reads them: it hands the rule the database and opens no transaction
+// around it. The rule reads the tenant's roles from the permission engine, whose own
+// read the database refuses under a transaction's context, so a list that asked the
+// rule inside one answered every request with a server error.
+func Test_identityDirectoryRoleChoicesTemplate(t *testing.T) {
+	t.Parallel()
+
+	inst := crewInstance()
+	inst.tenant = &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector"}
+	data := &identitySourceData{Source: "Auth", Package: "crewidentity", identityInstance: inst, Outlets: "default"}
+
+	c := &client{}
+	out, err := c.generateTemplateOutput("identityDirectoryRoleChoicesTemplate", identityDirectoryRoleChoicesTemplate, data)
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	if _, err := format.Source(out); err != nil {
+		t.Fatalf("the rendered list does not parse: %v\n%s", err, out)
+	}
+	assertContains(t, "the list of the roles a tenant may be opened with", string(out),
+		[]string{
+			"type CrewSectorDirectoryRole struct {",
+			"func ListCrewSectorDirectoryRole(ctx context.Context, qSet *resource.QuerySet[CrewSectorDirectoryRole], db resource.Client, client *Client) iter.Seq2[*CrewSectorDirectoryRole, error] {",
+			"roles, err := client.manager.DirectoryRoles(ctx, db, domain)",
+		},
+		// No transaction is opened here, and nothing of the permission engine is named.
+		[]string{"ExecuteFunc", "resource.ReadWriteTransaction", "impulse/access\""},
+	)
 }
 
 // Test_signInWaySources pins where the list of how a person signs in is declared: beside

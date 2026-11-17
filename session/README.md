@@ -255,7 +255,24 @@ DML what a later rule must read.
   a disabled account accepts no invitation, so its own vouches for nothing. A person
   created ahead in two tenants, or holding a role in every tenant or outside them, is
   therefore linked at a first sign-in only with their invitation, or once they have a
-  password to confirm with. Any other sign-in under the name is refused as a
+  password to confirm with. One such account is the deployment's own: the first
+  administrator of an Auth whose people sign in through a directory, which the seed
+  creates with no password, holding roles for the whole application and belonging to
+  no tenant. The deployment vouches for it. The seed creates it under
+  `session.SeedUserIDThrough(auth, registration, username)`, an id that names the
+  sign-in registration the person comes through and that no request can give an
+  account, the hook's `Seeded` recognizes the id, and the account is linked at its
+  person's first sign-in through that registration while the registration admits one
+  organization and nobody else. The same name through another registration of the
+  Auth, a customer's own provider among them, or through a registration that names
+  several organizations or is open to any or to personal accounts, is not the
+  deployment's word and links nothing, and neither does a seed that was disabled; so
+  the first administrator of an Auth whose only directory methods are that wide is
+  given another way in (a directory method of one organization, or a password). Naming
+  a registration in the seed says that whoever its directory presents under the name
+  is that person: it is for the deployment's own directory, whose sign-in names only
+  its administrators give, and never for a provider that lets a person choose a name.
+  Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
   say nothing of the account (`invitation_only` through a directory some tenant has,
   `not_invited` through any other), and nothing is linked, seated or accepted. An
@@ -269,7 +286,8 @@ DML what a later rule must read.
   organization's to assert. An account an application's seed creates with no password
   and with roles in every tenant or in none, as the cast of the persona sign-in is,
   signs in through such a registration; through any other it has no tenant whose
-  directory could vouch for it and is linked only with its own invitation. An
+  directory could vouch for it and is linked only with its own invitation, or as the
+  seed of that registration (the first administrator, above). An
   application whose
   tenants have no directories (no `SetDirectoryAdmission`) has only the directories its
   deployment registered for itself, and links such an account under its name as
@@ -534,7 +552,10 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
   that transaction, which the library asks before it links an identity on its name
   alone to an account that has never signed in (see "A first link on a name alone"
-  above).
+  above). Its `Seeded`, which a hook may leave out, answers whether an account is the
+  one the deployment's seed created for the registration a sign-in came through
+  (`session.SeedUserIDThrough`), which the library asks at the same point; the
+  generated identity client answers all three.
   `Seat` is called at a person's first sign-in through the directory, the one that
   makes the link, whether the account is created in it or stood before: a person
   given a role ahead of their first sign-in, or invited by another tenant, has an
@@ -1165,6 +1186,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking the last link that can sign in a user with no password is refused (Conflict, `sessionstorage.ErrLastSignInMethod`): another link must be one a sign-in is still possible through (`SignsInThrough`), whatever links that sign nobody in remain. A user who holds a password may lose every link. |
 | `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
+| `DirectoryName(method, connection)` | What the Auth's sign-in registrations call the directory an identity of this method and connection came through, for a sentence that names it to a person: the name a registration that takes the connection gives it (`signin.Method.ConnectionName`: a tenant listed with `azure.NamedTenant`, a Google Workspace's name or the domain of one admitted as any Workspace, an OpenID Connect provider's name or its issuer's host), and the label of the button of the first registration of the login page that takes the connection; each is empty where the registrations have none. A tenant listed by its id alone (`azure.Tenant`), one admitted as any tenant, and a method that names no connection have no name, so a sentence says such a directory by the label ("your organization's Microsoft directory") and never by the connection, which for an Entra tenant is an id. It reads nothing. |
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
@@ -1183,6 +1205,20 @@ and the persona cast's seed work this way, and seed nothing for a user that exis
 whatever it holds. The first administrator is the deployment's first super administrator:
 the seed writes the Super Administrator role under the id beside the application's own
 administrator roles, since only a holder of that role makes another.
+
+A first administrator who signs in through a directory holds no password, and the seed
+creates the account under `session.SeedUserIDThrough(auth, registration, username)`:
+the same id on every run, which also names the sign-in registration the person comes
+through. In an application whose tenants have directories that id is what links the
+account at the person's first sign-in (see "A first link on a name alone"): it is the
+deployment's word on which registration the name is believed from, and it holds while
+that registration admits one organization alone. The id names the registration and not
+the organization behind it: a registration pointed at another organization before the
+person has signed in believes that organization's word instead. The generated foothold
+seeds its administrator this way where it can name the registration without guessing,
+for an auth whose one directory method is of one Microsoft Entra tenant or one Google
+Workspace; for any other auth it seeds for no registration and says how its author
+names the deployment's own directory.
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -2074,6 +2110,14 @@ by opening it to sign-up (see "Open to sign-up, or invite only"): the people of 
 tenants it lists, each by the name `azure.NamedTenant` gives it; anyone with a
 Microsoft work or school account under any tenant; anyone with a personal Microsoft
 account under personal accounts. Every registration is invite only until it is opened.
+
+The name `azure.NamedTenant` gives a tenant is also what a person reads wherever the
+application speaks of the tenant's directory: a link's connection is the tenant id,
+which nobody knows, so `AuthAPI.DirectoryName` answers the name for it and a sentence
+says "Lakeside". A tenant listed by its id alone, and every tenant admitted under
+`azure.AnyTenant()`, has no name: a sentence then says the directory by the label of
+the registration's button on the login page, "your organization's Microsoft directory"
+for a button labeled Microsoft. Name the tenants you list.
 
 `Config.Authority` is the Microsoft identity platform the tenants live on,
 `https://login.microsoftonline.com` when empty; Azure Government tenants live at

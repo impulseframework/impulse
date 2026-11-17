@@ -53,7 +53,23 @@ func (stubTxn) DataChangeEventIndex(accesstypes.Resource, string) int {
 func inTransaction(t *testing.T, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
 	t.Helper()
 
-	if err := resource.NewMockClient(stubTxn{}, nil, nil).ExecuteFunc(t.Context(), f); err != nil {
+	return fakeDatabase{}.ExecuteFunc(t.Context(), f)
+}
+
+// inTransactionKey marks the context a transaction's function runs under.
+type inTransactionKey struct{}
+
+// fakeDatabase runs a function in a transaction as the application's database does (a
+// resource.Executor), and marks the context the function runs under as the Spanner
+// client marks it. A read on another client under such a context is one the database
+// refuses ("Cloud Spanner does not support nested transactions"), and the permission
+// engine's listings read on the engine's own client, so the fake engine refuses a
+// listing asked under the mark (fakeUserManager.Roles).
+type fakeDatabase struct{}
+
+func (fakeDatabase) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+	marked := context.WithValue(ctx, inTransactionKey{}, true)
+	if err := resource.NewMockClient(stubTxn{}, nil, nil).ExecuteFunc(marked, f); err != nil {
 		return errors.Wrap(err, "resource.MockClient.ExecuteFunc()")
 	}
 
@@ -663,7 +679,13 @@ func (u *fakeUserManager) Membership(ctx context.Context, scope accesstypes.Poli
 }
 
 // Roles lists the roles of the scope as the library does, each described by its name.
-func (u *fakeUserManager) Roles(_ context.Context, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+// The library reads the custom ones on the engine's own client, which the database
+// refuses under a transaction's context (fakeDatabase), so a listing asked inside a
+// transaction fails here as it does against a database.
+func (u *fakeUserManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+	if ctx.Value(inTransactionKey{}) != nil {
+		return nil, errors.New("the roles of a scope were listed inside a transaction: the engine reads them on a client of its own, which the database refuses under a transaction's context")
+	}
 	if u.engine.rolesErr != nil {
 		return nil, u.engine.rolesErr
 	}
@@ -688,6 +710,14 @@ type fakeSessions struct {
 	// method.
 	unoffered map[sessioninfo.AuthMethod]bool
 	untaken   map[string]bool
+	// named are the names the registrations give a connection, and labels the labels of
+	// the buttons a person signs in to a method's directories with.
+	named  map[string]string
+	labels map[sessioninfo.AuthMethod]string
+}
+
+func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
+	return s.named[connection], s.labels[method]
 }
 
 func (s fakeSessions) SignInMethods() []session.RegisteredMethod {

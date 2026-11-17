@@ -439,13 +439,20 @@ func Test_prepareIdentity(t *testing.T) {
 			// The roles a sign-in gives are the manager's, handed the session library's transaction.
 			"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {", `return c.manager.InvitationAccepted("Crew")`,
 			"func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.DirectorySeated("Crew")`,
+			// What the auth's sign-in registrations call a directory is the manager's answer.
+			"func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {", "return c.manager.DirectoryName(directory)",
 			// The methods a super administrator always executes are the two that give and
 			// take the auth's roles, and the manager holds the engine to them.
 			"return []accesstypes.Resource{AssignCrewRole{}.Method(), RemoveCrewRole{}.Method()}", "opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))",
 		},
 		// An auth whose directory writes its roles serves no method that gives one, so a
 		// super administrator has none to be given.
-		"membersidentity/client.go":                     {"func SuperAdministratorMethods() []accesstypes.Resource {\n\treturn nil\n}", "// The auth's roles are not given by hand here, so there are none."},
+		"membersidentity/client.go": {
+			"func SuperAdministratorMethods() []accesstypes.Resource {\n\treturn nil\n}", "// The auth's roles are not given by hand here, so there are none.",
+			// An auth whose roles a directory writes names a directory as every auth does:
+			// the frames of a tenant's directory ask each auth's client.
+			"func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {",
+		},
 		"crewidentity/store.go":                         {"func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":    {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go": {"CrewSessionToken struct {", "RevokedAt     *time.Time"},

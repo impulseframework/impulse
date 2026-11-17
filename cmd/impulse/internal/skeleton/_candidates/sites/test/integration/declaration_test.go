@@ -195,6 +195,12 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	inviteOnly := func(headers map[string]string) (int, []byte) {
 		return admin.doWith(ctx, http.MethodPost, "/api/tenants/"+north+"/make-tenant-invite-only", []byte(`{}`), headers)
 	}
+	// The role is picked from the roles the caller may give in the tenant, and no other
+	// (StaffTenantDirectoryRoles): the tenant's administrator gives every role of the
+	// tenant, so the list offers each.
+	if status, body := admin.do(ctx, http.MethodGet, "/api/tenants/"+north+"/staff-tenant-directory-roles", nil); status != http.StatusOK || !strings.Contains(string(body), `"name":"TenantAdministrator"`) {
+		t.Errorf("listing the roles the tenant may be opened with: status %d: %s, want 200 with TenantAdministrator among them", status, body)
+	}
 	opens := "Anyone who signs in through " + "north.example" + " will be able to enter this tenant without an invitation and gets the role TenantAdministrator."
 	if status, body := open("TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) {
 		t.Errorf("the warning of opening north to its directory: status %d: %s, want 200 saying %q", status, body, opens)
@@ -252,7 +258,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// they cannot enter; the administrator's, a super administrator, says nothing. The
 	// warning a page asks before turning it on has nothing to turn on: it says so, and
 	// names neither the directory nor the people.
-	keptOut := "Has not signed in through north.example, so cannot enter while this tenant is directory only"
+	keptOut := "Has not signed in through this tenant's directory, so cannot enter while this tenant is directory only"
 	people := tenantRows(ctx, t, admin, north, "staff-tenant-users")
 	if got, _ := people[s.memberID]["cannotEnter"].(string); got != keptOut {
 		t.Errorf("north's people: the member's row says %q, want %q", got, keptOut)

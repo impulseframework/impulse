@@ -786,7 +786,15 @@ a user named administrator with the password the stack generates for a password 
 which the first sign-in changes before anything else is served, or a user without a
 password under a sign-in name the placement names, which that person's first sign-in
 links to, for an auth whose roles the application assigns; its roles, its setting in the
-data level and its seeding from pkg/deploy are handed to the agent.
+data level and its seeding from pkg/deploy are handed to the agent. Where the
+application's tenants have directories, a name alone links no account that has never
+signed in, so such a user is seeded for the registration its name is believed from. The
+foothold names that registration itself only for an auth whose one directory method is
+of one Microsoft Entra tenant or one Google Workspace; for any other auth (several
+directory methods, a method open to more than one organization, an organization's
+identity provider) it names none and says so, and the first sign-in links nothing until
+its author names the deployment's own directory in the foothold, or gives the auth a
+password method.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),

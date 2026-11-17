@@ -901,8 +901,13 @@ caller may list the sector's people (List on the sector's people lists and on th
 some of them is told so in the sentence, and one who may list nobody is told how many
 and no names. While it is on, the sector's People page says who
 it keeps out, on the row of each person with no sign-in through the directory ("Has not
-signed in through persona, so cannot enter while this sector is directory only"); the
-list is made from who holds a role in the sector, so nobody disappears from it. The
+signed in through this sector's directory, so cannot enter while this sector is
+directory only"); the list is made from who holds a role in the sector, so nobody
+disappears from it. Every sentence that speaks of a sector's directory says it in words
+a person knows, the name the crew's sign-in registrations give it (`example`, the
+fleet's Workspace; `persona`, the persona provider), and never by a connection that is
+an id (`a.CrewIdentity().DirectoryName`, which the generated frames pass to the rules
+and to the sector list). The
 directory of a sector its own creator charted is
 the organization's directory its creator came through, set by the create-sector route
 with the row through the step every such write takes (`app.SetSectorDirectory`); the
@@ -929,7 +934,10 @@ people is the sector's own to say as well, with two more generated methods
 `{"role": "SectorCrew"}`) names the seat, behind a warning that says who will enter and
 with what role (the word `open`), and holds the role to one the caller could give
 directly (a marshal may not give `SectorMarshal`, so she may not make it the role
-everyone from the directory gets); `MakeSectorInviteOnly` clears it. The record's own
+everyone from the directory gets, and the list the role is picked from,
+`CrewSectorDirectoryRoles`, does not offer it to her: it lists the sector's roles she
+may give, by the grant of the method that gives one); `MakeSectorInviteOnly` clears it.
+The record's own
 update never writes the seat. The console's Sign-in page (Sector Ops menu, under the
 sector's URL) carries the declaration: a marshal signed in through his organization's
 directory makes it the sector's there with one button and removes it; a marshal signed

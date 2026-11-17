@@ -622,7 +622,7 @@ func TestAuthApply(t *testing.T) {
 				"ran go generate ./...",
 			},
 			wantSkipped: []string{
-				"pkg/auth/partners/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, which the person's first sign-in links to; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (APP_PARTNERS_ADMINISTRATOR) and seed it from pkg/deploy SeedAdministrators",
+				"pkg/auth/partners/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, seeded for the directory registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (APP_PARTNERS_ADMINISTRATOR) and seed it from pkg/deploy SeedAdministrators",
 				"pkg/config/data.go: Close releases the staff auth only; release the partners auth too",
 				"no environment template (.envrc.template, .env.template, .env.example) to add the directory method's variables to (APP_PARTNERS_DIRECTORY_TENANT_ID, APP_PARTNERS_DIRECTORY_ADMINISTERED_TENANTS, APP_PARTNERS_DIRECTORY_CLIENT_ID, APP_PARTNERS_DIRECTORY_CLIENT_SECRET, APP_PARTNERS_DIRECTORY_REDIRECT_URL)",
 			},
@@ -1234,6 +1234,55 @@ func Test_servesTenantRecord(t *testing.T) {
 			a := &app.App{OutletMembers: tt.members}
 			if got := servesTenantRecord(a, tt.site, &app.Outlet{Name: tt.outlet}); got != tt.want {
 				t.Errorf("servesTenantRecord() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_footholdLink pins what the note a membership foothold leaves says of the seeded
+// user's first sign-in: linked through the registration the foothold names; linked by
+// nothing where the tenants have directories and the foothold names none, with what the
+// author does about it; and linked on the name, as ever, where the auth sets no
+// directory admission.
+func Test_footholdLink(t *testing.T) {
+	t.Parallel()
+
+	application := func(kind, name string) authpkg.Method {
+		return authpkg.Method{Kind: kind, Name: name, Authority: AuthorityApplication}
+	}
+	tenanted := &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader"}
+	tests := []struct {
+		name string
+		spec *authpkg.Spec
+		want string
+	}{
+		{
+			name: "one Microsoft Entra tenant, where the tenants have directories",
+			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodAzure, "directory")}, TenantPolicy: tenanted},
+			want: "seeded for the directory registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration",
+		},
+		{
+			name: "an organization's identity provider, where the tenants have directories",
+			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodOIDC, "company-sso")}, TenantPolicy: tenanted},
+			want: "seeded for no registration and linked to by no sign-in while the application's tenants have directories",
+		},
+		{
+			name: "two directory methods, where the tenants have directories",
+			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodAzure, "directory"), application(app.MethodGoogle, "workspace")}, TenantPolicy: tenanted},
+			want: "name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method",
+		},
+		{
+			name: "an organization's identity provider in an application with no tenant record",
+			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodOIDC, "company-sso")}},
+			want: "which the person's first sign-in links to",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := footholdLink(tt.spec); !strings.Contains(got, tt.want) {
+				t.Errorf("footholdLink() = %q, want it to say %q", got, tt.want)
 			}
 		})
 	}

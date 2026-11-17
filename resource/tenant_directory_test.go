@@ -139,26 +139,97 @@ func TestTenantDirectoryStatements(t *testing.T) {
 	}
 }
 
-func TestDirectoryName(t *testing.T) {
+// TestDirectoryWords pins how a sentence names a directory to a person: by the name a
+// sign-in registration gives it, a name from any auth before a label from another;
+// where none names it, by the label of the button a person signs in to it with; and
+// where no registration answers, by what the directory alone says. It never says a
+// Microsoft Entra tenant's id. DirectoryName is the same words with the kind of
+// directory before a name.
+func TestDirectoryWords(t *testing.T) {
 	t.Parallel()
 
+	const tenantID = "6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a"
+	entra := signin.Directory{Method: sessioninfo.MethodAzure, Connection: tenantID}
+	answers := func(name, label string) DirectoryNamer {
+		return func(signin.Directory) (string, string) {
+			return name, label
+		}
+	}
 	tests := []struct {
+		name      string
 		directory signin.Directory
-		want      string
+		namers    []DirectoryNamer
+		wantWords string
+		wantName  string
 	}{
-		{directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "acme.example"}, want: "Google Workspace acme.example"},
-		{directory: signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a"}, want: "Microsoft Entra tenant 6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a"},
-		{directory: signin.Directory{Method: sessioninfo.MethodWorkOS, Connection: "conn_01"}, want: "WorkOS connection conn_01"},
-		{directory: signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "idp"}, want: "OpenID Connect provider idp"},
-		{directory: signin.Directory{Method: "saml", Connection: "idp"}, want: "Directory idp"},
+		{
+			name: "a tenant a registration names is its name", directory: entra, namers: []DirectoryNamer{answers("Lakeside", "Staff")},
+			wantWords: "Lakeside", wantName: "Microsoft Entra tenant Lakeside",
+		},
+		{
+			name: "a tenant no registration names is said by the label of its button", directory: entra, namers: []DirectoryNamer{answers("", "Microsoft")},
+			wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory",
+		},
+		{
+			name: "a label that ends in the word directory is not given it twice", directory: entra, namers: []DirectoryNamer{answers("", "Staff directory")},
+			wantWords: "your organization's Staff directory", wantName: "your organization's Staff directory",
+		},
+		{
+			name: "a name from one auth is said before a label from another", directory: entra, namers: []DirectoryNamer{answers("", "Microsoft"), answers("Lakeside", "Portal")},
+			wantWords: "Lakeside", wantName: "Microsoft Entra tenant Lakeside",
+		},
+		{
+			name: "the first label is the one said", directory: entra, namers: []DirectoryNamer{nil, answers("", ""), answers("", "Microsoft"), answers("", "Portal")},
+			wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory",
+		},
+		{
+			name: "a tenant no registration takes is said by its kind, never by its id", directory: entra, namers: []DirectoryNamer{answers("", "")},
+			wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory",
+		},
+		{name: "with nobody to ask, a tenant is said by its kind", directory: entra, wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory"},
+		{
+			name: "with nobody to ask, a Workspace is its connection, the application's name for it or its domain", directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "acme.example"},
+			wantWords: "acme.example", wantName: "Google Workspace acme.example",
+		},
+		{
+			name: "with nobody to ask, a provider the application named is its name", directory: signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "idp"},
+			wantWords: "idp", wantName: "OpenID Connect provider idp",
+		},
+		{
+			name: "with nobody to ask, a provider known by its issuer is the issuer's host", directory: signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "https://id.acme.example/realms/staff"},
+			wantWords: "id.acme.example", wantName: "OpenID Connect provider id.acme.example",
+		},
+		{
+			name: "with nobody to ask, a connection that is an id of another kind is not said", directory: signin.Directory{Method: sessioninfo.MethodWorkOS, Connection: "conn_01"},
+			wantWords: "your organization's directory", wantName: "your organization's directory",
+		},
+		{
+			name: "a method the library does not know", directory: signin.Directory{Method: "saml", Connection: "idp"},
+			wantWords: "your organization's directory", wantName: "your organization's directory",
+		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := DirectoryName(tt.directory); got != tt.want {
-				t.Errorf("DirectoryName() = %q, want %q", got, tt.want)
+			if got := DirectoryWords(tt.directory, tt.namers...); got != tt.wantWords {
+				t.Errorf("DirectoryWords() = %q, want %q", got, tt.wantWords)
+			}
+			if got := DirectoryName(tt.directory, tt.namers...); got != tt.wantName {
+				t.Errorf("DirectoryName() = %q, want %q", got, tt.wantName)
+			}
+			for _, got := range []string{DirectoryWords(tt.directory, tt.namers...), DirectoryName(tt.directory, tt.namers...)} {
+				if strings.Contains(got, tenantID) || strings.Contains(got, "conn_01") {
+					t.Errorf("%q says the connection, want words a person knows", got)
+				}
 			}
 		})
+	}
+
+	if got := startSentence(DirectoryName(entra)); got != "Your organization's Microsoft directory" {
+		t.Errorf("the words at the start of a sentence = %q, want them to start in upper case", got)
+	}
+	if got := startSentence(DirectoryName(signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "acme.example"})); got != "Google Workspace acme.example" {
+		t.Errorf("a name at the start of a sentence = %q, want it as it is", got)
 	}
 }

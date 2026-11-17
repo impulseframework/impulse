@@ -736,6 +736,11 @@ export interface BriefingTemplates {
   layout?: unknown;
 }
 
+export interface CrewSectorDirectoryRoles {
+  name: string;
+  description?: string;
+}
+
 export interface CrewSectorRoles {
   name: string;
   description?: string;
@@ -1900,6 +1905,18 @@ const resourceMap = defineResourceMap({
       { fieldName: 'layout', displayType: 'object', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewSectorDirectoryRoles]: {
+    route: 'sectors/{sectorID}/crew-sector-directory-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.CrewSectorRoles]: {
     route: 'sectors/{sectorID}/crew-sector-roles',
     readDisabled: true,
@@ -2146,6 +2163,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.SquadronRosters]: PermissionScopes.domain,
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
+  [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
   [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
   [Resources.CrewSignInMethods]: PermissionScopes.global,

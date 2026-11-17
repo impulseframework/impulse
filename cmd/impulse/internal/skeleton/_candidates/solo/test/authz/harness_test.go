@@ -132,6 +132,11 @@ func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
 	return nil
 }
 
+// DirectoryName names no directory: the matrix registers no sign-in method.
+func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
+	return "", ""
+}
+
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix
 // drives the generated methods' routes as it drives every other, and a denied case is
 // answered before any of them runs.

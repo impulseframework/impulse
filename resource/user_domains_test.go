@@ -131,10 +131,12 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		ctx      context.Context
-		global   bool
-		super    bool
+		name   string
+		ctx    context.Context
+		global bool
+		super  bool
+		// namers say what the application's registrations call a directory.
+		namers   []DirectoryNamer
 		wantBody string
 	}{
 		{
@@ -148,9 +150,27 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			wantBody: `[{"domain":"anvil","name":"Anvil Works"},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
-			name:     "a session through another directory enters the tenant that is not directory only, and is told which directory it came through",
+			name: "a session through another directory enters the tenant that is not directory only, and is told which directory it came through, by the name a registration gives it",
+			ctx:  sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodAzure, Connection: "tenant-id"}),
+			namers: []DirectoryNamer{func(directory signin.Directory) (string, string) {
+				if directory.Connection == "tenant-id" {
+					return "Lakeside", "Microsoft"
+				}
+
+				return "", ""
+			}},
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through Microsoft Entra tenant Lakeside."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:     "a directory no registration names is said by the label of its button, never by its id",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodAzure, Connection: "tenant-id"}),
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through Microsoft Entra tenant tenant-id."},{"domain":"bastion","name":"bastion"}]`,
+			namers:   []DirectoryNamer{func(signin.Directory) (string, string) { return "", "Staff sign-in" }},
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Staff sign-in directory."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:     "with nobody to ask, a tenant's directory is said by its kind, never by its id",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodAzure, Connection: "tenant-id"}),
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Microsoft directory."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a personal account is named as one",
@@ -191,7 +211,7 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			reader := &declarationReader{declarations: declarations}
 			handler := UserDomainsHandler(func(r *http.Request) UserPermissions {
 				return SessionPermissions(r.Context(), forUser, RolePrincipalsUnsupported, roster, reader.read)
-			}, WithDomainNames(stubNames{anvil: "Anvil Works"}))
+			}, WithDomainNames(stubNames{anvil: "Anvil Works"}), WithDirectoryNames(tt.namers...))
 
 			req := httptest.NewRequestWithContext(tt.ctx, http.MethodGet, "/api/user-domains", http.NoBody)
 			rr := httptest.NewRecorder()

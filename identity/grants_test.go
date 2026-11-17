@@ -18,17 +18,24 @@ import (
 
 // fakeGrants answers the role file's grants on the methods that give a role and take one
 // away as a test scripts them: the caller gives and takes every role but the ones named.
-// It records what it was asked.
+// It records what it was asked, and which of the questions about giving a role reached
+// it outside any transaction (fakeDatabase): the grant of a tenant's method may read a
+// row, so a rule that asks for a tenant asks in one.
 type fakeGrants struct {
 	noGive []accesstypes.Role
 	noTake []accesstypes.Role
 	err    error
 	asked  []string
+	// askedOutside are the questions about giving a role asked outside a transaction.
+	askedOutside []string
 }
 
-func (g *fakeGrants) MayGive(_ context.Context, _ resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
+func (g *fakeGrants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
 	key := access.NewMembershipKey(scope, User(userID), role)
 	g.asked = append(g.asked, "give "+membershipText(&key))
+	if txn == nil || ctx.Value(inTransactionKey{}) == nil {
+		g.askedOutside = append(g.askedOutside, "give "+membershipText(&key))
+	}
 
 	return !slices.Contains(g.noGive, role), g.err
 }

@@ -30,7 +30,7 @@ const DirectoryOnlyRoute = "directory-only"
 // DirectoryOnlyWord is the word a person types before a tenant is made directory only
 // (the warning of Make<Record>DirectoryOnly): the tenant is closed to every sign-in but
 // one through its directory. A warning's word is one lowercase word, which a
-// directory's connection is not, so the word is the same for every tenant.
+// directory's name is not, so the word is the same for every tenant.
 const DirectoryOnlyWord = "close"
 
 // DirectoryOnlyState is a tenant's directory-only switch as it stands.
@@ -265,9 +265,9 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	}
 
 	return &Warning{
-		Consequence: directoryOnlySentence(directory, r.word, counted, count, len(names)),
+		Consequence: directoryOnlySentence(r.directoryWords(directory), r.word, counted, count, len(names)),
 		Names:       names,
-		Confirm:     fmt.Sprintf("Admit only people who sign in through %s", directory.Connection),
+		Confirm:     fmt.Sprintf("Admit only people who sign in through %s", r.directoryWords(directory)),
 	}, nil
 }
 
@@ -286,9 +286,10 @@ func outsiderName(person DirectoryOutsider) string {
 // warning lists fewer of them than it counts, that the list is the ones the caller may
 // list, so a part of them is never read as all of them. counted says somebody read the
 // people: where nobody did, the sentence gives no number, and does not say that nobody
-// loses access.
-func directoryOnlySentence(directory signin.Directory, word string, counted bool, outsiders, named int) string {
-	only := fmt.Sprintf("Only people who sign in through %s will be able to enter this %s.", directory.Connection, word)
+// loses access. directory is the tenant's directory in the words a person knows it by
+// (DirectoryWords).
+func directoryOnlySentence(directory, word string, counted bool, outsiders, named int) string {
+	only := fmt.Sprintf("Only people who sign in through %s will be able to enter this %s.", directory, word)
 	if !counted {
 		return only + " Anyone seated here who signs in another way will lose access."
 	}
@@ -324,7 +325,8 @@ func (r *TenantDirectoryRules) turnOn(ctx context.Context, txn ReadWriteTransact
 	session := sessioninfo.DataFromCtx(ctx)
 	established, ok := session.EstablishedBy()
 	if !ok || (signin.Directory{Method: established.Method, Connection: established.Connection}) != directory {
-		return signin.Directory{}, httpio.NewConflictMessagef("Directory only is turned on by a person who is signed in through this %[1]s's directory, %[2]s: that shows the directory works, and that you will not shut yourself out. %[3]s Sign in through %[2]s and try again.", r.word, DirectoryName(directory), establishedSentence(session))
+		return signin.Directory{}, httpio.NewConflictMessagef("Directory only is turned on by a person who is signed in through this %[1]s's directory, %[2]s: that shows the directory works, and that you will not shut yourself out. %[3]s Sign in through %[2]s and try again.",
+			r.word, r.directoryName(directory), establishedSentence(session, r.namers))
 	}
 
 	return directory, nil

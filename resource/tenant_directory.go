@@ -3,7 +3,6 @@ package resource
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -45,6 +44,9 @@ type TenantDirectoryRules struct {
 	keyColumn string
 	columns   *TenantDeclarationColumns
 	word      string
+	// namers say what the application's sign-in registrations call a directory, for
+	// the sentences that name one (NamedBy).
+	namers []DirectoryNamer
 }
 
 // NewTenantDirectoryRules builds the rules over the tenant record's table and key
@@ -56,6 +58,30 @@ func NewTenantDirectoryRules(table, keyColumn string, columns *TenantDeclaration
 	}
 
 	return &TenantDirectoryRules{table: table, keyColumn: keyColumn, columns: columns, word: word}
+}
+
+// NamedBy answers the rules with the namers of the application's auths, which say what
+// each auth's sign-in registrations call a directory: every sentence of the rules that
+// names a directory then says it in words a person knows (DirectoryWords), the name a
+// registration gives it or the label of its button, and never its connection, which
+// for a Microsoft Entra tenant is an id. The generated frames of a tenant's own methods
+// pass the namer of each auth's generated identity client. Rules nobody names read
+// what a directory alone says.
+func (r *TenantDirectoryRules) NamedBy(namers ...DirectoryNamer) *TenantDirectoryRules {
+	named := *r
+	named.namers = namers
+
+	return &named
+}
+
+// directoryWords says a directory as the middle of one of the rules' sentences names
+// it (DirectoryWords), and directoryName with its kind before a name (DirectoryName).
+func (r *TenantDirectoryRules) directoryWords(directory signin.Directory) string {
+	return DirectoryWords(directory, r.namers...)
+}
+
+func (r *TenantDirectoryRules) directoryName(directory signin.Directory) string {
+	return DirectoryName(directory, r.namers...)
 }
 
 // SessionDirectory answers the directory the request's session was established
@@ -119,13 +145,13 @@ func (r *TenantDirectoryRules) Set(ctx context.Context, txn ReadWriteTransaction
 		rowDirectory := signin.Directory{Method: sessioninfo.AuthMethod(row.Method), Connection: row.Connection}
 		switch {
 		case accesstypes.Domain(row.Domain) == tenant && rowDirectory == directory:
-			return httpio.NewConflictMessagef("%s is already this %s's directory.", DirectoryName(directory), r.word)
+			return httpio.NewConflictMessagef("%s is already this %s's directory.", startSentence(r.directoryName(directory)), r.word)
 		case accesstypes.Domain(row.Domain) == tenant:
-			return httpio.NewConflictMessagef("This %s already has a directory, %s. A %s has one directory: remove it first to set another.", r.word, DirectoryName(rowDirectory), r.word)
+			return httpio.NewConflictMessagef("This %s already has a directory, %s. A %s has one directory: remove it first to set another.", r.word, r.directoryName(rowDirectory), r.word)
 		}
 	}
 	if len(held) > 0 {
-		return httpio.NewConflictMessagef("%s already has a %s here, and a directory belongs to one %s. Ask that %s's administrator to invite you.", DirectoryName(directory), r.word, r.word, r.word)
+		return httpio.NewConflictMessagef("%s already has a %s here, and a directory belongs to one %s. Ask that %s's administrator to invite you.", startSentence(r.directoryName(directory)), r.word, r.word, r.word)
 	}
 
 	return nil
@@ -246,27 +272,6 @@ func tenantDirectoryStatements(dbType DBType, table, keyColumn string, columns *
 	}
 
 	return out, nil
-}
-
-// DirectoryName is a directory as a sentence names it: the kind of directory its
-// method reaches and its connection, "Google Workspace acme.example", "OpenID Connect
-// provider id.acme.example".
-func DirectoryName(directory signin.Directory) string {
-	var kind string
-	switch directory.Method {
-	case sessioninfo.MethodGoogle:
-		kind = "Google Workspace"
-	case sessioninfo.MethodAzure:
-		kind = "Microsoft Entra tenant"
-	case sessioninfo.MethodWorkOS:
-		kind = "WorkOS connection"
-	case sessioninfo.MethodOIDC:
-		kind = "OpenID Connect provider"
-	default:
-		kind = "Directory"
-	}
-
-	return strings.TrimSpace(kind + " " + directory.Connection)
 }
 
 // personalAccountsName is what a sentence calls one of the two values that stand for
