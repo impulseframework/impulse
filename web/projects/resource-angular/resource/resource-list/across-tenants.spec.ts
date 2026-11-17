@@ -87,12 +87,12 @@ describe('tenantLink', () => {
     expect(tenantLink('/sectors/:sectorID/missions', 'sectorID', 'b2', 'm 9')).toBe('/sectors/b2/missions/m%209');
   });
 
-  it('leaves a route that names no tenant parameter as it is', () => {
-    expect(tenantLink('clients', 'sectorID', anvil, 'c1')).toBe('/clients/c1');
-    expect(tenantLink('clients', 'sectorID', undefined, 'c1')).toBe('/clients/c1');
+  it('draws no link to a route that names no tenant parameter: such a page is in no tenant', () => {
+    expect(tenantLink('clients', 'sectorID', anvil, 'c1')).toBeUndefined();
+    expect(tenantLink('clients', 'sectorID', undefined, 'c1')).toBeUndefined();
   });
 
-  it('draws no link for a row with no key, or with no tenant where the route needs one', () => {
+  it('draws no link for a row with no key, or with no tenant', () => {
     expect(tenantLink('sectors/:sectorID/missions', 'sectorID', anvil, undefined)).toBeUndefined();
     expect(tenantLink('sectors/:sectorID/missions', 'sectorID', anvil, '')).toBeUndefined();
     expect(tenantLink('sectors/:sectorID/missions', 'sectorID', undefined, 'm1')).toBeUndefined();

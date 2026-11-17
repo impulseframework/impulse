@@ -3,9 +3,10 @@ import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-auth
 import { featureMatch } from '@impulseframework/resource-angular/auth-feature';
 import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
 import { canDeactivateGuard } from '@impulseframework/resource-angular/guards';
-import { registerResourcePage } from '@impulseframework/resource-angular/resource-nav';
+import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
 import {
   keyFields,
+  ListAcrossTenantsPermission,
   ListPermission,
   PermissionScope,
   ReadPermission,
@@ -39,9 +40,21 @@ function acrossTenantsRoute(config: RootConfig, resource: Resource): string {
 }
 
 /**
+ * What a page that lists its resource across tenants is shown by, and its route opened
+ * by: the global digest's answer that the person may list the resource in at least one
+ * tenant the session reaches. The server works it out, so the application names no
+ * permission of its own to stand in for it.
+ */
+function acrossTenantsScope(resource: Resource): PermissionScope {
+  return { resource, permission: ListAcrossTenantsPermission };
+}
+
+/**
  * The page a config-driven resource's routes carry, for the application's menu file to
  * place: the config's label and icon at the page's route, needing List on the resource
  * (or the config's permission) and behind the resource's feature flag (or the config's).
+ * A page that lists its resource across tenants needs the list to have something to show
+ * the person instead (acrossTenantsScope).
  * The same config answers the same page, made once, so the place in the menu file and the
  * page on the route are one, as `unplacedPages` checks. Refused, naming what is missing: a
  * config with no page, and a resource the metadata does not carry.
@@ -65,8 +78,8 @@ export function resourcePage(config: RootConfig, resourceMeta: (resource: Resour
     icon: config.page.icon,
     route: [across ? acrossTenantsRoute(config, resource) : config.routeData.route || meta.route],
     // A list across tenants has no one tenant whose digest could answer List for it: the
-    // page needs the config's permission alone, and none where the config names none.
-    permission: config.page.permission ?? (across ? undefined : { resource, permission: ListPermission }),
+    // global digest says whether the person may list the resource in any tenant of theirs.
+    permission: config.page.permission ?? (across ? acrossTenantsScope(resource) : { resource, permission: ListPermission }),
     feature: config.page.feature ?? meta.feature,
   });
   pages.set(config, declared);
@@ -77,15 +90,19 @@ export function resourcePage(config: RootConfig, resourceMeta: (resource: Resour
  * Builds the routes for a config-driven resource, carrying its page (resourcePage) when
  * the config names one, for the application's menu file to place.
  *
- * The routes are guarded by the resource's List permission, answered from the permission
- * digest by the AuthorizationGuard, and the page needs the same scope, so the menus leave
- * out what the person cannot open. The scope names no
+ * The list route is guarded by the resource's List permission, answered from the
+ * permission digest by the AuthorizationGuard, and the page needs the same scope, so the
+ * menus leave out what the person cannot open. The scope names no
  * domain: a global resource is asked in the global digest, and a domain-scoped one in
  * the selected tenant's (RESOURCE_DOMAIN), which AuthService settles. The row route
- * (`:uuid`) is guarded on Read as well, since a role may list a resource without reading
- * its rows — Read on the resource whose row the page opens: the listed resource, or its
- * table when the list is a view declaring one (the metadata's `rowsOf`), since a view
- * lists and never reads. A config's page may name another permission for the menus. A domain-scoped resource's metadata route carries the tenant parameter in
+ * (`:uuid`) is guarded on Read alone, since a role may list a resource without reading
+ * its rows and may read a row of a table whose view it does not list — Read on the
+ * resource whose row the page opens: the listed resource, or its table when the list is
+ * a view declaring one (the metadata's `rowsOf`), since a view lists and never reads. The
+ * list's guard sits on the list, not over the row: a link to a row a person may read
+ * opens it, whatever they may list. The page is registered as where the resource's rows
+ * open by a route of their own (rowPageRoute) when it carries the row route. A config's
+ * page may name another permission for the menus. A domain-scoped resource's metadata route carries the tenant parameter in
  * braces, so such a page sets `routeData.route` to the path it should live at, which may
  * carry the tenant parameter as the router names it (`sectors/:sectorID/missions`) when
  * the page lives under the tenant segment. The page is registered as where the
@@ -103,11 +120,13 @@ export function resourcePage(config: RootConfig, resourceMeta: (resource: Resour
  * A page that lists its resource across tenants (`acrossTenants` on the list config) is
  * mounted at `routeData.route`, which it must name: the resource's own route is one
  * tenant's list. It gets no row route and is not registered as where the resource's rows
- * open, since a row opens inside its tenant. Its route and its page need no List
- * permission: the selected tenant's digest speaks for one tenant, and the server leaves
- * out, tenant by tenant, what the person may not list, so someone who may list the
- * resource in no tenant opens an empty list. A `page.permission` on the config is what
- * the menus ask before showing it; the feature flag gates it as it gates any page.
+ * open, since a row opens inside its tenant. No one tenant's digest speaks for it: its
+ * route is guarded by, and its page needs, the global digest's answer that the person
+ * may list the resource in at least one tenant the session reaches
+ * (ListAcrossTenantsPermission), so the menus show the page to those people and nobody
+ * else, and the route turns anyone else away. A `page.permission` on the config is what
+ * the menus ask instead; the route's guard stays. The feature flag gates it as it gates
+ * any page.
  */
 export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Resource) => ResourceMeta): Route => {
   const resource = config.parentConfig.primaryResource as Resource;
@@ -126,11 +145,12 @@ export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Reso
 
   if (listsAcrossTenants(config)) {
     // The page reads and opens no row of its own: a row's link leads into its tenant's
-    // routes. The server answers who may list what, tenant by tenant, so the route asks
-    // no one tenant's digest.
+    // routes. The server answers who may list what, tenant by tenant, and tells the
+    // global digest whether that is anything at all for this person, which the route asks.
     return gated({
       path: acrossTenantsRoute(config, resource),
-      data: { config } satisfies RouteResourceData,
+      data: { config, scope: acrossTenantsScope(resource) } satisfies RouteResourceData,
+      canActivate: [AuthorizationGuard],
       children: [
         {
           path: '',
@@ -152,33 +172,16 @@ export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Reso
   const data = { config, scope } satisfies RouteResourceData;
   const viewData = { config, scope: { resource: rowResource, permission: ReadPermission } } satisfies RouteResourceData;
 
-  if (config.routeData.route) {
-    const baseRoute: Route = {
-      path: config.routeData.route,
-      data,
-      canActivate: [AuthorizationGuard],
-      children: [
-        {
-          path: '',
-          loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
-          canDeactivate: [canDeactivateGuard],
-        },
-      ],
-    };
-    if (config.routeData.hasViewRoute !== false && !keyless) {
-      baseRoute.children?.push({
-        path: ':uuid',
-        data: viewData,
-        canActivate: [AuthorizationGuard],
-        loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.CompoundResourceComponent),
-        canDeactivate: [canDeactivateGuard],
-      });
-    }
-    // A configured route stands with or without its row route; falling through would
-    // discard it for the meta route and add the row route the config switched off.
-    return gated(baseRoute);
-  }
-
+  // The list asks List and the row asks Read, each of its own route: the list's guard
+  // does not stand over the row, so a row a person may read opens from wherever a link
+  // to it was drawn.
+  const listRoute: Route = {
+    path: '',
+    data,
+    canActivate: [AuthorizationGuard],
+    loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
+    canDeactivate: [canDeactivateGuard],
+  };
   const rowRoute: Route = {
     path: ':uuid',
     data: viewData,
@@ -186,16 +189,17 @@ export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Reso
     loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.CompoundResourceComponent),
     canDeactivate: [canDeactivateGuard],
   };
-  const listRoute: Route = {
-    path: '',
-    loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
-    canDeactivate: [canDeactivateGuard],
-  };
+  // A configured route stands with or without its row route: the config may switch the
+  // row route off, which the meta route never does.
+  const opensRows = !keyless && (!config.routeData.route || config.routeData.hasViewRoute !== false);
+  if (opensRows) {
+    registerRowPage(resource, path);
+    registerRowPage(rowResource, path);
+  }
 
   return gated({
-    path: meta.route,
+    path,
     data,
-    canActivate: [AuthorizationGuard],
-    children: keyless ? [listRoute] : [rowRoute, listRoute],
+    children: opensRows ? [rowRoute, listRoute] : [listRoute],
   } satisfies Route);
 };

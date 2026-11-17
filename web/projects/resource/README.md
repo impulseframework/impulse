@@ -212,6 +212,13 @@ that declares no such list, and `acrossTenantsHandle(client, 'Missions')` gives 
 handle by the resource's name to a page that learns its resources at run time, refusing
 a resource that is not declared for it.
 
+Who the list is for is the server's to say: the global digest carries
+`ListAcrossTenants` on a declared resource while the person may list it in at least one
+tenant the session reaches, and no role grants it. `client.acrossTenants.missions.can()`
+asks it, as does `client.can(ListAcrossTenantsPermission, 'Missions')`, which answers
+from the global digest whatever domain is passed. A page of the list is shown to the
+people it answers true for; the list itself answers anyone else an empty array.
+
 ## Permissions
 
 `api.permissions` is the session user's digest cache: one digest per scope (global,

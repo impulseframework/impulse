@@ -5,7 +5,7 @@ import { ApiDescriptor, createClient, Domain } from '@impulseframework/resource'
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { Resource, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
 
-import { pageRouteResolver, registerResourcePage, resourcePageRoute } from './index';
+import { pageRouteResolver, registerResourcePage, registerRowPage, resourcePageRoute, rowPageRoute } from './index';
 
 // A registered route is the page's path as its config wrote it, and it may carry the
 // tenant parameter as the router names it. The resolver puts the page's tenant in the
@@ -128,5 +128,19 @@ describe('registerResourcePage', () => {
     registerResourcePage(missions, tenantRoute);
     registerResourcePage(missions, 'missions');
     expect(resourcePageRoute(missions)).toBe(tenantRoute);
+  });
+});
+
+describe('registerRowPage', () => {
+  it('records where a resource\'s rows open by a route of their own, apart from where they land, and keeps the first', () => {
+    const berths = 'Berths' as Resource;
+    // A page registered as where the rows land carries no row route until one is recorded.
+    registerResourcePage(berths, 'sectors/:sectorID/berths');
+    expect(rowPageRoute(berths)).toBeUndefined();
+
+    registerRowPage(berths, 'sectors/:sectorID/berths');
+    registerRowPage(berths, 'elsewhere/berths');
+    expect(rowPageRoute(berths)).toBe('sectors/:sectorID/berths');
+    expect(rowPageRoute('Unmounted' as Resource)).toBeUndefined();
   });
 });

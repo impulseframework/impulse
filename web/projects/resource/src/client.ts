@@ -3,6 +3,7 @@ import {
   DeletePermission,
   Domain,
   ExecutePermission,
+  ListAcrossTenantsPermission,
   Method,
   Permission,
   PermissionScope,
@@ -287,6 +288,13 @@ export interface AcrossTenantsHandle<Row, Key extends unknown[]> {
   /** The tenant a row of the list is in. */
   tenantOf(row: InTenant<Row>): Domain;
   /**
+   * Whether the list has anything to show the person: the global digest's answer that
+   * they may list the resource in at least one tenant the session reaches
+   * (`ListAcrossTenantsPermission`). It is what a page of the list is shown by. False
+   * until the global digest has loaded.
+   */
+  can(): boolean;
+  /**
    * What a live request of this handle subscribes to: the list across tenants, narrowed
    * to `domains` when the page names tenants. Pass it to `client.live.watch` beside the
    * refetch the change should run. Undefined for a list narrowed to no tenant, which
@@ -521,7 +529,9 @@ export interface ClientBase {
   batch(operations: Operation[]): Promise<BatchResult>;
   /**
    * Asks the right digest: the descriptor decides whether the target is global or
-   * domain-scoped; a domain-scoped target with no domain answers false.
+   * domain-scoped; a domain-scoped target with no domain answers false. Whether a
+   * resource may be listed across tenants (`ListAcrossTenantsPermission`) is the global
+   * digest's to answer, whatever domain is named.
    */
   can(permission: Permission, target: Resource | Method, domain?: Domain): boolean;
   /**
@@ -597,6 +607,9 @@ export function createClient<G, D, A = Record<never, never>>(
     requestResponse,
     batch: (operations) => batch(request, descriptor, operations),
     can: (permission, target, domain) => {
+      if (permission === ListAcrossTenantsPermission) {
+        return permissions.can({ resource: target, permission });
+      }
       const scope =
         descriptor.resources[target]?.scope ?? descriptor.methods[target]?.scope ?? (domain ? 'domain' : 'global');
       if (scope === 'domain' && !domain) {
@@ -1084,6 +1097,7 @@ function createAcrossTenantsHandle<Row extends object, Key extends unknown[]>(
     url: () => `${client.baseUrl}/${route}`,
     keyOf: (row: Row) => descriptor.keys.map((field) => (row as Record<string, unknown>)[field]) as Key,
     tenantOf: (row: InTenant<Row>) => row[TenantProperty],
+    can: () => client.can(ListAcrossTenantsPermission, descriptor.resource),
     subscription,
     list: async (query?: AcrossTenantsQuery<Row>) => {
       const { method, params, body, wanted } = request(query);

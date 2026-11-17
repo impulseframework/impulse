@@ -30,7 +30,7 @@ import {
   SortRule,
   withoutOrphanedCompanions,
 } from '@impulseframework/resource-angular/grid';
-import { pageRouteResolver, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
+import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { Domain, TenantProperty } from '@impulseframework/resource';
 import {
   AlertType,
@@ -247,6 +247,16 @@ export class ResourceListComponent implements OnInit {
    */
   across = computed(() => this.config().acrossTenants === true);
   /**
+   * The page a row of a list across tenants opens on: where the application mounts a row
+   * route for the record a row opens (rowPageRoute), as its config wrote the route.
+   * Undefined when the application mounts none, and then the rows draw no link: a link
+   * leads to the row itself in its tenant or it is not drawn.
+   */
+  acrossRowRoute = computed(() => {
+    const target = this.across() ? this.rowTarget() : undefined;
+    return target ? rowPageRoute(target.resource) : undefined;
+  });
+  /**
    * Whether rows are deleted from the list: the write resource's key is compound, so a
    * row has no page of its own to delete from, and the digest grants Delete on it. A
    * single-key row is deleted from its page, as before.
@@ -427,10 +437,11 @@ export class ResourceListComponent implements OnInit {
     if (!target) {
       return false;
     }
-    // Across tenants a row opens inside its own tenant, whose page asks that tenant's
-    // digest; the column is drawn and each row carries its own link.
+    // Across tenants a row opens inside its own tenant: the column is drawn where the
+    // application mounts the record a row route, and each row carries its own link, drawn
+    // where that tenant's digest lets the person read the record (processedRowData).
     if (this.across()) {
-      return true;
+      return this.acrossRowRoute() !== undefined;
     }
     return this.auth.hasPermission({ resource: target.resource, permission: ReadPermission });
   });
@@ -778,15 +789,23 @@ export class ResourceListComponent implements OnInit {
     const methods = this.rowMethodNames();
     const filled = this.filledMethodNames();
 
-    const across = this.across();
-    const target = across ? this.rowTarget() : undefined;
+    const target = this.across() ? this.rowTarget() : undefined;
+    const rowRoute = this.acrossRowRoute();
     const tenantParam = this.store.client.descriptor.domainRoute?.param;
 
     return data.map((row) => {
       const updatedRow = { ...row };
-      if (target && tenantParam) {
-        // The row's own link: the target's page inside the tenant the row is in.
-        updatedRow[acrossTenantsLinkKey] = tenantLink(target.route, tenantParam, row[TenantProperty], row[target.keyField ?? 'id']);
+      if (target && rowRoute && tenantParam) {
+        // The row's own link: the record's row route inside the tenant the row is in,
+        // drawn where the person may read the record there, as the row route asks. The
+        // tenant's digest answers; until it has loaded the row draws no link.
+        const tenant = row[TenantProperty];
+        const reads =
+          typeof tenant === 'string' &&
+          this.auth.hasPermission({ resource: target.resource, permission: ReadPermission, domain: tenant as Domain });
+        updatedRow[acrossTenantsLinkKey] = reads
+          ? tenantLink(rowRoute, tenantParam, tenant, row[target.keyField ?? 'id'])
+          : undefined;
       }
       for (const col of columns) {
         if (col.valueGetter) {
@@ -1003,6 +1022,21 @@ export class ResourceListComponent implements OnInit {
           signal([...entry.columns]),
         );
         this.resourceRefMap.update((map) => new Map(map).set(refKey, ref));
+      });
+
+      effect(() => {
+        // A row of a list across tenants links to its own page where its tenant's digest
+        // lets the person read it: the digests of the tenants on the page are loaded as
+        // the page arrives, each once.
+        if (!this.acrossRowRoute()) {
+          return;
+        }
+        for (const row of this.store.page().rows) {
+          const tenant = row[TenantProperty];
+          if (typeof tenant === 'string' && tenant !== '' && !this.auth.hasDigest(tenant as Domain)) {
+            this.auth.loadDigest(tenant as Domain).subscribe();
+          }
+        }
       });
 
       effect(() => {

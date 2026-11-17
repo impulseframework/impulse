@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { Domain, Resource } from './brands';
+import { Domain, ListAcrossTenantsPermission, ListPermission, Resource } from './brands';
 import { AcrossTenantsHandle, AnyResourceHandle, InTenant, acrossTenantsHandle, createClient } from './client';
 import { ApiDescriptor } from './descriptor';
 import { scriptedTransport } from '@impulseframework/resource/testing';
@@ -185,6 +185,42 @@ describe('a list across tenants', () => {
     expect(() => acrossTenantsHandle(client, 'Hangars')).toThrow(
       'this API declares no Hangars resource; it cannot be listed across tenants from here',
     );
+  });
+
+  it('asks the global digest who the list is for, whatever tenant is open', async () => {
+    // The global digest answers the list across tenants; each tenant's own digest answers
+    // that tenant's list and says nothing of the other question.
+    const digests: Record<string, unknown> = {
+      '/api/permission-digest': { Missions: { ListAcrossTenants: 'granted' } },
+      [`/api/permission-digest?domain=${anvil}`]: { Missions: { List: 'granted' }, Refits: { List: 'granted' } },
+    };
+    const client = createClient<Record<never, never>, Sector, Across>(descriptor, {
+      baseUrl: '/api',
+      transport: scriptedTransport((request) => ({ status: 200, body: digests[request.url] ?? {} })),
+    });
+
+    // Fail closed until the global digest has loaded.
+    expect(client.acrossTenants.missions.can()).toBe(false);
+    await client.permissions.loadDigest();
+    await client.permissions.loadDigest(anvil);
+
+    expect(client.acrossTenants.missions.can()).toBe(true);
+    expect(client.can(ListAcrossTenantsPermission, 'Missions' as Resource)).toBe(true);
+    expect(client.can(ListAcrossTenantsPermission, 'Missions' as Resource, anvil)).toBe(true);
+    // A resource the server did not answer for, and the tenant's own questions as ever.
+    expect(client.can(ListAcrossTenantsPermission, 'Refits' as Resource, anvil)).toBe(false);
+    expect(client.can(ListPermission, 'Missions' as Resource, anvil)).toBe(true);
+    expect(client.can(ListPermission, 'Missions' as Resource)).toBe(false);
+  });
+
+  it('answers nobody the list is for when the global digest names no tenant of theirs', async () => {
+    const client = createClient<Record<never, never>, Sector, Across>(descriptor, {
+      baseUrl: '/api',
+      transport: scriptedTransport(() => ({ status: 200, body: {} })),
+    });
+    await client.permissions.loadDigest();
+
+    expect(client.acrossTenants.missions.can()).toBe(false);
   });
 
   it('is empty on an API that declares no list across tenants', () => {

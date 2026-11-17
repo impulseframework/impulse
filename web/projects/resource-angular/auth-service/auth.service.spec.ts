@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   ApiDescriptor,
@@ -11,7 +12,17 @@ import {
 } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { CHANGE_FEED, LOGIN_REDIRECT_URL } from '@impulseframework/resource-angular/types';
+import {
+  CHANGE_FEED,
+  Domain,
+  ListAcrossTenantsPermission,
+  ListPermission,
+  LOGIN_REDIRECT_URL,
+  PermissionDigest,
+  PermissionScope,
+  Resource,
+  RESOURCE_DOMAIN,
+} from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 
 import { AuthService } from './auth.service';
@@ -135,6 +146,68 @@ describe('AuthService', () => {
     expect(auth.redirectUrl()).toBe('/deck');
     auth.redirectUrl.set('');
     expect(TestBed.inject(LOGIN_REDIRECT_URL)()).toBe('');
+  });
+});
+
+describe('AuthService and a list across tenants', () => {
+  const anvil = 'a1111111-1111-4111-8111-111111111111' as Domain;
+  const missions = 'Missions' as Resource;
+  const across: PermissionScope = { resource: missions, permission: ListAcrossTenantsPermission };
+  const api: ApiDescriptor = {
+    ...descriptor,
+    domainRoute: { segment: 'sectors', param: 'sectorID' },
+    resources: {
+      Missions: {
+        resource: missions,
+        property: 'missions',
+        route: 'missions',
+        scope: 'domain',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list', 'read'],
+        acrossTenants: true,
+      },
+    },
+  };
+  /** The global digest says who the list across tenants is for; Anvil's digest says who lists Anvil's missions. */
+  const serving = (global: PermissionDigest): { transport: ScriptedTransport; asked: string[] } => {
+    const asked: string[] = [];
+    const transport = scriptedTransport((request) => {
+      asked.push(request.url);
+      if (request.url === '/api/permission-digest') return { status: 200, body: global };
+      if (request.url === `/api/permission-digest?domain=${anvil}`) return { status: 200, body: { Missions: { List: 'granted' } } };
+      return { status: 404, body: { message: `unscripted ${request.url}` } };
+    });
+    return { transport, asked };
+  };
+  const selecting = (domain: Domain | undefined) => {
+    TestBed.overrideProvider(RESOURCE_DOMAIN, { useValue: signal(domain) });
+  };
+
+  it('asks the global digest, with a tenant selected or named, and loads it when it has not loaded', async () => {
+    selecting(anvil);
+    const { transport, asked } = serving({ Missions: { ListAcrossTenants: 'granted' } });
+    const auth = authOver(transport, { api });
+
+    // Fail closed until the digest has loaded; the guard's question loads it.
+    expect(auth.hasPermission(across)).toBe(false);
+    await expect(firstValueFrom(auth.ensurePermission(across))).resolves.toBe(true);
+    expect(asked).toEqual(['/api/permission-digest']);
+
+    expect(auth.hasPermission(across)).toBe(true);
+    expect(auth.hasPermission({ ...across, domain: anvil })).toBe(true);
+    expect(auth.hasDigestFor(across)).toBe(true);
+  });
+
+  it('answers a person the server named no tenant for that the list is not theirs', async () => {
+    selecting(anvil);
+    const { transport } = serving({});
+    const auth = authOver(transport, { api });
+
+    await expect(firstValueFrom(auth.ensurePermission(across))).resolves.toBe(false);
+    // Listing the resource in the selected tenant is that tenant's digest's to answer, as ever.
+    await expect(firstValueFrom(auth.ensurePermission({ resource: missions, permission: ListPermission }))).resolves.toBe(true);
+    expect(auth.hasPermission(across)).toBe(false);
   });
 });
 

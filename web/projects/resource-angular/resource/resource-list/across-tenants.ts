@@ -4,7 +4,8 @@ import { ListViewConfig } from '@impulseframework/resource-angular/types';
 // A list page across tenants (ListViewConfigOptions.acrossTenants): the parts that are
 // plain functions. The page lists a resource declared for it (`@listAcrossTenants`) in
 // every tenant the person reaches; each row carries its tenant, the table names it in a
-// first column, and a row's link opens the row inside that tenant's routes.
+// first column, and a row's link opens the row itself inside that tenant: the record's
+// own row route there, drawn where the person may read the record in that tenant.
 
 /**
  * The display-row key a row's own link rides under on a list across tenants. A generated
@@ -45,11 +46,11 @@ export function tenantWord(descriptor: ApiDescriptor): string {
 }
 
 /**
- * The link of one row of a list across tenants: the registered route of the page the
- * row opens on, with the row's tenant in the place of the tenant parameter (`:param`),
- * followed by the row's key. A route that names no tenant parameter is the same for
- * every row. Undefined, and the row draws no link, when the row carries no key, or the
- * route names the parameter and the row carries no tenant.
+ * The link of one row of a list across tenants: the route of the page whose row route
+ * opens the record, with the row's tenant in the place of the tenant parameter
+ * (`:param`), followed by the row's key. Undefined, and the row draws no link, when the
+ * row carries no key or no tenant, and when the route does not name the tenant
+ * parameter: such a page is in no tenant, so it cannot open the row inside its own.
  */
 export function tenantLink(route: string, param: string, tenant: unknown, key: unknown): string | undefined {
   if (key === undefined || key === null || key === '') {
@@ -57,7 +58,7 @@ export function tenantLink(route: string, param: string, tenant: unknown, key: u
   }
   const marker = `:${param}`;
   const segments = route.split('/').filter((segment) => segment !== '');
-  if (segments.includes(marker) && (typeof tenant !== 'string' || tenant === '')) {
+  if (!segments.includes(marker) || typeof tenant !== 'string' || tenant === '') {
     return undefined;
   }
   const path = segments.map((segment) => (segment === marker ? encodeURIComponent(String(tenant)) : segment));

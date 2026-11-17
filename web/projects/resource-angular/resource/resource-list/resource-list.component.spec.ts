@@ -4,7 +4,7 @@ import { ActivatedRoute } from '@angular/router';
 import { ApiDescriptor, ClientBase, createClient, Domain, FieldMeta, PermissionDigest, Resource, ResourceMeta, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { registerResourcePage } from '@impulseframework/resource-angular/resource-nav';
+import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   FieldName,
@@ -708,9 +708,12 @@ describe('ResourceListComponent', () => {
     // The page is outside every tenant and lists a resource declared for it
     // (@listAcrossTenants) in every tenant the person reaches: one request without the
     // tenant's segment, each row naming its tenant. The table names the tenant in a first
-    // column and a row's View link opens the row inside its own tenant's routes.
+    // column and a row's View link opens the row itself inside its own tenant: the
+    // record's row route there, drawn where that tenant's digest lets the person read it.
     const missions = 'Missions' as Resource;
     const refits = 'Refits' as Resource;
+    // Patrols are listed across tenants too, and the application mounts them no row route.
+    const patrols = 'Patrols' as Resource;
     const anvil = 'a1111111-1111-4111-8111-111111111111';
     const bastion = 'b2222222-2222-4222-8222-222222222222';
     const acrossMetas: Record<string, ResourceMeta> = {
@@ -721,6 +724,7 @@ describe('ResourceListComponent', () => {
         fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title', { isIndex: true, filterable: 'always' }), field('fee')],
       } as ResourceMeta,
       [refits]: { route: 'sectors/{sectorID}/refits', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')] } as ResourceMeta,
+      [patrols]: { route: 'sectors/{sectorID}/patrols', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title')] } as ResourceMeta,
     };
     const acrossDescriptor: ApiDescriptor = {
       ...descriptor,
@@ -730,6 +734,7 @@ describe('ResourceListComponent', () => {
         ...descriptor.resources,
         [missions]: { resource: missions, property: 'missions', route: 'missions', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25, max: 200 }, order: [{ field: 'deadline', direction: 'asc' }], acrossTenants: true },
         [refits]: { resource: refits, property: 'refits', route: 'refits', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25 } },
+        [patrols]: { resource: patrols, property: 'patrols', route: 'patrols', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25 }, acrossTenants: true },
       },
     };
     // Anvil shows the fee; Bastion's roles do not, so the server leaves it off the row.
@@ -739,17 +744,24 @@ describe('ResourceListComponent', () => {
     ];
     let warnings: string[];
     let domain: ReturnType<typeof signal<Domain | undefined>>;
+    /** The tenant whose digest the server fails to answer, when a spec names one. */
+    let digestFails: string | undefined;
 
     const server = (request: TransportRequest): TransportResponse => {
       const url = new URL(request.url, 'http://missions.test');
+      if (url.pathname === '/api/permission-digest' && digestFails !== undefined && url.searchParams.get('domain') === digestFails) {
+        return { status: 500, body: { message: 'the digest could not be read' } };
+      }
       if (url.pathname === '/api/user-domains') {
         return { status: 200, body: [{ domain: anvil, name: 'Anvil' }, { domain: bastion, name: 'Bastion' }] };
       }
       if (url.pathname === '/api/permission-digest') {
-        // One tenant's digest, when something asks it: the title alone, no fee.
-        return { status: 200, body: { [missions]: { List: 'granted' }, [`${missions}.title`]: { List: 'granted' } } };
+        // One tenant's digest, when something asks it: the title alone, no fee. In Anvil
+        // the person may read a mission; in Bastion they may list missions and read none.
+        const reads = url.searchParams.get('domain') === anvil ? { Read: 'conditional' } : {};
+        return { status: 200, body: { [missions]: { List: 'granted', ...reads }, [`${missions}.title`]: { List: 'granted' }, [patrols]: { List: 'granted', Read: 'granted' } } };
       }
-      if (url.pathname === '/api/missions') {
+      if (url.pathname === '/api/missions' || url.pathname === '/api/patrols') {
         return { status: 200, body: rows, headers: { 'total-count': '2' } };
       }
       return { status: 404, body: { message: `unscripted ${request.url}` } };
@@ -757,7 +769,10 @@ describe('ResourceListComponent', () => {
 
     /** The page as mounted outside every tenant, over the given resource and options. */
     const page = async (resource: Resource, options: Partial<ListViewConfigOptions> = {}): Promise<void> => {
+      // The sector's Missions page carries a row route; Patrols have a page and no row route.
       registerResourcePage(missions, 'sectors/:sectorID/missions');
+      registerRowPage(missions, 'sectors/:sectorID/missions');
+      registerResourcePage(patrols, 'sectors/:sectorID/patrols');
       const config = listViewConfig({
         elements: [],
         primaryResource: resource,
@@ -766,6 +781,7 @@ describe('ResourceListComponent', () => {
         ...options,
       });
       warnings = [];
+      digestFails = undefined;
       domain = signal<Domain | undefined>(undefined);
       transport = scriptedTransport(server);
       await TestBed.configureTestingModule({
@@ -790,17 +806,24 @@ describe('ResourceListComponent', () => {
     };
 
     const listRequests = (): TransportRequest[] => transport.requests.filter((request) => request.url.split('?')[0] === '/api/missions');
+    const digestRequests = (): string[] => transport.requests.filter((request) => request.url.includes('permission-digest')).map((request) => request.url);
+    const rowLinks = (): (string | null)[] =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map(
+        (row) => row.querySelector('td.action-col a')?.getAttribute('href') ?? null,
+      );
 
     it("asks one list without the tenant's segment, names each row's tenant, and opens a row inside its tenant", async () => {
       await page(missions);
       fixture.detectChanges();
       await settle();
+      await settle();
 
       // No tenant in the path, no column list, no capability answer, no subscription.
       expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
       expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
-      // Nothing asked a tenant's digest: the server decides what each row shows.
-      expect(transport.requests.some((request) => request.url.includes('permission-digest'))).toBe(false);
+      // The digest of each tenant on the page is asked once, for the rows' links alone:
+      // the server decides what each row shows.
+      expect(digestRequests()).toEqual([`/api/permission-digest?domain=${anvil}`, `/api/permission-digest?domain=${bastion}`]);
 
       const cols = fixture.componentInstance.columns();
       expect(cols.map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
@@ -814,8 +837,41 @@ describe('ResourceListComponent', () => {
         ['Bastion', 'Beacon', ''],
       ]);
 
-      const links = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('td.action-col a')).map((link) => link.getAttribute('href'));
-      expect(links).toEqual([`/sectors/${anvil}/missions/m-1`, `/sectors/${bastion}/missions/m-9`]);
+      // Anvil's row links to the mission itself inside Anvil, where the person may read
+      // a mission. Bastion's draws no link: they list missions there and may read none,
+      // so the mission's page would turn them away.
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+    });
+
+    it("draws no link on a guess: a tenant whose digest does not answer is asked once, and its rows stay without one", async () => {
+      await page(missions);
+      // Anvil's digest fails to load: nothing says the person may read a mission there.
+      digestFails = anvil;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      expect(rowLinks()).toEqual([null, null]);
+      // A page asked for again asks no tenant's digest twice, answered or not.
+      fixture.componentInstance.onSortChange([{ field: 'title', direction: 'asc' }]);
+      fixture.detectChanges();
+      await settle();
+      await settle();
+      expect(digestRequests()).toEqual([`/api/permission-digest?domain=${anvil}`, `/api/permission-digest?domain=${bastion}`]);
+      expect(rowLinks()).toEqual([null, null]);
+    });
+
+    it('draws no link, and asks no digest, for a record the application mounts no row route', async () => {
+      await page(patrols, { listColumns: [{ id: 'title' as FieldName }] });
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // The person may read a patrol in both tenants: with no row route to open one on,
+      // the list still draws no View column and no link.
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title']);
+      expect(rowLinks()).toEqual([null, null]);
+      expect(digestRequests()).toEqual([]);
     });
 
     it('is bound to no tenant: selecting one asks for nothing again', async () => {
