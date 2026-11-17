@@ -26,10 +26,31 @@ var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 
 // ErrPasswordChanged is returned by the password writes that follow a proof of the
 // password (UpgradeUserPasswordHash, ChangeUserPassword and RemoveProvenUserPassword)
-// when the user no longer holds the hash that was proved: the password was changed,
-// reset or removed after the caller read it. Nothing is written, so the other write
-// stands whole. It is a Conflict client message.
+// and by the inserts made on the strength of one (SignIn, HoldSignIn and
+// LinkConfirmedIdentity with a PasswordProof) when the user no longer holds the hash
+// that was proved: the password was changed, reset or removed after the caller read
+// it. Nothing is written, so the other write stands whole. It is a Conflict client
+// message.
 var ErrPasswordChanged = dbtype.ErrPasswordChanged
+
+// PasswordProof names the password a sign-in proved, without holding it: a digest of
+// the hash the password was compared against. A session, a pending sign-in or a
+// confirmed link that carries one is inserted only while the user still holds that
+// password, compared in the inserting transaction (ErrPasswordChanged otherwise), and a
+// pending sign-in keeps it in its row so its completion is held the same way. The nil
+// proof is the sign-in no password proved, which is held to nothing.
+type PasswordProof = dbtype.PasswordProof
+
+// ProofOfPassword is the proof of a password that was compared against hash, the hash
+// the user was read with: nil for a user with no password.
+func ProofOfPassword(hash *securehash.Hash) (PasswordProof, error) {
+	proof, err := dbtype.ProofOf(hash)
+	if err != nil {
+		return nil, errors.Wrap(err, "dbtype.ProofOf()")
+	}
+
+	return proof, nil
+}
 
 // SessionIdentity is a stored link from an external identity to a user.
 type SessionIdentity struct {
@@ -116,7 +137,11 @@ type AuthStore[Tx any] interface {
 	// runs in two transactions that each commit unless a hook or the storage fails: a
 	// refusal (a *sessioninfo.LoginRefusal) or a wait (a *signin.PendingSignInError)
 	// keeps the hooks' own writes and writes no session. See the README's "Storage and
-	// schema".
+	// schema". A sign-in that rests on a password proof (rules.Proven) inserts its
+	// session only while the user still holds the password that was proved, compared in
+	// the transaction that inserts: once it was changed, reset or removed the sign-in
+	// ends with ErrPasswordChanged, before the policy is asked, and no session is
+	// written.
 	SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rules SignInRules[Tx]) (impulse.UUID, error)
 	// Identity returns the link for (method, connection, subject), or a NotFound error.
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error)
@@ -129,10 +154,13 @@ type AuthStore[Tx any] interface {
 	// whose directory the identity came through: directories reads the declaration and
 	// seat gives the seat, handed the transaction, as at a sign-in that makes the link
 	// itself (SignInRules; both nil for none). The link is made and the person seated
-	// together, or neither. An identity linked meanwhile is a Conflict.
+	// together, or neither. An identity linked meanwhile is a Conflict. proven is the
+	// proof of the password that confirmed the link: the link is made only while the
+	// user still holds it, compared in the transaction that links (ErrPasswordChanged
+	// otherwise, nothing written).
 	LinkConfirmedIdentity(
 		ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
-		directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx],
+		directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx], proven PasswordProof,
 	) error
 	// UnlinkIdentity removes a link. It refuses to remove the last means of sign-in of
 	// a user that has no password.
@@ -224,7 +252,10 @@ type AuthStore[Tx any] interface {
 	SetPendingSignInsTableName(name string) error
 	// HoldSignIn stores a sign-in that waits for a confirmation or the application's MFA
 	// step and returns its row's ID. p.TokenHash is the hash of the opaque token the
-	// browser's pending cookie carries.
+	// browser's pending cookie carries. A sign-in that rests on a password proof
+	// (p.PasswordProof) is stored only while its user still holds the password that was
+	// proved, compared in the transaction that inserts the row (ErrPasswordChanged
+	// otherwise), and the row keeps the proof for the completion to be held to.
 	HoldSignIn(ctx context.Context, p *PendingSignIn) (impulse.UUID, error)
 	// PendingSignIn returns the live pending sign-in holding tokenHash: not consumed and
 	// not expired. Any other is NotFound.
@@ -472,7 +503,8 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 // rule ("" for none), the sign-in policy (nil for none), the invitation acceptor (nil
 // for none), and a tenanted application's reader of the tenants' directory
 // declarations with the hook that seats a person at their first sign-in through a
-// tenant's directory (both nil for none).
+// tenant's directory (both nil for none). They carry the proof of the password the
+// sign-in rests on too (nil for none), which the session's insert is held to.
 type SignInRules[Tx any] struct {
 	Account     signin.AccountRule[Tx]
 	Standard    signin.StandardAccountRule
@@ -483,6 +515,10 @@ type SignInRules[Tx any] struct {
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
+	// Proven is the proof of the password the sign-in rests on (ProofOfPassword): the
+	// one just entered at a login or a confirmation, or the one a pending sign-in was
+	// held with. Nil when no password was proved.
+	Proven PasswordProof
 }
 
 // SignIn implements AuthStore.
@@ -498,7 +534,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Standard: rules.Standard, Policy: rules.Policy, Accept: rules.Accept,
-		Directories: rules.Directories, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice,
+		Directories: rules.Directories, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -918,12 +954,12 @@ func (a *Auth[Tx]) LinkIdentity(ctx context.Context, userID impulse.UUID, identi
 // LinkConfirmedIdentity implements AuthStore.
 func (a *Auth[Tx]) LinkConfirmedIdentity(
 	ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
-	directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx],
+	directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx], proven PasswordProof,
 ) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := signinflow.LinkConfirmed(ctx, a.flow, userID, username, identity, tenant, directories, seat); err != nil {
+	if err := signinflow.LinkConfirmed(ctx, a.flow, userID, username, identity, tenant, directories, seat, proven); err != nil {
 		return errors.Wrap(err, "signinflow.LinkConfirmed()")
 	}
 

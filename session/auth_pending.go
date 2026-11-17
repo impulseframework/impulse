@@ -132,7 +132,9 @@ func errPendingExpired() error {
 // inserts the row, consumes any earlier pending identity the browser had (unless the
 // sign-in completed it, which consumed it already), and writes the pending cookie with
 // the new token. The row is created at the database's time; the events it holds that
-// have no time take that time when the sign-in completes (pendingEvents).
+// have no time take that time when the sign-in completes (pendingEvents). A sign-in a
+// password proved is held with the proof of that password, and only while the user
+// still holds it (sessionstorage.ErrPasswordChanged otherwise, with nothing held).
 func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *signin.PendingSignInError) (*pendingState, error) {
 	events := at.events
 	if events == nil {
@@ -161,6 +163,10 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 	if namesItsUser(at.identity) {
 		p.UserID = impulse.NullUUIDFromUUID(at.userID)
 	}
+	// A sign-in that rests on a password proof is held with it: the store inserts the
+	// row only while the user still holds that password, and the completion is held to
+	// it again (completePending).
+	p.PasswordProof = at.proof
 
 	id, err := a.storage.HoldSignIn(ctx, p)
 	if err != nil {
@@ -287,7 +293,11 @@ func (a *Auth[S, U, Tx]) consumePending(ctx context.Context, p *pendingState) er
 // completePending establishes the session of a consumed pending identity. The session
 // records the pending identity's events followed by more. The user is resolved again
 // and must be the one the identity waited on, and the sign-in policy decides again
-// with those events on the request.
+// with those events on the request. A pending identity that rests on a password proof
+// (p.PasswordProof: a password started it, or confirmed it) completes only while the
+// user still holds that password: after a change, a reset or a removal the completion
+// is refused as a wrong password is, however long the row had left, and the person
+// signs in again. A pending identity no password proved is held to none.
 func (a *Auth[S, U, Tx]) completePending(
 	ctx context.Context, w http.ResponseWriter, p *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
 ) (*signInOutcome, error) {
@@ -297,6 +307,7 @@ func (a *Auth[S, U, Tx]) completePending(
 		reason:                reason,
 		registration:          p.Registration,
 		username:              p.Username,
+		proof:                 p.PasswordProof,
 		expectUserID:          p.UserID,
 		events:                append(pendingEvents(p), more...),
 		returnURL:             p.ReturnURL,
@@ -377,6 +388,12 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // must wait again (the resolver now asks for a confirmation, or the policy for another
 // factor), the error is a *signin.PendingSignInError and the pending identity is
 // replaced.
+//
+// A pending identity that a password started, or confirmed, completes only while the
+// user still holds that password: once it was changed, reset or removed, the
+// completion is refused as a wrong password is (Unauthorized, "Invalid Credentials",
+// with sessionstorage.ErrPasswordChanged as its cause), the pending identity stays
+// consumed and the person signs in again.
 func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.ResponseWriter, stepUp ...sessioninfo.AuthEvent) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -423,6 +440,11 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 // requires MFA after the link, no session starts. The error is then a
 // *signin.PendingSignInError with reason PendingMFA, and a new pending identity waits
 // for MFA (see CompletePending).
+//
+// The link and the session rest on the password that confirmed: both are made only
+// while the user still holds it. A password changed, reset or removed after it was
+// compared links nothing and starts no session; the confirmation is then refused as a
+// wrong password is and counted as one, and the pending identity stays consumed.
 func (p *AuthAPI[S, U, Tx]) ConfirmPendingWithPassword(ctx context.Context, w http.ResponseWriter, password string) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -459,12 +481,31 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 	if user.Disabled {
 		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
+	// The link and the session rest on the password just proved: both are made only
+	// while the user still holds it, and a sign-in the policy then holds for a factor
+	// is held with the proof.
+	proof, err := sessionstorage.ProofOfPassword(user.PasswordHash)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.ProofOfPassword()")
+	}
 	if err := a.consumePending(ctx, p); err != nil {
 		return nil, err
 	}
+	p.PasswordProof = proof
 
+	outcome, err := a.linkAndComplete(ctx, w, user, p)
+	if errors.Is(err, sessionstorage.ErrPasswordChanged) {
+		a.recordFailure(ctx, user.Username, client)
+	}
+
+	return outcome, err
+}
+
+// linkAndComplete links a confirmed pending identity to user and establishes its
+// session, both on the strength of the password proof p now carries.
+func (a *Auth[S, U, Tx]) linkAndComplete(ctx context.Context, w http.ResponseWriter, user *sessionstorage.SessionUser, p *pendingState) (*signInOutcome, error) {
 	if err := a.linkPending(ctx, user, p); err != nil {
-		return nil, err
+		return nil, passwordNoLongerHeld(err)
 	}
 
 	return a.completePending(ctx, w, p, sessioninfo.ReasonIdentityLinked, sessioninfo.AuthEvent{Method: sessioninfo.MethodLinkConfirmation})
@@ -488,15 +529,20 @@ func (a *Auth[S, U, Tx]) checkConfirmation(ctx context.Context, user *sessionsto
 // the tenant whose directory it is gives them its default seat in the transaction that
 // makes the link, as a sign-in that links at once does (SetDirectoryAdmission). If the
 // identity was linked meanwhile, that is accepted for the same user and refused for
-// another.
+// another. The link is made only while the user still holds the password that
+// confirmed it (p.PasswordProof; sessionstorage.ErrPasswordChanged otherwise).
 func (a *Auth[S, U, Tx]) linkPending(ctx context.Context, user *sessionstorage.SessionUser, p *pendingState) error {
 	userID := user.ID
-	err := a.storage.LinkConfirmedIdentity(ctx, userID, user.Username, &p.Identity, p.Tenant, a.directories, a.directorySeated)
+	err := a.storage.LinkConfirmedIdentity(ctx, userID, user.Username, &p.Identity, p.Tenant, a.directories, a.directorySeated, p.PasswordProof)
 	switch {
 	case err == nil:
 		a.notifyLinked(ctx, userID, &p.Identity)
 
 		return nil
+	case errors.Is(err, sessionstorage.ErrPasswordChanged):
+		// The password that confirmed the link is no longer the user's: nothing was
+		// linked.
+		return errors.Wrap(err, "sessionstorage.AuthStore.LinkConfirmedIdentity()")
 	case httpio.HasConflict(err):
 		link, lerr := a.storage.Identity(ctx, p.Identity.Method, p.Identity.Connection, p.Identity.Subject)
 		if lerr == nil && link.UserID == userID {

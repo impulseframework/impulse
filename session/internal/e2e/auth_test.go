@@ -773,6 +773,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
 		},
 		{
+			name: "a password sign-in held for the email code completes only while the password it proved is the person's: after their own change, an operator's temporary password or a removal the right code is refused as a wrong password is",
+			run:  seamHeldSignInRestsOnItsPassword[Tx],
+		},
+		{
 			name: "the store's one custom session data configuration resolves each session's row in the sign-in's transaction, and custom user data is written with the user and read on demand",
 			run:  seamCustomData[Tx],
 		},

@@ -35,6 +35,11 @@ type signInAttempt struct {
 	// from the request instead of resolving it.
 	userID   impulse.UUID
 	username string
+	// proof is the proof of the password the sign-in rests on: the one just entered at a
+	// login or a confirmation, or the one a pending sign-in was held with. Whatever the
+	// sign-in inserts (a session, a pending sign-in) is inserted only while the user
+	// still holds that password. Nil when no password was proved.
+	proof sessionstorage.PasswordProof
 	// expectUserID is the user a pending identity waited on. When valid, a
 	// completion that now resolves to another user is refused.
 	expectUserID impulse.NullUUID
@@ -131,7 +136,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
 			Account: rule, Standard: standard, Policy: a.policy, Accept: a.acceptInvitation,
-			Directories: a.directories, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf,
+			Directories: a.directories, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 		})
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
@@ -164,7 +169,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	if errors.As(err, &wait) {
 		pending, err := a.holdPending(ctx, w, at, wait)
 		if err != nil {
-			return nil, err
+			return nil, passwordNoLongerHeld(err)
 		}
 		// A browser whose trusted device did not stand in for the factor carries a
 		// dead one for this user: their entry goes, the other users' stay, and the
@@ -176,7 +181,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		return &signInOutcome{pending: pending}, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, passwordNoLongerHeld(err)
 	}
 
 	events := signedInEvents(at, req)
@@ -187,6 +192,19 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: events})
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
+}
+
+// passwordNoLongerHeld answers a sign-in that rested on a password proof and found the
+// user holding another password, or none (sessionstorage.ErrPasswordChanged): the
+// password was changed, reset or removed after it was proved, so nothing was inserted,
+// and the sign-in is refused as a wrong password is, in the same status and words. Any
+// other error is returned as it is.
+func passwordNoLongerHeld(err error) error {
+	if errors.Is(err, sessionstorage.ErrPasswordChanged) {
+		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+
+	return err
 }
 
 // signedInEvents are the auth events the session of at recorded: the events the
@@ -352,22 +370,32 @@ func errPasswordChangeRequired() error {
 	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedPasswordChangeRequired, httpio.NewForbiddenMessage("Change your password to continue"))
 }
 
-// passwordSignIn checks username and password for client and signs the user in.
+// passwordSignIn checks username and password for client and signs the user in. The
+// sign-in carries the proof of the password it checked, so its session, or the pending
+// sign-in it is held as, is inserted only while the user still holds that password: a
+// change, a reset or a removal that commits while the sign-in is on its way refuses it
+// as a wrong password is refused, and counts as one.
 func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWriter, username, password string, client attempts.Client) (*signInOutcome, error) {
-	user, err := a.checkCredentials(ctx, username, password, client)
+	user, proof, err := a.checkCredentials(ctx, username, password, client)
 	if err != nil {
 		return nil, err
 	}
 
-	return a.signIn(ctx, w, &signInAttempt{
+	outcome, err := a.signIn(ctx, w, &signInAttempt{
 		// The account's own address is the identity's: an invitation the sign-in carries
 		// is accepted only when it was mailed to it (signinflow.SignIn).
 		identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String(), Email: addressOf(user.Email), EmailVerified: user.EmailVerified()},
 		reason:   sessioninfo.ReasonLogin,
 		userID:   user.ID,
 		username: user.Username,
+		proof:    proof,
 		sameSite: sessioncore.SameSiteStrict,
 	})
+	if errors.Is(err, sessionstorage.ErrPasswordChanged) {
+		a.recordFailure(ctx, username, client)
+	}
+
+	return outcome, err
 }
 
 // checkCredentials returns the enabled user for username when password matches, under
@@ -379,17 +407,24 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 // the name and the client alike. A match resets the name. An outdated hash is upgraded
 // when auto-upgrade is enabled, in a write that names the hash this sign-in compared
 // against: a password changed, reset or removed since the user was read is left as it
-// is, and the next sign-in upgrades the hash it finds. A disabled user is refused after
-// the match.
-func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, password string, client attempts.Client) (*sessionstorage.SessionUser, error) {
+// is, and the password entered is then no longer the user's, so the check fails as a
+// wrong password does, counted the same. A disabled user is refused after the match.
+//
+// The proof returned names the password that matched, by the hash the user's row holds
+// for it now (the upgraded one when the upgrade wrote): what the caller inserts on the
+// strength of the match carries it, and the store inserts only while the user still
+// holds that password.
+func (a *Auth[S, U, Tx]) checkCredentials(
+	ctx context.Context, username, password string, client attempts.Client,
+) (*sessionstorage.SessionUser, sessionstorage.PasswordProof, error) {
 	methods := a.registered()
 	if err := a.limitAttempt(ctx, username, client); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	user, lookupErr := a.storage.UserByUserName(ctx, username)
 	if lookupErr != nil && !httpio.HasNotFound(lookupErr) {
-		return nil, httpio.NewUnauthorizedMessageWithError(lookupErr, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(lookupErr, "Invalid Credentials")
 	}
 	var hash *securehash.Hash
 	if lookupErr == nil {
@@ -403,41 +438,51 @@ func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, passwor
 			err = lookupErr
 		}
 
-		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
-	a.attemptsSucceeded(ctx, username)
+	held := user.PasswordHash
 	if upgrade && methods.autoUpgrade {
-		switch err := a.upgradePasswordHash(ctx, user.ID, user.PasswordHash, password); {
+		switch upgraded, err := a.upgradePasswordHash(ctx, user.ID, user.PasswordHash, password); {
 		case errors.Is(err, sessionstorage.ErrPasswordChanged):
 			// The row holds another password than the one this sign-in read, or none:
-			// nothing was written, and the sign-in goes on as it would have.
+			// the password entered is no longer the user's. Nothing was written, and
+			// the check fails as a wrong password does.
+			a.recordFailure(ctx, username, client)
+
+			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 		case err != nil:
 			logger.FromCtx(ctx).Error(err)
 		default:
+			held = upgraded
 			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), methods.hasher.KeyType())
 		}
 	}
+	a.attemptsSucceeded(ctx, username)
 	if user.Disabled {
-		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
+		return nil, nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
+	}
+	proof, err := sessionstorage.ProofOfPassword(held)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "sessionstorage.ProofOfPassword()")
 	}
 
-	return user, nil
+	return user, proof, nil
 }
 
 // upgradePasswordHash re-hashes a password the user already has (the hash upgrade),
-// leaving the password change mark as it is. proven is the hash the password was just
-// compared against, and the store writes only while the user still holds it
-// (sessionstorage.ErrPasswordChanged otherwise).
-func (a *Auth[S, U, Tx]) upgradePasswordHash(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, password string) error {
+// leaving the password change mark as it is, and returns the hash it wrote. proven is
+// the hash the password was just compared against, and the store writes only while the
+// user still holds it (sessionstorage.ErrPasswordChanged otherwise).
+func (a *Auth[S, U, Tx]) upgradePasswordHash(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, password string) (*securehash.Hash, error) {
 	hash, err := a.registered().hasher.Hash(password)
 	if err != nil {
-		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		return nil, errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
 	if err := a.storage.UpgradeUserPasswordHash(ctx, userID, proven, hash); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.UpgradeUserPasswordHash()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.UpgradeUserPasswordHash()")
 	}
 
-	return nil
+	return hash, nil
 }
 
 // setPassword sets a new password and whether the user must change it: true for a

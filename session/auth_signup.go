@@ -171,7 +171,11 @@ func (a *Auth[S, U, Tx]) signUpComplete() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		outcome, err := a.signIn(ctx, w, a.passwordAttempt(user))
+		at, err := a.passwordAttempt(user)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		outcome, err := a.signIn(ctx, w, at)
 		if err != nil {
 			return writeSignInError(ctx, w, err)
 		}

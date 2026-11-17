@@ -142,6 +142,10 @@ type Rules[Tx any] struct {
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
 	TrustedDevice TrustedDeviceCheck
+	// Proven is the proof of the password the sign-in rests on, nil when no password
+	// was proved: the session is inserted only while the user still holds that password
+	// (decideAndInsert).
+	Proven dbtype.PasswordProof
 }
 
 // SignIn establishes session id for a request that carries a verified identity, in two
@@ -256,7 +260,7 @@ func SignIn[Tx any](
 		return err
 	}
 
-	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted)
+	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted, rules.Proven)
 }
 
 // invitedAddressRefusal refuses a sign-in that carries an invitation mailed to another
@@ -523,14 +527,28 @@ func acceptInvitation[Tx any](
 // once it has landed, before the caller establishes the session. An identity that was
 // linked meanwhile is a Conflict with nothing written, which the caller reads the link
 // by; a seater's error is the seater's, whatever it is, with nothing written either.
+//
+// proven is the proof of the password the person confirmed with: the link is made only
+// while the user still holds that password, read in the transaction that makes it, so
+// a password changed, reset or removed since the confirmation links nothing
+// (dbtype.ErrPasswordChanged). The nil proof holds the link to nothing.
 func LinkConfirmed[Tx any](
 	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
-	directories signin.DirectoryReader[Tx], seat DirectorySeater[Tx],
+	directories signin.DirectoryReader[Tx], seat DirectorySeater[Tx], proven dbtype.PasswordProof,
 ) error {
 	var committed committedWork
 	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
 		// Each run starts with nothing owed.
 		committed = nil
+		if proven != nil {
+			user, err := d.UserIn(ctx, tx, userID)
+			if err != nil {
+				return errors.Wrap(err, "Driver.UserIn()")
+			}
+			if err := proven.Check(user.PasswordProof); err != nil {
+				return err
+			}
+		}
 		if err := d.LinkIdentityIn(ctx, tx, userID, identity, tenant); err != nil {
 			return errors.Wrap(err, "Driver.LinkIdentityIn()")
 		}
@@ -1117,9 +1135,16 @@ func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID i
 // decideAndInsert is the second transaction of SignIn. It reads req's user, sets
 // req.User and decides the sign-in. When the sign-in goes ahead it inserts the session.
 // A refusal or an MFA wait is returned after the policy's own writes commit.
+//
+// A sign-in that rests on a password proof (proven) goes on only while the user still
+// holds the password that was proved, read in this transaction, the one that inserts
+// the session: a password changed, reset or removed since the proof ends the
+// transaction with dbtype.ErrPasswordChanged before the policy is asked, with nothing
+// written, so a session is never inserted on the strength of a password the user no
+// longer holds. The nil proof holds the sign-in to nothing.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
-	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool,
+	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool, proven dbtype.PasswordProof,
 ) error {
 	base := *req
 	var v verdict
@@ -1130,6 +1155,9 @@ func decideAndInsert[Tx any](
 		user, err := d.UserIn(ctx, tx, req.UserID)
 		if err != nil {
 			return errors.Wrap(err, "Driver.UserIn()")
+		}
+		if err := proven.Check(user.PasswordProof); err != nil {
+			return err
 		}
 		req.User = &sessioninfo.SignInUser{ID: req.UserID, Username: user.Username, HasPassword: user.HasPassword, Source: source, Tenant: tenant}
 

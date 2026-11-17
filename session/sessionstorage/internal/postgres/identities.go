@@ -164,17 +164,26 @@ func (s *SessionStorageDriver) LockUserIn(ctx context.Context, tx pgx.Tx, userID
 	return s.userIn(ctx, tx, userID, "FOR SHARE")
 }
 
-// userIn reads the user with the row lock clause lock.
+// userIn reads the user with the row lock clause lock, and the proof the row's password
+// hash answers to: under the share lock no password write lands until tx ends, so what
+// tx inserts on the strength of a password proof is checked against the hash the row
+// holds when it commits.
 func (s *SessionStorageDriver) userIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID, lock string) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "Id" = $1 %s`, s.userTable(), lock)
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash", "Disabled" FROM %s WHERE "Id" = $1 %s`, s.userTable(), lock)
 
-	var u dbtype.User
-	if err := tx.QueryRow(ctx, query, userID).Scan(&u.ID, &u.Username, &u.HasPassword, &u.Disabled); err != nil {
+	var (
+		u    dbtype.User
+		hash *string
+	)
+	if err := tx.QueryRow(ctx, query, userID).Scan(&u.ID, &u.Username, &hash, &u.Disabled); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
 		return nil, errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+	if hash != nil {
+		u.HasPassword, u.PasswordProof = true, dbtype.ProofOfStored(*hash)
 	}
 
 	return &u, nil

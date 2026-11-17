@@ -846,7 +846,10 @@ CREATE TABLE CrewSessionAuthEvents (
 -- an opaque token; TokenHash is its SHA-256. A row is live until ExpiresAt or until a
 -- completion, cancellation or replacement consumes it (ConsumedAt), once. CreatedAt and
 -- ConsumedAt are written with the database's commit time; ExpiresAt is the library's
--- deadline, written as given.
+-- deadline, written as given. PasswordProof is the SHA-256 of the password hash a
+-- password sign-in was compared against, never the hash itself, null for a sign-in no
+-- password proved: a row that carries one is inserted only while its user still holds
+-- that password, and completes only while they do.
 CREATE TABLE CrewSessionPendingSignIns (
     Id                STRING(36) NOT NULL,
     TokenHash         BYTES(32) NOT NULL,
@@ -865,6 +868,7 @@ CREATE TABLE CrewSessionPendingSignIns (
     Organization      STRING(MAX) NOT NULL,
     UserId            STRING(36),
     Username          STRING(MAX) NOT NULL,
+    PasswordProof     BYTES(32),
     Tenant            STRING(MAX) NOT NULL,
     Events            BYTES(MAX) NOT NULL,
     RoleNames         ARRAY<STRING(MAX)>,
@@ -928,7 +932,10 @@ CREATE TABLE MembersSessionAuthEvents (
 -- an opaque token; TokenHash is its SHA-256. A row is live until ExpiresAt or until a
 -- completion, cancellation or replacement consumes it (ConsumedAt), once. CreatedAt and
 -- ConsumedAt are written with the database's commit time; ExpiresAt is the library's
--- deadline, written as given.
+-- deadline, written as given. PasswordProof is the SHA-256 of the password hash a
+-- password sign-in was compared against, never the hash itself, null for a sign-in no
+-- password proved: a row that carries one is inserted only while its user still holds
+-- that password, and completes only while they do.
 CREATE TABLE MembersSessionPendingSignIns (
     Id                STRING(36) NOT NULL,
     TokenHash         BYTES(32) NOT NULL,
@@ -947,6 +954,7 @@ CREATE TABLE MembersSessionPendingSignIns (
     Organization      STRING(MAX) NOT NULL,
     UserId            STRING(36),
     Username          STRING(MAX) NOT NULL,
+    PasswordProof     BYTES(32),
     Tenant            STRING(MAX) NOT NULL,
     Events            BYTES(MAX) NOT NULL,
     RoleNames         ARRAY<STRING(MAX)>,

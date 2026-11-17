@@ -32,7 +32,7 @@ func (p *AuthAPI[S, U, Tx]) ValidateSession(ctx context.Context) (context.Contex
 // (sessioninfo.RetryAfterOf), before the user is looked up or the password hashed.
 // The call has no client, so only the name is counted.
 func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, password string) (impulse.UUID, error) {
-	user, err := p.auth.checkCredentials(ctx, username, password, attempts.Client{})
+	user, _, err := p.auth.checkCredentials(ctx, username, password, attempts.Client{})
 	if err != nil {
 		return impulse.NilUUID, err
 	}

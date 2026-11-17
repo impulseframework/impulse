@@ -606,17 +606,17 @@ func (mr *MockAuthStoreMockRecorder[Tx]) InsertTrustedDevice(ctx, d any) *gomock
 }
 
 // LinkConfirmedIdentity mocks base method.
-func (m *MockAuthStore[Tx]) LinkConfirmedIdentity(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx]) error {
+func (m *MockAuthStore[Tx]) LinkConfirmedIdentity(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx], proven sessionstorage.PasswordProof) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LinkConfirmedIdentity", ctx, userID, username, identity, tenant, directories, seat)
+	ret := m.ctrl.Call(m, "LinkConfirmedIdentity", ctx, userID, username, identity, tenant, directories, seat, proven)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // LinkConfirmedIdentity indicates an expected call of LinkConfirmedIdentity.
-func (mr *MockAuthStoreMockRecorder[Tx]) LinkConfirmedIdentity(ctx, userID, username, identity, tenant, directories, seat any) *gomock.Call {
+func (mr *MockAuthStoreMockRecorder[Tx]) LinkConfirmedIdentity(ctx, userID, username, identity, tenant, directories, seat, proven any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkConfirmedIdentity", reflect.TypeOf((*MockAuthStore[Tx])(nil).LinkConfirmedIdentity), ctx, userID, username, identity, tenant, directories, seat)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkConfirmedIdentity", reflect.TypeOf((*MockAuthStore[Tx])(nil).LinkConfirmedIdentity), ctx, userID, username, identity, tenant, directories, seat, proven)
 }
 
 // LinkIdentity mocks base method.

@@ -109,6 +109,8 @@ type storeSignIn struct {
 	standard signin.StandardAccountRule
 	policy   signin.Policy[mockTx]
 	accept   signinflow.InvitationAcceptor[mockTx]
+	// proven is the password proof the sign-in was handed to the store with.
+	proven sessionstorage.PasswordProof
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -420,7 +422,7 @@ func (f *authFixture) expectSignIn(id impulse.UUID, prepare func(req *sessioninf
 	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
 			rule, standard, policy, accept := rules.Account, rules.Standard, rules.Policy, rules.Accept
-			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy, accept: accept}
+			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy, accept: accept, proven: rules.Proven}
 			if external := !namesItsUser(req.Identity); (rule != nil || standard != "") != external {
 				f.t.Errorf("SignIn() given account rules = %v, %q; want some only for an external identity, not a %s one", rule != nil, standard, req.Identity.Method)
 			}
@@ -2065,7 +2067,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn"}, {Method: sessioninfo.MethodLinkConfirmation}}
 					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonIdentityLinked || !cmp.Equal(req.Identity, identity) {
@@ -2087,7 +2089,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
 				})
@@ -2111,7 +2113,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
 				f.expectConsume(pendingID)
-				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(httpio.NewConflictMessage("already linked"))
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(httpio.NewConflictMessage("already linked"))
 				f.store.EXPECT().Identity(gomock.Any(), identity.Method, identity.Connection, identity.Subject).Return(&sessionstorage.SessionIdentity{UserID: otherID}, nil)
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -2220,7 +2222,7 @@ func TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat(t *testing.T) {
 			}
 			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}, nil).AnyTimes()
 			cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos"}, confirmation)
-			f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", handed, handed).Return(nil)
+			f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", handed, handed, gomock.Any()).Return(nil)
 			f.expectSignIn(sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
 				req.UserID, req.Username = userID, "pat"
 

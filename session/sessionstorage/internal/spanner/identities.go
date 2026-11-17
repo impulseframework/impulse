@@ -220,7 +220,9 @@ func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx *spanner
 }
 
 // userOf reads the part of a user row the flow decides on from row's columns Id,
-// Username, PasswordHash, Disabled.
+// Username, PasswordHash, Disabled, with the proof the row's password hash answers to:
+// read in the transaction that inserts on the strength of a password proof, it is the
+// hash the row holds when that transaction commits, or Spanner runs it again.
 func userOf(row *spanner.Row) (*dbtype.User, error) {
 	var (
 		id   string
@@ -235,6 +237,9 @@ func userOf(row *spanner.Row) (*dbtype.User, error) {
 		return nil, errors.Wrap(err, "impulse.UUIDFromString()")
 	}
 	u.ID, u.HasPassword = userID, hash.Valid
+	if hash.Valid {
+		u.PasswordProof = dbtype.ProofOfStored(hash.StringVal)
+	}
 
 	return &u, nil
 }

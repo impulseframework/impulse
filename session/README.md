@@ -1087,11 +1087,39 @@ hash: on PostgreSQL the write's `WHERE` names it, or the removal compares it und
 lock it holds on the user row; on Spanner the hash is read in the transaction that
 writes. A write that finds another hash, or none, writes nothing
 (`sessionstorage.ErrPasswordChanged`, a Conflict), and the other write stands whole,
-hash and mark. The upgrade is then skipped without a word, since the next sign-in
-upgrades the hash it finds; a change or a removal answers 409 and says the password has
-changed since it was entered and to try again, with no session ended. Without this an
-upgrade could put back a password that had just been changed or removed, and a change
-or a removal could undo an operator's reset on proof of the password it replaced.
+hash and mark. An upgrade that finds the password changed fails its sign-in as a wrong
+password does, since the password entered is no longer the person's; a change or a
+removal answers 409 and says the password has changed since it was entered and to try
+again, with no session ended. Without this an upgrade could put back a password that
+had just been changed or removed, and a change or a removal could undo an operator's
+reset on proof of the password it replaced.
+
+**What a password proves is inserted only while the person still holds that
+password.** A sign-in compares the password and inserts later: the session, or the
+pending sign-in the login is held as while a second step waits, up to the pending
+sign-in's ten minutes. A change, an operator's temporary password or a removal can
+commit in between, and it ends the person's sessions before the sign-in's own is there
+to be ended. So the sign-in carries a proof of the password it compared against
+(`sessionstorage.PasswordProof`: the SHA-256 of the stored hash, never the hash), and
+the store inserts only while the user's row still answers to it, compared in the
+transaction that inserts: the session (`SignInRules.Proven`), the pending sign-in
+(`PendingSignIn.PasswordProof`, kept in the row's `PasswordProof` column) and the link
+a password confirmation makes (`LinkConfirmedIdentity`). On PostgreSQL the user row is
+read under a share lock a password write waits for, on Spanner in the read-write
+transaction, so of a sign-in and a password write asked at once either the session is
+there for the write's ending of the sessions to find, or the sign-in finds the new
+password and inserts nothing. A pending sign-in completes on the proof its row
+carries, whichever step completes it (`CompletePending`, the email code), and a
+sign-in held again is held with it: once the password was changed, reset or removed,
+the old password completes nothing, however long the row had left and whatever address
+the holder gives the code for. A sign-in refused this way is answered as a wrong
+password is, 401 `Invalid Credentials` in the same body, and counts as a failed
+attempt where a password was entered (the login, the confirmation); a completion
+refused this way leaves its pending sign-in spent, and the person signs in again. A
+sign-in no password proved (a directory sign-in waiting for its confirmation or its
+factor, a session the application starts) carries no proof and is held to none. A
+pending sign-ins table made before the proof takes the column from the auth set's
+`SessionPasswordProofs` migration.
 
 An operator's writes follow no proof and overwrite on purpose:
 `ResetSessionUserPassword`, `SetSessionUserPassword` and `RemoveSessionUserPassword`
