@@ -63,6 +63,23 @@ func (f *fakeAccess) decide(perm accesstypes.Permission, resources []accesstypes
 	return decisions
 }
 
+// UserManager answers the engine's roles as the matrix registers them: none. The list a
+// default role is picked from asks the engine which roles a person who signs up may be
+// given, and a granted case of the matrix reads it.
+func (f *fakeAccess) UserManager() access.UserManager {
+	return noRoles{}
+}
+
+// noRoles stands for the engine's user manager where no role is registered. Every other
+// method panics through the embedded nil interface, as the fake's own do.
+type noRoles struct {
+	access.UserManager
+}
+
+func (noRoles) Roles(context.Context, accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+	return nil, nil
+}
+
 // testConfigurer implements app.Configurer over the test dependencies, so the App is
 // assembled through the same seam main assembles it through. Session is nil: the App
 // owns no router, these suites compose the API surface through router.NewTestRouter,

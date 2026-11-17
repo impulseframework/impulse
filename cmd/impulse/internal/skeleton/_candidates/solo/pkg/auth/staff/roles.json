@@ -164,7 +164,6 @@
                 "defaultRole",
                 "directoryGivesRoles",
                 "label",
-                "name",
                 "openSignUp",
                 "says"
               ]
@@ -172,8 +171,7 @@
             {
               "resource": "StaffSignUpRoles",
               "fields": [
-                "description",
-                "name"
+                "description"
               ]
             },
             {

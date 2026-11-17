@@ -345,14 +345,22 @@ func signedUp(ctx context.Context, t *testing.T, s *served, email, username stri
 	if status != http.StatusOK {
 		t.Fatalf("POST /api/user/sign-up/complete as %s: status %d: %s", username, status, body)
 	}
-	if heldForFactor(t, body) {
-		b.secondFactor(ctx, username, false)
-	}
+	factorIfHeld(ctx, t, b, username, body)
 	if sess := b.session(ctx); !sess.Authenticated || sess.Username != username {
 		t.Fatalf("session after the sign-up = %+v, want authenticated as %s", sess, username)
 	}
 
 	return b
+}
+
+// factorIfHeld completes the second factor where the answer says the sign-in waits for
+// it, as the login page does.
+func factorIfHeld(ctx context.Context, t *testing.T, b *browser, username string, body []byte) {
+	t.Helper()
+
+	if heldForFactor(t, body) {
+		b.secondFactor(ctx, username, false)
+	}
 }
 
 // invited has the administrator invite the address with the FeatureAdministrator role
@@ -385,9 +393,7 @@ func invited(ctx context.Context, t *testing.T, s *served, admin *browser, email
 	if status != http.StatusOK {
 		t.Fatalf("POST /api/user/invitation/sign-up as %s: status %d: %s", username, status, body)
 	}
-	if heldForFactor(t, body) {
-		b.secondFactor(ctx, username, false)
-	}
+	factorIfHeld(ctx, t, b, username, body)
 	if status, body := b.do(ctx, http.MethodGet, "/api/feature-flags", nil); status != http.StatusOK {
 		t.Fatalf("GET /api/feature-flags as the invited %s: status %d, want 200 by the invitation's role: %s", username, status, body)
 	}

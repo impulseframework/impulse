@@ -430,6 +430,23 @@ export const apiDescriptor = defineApiDescriptor({
   },
 });
 
+/**
+ * The create-your-tenant route: POST create-tenant under the API
+ * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
+ * no tenant creates one and becomes its administrator; a person who already holds one is
+ * refused (403), and so is everyone while no sign-in method is open to sign-up.
+ * The route generates the new tenant's id and answers it.
+ */
+export const createTenantRoute = 'create-tenant';
+/** The body the create-your-tenant route takes: the Tenant record's fields, without its id. */
+export interface CreateTenant {
+  name: string;
+}
+/** The answer of the create-your-tenant route: the id of the tenant it created, the domain of its addresses. */
+export interface CreateTenantAnswer {
+  id: string;
+}
+
 /** Handles for the global scope, available on the client root. */
 export interface GlobalApi {
   staffRoles: ResourceHandle<StaffRoles, StaffRolesKey, 'list'>;

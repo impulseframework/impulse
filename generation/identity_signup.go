@@ -65,12 +65,13 @@ func (r *resourceGenerator) identityCreatesTenant(inst *identityInstance) bool {
 }
 
 // choosesSignUp reports whether the instance carries the choice: the application
-// assigns the auth's roles, the schema holds the sign-in methods table, and a person
-// who signs up gets something, a role of the whole application where there are no
-// tenants and a tenant of their own where this auth's people create one. An auth whose
-// directory writes the roles has no choice to make.
+// assigns the auth's roles, and a person who signs up gets something, a role of the
+// whole application where there are no tenants and a tenant of their own where this
+// auth's people create one. An auth whose directory writes the roles has no choice to
+// make. Each source of the choice needs the sign-in methods table besides
+// (signUpSources), so a schema without it carries none of them.
 func (i *identityInstance) choosesSignUp() bool {
-	return !i.rolesSynced && i.has(identitySignInMethods) && (i.tenant == nil || i.createsTenant)
+	return !i.rolesSynced && (i.tenant == nil || i.createsTenant)
 }
 
 // signUpSources are the source files of the sign-up part of an instance's management.

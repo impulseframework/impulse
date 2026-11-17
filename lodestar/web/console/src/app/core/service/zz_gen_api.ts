@@ -1500,6 +1500,25 @@ export const apiDescriptor = defineApiDescriptor({
   },
 });
 
+/**
+ * The create-your-sector route: POST create-sector under the API
+ * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
+ * no sector creates one and becomes its administrator; a person who already holds one is
+ * refused (403), and so is everyone while no sign-in method is open to sign-up.
+ * The route generates the new sector's id and answers it.
+ */
+export const createSectorRoute = 'create-sector';
+/** The body the create-your-sector route takes: the Sector record's fields, without its id. */
+export interface CreateSector {
+  name: string;
+  region: string;
+  established: Date;
+}
+/** The answer of the create-your-sector route: the id of the sector it created, the domain of its addresses. */
+export interface CreateSectorAnswer {
+  id: string;
+}
+
 /** Handles for the global scope, available on the client root. */
 export interface GlobalApi {
   clients: ResourceHandle<Clients, ClientsKey, 'list' | 'read' | 'create' | 'patch' | 'remove', ClientsCreate, ClientsPatch>;

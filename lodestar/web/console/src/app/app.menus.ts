@@ -104,7 +104,12 @@ export function appMenus(actions: FrameActions): Menu[] {
       groups: [
         {
           // The crew's accounts across the whole service, their mailed links, sessions and
-          // failed sign-ins.
+          // failed sign-ins, and the Sign-in page, which lists the crew's sign-in methods.
+          // Its Open sign-up action runs a method that declares a warning: the library's
+          // dialog asks the server what opening that method will do, shows the answer in
+          // the warning style, and holds its button until the word `open` is typed.
+          //
+          // Demonstrates: @warning.
           label: 'Crew',
           entries: [...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' })],
         },
