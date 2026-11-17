@@ -179,6 +179,7 @@ checks:
   env-template
   env-reads
   file-store
+  secret-holders
   pins
   gofmt
   prettier

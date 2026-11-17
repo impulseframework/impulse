@@ -103,6 +103,12 @@ type App struct {
 	// Engines are the permission engine constructions outside tests: every access.New
 	// call, with whether it hands the engine a change signal (access.WithChangeSignal).
 	Engines []Engine
+	// SecretHolders are the packages carrying a generated list of the resources that
+	// store a secret (zz_gen_secret_holders.go), and SecretRetirements the calls outside
+	// tests that retire a version of the application secret
+	// (resource.RetireSecretVersion), each with the packages whose list it is handed.
+	SecretHolders     []SecretHolders
+	SecretRetirements []SecretRetirement
 
 	// goFiles are the non-test Go files scanned, for the passes that follow the walk.
 	goFiles []string
@@ -410,6 +416,30 @@ type DefaultRoles struct {
 type PolicyCheck struct {
 	File string
 	Line int
+}
+
+// SecretHolders is one resources package's generated list of the resources that store a
+// secret: the SecretHolders() the generator writes into zz_gen_secret_holders.go.
+type SecretHolders struct {
+	// File is the generated file, root-relative, and Package the import path of the
+	// package it is in.
+	File    string
+	Package string
+	// Stored reports that the list names a resource: the package stores a secret.
+	Stored bool
+}
+
+// SecretRetirement is one call to resource.RetireSecretVersion outside tests: where a
+// version of the application secret is retired, and what it reads.
+type SecretRetirement struct {
+	File string
+	Line int
+	// Packages are the import paths of the packages whose SecretHolders() the call is
+	// handed, in the call or through a variable of its function, sorted.
+	Packages []string
+	// Unread reports holders the call takes from where the scan does not read: a
+	// parameter, a function of the application's own, a list written by hand.
+	Unread bool
 }
 
 // Engine is one construction of a permission engine outside tests: a call to access.New.
