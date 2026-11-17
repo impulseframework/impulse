@@ -76,7 +76,10 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // has one, until its end, where it has one, and a membership the person holds already
 // is given the period handed in place of the one it had (periods.go). Whoever may give
 // the role gives it a period, and the Super Administrator role takes none
-// (access.ValidatePeriod). AssignRole gives the membership with no period.
+// (access.ValidatePeriod). AssignRole gives the membership with no period. Nobody
+// lengthens their own holding: a caller who may give the role does not give their own
+// membership a period that lasts longer than the one it has, and someone else who may
+// give it does (refuseLongerForOneself).
 func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -117,7 +120,7 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
 	}
-	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, period, inserted)
+	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, period, inserted, m.callerIs(ctx, userID))
 	if err != nil {
 		return err
 	}
@@ -185,7 +188,8 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 			return err
 		}
 	case m.callerIs(ctx, userID):
-		if err := m.refuseLastAdministrator(ctx, txn, scope, key); err != nil {
+		gone := &removal{user: key.User, role: key.Role, group: "", wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
+		if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
 			return err
 		}
 	}

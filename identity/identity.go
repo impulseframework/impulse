@@ -270,6 +270,10 @@ type Manager struct {
 	// tenantWord is what the application calls one tenant, as a sentence a person reads
 	// says it ("customer"); "tenant" where the application named none (WithTenantWord).
 	tenantWord string
+	// grants answer what the request's caller may do to a person's role, which the
+	// rules of a group ask (WithRoleGrants); nil where the manager was built without
+	// them.
+	grants RoleGrants
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -346,7 +350,10 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	if sessions == nil {
 		return nil, errors.New("identity.New(): the session API is nil; pass the API of the Auth that signs the auth's people in (session.Auth.API), whose hasher a password written here is checked by")
 	}
-	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", now: time.Now}
+	m := &Manager{
+		auth: auth, store: store, access: controller, sessions: sessions,
+		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, now: time.Now,
+	}
 	for _, opt := range opts {
 		opt(m)
 	}
