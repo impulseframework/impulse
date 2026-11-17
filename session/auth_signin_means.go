@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -78,6 +79,49 @@ func (a *Auth[S, U, Tx]) signsInThrough(method sessioninfo.AuthMethod, connectio
 // password's removal is this library's.
 func (p *AuthAPI[S, U, Tx]) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
 	return p.auth.signsInThrough(method, connection)
+}
+
+// DirectoryName answers what the Auth's sign-in registrations call the directory an
+// identity of method and connection came through, for a sentence that names it to a
+// person: name is the name a registration that takes the connection gives it (a listed
+// Entra tenant's or Workspace's name, a provider's), "" where none names it, and label
+// is the label of the button of the first registration of the login page that takes
+// the connection, "" where the page offers none. A sentence says the name where there
+// is one and otherwise the directory by the button a person signs in to it with, never
+// the connection itself, which for an Entra tenant is an id. It reads nothing: the
+// answer is what the registrations fixed in code. It closes registration, as every read
+// of the Auth's methods does.
+func (p *AuthAPI[S, U, Tx]) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
+	return p.auth.directoryName(method, connection)
+}
+
+// directoryName is DirectoryName: the registrations of the login page first, in its
+// order, then every other by name, as SignInMethods lists them.
+func (a *Auth[S, U, Tx]) directoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
+	m := a.registered()
+	names := slices.Clone(m.offeredNames())
+	for _, registered := range slices.Sorted(mapKeys(m.registered)) {
+		if !slices.Contains(names, registered) {
+			names = append(names, registered)
+		}
+	}
+	for _, registered := range names {
+		external, ok := m.external[registered]
+		if !ok || external.Name != method {
+			continue
+		}
+		if external.AdmitsConnection != nil && !external.AdmitsConnection(connection) {
+			continue
+		}
+		if name == "" && external.ConnectionName != nil {
+			name = external.ConnectionName(connection)
+		}
+		if label == "" {
+			label = m.labels[registered]
+		}
+	}
+
+	return name, label
 }
 
 // signsIn reports whether an identity of method and connection counts as a means of

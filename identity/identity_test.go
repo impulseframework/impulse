@@ -688,6 +688,14 @@ type fakeSessions struct {
 	// method.
 	unoffered map[sessioninfo.AuthMethod]bool
 	untaken   map[string]bool
+	// named are the names the registrations give a connection, and labels the labels of
+	// the buttons a person signs in to a method's directories with.
+	named  map[string]string
+	labels map[sessioninfo.AuthMethod]string
+}
+
+func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
+	return s.named[connection], s.labels[method]
 }
 
 func (s fakeSessions) SignInMethods() []session.RegisteredMethod {

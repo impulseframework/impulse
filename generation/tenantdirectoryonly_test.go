@@ -117,12 +117,20 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			Make: tenantOwnMethod{Name: "MakeHarborDirectoryOnly", Typed: "close"}, End: tenantOwnMethod{Name: "EndHarborDirectoryOnly"},
 			StateFunc: "DirectoryOnly", StateRoute: "directory-only",
 			DomainRoute: "harbors/{harborID}", KeyType: "impulse.UUID", KeyIsUUID: true, People: people,
+			Rules:               "NewHarborDirectoryRules()",
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
 	}
 	textKey := data()
 	textKey.KeyType, textKey.KeyIsUUID, textKey.FlagType = "string", false, "resources.Flag"
+	// The rules of a program that generates two auths' management are named by both.
+	const namedRules = "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)"
+	named := data(
+		&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}},
+		&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
+	)
+	named.Rules = namedRules
 	tests := []struct {
 		name            string
 		data            *directoryOnlyData
@@ -132,10 +140,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	}{
 		{
 			name: "each method asks its grant, then the warning or the rules, then writes the flag; the warning names each auth's people list",
-			data: data(
-				&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}},
-				&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
-			),
+			data: named,
 			wantInOrder: []string{
 				"func (a *App) MakeHarborDirectoryOnly() http.HandlerFunc {",
 				`return harborDirectoryOnly(a, "MakeHarborDirectoryOnly", true)`,
@@ -143,6 +148,8 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				`return harborDirectoryOnly(a, "EndHarborDirectoryOnly", false)`,
 				"func harborDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {",
 				`resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())`,
+				// The rules' sentences name the directory as each auth's registrations do.
+				"rules := " + namedRules + "\n",
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
 				"ctx = resource.WithCaller(ctx, caller)",
@@ -164,7 +171,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 				"func (a *App) DirectoryOnly() http.HandlerFunc {",
-				`return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewHarborDirectoryRules(), a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
+				"return resource.DirectoryOnlyStateHandler(a.ResourceClient(), " + namedRules + `, a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
 			},
 			wantContains: []string{
 				"POST <prefix>/harbors/{harborID}/make-harbor-directory-only",
@@ -178,8 +185,8 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		{
 			name:            "a program that generates no auth's management counts and names no person",
 			data:            data(),
-			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)"},
-			wantNotContains: []string{"resource.DirectoryPeople{"},
+			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)", "rules := NewHarborDirectoryRules()\n"},
+			wantNotContains: []string{"resource.DirectoryPeople{", "NamedBy("},
 		},
 		{
 			name:            "a record keyed by text, with a flag of a type named over a boolean",
@@ -230,6 +237,7 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 			Source: "resources", Package: "app", Name: "Harbor", Word: "harbor", Directories: "HarborDirectory", Field: "DefaultSeat",
 			Open: tenantOwnMethod{Name: "OpenHarborToDirectory", Typed: "open"}, InviteOnly: tenantOwnMethod{Name: "MakeHarborInviteOnly"},
 			DomainRoute: "harbors/{harborID}", SeatIsPointer: true, Auth: "Staff", IdentityAccessor: "StaffIdentity", Picker: "StaffHarborDirectoryRoles",
+			Rules:               "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
@@ -250,6 +258,8 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"func (a *App) OpenHarborToDirectory() http.HandlerFunc {",
 				"Role string `json:\"role\"`",
 				`resource.MustNewRPCDecoder[request](a, "OpenHarborToDirectory", accesstypes.Execute).WithCollection(router.Collection())`,
+				// The warning names the directory as the auth's registrations do.
+				"rules := NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)\n",
 				"req, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
 				"ctx = resource.WithCaller(ctx, caller)",
 				"role := accesstypes.Role(strings.TrimSpace(req.Role))",
@@ -268,6 +278,7 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)",
 				"func (a *App) MakeHarborInviteOnly() http.HandlerFunc {",
 				`resource.MustNewRPCDecoder[request](a, "MakeHarborInviteOnly", accesstypes.Execute).WithCollection(router.Collection())`,
+				"rules := NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)\n",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
 				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning {",
 				`httpio.NewBadRequestMessage("MakeHarborInviteOnly declares no warning: send the call without the X-Warning header")`,
@@ -1054,9 +1065,12 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				"WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'",
 				") AS OutsideDirectory,",
 				"IF(ts.DirectoryOnly AND td.SectorId IS NOT NULL",
-				"CONCAT('Has not signed in through ', td.Connection, ', so cannot enter while this sector is directory only')",
+				// The sentence speaks of the tenant's directory and never says its connection.
+				`'Has not signed in through this sector\'s directory, so cannot enter while this sector is directory only',`,
 				"NULL) AS CannotEnter",
 			},
+			// A connection is a key, for a Microsoft Entra tenant an id: no sentence is made of it.
+			wantNotContains: []string{"CONCAT(", "through ', td.Connection"},
 		},
 		{
 			name: "an auth that keeps no identities signs nobody in through a directory",

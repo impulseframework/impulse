@@ -777,7 +777,18 @@ func Test_permissionsTemplate_sessionOutlets(t *testing.T) {
 				"GET /api/user-domains.",
 				"resource.WithFeatureGates(resources.FeatureGates(), a.FeatureSet()), resource.WithFormerNames(router.Collection())",
 			},
-			wantNotContains: []string{"additional session-serving", "WithDomainNames"},
+			wantNotContains: []string{"additional session-serving", "WithDomainNames", "WithDirectoryNames"},
+		},
+		{
+			name: "a package that declares a tenant's directories has the session's directory named in a closed tenant's reason",
+			data: permissionsData{
+				Package: "app", ApplicationName: "App", ReceiverName: "a", RoutePrefix: "api", DefaultServesSessions: true, ResourcePackage: "resources", RouterPackage: "router", TenantNames: true,
+				DirectoryNamers: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
+			},
+			wantContains: []string{
+				"// A tenant that is closed to the session says why, and names the directory the session",
+				"return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()), resource.WithDirectoryNames(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName))",
+			},
 		},
 		{
 			name: "a record that marks its name has the tenant list named from the roster",

@@ -295,6 +295,8 @@ func method(authn Authenticator, roles *signin.RoleReconciler, authority string,
 
 			return admitted
 		},
+		// A tenant is said by the application's name for it, where it gave one.
+		ConnectionName: tenants.nameOf,
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			chooser, err := signin.SelectAccount(r)
 			if err != nil {

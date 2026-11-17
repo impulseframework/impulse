@@ -329,6 +329,7 @@ func (r *resourceGenerator) generatePermissions() error {
 		ResourcePackage:        r.resource.Package(),
 		RouterPackage:          r.router.Package(),
 		TenantNames:            r.namesTenants(),
+		DirectoryNamers:        r.closedTenantNamers(),
 		ListsAcrossTenants:     r.listsAcrossTenants(),
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")

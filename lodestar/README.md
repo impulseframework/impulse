@@ -901,8 +901,13 @@ caller may list the sector's people (List on the sector's people lists and on th
 some of them is told so in the sentence, and one who may list nobody is told how many
 and no names. While it is on, the sector's People page says who
 it keeps out, on the row of each person with no sign-in through the directory ("Has not
-signed in through persona, so cannot enter while this sector is directory only"); the
-list is made from who holds a role in the sector, so nobody disappears from it. The
+signed in through this sector's directory, so cannot enter while this sector is
+directory only"); the list is made from who holds a role in the sector, so nobody
+disappears from it. Every sentence that speaks of a sector's directory says it in words
+a person knows, the name the crew's sign-in registrations give it (`example`, the
+fleet's Workspace; `persona`, the persona provider), and never by a connection that is
+an id (`a.CrewIdentity().DirectoryName`, which the generated frames pass to the rules
+and to the sector list). The
 directory of a sector its own creator charted is
 the organization's directory its creator came through, set by the create-sector route
 with the row through the step every such write takes (`app.SetSectorDirectory`); the

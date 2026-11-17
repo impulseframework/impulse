@@ -181,6 +181,9 @@ type directoryRoleData struct {
 	Auth             string
 	IdentityAccessor string
 	Picker           string
+	// Rules is the expression that builds the rules of the record's directory, named by
+	// the program's auths (namedDirectoryRules).
+	Rules string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -214,6 +217,7 @@ func (r *resourceGenerator) generateDirectoryRole() error {
 		Auth:                role.identity.auth,
 		IdentityAccessor:    role.identity.accessor(),
 		Picker:              r.directoryRolePicker(),
+		Rules:               r.namedDirectoryRules(role.record),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),

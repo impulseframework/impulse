@@ -93,14 +93,17 @@ func (m *maskedPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Do
 
 // closedReason is the sentence the session's tenant list gives for a tenant that is
 // closed to the session: what the tenant admits, and how this session was established.
-// name is the tenant's name as the list shows it.
-func closedReason(name string, session *sessioninfo.SessionData) string {
-	return fmt.Sprintf("%s admits only people who sign in through its own directory. %s", name, establishedSentence(session))
+// name is the tenant's name as the list shows it, and namers say what the application's
+// sign-in registrations call the directory the session came through.
+func closedReason(name string, session *sessioninfo.SessionData, namers []DirectoryNamer) string {
+	return fmt.Sprintf("%s admits only people who sign in through its own directory. %s", name, establishedSentence(session, namers))
 }
 
 // establishedSentence says how a session was established, to the person whose session
-// it is: the second sentence of a tenant's closed reason.
-func establishedSentence(session *sessioninfo.SessionData) string {
+// it is: the second sentence of a tenant's closed reason. A directory is said in the
+// words a person knows it by (DirectoryName), its kind and the name a registration
+// gives it, or the label of its button, and never by its connection.
+func establishedSentence(session *sessioninfo.SessionData, namers []DirectoryNamer) string {
 	established, ok := session.EstablishedBy()
 	directory := signin.Directory{Method: established.Method, Connection: established.Connection}
 	switch {
@@ -111,7 +114,7 @@ func establishedSentence(session *sessioninfo.SessionData) string {
 	case directory.PersonalAccounts():
 		return fmt.Sprintf("You signed in with %s.", personalAccountName(directory))
 	case directory.Organization():
-		return fmt.Sprintf("You signed in through %s.", DirectoryName(directory))
+		return fmt.Sprintf("You signed in through %s.", DirectoryName(directory, namers...))
 	case established.Method == sessioninfo.MethodImpersonation:
 		return "This session is viewing the application as someone else, which is no sign-in through its directory."
 	default:

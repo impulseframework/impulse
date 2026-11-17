@@ -27,6 +27,96 @@ func declarationResources(t *testing.T, names ...string) (*resourceGenerator, er
 	return r, err
 }
 
+// Test_namedDirectoryRules pins the expressions a generated frame names a directory by:
+// the DirectoryName of the generated identity client of every auth whose management the
+// program generates, in declaration order, through the application's accessor. The
+// rules of a tenant record's directory are built named by them wherever a frame builds
+// them, the directories record's write paths among them, and the tenant list is handed
+// them where the package declares a tenant's directories; a program that generates no
+// auth's management names by nobody, and its rules read what a directory alone says.
+func Test_namedDirectoryRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// auths are the auths whose management the program generates, and structs the
+		// fixture's structs the package declares.
+		auths      []string
+		structs    []string
+		wantNamers []string
+		wantRules  string
+		wantClosed string
+	}{
+		{
+			name: "two auths name the rules and the tenant list, in declaration order", auths: []string{"Staff", "Members"}, structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{"a.StaffIdentity().DirectoryName", "a.MembersIdentity().DirectoryName"},
+			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)",
+			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
+		},
+		{
+			name: "one auth", auths: []string{"Staff"}, structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{"a.StaffIdentity().DirectoryName"},
+			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
+			wantClosed: "a.StaffIdentity().DirectoryName",
+		},
+		{
+			name: "a program that generates no auth's management names by nobody", structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{}, wantRules: "NewHarborDirectoryRules()",
+		},
+		{
+			name: "a package that declares no directories has no tenant closed to a session, so its tenant list is handed no namer", auths: []string{"Staff"}, structs: []string{"Sector"},
+			wantNamers: []string{"a.StaffIdentity().DirectoryName"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			structs := fixtureStructs(loadFixture(t, "tenantfixture"))
+			c := &client{tableMap: tenantFixtureTables()}
+			resources, err := c.structsToResources(tenantFixtureStructs(t, structs, tt.structs...))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			c.resources = resources
+			for _, auth := range tt.auths {
+				c.identity = append(c.identity, &identityInstance{auth: auth})
+			}
+			r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
+			if err := r.resolveTenantRecord(); err != nil {
+				t.Fatalf("resolveTenantRecord() error = %v", err)
+			}
+
+			if diff := cmp.Diff(tt.wantNamers, r.directoryNamers()); diff != "" {
+				t.Errorf("directoryNamers() mismatch (-want +got):\n%s", diff)
+			}
+			if got := r.closedTenantNamers(); got != tt.wantClosed {
+				t.Errorf("closedTenantNamers() = %q, want %q", got, tt.wantClosed)
+			}
+			directories := r.tenantDirectoryRecord()
+			if tt.wantRules == "" {
+				if directories != nil {
+					t.Fatalf("the fixture resolved a directories record, %s, want none", directories.Name())
+				}
+
+				return
+			}
+			if got := r.namedDirectoryRules(r.tenantRecord()); got != tt.wantRules {
+				t.Errorf("namedDirectoryRules() = %q, want %q", got, tt.wantRules)
+			}
+			// The directories record's write paths build the rules by the same expression.
+			if got := directories.DirectoryRules(); got != tt.wantRules {
+				t.Errorf("the directories record's DirectoryRules() = %q, want %q", got, tt.wantRules)
+			}
+			for _, res := range r.resources {
+				if res != directories && res.DirectoryRules() != "" {
+					t.Errorf("%s.DirectoryRules() = %q, want none on a resource that is not the directories record", res.Name(), res.DirectoryRules())
+				}
+			}
+		})
+	}
+}
+
 // Test_resolveTenantDeclaration pins the declaration's capture on each struct: the
 // record's flag and the directories record's columns are marked, and each refused
 // shape names its rule, at capture (one struct) or once every struct is known (the

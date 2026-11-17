@@ -108,7 +108,11 @@ each warn first: the dialog shows what the server says the call will do (who wil
 enter and with what role; who will be able to enter, the count of the people it would
 keep out and, to a person who may list the tenant's people, their names as a list) and
 holds its button until the person has typed the method's word (`open`, `close`); a
-refusal is shown on the page and no dialog opens. Making the tenant invite only and
+refusal is shown on the page and no dialog opens. Every sentence names the directory in
+words a person knows, the Workspace's name or its domain as the staff auth's Google
+registration gives it, and never by a connection that is an id (a Microsoft Entra
+tenant its registration lists by id alone reads "your organization's Microsoft
+directory", by the label of its button). Making the tenant invite only and
 turning directory only off are plain confirmations; while a tenant is directory only its
 routes answer the people it admits, so a tenant whose directory has stopped working is
 opened again by a super administrator. The tenant's People page marks the people it

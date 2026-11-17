@@ -12,6 +12,8 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // TestManager_DirectoryRole pins the rule of the role a tenant is opened to its
@@ -249,4 +251,42 @@ func TestManager_DirectoryRoles(t *testing.T) {
 			t.Errorf("DirectoryRoles() error = %v, want one that says no tenant was named", err)
 		}
 	})
+}
+
+// TestManager_DirectoryName pins that the manager names a directory as the session
+// library's registrations do: the directory's method and connection are the ones
+// asked, and the name and the label come back as the library answered them, so the
+// words of a warning are the registrations' and never the manager's own.
+func TestManager_DirectoryName(t *testing.T) {
+	t.Parallel()
+
+	m, _ := newManager(t, groupStore(), wardenRoles)
+	m.sessions = fakeSessions{
+		named:  map[string]string{"6f2c1b7e-0000-4000-8000-000000000001": "Lakeside"},
+		labels: map[sessioninfo.AuthMethod]string{sessioninfo.MethodAzure: "Microsoft", sessioninfo.MethodGoogle: "Google"},
+	}
+	// The manager is what the rules of a tenant's directory are named by.
+	var namer resource.DirectoryNamer = m.DirectoryName
+
+	tests := []struct {
+		name      string
+		directory signin.Directory
+		wantName  string
+		wantLabel string
+	}{
+		{name: "a tenant a registration names", directory: signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000001"}, wantName: "Lakeside", wantLabel: "Microsoft"},
+		{name: "a tenant no registration names has its button's label", directory: signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000002"}, wantLabel: "Microsoft"},
+		{name: "the label is the one of the directory's own method", directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "acme.example"}, wantLabel: "Google"},
+		{name: "a method the registrations do not know has neither", directory: signin.Directory{Method: sessioninfo.MethodWorkOS, Connection: "conn_01"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			name, label := namer(tt.directory)
+			if name != tt.wantName || label != tt.wantLabel {
+				t.Errorf("DirectoryName() = (%q, %q), want (%q, %q)", name, label, tt.wantName, tt.wantLabel)
+			}
+		})
+	}
 }

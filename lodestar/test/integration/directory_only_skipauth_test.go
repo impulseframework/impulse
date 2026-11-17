@@ -103,7 +103,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 
 	// Bastion's list of its people keeps everyone who holds a role there, and says who
 	// the switch keeps out: the people with no sign-in through its directory.
-	keptOut := "Has not signed in through persona, so cannot enter while this sector is directory only"
+	keptOut := "Has not signed in through this sector's directory, so cannot enter while this sector is directory only"
 	people := cannotEnter(ctx, t, warden, bastion)
 	for username, want := range map[string]string{"rigger": keptOut, "bosun": keptOut, "pilot": keptOut, "warden": "", "governor": ""} {
 		got, listed := people[username]

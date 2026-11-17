@@ -98,7 +98,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 	const (
 		noDirectory = "This station has no directory, so it cannot be directory only: nobody could enter it. Set its directory first: sign in through your organization's directory, make it this station's directory, then turn directory only on."
 		onAlready   = "This station is directory only already: only people who sign in through its directory enter it. There is nothing to turn on."
-		notThrough  = "Directory only is turned on by a person who is signed in through this station's directory, Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001: that shows the directory works, and that you will not shut yourself out. %s Sign in through Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001 and try again."
+		notThrough  = "Directory only is turned on by a person who is signed in through this station's directory, your organization's Microsoft directory: that shows the directory works, and that you will not shut yourself out. %s Sign in through your organization's Microsoft directory and try again."
 	)
 	writeTests := []struct {
 		name    string
@@ -181,8 +181,8 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		return out
 	}
 	const (
-		entraOnly    = "Only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station."
-		entraConfirm = "Admit only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001"
+		entraOnly    = "Only people who sign in through your organization's Microsoft directory will be able to enter this station."
+		entraConfirm = "Admit only people who sign in through your organization's Microsoft directory"
 		deltaOnly    = "Only people who sign in through id.delta.example will be able to enter this station."
 		deltaConfirm = "Admit only people who sign in through id.delta.example"
 	)
@@ -302,6 +302,65 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			}
 		})
 	}
+
+	// Rules the application's registrations name say a directory by its name, and by
+	// the label of its button where none names it; no sentence says the tenant's id.
+	t.Run("rules named by the sign-in registrations say a directory in words a person knows", func(t *testing.T) {
+		t.Parallel()
+
+		named := rules.NamedBy(func(directory signin.Directory) (string, string) {
+			if directory == entra {
+				return "Lakeside", "Microsoft"
+			}
+
+			return "", "Staff sign-in"
+		})
+		var warning *Warning
+		err := client.ExecuteFunc(asks(through(entra), &switchPermissions{}), func(ctx context.Context, txn ReadWriteTransaction) error {
+			var err error
+			warning, err = named.DirectoryOnlyWarning(ctx, txn, "beta", people(reader(zed))...)
+
+			return err
+		})
+		if err != nil {
+			t.Fatalf("DirectoryOnlyWarning() error = %v", err)
+		}
+		wantWarning := &Warning{
+			Consequence: "Only people who sign in through Lakeside will be able to enter this station. 1 person seated here signs in another way and will lose access.",
+			Names:       []string{"zed"},
+			Confirm:     "Admit only people who sign in through Lakeside",
+		}
+		if diff := cmp.Diff(wantWarning, warning); diff != "" {
+			t.Errorf("DirectoryOnlyWarning() of named rules mismatch (-want +got):\n%s", diff)
+		}
+
+		// The refusal names the station's directory with its kind, and the directory the
+		// caller came through, which no registration names, by the label of its button.
+		err = client.ExecuteFunc(through(workspace), func(ctx context.Context, txn ReadWriteTransaction) error {
+			return named.DirectoryOnly(ctx, txn, "beta", true)
+		})
+		const wantRefusal = "Directory only is turned on by a person who is signed in through this station's directory, Microsoft Entra tenant Lakeside: that shows the directory works, and that you will not shut yourself out. You signed in through your organization's Staff sign-in directory. Sign in through Microsoft Entra tenant Lakeside and try again."
+		if !httpio.HasConflict(err) || httpio.Message(err) != wantRefusal {
+			t.Errorf("DirectoryOnly() of named rules error = %v, want the Conflict %q", err, wantRefusal)
+		}
+
+		wantOpen := &Warning{
+			Consequence: "Anyone who signs in through Lakeside will be able to enter this station without an invitation and gets the role Dockhand.",
+			Confirm:     "Open to people who sign in through Lakeside",
+		}
+		if diff := cmp.Diff(wantOpen, named.OpenToDirectoryWarning(&TenantDirectory{Key: "beta-0", Directory: entra}, "Dockhand")); diff != "" {
+			t.Errorf("OpenToDirectoryWarning() of named rules mismatch (-want +got):\n%s", diff)
+		}
+		for _, said := range []string{warning.Consequence, warning.Confirm, httpio.Message(err)} {
+			if strings.Contains(said, entra.Connection) {
+				t.Errorf("%q says the tenant's id, want words a person knows", said)
+			}
+		}
+		// Naming the rules leaves the rules they were made from as they were.
+		if len(rules.namers) != 0 {
+			t.Errorf("NamedBy() changed the rules it was called on: %d namers", len(rules.namers))
+		}
+	})
 
 	// One request's writes are held to each other. The rules read what is committed and
 	// a transaction's reads do not see its own writes, so the transaction notes the
@@ -550,15 +609,15 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		}
 
 		wantOpen := &Warning{
-			Consequence: "Anyone who signs in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station without an invitation and gets the role Dockhand.",
-			Confirm:     "Open to people who sign in through 6f2c1b7e-0000-4000-8000-000000000001",
+			Consequence: "Anyone who signs in through your organization's Microsoft directory will be able to enter this station without an invitation and gets the role Dockhand.",
+			Confirm:     "Open to people who sign in through your organization's Microsoft directory",
 		}
 		if diff := cmp.Diff(wantOpen, rules.OpenToDirectoryWarning(beta, "Dockhand")); diff != "" {
 			t.Errorf("OpenToDirectoryWarning() mismatch (-want +got):\n%s", diff)
 		}
 		// While no role is picked yet the warning says one is to be chosen.
 		wantChoose := &Warning{
-			Consequence: "Anyone who signs in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station without an invitation. Choose the role each of them gets.",
+			Consequence: "Anyone who signs in through your organization's Microsoft directory will be able to enter this station without an invitation. Choose the role each of them gets.",
 			Confirm:     wantOpen.Confirm,
 		}
 		if diff := cmp.Diff(wantChoose, rules.OpenToDirectoryWarning(beta, "")); diff != "" {

@@ -258,7 +258,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// they cannot enter; the administrator's, a super administrator, says nothing. The
 	// warning a page asks before turning it on has nothing to turn on: it says so, and
 	// names neither the directory nor the people.
-	keptOut := "Has not signed in through north.example, so cannot enter while this tenant is directory only"
+	keptOut := "Has not signed in through this tenant's directory, so cannot enter while this tenant is directory only"
 	people := tenantRows(ctx, t, admin, north, "staff-tenant-users")
 	if got, _ := people[s.memberID]["cannotEnter"].(string); got != keptOut {
 		t.Errorf("north's people: the member's row says %q, want %q", got, keptOut)

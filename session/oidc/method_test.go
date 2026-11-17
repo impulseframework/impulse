@@ -189,6 +189,44 @@ func TestMethod_AdmitsConnection(t *testing.T) {
 	}
 }
 
+// TestMethod_ConnectionName proves the method says its provider in words a person
+// knows: the application's name for it, or the host of its issuer where it gave none,
+// and nothing for a link that is another registration's.
+func TestMethod_ConnectionName(t *testing.T) {
+	t.Parallel()
+
+	host := audienceOf(baseConfig(&fakeAuthenticator{})).Organizations[0]
+	tests := []struct {
+		name       string
+		connection string
+		linked     string
+		want       string
+	}{
+		{name: "the registration's own connection, the issuer by default, is the issuer's host", linked: issuer, want: host},
+		{name: "the connection the configuration names is the name", connection: "lanterns-idp", linked: "lanterns-idp", want: "lanterns-idp"},
+		{name: "another registration's connection has no name here", linked: "okta"},
+		{name: "the issuer, once the configuration names a connection", connection: "lanterns-idp", linked: issuer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := baseConfig(&fakeAuthenticator{})
+			cfg.Connection = tt.connection
+			m := build(t, cfg)
+			if m.ConnectionName == nil {
+				t.Fatal("ConnectionName = nil, want the method to name its provider")
+			}
+			if got := m.ConnectionName(tt.linked); got != tt.want {
+				t.Errorf("ConnectionName(%q) = %q, want %q", tt.linked, got, tt.want)
+			}
+		})
+	}
+	if strings.Contains(host, "/") || host == issuer {
+		t.Errorf("the issuer's host = %q, want the host alone, never the URL", host)
+	}
+}
+
 // TestSignIn_refusals proves the misuses the registration reports at startup, each naming
 // its field.
 func TestSignIn_refusals(t *testing.T) {

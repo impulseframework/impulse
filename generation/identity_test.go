@@ -439,6 +439,8 @@ func Test_prepareIdentity(t *testing.T) {
 			// The roles a sign-in gives are the manager's, handed the session library's transaction.
 			"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {", `return c.manager.InvitationAccepted("Crew")`,
 			"func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.DirectorySeated("Crew")`,
+			// What the auth's sign-in registrations call a directory is the manager's answer.
+			"func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {", "return c.manager.DirectoryName(directory)",
 			// The methods a super administrator always executes are the two that give and
 			// take the auth's roles, and the manager holds the engine to them.
 			"return []accesstypes.Resource{AssignCrewRole{}.Method(), RemoveCrewRole{}.Method()}", "opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))",

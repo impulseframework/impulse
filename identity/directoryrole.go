@@ -9,6 +9,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -104,4 +105,16 @@ func (m *Manager) DirectoryRoles(ctx context.Context, txn resource.ReadWriteTran
 	}
 
 	return offered, nil
+}
+
+// DirectoryName answers what the auth's sign-in registrations call a directory, for a
+// sentence that names it to a person: the name a registration that takes its connection
+// gives it, and the label of the button a person signs in to it with, each "" where the
+// registrations have none (SessionAPI.DirectoryName). It is a resource.DirectoryNamer:
+// the generated frames hand it to the rules of a tenant's directory
+// (resource.TenantDirectoryRules.NamedBy) and to the tenant list
+// (resource.WithDirectoryNames), so a warning, a refusal and a closed tenant's reason
+// say "Lakeside" or "your organization's Microsoft directory" and never a tenant id.
+func (m *Manager) DirectoryName(directory signin.Directory) (name, label string) {
+	return m.sessions.DirectoryName(directory.Method, directory.Connection)
 }

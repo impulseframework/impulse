@@ -80,7 +80,9 @@ and only for a person signed in through it. Opening the tenant and making it dir
 only each warn first: the dialog shows the server's sentence (who will enter and with
 what role; the count of the people it would keep out and, to a person who may list the
 tenant's people, their names as a list) and holds its button until the person has typed
-the method's word; the other two are plain confirmations. Nobody types a directory in: it is set from a
+the method's word; the other two are plain confirmations. Every sentence names the
+directory in words a person knows, the name a sign-in registration gives it or the
+label of its button, and never by a connection that is an id. Nobody types a directory in: it is set from a
 sign-in, by an administrator who is signed in through their organization's directory,
 whom the page offers to make it the tenant's. The staff auth signs in by password until
 a directory method joins it (`impulse add method`), so until then the page offers no

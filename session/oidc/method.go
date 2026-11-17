@@ -306,6 +306,15 @@ func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connectio
 		AdmitsConnection: func(linked string) bool {
 			return linked == connection
 		},
+		// The provider is said by the application's name for it, or by the host of its
+		// issuer where it gave none: what the registration's audience names.
+		ConnectionName: func(linked string) string {
+			if linked != connection || len(audience.Organizations) == 0 {
+				return ""
+			}
+
+			return audience.Organizations[0]
+		},
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			hint, err := signin.LoginHint(r)
 			if err != nil {

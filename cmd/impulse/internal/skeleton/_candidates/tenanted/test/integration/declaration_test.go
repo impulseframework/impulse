@@ -477,7 +477,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// they cannot enter. The organizer's row, who signed in through the directory, and
 	// the administrator's, a super administrator, say nothing.
 	people := tenantRows(ctx, t, organizer, north, "staff-tenant-users")
-	keptOut := "Has not signed in through " + workspace.Connection + ", so cannot enter while this tenant is directory only"
+	keptOut := "Has not signed in through this tenant's directory, so cannot enter while this tenant is directory only"
 	if got, _ := people[s.memberID]["cannotEnter"].(string); got != keptOut {
 		t.Errorf("north's people: the member's row says %q, want %q", got, keptOut)
 	}

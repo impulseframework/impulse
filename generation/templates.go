@@ -967,8 +967,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) PermissionDigest() http.Handl
 // Each tenant of the list carries its name from the application's tenant roster, which
 // reads the tenant record's name column, so the tenant's own people see it.
 {{- end }}
+{{- if .DirectoryNamers }}
+// A tenant that is closed to the session says why, and names the directory the session
+// came through as the sign-in registrations of each auth call it, never by its
+// connection (resource.WithDirectoryNames).
+{{- end }}
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) UserDomains() http.HandlerFunc {
-	return resource.UserDomainsHandler({{ .ReceiverName }}.UserPermissions{{ if .TenantNames }}, resource.WithDomainNames({{ .ReceiverName }}.TenantRoster()){{ end }})
+	return resource.UserDomainsHandler({{ .ReceiverName }}.UserPermissions{{ if .TenantNames }}, resource.WithDomainNames({{ .ReceiverName }}.TenantRoster()){{ end }}{{ if .DirectoryNamers }}, resource.WithDirectoryNames({{ .DirectoryNamers }}){{ end }})
 }
 `
 
@@ -1935,7 +1940,9 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 	type request struct{}
 
 	decoder := resource.MustNewRPCDecoder[request]({{ .ReceiverName }}, method, accesstypes.Execute).WithCollection({{ .RouterPackage }}.Collection())
-	rules := New{{ .Name }}DirectoryRules()
+	// The rules' sentences say the {{ .Word }}'s directory as each auth's sign-in
+	// registrations call it, never by its connection.
+	rules := {{ .Rules }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -2039,7 +2046,7 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 // grant of either method that turns it, Execute on {{ .Make.Name }} or on {{ .End.Name }} in the
 // {{ .Word }}, and writes nothing (resource.DirectoryOnlyStateHandler).
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .StateFunc }}() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler({{ .ReceiverName }}.ResourceClient(), New{{ .Name }}DirectoryRules(), {{ .ReceiverName }}.UserPermissions, {{ .RouterPackage }}.Domain, {{ printf "%q" .Make.Name }}, {{ printf "%q" .End.Name }})
+	return resource.DirectoryOnlyStateHandler({{ .ReceiverName }}.ResourceClient(), {{ .Rules }}, {{ .ReceiverName }}.UserPermissions, {{ .RouterPackage }}.Domain, {{ printf "%q" .Make.Name }}, {{ printf "%q" .End.Name }})
 }
 `
 
@@ -2098,7 +2105,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 	}
 
 	decoder := resource.MustNewRPCDecoder[request]({{ .ReceiverName }}, {{ printf "%q" .Open.Name }}, accesstypes.Execute).WithCollection({{ .RouterPackage }}.Collection())
-	rules := New{{ .Name }}DirectoryRules()
+	// The rules' sentences say the {{ .Word }}'s directory as each auth's sign-in
+	// registrations call it, never by its connection.
+	rules := {{ .Rules }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -2198,7 +2207,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 	type request struct{}
 
 	decoder := resource.MustNewRPCDecoder[request]({{ .ReceiverName }}, {{ printf "%q" .InviteOnly.Name }}, accesstypes.Execute).WithCollection({{ .RouterPackage }}.Collection())
-	rules := New{{ .Name }}DirectoryRules()
+	// The rules' sentences say the {{ .Word }}'s directory as each auth's sign-in
+	// registrations call it, never by its connection.
+	rules := {{ .Rules }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
