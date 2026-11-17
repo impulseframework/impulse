@@ -4,24 +4,31 @@ package integration
 
 import (
 	"net/http"
+	"net/url"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 )
 
 // TestDirectoryDefaultRole_aMarshalNamesNoMarshal proves the limit the crew's role file
-// puts on the role a sector's directory gives a stranger at their first sign-in.
+// puts on the role a sector's directory gives a person at their first sign-in through
+// it.
 //
 // A marshal gives every role of the sector but their own: the grants on the methods that
-// give a role say so (new.role != 'SectorMarshal'). A directory's default seat gives a
+// give a role say so (new.role != 'SectorMarshal'). A directory's default role gives a
 // role too, to everyone the directory vouches for, with nobody signed in, so the
-// marshal's Update grant on the directories record carries the same limit over the seat
-// the request writes (new.defaultSeat): a seat is named, changed and cleared, but never
-// with the marshal's own role. A directory is declared without a seat, since the
-// marshal's Create grant carries the method and the connection alone, so every seat is
-// named by an update, under the limit. Without it a marshal would make marshals of every
-// stranger from a directory, which the grants on the methods refuse them one person at
-// a time.
+// marshal's Update grant on the directories record carries the same limit over the role
+// the request writes (new.defaultSeat): a default role is named, changed and cleared,
+// but never with the marshal's own role. A directory is set without one, since the
+// marshal's Create grant carries no field (the server sets the directory from the
+// session), so every default role is named by an update, under the limit. Without it a
+// marshal would make marshals of everyone from a directory, which the grants on the
+// methods refuse them one person at a time.
+//
+// The fleet's directory is Cinder's, so the marshal, Anvil's, is given the marshal's
+// role at Cinder first.
 //
 // Demonstrates: tenancy.default-seat.
 func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
@@ -32,23 +39,29 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 
 	ctx := t.Context()
 	s := newServed(ctx, t)
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	atCinder := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, "marshal"), "role": "SectorMarshal", "domain": cinder})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), atCinder); status != http.StatusNoContent {
+		t.Fatalf("making the marshal Cinder's marshal too: status %d: %s", status, body)
+	}
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
 
-	rows := directories(ctx, t, marshal, anvil)
+	rows := directories(ctx, t, marshal, cinder)
 	if len(rows) != 1 {
-		t.Fatalf("Anvil's directories = %+v, want the seeded fleet directory alone", rows)
+		t.Fatalf("Cinder's directory = %+v, want the seeded fleet directory alone", rows)
 	}
 	// The row as a batch names it: its path under the API's prefix.
-	row := "/sectors/" + anvil + "/sector-directories/" + rows[0].ID
+	row := "/sectors/" + cinder + "/sector-directories/" + rows[0].ID
 	patch := func(value string) (int, []byte) {
 		return marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"patch","path":"`+row+`","value":{"defaultSeat":`+value+`}}]`))
 	}
 	seat := func() string {
 		t.Helper()
-		rows := directories(ctx, t, marshal, anvil)
+		rows := directories(ctx, t, marshal, cinder)
 		if len(rows) != 1 {
-			t.Fatalf("Anvil's directories = %+v, want one", rows)
+			t.Fatalf("Cinder's directory = %+v, want one", rows)
 		}
 		if rows[0].DefaultSeat == nil {
 			return ""
@@ -58,46 +71,146 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	}
 
 	// A role the marshal may give is named.
-	if status, body := patch(`"SectorCrew"`); status != http.StatusOK {
-		t.Fatalf("naming SectorCrew as Anvil's default seat: status %d, want 200: %s", status, body)
+	if status, body := patch(`"Pilot"`); status != http.StatusOK {
+		t.Fatalf("naming Pilot as Cinder's default role: status %d, want 200: %s", status, body)
 	}
 	// The marshal's own role is refused, and the row keeps what it held.
 	if status, body := patch(`"SectorMarshal"`); status != http.StatusForbidden {
-		t.Errorf("naming SectorMarshal as Anvil's default seat: status %d, want 403: %s", status, body)
+		t.Errorf("naming SectorMarshal as Cinder's default role: status %d, want 403: %s", status, body)
 	}
-	if got := seat(); got != "SectorCrew" {
-		t.Errorf("Anvil's default seat after the refusal = %q, want SectorCrew", got)
+	if got := seat(); got != "Pilot" {
+		t.Errorf("Cinder's default role after the refusal = %q, want Pilot", got)
 	}
-	// Clearing the seat writes no role: the sector admits by invitation only again.
+	// Clearing it writes no role: the sector admits by invitation only again.
 	if status, body := patch(`null`); status != http.StatusOK {
-		t.Fatalf("clearing Anvil's default seat: status %d, want 200: %s", status, body)
+		t.Fatalf("clearing Cinder's default role: status %d, want 200: %s", status, body)
 	}
 	if got := seat(); got != "" {
-		t.Errorf("Anvil's default seat once cleared = %q, want none", got)
+		t.Errorf("Cinder's default role once cleared = %q, want none", got)
 	}
 
-	// A directory is declared without a seat: the marshal's Create grant does not carry
-	// the field, so a declaration that names one is refused whatever role it names, and
-	// the way to a seat is the update above.
-	withdraw := `[{"op":"remove","path":"` + row + `"}]`
-	if status, body := marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(withdraw)); status != http.StatusOK {
-		t.Fatalf("withdrawing Anvil's directory: status %d: %s", status, body)
+	// A directory is set without a default role: the marshal's Create grant carries no
+	// field, so a create that names one is refused whatever role it names, and the way
+	// to a default role is the update above. The create that names nothing is the
+	// action of a person signed in through a directory: the marshal came by password,
+	// so it is refused with how a directory is set, and Cinder is left with none.
+	remove := `[{"op":"remove","path":"` + row + `"}]`
+	if status, body := marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(remove)); status != http.StatusOK {
+		t.Fatalf("removing Cinder's directory: status %d: %s", status, body)
 	}
-	declare := func(seat string) (int, []byte) {
-		return marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"add","path":"/sectors/`+anvil+`/sector-directories","value":{"method":"google","connection":"example"`+seat+`}}]`))
+	set := func(value string) (int, []byte) {
+		return marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"add","path":"/sectors/`+cinder+`/sector-directories","value":{`+value+`}}]`))
 	}
 	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
-		if status, body := declare(`,"defaultSeat":"` + role + `"`); status != http.StatusForbidden {
-			t.Errorf("declaring Anvil's directory with %s as its default seat: status %d, want 403: %s", role, status, body)
+		if status, body := set(`"defaultSeat":"` + role + `"`); status != http.StatusForbidden {
+			t.Errorf("setting Cinder's directory with %s as its default role: status %d, want 403: %s", role, status, body)
 		}
 	}
-	if rows := directories(ctx, t, marshal, anvil); len(rows) != 0 {
-		t.Errorf("Anvil's directories after the refused declarations = %+v, want none", rows)
+	if status, body := set(``); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
+		t.Errorf("setting Cinder's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
-	if status, body := declare(``); status != http.StatusOK {
-		t.Fatalf("declaring Anvil's directory with no default seat: status %d, want 200: %s", status, body)
+	if rows := directories(ctx, t, marshal, cinder); len(rows) != 0 {
+		t.Errorf("Cinder's directory after the refused calls = %+v, want none", rows)
 	}
-	if got := seat(); got != "" {
-		t.Errorf("Anvil's default seat as declared = %q, want none", got)
+}
+
+// TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory proves when a
+// sector's default role is given to a person whose account stood before: at their first
+// sign-in through the sector's directory, the one that links the account to it, and
+// once for that link.
+//
+// The cadet is a password persona, seated in Anvil and nowhere else. The fleet's
+// directory is Cinder's, whose row names SectorCrew. Her first sign-in through the
+// fleet's directory is held for her password, which links the identity to her account,
+// and the link gives her Cinder's default role. Her second sign-in finds the link and
+// gives nothing. The governor removes the role, and signing in again does not give it
+// back: an administrator who wants one person out removes the role and leaves the
+// link. The governor then deletes the link, and her next sign-in through the directory
+// is a first one again: it links the account and, since she holds no role at Cinder,
+// gives the default role.
+//
+// Demonstrates: tenancy.default-seat.
+func TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	const cadet = "cadet"
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	cadetID := crewAccountID(ctx, t, governor, cadet)
+	atCinder := func() []string {
+		t.Helper()
+
+		return rolesHeldInSector(ctx, t, governor, cinder, cadet)
+	}
+	// linked signs the cadet in through the fleet's directory on a fresh browser, with
+	// the password that confirms the identity when the sign-in is held for it (her
+	// first sign-in through the directory, and the first after her link is deleted).
+	linked := func(confirm bool) {
+		t.Helper()
+		b := newBrowser(t, s, consoleAPI)
+		if status, body := b.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+			t.Fatalf("GET session before the cadet's login: status %d: %s", status, body)
+		}
+		status, location := b.loginConsoleGoogle(ctx, cadet)
+		want := consolePage
+		if confirm {
+			want = consoleLogin + "?pending=confirmation&returnUrl=" + url.QueryEscape(consolePage)
+		}
+		if status != http.StatusFound || location != want {
+			t.Fatalf("the cadet's Google login: status %d to %q, want %d to %q", status, location, http.StatusFound, want)
+		}
+		if confirm {
+			if status, body := b.do(ctx, http.MethodPost, consoleAPI+"/user/pending/confirm", jsonBody(t, map[string]string{"password": personaPassword})); status != http.StatusOK {
+				t.Fatalf("confirming the sign-in with the cadet's password: status %d: %s", status, body)
+			}
+		}
+		if sess := b.session(ctx); sess["authenticated"] != true || sess["username"] != cadet {
+			t.Fatalf("the cadet's session after the directory signed her in = %v, want authenticated as %s", sess, cadet)
+		}
+	}
+
+	if held := atCinder(); len(held) != 0 {
+		t.Fatalf("the cadet's roles at Cinder before her first sign-in through its directory = %v, want none", held)
+	}
+	// The first sign-in through the directory links the account and gives the role.
+	linked(true)
+	if held := atCinder(); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Fatalf("the cadet's roles at Cinder after her first sign-in through its directory = %v, want the default role", held)
+	}
+	// The second finds the link and gives nothing more.
+	linked(false)
+	if held := atCinder(); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Errorf("the cadet's roles at Cinder after her second sign-in = %v, want the one default role and nothing more", held)
+	}
+
+	// The role is removed, and signing in does not give it back.
+	take := jsonBody(t, map[string]any{"userId": cadetID, "role": "SectorCrew", "domain": cinder})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), take); status != http.StatusNoContent {
+		t.Fatalf("removing the cadet's role at Cinder: status %d: %s", status, body)
+	}
+	linked(false)
+	if held := atCinder(); len(held) != 0 {
+		t.Errorf("the cadet's roles at Cinder after signing in with the role removed = %v, want none: a removed role is not given back", held)
+	}
+
+	// The link is deleted: the next sign-in through the directory links the account
+	// again and gives the default role, since she holds no role at Cinder.
+	var links []string
+	for _, row := range crewList(ctx, t, governor, "crew-session-identities") {
+		if row["userId"] == cadetID {
+			links = append(links, cell[string](t, row, "id"))
+		}
+	}
+	if len(links) != 1 {
+		t.Fatalf("the cadet's identity links = %v, want the one her first sign-in through the directory made", links)
+	}
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("unlink-crew-session-identity"), jsonBody(t, map[string]string{"identityId": links[0]})); status != http.StatusNoContent {
+		t.Fatalf("deleting the cadet's link: status %d: %s", status, body)
+	}
+	linked(true)
+	if held := atCinder(); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Errorf("the cadet's roles at Cinder after the sign-in that linked her account again = %v, want the default role", held)
 	}
 }
