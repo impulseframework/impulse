@@ -741,6 +741,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "defaultSeat", Column: "DefaultSeat", Type: "string"},
 				},
 				Domain:    &resource.DomainBindingData{Column: "SectorId"},
+				Order:     []accesstypes.Tag{"method", "connection"},
 				QueryKeys: []accesstypes.Tag{"sectorId", "method"},
 			},
 			{

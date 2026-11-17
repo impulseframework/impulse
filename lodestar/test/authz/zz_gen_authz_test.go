@@ -1744,14 +1744,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 		{
 			name:         "SectorDirectories denied",
 			method:       http.MethodGet,
-			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories?sort=id",
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories",
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
 			name:         "SectorDirectories granted",
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
-			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories?sort=id",
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

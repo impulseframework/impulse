@@ -243,6 +243,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "tenantId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
 				Domain:    &resource.DomainBindingData{Column: "TenantId"},
+				Order:     []accesstypes.Tag{"method", "connection"},
 				QueryKeys: []accesstypes.Tag{"tenantId", "method"},
 			},
 			{
