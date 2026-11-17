@@ -16,7 +16,9 @@ export interface FieldPointer {
  * and resourcePage answers the same page for the menu file to place. The page needs the
  * resource's List permission and sits behind the resource's feature flag unless these
  * say otherwise. A config without one makes a page no menu reaches, such as one only a
- * row link opens.
+ * row link opens. A page that lists its resource across tenants needs no List permission:
+ * no one tenant's digest speaks for it, so the menus show it to every signed-in person
+ * unless `permission` names what it needs.
  */
 export interface ConfigPage {
   label: string;
@@ -143,6 +145,13 @@ export interface ActionButtonConfig {
   viewRoute?: string;
   /** The row field whose value follows viewRoute as the opened row's key; `id` when unset. */
   keyField?: FieldName;
+  /**
+   * The display-row field holding the row's own link, for a list whose rows open in
+   * different places: a list across tenants, where each row opens inside its tenant.
+   * Set, the link is the field's value, viewRoute and keyField are not read, and a row
+   * whose field is empty draws no link.
+   */
+  linkField?: string;
   actionType?: ActionType;
   color?: string;
   disabledLabel?: string;
@@ -153,6 +162,7 @@ export interface ActionButtonConfigOptions {
   action?: (resource: { id: string }) => void;
   viewRoute?: string;
   keyField?: FieldName;
+  linkField?: string;
   actionType?: ActionType;
   color?: string;
   disabledLabel?: string;
@@ -983,6 +993,28 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * plain one.
    */
   live?: boolean;
+  /**
+   * Whether the page lists the resource across tenants: one list of its rows in every
+   * tenant the person reaches in which they may list it, where a page inside a tenant
+   * lists that tenant's. The resource must be declared for it (`@listAcrossTenants`; its
+   * descriptor says `acrossTenants`), and the page is refused when it is built otherwise,
+   * naming the resource. The table gains a first column naming each row's tenant, under
+   * the application's word for a tenant, and a row's View link opens the row itself
+   * inside its tenant, on the record's own row route there, drawn where the person may
+   * read the record in that tenant and the application mounts it a row route. The page
+   * is shown, and its route opened, to whoever may list the resource in at least one
+   * tenant they reach, as the server tells the global digest; the config names no
+   * permission for it. The server decides, tenant by tenant, which of the page's columns a
+   * row shows, so the page asks for no column list and a cell the person may not read in
+   * a row's tenant stays empty. The page reads: it offers no create, no delete and no
+   * method, since every write stays inside one tenant, on the row's page; row expansion
+   * is refused when the page is built. It is plain unless the page asks: only
+   * `live: true` makes it live, with one subscription over the tenants the list reads,
+   * where a tenant's list is live unless its page says otherwise. A column that reads a
+   * referenced tenant-scoped resource shows nothing, since the page has no one tenant to
+   * read it in.
+   */
+  acrossTenants?: boolean;
 }
 export interface ListViewConfig extends BaseConfig {
   type: 'ListView';
@@ -1017,6 +1049,8 @@ export interface ListViewConfig extends BaseConfig {
    * nothing, so the resource's metadata decides. See ListViewConfigOptions.live.
    */
   live?: boolean;
+  /** Whether the page lists the resource across tenants; see ListViewConfigOptions.acrossTenants. */
+  acrossTenants?: boolean;
 }
 
 export function listViewConfig(config: ListViewConfigOptions): ListViewConfig {

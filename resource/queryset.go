@@ -135,6 +135,11 @@ type QuerySet[Resource Resourcer] struct {
 	// in, keeping capability-free statements byte-identical.
 	capabilities        []accesstypes.Permission
 	capabilityDecisions map[accesstypes.Permission]accesstypes.Decisions
+
+	// across is the partition of a list across tenants: the set of tenants the
+	// list reads and what the person's grants decide in each (across_tenants.go).
+	// Nil on every other QuerySet, whose partition is the one scope above.
+	across *acrossTenants[Resource]
 }
 
 // NewQuerySet creates a new, empty QuerySet for a given resource metadata.
@@ -260,6 +265,14 @@ func (q *QuerySet[Resource]) EnableUserPermissionEnforcement(rSet *Set[Resource]
 func (q *QuerySet[Resource]) checkPermissions(ctx context.Context, dbType DBType) error {
 	if q.armError != nil {
 		return q.armError
+	}
+	if q.across != nil {
+		// A list across tenants runs each tenant's checks; a set that came to one
+		// tenant is that tenant's own list and runs its checks below.
+		one, err := q.decideAcrossTenants(ctx, dbType)
+		if err != nil || !one {
+			return err
+		}
 	}
 	if err := q.checkReadPermissions(ctx, dbType); err != nil {
 		return err
@@ -997,6 +1010,7 @@ func (q *QuerySet[Resource]) astWhereClause(dbType DBType, filterAst ExpressionN
 		return nil, "", err
 	}
 	gen.setSearchGrants(string(q.Resource()), fieldGrants, branchGrants)
+	gen.acrossTenants = q.severalTenants() != nil
 
 	params := make(map[string]any)
 	residual := filterAst
@@ -1124,26 +1138,13 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 		return nil, httpio.NewBadRequestMessage("cannot use multiple sources for WHERE clause together (e.g. QueryClause and KeySet)")
 	}
 
-	plan, err := q.readConditionPlan()
-	if err != nil {
-		return nil, errors.Wrap(err, "QuerySet.readConditionPlan()")
-	}
-
 	// The registry is statement-scoped: the read-condition fragments and the
 	// tenancy predicate share it, so aliases and placeholders stay unique.
 	registry := newParamRegistry()
 
-	var rendered *renderedReadConditions
-	if plan != nil {
-		rendered, err = q.renderReadConditions(dbType, plan, registry)
-		if err != nil {
-			return nil, errors.Wrap(err, "QuerySet.renderReadConditions()")
-		}
-	}
-
-	tenancy, err := q.tenancyPredicate(dbType, registry)
+	rendered, tenancy, err := q.readPredicates(dbType, registry)
 	if err != nil {
-		return nil, errors.Wrap(err, "QuerySet.tenancyPredicate()")
+		return nil, err
 	}
 
 	capPlan, capChecksItem, err := q.renderCapabilities(dbType, registry)
@@ -1154,6 +1155,14 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	columns, cursorColumns, err := q.selectList(dbType, rendered, capChecksItem)
 	if err != nil {
 		return nil, err
+	}
+	// A list over several tenants selects each row's tenant last.
+	tenantItem, err := q.tenantItem(dbType, registry)
+	if err != nil {
+		return nil, errors.Wrap(err, "QuerySet.tenantItem()")
+	}
+	if tenantItem != "" {
+		columns += Columns(", " + tenantItem)
 	}
 
 	cursorPredicate, err := q.cursorPredicate(dbType, registry, rendered)
@@ -1202,6 +1211,7 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	stmt.capabilityPlan = capPlan
 	stmt.cursorColumns = cursorColumns
 	stmt.optimizerVersion = q.optimizerVersion(dbType, filterAst)
+	q.stampTenant(stmt)
 
 	return stmt, nil
 }
@@ -1295,6 +1305,11 @@ func (q *QuerySet[Resource]) bindCursor(scope accesstypes.Scope) error {
 
 // queryHash fingerprints this query for its cursors.
 func (q *QuerySet[Resource]) queryHash(scope accesstypes.Scope) string {
+	if q.across != nil {
+		// A list across tenants is one walk whatever its set came to.
+		return q.acrossQueryHash()
+	}
+
 	return queryHash(q.Resource(), scope, q.filterString, q.Order(), q.page.limitString())
 }
 
@@ -1306,6 +1321,9 @@ func (q *QuerySet[Resource]) Count(ctx context.Context, txn ReadOnlyTransaction)
 	r := newReader[Resource](txn)
 	if err := q.checkPermissions(ctx, r.DBType()); err != nil {
 		return 0, err
+	}
+	if q.readsNoTenant() {
+		return 0, nil
 	}
 
 	stmt, err := q.countStmt(r.DBType())
@@ -1328,24 +1346,11 @@ func (q *QuerySet[Resource]) countStmt(dbType DBType) (*Statement, error) {
 		return nil, errors.Wrap(err, "QuerySet.FilterAst()")
 	}
 
-	plan, err := q.readConditionPlan()
-	if err != nil {
-		return nil, errors.Wrap(err, "QuerySet.readConditionPlan()")
-	}
-
 	registry := newParamRegistry()
 
-	var rendered *renderedReadConditions
-	if plan != nil {
-		rendered, err = q.renderReadConditions(dbType, plan, registry)
-		if err != nil {
-			return nil, errors.Wrap(err, "QuerySet.renderReadConditions()")
-		}
-	}
-
-	tenancy, err := q.tenancyPredicate(dbType, registry)
+	rendered, tenancy, err := q.readPredicates(dbType, registry)
 	if err != nil {
-		return nil, errors.Wrap(err, "QuerySet.tenancyPredicate()")
+		return nil, err
 	}
 
 	withClause, query, subqueryParams := q.query()
@@ -1406,6 +1411,9 @@ func (q *QuerySet[Resource]) List(ctx context.Context, txn ReadOnlyTransaction) 
 		if err := q.checkPermissions(ctx, r.DBType()); err != nil {
 			yield(nil, err)
 
+			return
+		}
+		if q.readsNoTenant() {
 			return
 		}
 

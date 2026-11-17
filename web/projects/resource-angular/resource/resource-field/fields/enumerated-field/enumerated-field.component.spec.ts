@@ -151,6 +151,8 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     'w-1': { id: 'w-1', name: 'Anvil Wing' },
     'w-2': { id: 'w-2', name: 'Forge Wing' },
   };
+  /** A wing the server refuses to read: the person may open the squadron and not its wing. */
+  const sealedWing = 'w-sealed';
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
   let transport: ScriptedTransport;
@@ -160,6 +162,9 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     const key = path.match(/^\/api\/wings\/(.+)$/)?.[1];
     if (key && wingRows[key]) {
       return { status: 200, body: wingRows[key] };
+    }
+    if (key === sealedWing) {
+      return { status: 403, body: { message: 'you may not read Wings here' } };
     }
     if (path === '/api/wings') {
       return { status: 200, body: Object.values(wingRows), headers: { 'total-count': '2' } };
@@ -247,6 +252,24 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     fixture.componentRef.setInput('form', formOver('w-2'));
     await settle();
     expect(wingReads()).toEqual(['w-1']);
+  });
+
+  // A person may open a row and not the row its field names. The refused read is an
+  // answer the field shows; reading the reader's value while it is in error would throw.
+  it('shows a chosen row the server refuses as its key, with the refusal under the field, read or edited', async () => {
+    fixture.componentRef.setInput('form', formOver(sealedWing));
+    await settle();
+    const text = (): string => (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(wingReads()).toEqual(['w-1', sealedWing]);
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe(sealedWing);
+    expect(fixture.componentInstance.refusal()).toBe('This picker is not available to you: you may not read Wings here');
+    expect(text()).toContain('This picker is not available to you: you may not read Wings here');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(fixture.componentInstance.availableEnumOptions()?.map((option) => option.id)).toContain(sealedWing);
+    expect(text()).toContain('This picker is not available to you: you may not read Wings here');
   });
 });
 

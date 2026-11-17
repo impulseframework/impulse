@@ -944,11 +944,14 @@ import (
 // means global) and the payload is advisory and fail-closed: denied targets are
 // absent, and so is every resource, field and method gated behind a feature flag
 // that is off ({{ .ResourcePackage }}.FeatureGates); a renamed field or method
-// (@formerly) appears under its former name too, with the same states. The generated router registers it at {{ if .DefaultServesSessions }}GET /{{ .RoutePrefix }}/permission-digest{{ if .HasExtraSessionOutlets }} and,
+// (@formerly) appears under its former name too, with the same states.{{ if .ListsAcrossTenants }} The global
+// digest also answers, for each resource listed across tenants (@listAcrossTenants),
+// whether the person may list it in at least one tenant the session reaches
+// (resource.ListAcrossTenants), which is who the list's page is shown to.{{ end }} The generated router registers it at {{ if .DefaultServesSessions }}GET /{{ .RoutePrefix }}/permission-digest{{ if .HasExtraSessionOutlets }} and,
 // for each additional session-serving outlet (ServesSessions), under that outlet's prefix{{ end }}{{ else }}GET /<prefix>/permission-digest
 // under each session-serving outlet's prefix, and not under the default outlet's, which is declared Tokens{{ end }}.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) PermissionDigest() http.HandlerFunc {
-	return resource.PermissionDigestHandler({{ .ReceiverName }}.UserPermissions, resource.WithFeatureGates({{ .ResourcePackage }}.FeatureGates(), {{ .ReceiverName }}.FeatureSet()), resource.WithFormerNames({{ .RouterPackage }}.Collection()))
+	return resource.PermissionDigestHandler({{ .ReceiverName }}.UserPermissions, resource.WithFeatureGates({{ .ResourcePackage }}.FeatureGates(), {{ .ReceiverName }}.FeatureSet()), resource.WithFormerNames({{ .RouterPackage }}.Collection()){{ if .ListsAcrossTenants }}, resource.WithListsAcrossTenants({{ .RouterPackage }}.Collection()){{ end }})
 }
 
 // UserDomains serves the session's tenant list — the sorted list of domains where
@@ -1281,17 +1284,20 @@ package {{ .Package }}
 import (
 	"net/http"
 
+	{{ if .ListsAcrossTenants }}{{ .LocalPackageImports }}
+	{{ end -}}
 	"github.com/impulseframework/impulse/resource/live"
 )
 
 // LiveRenew serves a tab's live subscriptions renewed: each is re-checked against the
 // session user's grants (Read for a row, List for a list, in its domain), the kept ones
 // are written with a fresh expiry, and the answer says which were kept and which
-// dropped. The generated router registers it at {{ if .DefaultServesSessions }}POST /{{ .RoutePrefix }}/live/renew{{ if .HasExtraSessionOutlets }} and,
+// dropped.{{ if .ListsAcrossTenants }} A list across tenants is kept for a resource declared for it
+// (@listAcrossTenants) alone, over the set of tenants worked out again.{{ end }} The generated router registers it at {{ if .DefaultServesSessions }}POST /{{ .RoutePrefix }}/live/renew{{ if .HasExtraSessionOutlets }} and,
 // for each additional session-serving outlet, under that outlet's prefix{{ end }}{{ else }}POST /<prefix>/live/renew under
 // each session-serving outlet's prefix, and not under the default outlet's, which is declared Tokens{{ end }}.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) LiveRenew() http.HandlerFunc {
-	return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions)
+	return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions{{ if .ListsAcrossTenants }}, live.WithListsAcrossTenants({{ .RouterPackage }}.Collection()){{ end }})
 }
 
 // LiveUnsubscribe serves a tab leaving, or with all a logout: the subscriptions are
@@ -2085,7 +2091,10 @@ type grants map[accesstypes.Permission]bool
 // success paths need valid request bodies the generator does not synthesize yet and
 // are left to manual testing. A transaction-form RPC method carries a second denied
 // case under X-Dry-Run: a dry run refuses exactly as the real call does. The features
-// route is open to anyone signed in and carries one case: 200 without a grant.
+// route is open to anyone signed in and carries one case: 200 without a grant. A list
+// across tenants (@listAcrossTenants) has no endpoint gate to refuse at: the List grant
+// is asked in each tenant and a tenant in which the caller holds none is left out, so
+// its case without a grant is 200, a list of no tenant.
 //
 // The suite runs on the migrated schema alone; no seed data is required, so it grows
 // with the schema on every regeneration. When the application declares feature flags,
@@ -2128,6 +2137,22 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 		{{- if .Open }}
 		{
 			name:         "{{ .Name }} open",
+			method:       {{ .Method }},
+			target:       "{{ .URL }}",
+			wantStatuses: []int{http.StatusOK},
+		},
+		{{- else if .AcrossTenants }}
+		{
+			// A list across tenants reads the tenants in which the caller holds the List
+			// grant: holding none, it reads no tenant and answers an empty list.
+			name:         "{{ .Name }} reads no tenant without a grant",
+			method:       {{ .Method }},
+			target:       "{{ .URL }}",
+			wantStatuses: []int{http.StatusOK},
+		},
+		{
+			name:         "{{ .Name }} granted",
+			grants:       grants{accesstypes.{{ .Permission }}: true},
 			method:       {{ .Method }},
 			target:       "{{ .URL }}",
 			wantStatuses: []int{http.StatusOK},
@@ -2301,6 +2326,93 @@ import (
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
+			resp = append(resp, rmap)
+		}
+		if page.Reversed() {
+			slices.Reverse(resp)
+		}
+		if err := page.WriteHeaders(w, r); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		// A request carrying the version parameter is a live refetch: the browser
+		// may cache the answer for the subscription's window.
+		live.SetCacheControl(w, r)
+
+		return httpio.NewEncoder(w).Ok(resp)
+	})
+}`
+
+	// listAcrossTenantsTemplate is the handler of a tenant-scoped resource's list asked
+	// without the tenant's segment (@listAcrossTenants): the list handler over the set
+	// of tenants the session reaches, each row naming its tenant. A list across tenants
+	// is plain unless the page asks: a request carrying the subscribe header registers
+	// one live subscription over the set of tenants (live.SubscribeAcrossTenants).
+	listAcrossTenantsTemplate = `// {{ Pluralize .Resource.Name }}AcrossTenants lists {{ Pluralize .Resource.Name }} in every tenant the session reaches in which
+// the person holds the List grant (@listAcrossTenants): one filter, one order, one page
+// and one count across them, narrowed by the request's domains parameter. Each row is
+// checked under the person's grants in its own tenant and carries the tenant it is in
+// (resource.TenantProperty). The list is plain unless the page asks for live: then it
+// registers one subscription over the set of tenants it reads.
+func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }}AcrossTenants() http.HandlerFunc {
+	type {{ GoCamel .Resource.Name }} struct {
+		{{- range $field := .Resource.Fields }}
+		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTag }} {{ $field.IndexTag }} {{ $field.AllowFilterTag }} {{ $field.PermTag }} {{ $field.PIITag }} {{ $field.MaskingTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTag }} {{ $field.SearchTag }}`" + `
+		{{- end }}
+	}
+
+	type response []map[string]any
+
+	decoder := NewQueryDecoder[{{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.{{ .Resource.Name }}, {{ GoCamel .Resource.Name }}]({{ .ReceiverName }}, accesstypes.List){{ .Resource.PagingOption }}
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		querySet, err := decoder.DecodeAcrossTenants(r, {{ .ReceiverName }}.UserPermissions(r))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		// A page that asked for live registers before the query runs, so a commit that
+		// lands during the query is not missed: one subscription over the tenants the
+		// list reads for the person, and none of a tenant it does not.
+		live.SubscribeAcrossTenants(ctx, r, {{ .ReceiverName }}.LiveService(), querySet)
+
+		res := {{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.New{{ .Resource.Name }}QueryFromQuerySet(querySet)
+
+		// The page: a count first when asked, then the rows, one past the page size
+		// so the Link header knows whether a next page exists.
+		page := querySet.Page()
+		if err := page.Count(ctx, {{ .ReceiverName }}.ResourceClient()); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resp := response{}
+		for row, err := range res.List(ctx, {{ .ReceiverName }}.ResourceClient()) {
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			if !page.Add(row) {
+				break
+			}
+			rec := (*{{ GoCamel .Resource.Name }})(&row.Data)
+			rmap := make(map[string]any)
+			for _, field := range querySet.Fields() {
+				switch string(field) {
+				{{- range .Resource.Fields }}
+				{{- if not .IsInputOnly }}
+				case "{{ .Name }}":
+					if !row.Masked("{{ Camel .Name }}") {
+						rmap["{{ Camel .Name }}"] = rec.{{ .Name }}
+						{{- if .Formerly }}
+						rmap["{{ .FormerWireName }}"] = rec.{{ .Name }}
+						{{- end }}
+					}
+				{{- end }}
+				{{- end }}
+				}
+			}
+			rmap[resource.TenantProperty] = row.Tenant()
 			resp = append(resp, rmap)
 		}
 		if page.Reversed() {
@@ -3516,6 +3628,9 @@ export function methodMeta(method: Method): Meta {
 
 	typescriptAPITemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 import { ApiDescriptor, Client, ClientOptions, createClient{{ if .Methods }}, MethodHandle{{ end }}{{ if .HasNullBoolean }}, NullBoolean{{ end }}{{ if .Resources }}, ResourceHandle{{ end }}{{ if .HasUpload }}, UploadMethodHandle{{ end }} } from '@impulseframework/resource';
+{{- if .HasAcrossTenants }}
+import { AcrossTenantsHandle } from '@impulseframework/resource';
+{{- end }}
 {{- range $import := .TypeImports }}
 import { {{ $import.NameList }} } from '{{ $import.From }}';
 {{- end }}
@@ -3616,6 +3731,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- if $r.Feature }}
       feature: '{{ $r.Feature }}',
       {{- end }}
+      {{- if $r.AcrossTenants }}
+      acrossTenants: true,
+      {{- end }}
     },
 {{- end }}
   },
@@ -3705,12 +3823,34 @@ export interface DomainApi {
 {{- end }}{{ end }}
 }
 
+{{- if .HasAcrossTenants }}
+
+/**
+ * Lists across tenants, available on client.acrossTenants: the resources declared for it
+ * (@listAcrossTenants). Each reads the rows of every tenant the session reaches in which
+ * the person may list the resource, and every row names its tenant.
+ */
+export interface AcrossTenantsApi {
+{{- range $r := .Resources }}{{ if $r.AcrossTenants }}
+  {{ $r.Property }}: {{ $r.AcrossTenantsHandleType }};
+{{- end }}{{ end }}
+}
+
+export type Api = Client<GlobalApi, DomainApi, AcrossTenantsApi>;
+
+/** Creates the typed client. baseUrl is the API prefix (for example '/api'). */
+export function createApi(options: ClientOptions): Api {
+  return createClient<GlobalApi, DomainApi, AcrossTenantsApi>(apiDescriptor, options);
+}
+{{- else }}
+
 export type Api = Client<GlobalApi, DomainApi>;
 
 /** Creates the typed client. baseUrl is the API prefix (for example '/api'). */
 export function createApi(options: ClientOptions): Api {
   return createClient<GlobalApi, DomainApi>(apiDescriptor, options);
 }
+{{- end }}
 `
 
 	typescriptEnumsTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
@@ -3746,6 +3886,9 @@ func Collection() *resource.GeneratedCollection {
 				Scope: {{ ScopeConstant .Scope }},
 				{{- if .Computed }}
 				Computed: true,
+				{{- end }}
+				{{- if .ListsAcrossTenants }}
+				ListsAcrossTenants: true,
 				{{- end }}
 				{{- with .Formerly }}
 				Formerly: "{{ . }}",

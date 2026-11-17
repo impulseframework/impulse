@@ -79,6 +79,7 @@ DROP INDEX DistressCallsBySectorIdSeverity;
 DROP INDEX ConsignmentsBySectorIdReleasedAt;
 DROP INDEX WingsBySectorIdName;
 DROP INDEX HangarsBySectorIdName;
+DROP INDEX MissionsByDeadline;
 DROP INDEX MissionsBySectorIdDeadline;
 DROP INDEX CrewSessionImpersonations_PrincipalUserId_idx;
 DROP INDEX CrewSessionImpersonations_ActorUsername_idx;

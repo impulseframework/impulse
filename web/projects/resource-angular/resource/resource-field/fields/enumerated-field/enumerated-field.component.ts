@@ -69,7 +69,8 @@ import {
  * field when it answers startswith, and a paged source with neither is refused when the
  * field is built. Which fields the box searches is the source resource's, never the
  * picker's. A request the server refuses shows the refusal in its words under the field,
- * never an empty list.
+ * never an empty list: the page of options, and the read of the chosen row too, which
+ * then shows as its key (a person may open a row and not the row its field names).
  */
 @Component({
   selector: 'impulse-enumerated-field',
@@ -318,6 +319,20 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return this.chosenRoute() !== '' && this.chosenValue() !== '' ? this.chosenRowRef : undefined;
   });
 
+  /**
+   * The chosen row as the paged source answered it: nothing while there is no row to
+   * read, while the first read is out, and when the read was refused or failed. A person
+   * may read a row and not the row its field names, so a refused read is an answer the
+   * field shows (refusal), never an error thrown at the page.
+   */
+  private readonly chosenRow = computed((): Record<string, string> | undefined => {
+    const ref = this.singleEnumResourceRef();
+    return ref?.hasValue() ? (ref.value() as Record<string, string>) : undefined;
+  });
+
+  /** Whether the read of the chosen row was refused or failed. */
+  private readonly chosenRowFailed = computed((): boolean => this.singleEnumResourceRef()?.status() === 'error');
+
   /** Every row of a whole source, read in one request; nothing on a paged source. */
   enumResourceRef = computed(() => {
     if (this.showField() === false || !this.resource() || this.paged()) return undefined;
@@ -392,17 +407,16 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (!this.paged()) {
       return value ? displayFromOptions(this.allEnumOptions(), value).display : defaultEmptyFieldValue;
     }
-    const singleEnumResourceRef = this.singleEnumResourceRef();
-    if (singleEnumResourceRef === undefined) {
-      return defaultEmptyFieldValue;
+    // A row the source would not give shows as its key, beside the refusal under the field.
+    if (this.chosenRowFailed()) {
+      return value ? String(value) : defaultEmptyFieldValue;
     }
-
-    const record = singleEnumResourceRef.value();
+    const record = this.chosenRow();
     if (record === undefined) {
       return defaultEmptyFieldValue;
     }
 
-    const enumeratedValues = this.toEnumerated(record as Record<string, string>);
+    const enumeratedValues = this.toEnumerated(record);
     return enumeratedValues.display;
   });
 
@@ -451,9 +465,12 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (!this.paged()) {
       return [displayFromOptions(this.allEnumOptions(), String(currentValue))];
     }
-    const record = this.singleEnumResourceRef()?.value();
+    if (this.chosenRowFailed()) {
+      return [{ id: String(currentValue), display: String(currentValue) }];
+    }
+    const record = this.chosenRow();
     if (!record || Object.keys(record).length === 0) return [];
-    return [this.toEnumerated(record as Record<string, string>)];
+    return [this.toEnumerated(record)];
   });
 
   listEnumValues = computed((): PickerOption[] => {
@@ -497,11 +514,18 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return pageLabel(page.offset, pager.rows().length, page.total);
   });
 
-  /** What the picker says when its request was refused or failed; nothing while it works. */
+  /**
+   * What the picker says when a request of its own was refused or failed; nothing while
+   * it works. A paged source has two: the page of options, and the read of the chosen
+   * row, which a person who may not read the source is refused on a row they may open.
+   */
   refusal = computed((): string | undefined => {
     const pager = this.pager();
     if (pager) {
-      return pager.status() === 'error' ? pickerRefusal(pager.error()) : undefined;
+      if (pager.status() === 'error') {
+        return pickerRefusal(pager.error());
+      }
+      return this.chosenRowFailed() ? pickerRefusal(this.singleEnumResourceRef()?.error()) : undefined;
     }
     const ref = this.enumResourceRef();
     return ref && ref.status() === 'error' ? pickerRefusal(ref.error()) : undefined;

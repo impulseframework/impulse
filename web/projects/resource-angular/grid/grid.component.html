@@ -201,6 +201,16 @@
                         }
                       </mat-menu>
                     }
+                  } @else if (col.buttonConfig.actionType === 'link' && col.buttonConfig.linkField) {
+                    @if (row[col.buttonConfig.linkField]; as link) {
+                      <a
+                        mat-icon-button
+                        [routerLink]="link"
+                        [matTooltip]="col.buttonConfig.label || ''"
+                        [matTooltipPosition]="col.tooltipPosition || 'above'">
+                        <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
+                      </a>
+                    }
                   } @else if (col.buttonConfig.actionType === 'link' && col.buttonConfig.viewRoute) {
                     <a
                       mat-icon-button

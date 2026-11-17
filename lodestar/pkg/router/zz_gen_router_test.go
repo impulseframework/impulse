@@ -508,6 +508,8 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/missions", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/testMissionID", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/testMissionID", method: http.MethodPost},
+		foreign{url: "/droids/missions", method: http.MethodGet},
+		foreign{url: "/droids/missions", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards/testMissionBoardID", method: http.MethodGet},

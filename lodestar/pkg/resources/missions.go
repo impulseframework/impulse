@@ -74,10 +74,23 @@ type (
 	// so a sector's search reads its own partition. Deadline answers no explicit match; it
 	// joins the box alone.
 	//
+	// Mission is listed across sectors too (@listAcrossTenants): the same list asked
+	// without the sector's segment reads the missions of every sector the session
+	// reaches in which the person may list them, each row checked under the person's
+	// roles in its own sector and naming it. The liaison holds the Cadet's board in
+	// Anvil and the Archivist's ledger in Cinder, so her one page shows Anvil's
+	// low-hazard missions without a fee beside Cinder's closed ones with theirs, and
+	// nothing of Bastion, where she holds no role. MissionsByDeadline serves the list's
+	// order across sectors, storing the sector; MissionsBySectorIdDeadline stays the
+	// sector's own.
+	//
+	// Demonstrates: list.across-tenants.
+	//
 	// Demonstrates: @state, @attribute, @attribute.decimal, @attribute.timestamp, @attribute.nullable-fk, output_only, default_create_fn, @defaultsCreateType, @validateCreateType, change-tracking, outlet.shared, @order, @page, cell-masking, paging.masked-sort, masking.positional, filter.typed-values, filter.validated-at-decode, condition.now, condition.not-in, condition.prefix-not, condition.subject-scalar, condition.old-vs-new, write-grouping, @attribute.join-path-global, @enumerate.plain-column, @enumerate.key-view, metadata.filterable, index.tenant-second, commit.constraint-refusal, decode.value-limit, search.box, search.date, search.partitioned, condition.key-only-read.
 	//
 	// @resource
 	// @permissionScope(domain)
+	// @listAcrossTenants
 	// @outlet(default, portal)
 	// @order(Deadline asc)
 	// @page(default: 25, max: 200)

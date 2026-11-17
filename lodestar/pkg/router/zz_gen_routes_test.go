@@ -277,6 +277,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/missions", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/testMissionID", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/testMissionID", method: http.MethodPost},
+		{url: "/droids/missions", method: http.MethodGet},
+		{url: "/droids/missions", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards/testMissionBoardID", method: http.MethodGet},
@@ -2152,6 +2154,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionID": "testMissionID"},
 		},
 		{
+			url: "/console/api/missions", method: http.MethodGet,
+			handlerFunc: "MissionsAcrossTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/missions", method: http.MethodPost,
+			handlerFunc: "MissionsAcrossTenants",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions", method: http.MethodGet,
 			handlerFunc: "Missions",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2170,6 +2182,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/testMissionID", method: http.MethodPost,
 			handlerFunc: "Mission",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionID": "testMissionID"},
+		},
+		{
+			url: "/portal/api/missions", method: http.MethodGet,
+			handlerFunc: "MissionsAcrossTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/missions", method: http.MethodPost,
+			handlerFunc: "MissionsAcrossTenants",
+			parameters:  map[string]string{},
 		},
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodGet,
@@ -3424,6 +3446,10 @@ func (s *generatedHandlersStub) Missions() http.HandlerFunc {
 
 func (s *generatedHandlersStub) Mission() http.HandlerFunc {
 	return s.record("Mission")
+}
+
+func (s *generatedHandlersStub) MissionsAcrossTenants() http.HandlerFunc {
+	return s.record("MissionsAcrossTenants")
 }
 
 func (s *generatedHandlersStub) MissionBoards() http.HandlerFunc {

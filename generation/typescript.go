@@ -883,6 +883,9 @@ func (t *typescriptGenerator) apiClientData() *tsAPIData {
 		if res.Consolidated {
 			data.ConsolidatedRoute = t.ConsolidatedRoute
 		}
+		if res.AcrossTenants {
+			data.HasAcrossTenants = true
+		}
 		data.noteScope(res.Scope)
 	}
 	for _, method := range data.Methods {
@@ -914,6 +917,8 @@ func (t *typescriptGenerator) apiResource(res *resourceInfo) *tsAPIResource {
 		Order:        apiOrder(res.DeclaredOrder),
 		Files:        fileSegments(res.Files, res.ReadHandlerDisabled()),
 		Feature:      featureNameOf(res.Feature),
+
+		AcrossTenants: res.ListsAcrossTenants,
 	}
 
 	for _, field := range res.PrimaryKeys() {

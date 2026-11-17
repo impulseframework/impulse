@@ -385,6 +385,7 @@ type GeneratedHandlers interface {
 
 	Missions() http.HandlerFunc
 	Mission() http.HandlerFunc
+	MissionsAcrossTenants() http.HandlerFunc
 
 	MissionBoards() http.HandlerFunc
 	MissionBoard() http.HandlerFunc
@@ -1043,6 +1044,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/missions/{missionID}", missionHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/missions/{missionID}", missionHandler)
 
+	missionsAcrossTenantsHandler := h.MissionsAcrossTenants()
+	bounded.Get("/console/api/missions", missionsAcrossTenantsHandler)
+	bounded.Post("/console/api/missions", missionsAcrossTenantsHandler)
+
 	missionBoardsHandler := domainGuard(h.MissionBoards())
 	bounded.Get("/console/api/sectors/{sectorID}/mission-boards", missionBoardsHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/mission-boards", missionBoardsHandler)
@@ -1479,6 +1484,7 @@ type GeneratedPortalHandlers interface {
 
 	Missions() http.HandlerFunc
 	Mission() http.HandlerFunc
+	MissionsAcrossTenants() http.HandlerFunc
 
 	MissionDocuments() http.HandlerFunc
 	MissionDocument() http.HandlerFunc
@@ -1686,6 +1692,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	missionHandler := domainGuard(h.Mission())
 	bounded.Get("/portal/api/sectors/{sectorID}/missions/{missionID}", missionHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/missions/{missionID}", missionHandler)
+
+	missionsAcrossTenantsHandler := h.MissionsAcrossTenants()
+	bounded.Get("/portal/api/missions", missionsAcrossTenantsHandler)
+	bounded.Post("/portal/api/missions", missionsAcrossTenantsHandler)
 
 	missionDocumentsHandler := domainGuard(h.MissionDocuments())
 	bounded.Get("/portal/api/sectors/{sectorID}/mission-documents", missionDocumentsHandler)

@@ -35,7 +35,10 @@ type grants map[accesstypes.Permission]bool
 // success paths need valid request bodies the generator does not synthesize yet and
 // are left to manual testing. A transaction-form RPC method carries a second denied
 // case under X-Dry-Run: a dry run refuses exactly as the real call does. The features
-// route is open to anyone signed in and carries one case: 200 without a grant.
+// route is open to anyone signed in and carries one case: 200 without a grant. A list
+// across tenants (@listAcrossTenants) has no endpoint gate to refuse at: the List grant
+// is asked in each tenant and a tenant in which the caller holds none is left out, so
+// its case without a grant is 200, a list of no tenant.
 //
 // The suite runs on the migrated schema alone; no seed data is required, so it grows
 // with the schema on every regeneration. When the application declares feature flags,
@@ -1651,6 +1654,21 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			// A list across tenants reads the tenants in which the caller holds the List
+			// grant: holding none, it reads no tenant and answers an empty list.
+			name:         "MissionsAcrossTenants reads no tenant without a grant",
+			method:       http.MethodGet,
+			target:       "/console/api/missions",
+			wantStatuses: []int{http.StatusOK},
+		},
+		{
+			name:         "MissionsAcrossTenants granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/missions",
+			wantStatuses: []int{http.StatusOK},
+		},
+		{
 			name:         "Missions (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions",
@@ -1675,6 +1693,21 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			method:       http.MethodGet,
 			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/00000000-0000-0000-0000-000000000001",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			// A list across tenants reads the tenants in which the caller holds the List
+			// grant: holding none, it reads no tenant and answers an empty list.
+			name:         "MissionsAcrossTenants (portal) reads no tenant without a grant",
+			method:       http.MethodGet,
+			target:       "/portal/api/missions",
+			wantStatuses: []int{http.StatusOK},
+		},
+		{
+			name:         "MissionsAcrossTenants (portal) granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/missions",
+			wantStatuses: []int{http.StatusOK},
 		},
 		{
 			name:         "MissionBoards denied",
