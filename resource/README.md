@@ -1338,6 +1338,7 @@ rule:
 | --- | --- | --- |
 | `string`, a named string type, `*string`, `spanner.NullString` | `STRING(n)` | at most `n` code points (`utf8.RuneCountInString`); Spanner counts code points, so a combining mark counts and a CJK character counts once |
 | `[]byte` | `BYTES(n)` | at most `n` bytes |
+| a field declared `conditions:"secret"` (`resource.Secret` on the resource, text on the request) | `BYTES(n)` | at most `n − 42` bytes of text, the 42 being what sealing adds (section 23). The rule is the secret's alone: a string-kinded field that is not declared a secret takes no rule from a `BYTES(n)` column (a named string type that encodes itself to bytes is sized by its own encoding, which the decoder does not know), so it carries no tag and is not sized |
 | `decimal.Decimal`, `*decimal.Decimal`, `decimal.NullDecimal`, `spanner.NullNumeric` | `NUMERIC` | trailing zeros trimmed, then at most 29 digits before the decimal point and 9 after (GoogleSQL `NUMERIC` is 38 digits of precision with 9 of scale); `1.1234567890` is accepted, `1.1234567891` is not |
 | a slice of a checked type, named or not (`[]string`, `type Marks []string`, `[]decimal.Decimal`) | `ARRAY<…>` of the matching type | each element by its rule |
 
@@ -3848,14 +3849,23 @@ No variable has the declared name. Each version arrives in a variable of its own
 and the version's number (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), holding the version's 32
 bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set, reading the
 whole environment so that no variable the name numbers is passed over. With none set
-it answers no keys and no error, so an application that stores no secret runs without the
-variable; a variable that is set and does not hold a version is an error naming the
-variable, never its value. A stored value names its version in two bytes, so a secret's
+it answers no error and a holder that holds no key, so an application that stores no
+secret runs without the variable, and one that stores a secret is refused at start by the
+name of the variable that is missing (`APP_SECRET_KEY_1`). The declared name itself set to
+a value, with no numbered version beside it (`APP_SECRET_KEY=...`), is the secret put in
+the wrong variable: an error naming it and the variable to use. A variable that is set and
+does not hold a version is an error naming the variable, never its value. A stored value
+names its version in two bytes, so a secret's
 versions run from 1 to 65535: the variable of a version past 65535, or of version 0
 (`APP_SECRET_KEY_65536`, `APP_SECRET_KEY_0`), is an error at start that says the range.
-The development environment file carries `APP_SECRET_KEY_1` (a fixed development value in
-the skeletons' and Lodestar's `.envrc.template`), and `impulse check` (`env-template`)
-holds the template to it.
+The development environment file carries `APP_SECRET_KEY_1`, generated: the skeletons'
+and Lodestar's `.envrc.template` write 32 random bytes to `.app-secret-key.dev` the first
+time the file is sourced from the application's root and read the variable from that file
+from then on, so a checkout keeps one key and `.gitignore` keeps it out of git. No
+template holds a key: a key in a tracked file is every checkout's, and the library cannot
+tell it from a real one. `impulse check` (`env-template`) holds the template to that: the
+variable set by a line, never a key written in the template, the key's file ignored; and
+`--fix` writes the two lines.
 
 **Writing.** No code of the author's. A request and a typed patch give the value as text
 (`patch.SetTransponderKey(&key)`; the generated request structs, the typed patches'
@@ -3904,19 +3914,35 @@ application's secret holders, the generated `SecretHolders()` of each resources 
 package that stores none). Every stored value that names the version is opened and written
 again under the current version, a batch to a transaction, and a final read of every secret
 field finds none left. It exits 0 only then, and prints how many values of each field it
-wrote, never a value. Its environment is the migration's with one variable for each
-enabled version, the one being retired among them, since its values are opened under it.
-The current version, the highest the environment carries, is refused: new values are
-sealed under it. So is a variable that is not a version of the secret the keys were read
-from, and one whose number is 0 or past 65535, with the range a version's number takes. A
-value that does not open (bytes moved from another row, or altered) fails the
-retirement, naming its resource, field and row, once every other value is written: set it
-again or clear it, and run the retirement again. A second run finds nothing to write and
-exits 0. The service keeps serving meanwhile: a value is written back only while its row
-still holds the bytes that were opened, read again inside the writing transaction, and the
-rewrite is the stored bytes alone, with no permission check, no update function and no
-change record. It runs on Spanner through the resource client and on PostgreSQL by
-statements of its own, the PostgreSQL client's transactions not being built.
+wrote, never a value.
+
+A retirement reads the packages its call is handed and no other, and the call names them
+by hand: one package's `resources.SecretHolders()...`, or several joined,
+`slices.Concat(consoleresources.SecretHolders(), sharedresources.SecretHolders())...`.
+`impulse check` (`secret-holders`) fails an application whose call leaves out a package
+that carries the generated list, takes its holders from where the check cannot read them
+(a parameter, a function of the application's own, a list written by hand), or is missing.
+
+Its environment is the migration's with one variable for each enabled version, the one
+being retired among them, since its values are opened under it: a run that was not handed
+the version it retires is refused before anything is read, naming the variable that is
+missing (`APP_SECRET_KEY_1 is not set`) and the versions it was handed. The current
+version, the highest the environment carries, is refused: new values are sealed under it.
+So is a variable that is not a version of the secret the keys were read from, and one
+whose number is 0 or past 65535, with the range a version's number takes.
+
+A value that does not open (bytes moved from another row, or altered) is left as it is and
+does not stop the run: every value that opens is written, in every field of every holder,
+and the retirement then fails saying how many values in all do not open and how many it
+wrote, and naming the first ten by resource, field and row. Set each again or clear it,
+and run the retirement again. A second run finds nothing to write and exits 0. The service
+keeps serving meanwhile: a value is written back only while its row still holds the bytes
+that were opened, read again inside the writing transaction, and the rewrite is the stored
+bytes alone, with no permission check, no update function and no change record. It runs on
+Spanner through the resource client and on PostgreSQL by statements of its own, the
+PostgreSQL client's transactions not being built; on both the rows are read in key order
+and each row once, PostgreSQL a page of 200 at a time after the last key of the page
+before, so values that do not open never hide the ones behind them.
 
 **Refusals.**
 
@@ -3924,10 +3950,18 @@ statements of its own, the PostgreSQL client's transactions not being built.
   that is not `BYTES` with room for a sealed value: refused at generation, with the type
   and the column to give it. A field typed `resource.Secret` and not declared `secret` is
   refused the same way.
-- An application that stores a secret, whose resource client was built with no keys:
-  refused at start. The generated router's `New` calls `resource.RequireSecretKeys` with
-  every secret field and panics naming them and `resource.WithSecretKeys`. A write of a
-  secret through a transaction that holds no keys is an error too.
+- An application that stores a secret and was handed no version of the application
+  secret: refused at start. The generated router's `New` calls
+  `resource.RequireSecretKeys` with every secret field and panics naming them and the
+  variable that is not set (`APP_SECRET_KEY_1`, from the name the keys were read under),
+  with what it holds and how to make one; a client built with no keys at all is told to
+  read them (`resource.SecretKeysFromEnv`) and wire them (`resource.WithSecretKeys`). A
+  write of a secret through a transaction that holds no keys is an error too, and names
+  the variable the same way. A command that opens the data level without the generated
+  router (the migrate and bootstrap commands) is not refused at start, and fails at its
+  first use of a secret.
+- The declared name set with no number (`APP_SECRET_KEY`) and no numbered version beside
+  it: refused where the keys are read, naming it and `APP_SECRET_KEY_1`.
 - A value that names a version the service was not given: a
   `*resource.UnknownSecretVersionError` when it is opened, naming the version and the
   versions the service holds.

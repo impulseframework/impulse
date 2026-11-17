@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"maps"
 	"strconv"
@@ -36,6 +37,26 @@ func (retiringRow) DefaultConfig() Config {
 
 func (retiringRow) SecretContext() []accesstypes.Field {
 	return []accesstypes.Field{"ID"}
+}
+
+// retiringPairRow is a second table that stores a secret, with a key of two columns: a
+// retirement reads it in key order, both columns compared at once.
+type retiringPairRow struct {
+	Vault  string  `spanner:"Vault"  postgres:"Vault"`
+	Shelf  string  `spanner:"Shelf"  postgres:"Shelf"`
+	Number *Secret `spanner:"Number" conditions:"secret" postgres:"Number"`
+}
+
+func (retiringPairRow) Resource() accesstypes.Resource {
+	return "SealedPairRows"
+}
+
+func (retiringPairRow) DefaultConfig() Config {
+	return Config{}
+}
+
+func (retiringPairRow) SecretContext() []accesstypes.Field {
+	return []accesstypes.Field{"Vault", "Shelf"}
 }
 
 // A version's variable is the declared name, an underscore and the version's number, as
@@ -128,6 +149,9 @@ func TestRetireSecretVersion_refusals(t *testing.T) {
 		{name: "the current version", keys: fromEnv("1", "2"), variable: "APP_SECRET_KEY_2", wantErr: "APP_SECRET_KEY_2 is the current version of the application secret, the one new values are sealed under, and cannot be retired"},
 		{name: "the only version is the current one", keys: fromEnv("1"), variable: "APP_SECRET_KEY_1", wantErr: "APP_SECRET_KEY_1 is the current version of the application secret"},
 		{name: "a version above the current one", keys: fromEnv("1", "2"), variable: "APP_SECRET_KEY_3", wantErr: "APP_SECRET_KEY_3 names version 3, and the highest version this service was given is 2"},
+		{name: "the version being retired was not handed over", keys: fromEnv("2", "3"), variable: "APP_SECRET_KEY_1", wantErr: "APP_SECRET_KEY_1 cannot be retired by this run: APP_SECRET_KEY_1 is not set, and a retirement opens every value that names version 1 under that version before it writes it under the current one. Run it with APP_SECRET_KEY_1 set beside the other enabled versions (this run was handed APP_SECRET_KEY_2, APP_SECRET_KEY_3)"},
+		{name: "a version between two that were handed over, itself missing", keys: fromEnv("1", "3"), variable: "APP_SECRET_KEY_2", wantErr: "APP_SECRET_KEY_2 cannot be retired by this run: APP_SECRET_KEY_2 is not set"},
+		{name: "keys built from fixed bytes that lack the version name the variable as it was given", keys: testSecretKeys(t, 2, 3), variable: "ANY_NAME_1", wantErr: "ANY_NAME_1 cannot be retired by this run: ANY_NAME_1 is not set"},
 		{name: "keys built from fixed bytes hold the variable to no name, and still refuse the current version", keys: testSecretKeys(t, 1, 2), variable: "ANY_NAME_2", wantErr: "ANY_NAME_2 is the current version of the application secret"},
 		{name: "a holder with no key is no keys", keys: &SecretKeys{}, variable: "APP_SECRET_KEY_1", wantErr: "APP_SECRET_KEY_1 cannot be retired: the resource client holds no secret keys"},
 	}
@@ -344,5 +368,210 @@ func TestRetireSecretVersion_versionsPastOneByte(t *testing.T) {
 		if _, err := RetireSecretVersion(context.Background(), client, variable, SecretHolderOf[retiringRow]()); err == nil || !strings.Contains(err.Error(), "the version's number, 1 to 65535") {
 			t.Errorf("RetireSecretVersion(%s): error = %v, want a refusal that says the range", variable, err)
 		}
+	}
+}
+
+// A value that does not open holds back nothing but itself: the values beside it, and
+// every field and holder after its own, are written all the same, and the retirement
+// then fails with how many do not open in all. Here the first holder's one value was
+// moved from another row, and the second holder's value opens.
+func TestRetireSecretVersion_valuesThatDoNotOpen(t *testing.T) {
+	t.Parallel()
+
+	// More values that do not open than a refusal names, each sealed for a row elsewhere.
+	const unopened = secretRetireReported + 2
+	keys, old := testSecretKeys(t, 1, 2), testSecretKeys(t, 1)
+	moved := make([]Secret, unopened)
+	for i := range moved {
+		sealed, err := old.Seal(KeySet{}.Add("Vault", "elsewhere").Add("Shelf", fmt.Sprintf("shelf-%02d", i)), "moved-here")
+		if err != nil {
+			t.Fatalf("Seal() error = %v", err)
+		}
+		moved[i] = sealed
+	}
+	fine, err := old.Seal(rowKey("row-1"), "open-sesame")
+	if err != nil {
+		t.Fatalf("Seal() error = %v", err)
+	}
+
+	ctrl := gomock.NewController(t)
+	pairs := NewMockReader[retiringPairRow](ctrl)
+	pairs.EXPECT().List(gomock.Any(), gomock.Any()).Return(func(yield func(*Row[retiringPairRow], error) bool) {
+		for i := range moved {
+			if !yield(&Row[retiringPairRow]{Data: retiringPairRow{Vault: "vault-1", Shelf: fmt.Sprintf("shelf-%02d", i), Number: &moved[i]}}, nil) {
+				return
+			}
+		}
+	})
+	rows := NewMockReader[retiringRow](ctrl)
+	rows.EXPECT().List(gomock.Any(), gomock.Any()).Return(func(yield func(*Row[retiringRow], error) bool) {
+		yield(&Row[retiringRow]{Data: retiringRow{ID: "row-1", AccessCode: &fine}}, nil)
+	})
+	inTxn := NewMockReader[retiringRow](ctrl)
+	inTxn.EXPECT().Read(gomock.Any(), gomock.Any()).Return(&Row[retiringRow]{Data: retiringRow{ID: "row-1", AccessCode: &fine}}, nil)
+	buffered := &capturingTxn{}
+	client := NewMockClient(buffered, []any{pairs, rows}, []any{inTxn}, WithSecretKeys(keys))
+
+	got, err := RetireSecretVersion(context.Background(), client, "APP_SECRET_KEY_1", SecretHolderOf[retiringPairRow](), SecretHolderOf[retiringRow]())
+	if err == nil || got != nil {
+		t.Fatalf("RetireSecretVersion() = %+v, error %v; want the refusal of a value that does not open", got, err)
+	}
+	for _, want := range []string{
+		fmt.Sprintf("APP_SECRET_KEY_1 is not retired: %d stored value(s) name version 1 and do not open", unopened),
+		"Set each to its value again or clear it, then run the retirement again",
+		"Every value that opens was written again under version 2, 1 in all",
+		fmt.Sprintf("the first %d: SealedPairRows.Number, the row keyed Vault vault-1, Shelf shelf-00", secretRetireReported),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("RetireSecretVersion() error = %v, want containing %q", err, want)
+		}
+	}
+	// The count is of every value that does not open; ten of them are named.
+	if named := strings.Count(err.Error(), "the row keyed "); named != secretRetireReported {
+		t.Errorf("the refusal names %d row(s), want %d", named, secretRetireReported)
+	}
+	if strings.Contains(err.Error(), "moved-here") || strings.Contains(err.Error(), "open-sesame") {
+		t.Errorf("the refusal carries a value: %v", err)
+	}
+	// The holder after the one whose value does not open was written.
+	if len(buffered.columns) != 1 {
+		t.Fatalf("the retirement buffered %d write(s), want the second holder's one", len(buffered.columns))
+	}
+	if written, ok := buffered.columns[0]["AccessCode"].(Secret); !ok || buffered.columns[0]["Id"] != "row-1" || written.KeyVersion() != 2 {
+		t.Errorf("the retirement wrote %v, want row-1's value under version 2", buffered.columns[0]["Id"])
+	}
+}
+
+// retireStore is one database a retirement is run on: a client holding the keys, and
+// the two fixture tables read and written past the resource layer. A nil value is NULL.
+type retireStore struct {
+	client  func(keys *SecretKeys) Client
+	putRow  func(id string, sealed []byte)
+	putPair func(vault, shelf string, sealed []byte)
+	// rows answers SealedRows' stored bytes by Id, and pairs SealedPairRows' by
+	// "Vault/Shelf".
+	rows  func() map[string][]byte
+	pairs func() map[string][]byte
+}
+
+// retireValuesThatDoNotOpen is the same run on each database. The first holder's table
+// opens, in key order, with more values that do not open than one page of a retirement
+// holds, and values that open come after them; the second holder has values that open
+// and one that does not. Every value that opens is written under the current version,
+// behind the ones that do not and in the holder after them; the retirement fails with
+// how many do not open in all, naming ten of them and no value; and once those are
+// cleared it passes and writes nothing.
+func retireValuesThatDoNotOpen(t *testing.T, store retireStore) {
+	t.Helper()
+
+	const (
+		moved = secretRetireBatch + 5
+		fine  = 7
+		rows  = 3
+	)
+	ctx := context.Background()
+	old, both := testSecretKeys(t, 1), testSecretKeys(t, 1, 2)
+	seal := func(key KeySet, plain string) []byte {
+		t.Helper()
+
+		sealed, err := old.Seal(key, plain)
+		if err != nil {
+			t.Fatalf("Seal() error = %v", err)
+		}
+
+		return sealed.sealed
+	}
+	pairKey := func(vault, shelf string) KeySet {
+		return KeySet{}.Add("Vault", vault).Add("Shelf", shelf)
+	}
+	shelf := func(i int) string {
+		return fmt.Sprintf("%03d", i)
+	}
+	rowID := func(i int) string {
+		return fmt.Sprintf("row-%03d", i)
+	}
+
+	// Sealed for a row elsewhere and stored on these: the bytes were moved, and do not
+	// open here.
+	for i := range moved {
+		store.putPair("a-moved", shelf(i), seal(pairKey("elsewhere", shelf(i)), "moved-"+shelf(i)))
+	}
+	for i := range fine {
+		store.putPair("b-fine", shelf(i), seal(pairKey("b-fine", shelf(i)), "fine-"+shelf(i)))
+	}
+	for i := range rows {
+		store.putRow(rowID(i), seal(rowKey(rowID(i)), "code-of-"+rowID(i)))
+	}
+	store.putRow("row-moved", seal(rowKey("elsewhere"), "moved-row"))
+	before := store.pairs()
+
+	client := store.client(both)
+	holders := []SecretHolder{SecretHolderOf[retiringPairRow](), SecretHolderOf[retiringRow]()}
+	got, err := RetireSecretVersion(ctx, client, "APP_SECRET_KEY_1", holders...)
+	if err == nil || got != nil {
+		t.Fatalf("RetireSecretVersion() over values that do not open = %+v, error %v; want a refusal", got, err)
+	}
+	text := err.Error()
+	for _, want := range []string{
+		fmt.Sprintf("APP_SECRET_KEY_1 is not retired: %d stored value(s) name version 1 and do not open", moved+1),
+		fmt.Sprintf("Every value that opens was written again under version 2, %d in all", fine+rows),
+		fmt.Sprintf("the first %d: SealedPairRows.Number, the row keyed Vault a-moved, Shelf 000", secretRetireReported),
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("RetireSecretVersion() error = %v, want containing %q", err, want)
+		}
+	}
+	if named := strings.Count(text, "the row keyed "); named != secretRetireReported {
+		t.Errorf("the refusal names %d row(s), want %d", named, secretRetireReported)
+	}
+	for _, leak := range []string{"moved-0", "fine-0", "code-of-row", "moved-row"} {
+		if strings.Contains(text, leak) {
+			t.Errorf("the refusal carries a value: %v", err)
+		}
+	}
+
+	// Every value that opens was written: behind the values that do not, and in the
+	// holder after them. The ones that do not open are as they were.
+	pairs, sealedRows := store.pairs(), store.rows()
+	for i := range fine {
+		code := pairs["b-fine/"+shelf(i)]
+		if storedVersion(code) != 2 {
+			t.Fatalf("b-fine/%s, behind the values that do not open, names version %d, want 2", shelf(i), storedVersion(code))
+		}
+		if plain, err := both.Open(pairKey("b-fine", shelf(i)), Secret{sealed: code}); err != nil || plain != "fine-"+shelf(i) {
+			t.Fatalf("b-fine/%s opens to another value, error %v", shelf(i), err)
+		}
+	}
+	for i := range moved {
+		if id := "a-moved/" + shelf(i); !cmp.Equal(pairs[id], before[id]) {
+			t.Fatalf("%s, which does not open, was written", id)
+		}
+	}
+	for i := range rows {
+		code := sealedRows[rowID(i)]
+		if storedVersion(code) != 2 {
+			t.Fatalf("%s, in the holder after the one with values that do not open, names version %d, want 2", rowID(i), storedVersion(code))
+		}
+		if plain, err := both.Open(rowKey(rowID(i)), Secret{sealed: code}); err != nil || plain != "code-of-"+rowID(i) {
+			t.Fatalf("%s opens to another value, error %v", rowID(i), err)
+		}
+	}
+	if storedVersion(sealedRows["row-moved"]) != 1 {
+		t.Errorf("row-moved, which does not open, was written")
+	}
+
+	// A second run finds the same values and writes nothing more.
+	if _, err := RetireSecretVersion(ctx, client, "APP_SECRET_KEY_1", holders...); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%d stored value(s) name version 1 and do not open", moved+1)) || !strings.Contains(err.Error(), "written again under version 2, 0 in all") {
+		t.Errorf("a second RetireSecretVersion(): error = %v, want the same count and nothing written", err)
+	}
+
+	// Cleared, the retirement passes.
+	for i := range moved {
+		store.putPair("a-moved", shelf(i), nil)
+	}
+	store.putRow("row-moved", nil)
+	got, err = RetireSecretVersion(ctx, client, "APP_SECRET_KEY_1", holders...)
+	if err != nil || got.Rewritten() != 0 || len(got.Fields) != 2 {
+		t.Errorf("RetireSecretVersion() once the values are cleared = %+v, error %v; want both fields read and nothing written", got, err)
 	}
 }

@@ -30,3 +30,11 @@ CREATE TABLE SealedRows (
   Title STRING(MAX) NOT NULL,
   AccessCode BYTES(MAX),
 ) PRIMARY KEY (Id);
+
+-- The secret-field tests' second fixture: a table with a key of two columns, which a
+-- retirement of a version of the application secret reads beside SealedRows.
+CREATE TABLE SealedPairRows (
+  Vault STRING(36) NOT NULL,
+  Shelf STRING(36) NOT NULL,
+  Number BYTES(MAX),
+) PRIMARY KEY (Vault, Shelf);

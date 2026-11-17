@@ -105,7 +105,8 @@ func (r *Set[Resource]) hiddenFields(features *FeatureSet) map[accesstypes.Field
 // except fields carrying the perm:"-" primary-key exemption, whose readability follows
 // the resource-level grant.
 func NewSet[Resource Resourcer, Request any](permissions ...accesstypes.Permission) (*Set[Resource], error) {
-	reg, err := permissionsFromTags(reflect.TypeFor[Request](), permissions)
+	rMeta := NewMetadata[Resource]()
+	reg, err := permissionsFromTags(reflect.TypeFor[Request](), permissions, rMeta.secret)
 	if err != nil {
 		return nil, errors.Wrap(err, "permissionsFromTags()")
 	}
@@ -123,7 +124,7 @@ func NewSet[Resource Resourcer, Request any](permissions ...accesstypes.Permissi
 		valueLimits:      reg.valueLimits,
 		nullableFields:   reg.nullableFields,
 		gatedFields:      reg.gatedFields,
-		rMeta:            NewMetadata[Resource](),
+		rMeta:            rMeta,
 	}, nil
 }
 
@@ -144,7 +145,8 @@ func newUnenforcedSet[Resource Resourcer, Request any]() (*Set[Resource], error)
 		}
 	}
 
-	valueLimits, err := valueLimitsOf(t)
+	rMeta := NewMetadata[Resource]()
+	valueLimits, err := valueLimitsOf(t, rMeta.secret)
 	if err != nil {
 		return nil, errors.Wrap(err, "valueLimitsOf()")
 	}
@@ -160,7 +162,7 @@ func newUnenforcedSet[Resource Resourcer, Request any]() (*Set[Resource], error)
 		immutableFields: immutableFields,
 		valueLimits:     valueLimits,
 		nullableFields:  nullableFields,
-		rMeta:           NewMetadata[Resource](),
+		rMeta:           rMeta,
 	}, nil
 }
 
@@ -260,7 +262,7 @@ func (r *setRegistration) recordFeature(field *FieldTags) error {
 	return nil
 }
 
-func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission) (*setRegistration, error) {
+func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission, secret func(accesstypes.Field) bool) (*setRegistration, error) {
 	if t.Kind() != reflect.Struct {
 		return nil, errors.Newf("expected a struct, got %s", t.Kind())
 	}
@@ -283,7 +285,7 @@ func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission) (*setRe
 
 	// The sqltype tags pair with the fields' Go types, which only this reflecting path
 	// has; a tag the runtime cannot pair is the stale-struct guard, like a stale perm.
-	reg.valueLimits, err = valueLimitsOf(t)
+	reg.valueLimits, err = valueLimitsOf(t, secret)
 	if err != nil {
 		return nil, errors.Wrap(err, "valueLimitsOf()")
 	}

@@ -1,6 +1,7 @@
 .impulse-cache/
 .overmind.sock
 .envrc
+.app-secret-key.dev
 uploads/
 go.work
 go.work.sum

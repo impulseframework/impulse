@@ -220,6 +220,7 @@ func All() []Check {
 		envTemplate{},
 		envReads{},
 		fileStore{},
+		secretHolders{},
 		pins{},
 		gofmtCheck{},
 		prettierCheck{},
