@@ -196,7 +196,7 @@ func Test_maskingTags(t *testing.T) {
 }
 
 // Test_reservedRowName pins the reserved names a resource column may not take: the
-// three fixed envelope names, case-insensitively, and the cursor alias prefix.
+// fixed envelope names, case-insensitively, and the cursor alias prefix.
 func Test_reservedRowName(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +210,7 @@ func Test_reservedRowName(t *testing.T) {
 		{name: "an ordinary column", column: "Fee", field: "Fee"},
 		{name: "the masked-names column", column: "zzMaskedFields", field: "Masked", wantHit: true, wantNaming: "zzMaskedFields"},
 		{name: "the capability property by field name, any case", column: "Caps", field: "ZZCAPABILITIES", wantHit: true, wantNaming: "zzCapabilities"},
+		{name: "the tenant column of a list across tenants", column: "zzTenant", field: "Tenant", wantHit: true, wantNaming: "zzTenant"},
 		{name: "a column beginning with the cursor prefix", column: "zzCursorFee", field: "Fee", wantHit: true, wantNaming: "zzCursor"},
 		{name: "a field beginning with the cursor prefix, any case", column: "Fee", field: "ZzCursorKey", wantHit: true, wantNaming: "zzCursor"},
 		{name: "the prefix alone is reserved too", column: "zzCursor", field: "Fee", wantHit: true, wantNaming: "zzCursor"},

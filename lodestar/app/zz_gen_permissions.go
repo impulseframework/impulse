@@ -17,10 +17,13 @@ import (
 // means global) and the payload is advisory and fail-closed: denied targets are
 // absent, and so is every resource, field and method gated behind a feature flag
 // that is off (resources.FeatureGates); a renamed field or method
-// (@formerly) appears under its former name too, with the same states. The generated router registers it at GET /console/api/permission-digest and,
+// (@formerly) appears under its former name too, with the same states. The global
+// digest also answers, for each resource listed across tenants (@listAcrossTenants),
+// whether the person may list it in at least one tenant the session reaches
+// (resource.ListAcrossTenants), which is who the list's page is shown to. The generated router registers it at GET /console/api/permission-digest and,
 // for each additional session-serving outlet (ServesSessions), under that outlet's prefix.
 func (a *App) PermissionDigest() http.HandlerFunc {
-	return resource.PermissionDigestHandler(a.UserPermissions, resource.WithFeatureGates(resources.FeatureGates(), a.FeatureSet()), resource.WithFormerNames(router.Collection()))
+	return resource.PermissionDigestHandler(a.UserPermissions, resource.WithFeatureGates(resources.FeatureGates(), a.FeatureSet()), resource.WithFormerNames(router.Collection()), resource.WithListsAcrossTenants(router.Collection()))
 }
 
 // UserDomains serves the session's tenant list — the sorted list of domains where

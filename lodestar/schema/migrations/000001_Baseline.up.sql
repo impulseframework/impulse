@@ -667,6 +667,11 @@ CREATE INDEX CrewSessionImpersonations_PrincipalUserId_idx
 -- generator's index warning.
 CREATE INDEX MissionsBySectorIdDeadline ON Missions(SectorId, Deadline);
 
+-- Missions is listed across sectors too (@listAcrossTenants): that list has no one
+-- sector to seek to, so it reads its page off an index in its own order, which stores
+-- the sector so the filter on the sector is answered from the index.
+CREATE INDEX MissionsByDeadline ON Missions(Deadline) STORING (SectorId);
+
 CREATE INDEX HangarsBySectorIdName ON Hangars(SectorId, Name);
 
 CREATE INDEX WingsBySectorIdName ON Wings(SectorId, Name);

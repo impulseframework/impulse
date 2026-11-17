@@ -483,6 +483,25 @@
           ]
         }
       }
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000031",
+      "user": "liaison",
+      "password": "lodestar",
+      "roles": {
+        "global": [
+          "CrewCommon"
+        ],
+        "domains": {
+          "Anvil": [
+            "Cadet",
+            "SectorCrew"
+          ],
+          "Cinder": [
+            "Archivist"
+          ]
+        }
+      }
     }
   ],
   "members": [

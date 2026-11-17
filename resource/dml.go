@@ -1,6 +1,9 @@
 package resource
 
-import "cloud.google.com/go/spanner"
+import (
+	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse/accesstypes"
+)
 
 // DBType represents the type of database, such as Spanner or PostgreSQL.
 type DBType string
@@ -42,6 +45,14 @@ type Statement struct {
 	// under reserved aliases for the cursor (see cursorColumnItems); empty
 	// otherwise. The readers scan them into the Row envelope.
 	cursorColumns []cursorColumn
+
+	// tenantColumn names the reserved output column a list across tenants selects
+	// each row's tenant under (across_tenants.go); tenant is the one tenant every
+	// row is in when such a list came to a set of one, whose statement is the
+	// tenant's own. Both empty on every other statement. The readers put the
+	// tenant on the Row envelope.
+	tenantColumn string
+	tenant       accesstypes.Domain
 
 	// optimizerVersion is the query optimizer version the Spanner readers name in
 	// the statement's request options, "" to leave the database's own. A statement

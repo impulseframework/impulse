@@ -10,6 +10,7 @@ import { commendationsConfig } from './configs/commendations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
+import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
 import { sectorsConfig } from './configs/sectors.config';
 import { shipClassesConfig } from './configs/shipClasses.config';
@@ -47,6 +48,8 @@ export function appMenus(actions: FrameActions): Menu[] {
             // Behind the commendations flag: the entry shows only while it is on.
             resourcePage(commendationsConfig, resourceMeta),
             resourcePage(sectorsConfig, resourceMeta),
+            // The missions of every sector the person reaches, on one page of Headquarters.
+            resourcePage(missionsEverySectorConfig, resourceMeta),
           ],
         },
       ],

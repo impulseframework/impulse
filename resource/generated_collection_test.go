@@ -924,3 +924,57 @@ func TestCollectionBuilder_requiredOnCreate(t *testing.T) {
 		t.Errorf("RequiredOnCreate(Tasks) in another scope = %v, want none", got)
 	}
 }
+
+// TestGeneratedCollection_listsAcrossTenants pins the declaration a list across tenants
+// rests on: the collection answers it for the resources the data marks and for no other,
+// the builder's mark survives the data, a nil collection declares none, and a resource
+// that is no tenant's cannot be marked.
+func TestGeneratedCollection_listsAcrossTenants(t *testing.T) {
+	t.Parallel()
+
+	builder := NewCollectionBuilder()
+	for _, res := range []accesstypes.Resource{"Hangars", "Docks", "Berths"} {
+		if err := builder.AddResource(accesstypes.DomainPermissionScope, accesstypes.List, res); err != nil {
+			t.Fatalf("AddResource(%s) error = %v", res, err)
+		}
+	}
+	if err := builder.AddResource(accesstypes.GlobalPermissionScope, accesstypes.List, "Ports"); err != nil {
+		t.Fatalf("AddResource(Ports) error = %v", err)
+	}
+	builder.SetResourceListsAcrossTenants("Hangars")
+	builder.SetResourceListsAcrossTenants("Berths")
+
+	data := builder.Data()
+	for i := range data.Resources {
+		res := &data.Resources[i]
+		if want := res.Name == "Hangars" || res.Name == "Berths"; res.ListsAcrossTenants != want {
+			t.Errorf("the data marks %s as listed across tenants = %t, want %t", res.Name, res.ListsAcrossTenants, want)
+		}
+	}
+
+	g, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+	if diff := cmp.Diff([]accesstypes.Resource{"Berths", "Hangars"}, g.ListedAcrossTenants()); diff != "" {
+		t.Errorf("ListedAcrossTenants() mismatch (-want +got):\n%s", diff)
+	}
+	for res, want := range map[accesstypes.Resource]bool{"Hangars": true, "Berths": true, "Docks": false, "Ports": false, "Unknown": false} {
+		if got := g.ListsAcrossTenants(res); got != want {
+			t.Errorf("ListsAcrossTenants(%s) = %t, want %t", res, got, want)
+		}
+	}
+
+	var none *GeneratedCollection
+	if none.ListsAcrossTenants("Hangars") || len(none.ListedAcrossTenants()) != 0 {
+		t.Error("a nil collection declares a resource for listing across tenants, want none")
+	}
+
+	_, err = NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
+		{Name: "Ports", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List}, ListsAcrossTenants: true},
+	}})
+	want := `resource "Ports" is declared for listing across tenants and is not a tenant's resource: its permission scope is "global"`
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("NewGeneratedCollection() error = %v, want it to end %q", err, want)
+	}
+}
