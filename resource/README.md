@@ -2510,8 +2510,9 @@ session outlet that serves the record at
 tenant's administrator runs it: a role file grants Execute on the method to the domain
 role that manages the tenant's directory, and the record's own write paths, which are
 global, show the flag and never write it (the field is output only on the wire, so a
-create or an update that carries it is refused as naming an unknown field, and a grant
-of Create or Update on it is refused at deploy). The method asks
+create or an update that carries it is refused as naming an unknown field, and a role
+file that grants Create or Update on it is refused by the deploy-time validation of the
+role files, `access.ValidateRoles`, the field requiring neither). The method asks
 `TenantDirectoryRules.DirectoryOnly` once the caller's Execute grant has answered and
 before the flag is written through the record's update patch, and each refusal is a
 Conflict (409) whose sentence the person can act on, in the record's own word for a
