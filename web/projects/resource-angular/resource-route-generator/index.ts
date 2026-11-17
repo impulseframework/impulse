@@ -197,9 +197,13 @@ export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Reso
     registerRowPage(rowResource, path);
   }
 
+  // Each path matches one child alone, so their order decides nothing; a configured route
+  // names its list first and the metadata's route its row first, as each always has.
+  const withRows = config.routeData.route ? [listRoute, rowRoute] : [rowRoute, listRoute];
+
   return gated({
     path,
     data,
-    children: opensRows ? [rowRoute, listRoute] : [listRoute],
+    children: opensRows ? withRows : [listRoute],
   } satisfies Route);
 };
