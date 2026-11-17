@@ -120,7 +120,7 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	t.Helper()
 
 	db, store := be.newStore(ctx, t)
-	a := rulesAppOver(ctx, t, be, shape, db, store)
+	a := rulesAppOver(t, be, shape, db, store)
 
 	// An administrator opens a method for the audience its registration has, so the
 	// methods are opened once they are registered, and a method the shape does not
@@ -142,15 +142,15 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 // registrations are shape's, and the rows of the sign-in methods table stand as an
 // administrator wrote them under the release before. Nothing is opened here, whatever
 // shape says was chosen: a release changes code, and the choice is a row.
-func (a *rulesApp[Tx]) release(ctx context.Context, t *testing.T, be backend[Tx], shape *rulesShape) *rulesApp[Tx] {
+func (a *rulesApp[Tx]) release(t *testing.T, be backend[Tx], shape *rulesShape) *rulesApp[Tx] {
 	t.Helper()
 
-	return rulesAppOver(ctx, t, be, shape, a.db, a.store)
+	return rulesAppOver(t, be, shape, a.db, a.store)
 }
 
 // rulesAppOver builds the application of shape over a database that is there: the Auth,
 // its registrations against two fakes of their own, and the server.
-func rulesAppOver[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shape *rulesShape, db appDB, store *sessionstorage.Auth[Tx]) *rulesApp[Tx] {
+func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db appDB, store *sessionstorage.Auth[Tx]) *rulesApp[Tx] {
 	t.Helper()
 
 	h := &hooks[Tx]{rows: be.rows}
@@ -842,7 +842,7 @@ func seamRulesOpenedForOneTenant[Tx any](ctx context.Context, t *testing.T, be b
 			label = method.Audience.Organizations[0]
 		}
 	}
-	second := first.release(ctx, t, be, &rulesShape{
+	second := first.release(t, be, &rulesShape{
 		tenants:    azure.Tenants(azure.Tenant(azureTenant), azure.NamedTenant(riversideTenant, label)),
 		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: inviteOnly,
 	})

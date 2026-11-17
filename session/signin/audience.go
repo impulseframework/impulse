@@ -48,9 +48,10 @@ func (a Audience) Limited() bool {
 // organization and nobody else: the width at which a name a sign-in presents can have
 // come from one directory alone, which the rule on the first link of a deployment's
 // seeded account asks. It counts the organizations as the registration listed them,
-// never as they read once spelled (Key writes each name once, so two tenants given one
-// name would read as one). A Google Workspace named with several domains is listed by
-// each domain and reads as several, which errs toward the wider answer.
+// never as Key spells them: Key writes each identity once, and each name once for a
+// method that gives no identities, where two organizations given one name would read
+// as one. A Google Workspace named with several domains is listed by each domain and
+// reads as several, which errs toward the wider answer.
 func (a Audience) OneOrganization() bool {
 	return a.Accounts == "" && len(a.Organizations) == 1
 }
