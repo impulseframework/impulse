@@ -1028,7 +1028,9 @@ much from the schema:
   columns, in order and direction, and names the `CREATE INDEX` it wants; the primary
   key is not named because Spanner appends it to every secondary index. A resource
   with no `@order` is silent: its sort-less list is not sorted, and the backing index on
-  the tenant column serves it.
+  the tenant column serves it. So is a resource whose table a unique index on the tenant
+  column alone holds to one row for a tenant (a tenant's directory, for one): one row
+  has nothing to sort.
 - A nullable `@order` column renders as the plain direction with no stated `NULL`
   placement, so the same composite index serves it. Each database keeps its own placement
   (Spanner sorts `NULL` first ascending and last descending, PostgreSQL the reverse) and
