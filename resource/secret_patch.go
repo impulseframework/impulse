@@ -224,7 +224,7 @@ func OpenSecretIn[Resource Resourcer](ctx context.Context, txn ReadWriteTransact
 	rMeta := NewMetadata[Resource]()
 	keys := secretKeysOf(txn)
 	if keys == nil {
-		return "", errNoSecretKeys()
+		return "", errNoSecretKeysOf(txn)
 	}
 	key, err := rMeta.secretKey(key)
 	if err != nil {

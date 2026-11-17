@@ -736,9 +736,35 @@ func TestSecretKeysFromEnv(t *testing.T) {
 		}
 	}
 
-	// No version at all is no keys and no error: an application with no secret runs.
-	if keys, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"PATH=/usr/bin", "APP_COOKIE_KEY=" + version(9)}); err != nil || keys != nil {
-		t.Errorf("SecretKeysFromEnv() with no version = %v, error %v, want neither", keys, err)
+	// No version at all is no error: an application with no secret runs. The holder it
+	// answers holds no key, and says which variable is missing where a key is needed.
+	for name, environ := range map[string][]string{
+		"no variable of the name":    {"PATH=/usr/bin", "APP_COOKIE_KEY=" + version(9)},
+		"the name itself, set empty": {"PATH=/usr/bin", "APP_SECRET_KEY="},
+	} {
+		none, err := SecretKeysFromEnv("APP_SECRET_KEY", environ)
+		if err != nil || none == nil || none.held() || none.Current() != 0 || len(none.Versions()) != 0 {
+			t.Fatalf("SecretKeysFromEnv() with %s: holder %v, error %v; want a holder that holds no key and no error", name, none, err)
+		}
+		const want = "no version of the application secret was handed over: APP_SECRET_KEY_1 is not set"
+		if _, err := none.Seal(rowKey("row-1"), "open-sesame"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Seal() by a holder read from an environment with %s: error = %v, want containing %q", name, err, want)
+		}
+		if _, err := none.Open(rowKey("row-1"), sealed); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Open() by a holder read from an environment with %s: error = %v, want containing %q", name, err, want)
+		}
+	}
+
+	// The name itself holding a value, with no numbered version beside it, is the secret
+	// put in the wrong variable: it is never read, so it is refused by name with the
+	// variable to use, and its value is not quoted. Beside a numbered version it is
+	// passed over, as above.
+	_, err = SecretKeysFromEnv("APP_SECRET_KEY", []string{"PATH=/usr/bin", "APP_SECRET_KEY=" + version(1)})
+	if want := "APP_SECRET_KEY is set, and the application secret is read one variable for each version, never from the name itself: name the variable APP_SECRET_KEY_1"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("SecretKeysFromEnv() with the name itself holding a value: error = %v, want containing %q", err, want)
+	}
+	if err != nil && strings.Contains(err.Error(), version(1)) {
+		t.Errorf("the refusal quotes the variable's value: %v", err)
 	}
 
 	short := base64.StdEncoding.EncodeToString([]byte("too-short-a-secret"))
@@ -1161,10 +1187,24 @@ func TestRequireSecretKeys(t *testing.T) {
 	if err := RequireSecretKeys(unkeyed); err != nil {
 		t.Errorf("RequireSecretKeys() for an application with no secret: error = %v", err)
 	}
-	const want = "the application stores secrets (SealedRows.AccessCode, Vaults.Combination) and its resource client was built with no secret keys: build them from the application secret's versions (resource.NewSecretKeys, resource.SecretKeysFromEnv) and wire them on the client with resource.WithSecretKeys"
+	// A client that was never given a holder names the wiring, and the variable an
+	// application made from a skeleton reads.
+	const want = "the application stores secrets (SealedRows.AccessCode, Vaults.Combination) and its resource client was built with no secret keys: read the versions of the application secret from the environment with resource.SecretKeysFromEnv (an application made from a skeleton reads APP_SECRET_KEY_1, APP_SECRET_KEY_2 and so on) and wire them on the client with resource.WithSecretKeys"
 	for name, client := range map[string]Client{"no option": unkeyed, "nil keys": nilKeys} {
 		if err := RequireSecretKeys(client, "SealedRows.AccessCode", "Vaults.Combination"); err == nil || !strings.HasSuffix(err.Error(), want) {
 			t.Errorf("RequireSecretKeys() on a client with %s: error = %v, want %q", name, err, want)
+		}
+	}
+	// A client wired to an environment that carries no version names the variable that
+	// is missing, under whatever name the application declares.
+	for _, name := range []string{"APP_SECRET_KEY", "FLEET_KEY"} {
+		none, err := SecretKeysFromEnv(name, []string{"PATH=/usr/bin"})
+		if err != nil {
+			t.Fatalf("SecretKeysFromEnv() error = %v", err)
+		}
+		want := "the application stores secrets (SealedRows.AccessCode) and was handed no version of the application secret: " + name + "_1 is not set. Set it to 32 random bytes in Base64 (openssl rand -base64 32 makes one)"
+		if err := RequireSecretKeys(NewMockClient(nil, nil, nil, WithSecretKeys(none)), "SealedRows.AccessCode"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("RequireSecretKeys() on a client wired to an environment with no version: error = %v, want containing %q", err, want)
 		}
 	}
 	if err := RequireSecretKeys(nil, "SealedRows.AccessCode"); err == nil {
