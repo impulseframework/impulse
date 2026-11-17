@@ -1,0 +1,129 @@
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session"
+)
+
+// TestGroups_theAdministratorManagesGroups proves the role file's grants over groups of
+// people, on the served stack. A group holds roles the way a person does, and a person in
+// it holds the group's roles.
+//
+// Whoever manages the application's people manages its groups, their members and their
+// roles: the administrator makes a group, puts a person in it, gives it a role, and reads
+// all three back. A person without the grant is refused: the flag keeper holds the
+// feature flags' role alone, reads the flags and no group. And no group holds the Super
+// Administrator role, whoever asks: it is given to a person, so that only a super
+// administrator makes another.
+func TestGroups_theAdministratorManagesGroups(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := newBrowser(t, s)
+	admin.signIn(ctx, adminUser)
+
+	status, body := admin.do(ctx, http.MethodPost, "/api/create-staff-group", []byte(`{"name":"Night shift","description":"Keeps the application through the night."}`))
+	if status != http.StatusOK {
+		t.Fatalf("the administrator making a group: status %d: %s", status, body)
+	}
+	night := createdGroup(t, body)
+	if !anyRow(groupRows(ctx, t, admin, "/api/staff-groups"), "id", night, "name", "Night shift") {
+		t.Fatal("the application's groups leave out the one just made")
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/add-staff-group-member", []byte(`{"groupId":"`+night+`","userId":"`+s.adminID+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("putting a person in the group: status %d: %s", status, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/give-staff-group-role", []byte(`{"groupId":"`+night+`","role":"FeatureAdministrator"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the group a role: status %d: %s", status, body)
+	}
+	for _, list := range []struct{ path, column, want string }{
+		{"/api/staff-group-users", "username", adminUser},
+		{"/api/staff-group-roles", "role", "FeatureAdministrator"},
+		{"/api/staff-user-group-roles", "username", adminUser},
+	} {
+		if !anyRow(groupRows(ctx, t, admin, list.path), "groupId", night, list.column, list.want) {
+			t.Errorf("%s holds no row of the Night shift with %s = %s", list.path, list.column, list.want)
+		}
+	}
+	status, body = admin.do(ctx, http.MethodPost, "/api/give-staff-group-role", []byte(`{"groupId":"`+night+`","role":"`+string(accesstypes.SuperAdministrator)+`"}`))
+	if status != http.StatusBadRequest || !strings.Contains(string(body), "never to a group") {
+		t.Errorf("giving a group the Super Administrator role, as a super administrator: status %d: %s, want 400 saying the role is never a group's", status, body)
+	}
+
+	// A person without the grant is refused: the flag keeper holds the feature flags' role
+	// alone. The engine's snapshot swap is asynchronous, so the role is waited for.
+	password := adminPassword
+	id, err := s.auth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: "flagkeeper", Password: &password})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(flagkeeper) error = %v", err)
+	}
+	keeper := accesstypes.User(id.String())
+	if err := s.access.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), keeper, "FeatureAdministrator"); err != nil {
+		t.Fatalf("AddUserRoles(flagkeeper) error = %v", err)
+	}
+	if d := decisionFor(ctx, t, s.access.ForUser(keeper), accesstypes.GlobalScope(), accesstypes.List, "FeatureFlags", time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("the flag keeper's List on FeatureFlags = %s, want granted before the refusals are read", d)
+	}
+	flags := newBrowser(t, s)
+	flags.signIn(ctx, "flagkeeper")
+	if status, body := flags.do(ctx, http.MethodGet, "/api/permission-digest", nil); status != http.StatusOK {
+		t.Fatalf("the flag keeper reading what they may do: status %d: %s", status, body)
+	}
+	if status, body := flags.do(ctx, http.MethodGet, "/api/staff-groups", nil); status != http.StatusForbidden {
+		t.Errorf("the flag keeper listing the groups: status %d, want 403: %s", status, body)
+	}
+	if status, body := flags.do(ctx, http.MethodPost, "/api/create-staff-group", []byte(`{"name":"Mine","description":"Not theirs to make."}`)); status != http.StatusForbidden {
+		t.Errorf("the flag keeper making a group: status %d, want 403: %s", status, body)
+	}
+}
+
+// createdGroup reads the id of the group a create method answered.
+func createdGroup(t *testing.T, body []byte) string {
+	t.Helper()
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
+		t.Fatalf("creating a group answered %s (%v), want the new group's id", body, err)
+	}
+
+	return created.ID
+}
+
+// groupRows reads one of the whole application's lists as the browser b: its rows, each
+// with the fields the browser's roles let it see.
+func groupRows(ctx context.Context, t *testing.T, b *browser, path string) []map[string]any {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, path+"?limit=200", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s: status %d: %s", path, status, body)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("%s is not a list: %v: %s", path, err, body)
+	}
+
+	return rows
+}
+
+// anyRow reports whether one of the rows holds both values: the first under one column,
+// the second under another.
+func anyRow(rows []map[string]any, column, value, other, otherValue string) bool {
+	for _, row := range rows {
+		if row[column] == value && row[other] == otherValue {
+			return true
+		}
+	}
+
+	return false
+}

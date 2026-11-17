@@ -4,7 +4,7 @@
     "domain": [
       {
         "name": "TenantAdministrator",
-        "description": "Runs one tenant on the portal: manages its members and the roles they hold there, and posts its announcements.",
+        "description": "Runs one tenant on the portal: manages its members, their groups and the roles they hold there, and posts its announcements.",
         "permissions": {
           "Create": [
             {
@@ -70,6 +70,27 @@
             {
               "resource": "UnlinkMembersTenantSessionIdentity",
               "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "CreateMembersTenantGroup"
+            },
+            {
+              "resource": "DescribeMembersTenantGroup"
+            },
+            {
+              "resource": "DeleteMembersTenantGroup"
+            },
+            {
+              "resource": "AddMembersTenantGroupMember"
+            },
+            {
+              "resource": "RemoveMembersTenantGroupMember"
+            },
+            {
+              "resource": "GiveMembersTenantGroupRole"
+            },
+            {
+              "resource": "TakeMembersTenantGroupRole"
             }
           ],
           "List": [
@@ -152,6 +173,45 @@
               "fields": [
                 "description"
               ]
+            },
+            {
+              "resource": "MembersTenantGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersTenantGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "MembersTenantGroupRoles",
+              "fields": [
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "MembersTenantUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "globalGroup",
+                "everyDomain",
+                "startsAt",
+                "endsAt"
+              ]
             }
           ],
           "Read": [
@@ -228,6 +288,14 @@
                 "emailAtLink"
               ],
               "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "MembersTenantGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
             }
           ],
           "Update": [
