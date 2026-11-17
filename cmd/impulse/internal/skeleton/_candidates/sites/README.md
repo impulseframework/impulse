@@ -114,6 +114,10 @@ withdraws directories there, the application's administrator sets directory only
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
+  every stored secret field that names the version again under the current one, confirms
+  none is left and exits 0 only then, so the deployment disables the version only when no
+  stored value needs it (see "Secret fields").
 - `cmd/generate` runs the three generators: console, portal, shared. `impulse check`'s
   sites-generators check fails the build when a generator reads a different schema or the
   shared generator misses a site.
@@ -216,8 +220,11 @@ The key is the application secret, which `pkg/config` declares
 keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
 `APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
 the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
-current one. An application with a secret field refuses to start without a version. The
-framework's `resource/README.md`, "Secrets at rest", has the whole of it.
+current one. An application with a secret field refuses to start without a version. A
+version is retired, before the deployment disables it, by the migrate command
+(`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
+under the current version. The framework's `resource/README.md`, "Secrets at rest", has
+the whole of it.
 
 ## Running it
 

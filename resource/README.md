@@ -3297,6 +3297,34 @@ still holds the bytes that were opened. `Open<Field>(keys)` never writes. At a r
 request already running on a revision that was not handed the new version can meet a value
 the new revision rewrote, and answers an error for that request.
 
+**Retiring a version.** A version of the application secret can be disabled once no
+stored value names it, and a value nobody sets or opens keeps the version that sealed it.
+The application's migrate command retires a version, named by the variable it is handed
+over in:
+
+```
+migrate -retire-secret APP_SECRET_KEY_1
+```
+
+The command opens the data level and calls `resource.RetireSecretVersion` with the
+application's secret holders, the generated `SecretHolders()` of each resources package
+(one `resource.SecretHolderOf[T]()` for each resource that stores a secret; nil for a
+package that stores none). Every stored value that names the version is opened and written
+again under the current version, a batch to a transaction, and a final read of every secret
+field finds none left. It exits 0 only then, and prints how many values of each field it
+wrote, never a value. Its environment is the migration's with one variable for each
+enabled version, the one being retired among them, since its values are opened under it.
+The current version, the highest the environment carries, is refused: new values are
+sealed under it. So is a variable that is not a version of the secret the keys were read
+from. A value that does not open (bytes moved from another row, or altered) fails the
+retirement, naming its resource, field and row, once every other value is written: set it
+again or clear it, and run the retirement again. A second run finds nothing to write and
+exits 0. The service keeps serving meanwhile: a value is written back only while its row
+still holds the bytes that were opened, read again inside the writing transaction, and the
+rewrite is the stored bytes alone, with no permission check, no update function and no
+change record. It runs on Spanner through the resource client and on PostgreSQL by
+statements of its own, the PostgreSQL client's transactions not being built.
+
 **Refusals.**
 
 - A stored field declared `secret` and typed a plain `string` or `[]byte`, or on a column
@@ -3312,12 +3340,19 @@ the new revision rewrote, and answers an error for that request.
   versions the service holds.
 - Bytes moved from another row, or altered: `resource.ErrSecretNotOpened` when they are
   opened.
+- A configuration variable named as a version of a versioned secret is (`APP_SECRET_KEY_1`
+  beside `APP_SECRET_KEY` declared `secret:"versioned"`): refused when the application is
+  read (`impulse check`, the deployment's tooling), since the deployment hands the version
+  over under that name.
 
 **Tests.** `resource/secret_test.go` holds the type (nothing prints it), the key holder (a
 value opens on its row and on no other, under the version that sealed it and no version the
 holder was not given), the write path and the rewrite against a capturing transaction;
 `resource/secret_spanner_test.go` and `resource/secret_postgres_test.go` hold the column
 (no plain value, the change record names the field without its values) and a rotation over
-the emulator and a PostgreSQL container; `generation/secret_test.go` holds the refusals and
-the generated methods. Lodestar's ship carries a transponder key
-(`lodestar/test/integration/secret_test.go`).
+the emulator and a PostgreSQL container, and the retirement of a version on both;
+`resource/secret_retire_test.go` holds the retirement's refusals and its final check;
+`generation/secret_test.go` holds the refusals, the generated methods and the secret
+holders. Lodestar's ship carries a transponder key
+(`lodestar/test/integration/secret_test.go`), and its migrate command retires a version
+over the emulator (`lodestar/cmd/deployment/migrate/main_test.go`).

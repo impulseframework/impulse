@@ -33,6 +33,15 @@ cp .envrc.template .envrc && direnv allow
 overmind start
 ```
 
+The environment file carries `APP_SECRET_KEY_1`, version 1 of the application secret, which
+a ship's transponder key is encrypted with (a secret field, `conditions:"secret"` on
+[Ship.TransponderKey](pkg/resources/ships.go): the column holds the key sealed, and nothing
+serves it back); the server refuses to start without a version, so an `.envrc` copied
+before the variable existed takes the line from the template. A deployment generates the
+secret and hands the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`),
+and the migrate command retires one (`-retire-secret APP_SECRET_KEY_1`) by writing every key
+that names it again under the current version. Demonstrates: secret, secret.rotation.
+
 That starts a fresh Spanner emulator and a fresh Firestore emulator (the live service: the
 live pages' subscription record and change sets, [below](#live-pages), and the signals
 document the instances notify each other through,
