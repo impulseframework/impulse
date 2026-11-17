@@ -280,11 +280,13 @@ func (m *Manager) callerAccount(ctx context.Context, txn resource.ReadWriteTrans
 // startingRole holds the role a person from the new tenant's directory starts with to
 // its rules, and answers it; "" for an invitation that names none. The role is given
 // later, at the first sign-in of each of the directory's people, with nobody signed in
-// to judge it, so it is judged now: it exists as a role of every tenant (a custom role
-// is made in a tenant, and this one has none yet), it is not the Super Administrator
-// role, and the request's caller could give it to a person in a tenant. The tenant does
+// to judge it, so it is judged now: the request's caller could give it to a person in a
+// tenant, it exists as a role of every tenant (a custom role is made in a tenant, and
+// this one has none yet), and it is not the Super Administrator role. The tenant does
 // not exist yet, so the question is asked for a tenant no row names: a grant that holds
-// for named tenants alone does not admit it.
+// for named tenants alone does not admit it. The caller's grants answer first, as on
+// every rule that reads other rows: a caller who may give no role is told so whatever
+// they named, and learns nothing of which names are roles.
 func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransaction, named *string) (accesstypes.Role, error) {
 	if named == nil || strings.TrimSpace(*named) == "" {
 		return "", nil
@@ -292,6 +294,9 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 	role := accesstypes.Role(strings.TrimSpace(*named))
 	if !m.tenants.SeatsDefaultRole() {
 		return "", httpio.NewBadRequestMessagef("a %s's directory keeps no starting role here, so the invitation names none: leave the role empty", m.tenantWord)
+	}
+	if err := m.mayStartWith(ctx, txn, role); err != nil {
+		return "", err
 	}
 	if role == accesstypes.SuperAdministrator {
 		return "", httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, and is never the role a %s's people start with", string(role), m.tenantWord)
@@ -303,29 +308,35 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 	if !exists {
 		return "", httpio.NewBadRequestMessagef("role %q is no role of a %s: the people of the new %s's directory start with one of its roles", role, m.tenantWord, m.tenantWord)
 	}
-	// A call outside any request is the application's own act and is not judged; a
-	// request that reaches a manager built without the grants cannot be judged, which
-	// is an error and never a pass.
+
+	return role, nil
+}
+
+// mayStartWith answers whether the request's caller could give the role to a person in
+// a tenant, nil when they could. A call outside any request is the application's own
+// act and is not judged; a request that reaches a manager built without the grants
+// cannot be judged, which is an error and never a pass.
+func (m *Manager) mayStartWith(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if resource.CallerFrom(ctx).IsZero() {
-		return role, nil
+		return nil
 	}
 	if m.grants == nil {
-		return "", errors.New("a request names the role the people of a new tenant's directory start with and the manager holds no role grants to judge it by: " +
+		return errors.New("a request names the role the people of a new tenant's directory start with and the manager holds no role grants to judge it by: " +
 			"build it with identity.WithRoleGrants, as the generated client does")
 	}
 	placeholder, err := impulse.NewUUID()
 	if err != nil {
-		return "", errors.Wrap(err, "impulse.NewUUID()")
+		return errors.Wrap(err, "impulse.NewUUID()")
 	}
 	may, err := m.grants.MayGive(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(placeholder.String())), impulse.NilUUID, role)
 	if err != nil {
-		return "", errors.Wrap(err, "identity.RoleGrants.MayGive()")
+		return errors.Wrap(err, "identity.RoleGrants.MayGive()")
 	}
 	if !may {
-		return "", httpio.NewForbiddenMessagef("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role))
+		return httpio.NewForbiddenMessagef("the people of the new %s's directory would start with the role %s, which you may not give: name a role you may give, or none", m.tenantWord, string(role))
 	}
 
-	return role, nil
+	return nil
 }
 
 // refuseInvitedWithATenant is the rule of one tenant per person on an invitation that

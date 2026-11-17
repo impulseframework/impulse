@@ -138,11 +138,25 @@ func TestManager_InviteTenant(t *testing.T) {
 			wantAsked: 1,
 		},
 		{
-			name:    "a starting role that is no role of a tenant is refused",
-			inv:     TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("Steward")},
-			caller:  dana,
-			maker:   &fakeMaker{seats: true},
-			wantErr: httpio.HasBadRequest,
+			// The sender's grants answer first, so the sender who may give it is the one
+			// told it is no role.
+			name:      "a starting role that is no role of a tenant is refused",
+			inv:       TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("Steward")},
+			caller:    dana,
+			maker:     &fakeMaker{seats: true},
+			wantErr:   httpio.HasBadRequest,
+			wantAsked: 1,
+		},
+		{
+			name:   "a sender who may give no such role is told so before whether it is a role at all",
+			inv:    TenantInvitation{Email: "pat@example.com", TenantName: "Dawn", Fields: fields, DefaultRole: ptr("Steward")},
+			caller: dana,
+			maker:  &fakeMaker{seats: true},
+			grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
+			wantErr: func(err error) bool {
+				return httpio.HasForbidden(err) && !httpio.HasBadRequest(err)
+			},
+			wantAsked: 1,
 		},
 		{
 			name:   "the Super Administrator role is never a starting role",
@@ -152,6 +166,7 @@ func TestManager_InviteTenant(t *testing.T) {
 			wantErr: func(err error) bool {
 				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), "whole application")
 			},
+			wantAsked: 1,
 		},
 		{
 			name:    "a starting role where a directory keeps none is refused",
