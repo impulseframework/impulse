@@ -592,16 +592,18 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 }
 
 // TestManager_AssignRole_superAdministratorSignsInAgain pins that giving the Super
-// Administrator role ends every session the person holds, in the transaction that gives
-// it: their own, and the ones they established as someone else, whose reach is the
-// actor's. A super administrator signs in with a second factor and their session enters
-// every tenant, so no session that began before the role carries it. The sessions of
-// whoever gave the role stand, a person who holds the role already keeps theirs, and
-// another role ends nothing.
+// Administrator role ends, in the transaction that gives it, what the person held before
+// it: every session, their own and the ones they established as someone else, whose
+// reach is the actor's; every bearer token of theirs that is not revoked; and every
+// browser remembered for their second factor. A super administrator signs in with a
+// second factor and their session enters every tenant, so nothing issued before the
+// role carries it and the factor is met afresh. What the giver holds stands, a person
+// who holds the role already keeps theirs, and another role ends nothing.
 func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
 	t.Parallel()
 
 	viewing, givers := mustUUID("66666666-6666-4666-8666-666666666666"), mustUUID("77777777-7777-4777-8777-777777777777")
+	remembered, giversToken := mustUUID("88888888-8888-4888-8888-888888888888"), mustUUID("99999999-9999-4999-8999-999999999999")
 	given := "insert membership " + membershipText(&danaSuper)
 	tests := []struct {
 		name       string
@@ -619,6 +621,9 @@ func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
 				"end session " + sessionA.String(),
 				"end session " + viewing.String(),
 				"end impersonation " + viewing.String() + " " + revoked,
+				"revoke token " + tokenA.String() + " " + revokedByHand,
+				"revoke token " + tokenB.String() + " " + revokedByHand,
+				"revoke device " + remembered.String(),
 			},
 		},
 		{
@@ -640,6 +645,8 @@ func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
 			store := superStore(tt.held...)
 			store.sessions = map[impulse.UUID][]impulse.UUID{userID: {sessionA}, otherUser: {givers}}
 			store.heldBy = map[string][]impulse.UUID{"dana": {viewing}}
+			store.userTokens = map[impulse.UUID][]impulse.UUID{userID: {tokenA, tokenB}, otherUser: {giversToken}}
+			store.devices = map[impulse.UUID][]impulse.UUID{userID: {remembered}, otherUser: {givers}}
 			m, _ := newManager(t, store, superRoles)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {

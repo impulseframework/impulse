@@ -28,9 +28,12 @@ import (
 //     a new address (where the code of their second factor is mailed) and the unlinking
 //     of an identity each take a caller who holds the role, since each is a way to
 //     become that person or to shut them out (requireSuperAdministratorFor);
-//   - a person given the role signs in again: giving it ends every session they hold,
-//     in the transaction that gives it, so no session that began before the role
-//     carries it (AssignRole);
+//   - a person given the role signs in again and meets the second factor afresh:
+//     giving it ends every session they hold, revokes their bearer tokens and forgets
+//     the browsers remembered for them, in the transaction that gives it, so nothing
+//     issued before the role carries it (AssignRole). What an administrator set on the
+//     account before the role, a password or an address, stands: the super
+//     administrator who gives the role chooses whom to trust;
 //   - there is always one who can sign in: the role is not taken from the last holder
 //     whose account can sign in, and that account is neither disabled nor deleted,
 //     whoever asks.
@@ -93,6 +96,39 @@ func (m *Manager) requireSuperAdministratorFor(ctx context.Context, txn resource
 	}
 
 	return m.requireSuperAdministrator(ctx, txn, act)
+}
+
+// endWhatStoodBeforeTheRole buffers the end of everything a person given the Super
+// Administrator role held before it, so nothing issued without the role acts with it and
+// the person's next sign-in meets the second factor: every session they hold
+// (EndUserSessions), every bearer token of theirs that is not revoked yet, a device
+// authorization's among them, and every browser they asked to be remembered
+// (RevokeTrustedDevices). The tokens and the browsers are read before anything is
+// buffered.
+func (m *Manager) endWhatStoodBeforeTheRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	tokens, err := m.store.UserTokens(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.UserTokens()")
+	}
+	devices, err := m.store.TrustedDevices(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.TrustedDevices()")
+	}
+	if err := m.endUserSessions(ctx, txn, userID); err != nil {
+		return err
+	}
+	for _, id := range tokens {
+		if err := m.store.RevokeToken(ctx, txn, id, revokedByHand); err != nil {
+			return errors.Wrap(err, "identity.Store.RevokeToken()")
+		}
+	}
+	for _, id := range devices {
+		if err := m.store.RevokeTrustedDevice(ctx, txn, id); err != nil {
+			return errors.Wrap(err, "identity.Store.RevokeTrustedDevice()")
+		}
+	}
+
+	return nil
 }
 
 // callerActor is the real person behind the request, as the permission store names

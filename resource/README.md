@@ -3127,9 +3127,14 @@ own, outside any request, has no caller and is the application's act):
   holds the role, whatever the role file grants; a holder acts on themselves and on
   another holder as the role file allows. The caller these rules judge is the real
   person behind the session: a person who views as a super administrator is not one. A
-  person given the role signs in again: giving it ends every session they hold, in the
-  same transaction, so no session that began before the role carries it, and the
-  sessions of whoever gave it stand. There is always one who can
+  person given the role signs in again and meets the second factor afresh: giving it
+  ends every session they hold, revokes every bearer token of theirs, a device
+  authorization's among them, and forgets every browser they asked to be remembered,
+  in the same transaction, so nothing issued before the role acts with it; what the
+  giver holds stands. What an administrator set on the account before the role, a
+  password or an email address, is left as it is: nobody but a holder gives the role,
+  and the holder who gives it chooses whom to trust, the account as it stands
+  included. There is always one who can
   sign in: the role is not taken from the last holder whose account is not disabled, and
   that account is neither disabled nor deleted, whoever asks, the application's own
   transactions included. What the role does is fixed where the engine is built: the
