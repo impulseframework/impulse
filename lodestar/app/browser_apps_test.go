@@ -294,7 +294,7 @@ func TestBrowserAppsWorkspace(t *testing.T) {
 				`"navigationUrls": ["/**", "!/**/*.*", "!/**/*__*", "!/**/*__*/**", "!/api/**"]`,
 				`"name": "app"`,
 				`"installMode": "prefetch"`,
-				`"files": ["/favicon.svg", "/index.html", "/manifest.webmanifest", "/*.css", "/*.js"]`,
+				`"files": ["/favicon.*", "/index.html", "/manifest.webmanifest", "/*.css", "/*.js"]`,
 				`"name": "assets"`,
 				`"installMode": "lazy"`,
 			},
