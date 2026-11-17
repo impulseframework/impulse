@@ -141,6 +141,37 @@ describe('AppGridComponent', () => {
     expect(Array.from(element.querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual(['Id', 'Limit']);
   });
 
+  it('draws a yes-or-no value as a check or a dash, each named for a screen reader, and every other value as its text', async () => {
+    const rows: RecordData[] = [
+      { username: 'ada', disabled: true, count: 0, note: 'false' },
+      { username: 'mo', disabled: false, count: 2, note: '' },
+    ];
+    await TestBed.configureTestingModule({ imports: [AppGridComponent], providers: [provideResourceTesting()] }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', rows);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'username' }, { id: 'disabled' }, { id: 'count' }, { id: 'note' }]);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const cells = Array.from(element.querySelectorAll<HTMLElement>('tr.impulse-row')).map((row) => Array.from(row.querySelectorAll<HTMLElement>('td.data-col')));
+    expect(cells).toHaveLength(2);
+
+    const yes = cells[0][1].querySelector('mat-icon.cell-yes');
+    expect(yes?.textContent?.trim()).toBe('check');
+    expect(yes?.getAttribute('aria-label')).toBe('Yes');
+    expect(cells[0][1].textContent?.trim()).toBe('check');
+
+    const no = cells[1][1].querySelector('.cell-no');
+    expect(no?.getAttribute('aria-label')).toBe('No');
+    expect(cells[1][1].querySelector('mat-icon')).toBeNull();
+    expect(cells[1][1].textContent).not.toContain('false');
+
+    // A zero, and the word false as text, are not yes-or-no values.
+    expect(cells[0][2].textContent?.trim()).toBe('0');
+    expect(cells[0][3].textContent?.trim()).toBe('false');
+    expect(cells[0][2].querySelector('.cell-no, .cell-yes')).toBeNull();
+    expect(cells[0][3].querySelector('.cell-no, .cell-yes')).toBeNull();
+  });
+
   it('draws the page under virtual scroll where the environment has no ResizeObserver', async () => {
     expect(typeof ResizeObserver).toBe('undefined');
     await create([{ section: 'General' }, { section: 'Flight' }], undefined);
