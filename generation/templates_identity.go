@@ -564,7 +564,20 @@ type Client struct {
 // The engine is the one built with the methods a super administrator always executes
 // (access.WithSuperAdministratorMethods(SuperAdministratorMethods()...)): the client
 // refuses one built without them.
-func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
+{{- if .InvitesTenants }}
+//
+// tenants makes a {{ .TenantWord }} from an accepted invitation: the generated
+// New{{ .TenantName }}Maker of the application's handler package, which the application
+// builds over its tenant roster and its live service. Staff bring a {{ .TenantWord }} in
+// by an invitation alone ({{ .InviteTenant }}), so the client is not built without it.
+{{- end }}
+func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if .InvitesTenants }}tenants identity.TenantMaker, {{ end }}opts ...identity.Option) (*Client, error) {
+	{{- if .InvitesTenants }}
+	if tenants == nil {
+		return nil, errors.New("{{ .MethodsPackage }}.NewClient(): tenants is nil; pass the generated New{{ .TenantName }}Maker of the application's handler package, which makes a {{ .TenantWord }} from an accepted invitation")
+	}
+	opts = append(opts, identity.WithTenantMaker(tenants))
+	{{- end }}
 	{{- if .TenantWord }}
 	// A refusal that speaks of a tenant says the application's word for one, the tenant
 	// record's; it goes first, so an option the caller passes is the one kept.
@@ -1424,6 +1437,15 @@ func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransacti
 	if row.InvitedByUserID.Valid {
 		columns["InvitedByUserId"] = row.InvitedByUserID.UUID
 	}
+	// The tenant an invitation makes, as the session library reads it back at the
+	// sign-in that accepts it; null on every other invitation.
+	newTenant, err := row.NewTenantColumn()
+	if err != nil {
+		return errors.Wrap(err, "session.InvitationRow.NewTenantColumn()")
+	}
+	if newTenant != nil {
+		columns["NewTenant"] = *newTenant
+	}
 	if err := txn.BufferMap(invitationWrite{id: row.ID}, columns); err != nil {
 		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
 	}
@@ -1474,6 +1496,35 @@ func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransa
 
 	return ids, nil
 }
+
+func (store) InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
+	// A read that goes past the declarations, as UserID's does: the document an
+	// invitation that makes a tenant keeps (NewTenant) is no field of the declaration,
+	// so no list of the auth's mailed links serves it. The table's index by kind leads
+	// with the kind, then the consumption.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Id, Email, Name, NewTenant, InvitedByUserId, CreatedAt, ExpiresAt FROM {{ .Tables.MailLinks }} WHERE Kind = @kind AND ConsumedAt IS NULL AND NewTenant IS NOT NULL ORDER BY CreatedAt, Id",
+		Params: map[string]any{"kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	var rows []identity.InvitedTenantRow
+	if err := reader.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			invited identity.InvitedTenantRow
+			name    spanner.NullString
+		)
+		if err := row.Columns(&invited.ID, &invited.Email, &name, &invited.NewTenant, &invited.InvitedByUserID, &invited.CreatedAt, &invited.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		invited.Name = name.StringVal
+		rows = append(rows, invited)
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
+}
 {{ else }}
 // The schema holds no mail links for the {{ .Auth }} auth ({{ .Tables.MailLinks }}):
 // none is ever found, and no invitation is written.
@@ -1491,6 +1542,10 @@ func (store) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTransaction,
 }
 
 func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
+	return nil, nil
+}
+
+func (store) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
 	return nil, nil
 }
 {{ end }}` + identitySignInMethodStoreTemplate + `{{ if .Has "trustedDevices" }}

@@ -794,6 +794,11 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 			wantErr: "and the loaded record carries [Name name required=true; the directory-only switch DirectoryOnly directoryOnly]",
 		},
 		{
+			name:    "where no auth invites, a create that requires a secret is the application's own to supply",
+			structs: []string{"Keep"},
+			written: func(inst *identityInstance) { inst.createsTenant = false },
+		},
+		{
 			name:    "an auth that makes no tenant holds nothing: its sources carry no invitation",
 			structs: []string{"Citadel"},
 			written: func(inst *identityInstance) {

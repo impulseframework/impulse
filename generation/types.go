@@ -1458,10 +1458,36 @@ func (r *resourceInfo) CreateDisabled() bool {
 	return false
 }
 
+// RefusesCreate reports whether the patch handlers refuse a create op on the resource,
+// naming the way a row comes in (CreateRefusal): CreateDisabled, and the tenant record.
+// A tenant is made by an invitation's first sign-in, or by a person who signs up on the
+// create-your-tenant page, and never by a create op: staff create no tenant directly.
+// The tenant record keeps its Create permission registered (PatchPermissions): it is
+// the grant that sends an invitation, and the one the invitation's details are checked
+// under, field by field, as a create's would be.
+func (r *resourceInfo) RefusesCreate() bool {
+	return r.CreateDisabled() || r.IsTenant
+}
+
+// ClientCreateDisabled reports whether the browser client is offered no create of the
+// resource: CreateHandlerDisabled, and the tenant record, whose create op is refused
+// (RefusesCreate).
+func (r *resourceInfo) ClientCreateDisabled() bool {
+	return r.CreateHandlerDisabled() || r.IsTenant
+}
+
 // CreateRefusal is the sentence the patch handlers answer a create op with where
-// CreateDisabled: the way a row of the resource comes in instead.
+// RefusesCreate: the way a row of the resource comes in instead.
 func (r *resourceInfo) CreateRefusal() string {
-	return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
+	if r.CreateDisabled() {
+		return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
+	}
+	word := strings.ToLower(strcase.ToCase(r.Name(), strcase.LowerCase, ' '))
+	if !r.TenantCreation.Invites() {
+		return fmt.Sprintf("%s is not created directly: the application makes one in its own code", withArticle(word))
+	}
+
+	return fmt.Sprintf("%s is not created directly: invite one person, and the %s is made when that person first signs in", withArticle(word), word)
 }
 
 // PatchOrAddRefusal is the sentence the patch handlers answer a patch-or-add with on a

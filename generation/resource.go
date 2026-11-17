@@ -450,7 +450,11 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 		return err
 	}
 
-	return r.holdIdentityTenantDirectory()
+	if err := r.holdIdentityTenantDirectory(); err != nil {
+		return err
+	}
+
+	return r.holdIdentityTenantInvitation()
 }
 
 // finishGeneration closes the run once everything is written. The previous run's

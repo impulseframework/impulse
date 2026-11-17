@@ -246,16 +246,12 @@ type tenantsData struct {
 	// refusal of the directory's rules calls one tenant, and ResourcePackage the
 	// package of the record's create patch; all three are empty where the record
 	// declares none.
-	Declaration     *tenantDeclarationColumns
-	Directories     string
-	DefaultSeat     string
-	Directory       *tenantDirectoryWrite
-	Word            string
-	ResourcePackage string
-	// Seat is the creator's seat the record's create path writes, nil where the
-	// record's create seats nobody (tenantSeatData); the file asserts the accessors
-	// it draws on against the application type.
-	Seat                *tenantSeatData
+	Declaration         *tenantDeclarationColumns
+	Directories         string
+	DefaultSeat         string
+	Directory           *tenantDirectoryWrite
+	Word                string
+	ResourcePackage     string
 	LocalPackageImports string
 	RouterPackage       string
 	ApplicationName     string
@@ -264,6 +260,65 @@ type tenantsData struct {
 	// would do (tenantdirectoryonly.go), nil where the record declares no switch or no
 	// outlet serves it to sessions.
 	DirectoryOnly *directoryOnlyData
+	// Maker is what makes a tenant from an accepted invitation (New<Record>Maker), nil
+	// where no auth's people are invited to make one (tenantCreationServes).
+	Maker *tenantMakerData
+
+	// record is the tenant record the file is rendered from; it scopes import
+	// resolution to the types its fields name and is not referenced by the template.
+	record *resourceInfo
+}
+
+func (d *tenantsData) typeImports() []fixerImport {
+	if d.Maker == nil {
+		return nil
+	}
+
+	return resourceTypeImports(nil, d.record)
+}
+
+// tenantMakerData feeds New<Record>Maker in the tenants file: the record's fields an
+// invitation carries, its key's accessor on the create patch, the directory-only
+// switch's field where the record declares one (FlagType its type where that is no plain
+// bool), and the new tenant's id as the directories record's tenant column takes it.
+type tenantMakerData struct {
+	Fields      []*tenantMakerField
+	Key         string
+	Flag        string
+	FlagType    string
+	TenantValue string
+}
+
+// tenantMakerField is one field of the record as the maker reads it out of an
+// invitation's details: its name, which is its key there, its type, and its name on the
+// wire for a refusal.
+type tenantMakerField struct {
+	Name string
+	Type string
+	Wire string
+}
+
+// tenantMakerData resolves the maker for the record: nil where the record is not made
+// by invitation in this program.
+func (r *resourceGenerator) tenantMakerData(record *resourceInfo) *tenantMakerData {
+	if !r.tenantCreationServes(record) {
+		return nil
+	}
+	maker := &tenantMakerData{Key: record.PrimaryKey().Name()}
+	for _, field := range tenantInvitationFields(record) {
+		maker.Fields = append(maker.Fields, &tenantMakerField{Name: field.Name(), Type: field.Type(), Wire: field.WireName()})
+	}
+	if flag := record.DirectoryOnlyField; flag != nil {
+		maker.Flag = flag.Name()
+		if flag.Type() != boolGoType {
+			maker.FlagType = flag.Type()
+		}
+	}
+	if record.HasDeclaration() {
+		maker.TenantValue = tenantValueFor(record.declaration.Directories.DomainBinding.Anchor)
+	}
+
+	return maker
 }
 
 // directoryOnlyData feeds the read of the directory-only switch's consequence in the
@@ -293,10 +348,6 @@ func (r *resourceGenerator) generateTenants() error {
 	destinationFilePath := filepath.Join(r.handler.Dir(), generatedGoFileName(tenantRosterOutputName))
 
 	keyColumn, _ := tenant.PrimaryKey().LookupTag(spannerTagKey)
-	seat, err := r.tenantSeatData(tenant)
-	if err != nil {
-		return err
-	}
 	data := &tenantsData{
 		Source:              r.resource.Dir(),
 		Package:             r.handler.Package(),
@@ -305,11 +356,13 @@ func (r *resourceGenerator) generateTenants() error {
 		KeyColumn:           keyColumn,
 		RecordLower:         strings.ToLower(strcase.ToCase(tenant.Name(), strcase.LowerCase, ' ')),
 		Declaration:         r.declarationColumns(tenant),
-		Seat:                seat,
 		LocalPackageImports: r.localPackageImports(),
 		RouterPackage:       r.router.Package(),
 		ApplicationName:     r.applicationName,
 		ReceiverName:        r.receiverName,
+		Maker:               r.tenantMakerData(tenant),
+		ResourcePackage:     r.resource.Package(),
+		record:              tenant,
 	}
 	if len(r.directoryOnlyOutlets()) > 0 {
 		data.DirectoryOnly = &directoryOnlyData{
@@ -332,7 +385,6 @@ func (r *resourceGenerator) generateTenants() error {
 		}
 		data.Directory = tenantDirectoryWriteData(tenant)
 		data.Word = r.directoryTenantWord(tenant)
-		data.ResourcePackage = r.resource.Package()
 	}
 	if err := r.writeFormattedGoFile(destinationFilePath, "tenantsTemplate", tenantsTemplate, data); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")

@@ -941,7 +941,7 @@ func (t *typescriptGenerator) apiResource(res *resourceInfo) *tsAPIResource {
 		return out
 	}
 
-	if !res.CreateHandlerDisabled() {
+	if !res.ClientCreateDisabled() {
 		out.Operations = append(out.Operations, opCreate)
 		out.HasCreate = true
 		for _, field := range res.Fields {

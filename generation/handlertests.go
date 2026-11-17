@@ -493,9 +493,10 @@ func patchOpCases(name, url, opPathPrefix string, res *resourceInfo, pkTypes []p
 	method := httpMethodConst(http.MethodPatch)
 
 	var cases []authzCase
-	// A resource whose NOT NULL @file key disables Create refuses a create op before
-	// any permission check, so the matrix has no denied case to pin for it.
-	if !res.CreateDisabled() {
+	// A resource that refuses a create op (a NOT NULL @file key; the tenant record,
+	// made by an invitation) refuses it before any permission check, so the matrix has
+	// no denied case to pin for it.
+	if !res.RefusesCreate() {
 		cases = append(cases, authzCase{
 			Name:       name + " create",
 			Method:     method,
