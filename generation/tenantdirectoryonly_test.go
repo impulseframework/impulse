@@ -423,3 +423,87 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		}
 	}
 }
+
+// Test_holdIdentityTenantDirectory pins the check of the directory-only switch and the
+// directories record the people's list was written for against the ones the load
+// found: the two agree or the run stops, and the check runs where the run resolves the
+// record's declaration, once it is whole. Asked before, the loaded package would seem to
+// declare no switch.
+func Test_holdIdentityTenantDirectory(t *testing.T) {
+	t.Parallel()
+
+	harbor := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	tests := []struct {
+		name    string
+		structs []string
+		record  string
+		written *identityTenantDirectory
+		wantErr string
+	}{
+		{name: "the same switch and directories record", structs: []string{"Harbor", "HarborDirectory"}, record: "Harbor", written: harbor},
+		{name: "no switch either way", structs: []string{"Sector", "HarborDirectory"}, record: "Sector"},
+		{
+			name:    "written for a switch the load does not find",
+			structs: []string{"Sector", "HarborDirectory"},
+			record:  "Sector",
+			written: harbor,
+			wantErr: "was written for the switch DirectoryOnly over the directories table HarborDirectories (HarborId, Method, Connection)",
+		},
+		{
+			name:    "written for none, and the load finds a switch",
+			structs: []string{"Harbor", "HarborDirectory"},
+			record:  "Harbor",
+			wantErr: "was written for no directory-only switch",
+		},
+		{
+			name:    "written for another column",
+			structs: []string{"Harbor", "HarborDirectory"},
+			record:  "Harbor",
+			written: &identityTenantDirectory{OnlyColumn: "Closed", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			wantErr: "was written for the switch Closed over the directories table HarborDirectories",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			structs := fixtureStructs(loadFixture(t, "tenantfixture"))
+			c := &client{tableMap: tenantFixtureTables()}
+			resources, err := c.structsToResources(tenantFixtureStructs(t, structs, tt.structs...))
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			c.resources = resources
+			r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
+			r.resource = "testdata/tenantfixture"
+			r.identityTree = "pkg/identity"
+			r.identity = []*identityInstance{{auth: "Crew", tenant: &identityTenant{name: tt.record, directory: tt.written}}}
+
+			// The run's own step: the record's declaration resolves, then the reading
+			// before the load is held to it.
+			err = r.resolveCrossKindDeclarations()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("resolveCrossKindDeclarations() error = %v", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), "fault of the generator") {
+				t.Errorf("resolveCrossKindDeclarations() error = %v, want one containing %q", err, tt.wantErr)
+			}
+		})
+	}
+
+	t.Run("a run with no generated management holds nothing", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := declarationResources(t, "Harbor", "HarborDirectory")
+		if err != nil {
+			t.Fatalf("declarationResources() error = %v", err)
+		}
+		if err := r.holdIdentityTenantDirectory(); err != nil {
+			t.Errorf("holdIdentityTenantDirectory() error = %v", err)
+		}
+	})
+}

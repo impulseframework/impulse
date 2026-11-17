@@ -38,6 +38,8 @@ type crewSectorUserRead struct {
 	LastSignInAt           *time.Time   `json:"lastSignInAt"`
 	HeldElsewhere          bool         `json:"heldElsewhere"`
 	HeldGlobally           bool         `json:"heldGlobally"`
+	OutsideDirectory       bool         `json:"outsideDirectory"`
+	CannotEnter            *string      `json:"cannotEnter"`
 }
 
 var crewSectorUserReadSets resource.SetCache[CrewSectorUser, crewSectorUserRead]
@@ -158,6 +160,8 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"LastSignInAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"OutsideDirectory",
+		"CannotEnter",
 	}
 
 	return c
@@ -235,6 +239,18 @@ func (c *CrewSectorUserColumns) HeldGlobally() *CrewSectorUserColumns {
 	return c
 }
 
+func (c *CrewSectorUserColumns) OutsideDirectory() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "OutsideDirectory")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) CannotEnter() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "CannotEnter")
+
+	return c
+}
+
 type CrewSectorUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -265,6 +281,10 @@ func (p CrewSectorUserQueryPartialClause) HeldElsewhere() CrewSectorUserQueryIde
 
 func (p CrewSectorUserQueryPartialClause) HeldGlobally() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) OutsideDirectory() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
 }
 
 type CrewSectorUserQueryClause struct {
@@ -379,6 +399,14 @@ func (c *crewSectorUserSort) HeldElsewhere() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) HeldGlobally() *CrewSectorUserSort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *crewSectorUserSort) OutsideDirectory() *CrewSectorUserSort {
+	return c.addField("OutsideDirectory")
+}
+
+func (c *crewSectorUserSort) CannotEnter() *CrewSectorUserSort {
+	return c.addField("CannotEnter")
 }
 
 type CrewSectorUserSort struct {

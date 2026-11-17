@@ -214,6 +214,8 @@ type GeneratedHandlers interface {
 
 	DeleteMembersUser() http.HandlerFunc
 
+	DirectoryOnly() http.HandlerFunc
+
 	DisableCrewSectorUser() http.HandlerFunc
 
 	DisableCrewUser() http.HandlerFunc
@@ -686,6 +688,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/sectors/{sectorID}/delete-members-sector-user", domainGuard(h.DeleteMembersSectorUser()))
 
 	r.Post("/console/api/delete-members-user", h.DeleteMembersUser())
+
+	bounded.Get("/console/api/directory-only", h.DirectoryOnly())
 
 	r.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
 

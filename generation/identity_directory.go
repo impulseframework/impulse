@@ -177,9 +177,11 @@ func annotatedColumn(structType *ast.StructType, annotation *regexp.Regexp) stri
 
 // holdIdentityTenantDirectory holds the directory-only switch and the directories
 // record the sources were written for to the ones the load found, as holdIdentityTenant
-// holds the record itself. The two are read off the same files, so a difference is a
-// fault of the reading before the load, and the run stops before it generates over
-// lists written for another declaration.
+// holds the record itself. It runs once the record's declaration is whole
+// (validateTenantDeclaration), which is after every kind is extracted and before
+// anything renders. The two are read off the same files, so a difference is a fault of
+// the reading before the load, and the run stops before it generates over lists
+// written for another declaration.
 func (r *resourceGenerator) holdIdentityTenantDirectory() error {
 	if len(r.identity) == 0 || r.identity[0].tenant == nil {
 		return nil

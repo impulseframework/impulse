@@ -433,7 +433,9 @@ func (r *resourceGenerator) Generate() error {
 // segment and parameter derive from the tenant record (@tenant), with a tenant-scoped
 // resource and no record refused, so the record resolves before any domain route
 // renders. (The RPC methods are extracted later and checked against the record then:
-// requireTenantRecordForMethods.)
+// requireTenantRecordForMethods.) With the record's declaration whole, the tenant's
+// list of its people, whose source was written before the load, is held to it
+// (holdIdentityTenantDirectory).
 func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveFieldEnumerations(r.resources, r.computedResources); err != nil {
 		return err
@@ -444,8 +446,11 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveViewDeclarations(r.resources, r.computedResources); err != nil {
 		return err
 	}
+	if err := r.resolveTenantRecord(); err != nil {
+		return err
+	}
 
-	return r.resolveTenantRecord()
+	return r.holdIdentityTenantDirectory()
 }
 
 // finishGeneration closes the run once everything is written. The previous run's
@@ -547,9 +552,6 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 	// The sources of the generated management were written for the tenant record read
 	// before the load; the load's own reading is known now.
 	if err := r.holdIdentityTenant(); err != nil {
-		return err
-	}
-	if err := r.holdIdentityTenantDirectory(); err != nil {
 		return err
 	}
 	identityResources, err := r.identityResources(packageMap, pkg)

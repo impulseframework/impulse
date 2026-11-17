@@ -2493,6 +2493,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/directory-only", method: http.MethodGet,
+			handlerFunc: "DirectoryOnly",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/resources", method: http.MethodPatch,
 			handlerFunc: "PatchResources",
 		},
@@ -2795,6 +2800,10 @@ func (s *generatedHandlersStub) DeleteMembersSectorUser() http.HandlerFunc {
 
 func (s *generatedHandlersStub) DeleteMembersUser() http.HandlerFunc {
 	return s.record("DeleteMembersUser")
+}
+
+func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
+	return s.record("DirectoryOnly")
 }
 
 func (s *generatedHandlersStub) DisableCrewSectorUser() http.HandlerFunc {
