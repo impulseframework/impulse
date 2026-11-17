@@ -567,9 +567,10 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"missionId"},
 			},
 			{
-				Name:        "Missions",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				Name:               "Missions",
+				Scope:              accesstypes.DomainPermissionScope,
+				ListsAcrossTenants: true,
+				Permissions:        []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
 					{Name: "assignedSquadronId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "bookedByName", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
