@@ -346,6 +346,15 @@ func (f *fakeStore) SetPassword(_ context.Context, _ resource.ReadWriteTransacti
 	return nil
 }
 
+func (f *fakeStore) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	if err := f.fail("RemovePassword"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, "remove password "+id.String())
+
+	return nil
+}
+
 func (f *fakeStore) ClearAttempts(_ context.Context, _ resource.ReadWriteTransaction, name string) error {
 	if err := f.fail("ClearAttempts"); err != nil {
 		return err

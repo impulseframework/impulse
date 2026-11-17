@@ -278,6 +278,34 @@ func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID
 	return p.auth.replacePassword(ctx, userID, temporary, true)
 }
 
+// RemoveSessionUserPassword removes a user's password: from then on the user signs in
+// through their identity links alone, and a password sign-in under their name is
+// refused as a wrong password is. A user with no identity link keeps the password,
+// their last means of sign-in (sessionstorage.ErrLastSignInMethod, Conflict), and a user
+// that holds no password is a BadRequest. The password change mark goes with the
+// password, and the name's sign-in attempts are reset. The user's sessions stand, the
+// ones the password established among them, as a removed identity link's do.
+//
+// It asks for no proof: it is an administrator's removal, or the end of a flow of the
+// application's own that proved who the person is. A person removes their own through
+// the password method's RemoveUserPassword handler, which asks for the password first.
+func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	a := p.auth
+	user, err := a.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+	if err := a.storage.RemoveUserPassword(ctx, user.ID); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveUserPassword()")
+	}
+	a.clearAttempts(ctx, user.Username)
+
+	return nil
+}
+
 // HashPassword hashes a password with the password method's hasher and answers the
 // hash as the users table's PasswordHash column holds it. It is for a caller that
 // writes the column in a transaction of its own (the generated user management, which
@@ -377,7 +405,8 @@ func (p *AuthAPI[S, U, Tx]) Identities(ctx context.Context, userID impulse.UUID)
 }
 
 // UnlinkIdentity removes an identity link. The last means of sign-in of a password-less
-// user is refused (sessionstorage.ErrLastSignInMethod, Conflict).
+// user is refused (sessionstorage.ErrLastSignInMethod, Conflict); the password of a user
+// with no link is refused the same way (RemoveSessionUserPassword).
 func (p *AuthAPI[S, U, Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
 	if err := p.auth.storage.UnlinkIdentity(ctx, identityID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UnlinkIdentity()")

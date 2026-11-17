@@ -788,6 +788,65 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 }
 
+// testPasswordRemoval pins RemoveUserPassword: a password goes from a user that has an
+// identity, with the mark that the user must change it, and the user's sessions and
+// identities stand; a user with no identity keeps the password (ErrLastSignInMethod, a
+// Conflict), since nothing else signs them in; and once the password is gone the
+// identity is the last means of sign-in, which an unlink refuses in turn.
+func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	temporary, err := securehash.New(securehash.Argon2()).Hash("temporary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "pat@lakeside.edu", PasswordHash: temporary, PasswordChangeRequired: true}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	session, err := in.Driver.InsertSession(ctx, newInsertSession(pat.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: pat.Username, UserID: pat.ID})
+	if err != nil {
+		t.Fatalf("InsertSession() error = %v", err)
+	}
+
+	// No identity: the password is the user's one means of sign-in, and it stays.
+	err = in.Driver.RemoveUserPassword(ctx, pat.ID)
+	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
+		t.Errorf("RemoveUserPassword() of a user with no identity error = %v, want ErrLastSignInMethod (Conflict)", err)
+	}
+	if kept, err := in.Driver.User(ctx, pat.ID); err != nil || !sameHash(kept.PasswordHash, temporary) || !kept.PasswordChangeRequired {
+		t.Fatalf("User() after the refused removal = %+v, %v; want the password and its mark as they were", kept, err)
+	}
+
+	link := mustLink(ctx, t, in.Driver, pat.ID, lakeside("idp_pat"))
+	if err := in.Driver.RemoveUserPassword(ctx, pat.ID); err != nil {
+		t.Fatalf("RemoveUserPassword() of a user with an identity error = %v", err)
+	}
+	removed, err := in.Driver.User(ctx, pat.ID)
+	if err != nil {
+		t.Fatalf("User() error = %v", err)
+	}
+	if removed.PasswordHash != nil || removed.PasswordChangeRequired || !removed.CreatedAt.Equal(pat.CreatedAt) {
+		t.Errorf("User() after the removal = %+v, want no password, no mark and the creation time kept", removed)
+	}
+	if standing := mustSession(ctx, t, in.Driver, session); standing.Expired {
+		t.Error("the user's session ended with the password, want it to stand")
+	}
+	if links, err := in.Driver.IdentitiesByUser(ctx, pat.ID); err != nil || len(links) != 1 || links[0].ID != link.ID {
+		t.Errorf("IdentitiesByUser() after the removal = %v, %v; want the one identity", links, err)
+	}
+
+	// The identity is now the last means of sign-in, and there is no password left to remove.
+	if err := in.Driver.UnlinkIdentity(ctx, link.ID); !errors.Is(err, dbtype.ErrLastSignInMethod) {
+		t.Errorf("UnlinkIdentity() of the identity left after the removal error = %v, want ErrLastSignInMethod", err)
+	}
+	if err := in.Driver.RemoveUserPassword(ctx, pat.ID); !httpio.HasBadRequest(err) {
+		t.Errorf("RemoveUserPassword() of a user that has no password error = %v, want BadRequest", err)
+	}
+	if err := in.Driver.RemoveUserPassword(ctx, impulse.Must(impulse.NewUUID())); !httpio.HasNotFound(err) {
+		t.Errorf("RemoveUserPassword() of an unknown user error = %v, want NotFound", err)
+	}
+}
+
 func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	sso := createUser(ctx, t, in.Driver, "gone@lakeside.edu")

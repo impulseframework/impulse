@@ -409,7 +409,12 @@ class SideBuilder {
     });
   }
 
-  /** The identities a person signs in with, under the person's row. */
+  /**
+   * The identities a person signs in with, under the person's row. The person's password
+   * is the one way in that is no row of the list: where the Auth has a password method,
+   * its removal is offered above the list, beside the unlinking of an identity, and runs
+   * against the person the list sits under.
+   */
   private identitiesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.identities) {
@@ -436,6 +441,17 @@ class SideBuilder {
             label: 'Unlink',
             icon: 'link_off',
             confirm: 'Unlink this sign-in identity? The person can no longer sign in with it.',
+          },
+        ],
+      ]),
+      listMethods: this.present([
+        [
+          methods.removePassword,
+          {
+            label: 'Remove password',
+            icon: 'key_off',
+            confirm: (person) =>
+              `Remove the password of ${String(person['username'] ?? 'this person')}? They will sign in only through the sign-in identities listed here.`,
           },
         ],
       ]),
@@ -487,6 +503,8 @@ class SideBuilder {
           confirm: (row) => `Make ${named(row)} choose a new password the next time they sign in?`,
         },
       ],
+      // Offered above the identities the person signs in with, on the person's page.
+      [methods.removePassword, { hidden: true }],
       [
         methods.endUserSessions,
         { label: 'Sign out everywhere', icon: 'logout', confirm: (row) => `Sign ${named(row)} out of every browser and device?` },

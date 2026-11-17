@@ -34,6 +34,7 @@ type AuthDriver interface {
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	TouchUserSignIn(ctx context.Context, userID impulse.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
@@ -321,6 +322,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "a password is removed from a user that has an identity, with its change mark, and stays as the last means of sign-in", run: testPasswordRemoval},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},

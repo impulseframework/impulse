@@ -146,6 +146,94 @@ func TestManager_UnlinkIdentity(t *testing.T) {
 	}
 }
 
+// TestManager_RemovePassword pins the session library's rule on a password: it goes from
+// a user who holds an identity, with the count of failed sign-ins kept under their name,
+// the name keyed as the limiter keys it; a user who holds no identity keeps it, and the
+// refusal carries the library's own sentinel; no session is ended.
+func TestManager_RemovePassword(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		usernames  map[impulse.UUID]string
+		passwords  map[impulse.UUID]bool
+		identities map[impulse.UUID]impulse.UUID
+		failOn     string
+		wantErr    func(error) bool
+		wantWrites []string
+	}{
+		{
+			name:       "the password of a user who holds an identity goes, and the name's count is cleared",
+			usernames:  map[impulse.UUID]string{userID: "Dana"},
+			passwords:  map[impulse.UUID]bool{userID: true},
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			wantWrites: []string{"remove password " + userID.String(), "clear attempts dana"},
+		},
+		{
+			name:      "the password of a user who holds no identity is refused: it is their last means of sign-in",
+			usernames: map[impulse.UUID]string{userID: "dana"},
+			passwords: map[impulse.UUID]bool{userID: true},
+			wantErr: func(err error) bool {
+				return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod) &&
+					httpio.Message(err) == "the user has no other means of sign-in: link a directory sign-in first"
+			},
+		},
+		{
+			name:       "another user's identity does not count",
+			usernames:  map[impulse.UUID]string{userID: "dana"},
+			passwords:  map[impulse.UUID]bool{userID: true},
+			identities: map[impulse.UUID]impulse.UUID{identityA: otherUser},
+			wantErr: func(err error) bool {
+				return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod)
+			},
+		},
+		{
+			name:       "a user who holds no password has none to remove",
+			usernames:  map[impulse.UUID]string{userID: "dana"},
+			passwords:  map[impulse.UUID]bool{userID: false},
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			wantErr:    httpio.HasBadRequest,
+		},
+		{
+			name:    "a user that does not exist is not found",
+			wantErr: httpio.HasNotFound,
+		},
+		{
+			name:       "a failed read buffers nothing",
+			usernames:  map[impulse.UUID]string{userID: "dana"},
+			passwords:  map[impulse.UUID]bool{userID: true},
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			failOn:     "Identities",
+			wantErr:    func(err error) bool { return errors.Is(err, errStore) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// The user holds a live session: a removal that ended it would log the write.
+			store := &fakeStore{
+				usernames: tt.usernames, passwords: tt.passwords, identities: tt.identities, failOn: tt.failOn,
+				sessions: map[impulse.UUID][]impulse.UUID{userID: {sessionA}},
+			}
+			m, _ := newManager(t, store, nil)
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.RemovePassword(ctx, txn, userID)
+			})
+			if tt.wantErr != nil {
+				if err == nil || !tt.wantErr(err) {
+					t.Fatalf("RemovePassword() error = %v, want the refusal", err)
+				}
+			} else if err != nil {
+				t.Fatalf("RemovePassword() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestManager_RevokeToken pins the session library's rule: only a live token is revoked,
 // by a mark with the reason a person's act carries, and a token of a device
 // authorization takes every unrevoked token of its family with it.

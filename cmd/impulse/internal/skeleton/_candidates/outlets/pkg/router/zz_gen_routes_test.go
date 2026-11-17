@@ -257,7 +257,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/end-staff-user-sessions", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/invite-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/invite-staff-user", method: http.MethodPost},
+		{url: "/portal/api/remove-staff-password", method: http.MethodPost},
 		{url: "/portal/api/remove-staff-role", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/rename-staff-user", method: http.MethodPost},
@@ -433,7 +435,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/invite-staff-user", method: http.MethodPost},
 		{url: "/devices/remove-members-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-role", method: http.MethodPost},
+		{url: "/devices/remove-staff-password", method: http.MethodPost},
 		{url: "/devices/remove-staff-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-members-tenant-user", method: http.MethodPost},
 		{url: "/devices/rename-members-user", method: http.MethodPost},
@@ -1476,8 +1480,16 @@ func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
 }
 
+func (s *generatedHandlersStub) RemoveStaffPassword() http.HandlerFunc {
+	return s.record("RemoveStaffPassword")
+}
+
 func (s *generatedHandlersStub) RemoveStaffRole() http.HandlerFunc {
 	return s.record("RemoveStaffRole")
+}
+
+func (s *generatedHandlersStub) RemoveStaffTenantPassword() http.HandlerFunc {
+	return s.record("RemoveStaffTenantPassword")
 }
 
 func (s *generatedHandlersStub) RemoveStaffTenantRole() http.HandlerFunc {

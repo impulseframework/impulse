@@ -93,6 +93,7 @@ interface Server {
   verifyCode: TransportResponse;
   enrollEmail: TransportResponse;
   change: TransportResponse;
+  remove: TransportResponse;
   name: TransportResponse;
   look: TransportResponse;
   invitationOpen: TransportResponse;
@@ -116,6 +117,7 @@ function server(overrides: Partial<Server> = {}): Server {
     verifyCode: { status: 200, body: { mfaIsRequired: false } },
     enrollEmail: { status: 200, body: codeMailed },
     change: { status: 200, body: undefined },
+    remove: { status: 200, body: undefined },
     name: { status: 200, body: { name: 'Nova Example' } },
     look: { status: 200, body: { scheme: 'dark', palette: 'workspace' } },
     invitationOpen: { status: 200, body: opened },
@@ -153,6 +155,8 @@ function transportOf(state: Server): ScriptedTransport {
         return state.enrollEmail;
       case 'POST /console/api/user/password/change':
         return state.change;
+      case 'POST /console/api/user/password/remove':
+        return state.remove;
       case 'POST /console/api/user/browser/forget':
         return { status: 200, body: undefined };
       case 'POST /console/api/user/name':
@@ -914,6 +918,43 @@ describe('the password change', () => {
   it('keeps the change path off a list that does not name one', async () => {
     const { auth } = authOver(server({ methods: { methods: [google] } }));
     expect(await auth.methods()).toEqual({ methods: [google] });
+  });
+});
+
+describe("removing the person's own password", () => {
+  const removePath = '/console/api/user/password/remove';
+  const removing = (overrides: Partial<Server> = {}): Server =>
+    server({ methods: { ...consoleList, removePassword: removePath }, ...overrides });
+
+  it('keeps the removal path the list names, and none on a list that names none', async () => {
+    expect(await authOver(removing()).auth.methods()).toEqual({ ...consoleList, removePassword: removePath });
+    expect(await authOver(server({ methods: { ...consoleList, removePassword: '' } })).auth.methods()).toEqual(consoleList);
+  });
+
+  it('reads the list again, then posts the password as proof to the removal path it names', async () => {
+    const { auth, transport, errors } = authOver(removing());
+    expect(await auth.removePassword('old-secret')).toEqual({ outcome: 'removed' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${removePath}`]);
+    expect(transport.requests[1].body).toEqual({ password: 'old-secret' });
+    expect(errors).toEqual([]);
+  });
+
+  for (const tt of [
+    { name: 'a password that does not match', status: 400, message: 'Password incorrect' },
+    { name: 'a person no directory sign-in is linked to', status: 409, message: 'Your password is your only way to sign in' },
+    { name: 'a session that acts for someone else', status: 403, message: 'not while impersonating' },
+  ]) {
+    it(`resolves the refusal of ${tt.name} with the server's words, through no error hook`, async () => {
+      const { auth, errors } = authOver(removing({ remove: { status: tt.status, body: { message: tt.message } } }));
+      expect(await auth.removePassword('secret')).toEqual({ outcome: 'refused', status: tt.status, message: tt.message });
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('throws on a server whose list names no removal path, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.removePassword('secret')).rejects.toThrow(/names no remove-your-password path/);
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
   });
 });
 

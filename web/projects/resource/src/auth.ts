@@ -127,6 +127,13 @@ export interface LoginMethods {
    */
   readonly changePassword?: string;
   /**
+   * The path where a signed-in person removes their own password (`removePassword()`),
+   * posting `{ password }` as proof: the server refuses a person no directory sign-in is
+   * linked to, since the password is their only way in. Absent on a server that does not
+   * serve it.
+   */
+  readonly removePassword?: string;
+  /**
    * The path where a signed-in person forgets the browser the second factor remembered
    * for them (`forgetBrowser()`); the session read says whether it is remembered.
    * Absent on a server that does not serve it.
@@ -241,6 +248,15 @@ export interface NewAccount {
  * old one or fails the server's rule, or the session is an impersonation.
  */
 export type PasswordChangeResult = { readonly outcome: 'changed' } | SignInRefusal;
+
+/**
+ * What a removal of the person's own password answers: `removed`, after which the
+ * password no longer signs them in and the session they hold continues; or the server's
+ * refusal, resolved rather than thrown, with its words: the password given as proof did
+ * not match, no directory sign-in is linked to the person, so the password is their only
+ * way in, or the session is an impersonation.
+ */
+export type PasswordRemovalResult = { readonly outcome: 'removed' } | SignInRefusal;
 
 /**
  * What a change of the person's own name answers: `changed`, with the name as the server
@@ -450,6 +466,7 @@ interface MethodsAnswer {
   methods?: Partial<LoginMethod>[] | null;
   pending?: Partial<PendingRoutes> | null;
   changePassword?: string | null;
+  removePassword?: string | null;
   forgetBrowser?: string | null;
   changeName?: string | null;
   changeLook?: string | null;
@@ -820,6 +837,28 @@ export class AuthClient {
   }
 
   /**
+   * Removes the signed-in person's own password: reads the methods list again, then posts
+   * the password, as proof, to the removal path the refreshed list names. Once removed,
+   * the password no longer signs the person in, and they sign in through the directory
+   * linked to them; the session they hold continues. The result is `removed`, or the
+   * server's refusal with its words (the password did not match, or no directory sign-in
+   * is linked to the person, whose password is then their only way in). A server whose
+   * list names no removal path does not serve it, and the call throws saying so.
+   */
+  async removePassword(password: string): Promise<PasswordRemovalResult> {
+    const list = await this.methods();
+    if (!list.removePassword) {
+      throw new Error('this server names no remove-your-password path in its methods list: it does not serve one');
+    }
+    const response = await this.options.request<RefusalAnswer | null>('POST', list.removePassword, {
+      body: { password },
+      absolute: true,
+      accept: changeRefusals,
+    });
+    return response.status >= 400 ? refusalOf(response) : { outcome: 'removed' };
+  }
+
+  /**
    * Forgets this browser as a trusted device of the signed-in person: reads the methods
    * list again, then posts to the forget path it names. Their next sign-in from this
    * browser asks for the second factor again; other people the browser remembers keep
@@ -1140,6 +1179,10 @@ export class AuthClient {
     const changePassword = answer?.changePassword;
     if (typeof changePassword === 'string' && changePassword !== '') {
       list.changePassword = changePassword;
+    }
+    const removePassword = answer?.removePassword;
+    if (typeof removePassword === 'string' && removePassword !== '') {
+      list.removePassword = removePassword;
     }
     const forgetBrowser = answer?.forgetBrowser;
     if (typeof forgetBrowser === 'string' && forgetBrowser !== '') {

@@ -189,6 +189,15 @@ export interface InviteStaffUserResult {
   sent: boolean;
 }
 
+export interface RemoveStaffPasswordConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveStaffPassword {
+  userId: string;
+}
+/** The statuses RemoveStaffPassword declares; the method chooses one per response. */
+export type RemoveStaffPasswordStatus = 204;
+
 export interface RemoveStaffRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
@@ -203,6 +212,15 @@ export interface RemoveStaffRole {
 }
 /** The statuses RemoveStaffRole declares; the method chooses one per response. */
 export type RemoveStaffRoleStatus = 204;
+
+export interface RemoveStaffTenantPasswordConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveStaffTenantPassword {
+  userId: string;
+}
+/** The statuses RemoveStaffTenantPassword declares; the method chooses one per response. */
+export type RemoveStaffTenantPasswordStatus = 204;
 
 export interface RemoveStaffTenantRoleConfig {
   userId: string | FieldPointer;
@@ -628,6 +646,15 @@ const methodMap: MethodMap = {
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
     ],
   },
+  [Methods.RemoveStaffPassword]: {
+    route: 'remove-staff-password',
+    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
   [Methods.RemoveStaffRole]: {
     route: 'remove-staff-role',
     statuses: [204],
@@ -637,6 +664,15 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.RemoveStaffTenantPassword]: {
+    route: 'remove-staff-tenant-password',
+    target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RemoveStaffTenantRole]: {

@@ -89,6 +89,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
 		{url: "/console/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/console/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
+		{url: "/console/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
 		{url: "/console/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PendingConfirmWithPassword", xsrf: true},
 		{url: "/console/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PendingCancel", xsrf: true},
 		{url: "/console/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PendingSendCode", xsrf: true},
@@ -476,7 +477,9 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/end-staff-user-sessions", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/invite-staff-tenant-user", method: http.MethodPost},
 		foreign{url: "/portal/api/invite-staff-user", method: http.MethodPost},
+		foreign{url: "/portal/api/remove-staff-password", method: http.MethodPost},
 		foreign{url: "/portal/api/remove-staff-role", method: http.MethodPost},
+		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-staff-tenant-user", method: http.MethodPost},
 		foreign{url: "/portal/api/rename-staff-user", method: http.MethodPost},
@@ -652,7 +655,9 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/invite-staff-user", method: http.MethodPost},
 		foreign{url: "/devices/remove-members-role", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-role", method: http.MethodPost},
+		foreign{url: "/devices/remove-staff-password", method: http.MethodPost},
 		foreign{url: "/devices/remove-staff-role", method: http.MethodPost},
+		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-members-tenant-user", method: http.MethodPost},
 		foreign{url: "/devices/rename-members-user", method: http.MethodPost},
@@ -1247,6 +1252,10 @@ func (s *routerDefaultSessionStub) PasswordLogin() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) PasswordChange() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PasswordChange")
+}
+
+func (s *routerDefaultSessionStub) PasswordRemove() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordRemove")
 }
 
 func (s *routerDefaultSessionStub) PendingConfirmWithPassword() http.HandlerFunc {

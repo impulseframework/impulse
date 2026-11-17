@@ -328,6 +328,9 @@ type db interface {
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	// UnlinkIdentity removes a link, refusing to remove a user's last means of sign-in.
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	// RemoveUserPassword removes a user's password and its change mark, refusing to
+	// remove a user's last means of sign-in.
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	// TouchUserSignIn moves a user's LastSignInAt to the database's time, as its own write.

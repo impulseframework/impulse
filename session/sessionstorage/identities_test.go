@@ -64,6 +64,14 @@ func TestAuth_StoreMethods(t *testing.T) {
 			wantErr: ErrLastSignInMethod,
 		},
 		{
+			name:    "RemoveUserPassword propagates the last-means-of-sign-in refusal",
+			prepare: func(db *Mockdb) { db.EXPECT().RemoveUserPassword(gomock.Any(), userID).Return(refused) },
+			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
+				return nil, a.RemoveUserPassword(ctx, userID)
+			},
+			wantErr: ErrLastSignInMethod,
+		},
+		{
 			name:    "DestroyUserSessions forwards the user",
 			prepare: func(db *Mockdb) { db.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil) },
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {

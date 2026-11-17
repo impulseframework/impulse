@@ -326,6 +326,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/end_crew_session_impersonation.go",
 		"crewidentity/end_crew_user_sessions.go",
 		"crewidentity/invite_crew_user.go",
+		"crewidentity/remove_crew_password.go",
 		"crewidentity/remove_crew_role.go",
 		"crewidentity/rename_crew_user.go",
 		"crewidentity/require_crew_password_change.go",
@@ -404,11 +405,12 @@ func Test_prepareIdentity(t *testing.T) {
 			"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {", `return c.manager.InvitationAccepted("Crew")`,
 			"func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.DirectorySeated("Crew")`,
 		},
-		"crewidentity/store.go":                                  {"crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
+		"crewidentity/store.go":                                  {`row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":             {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go":          {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
 		"crewidentity/create_crew_user.go":                       {"Roles       []string", "Domain      *string", "EveryDomain bool", "client.manager.CreateUser(ctx, txn, account)"},
 		"crewidentity/set_crew_temporary_password.go":            {"// @target(CrewSessionUser)", "client.manager.SetTemporaryPassword(ctx, txn, m.UserID, m.Password)"},
+		"crewidentity/remove_crew_password.go":                   {"// @rpc\n// @outlet(default)\n// @answers(204)\ntype RemoveCrewPassword struct {\n\t// @target(CrewSessionUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
 		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewSessionUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
 		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
@@ -425,7 +427,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/assign_crew_role.go":                      {"UserID impulse.UUID", "client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"crewidentity/remove_crew_role.go":                      {"UserID      impulse.UUID", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"internal/crewresources/crew_session_impersonations.go": {"ActorUserID     *impulse.UUID `spanner:\"ActorUserId\"`"},
-		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
+		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "the Members auth has no password method: user %s holds no password to remove", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
 		// The handlers are constructed over the application with its live derivations,
 		// which they keep to publish with.
 		"crewhandlers/handlers.go": {"CrewIdentity() *crewidentity.Client", `"example.com/acme/beacon/pkg/identity/crewidentity"`, "liveDerivations *live.Derivations", "func New(deps Deps, derivations *live.Derivations) *Handlers {", "return &Handlers{Deps: deps, liveDerivations: derivations}"},
@@ -531,6 +533,62 @@ func Test_prepareIdentity_noMemberships(t *testing.T) {
 			if strings.Contains(string(content), line) {
 				t.Errorf("%s holds %q:\n%s", tt.file, line, content)
 			}
+		}
+	}
+}
+
+// Test_prepareIdentity_removePassword pins where the method that removes a person's
+// password is written: beside the method that unlinks an identity, so only where the
+// schema holds the auth's identities, and only for an auth that declares the password
+// method. A password is removed from a person who signs in through a directory, and an
+// auth whose schema holds no identities has no such person.
+func Test_prepareIdentity_removePassword(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	written := func(file string) bool {
+		t.Helper()
+		_, err := os.Stat(filepath.Join("pkg", "identity", file))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("os.Stat(%s) error = %v", file, err)
+		}
+
+		return err == nil
+	}
+
+	// The crew declares the password method and the schema holds its identities; the
+	// members sign in through a directory alone, whatever their schema holds.
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables, []string{"MembersSessionIdentities"})...)
+	r.extraOutlets[1].auth = &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+	for file, want := range map[string]bool{
+		"crewidentity/unlink_crew_session_identity.go":       true,
+		"crewidentity/remove_crew_password.go":               true,
+		"membersidentity/unlink_members_session_identity.go": true,
+		"membersidentity/remove_members_password.go":         false,
+	} {
+		if got := written(file); got != want {
+			t.Errorf("%s written = %t, want %t", file, got, want)
+		}
+	}
+
+	// Without the identities table there is no identity to unlink and no person a
+	// password could be removed from: neither method is written, and the temporary
+	// password, which needs no identity, still is.
+	r = identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...)
+	r.extraOutlets[1].auth = &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() without the identities error = %v", err)
+	}
+	for file, want := range map[string]bool{
+		"crewidentity/unlink_crew_session_identity.go": false,
+		"crewidentity/remove_crew_password.go":         false,
+		"crewidentity/set_crew_temporary_password.go":  true,
+	} {
+		if got := written(file); got != want {
+			t.Errorf("%s written without the identities table = %t, want %t", file, got, want)
 		}
 	}
 }
@@ -816,6 +874,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/enable_crew_ship_user.go",
 		"crewidentity/end_crew_ship_user_sessions.go",
 		"crewidentity/invite_crew_ship_user.go",
+		"crewidentity/remove_crew_ship_password.go",
 		"crewidentity/remove_crew_ship_role.go",
 		"crewidentity/rename_crew_ship_user.go",
 		"crewidentity/require_crew_ship_password_change.go",
@@ -878,6 +937,12 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/unlink_crew_ship_session_identity.go": {
 			"type UnlinkCrewShipSessionIdentity struct {", "// @permissionScope(domain)", "// @target(CrewShipIdentity)", guard,
 			"row of CrewShipIdentity, the tenant's own list of its people's identities", "client.manager.UnlinkIdentity(ctx, txn, m.IdentityID)",
+		},
+		// A tenant removes a password where it unlinks an identity, from a person of its
+		// own list of people.
+		"crewidentity/remove_crew_ship_password.go": {
+			"// @rpc\n// @permissionScope(domain)\n// @outlet(default)\n// @answers(204)\ntype RemoveCrewShipPassword struct {\n\t// @target(CrewShipUser)\n\tUserID impulse.UUID\n}",
+			"// It is a tenant's method: served under the address of one Ship, it names a", guard, "client.manager.RemovePassword(ctx, txn, m.UserID)",
 		},
 		"crewidentity/remove_crew_ship_role.go": {
 			"type RemoveCrewShipRole struct {", "// @target(CrewShipUserRole, key: UserID)\n\tUserID impulse.UUID", "// @target(CrewShipUserRole, key: Role)\n\tRole string",

@@ -930,7 +930,12 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   /**
    * The methods offered above the list: methods that name no row (a create, an
    * invitation), each a button drawn when the digest grants the caller Execute on it,
-   * opening the same dialog. The list is read again once one has run.
+   * opening the same dialog. A list under a row may also name a method that runs
+   * against that row (`@target` naming it), which belongs with what the list shows and
+   * is no row of it (a person's password, above the identities the person signs in
+   * with): its button is drawn when the server's answer for the row lists the method,
+   * the row's key fills its request, and the page's question is asked of that row. The
+   * list is read again once one has run.
    */
   listMethods?: MethodPresentation[];
   /** The sorts the list is requested in until a header is clicked; none, and the resource's declared order applies. */

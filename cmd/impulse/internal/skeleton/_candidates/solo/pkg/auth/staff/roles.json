@@ -34,6 +34,9 @@
               "resource": "UnlinkStaffSessionIdentity"
             },
             {
+              "resource": "RemoveStaffPassword"
+            },
+            {
               "resource": "RevokeStaffSessionToken"
             },
             {

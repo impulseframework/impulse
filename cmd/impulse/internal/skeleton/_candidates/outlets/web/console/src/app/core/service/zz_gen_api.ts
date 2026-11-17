@@ -2,7 +2,7 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, ResourceHandle } from '@impulseframework/resource';
 import { Methods, Resources } from './zz_gen_constants';
 import { Announcements, StaffRoles, StaffRoleGrants, StaffSessions, StaffSessionAuthEvents, StaffSessionIdentities, StaffSessionMailLinks, StaffSessionSignInAttempts, StaffSessionTokens, StaffSessionTrustedDevices, StaffSessionUsers, StaffTenantIdentities, StaffTenantInvitations, StaffTenantUsers, StaffTenantUserRoles, StaffUserRoles, Tenants, TenantDirectories, StaffTenantRoles, FeatureFlags } from './zz_gen_resources';
-import { AssignStaffRole, AssignStaffTenantRole, CreateStaffTenantUser, CreateStaffTenantUserResult, CreateStaffUser, CreateStaffUserResult, DeleteStaffTenantUser, DeleteStaffUser, DisableStaffTenantUser, DisableStaffUser, EnableStaffTenantUser, EnableStaffUser, EndStaffSession, EndStaffTenantUserSessions, EndStaffUserSessions, InviteStaffTenantUser, InviteStaffTenantUserResult, InviteStaffUser, InviteStaffUserResult, RemoveStaffRole, RemoveStaffTenantRole, RenameStaffTenantUser, RenameStaffUser, RequireStaffPasswordChange, RequireStaffTenantPasswordChange, RevokeStaffSessionToken, RevokeStaffTenantUserTrustedDevices, RevokeStaffUserTrustedDevices, SetStaffTemporaryPassword, SetStaffTenantTemporaryPassword, SetStaffTenantUserEmail, SetStaffTenantUserName, SetStaffUserEmail, SetStaffUserName, UnlinkStaffSessionIdentity, UnlinkStaffTenantSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, WithdrawStaffTenantInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { AssignStaffRole, AssignStaffTenantRole, CreateStaffTenantUser, CreateStaffTenantUserResult, CreateStaffUser, CreateStaffUserResult, DeleteStaffTenantUser, DeleteStaffUser, DisableStaffTenantUser, DisableStaffUser, EnableStaffTenantUser, EnableStaffUser, EndStaffSession, EndStaffTenantUserSessions, EndStaffUserSessions, InviteStaffTenantUser, InviteStaffTenantUserResult, InviteStaffUser, InviteStaffUserResult, RemoveStaffPassword, RemoveStaffRole, RemoveStaffTenantPassword, RemoveStaffTenantRole, RenameStaffTenantUser, RenameStaffUser, RequireStaffPasswordChange, RequireStaffTenantPasswordChange, RevokeStaffSessionToken, RevokeStaffTenantUserTrustedDevices, RevokeStaffUserTrustedDevices, SetStaffTemporaryPassword, SetStaffTenantTemporaryPassword, SetStaffTenantUserEmail, SetStaffTenantUserName, SetStaffUserEmail, SetStaffUserName, UnlinkStaffSessionIdentity, UnlinkStaffTenantSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, WithdrawStaffTenantInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /**
  * The fields a client may set when creating Announcements. Server-owned fields are
@@ -364,7 +364,9 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.EndStaffUserSessions]: { method: Methods.EndStaffUserSessions, property: 'endStaffUserSessions', route: 'end-staff-user-sessions', scope: 'global', statuses: [204] },
     [Methods.InviteStaffTenantUser]: { method: Methods.InviteStaffTenantUser, property: 'inviteStaffTenantUser', route: 'invite-staff-tenant-user', scope: 'domain', answers: true },
     [Methods.InviteStaffUser]: { method: Methods.InviteStaffUser, property: 'inviteStaffUser', route: 'invite-staff-user', scope: 'global', answers: true },
+    [Methods.RemoveStaffPassword]: { method: Methods.RemoveStaffPassword, property: 'removeStaffPassword', route: 'remove-staff-password', scope: 'global', statuses: [204] },
     [Methods.RemoveStaffRole]: { method: Methods.RemoveStaffRole, property: 'removeStaffRole', route: 'remove-staff-role', scope: 'global', statuses: [204] },
+    [Methods.RemoveStaffTenantPassword]: { method: Methods.RemoveStaffTenantPassword, property: 'removeStaffTenantPassword', route: 'remove-staff-tenant-password', scope: 'domain', statuses: [204] },
     [Methods.RemoveStaffTenantRole]: { method: Methods.RemoveStaffTenantRole, property: 'removeStaffTenantRole', route: 'remove-staff-tenant-role', scope: 'domain', statuses: [204] },
     [Methods.RenameStaffTenantUser]: { method: Methods.RenameStaffTenantUser, property: 'renameStaffTenantUser', route: 'rename-staff-tenant-user', scope: 'domain', statuses: [204] },
     [Methods.RenameStaffUser]: { method: Methods.RenameStaffUser, property: 'renameStaffUser', route: 'rename-staff-user', scope: 'global', statuses: [204] },
@@ -396,12 +398,12 @@ export const apiDescriptor = defineApiDescriptor({
         {
           scope: 'global',
           lists: { users: Resources.StaffSessionUsers, roles: Resources.StaffUserRoles, identities: Resources.StaffSessionIdentities, invitations: Resources.StaffSessionMailLinks, sessions: Resources.StaffSessions, signInAttempts: Resources.StaffSessionSignInAttempts },
-          methods: { create: Methods.CreateStaffUser, invite: Methods.InviteStaffUser, withdrawInvitation: Methods.WithdrawStaffInvitation, assignRole: Methods.AssignStaffRole, removeRole: Methods.RemoveStaffRole, disable: Methods.DisableStaffUser, enable: Methods.EnableStaffUser, delete: Methods.DeleteStaffUser, rename: Methods.RenameStaffUser, setName: Methods.SetStaffUserName, setEmail: Methods.SetStaffUserEmail, setTemporaryPassword: Methods.SetStaffTemporaryPassword, requirePasswordChange: Methods.RequireStaffPasswordChange, endUserSessions: Methods.EndStaffUserSessions, revokeTrustedDevices: Methods.RevokeStaffUserTrustedDevices, unlinkIdentity: Methods.UnlinkStaffSessionIdentity, endSession: Methods.EndStaffSession, unlockSignIn: Methods.UnlockStaffSignIn },
+          methods: { create: Methods.CreateStaffUser, invite: Methods.InviteStaffUser, withdrawInvitation: Methods.WithdrawStaffInvitation, assignRole: Methods.AssignStaffRole, removeRole: Methods.RemoveStaffRole, disable: Methods.DisableStaffUser, enable: Methods.EnableStaffUser, delete: Methods.DeleteStaffUser, rename: Methods.RenameStaffUser, setName: Methods.SetStaffUserName, setEmail: Methods.SetStaffUserEmail, setTemporaryPassword: Methods.SetStaffTemporaryPassword, requirePasswordChange: Methods.RequireStaffPasswordChange, endUserSessions: Methods.EndStaffUserSessions, revokeTrustedDevices: Methods.RevokeStaffUserTrustedDevices, unlinkIdentity: Methods.UnlinkStaffSessionIdentity, removePassword: Methods.RemoveStaffPassword, endSession: Methods.EndStaffSession, unlockSignIn: Methods.UnlockStaffSignIn },
         },
         {
           scope: 'domain',
           lists: { users: Resources.StaffTenantUsers, roles: Resources.StaffTenantUserRoles, identities: Resources.StaffTenantIdentities, invitations: Resources.StaffTenantInvitations },
-          methods: { create: Methods.CreateStaffTenantUser, invite: Methods.InviteStaffTenantUser, withdrawInvitation: Methods.WithdrawStaffTenantInvitation, assignRole: Methods.AssignStaffTenantRole, removeRole: Methods.RemoveStaffTenantRole, disable: Methods.DisableStaffTenantUser, enable: Methods.EnableStaffTenantUser, delete: Methods.DeleteStaffTenantUser, rename: Methods.RenameStaffTenantUser, setName: Methods.SetStaffTenantUserName, setEmail: Methods.SetStaffTenantUserEmail, setTemporaryPassword: Methods.SetStaffTenantTemporaryPassword, requirePasswordChange: Methods.RequireStaffTenantPasswordChange, endUserSessions: Methods.EndStaffTenantUserSessions, revokeTrustedDevices: Methods.RevokeStaffTenantUserTrustedDevices, unlinkIdentity: Methods.UnlinkStaffTenantSessionIdentity },
+          methods: { create: Methods.CreateStaffTenantUser, invite: Methods.InviteStaffTenantUser, withdrawInvitation: Methods.WithdrawStaffTenantInvitation, assignRole: Methods.AssignStaffTenantRole, removeRole: Methods.RemoveStaffTenantRole, disable: Methods.DisableStaffTenantUser, enable: Methods.EnableStaffTenantUser, delete: Methods.DeleteStaffTenantUser, rename: Methods.RenameStaffTenantUser, setName: Methods.SetStaffTenantUserName, setEmail: Methods.SetStaffTenantUserEmail, setTemporaryPassword: Methods.SetStaffTenantTemporaryPassword, requirePasswordChange: Methods.RequireStaffTenantPasswordChange, endUserSessions: Methods.EndStaffTenantUserSessions, revokeTrustedDevices: Methods.RevokeStaffTenantUserTrustedDevices, unlinkIdentity: Methods.UnlinkStaffTenantSessionIdentity, removePassword: Methods.RemoveStaffTenantPassword },
         },
       ],
     },
@@ -439,6 +441,7 @@ export interface GlobalApi {
   endStaffSession: MethodHandle<EndStaffSession>;
   endStaffUserSessions: MethodHandle<EndStaffUserSessions>;
   inviteStaffUser: MethodHandle<InviteStaffUser, InviteStaffUserResult>;
+  removeStaffPassword: MethodHandle<RemoveStaffPassword>;
   removeStaffRole: MethodHandle<RemoveStaffRole>;
   renameStaffUser: MethodHandle<RenameStaffUser>;
   requireStaffPasswordChange: MethodHandle<RequireStaffPasswordChange>;
@@ -469,6 +472,7 @@ export interface DomainApi {
   enableStaffTenantUser: MethodHandle<EnableStaffTenantUser>;
   endStaffTenantUserSessions: MethodHandle<EndStaffTenantUserSessions>;
   inviteStaffTenantUser: MethodHandle<InviteStaffTenantUser, InviteStaffTenantUserResult>;
+  removeStaffTenantPassword: MethodHandle<RemoveStaffTenantPassword>;
   removeStaffTenantRole: MethodHandle<RemoveStaffTenantRole>;
   renameStaffTenantUser: MethodHandle<RenameStaffTenantUser>;
   requireStaffTenantPasswordChange: MethodHandle<RequireStaffTenantPasswordChange>;

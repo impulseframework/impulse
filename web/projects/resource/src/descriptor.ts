@@ -253,6 +253,7 @@ export interface IdentityMethods {
   readonly endUserSessions?: string;
   readonly revokeTrustedDevices?: string;
   readonly unlinkIdentity?: string;
+  readonly removePassword?: string;
   readonly endSession?: string;
   readonly unlockSignIn?: string;
 }

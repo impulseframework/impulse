@@ -129,6 +129,19 @@ export function filledMethods(
 }
 
 /**
+ * Whether the row a list sits under offers a method the page names above the list: a
+ * method that names a row (`@target`) runs there against that row, so the row's
+ * capability answer lists it and the page's row predicate does not say no. A list under
+ * no row, and a row read without its capability answer, offer none.
+ */
+export function parentOffers(parent: RecordData | undefined, presentation: MethodPresentation): boolean {
+  if (!parent || !rowCapabilities(parent)?.Execute?.includes(presentation.method)) {
+    return false;
+  }
+  return presentation.when?.(parent) !== false;
+}
+
+/**
  * What the page fills in a method's request from a row (the presentation's `fill`),
  * less what it left undefined; nothing where the page fills nothing.
  */

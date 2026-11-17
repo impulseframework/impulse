@@ -80,6 +80,12 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "RemoveStaffTenantPassword",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffTenantUsers",
+			},
+			{
 				Name:        "RemoveStaffTenantRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -325,6 +331,12 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
+			},
+			{
+				Name:        "RemoveStaffPassword",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "RemoveStaffRole",

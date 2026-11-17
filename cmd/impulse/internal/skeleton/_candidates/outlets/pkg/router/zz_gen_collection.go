@@ -252,6 +252,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "MembersTenantUserRoles",
 			},
 			{
+				Name:        "RemoveStaffTenantPassword",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffTenantUsers",
+			},
+			{
 				Name:        "RemoveStaffTenantRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -764,6 +770,12 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RemoveMembersRole",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:        "RemoveStaffPassword",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "RemoveStaffRole",

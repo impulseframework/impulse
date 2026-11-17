@@ -24,6 +24,12 @@ func (h *Handlers) PasswordChange() http.HandlerFunc {
 	return h.password.ChangeUserPassword()
 }
 
+// PasswordRemove removes the signed-in user's password, given the password, once they
+// sign in through a directory; a user with no other way in keeps it.
+func (h *Handlers) PasswordRemove() http.HandlerFunc {
+	return h.password.RemoveUserPassword()
+}
+
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
 // becomes a user under the sign-in name they give, with the
 // address verified by the link, seated in the roles the invitation names.

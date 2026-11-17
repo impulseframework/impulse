@@ -464,6 +464,50 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 	return nil
 }
 
+// RemoveUserPassword removes a user's password, and with it the mark that the user must
+// change it, refusing to remove the last means of sign-in of a user that has no
+// identity. The user's sessions stand. A user that holds no password is a BadRequest.
+func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
+	}
+
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		// The user and its identities are read in the transaction that writes the user,
+		// as an unlink reads them: of a removal and an unlink of the user's last identity
+		// that race, Spanner aborts one, and its rerun sees what the other wrote.
+		user, err := s.UserIn(ctx, txn, userID)
+		if err != nil {
+			return err
+		}
+		if !user.HasPassword {
+			return httpio.NewBadRequestMessage("the user has no password to remove")
+		}
+		links, err := s.IdentitiesByUserIn(ctx, txn, userID)
+		if err != nil {
+			return err
+		}
+		if len(links) == 0 {
+			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+		}
+
+		removal := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false})
+		if err := txn.BufferWrite([]*spanner.Mutation{removal}); err != nil {
+			return errors.Wrap(err, "txn.BufferWrite()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
 // DestroyUserSessions expires every live session of a user by UserId. That covers
 // its own sessions, user-principal impersonations of it, and the sessions it holds as a
 // local actor. Their live impersonation records end Revoked.

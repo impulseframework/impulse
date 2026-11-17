@@ -110,6 +110,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"endUserSessions", "End" + subject + "UserSessions"},
 		{"revokeTrustedDevices", "Revoke" + subject + "UserTrustedDevices"},
 		{"unlinkIdentity", i.unlinkIdentityMethod(tenant)},
+		{"removePassword", i.removePasswordMethod(tenant)},
 	}
 	if !tenant {
 		data := &identitySourceData{identityInstance: i}

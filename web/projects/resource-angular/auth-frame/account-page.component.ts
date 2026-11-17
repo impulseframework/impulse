@@ -12,6 +12,20 @@ import { Account } from './account';
 /** What the password change says when the two new passwords differ, before asking the server. */
 export const passwordsDiffer = 'The two new passwords are not the same.';
 
+/**
+ * What removing their password leaves a person with, said before they confirm it: the
+ * other ways in their sign-in offers, each by the words its button on the login page
+ * carries. Where the page knows of none, the person's organization signs them in.
+ */
+export function passwordRemovalConsequence(otherSignIns: readonly string[]): string {
+  if (otherSignIns.length === 0) {
+    return 'You will sign in through your organization only.';
+  }
+  const last = otherSignIns[otherSignIns.length - 1];
+  const through = otherSignIns.length === 1 ? last : `${otherSignIns.slice(0, -1).join(', ')} or ${last}`;
+  return `You will sign in through ${through} only.`;
+}
+
 /** The longest name the server keeps, in characters; the box holds no more. */
 export const nameMaxLength = 200;
 
@@ -19,6 +33,11 @@ export const nameMaxLength = 200;
  * The person's account page, every place's: their name, their email address, their
  * password and this browser, each section only where their sign-in offers it (Account). Managing a second
  * factor joins the page as the library offers factors a person enrolls.
+ *
+ * Where the server serves it, the password section also removes the password: the person
+ * proves it with the password, is asked once what that leaves them to sign in through,
+ * and is told the server's words when it refuses (a person no directory sign-in is linked
+ * to keeps the password, their only way in).
  */
 @Component({
   selector: 'impulse-account-page',
@@ -61,7 +80,12 @@ export const nameMaxLength = 200;
         </section>
       }
 
-      @if (account.password()) {
+      @if (account.password() && passwordRemoved()) {
+        <section class="part password">
+          <h2>Your password</h2>
+          <p class="message" role="status">Your password is removed. {{ removalConsequence() }}</p>
+        </section>
+      } @else if (account.password()) {
         <section class="part password">
           <h2>Change your password</h2>
           <form class="change" (ngSubmit)="changePassword()">
@@ -101,6 +125,41 @@ export const nameMaxLength = 200;
             <p class="message" role="status">{{ message }}</p>
           }
         </section>
+
+        @if (account.removePassword()) {
+          <section class="part remove-password">
+            <h2>Remove your password</h2>
+            <p>If you also sign in another way, you can do without a password.</p>
+            @if (confirmingRemoval()) {
+              <p class="question">Remove your password? {{ removalConsequence() }}</p>
+              <div class="answers">
+                <button mat-flat-button type="button" class="remove-confirm" [disabled]="busy()" (click)="removePassword()">
+                  Remove password
+                </button>
+                <button mat-stroked-button type="button" class="remove-keep" [disabled]="busy()" (click)="keepPassword()">
+                  Keep password
+                </button>
+              </div>
+            } @else {
+              <form class="change" (ngSubmit)="askToRemovePassword()">
+                <mat-form-field appearance="outline">
+                  <mat-label>Current password</mat-label>
+                  <input
+                    matInput
+                    name="removalPassword"
+                    type="password"
+                    [(ngModel)]="removalPassword"
+                    autocomplete="current-password"
+                    required />
+                </mat-form-field>
+                <button mat-stroked-button type="submit" class="remove-submit" [disabled]="busy()">Remove password</button>
+              </form>
+            }
+            @if (removeMessage(); as message) {
+              <p class="message" role="status">{{ message }}</p>
+            }
+          </section>
+        }
       }
 
       @if (account.browser() || forgotten()) {
@@ -154,6 +213,10 @@ export const nameMaxLength = 200;
     .change mat-form-field {
       width: 100%;
     }
+    .answers {
+      display: flex;
+      gap: 12px;
+    }
     .username {
       font-weight: 500;
     }
@@ -186,6 +249,17 @@ export class AccountPageComponent {
   readonly changeMessage = signal<string | undefined>(undefined);
   /** The browser was forgotten on this page. */
   readonly forgotten = signal(false);
+
+  /** The password given as proof for its removal. */
+  removalPassword = '';
+  /** The person asked to remove the password and has not answered the question yet. */
+  readonly confirmingRemoval = signal(false);
+  /** What the server said when it refused the removal, in its words. */
+  readonly removeMessage = signal<string | undefined>(undefined);
+  /** The password was removed on this page. */
+  readonly passwordRemoved = signal(false);
+  /** What the removal leaves the person to sign in through, as the question and the notice say it. */
+  readonly removalConsequence = computed(() => passwordRemovalConsequence(this.account.otherSignIns()));
 
   constructor() {
     // The box starts as the name the session carries and follows it when that name
@@ -235,6 +309,37 @@ export class AccountPageComponent {
         this.changeMessage.set(result.message);
       }
     } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Puts the question before the password is removed; nothing is asked of the server yet. */
+  askToRemovePassword(): void {
+    if (this.busy()) return;
+    // What an earlier removal came to is not said of this one.
+    this.removeMessage.set(undefined);
+    this.confirmingRemoval.set(true);
+  }
+
+  /** The person keeps the password: the question goes, and nothing was asked of the server. */
+  keepPassword(): void {
+    this.confirmingRemoval.set(false);
+  }
+
+  async removePassword(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.removeMessage.set(undefined);
+    try {
+      const result = await this.client.auth.removePassword(this.removalPassword);
+      if (result.outcome === 'removed') {
+        this.removalPassword = '';
+        this.passwordRemoved.set(true);
+      } else {
+        this.removeMessage.set(result.message);
+      }
+    } finally {
+      this.confirmingRemoval.set(false);
       this.busy.set(false);
     }
   }

@@ -43,6 +43,14 @@ func (d *identitySourceData) UnlinkIdentity() string {
 	return d.unlinkIdentityMethod(d.ForTenant)
 }
 
+// removePasswordMethod names the method that removes a person's password: the act, then
+// whose it is, as every method on a person is named (RemoveCrewPassword, and a tenant's
+// RemoveCrewSectorPassword). It is written beside the method that unlinks an identity,
+// for an auth that declares the password method.
+func (i *identityInstance) removePasswordMethod(tenant bool) string {
+	return "Remove" + i.subject(tenant) + "Password"
+}
+
 // picksRoles reports whether the instance declares the roles that exist in one tenant:
 // where there is a tenant record and the roles are given by hand. The roles of an auth
 // whose directory writes them are picked by nobody.
@@ -119,6 +127,12 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 	}
 	if i.hasList(listIdentitiesSuffix) {
 		files = append(files, method(i.unlinkIdentityMethod(true), identityUnlinkIdentityTemplate, identityIdentities))
+		// A password is removed where an identity is unlinked, for an auth whose people
+		// may hold one. The method names a person, a row of the tenant's people, which a
+		// tenant that lists its people's identities lists too.
+		if i.password {
+			files = append(files, method(i.removePasswordMethod(true), identityRemovePasswordTemplate, identityUsers, identityIdentities))
+		}
 	}
 	if !i.rolesSynced && i.hasList(listRolesSuffix) {
 		files = append(files, method("Remove"+subject+"Role", identityTenantRemoveRoleTemplate, identityMemberships))

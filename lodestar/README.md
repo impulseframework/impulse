@@ -732,7 +732,7 @@ methods that change them (`pkg/identity/crewidentity`: create a user holding a r
 rename, disable, enable and delete one; set a temporary password and require a password
 change; reset the second factor; clear a lockout; invite an address and withdraw the
 invitation; assign and remove a role; end a session, all of a person's sessions or an
-impersonation; unlink an identity; revoke a token), and their handlers
+impersonation; unlink an identity; remove a password; revoke a token), and their handlers
 (`pkg/identity/crewhandlers`); the members get the same three, without the methods
 their auth has no use for (their roles are the directory's and the auth declares no
 password, so they have no create, no invitation, no role method and no password
