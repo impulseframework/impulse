@@ -83,9 +83,9 @@ func (f *Fake) Register(_ context.Context, subs []Subscription) error {
 	return nil
 }
 
-// Renew writes the subscriptions, as Register does.
-func (f *Fake) Renew(ctx context.Context, subs []Subscription) error {
-	return f.Register(ctx, subs)
+// Renew writes the subscriptions, as Register does. It refuses none.
+func (f *Fake) Renew(ctx context.Context, subs []Subscription) ([]Refusal, error) {
+	return nil, f.Register(ctx, subs)
 }
 
 // Unsubscribe deletes the tab's subscriptions.
