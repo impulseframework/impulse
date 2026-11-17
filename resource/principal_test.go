@@ -828,6 +828,17 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantDomains: []accesstypes.Domain{anvil, bastion},
 		},
 		{
+			// The stub answers the super administrator question for whatever name it is
+			// asked under: an actor another application authenticated is not asked.
+			name:        "an actor from another application is no super administrator here, whatever their name spells",
+			ctx:         sessionCtx("bob", &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "support-portal", Principal: accesstypes.UserPrincipal("bob")}, impersonation),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil, bastion},
+			super:       true,
+			wantDomains: []accesstypes.Domain{bastion},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
+		},
+		{
 			// The role checker (stubRolePermissions) holds a grant in "tenant" alone, so
 			// the list stays empty; the reach is the actor's, who is no super
 			// administrator.

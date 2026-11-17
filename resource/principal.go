@@ -120,12 +120,17 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 
 			return forUser(actor)
 		}
+		// An actor another application authenticated has no account here and holds no
+		// role of this one, whatever their name spells: the record names them by a
+		// name, which the question is never asked under.
+		imp, impersonated := sessioninfo.ImpersonationFromCtx(ctx)
 		establishment, _ := sessioninfo.DataFromCtx(ctx).EstablishedBy()
 		perms.admission = &admittedPermissions{
 			UserPermissionChecker: checker,
 			declarations:          declarations,
 			establishment:         establishment,
 			actor:                 actorChecker,
+			foreignActor:          impersonated && !imp.IsLocalActor(),
 			reached:               map[accesstypes.Domain]bool{},
 		}
 		perms.UserPermissionChecker = perms.admission
@@ -223,6 +228,10 @@ type admittedPermissions struct {
 	// session's actor, the real person behind an impersonated or role-principal
 	// session.
 	actor func() SessionUserChecker
+	// foreignActor marks a session whose actor another application authenticated:
+	// a person with no account here, who is no super administrator of this
+	// application.
+	foreignActor bool
 
 	mu      sync.Mutex
 	reached map[accesstypes.Domain]bool
@@ -263,6 +272,12 @@ func (a *admittedPermissions) Reaches(ctx context.Context, domain accesstypes.Do
 func (a *admittedPermissions) actorIsSuperAdministrator(ctx context.Context) (bool, error) {
 	if a.super != nil {
 		return *a.super, nil
+	}
+	if a.foreignActor {
+		super := false
+		a.super = &super
+
+		return false, nil
 	}
 	super, err := a.actor().SuperAdministrator(ctx)
 	if err != nil {
