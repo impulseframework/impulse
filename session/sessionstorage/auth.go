@@ -20,8 +20,8 @@ import (
 
 // ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
 // a user that has no password, and when RemoveUserPassword would remove the password of
-// a user that has no identity: either would leave the user no means of sign-in. It is a
-// Conflict client message.
+// a user none of whose identities can sign them in: either would leave the user no
+// means of sign-in. It is a Conflict client message.
 var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 
 // ErrPasswordChanged is returned by the password writes that follow a proof of the
@@ -166,20 +166,24 @@ type AuthStore[Tx any] interface {
 	// a user that has no password.
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
 	// RemoveUserPassword removes a user's password, and with it the mark that the user
-	// must change it. It refuses to remove the last means of sign-in of a user that has
-	// no identity (ErrLastSignInMethod), in the transaction that removes the password,
-	// so a removal and an unlink that race cannot both go through. The user's sessions
-	// stand. A user that holds no password is a BadRequest. It follows no proof of the
-	// password: it is an administrator's removal. A user's own removal is
-	// RemoveProvenUserPassword.
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
+	// must change it. standing names the identities linked to the user that the caller
+	// judged a means of sign-in (the links a sign-in is still possible through): the
+	// removal goes through only while one of them is still linked to the user, read in
+	// the transaction that removes the password, so a removal and an unlink that race
+	// cannot both go through, and it refuses to remove the last means of sign-in
+	// otherwise (ErrLastSignInMethod), a user with no identity and one whose identities
+	// sign nobody in alike. The store does not judge a link: an identity standing does
+	// not name is no means of sign-in to it. The user's sessions stand. A user that
+	// holds no password is a BadRequest. It follows no proof of the password: it is an
+	// administrator's removal. A user's own removal is RemoveProvenUserPassword.
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
 	// RemoveProvenUserPassword removes the password a user proved, as RemoveUserPassword
-	// removes one. proven is the hash the caller compared the user's password against,
-	// and the removal goes through only while the row still holds it: a password
-	// changed, reset or removed since the caller read it stands as it is
-	// (ErrPasswordChanged), answered before the user's other means of sign-in are
-	// counted. A removal with no proven hash removes nothing.
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error
+	// removes one, under the same rule of the identities that stand. proven is the hash
+	// the caller compared the user's password against, and the removal goes through
+	// only while the row still holds it: a password changed, reset or removed since the
+	// caller read it stands as it is (ErrPasswordChanged), answered before the user's
+	// other means of sign-in are counted. A removal with no proven hash removes nothing.
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
 	// SetTokensTableName sets the name of the tokens table (SessionTokens).
 	SetTokensTableName(name string) error
 	// SetDeviceCodesTableName sets the name of the device codes table
@@ -979,11 +983,11 @@ func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) 
 }
 
 // RemoveUserPassword implements AuthStore.
-func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RemoveUserPassword(ctx, userID); err != nil {
+	if err := a.db.RemoveUserPassword(ctx, userID, standing); err != nil {
 		return errors.Wrap(err, "db.RemoveUserPassword()")
 	}
 
@@ -991,11 +995,11 @@ func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID) 
 }
 
 // RemoveProvenUserPassword implements AuthStore.
-func (a *Auth[Tx]) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error {
+func (a *Auth[Tx]) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RemoveProvenUserPassword(ctx, userID, proven); err != nil {
+	if err := a.db.RemoveProvenUserPassword(ctx, userID, proven, standing); err != nil {
 		return errors.Wrap(err, "db.RemoveProvenUserPassword()")
 	}
 

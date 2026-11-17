@@ -36,8 +36,8 @@ type AuthDriver interface {
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	TouchUserSignIn(ctx context.Context, userID impulse.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error

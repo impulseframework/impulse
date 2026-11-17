@@ -195,7 +195,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 			run: func(t *testing.T, f *authFixture) {
 				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(3)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(6)
-				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held).Return(nil)
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).Return(nil)
 				for range 2 {
 					post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
 				}
@@ -215,7 +215,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 			run: func(t *testing.T, f *authFixture) {
 				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(2)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(4)
-				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held).
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).
 					Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in"))
 				post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
 				if rr := post(f.password.RemoveUserPassword(), `{"password":"pw"}`); rr.Code != http.StatusConflict {

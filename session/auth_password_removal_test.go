@@ -35,7 +35,7 @@ func TestAuthAPI_RemoveSessionUserPassword(t *testing.T) {
 		f := newAuthFixture(t, gomock.NewController(t))
 		gomock.InOrder(
 			f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil),
-			f.store.EXPECT().RemoveUserPassword(gomock.Any(), userID).Return(nil),
+			f.store.EXPECT().RemoveUserPassword(gomock.Any(), userID, gomock.Len(0)).Return(nil),
 		)
 
 		// The mock refuses a call it was not told of: no session is destroyed.
@@ -51,11 +51,11 @@ func TestAuthAPI_RemoveSessionUserPassword(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
-		f.store.EXPECT().RemoveUserPassword(gomock.Any(), userID).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
+		f.store.EXPECT().RemoveUserPassword(gomock.Any(), userID, gomock.Len(0)).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
 
 		err := f.auth.API().RemoveSessionUserPassword(context.Background(), userID)
-		if !errors.Is(err, sessionstorage.ErrLastSignInMethod) || !httpio.HasConflict(err) {
-			t.Errorf("RemoveSessionUserPassword() error = %v, want ErrLastSignInMethod (Conflict)", err)
+		if !errors.Is(err, sessionstorage.ErrLastSignInMethod) || !httpio.HasConflict(err) || httpio.Message(err) != "last" {
+			t.Errorf("RemoveSessionUserPassword() error = %v, want the store's ErrLastSignInMethod (Conflict) as it is", err)
 		}
 		if _, _, clears := f.counts(); clears != 0 {
 			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was removed", clears)
@@ -71,6 +71,120 @@ func TestAuthAPI_RemoveSessionUserPassword(t *testing.T) {
 			t.Errorf("RemoveSessionUserPassword() error = %v, want NotFound", err)
 		}
 	})
+}
+
+// TestAuth_PasswordRemoval_linksThatSignIn pins which of a person's identity links count
+// when their password is to be removed, on an administrator's route and on the person's
+// own: the links a sign-in is still possible through (signsInThrough) are named to the
+// store, which removes the password only while one of them stands, and a link that
+// signs nobody in is not named, so a person whose every link is of a method the page no
+// longer offers, or of a connection no registration takes, keeps the password, and is
+// told why.
+func TestAuth_PasswordRemoval_linksThatSignIn(t *testing.T) {
+	t.Parallel()
+
+	userID, sessionID := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
+	kept := hashed(t, "kept")
+	link := func(method sessioninfo.AuthMethod, connection string) *sessionstorage.SessionIdentity {
+		return &sessionstorage.SessionIdentity{ID: impulse.Must(impulse.NewUUID()), UserID: userID, Method: method, Connection: connection, Subject: "sub"}
+	}
+	fleet, river := link(sessioninfo.MethodGoogle, "fleet"), link(sessioninfo.MethodAzure, tenantRiver)
+	// Links that sign nobody in: a method nothing is registered of, the tenant of a
+	// registration the page does not list, and a Workspace the registration does not name.
+	okta, unlisted, elsewhere := link(sessioninfo.MethodOIDC, "okta"), link(sessioninfo.MethodAzure, tenantOther), link(sessioninfo.MethodGoogle, "other")
+	lastMeans := func() error {
+		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+	}
+
+	tests := []struct {
+		name  string
+		links []*sessionstorage.SessionIdentity
+		// standing are the links the store is to be named, and refused whether the store
+		// then refuses, as it does when none of them stands.
+		standing []impulse.UUID
+		refused  bool
+		// wantAdmin is what the administrator's route says of a refusal.
+		wantAdmin string
+	}{
+		{
+			name:     "a link that signs the person in is named, and the links that do not are left out",
+			links:    []*sessionstorage.SessionIdentity{okta, fleet, unlisted, elsewhere},
+			standing: []impulse.UUID{fleet.ID},
+		},
+		{
+			name:     "every link that signs the person in is named",
+			links:    []*sessionstorage.SessionIdentity{fleet, river},
+			standing: []impulse.UUID{fleet.ID, river.ID},
+		},
+		{
+			name:      "a person whose links all sign nobody in keeps the password",
+			links:     []*sessionstorage.SessionIdentity{okta, unlisted, elsewhere},
+			refused:   true,
+			wantAdmin: "none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first",
+		},
+		{
+			name:      "a person with no link keeps the password",
+			refused:   true,
+			wantAdmin: "the user has no other means of sign-in: link a directory sign-in first",
+		},
+	}
+	for _, tt := range tests {
+		named := gomock.Len(0)
+		if len(tt.standing) > 0 {
+			named = gomock.Eq(tt.standing)
+		}
+		var result error
+		if tt.refused {
+			result = lastMeans()
+		}
+
+		t.Run("an administrator's removal: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+			a, store := signInMeansAuth(t)
+			store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: kept}, nil)
+			store.EXPECT().IdentitiesByUser(gomock.Any(), userID).Return(tt.links, nil)
+			store.EXPECT().RemoveUserPassword(gomock.Any(), userID, named).Return(result)
+
+			err := a.API().RemoveSessionUserPassword(context.Background(), userID)
+			if !tt.refused {
+				if err != nil {
+					t.Fatalf("RemoveSessionUserPassword() error = %v", err)
+				}
+
+				return
+			}
+			if !errors.Is(err, sessionstorage.ErrLastSignInMethod) || !httpio.HasConflict(err) || httpio.Message(err) != tt.wantAdmin {
+				t.Errorf("RemoveSessionUserPassword() error = %v, want ErrLastSignInMethod (Conflict) saying %q", err, tt.wantAdmin)
+			}
+		})
+
+		t.Run("the person's own removal: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+			a, password, store := directoriesAuthWithPassword(t)
+			a.Methods(signInMeansList("/api/user/sign-in-means", "Fleet Google", "Lakeside"))
+			store.EXPECT().Session(gomock.Any(), sessionID).
+				Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(userID)}, nil)
+			store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: kept}, nil).Times(2)
+			store.EXPECT().IdentitiesByUser(gomock.Any(), userID).Return(tt.links, nil)
+			store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept, named).Return(result)
+
+			r := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID), http.MethodPost, "/api/user/password/remove", strings.NewReader(`{"password":"kept"}`))
+			r.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			password.RemoveUserPassword().ServeHTTP(rr, r)
+			if !tt.refused {
+				if rr.Code != http.StatusOK {
+					t.Fatalf("RemoveUserPassword() = %d %s, want 200", rr.Code, rr.Body.String())
+				}
+
+				return
+			}
+			want := "Your password is your only way to sign in: sign in through your directory first, which links it to your account, then remove the password"
+			if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), want) {
+				t.Errorf("RemoveUserPassword() = %d %s, want 409 saying %q", rr.Code, rr.Body.String(), want)
+			}
+		})
+	}
 }
 
 // TestAuth_RemoveUserPassword pins the handler a person removes their own password
@@ -108,7 +222,7 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		// the hash the proof was made against; the mock refuses the removal that names
 		// the user alone, and a session destroyed.
 		f.store.EXPECT().User(gomock.Any(), userID).Return(pat(false), nil).Times(2)
-		f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept).Return(nil)
+		f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept, gomock.Len(0)).Return(nil)
 
 		rr := httptest.NewRecorder()
 		f.password.RemoveUserPassword().ServeHTTP(rr, request(signedIn(), `{"password":"kept"}`))
@@ -125,7 +239,7 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		f := newAuthFixture(t, gomock.NewController(t))
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(pat(false), nil).Times(2)
-		f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept).
+		f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept, gomock.Len(0)).
 			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry"))
 
 		rr := httptest.NewRecorder()
@@ -188,7 +302,7 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		f := newAuthFixture(t, gomock.NewController(t))
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(pat(false), nil).Times(2)
-		f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept).
+		f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept, gomock.Len(0)).
 			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first"))
 
 		rr := httptest.NewRecorder()

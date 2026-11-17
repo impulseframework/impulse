@@ -723,8 +723,9 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 // The store is handed the hash the password matched and removes the password only while
 // the user still holds it, so a password an operator set meanwhile is not removed on
 // proof of the one it replaced (a Conflict that says to try again). The removal does
-// what AuthAPI.RemoveSessionUserPassword does, and its refusal of the last means of
-// sign-in is said to the person themselves, with what to do.
+// what AuthAPI.RemoveSessionUserPassword does, under the same judgment of the links
+// that count as a means of sign-in (signsInThrough), and its refusal of the last means
+// of sign-in is said to the person themselves, with what to do.
 func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.UUID, password string, client attempts.Client) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
@@ -735,7 +736,11 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 	} else if err != nil {
 		return err
 	}
-	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash); err != nil {
+	links, err := a.storage.IdentitiesByUser(ctx, user.ID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
+	}
+	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, a.linksThatSignIn(links)); err != nil {
 		switch {
 		case errors.Is(err, sessionstorage.ErrLastSignInMethod):
 			return httpio.NewConflictMessageWithError(err, "Your password is your only way to sign in: sign in through your directory first, which links it to your account, then remove the password")

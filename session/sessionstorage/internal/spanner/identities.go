@@ -3,6 +3,7 @@ package spanner
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -479,10 +480,11 @@ const (
 )
 
 // RemoveUserPassword removes a user's password, and with it the mark that the user must
-// change it, refusing to remove the last means of sign-in of a user that has no
-// identity. The user's sessions stand. A user that holds no password is a BadRequest.
-// It follows no proof of the password and removes whatever hash the row holds.
-func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+// change it, while one of the identities standing names is still linked to the user,
+// and refuses to remove the user's last means of sign-in otherwise. The user's sessions
+// stand. A user that holds no password is a BadRequest. It follows no proof of the
+// password and removes whatever hash the row holds.
+func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -490,7 +492,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
 	}
 
-	return s.removeUserPassword(ctx, userID, false, spanner.NullString{})
+	return s.removeUserPassword(ctx, userID, false, spanner.NullString{}, standing)
 }
 
 // RemoveProvenUserPassword removes the password a user proved (proven), as
@@ -498,7 +500,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 // it, so the removal goes through only while the row still holds the proven one: a
 // password changed, reset or removed since the caller read it stands as it is
 // (ErrPasswordChanged, a Conflict).
-func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error {
+func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -510,12 +512,15 @@ func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, use
 		return err
 	}
 
-	return s.removeUserPassword(ctx, userID, true, provenHash)
+	return s.removeUserPassword(ctx, userID, true, provenHash, standing)
 }
 
 // removeUserPassword removes a user's password and its change mark in one transaction.
 // With followsProof set, the row must still hold proven, the hash the caller proved.
-func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString) error {
+// standing names the identities the caller judged a means of sign-in: one of them must
+// still be linked to the user when the password goes, read in the transaction that
+// writes, as an unlink reads them.
+func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString, standing []impulse.UUID) error {
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if followsProof {
 			if err := s.holdsProvenPasswordIn(ctx, txn, userID, proven); err != nil {
@@ -536,7 +541,9 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		if err != nil {
 			return err
 		}
-		if len(links) == 0 {
+		// Only an identity the caller named counts: one that signs nobody in any more
+		// is no means of sign-in, however many of them the user holds.
+		if !slices.ContainsFunc(links, func(link *dbtype.SessionIdentity) bool { return slices.Contains(standing, link.ID) }) {
 			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
 		}
 

@@ -84,9 +84,13 @@ type signInMethods[Tx any] struct {
 	syncing string
 	// listed holds the names Methods was given, the methods the login page offers, in
 	// the page's order; nil when the application wired its page without Methods. labels
-	// holds the label Methods was given for each, the words its button carries.
+	// holds the label each was first listed under, the words its button carries: what a
+	// read that is served beside no list answers with (AuthAPI.SignInMeans). lists
+	// holds every list as Methods was given it, since an Auth served on two outlets
+	// lists its methods twice, each under that outlet's own words.
 	listed []string
 	labels map[string]string
+	lists  []methodsListing
 	// hasher and autoUpgrade are the password method's settings. They keep their
 	// defaults when it is not registered, since user management still hashes
 	// passwords.
@@ -112,6 +116,39 @@ type signInMethods[Tx any] struct {
 	// outlets holds the names of the registered machine outlets (RegisterMachineOutlet),
 	// the only outlets tokens are issued for and accepted on.
 	outlets map[string]bool
+}
+
+// methodsListing is one list Methods was given, as far as a read served beside it
+// needs it: the label it gave each method, and the path it named for the read of what
+// a person signs in with, by which that read finds the list it is served beside.
+type methodsListing struct {
+	labels      map[string]string
+	signInMeans string
+}
+
+// labelsServedAt are the labels of the methods as the list beside the request path
+// gives them: the labels of the one list that names path as its sign-in means route,
+// and for a method that list does not name, or where no list or more than one names
+// the path, the label the method was first listed under. So an Auth served on two
+// outlets answers each outlet's read in that outlet's words.
+func (m *signInMethods[Tx]) labelsServedAt(path string) map[string]string {
+	var beside *methodsListing
+	for i := range m.lists {
+		if m.lists[i].signInMeans != path {
+			continue
+		}
+		if beside != nil {
+			return m.labels
+		}
+		beside = &m.lists[i]
+	}
+	if beside == nil {
+		return m.labels
+	}
+	labels := maps.Clone(m.labels)
+	maps.Copy(labels, beside.labels)
+
+	return labels
 }
 
 // passwordRegistered reports whether the password method is registered.

@@ -304,11 +304,18 @@ func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID
 
 // RemoveSessionUserPassword removes a user's password: from then on the user signs in
 // through their identity links alone, and a password sign-in under their name is
-// refused as a wrong password is. A user with no identity link keeps the password,
-// their last means of sign-in (sessionstorage.ErrLastSignInMethod, Conflict), and a user
-// that holds no password is a BadRequest. The password change mark goes with the
-// password, and the name's sign-in attempts are reset. The user's sessions stand, the
-// ones the password established among them, as a removed identity link's do.
+// refused as a wrong password is. A user keeps the password, their last means of
+// sign-in (sessionstorage.ErrLastSignInMethod, Conflict), unless an identity linked to
+// them can sign them in: a link counts when its method is a registration the login page
+// offers and that registration still takes the link's connection (signsInThrough), so
+// a link left from a method the Auth no longer offers, or from a tenant or a Workspace
+// its registration no longer takes, does not, and neither does a user with no link at
+// all. The links that count are named to the store, which removes the password only
+// while one of them still stands, in the transaction that removes it, so an unlink
+// asked at once cannot leave the user with neither. A user that holds no password is a
+// BadRequest. The password change mark goes with the password, and the name's sign-in
+// attempts are reset. The user's sessions stand, the ones the password established
+// among them, as a removed identity link's do.
 //
 // It asks for no proof and removes whatever password the user holds: it is an
 // administrator's removal, or the end of a flow of the application's own that proved who
@@ -324,7 +331,17 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if err := a.storage.RemoveUserPassword(ctx, user.ID); err != nil {
+	links, err := a.storage.IdentitiesByUser(ctx, user.ID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
+	}
+	standing := a.linksThatSignIn(links)
+	if err := a.storage.RemoveUserPassword(ctx, user.ID, standing); err != nil {
+		if errors.Is(err, sessionstorage.ErrLastSignInMethod) && len(links) > 0 && len(standing) == 0 {
+			return httpio.NewConflictMessageWithError(err,
+				"none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first")
+		}
+
 		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)

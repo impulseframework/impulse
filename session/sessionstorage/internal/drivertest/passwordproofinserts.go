@@ -45,7 +45,7 @@ func laterWrites() []laterWrite {
 		{
 			name: "a removal",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, _, _ *securehash.Hash) error {
-				return d.RemoveUserPassword(ctx, userID)
+				return removeStanding(ctx, d, userID)
 			},
 		},
 	}

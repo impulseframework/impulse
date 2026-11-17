@@ -87,6 +87,44 @@ func passwordUser(ctx context.Context, t *testing.T, d AuthDriver, username stri
 	return user
 }
 
+// linkIDs are the ids of the identities linked to userID: what a caller that judged
+// every one of them a means of sign-in names to a removal of the user's password.
+func linkIDs(ctx context.Context, d AuthDriver, userID impulse.UUID) ([]impulse.UUID, error) {
+	links, err := d.IdentitiesByUser(ctx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "IdentitiesByUser()")
+	}
+	ids := make([]impulse.UUID, len(links))
+	for i, link := range links {
+		ids[i] = link.ID
+	}
+
+	return ids, nil
+}
+
+// standingLinks is linkIDs for a test that fails without them.
+func standingLinks(ctx context.Context, t *testing.T, d AuthDriver, userID impulse.UUID) []impulse.UUID {
+	t.Helper()
+
+	ids, err := linkIDs(ctx, d, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return ids
+}
+
+// removeStanding removes userID's password as an administrator's removal does when
+// every identity linked to the user counts as a means of sign-in.
+func removeStanding(ctx context.Context, d AuthDriver, userID impulse.UUID) error {
+	standing, err := linkIDs(ctx, d, userID)
+	if err != nil {
+		return err
+	}
+
+	return d.RemoveUserPassword(ctx, userID, standing)
+}
+
 func mustLink(ctx context.Context, t *testing.T, d AuthDriver, userID impulse.UUID, identity *sessioninfo.Identity) *dbtype.SessionIdentity {
 	t.Helper()
 
@@ -808,18 +846,46 @@ func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Fatalf("InsertSession() error = %v", err)
 	}
 
-	// No identity: the password is the user's one means of sign-in, and it stays.
-	err = in.Driver.RemoveUserPassword(ctx, pat.ID)
-	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
-		t.Errorf("RemoveUserPassword() of a user with no identity error = %v, want ErrLastSignInMethod (Conflict)", err)
-	}
-	if kept, err := in.Driver.User(ctx, pat.ID); err != nil || !sameHash(kept.PasswordHash, temporary) || !kept.PasswordChangeRequired {
-		t.Fatalf("User() after the refused removal = %+v, %v; want the password and its mark as they were", kept, err)
+	assertKept := func(what string, err error) {
+		t.Helper()
+
+		if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
+			t.Errorf("RemoveUserPassword() of %s error = %v, want ErrLastSignInMethod (Conflict)", what, err)
+		}
+		if kept, err := in.Driver.User(ctx, pat.ID); err != nil || !sameHash(kept.PasswordHash, temporary) || !kept.PasswordChangeRequired {
+			t.Fatalf("User() after the refused removal = %+v, %v; want the password and its mark as they were", kept, err)
+		}
 	}
 
+	// No identity: the password is the user's one means of sign-in, and it stays.
+	assertKept("a user with no identity", in.Driver.RemoveUserPassword(ctx, pat.ID, nil))
+
+	// An identity counts only when the caller names it: the caller judges which of the
+	// user's identities can still sign them in, and the driver holds the removal to
+	// those. One it does not name is no means of sign-in, an identity that does not
+	// exist is none, and neither is another user's.
+	stale := mustLink(ctx, t, in.Driver, pat.ID, riverside("idp_pat_stale"))
+	other := createUser(ctx, t, in.Driver, "other@lakeside.edu")
+	others := mustLink(ctx, t, in.Driver, other.ID, lakeside("idp_other"))
+	assertKept("a user whose one identity the caller does not name", in.Driver.RemoveUserPassword(ctx, pat.ID, nil))
+	assertKept("a user for whom the caller names an identity that does not exist", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{impulse.Must(impulse.NewUUID())}))
+	assertKept("a user for whom the caller names another user's identity", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{others.ID}))
+	assertKept("a user whose one identity the caller does not name, on proof of the password",
+		in.Driver.RemoveProvenUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, []impulse.UUID{others.ID}))
+	// The identity the caller names was unlinked since the caller read it.
+	gone := mustLink(ctx, t, in.Driver, pat.ID, riverside("idp_pat_gone"))
+	if err := in.Driver.UnlinkIdentity(ctx, gone.ID); err != nil {
+		t.Fatalf("UnlinkIdentity() error = %v", err)
+	}
+	assertKept("a user whose named identity was unlinked meanwhile", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{gone.ID}))
+	if err := in.Driver.UnlinkIdentity(ctx, stale.ID); err != nil {
+		t.Fatalf("UnlinkIdentity() error = %v", err)
+	}
+
+	// One named identity that still stands is enough, whatever else is named.
 	link := mustLink(ctx, t, in.Driver, pat.ID, lakeside("idp_pat"))
-	if err := in.Driver.RemoveUserPassword(ctx, pat.ID); err != nil {
-		t.Fatalf("RemoveUserPassword() of a user with an identity error = %v", err)
+	if err := in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{gone.ID, link.ID}); err != nil {
+		t.Fatalf("RemoveUserPassword() of a user with an identity the caller names error = %v", err)
 	}
 	removed, err := in.Driver.User(ctx, pat.ID)
 	if err != nil {
@@ -839,10 +905,10 @@ func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err := in.Driver.UnlinkIdentity(ctx, link.ID); !errors.Is(err, dbtype.ErrLastSignInMethod) {
 		t.Errorf("UnlinkIdentity() of the identity left after the removal error = %v, want ErrLastSignInMethod", err)
 	}
-	if err := in.Driver.RemoveUserPassword(ctx, pat.ID); !httpio.HasBadRequest(err) {
+	if err := in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{link.ID}); !httpio.HasBadRequest(err) {
 		t.Errorf("RemoveUserPassword() of a user that has no password error = %v, want BadRequest", err)
 	}
-	if err := in.Driver.RemoveUserPassword(ctx, impulse.Must(impulse.NewUUID())); !httpio.HasNotFound(err) {
+	if err := in.Driver.RemoveUserPassword(ctx, impulse.Must(impulse.NewUUID()), []impulse.UUID{link.ID}); !httpio.HasNotFound(err) {
 		t.Errorf("RemoveUserPassword() of an unknown user error = %v, want NotFound", err)
 	}
 }
@@ -867,7 +933,7 @@ func testPasswordRemovalRacesUnlink(ctx context.Context, t *testing.T, h *AuthHa
 			unlinkErr error
 		)
 		wg.Go(func() {
-			removeErr = in.Driver.RemoveUserPassword(ctx, user.ID)
+			removeErr = in.Driver.RemoveUserPassword(ctx, user.ID, []impulse.UUID{link.ID})
 		})
 		wg.Go(func() {
 			unlinkErr = in.Driver.UnlinkIdentity(ctx, link.ID)

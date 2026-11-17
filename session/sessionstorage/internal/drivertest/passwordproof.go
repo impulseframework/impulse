@@ -42,7 +42,12 @@ func provenWrites() []provenWrite {
 		{
 			name: "a user's own removal",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, proven, _ *securehash.Hash) error {
-				return d.RemoveProvenUserPassword(ctx, userID, proven)
+				standing, err := linkIDs(ctx, d, userID)
+				if err != nil {
+					return err
+				}
+
+				return d.RemoveProvenUserPassword(ctx, userID, proven, standing)
 			},
 		},
 	}
@@ -109,7 +114,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 
 	removed := linkedPasswordUser(ctx, t, in.Driver, "removed", temporary, true)
-	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash); err != nil {
+	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash, standingLinks(ctx, t, in.Driver, removed.ID)); err != nil {
 		t.Fatalf("RemoveProvenUserPassword() on proof of the hash the row holds error = %v", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, removed.ID); got.PasswordHash != nil || got.PasswordChangeRequired {
@@ -122,7 +127,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash)
+	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash, nil)
 	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 		t.Errorf("RemoveProvenUserPassword() of a user with no identity error = %v, want ErrLastSignInMethod (Conflict)", err)
 	}
@@ -192,7 +197,7 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 		{
 			name: "a removal",
 			commit: func(userID impulse.UUID, _ *securehash.Hash) (*securehash.Hash, bool, error) {
-				return nil, false, in.Driver.RemoveUserPassword(ctx, userID)
+				return nil, false, removeStanding(ctx, in.Driver, userID)
 			},
 		},
 	}
