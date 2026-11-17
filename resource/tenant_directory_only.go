@@ -301,10 +301,10 @@ func directoryOnlySentence(directory signin.Directory, word string, counted bool
 	default:
 		lose = fmt.Sprintf("%s %d people seated here sign in another way and will lose access.", only, outsiders)
 	}
-	switch {
-	case named == 0 || named == outsiders:
+	switch named {
+	case 0, outsiders:
 		return lose
-	case named == 1:
+	case 1:
 		return lose + " The one of them you may list is named here."
 	default:
 		return fmt.Sprintf("%s The %d of them you may list are named here.", lose, named)

@@ -11,6 +11,11 @@ import (
 	"github.com/impulseframework/impulse/tracer"
 )
 
+// directoryRoleNotGiven refuses a role the caller could not give by hand as the role
+// everyone from a tenant's directory gets: the role, then the word for a tenant.
+const directoryRoleNotGiven = "you may not give the role %s in this %s, so you cannot make it the role everyone from its directory gets: " +
+	"choose a role you may give, or ask someone who may give this one"
+
 // DirectoryRole holds the role a tenant is opened to its directory's people with to its
 // rules, in the caller's transaction, and writes nothing. The role is given to every
 // person the directory vouches for at their first sign-in through it
@@ -46,7 +51,7 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 			return errors.Wrap(err, "identity.RoleGrants.MayGive()")
 		}
 		if !may {
-			return httpio.NewForbiddenMessagef("you may not give the role %s in this %s, so you cannot make it the role everyone from its directory gets: choose a role you may give, or ask someone who may give this one", string(role), m.tenantWord)
+			return httpio.NewForbiddenMessagef(directoryRoleNotGiven, string(role), m.tenantWord)
 		}
 	}
 	exists, err := m.roleExistsIn(ctx, txn, role, []accesstypes.PolicyScope{scope})

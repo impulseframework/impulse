@@ -387,6 +387,9 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		warn := func(perms *switchPermissions, declared DirectoryPeople) *Warning {
 			var got *Warning
 			if err := client.ExecuteFunc(asks(through(entra), perms), func(ctx context.Context, txn ReadWriteTransaction) error {
+				// The emulator aborts a transaction that meets another and the client runs
+				// it again, so the grants asked are those of the attempt that answered.
+				perms.asked = nil
 				var err error
 				got, err = rules.DirectoryOnlyWarning(ctx, txn, "beta", declared)
 
@@ -505,8 +508,11 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 
 				return err
 			})
+			if err != nil {
+				return nil, errors.Wrap(err, "resource.Client.ExecuteFunc()")
+			}
 
-			return got, err
+			return got, nil
 		}
 
 		// beta has its directory and no default role: it is invite only.

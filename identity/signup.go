@@ -213,6 +213,7 @@ func (m *Manager) OpenSignUpWarning(ctx context.Context, txn resource.ReadWriteT
 
 	return &resource.Warning{
 		Consequence: m.consequence(registered, string(open.DefaultRole), open.CreatesTenant),
+		Names:       nil,
 		Confirm:     "Open to " + registered.Audience.Words(),
 	}, nil
 }
