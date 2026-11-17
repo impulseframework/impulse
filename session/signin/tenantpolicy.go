@@ -154,10 +154,11 @@ type tenantPolicy[Tx any] struct {
 //  3. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
 //     person's tenants declares the directory it came through, its (method,
 //     connection), and refused otherwise (connection_not_in_tenant).
-//  4. Any other sign-in, a password or a session the application starts for a user it
-//     authenticated itself, is admitted when one of the person's tenants admits its
-//     people other than through its directories, and refused when every one of them is
-//     directory only (directory_only).
+//  4. Any other sign-in, a password, a personal account (no tenant's directory) or a
+//     session the application starts for a user it authenticated itself, is admitted
+//     when one of the person's tenants admits its people other than through its
+//     directories, and refused when every one of them is directory only
+//     (directory_only).
 //
 // A refusal is a sessioninfo.LoginRefusal with its code, and errors.Is matches
 // ErrSignInDenied and the rule's own cause (ErrNoTenant, ErrConnectionNotInTenant,
