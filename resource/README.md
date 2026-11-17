@@ -3701,6 +3701,9 @@ client's `grants.go`), so a role file that conditions the assign method's grant 
 role (`"when": "new.role in [...]"`) holds the default role to the same list. Opening a
 method with a role the caller may not give is refused with 403 naming the role, at the
 warning as at the save, and `CrewSignUpRoles` lists only the roles the caller may give.
+The grant answers before the role is looked for, so the refusal is the same for a role
+the application holds and one it does not, and tells nobody of a role the grant keeps
+from them.
 The role is given by
 the identity client in the transaction that makes the account
 (`authSession.SetSignUpSeated(identityClient.SignedUp())`, which the Auth's package sets
