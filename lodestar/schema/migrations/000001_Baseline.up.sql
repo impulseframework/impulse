@@ -393,9 +393,12 @@ CREATE TABLE Ships (
   -- list filters or sorts by it.
   CargoBays ARRAY<INT64> NOT NULL DEFAULT (ARRAY<INT64>[]),
   -- TransponderKey is the key a ship's transponder signs its answers with: a secret. The
-  -- resource declares it conditions:"secret", so it is written and never served, and the
-  -- ship's log names a change of it without the value.
-  TransponderKey STRING(64),
+  -- resource declares it conditions:"secret" and types it resource.Secret, so it is
+  -- written and never served, the ship's log names a change of it without the value, and
+  -- the column holds it encrypted: BYTES, with room for the 64 bytes a key may be and the
+  -- 41 sealing adds (the version of the application secret that sealed it, the random
+  -- number drawn for the write, and the check).
+  TransponderKey BYTES(105),
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX ShipsByRegistry ON Ships(Registry);

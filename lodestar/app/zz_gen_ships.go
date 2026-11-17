@@ -20,15 +20,15 @@ import (
 
 func (a *App) Ships() http.HandlerFunc {
 	type ship struct {
-		ID             impulse.UUID `json:"id"          index:"true" perm:"-"`
-		HangarID       impulse.UUID `json:"hangarId"    index:"true"`
-		ClassID        impulse.UUID `json:"classId"     index:"true"`
-		Registry       string       `json:"registry"    index:"true"`
-		Name           string       `json:"name"`
-		LastRefitAt    *time.Time   `json:"lastRefitAt"`
-		UpdatedAt      *time.Time   `json:"updatedAt"`
-		CargoBays      []int64      `json:"cargoBays"`
-		TransponderKey *string      `json:"-"`
+		ID             impulse.UUID     `json:"id"          index:"true" perm:"-"`
+		HangarID       impulse.UUID     `json:"hangarId"    index:"true"`
+		ClassID        impulse.UUID     `json:"classId"     index:"true"`
+		Registry       string           `json:"registry"    index:"true"`
+		Name           string           `json:"name"`
+		LastRefitAt    *time.Time       `json:"lastRefitAt"`
+		UpdatedAt      *time.Time       `json:"updatedAt"`
+		CargoBays      []int64          `json:"cargoBays"`
+		TransponderKey *resource.Secret `json:"-"`
 	}
 
 	type response []map[string]any
@@ -126,15 +126,15 @@ func (a *App) Ships() http.HandlerFunc {
 
 func (a *App) Ship() http.HandlerFunc {
 	type response struct {
-		ID             impulse.UUID `json:"id"          index:"true" perm:"-"`
-		HangarID       impulse.UUID `json:"hangarId"`
-		ClassID        impulse.UUID `json:"classId"`
-		Registry       string       `json:"registry"    index:"true"`
-		Name           string       `json:"name"`
-		LastRefitAt    *time.Time   `json:"lastRefitAt"`
-		UpdatedAt      *time.Time   `json:"updatedAt"`
-		CargoBays      []int64      `json:"cargoBays"`
-		TransponderKey *string      `json:"-"`
+		ID             impulse.UUID     `json:"id"          index:"true" perm:"-"`
+		HangarID       impulse.UUID     `json:"hangarId"`
+		ClassID        impulse.UUID     `json:"classId"`
+		Registry       string           `json:"registry"    index:"true"`
+		Name           string           `json:"name"`
+		LastRefitAt    *time.Time       `json:"lastRefitAt"`
+		UpdatedAt      *time.Time       `json:"updatedAt"`
+		CargoBays      []int64          `json:"cargoBays"`
+		TransponderKey *resource.Secret `json:"-"`
 	}
 
 	decoder := NewQueryDecoder[resources.Ship, response](a, accesstypes.Read)

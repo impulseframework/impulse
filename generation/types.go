@@ -2129,8 +2129,9 @@ func (f *resourceField) ImmutableTag() string {
 
 // SqltypeTag renders sqltype:"<column type>" onto a patch request-struct field whose
 // value the decoder sizes against its column's declared type (resource.HasValueLimit): a
-// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, and a
-// slice of one of those, named or not, on the matching ARRAY. The tag consults the Go
+// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, a slice of
+// one of those, named or not, on the matching ARRAY, and a stored secret on the BYTES(n)
+// its sealed form is stored in. The tag consults the Go
 // type and the column alone: a @typescript declaration on the type changes the
 // interface, never the limit. A field hidden from the patch wire (a key, an output-only
 // field), a view's field, and every other pair carry no tag, so the structs stay quiet
@@ -2161,11 +2162,17 @@ func (f *resourceField) TypescriptMaxLength() int {
 	if f.SqltypeTag() == "" {
 		return 0
 	}
-	if kind, _ := valueKindOf(f.GoType()); kind != resource.ValueKindString {
+	kind, _ := valueKindOf(f.GoType())
+	if kind != resource.ValueKindString && kind != resource.ValueKindSecret {
 		return 0
 	}
 	if !slices.Contains(maxLengthDisplayTypes, displayType(strings.ToLower(f.TypescriptDisplayType()))) {
 		return 0
+	}
+	if kind == resource.ValueKindSecret {
+		// The column holds the value sealed: the form is told the room left for the
+		// value itself. The decoder counts bytes, which a character is one or more of.
+		return resource.DeclaredLength(f.SpannerType) - resource.SecretOverhead
 	}
 
 	return resource.DeclaredLength(f.SpannerType)

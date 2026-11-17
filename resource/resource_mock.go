@@ -20,6 +20,9 @@ type MockClient struct {
 	// stores are the file stores by name a committed transaction's released file
 	// objects are deleted from, as on the Spanner client.
 	stores *fileStores
+	// secrets are the secret keys its transactions seal a patch's secret fields with,
+	// as on the Spanner client; nil when the client was built with none.
+	secrets *SecretKeys
 }
 
 // NewMockClient creates a new MockClient for testing resource database interactions.
@@ -35,15 +38,25 @@ type MockClient struct {
 //
 // WithFileStore and WithNamedFileStore hand it the stores ExecuteFunc deletes released
 // file objects from after the function returns, so a test can assert what a patch
-// released.
+// released. WithSecretKeys hands it the keys its transactions seal a patch's secret
+// fields with, built from fixed bytes in a test (NewSecretKeys), so what a patch buffers
+// is the sealed value and the test can open it.
 func NewMockClient(txnMock ReadWriteTransaction, readOnlyMocks, txnReadMocks []any, opts ...ClientOption) *MockClient {
+	stores, secrets := applyClientOptions(opts)
+
 	return &MockClient{
 		dbType:        SpannerDBType,
 		readOnlyMocks: readOnlyMocks,
 		txnReadMocks:  txnReadMocks,
 		txnMock:       txnMock,
-		stores:        applyClientOptions(opts),
+		stores:        stores,
+		secrets:       secrets,
 	}
+}
+
+// secretKeys returns the secret keys the client was built with, nil when it holds none.
+func (c *MockClient) secretKeys() *SecretKeys {
+	return c.secrets
 }
 
 // DBType returns the database type the mock stands in for.
@@ -77,7 +90,7 @@ func (c *MockClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // collector ctx carries (CollectTouchedRows), runs what the patches registered for after
 // the commit (AfterCommit), and does none of it when it errors.
 func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
-	txn := newMockReadWriteTransaction(c.txnMock, newReleasedKeys(), c.txnReadMocks...)
+	txn := newMockReadWriteTransaction(c.txnMock, newReleasedKeys(), c.txnReadMocks...).WithSecretKeys(c.secrets)
 	if err := f(ctx, txn); err != nil {
 		return errors.Wrap(err, "f()")
 	}
@@ -112,9 +125,13 @@ type MockReadWriteTransaction struct {
 	released       *releasedKeys
 	touchedRows    *touchedRows
 	committed      *afterCommit
+	// secrets are the secret keys the transaction seals a patch's secret fields with,
+	// nil when it holds none.
+	secrets *SecretKeys
 }
 
-// NewMockReadWriteTransaction creates a new MockReadWriteTransaction.
+// NewMockReadWriteTransaction creates a new MockReadWriteTransaction. A test whose
+// patches set a secret field gives it the secret keys with WithSecretKeys.
 func NewMockReadWriteTransaction(mock ReadWriteTransaction, txnReaderMocks ...any) *MockReadWriteTransaction {
 	return newMockReadWriteTransaction(mock, newReleasedKeys(), txnReaderMocks...)
 }
@@ -128,7 +145,22 @@ func newMockReadWriteTransaction(mock ReadWriteTransaction, released *releasedKe
 		released:       released,
 		touchedRows:    newTouchedRows(),
 		committed:      newAfterCommit(),
+		secrets:        nil,
 	}
+}
+
+// WithSecretKeys gives the transaction the secret keys it seals a patch's secret fields
+// with, and returns the transaction. The Mock client's ExecuteFunc gives a transaction
+// its own; this is for one a test builds itself (NewMockReadWriteTransaction).
+func (c *MockReadWriteTransaction) WithSecretKeys(keys *SecretKeys) *MockReadWriteTransaction {
+	c.secrets = keys
+
+	return c
+}
+
+// secretKeys returns the secret keys the transaction seals with, nil when it holds none.
+func (c *MockReadWriteTransaction) secretKeys() *SecretKeys {
+	return c.secrets
 }
 
 // recordAfterCommit notes a function to run once the transaction has committed.

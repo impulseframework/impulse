@@ -23,19 +23,45 @@ func (Ship) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// SecretContext names what a secret of the row is bound to: its primary key, column by
+// column in key order. A stored secret opens on the row it was written for and on no
+// other (resource.Secret).
+func (Ship) SecretContext() []accesstypes.Field {
+	return []accesstypes.Field{
+		"ID",
+	}
+}
+
+// OpenTransponderKey opens the row's TransponderKey: the value it was set to, from the
+// stored bytes, the application's secret keys and the row's own primary key, which a
+// query that reads the field reads with it. Bytes written for another row, or under a
+// version of the application secret the service was not given, are an error.
+// A row that holds no value answers nil.
+func (row *Ship) OpenTransponderKey(keys *resource.SecretKeys) (*string, error) {
+	return keys.OpenNullable(resource.KeySet{}.Add("ID", row.ID), row.TransponderKey)
+}
+
+// OpenTransponderKeyIn is OpenTransponderKey inside a read-write transaction, with the
+// keys of the transaction's client: a value sealed under an older version of the
+// application secret is written back under the current one in the same transaction,
+// while the row still holds the bytes that were opened.
+func (row *Ship) OpenTransponderKeyIn(ctx context.Context, txn resource.ReadWriteTransaction) (*string, error) {
+	return resource.OpenNullableSecretIn[Ship](ctx, txn, resource.KeySet{}.Add("ID", row.ID), "TransponderKey", row.TransponderKey)
+}
+
 // shipRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; shipReadSets holds one Set per read operation.
 type shipRead struct {
-	ID             impulse.UUID `json:"id"          perm:"-"`
-	HangarID       impulse.UUID `json:"hangarId"`
-	ClassID        impulse.UUID `json:"classId"`
-	Registry       string       `json:"registry"`
-	Name           string       `json:"name"`
-	LastRefitAt    *time.Time   `json:"lastRefitAt"`
-	UpdatedAt      *time.Time   `json:"updatedAt"`
-	CargoBays      []int64      `json:"cargoBays"`
-	TransponderKey *string      `json:"-"`
+	ID             impulse.UUID     `json:"id"          perm:"-"`
+	HangarID       impulse.UUID     `json:"hangarId"`
+	ClassID        impulse.UUID     `json:"classId"`
+	Registry       string           `json:"registry"`
+	Name           string           `json:"name"`
+	LastRefitAt    *time.Time       `json:"lastRefitAt"`
+	UpdatedAt      *time.Time       `json:"updatedAt"`
+	CargoBays      []int64          `json:"cargoBays"`
+	TransponderKey *resource.Secret `json:"-"`
 }
 
 var shipReadSets resource.SetCache[Ship, shipRead]
@@ -52,7 +78,7 @@ type shipWrite struct {
 	LastRefitAt    *time.Time   `json:"-"`
 	UpdatedAt      *time.Time   `json:"-"`
 	CargoBays      []int64      `json:"cargoBays"`
-	TransponderKey *string      `json:"transponderKey" sqltype:"STRING(64)"`
+	TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(105)"`
 }
 
 var shipWriteSets resource.SetCache[Ship, shipWrite]

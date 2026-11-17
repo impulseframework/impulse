@@ -564,10 +564,20 @@ func (q *QuerySet[Resource]) addAccessibleFields(ctx context.Context, dbType DBT
 	return nil
 }
 
-// AddField adds a field to be returned by the query.
+// AddField adds a field to be returned by the query. A secret field brings its row's
+// primary key with it (the generated SecretContext): the stored bytes open on the key,
+// and the row's generated Open method takes the key from the row, so a row read for its
+// secret alone would open on no key at all.
 func (q *QuerySet[Resource]) AddField(field accesstypes.Field) *QuerySet[Resource] {
 	if !slices.Contains(q.fields, field) {
 		q.fields = append(q.fields, field)
+	}
+	if q.rMeta.secret(field) {
+		for _, key := range q.rMeta.secretContext {
+			if !slices.Contains(q.fields, key) {
+				q.fields = append(q.fields, key)
+			}
+		}
 	}
 
 	return q

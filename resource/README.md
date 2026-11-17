@@ -144,22 +144,31 @@ Values recognized in a `conditions` tag:
   envelope when the caller's Update grant covers it, since the envelope speaks for every
   field the caller may write, projected or not (section 4). Example:
   [DistressCall.Transcript](../lodestar/pkg/resources/distress_calls.go).
-- `secret` — the field holds a secret: a password, an API key, a signing key. It says
-  everything `input_only` says, since a secret is never served, and two things more. The
-  metadata entry is flagged `secret: true` beside `writeOnly: true`, so a form types the
-  value into a masked input whose toggle shows what is being typed; there is no stored
-  value for it to show, since the server returns none. And a change record names the
-  field as changed and keeps neither its old value nor its new one (`"Secret": true` in
-  the change set), where it keeps both for every other field, write-only ones included.
-  `input_only` alone does not mean secret: a write-only field can be something a person
-  files and the server does not serve back, which is read as it is typed and belongs in
-  the record. The generator refuses `secret` where the field cannot honor it: on a primary
-  key, on a field the server owns (`output_only`, an `@state` column, the tenant key), on
-  a view, on a foreign key or a field with a picker (`@enumerate`), and on a column that
-  is not one `STRING` or one `BYTES` value, since a form masks text as it is typed and
-  would draw a number, a date or a list in the open. A method's request field takes the
-  same word under the same rule (text or bytes, no picker), and the method's dialog draws
-  the same masked input (the generated temporary-password methods declare theirs so).
+- `secret` — the field holds a secret the application must use itself: an API key, a
+  signing key, a credential of another system. It says everything `input_only` says, since
+  a secret is never served, and three things more. The value is kept encrypted: the field
+  is typed `resource.Secret` (`*resource.Secret` where the column allows `NULL`) on a
+  `BYTES` column, the write path seals the value where it turns a patch into columns, and
+  code that needs the value opens it with the row's generated `Open<Field>` method
+  (section 23). The metadata entry is flagged `secret: true` beside `writeOnly: true`, so
+  a form types the value into a masked input whose toggle shows what is being typed;
+  there is no stored value for it to show, since the server returns none. And a change
+  record names the field as changed and keeps neither its old value nor its new one
+  (`"Secret": true` in the change set), where it keeps both for every other field,
+  write-only ones included. `input_only` alone does not mean secret: a write-only field
+  can be something a person files and the server does not serve back, which is read as it
+  is typed and belongs in the record. A value a caller presents to the application to be
+  let in (an application token, a password) is not a `secret` field either: the session
+  library stores those as hashes, since the application never needs the original back.
+  The generator refuses `secret` where the field cannot honor it: on a primary key, on a
+  field the server owns (`output_only`, an `@state` column, the tenant key), on a view, on
+  a foreign key or a field with a picker (`@enumerate`), on a field typed anything but
+  `resource.Secret` (a plain `string` or `[]byte` would be stored as it was typed; the
+  refusal names the type to give it), and on a column that is not `BYTES` with room for
+  the 41 bytes sealing adds. A method's request field takes the same word, unchanged: text
+  or bytes, no picker, and the method's dialog draws the same masked input (the generated
+  temporary-password methods declare theirs so). That value is never stored, so it is
+  never sealed, and a request field typed `resource.Secret` is refused.
   Example:
   [Ship.TransponderKey](../lodestar/pkg/resources/ships.go).
 - `output_only` — the server owns the value: returned to clients but never accepted from
@@ -186,8 +195,9 @@ client-supplied at all (e.g. a commit timestamp).
 These conditions describe the REST contract only: what an untrusted client can read and
 write over the wire. Application code calling the generated CRUD layer is not constrained
 by them — it can write any field; that path is guarded by code review, not by these
-rules. One part of `secret` is not the wire's alone: a change record leaves the value
-out whoever wrote it, application code included, since the patch layer writes the record. The `default_create_fn` / `output_only_update_fn` functions are not REST-specific,
+rules. Two parts of `secret` are not the wire's alone: the value is sealed and a change
+record leaves it out whoever wrote it, application code included, since the patch layer
+does both. The `default_create_fn` / `output_only_update_fn` functions are not REST-specific,
 however: they run inside the generated patch pipeline and fire for application code
 exactly as for REST requests. They fill a field the caller left unset — explicitly
 setting the field pre-empts them, which a REST client can never do for an output-only
@@ -3178,3 +3188,136 @@ generated patch offers which method, and which handler and which client takes wh
 operation. Lodestar serves both operations over a refit's tasks
 (`lodestar/test/integration/batch_decided_test.go`), and the browser client's specs are
 `web/projects/resource/src/batch.spec.ts` and `patch-or-add.types.spec.ts`.
+
+## 23. Secrets at rest
+
+A field declared `conditions:"secret"` is kept in the database encrypted. Anyone who can
+query the database, or read a backup or an export, reads bytes that open only inside the
+service. There is no plain kind: the generator refuses a stored secret that is not typed
+`resource.Secret`, so a new secret field cannot be stored as it was typed.
+
+```go
+// TransponderKey is the key the ship's transponder signs its answers with.
+TransponderKey *resource.Secret `spanner:"TransponderKey" conditions:"secret"`
+```
+
+```sql
+TransponderKey BYTES(105),  -- a key of up to 64 bytes, and the 41 sealing adds
+```
+
+**The application secret.** One secret of the application, 32 random bytes, kept in
+versions. It never encrypts anything itself: at start the service derives one working key
+for each use and each version from it with HKDF, under a fixed label naming the use and the
+version (the session library derives its cookie key the same way), so the keys that seal
+resource fields have no relation to the keys of any other use.
+
+**What a column holds.** One value of three parts: the version of the application secret
+that sealed it (one byte, 1 to 255), a random number drawn for the write (24 bytes), and
+the encrypted value with its 16-byte check. The cipher is XChaCha20-Poly1305
+(`golang.org/x/crypto/chacha20poly1305`). Sealing adds 41 bytes (`resource.SecretOverhead`),
+so a column that takes a value of up to n bytes is `BYTES(n+41)`, or `BYTES(MAX)`; the
+value limit a request is held to (section 11) and the form's `maxLength` are the column's
+length less 41, counted in bytes.
+
+**The context.** The row's primary key, every key column in key order, is mixed into the
+check when a value is sealed and again when it is opened. It is never stored: each
+operation takes it from the row it works on. Bytes copied onto another row do not open
+there. The table's and the column's names are left out, so renaming either breaks nothing;
+the key order is the key's own (the generated `SecretContext`), so reordering the struct's
+fields breaks nothing either. A key column the database stamps at commit cannot bind a
+secret, and a write of one is refused.
+
+**`resource.Secret`.** The field's type. It holds the stored bytes and nothing else, and
+goes in and out of the database unchanged, on Spanner and on PostgreSQL. It prints as
+`[secret]` in JSON, in a log line, through `fmt` and in an error's text; it refuses to be
+read from JSON; and it has no method that gives the value. `KeyVersion()` says which
+version sealed it.
+
+**`resource.SecretKeys`.** The key holder, built once at start from the versions of the
+application secret, and the one thing in the process that holds key material (it keeps the
+derived keys, not the versions it was built from). The highest version given is the current
+one. The data level builds it and hands it to the database client:
+
+```go
+keys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.LookupEnv)
+// ...
+db, err := database.Open(ctx, env.Database.Settings, resource.WithSecretKeys(keys))
+```
+
+`resource.WithSecretKeys` is an option of the Spanner, PostgreSQL and mock clients alike
+(`resource.NewSpannerClient(db, resource.WithSecretKeys(keys))`); given twice, the client
+panics at construction. `resource.NewSecretKeys(map[int][]byte{1: ...})` builds the holder
+from fixed bytes, which is what a test does.
+
+**The configuration.** The application's configuration declares the secret beside its
+other variables, `secret:"versioned"`: a secret the deployment generates, of which the
+service is handed every enabled version.
+
+```go
+SecretKey string `env:"APP_SECRET_KEY" secret:"versioned"`
+```
+
+No variable has the declared name. Each version arrives in a variable of its own, the name
+and the version's number (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), holding the version's 32
+bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set. With none set
+it answers no keys and no error, so an application that stores no secret runs without the
+variable; a variable that is set and does not hold a version is an error naming the
+variable, never its value. The development environment file carries `APP_SECRET_KEY_1` (a
+fixed development value in the skeletons' and Lodestar's `.envrc.template`), and
+`impulse check` (`env-template`) holds the template to it.
+
+**Writing.** No code of the author's. A request and a typed patch give the value as text
+(`patch.SetTransponderKey(&key)`; the generated request structs, the typed patches'
+setters and the TypeScript shapes carry a `string`), and the write path seals it where it
+turns the patch's fields into columns (`PatchSet.Resolve`), with the keys of its
+transaction's client and the row's primary key. The same value sealed twice gives different
+bytes. A secret set to the value its row already holds is still no change: the write path
+opens the stored value to compare, so the update that changes nothing writes no change
+record. A grant's condition never reads a secret: the proposed value is left out of the
+statement the conditions are judged in.
+
+**Using a value.** The generator writes two methods on the resource struct for each secret
+field. Both take the context from the row, so an author cannot pass another row's key, and
+a query that reads a secret field reads the row's key columns with it.
+
+```go
+ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().TransponderKey()).SetID(id).Read(ctx, txn)
+// ...
+key, err := ship.Data.OpenTransponderKey(keys)       // anywhere: opens, writes nothing
+key, err := ship.Data.OpenTransponderKeyIn(ctx, txn) // in a read-write transaction
+```
+
+**Rewriting under a new version.** A value that names an older version than the current
+one is written again under the current one the next time it is set, like any write, and
+the next time it is opened inside a read-write transaction (`Open<Field>In`, which takes
+the keys from the transaction's client). That rewrite is the stored bytes alone: the value
+does not change, so no permission is asked, no update function stamps the row and no change
+record is written, and it is buffered only when the row, read again inside the transaction,
+still holds the bytes that were opened. `Open<Field>(keys)` never writes. At a rotation, a
+request already running on a revision that was not handed the new version can meet a value
+the new revision rewrote, and answers an error for that request.
+
+**Refusals.**
+
+- A stored field declared `secret` and typed a plain `string` or `[]byte`, or on a column
+  that is not `BYTES` with room for a sealed value: refused at generation, with the type
+  and the column to give it. A field typed `resource.Secret` and not declared `secret` is
+  refused the same way.
+- An application that stores a secret, whose resource client was built with no keys:
+  refused at start. The generated router's `New` calls `resource.RequireSecretKeys` with
+  every secret field and panics naming them and `resource.WithSecretKeys`. A write of a
+  secret through a transaction that holds no keys is an error too.
+- A value that names a version the service was not given: a
+  `*resource.UnknownSecretVersionError` when it is opened, naming the version and the
+  versions the service holds.
+- Bytes moved from another row, or altered: `resource.ErrSecretNotOpened` when they are
+  opened.
+
+**Tests.** `resource/secret_test.go` holds the type (nothing prints it), the key holder (a
+value opens on its row and on no other, under the version that sealed it and no version the
+holder was not given), the write path and the rewrite against a capturing transaction;
+`resource/secret_spanner_test.go` and `resource/secret_postgres_test.go` hold the column
+(no plain value, the change record names the field without its values) and a rotation over
+the emulator and a PostgreSQL container; `generation/secret_test.go` holds the refusals and
+the generated methods. Lodestar's ship carries a transponder key
+(`lodestar/test/integration/secret_test.go`).

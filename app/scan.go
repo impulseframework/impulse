@@ -895,7 +895,7 @@ func parseEnvTags(rel string, src []byte) ([]EnvTag, error) {
 		return true
 	})
 	if r.bad != nil {
-		return nil, errors.Newf("%s:%d: secret:%q on %s: the secret tag takes %q, %q or %q", rel, r.bad.Line, r.badValue, r.bad.Name, secretTrue, secretGenerated, secretFalse)
+		return nil, errors.Newf("%s:%d: secret:%q on %s: the secret tag takes %q, %q, %q or %q", rel, r.bad.Line, r.badValue, r.bad.Name, secretTrue, secretGenerated, secretVersioned, secretFalse)
 	}
 
 	return r.tags, nil
@@ -953,6 +953,8 @@ func (r *envTagReader) readField(field *ast.Field, line int) {
 			tag.Secret = true
 		case secretGenerated:
 			tag.Secret, tag.Generated = true, true
+		case secretVersioned:
+			tag.Secret, tag.Generated, tag.Versioned = true, true, true
 		case secretFalse:
 		default:
 			r.bad, r.badValue = &tag, secret
@@ -1005,12 +1007,15 @@ func declaredTags(d cloud.Declaration, rel string, line int) []EnvTag {
 }
 
 // secretTag is the struct tag beside the env tag that declares a secret: secretTrue a
-// value someone puts in place, secretGenerated one the tooling makes, secretFalse a plain
-// value whose name sounds like a credential.
+// value someone puts in place, secretGenerated one the tooling makes, secretVersioned one
+// the tooling makes and keeps in versions, every enabled one of which the service is
+// handed (the application secret, which seals stored secret fields), and secretFalse a
+// plain value whose name sounds like a credential.
 const (
 	secretTag       = "secret"
 	secretTrue      = "true"
 	secretGenerated = "generated"
+	secretVersioned = "versioned"
 	secretFalse     = "false"
 )
 

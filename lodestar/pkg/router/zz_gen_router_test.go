@@ -1755,10 +1755,22 @@ func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
 }
 
-// ResourceClient answers with a mock client carrying every file store New requires,
-// each a stub: the router test never reaches a store.
+// ResourceClient answers with a mock client carrying what New requires: every file
+// store, each a stub, and the secret keys of an application that stores a secret, built
+// from fixed bytes. The router test never reaches a store and never seals a value.
 func (s *routerHandlersStub) ResourceClient() resource.Client {
-	return resource.NewMockClient(nil, nil, nil, resource.WithFileStore(stubFileStore{}), resource.WithNamedFileStore[resources.Documents](stubFileStore{}))
+	return resource.NewMockClient(nil, nil, nil, resource.WithFileStore(stubFileStore{}), resource.WithNamedFileStore[resources.Documents](stubFileStore{}), resource.WithSecretKeys(stubSecretKeys()))
+}
+
+// stubSecretKeys builds the secret keys the router test's client carries, from fixed
+// bytes.
+func stubSecretKeys() *resource.SecretKeys {
+	keys, err := resource.NewSecretKeys(map[int][]byte{1: bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		panic(err)
+	}
+
+	return keys
 }
 
 // stubFileStore satisfies resource.FileStore for the router test.

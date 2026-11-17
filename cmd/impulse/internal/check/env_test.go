@@ -87,6 +87,98 @@ func TestEnvTemplateEmbeddedSettings(t *testing.T) {
 	}
 }
 
+// TestEnvTemplateVersionedSecret runs the check on a configuration declaring a versioned
+// secret: the service is handed one variable for each version and none under the declared
+// name, so the template covers the declaration with its first version, the declared name
+// alone does not, and --fix adds the first version's variable.
+func TestEnvTemplateVersionedSecret(t *testing.T) {
+	t.Parallel()
+
+	const (
+		versionedField   = "\tSecretKey string `env:\"LIGHTHOUSE_SECRET_KEY\" secret:\"versioned\"`\n"
+		covered          = "export LIGHTHOUSE_BEACON_API_KEY=\n"
+		firstMissing     = "pkg/config/config.go:<secret>: LIGHTHOUSE_SECRET_KEY_1 (the first version of LIGHTHOUSE_SECRET_KEY, declared secret:\"versioned\") is not in .envrc.template"
+		fixtureTemplate  = "# Lighthouse local development\nexport LIGHTHOUSE_PROJECT_ID=\nexport LIGHTHOUSE_SPANNER_DATABASE=\n# export LIGHTHOUSE_COOKIE_KEY=\n"
+		addedByFixHeader = "# Added by impulse check --fix: set these for local development.\n"
+	)
+	tests := []struct {
+		name string
+		// template is appended to the fixture's template.
+		template string
+		fix      bool
+		// want is the result, with <secret> for the line of the versioned declaration.
+		want Result
+		// wantTemplate is the template after --fix.
+		wantTemplate string
+	}{
+		{
+			name:     "a template without the first version fails, naming its variable",
+			template: covered,
+			want:     Result{Name: envTemplate{}.Name(), Status: Fail, Summary: "1 variable(s) missing from .envrc.template (--fix adds them)", Details: []string{firstMissing}},
+		},
+		{
+			name:     "the declared name alone does not cover it: no variable has that name",
+			template: covered + "export LIGHTHOUSE_SECRET_KEY=\n",
+			want:     Result{Name: envTemplate{}.Name(), Status: Fail, Summary: "1 variable(s) missing from .envrc.template (--fix adds them)", Details: []string{firstMissing}},
+		},
+		{
+			name:     "the first version's variable covers it",
+			template: covered + "export LIGHTHOUSE_SECRET_KEY_1=\n",
+			want:     pass(envTemplate{}.Name(), "8 env tag(s) covered by .envrc.template"),
+		},
+		{
+			name:         "--fix adds the first version's variable",
+			template:     covered,
+			fix:          true,
+			want:         Result{Name: envTemplate{}.Name(), Status: Pass, Summary: "1 variable(s) added to .envrc.template", Details: []string{firstMissing}},
+			wantTemplate: fixtureTemplate + covered + addedByFixHeader + "export LIGHTHOUSE_SECRET_KEY_1=\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			if err := os.CopyFS(dir, os.DirFS(filepath.Join("..", "..", "..", "..", "app", "testdata", "flat"))); err != nil {
+				t.Fatalf("copy fixture: %v", err)
+			}
+			src := editFile(t, filepath.Join(dir, "pkg", "config", "config.go"), func(src string) string {
+				if !strings.Contains(src, flatDataField) {
+					t.Fatalf("the fixture's config does not contain %q", flatDataField)
+				}
+
+				return strings.Replace(src, flatDataField, flatDataField+versionedField, 1)
+			})
+			editFile(t, filepath.Join(dir, ".envrc.template"), func(src string) string {
+				return src + tt.template
+			})
+			a, err := app.Discover(dir)
+			if err != nil {
+				t.Fatalf("app.Discover() error = %v", err)
+			}
+
+			want := tt.want
+			for i, d := range want.Details {
+				want.Details[i] = strings.ReplaceAll(d, "<secret>", strconv.Itoa(sourceLine(t, src, "SecretKey")))
+			}
+			got := envTemplate{}.Run(context.Background(), &Env{App: a, Fix: tt.fix})
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("Run() mismatch (-want +got):\n%s", diff)
+			}
+			if tt.wantTemplate == "" {
+				return
+			}
+			data, err := os.ReadFile(a.Abs(a.EnvTemplate))
+			if err != nil {
+				t.Fatalf("os.ReadFile() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantTemplate, string(data)); diff != "" {
+				t.Errorf("template after --fix mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // embeddingFixture copies the flat fixture, embeds the cloud driver's settings struct in
 // its core configuration, appends the lines to its template, and discovers it; it returns
 // the application and the edited config source.

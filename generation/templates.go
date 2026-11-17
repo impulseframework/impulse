@@ -75,6 +75,40 @@ func ({{ .Resource.Name }}) SearchBranches() []resource.SearchBranch {
 	}
 }
 {{- end }}
+{{- if .Resource.SecretFields }}
+
+// SecretContext names what a secret of the row is bound to: its primary key, column by
+// column in key order. A stored secret opens on the row it was written for and on no
+// other (resource.Secret).
+func ({{ .Resource.Name }}) SecretContext() []accesstypes.Field {
+	return []accesstypes.Field{
+	{{- range $field := .Resource.SecretContext }}
+		"{{ $field.Name }}",
+	{{- end }}
+	}
+}
+{{- range $field := .Resource.SecretFields }}
+
+// Open{{ $field.Name }} opens the row's {{ $field.Name }}: the value it was set to, from the
+// stored bytes, the application's secret keys and the row's own primary key, which a
+// query that reads the field reads with it. Bytes written for another row, or under a
+// version of the application secret the service was not given, are an error.
+{{- if $field.IsPointer }}
+// A row that holds no value answers nil.
+{{- end }}
+func (row *{{ $.Resource.Name }}) Open{{ $field.Name }}(keys *resource.SecretKeys) ({{ $field.PatchValueType }}, error) {
+	return keys.Open{{ if $field.IsPointer }}Nullable{{ end }}({{ $.Resource.SecretKeyExpr }}, row.{{ $field.Name }})
+}
+
+// Open{{ $field.Name }}In is Open{{ $field.Name }} inside a read-write transaction, with the
+// keys of the transaction's client: a value sealed under an older version of the
+// application secret is written back under the current one in the same transaction,
+// while the row still holds the bytes that were opened.
+func (row *{{ $.Resource.Name }}) Open{{ $field.Name }}In(ctx context.Context, txn resource.ReadWriteTransaction) ({{ $field.PatchValueType }}, error) {
+	return resource.Open{{ if $field.IsPointer }}Nullable{{ end }}SecretIn[{{ $.Resource.Name }}](ctx, txn, {{ $.Resource.SecretKeyExpr }}, "{{ $field.Name }}", row.{{ $field.Name }})
+}
+{{- end }}
+{{- end }}
 
 // {{ PrivateType .Resource.Name }}Read mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
@@ -93,7 +127,7 @@ var {{ PrivateType .Resource.Name }}ReadSets resource.SetCache[{{ .Resource.Name
 // routes enforce; {{ PrivateType .Resource.Name }}WriteSets holds one Set per mutation.
 type {{ PrivateType .Resource.Name }}Write struct {
 	{{- range $field := .Resource.Fields }}
-	{{ $field.Name }} {{ $field.ResolvedType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }}`" + `
+	{{ $field.Name }} {{ $field.PatchValueType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }}`" + `
 	{{- end }}
 }
 
@@ -2237,7 +2271,7 @@ import (
 	patchTemplate = `func ({{ .ReceiverName }} *{{ .ApplicationName }}) Patch{{ Pluralize .Resource.Name }}() http.HandlerFunc {
 	type request struct {
 		{{- range $field := .Resource.Fields }}
-		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
+		{{ $field.Name }} {{ $field.RequestType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
 		{{- end }}
 	}
 	
@@ -2473,7 +2507,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 	{{- range $resource := .Resources }}
 	type {{ GoCamel $resource.Name }}Request struct {
 		{{- range $field := .Fields }}
-		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
+		{{ $field.Name }} {{ $field.RequestType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
 		{{- end }}
 	}
 	{{ GoCamel $resource.Name}}Decoder := NewDecoder[{{ $resourcePackage }}.{{ $resource.Name }}, {{ GoCamel $resource.Name }}Request]({{ $.ReceiverName }}, {{ $resource.PatchPermissionList }})
@@ -5348,7 +5382,7 @@ func fieldAccessors(patchType patchType) string {
 	return fmt.Sprintf(`
 		{{- range $field := .Resource.Fields }}
 		{{ if not $field.IsPrimaryKey }}
-		func (p *{{ $field.Parent.Name }}%[1]sPatch) Set{{ $field.Name }}(v {{ $field.ResolvedType }}) *{{ $field.Parent.Name }}%[1]sPatch {
+		func (p *{{ $field.Parent.Name }}%[1]sPatch) Set{{ $field.Name }}(v {{ $field.PatchValueType }}) *{{ $field.Parent.Name }}%[1]sPatch {
 			{{ if $field.IsPointer -}}
 				if v != nil {
 					p.patchSet.Set("{{ $field.Name }}", v)
@@ -5363,11 +5397,11 @@ func fieldAccessors(patchType patchType) string {
 		}
 		{{ end }}
 
-		func (p *{{ $field.Parent.Name }}%[1]sPatch) {{ $field.Name }}() {{ $field.ResolvedType }} {
+		func (p *{{ $field.Parent.Name }}%[1]sPatch) {{ $field.Name }}() {{ $field.PatchValueType }} {
 		{{ if $field.IsPrimaryKey -}} 
 			v, _ := p.patchSet.Key("{{ $field.Name }}").({{ $field.ResolvedType }})
 		{{ else -}} 
-			v, _ := p.patchSet.Get("{{ $field.Name }}").({{ $field.ResolvedType }}) 
+			v, _ := p.patchSet.Get("{{ $field.Name }}").({{ $field.PatchValueType }}) 
 		{{ end }}
 
 			return v

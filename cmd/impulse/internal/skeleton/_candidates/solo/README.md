@@ -129,6 +129,25 @@ reads every row with `all()`. Computed resources answer the same query surface; 
 function may take the conditions, sort, or page it pushes down and the generated handler
 applies the rest.
 
+## Secret fields
+
+A field that holds a secret the application must use itself (an API key, a signing key) is
+declared `conditions:"secret"` and typed `resource.Secret`, on a `BYTES` column with room
+for the 41 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(105)` takes a key
+of up to 64 bytes. The field is never served, the form masks it, a change record names it
+without its values, and the database holds it encrypted: the resource client seals the
+value when it is written, and code that needs it opens it with the row's generated method
+(`row.OpenAPIKey(conf.SecretKeys())`, or `row.OpenAPIKeyIn(ctx, txn)` inside a
+transaction). The generator refuses a `secret` field typed a plain `string`.
+
+The key is the application secret, which `pkg/config` declares
+(`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
+keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
+`APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
+the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
+current one. An application with a secret field refuses to start without a version. The
+framework's `resource/README.md`, "Secrets at rest", has the whole of it.
+
 ## Running it
 
     cp .envrc.template .envrc && direnv allow

@@ -1529,7 +1529,9 @@ const (
 // by qualified Go type name: the basic types, the library types a column or a wire
 // field may carry (UUIDs, decimals, times, dates), the Spanner Null wrappers
 // (nullability comes from the schema, so a nullable spanner.NullBool column renders
-// nullboolean exactly as *bool does), securehash.Hash as its text form, and
+// nullboolean exactly as *bool does), securehash.Hash as its text form, resource.Secret
+// as the text a stored secret is given as (the Create and Patch shapes carry a string,
+// and the row interface carries nothing of a field that is never served), and
 // spanner.NullJSON and json.RawMessage as unknown, a value with no fixed shape (the two
 // share one wire form, any JSON value or null, and neither can carry a @typescript
 // declaration). impulse.NullEnum[T] resolves to its type argument's row (leaf.go).
@@ -1544,6 +1546,7 @@ func defaultTypescriptOverrides() map[string]string {
 		reflect.TypeFor[time.Time]().String():           dateTSType,
 		reflect.TypeFor[civil.Date]().String():          civilDateTSType,
 		reflect.TypeFor[spanner.NullString]().String():  stringTSType,
+		reflect.TypeFor[resource.Secret]().String():     stringTSType,
 		reflect.TypeFor[spanner.NullInt64]().String():   numberTSType,
 		reflect.TypeFor[spanner.NullFloat32]().String(): numberTSType,
 		reflect.TypeFor[spanner.NullFloat64]().String(): numberTSType,

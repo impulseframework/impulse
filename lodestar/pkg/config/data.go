@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log"
+	"os"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -63,7 +64,8 @@ type LiveSettings struct {
 
 // DataConfiguration is the second level: every process that opens the database. It
 // owns the database driver (the Spanner client over the database, and the resource
-// client over it with the file stores wired), the file stores, the live service over the
+// client over it with the file stores and the secret keys wired), the file stores, the
+// secret keys that seal the stored secret fields, the live service over the
 // Firestore database, the tenant roster (the Sectors table's keys, loaded here and kept
 // current through the live service's tenants signal), and the two auths (each its
 // permission engine and session manager), whose engines announce and watch policy changes
@@ -72,17 +74,20 @@ type DataConfiguration struct {
 	*coreConfiguration
 	env *dataConfig
 	// database is the database driver: the Spanner client over the database and the
-	// resource client over it, the file stores wired on the client.
+	// resource client over it, the file stores and the secret keys wired on the client.
 	database *database.Driver
 	// files is the default store, the refit photos'; documents the Documents store, the
 	// mission documents'. Either is nil when its variable is unset.
 	files     filestore.Store
 	documents filestore.Store
 	cursorKey *resource.CursorKey
-	crew      *crew.Auth
-	tenants   *resource.TenantRoster
-	members   *members.Auth
-	live      *liveservice.Service
+	// secretKeys seals and opens the stored secret fields (a ship's transponder key); nil
+	// where the environment carries no version of the application secret.
+	secretKeys *resource.SecretKeys
+	crew       *crew.Auth
+	tenants    *resource.TenantRoster
+	members    *members.Auth
+	live       *liveservice.Service
 }
 
 // NewDataConfiguration loads the core and data levels and opens their clients. Each
@@ -118,9 +123,26 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		return nil, err
 	}
 
+	// The application secret's versions, each in a variable of its own named by the name
+	// dataConfig declares and the version's number (APP_SECRET_KEY_1, APP_SECRET_KEY_2),
+	// the highest the current one: the keys the resource client seals every stored secret
+	// field with (a ship's transponder key, conditions:"secret"), where the write path
+	// turns a patch's fields into columns, and a row's generated Open method opens one
+	// with. Nothing else in the process holds key material. A value sealed under an older
+	// version still opens while the service is handed that version, and is written again
+	// under the current one when it is next set, or opened inside a transaction. No
+	// version in the environment is no keys: the migrate and bootstrap commands run so,
+	// and the server refuses to start, since its resources store a secret (router.New).
+	//
+	// Demonstrates: secret.rotation.
+	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.LookupEnv)
+	if err != nil {
+		return nil, errors.Wrap(err, "resource.SecretKeysFromEnv()")
+	}
+
 	// The database driver: the Spanner client over the database the settings name, and
-	// the resource client over it with the stores wired.
-	db, err := database.Open(ctx, env.Database.Settings, fileStoreOptions(files, documents)...)
+	// the resource client over it with the stores and the secret keys wired.
+	db, err := database.Open(ctx, env.Database.Settings, append(fileStoreOptions(files, documents), resource.WithSecretKeys(secretKeys))...)
 	if err != nil {
 		return nil, errors.Wrap(err, "database.Open()")
 	}
@@ -193,6 +215,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		files:             files,
 		documents:         documents,
 		cursorKey:         cursorKey,
+		secretKeys:        secretKeys,
 		crew:              crewAuth,
 		tenants:           tenants,
 		live:              liveService,
@@ -257,8 +280,9 @@ func (c *DataConfiguration) LiveOrigins() []string {
 }
 
 // ResourceClient returns the database client the resource layer uses, the driver's, with
-// the file stores wired on it: the generated handlers read each store off it, and a
-// committed transaction's released objects are deleted from their store.
+// the file stores and the secret keys wired on it: the generated handlers read each
+// store off it, a committed transaction's released objects are deleted from their store,
+// and every write of a secret field is sealed with the keys.
 func (c *DataConfiguration) ResourceClient() resource.Client {
 	return c.database.ResourceClient
 }
@@ -266,6 +290,14 @@ func (c *DataConfiguration) ResourceClient() resource.Client {
 // CursorKey returns the key that seals list cursors.
 func (c *DataConfiguration) CursorKey() *resource.CursorKey {
 	return c.cursorKey
+}
+
+// SecretKeys returns the application's secret keys: what a row's generated Open method
+// opens a stored secret field with outside a transaction (ship.OpenTransponderKey).
+// Nil where the environment carries no version of the application secret, which opens
+// nothing.
+func (c *DataConfiguration) SecretKeys() *resource.SecretKeys {
+	return c.secretKeys
 }
 
 // Access returns the permission engine the handlers check against: the crew auth's,
@@ -449,6 +481,15 @@ type dataConfig struct {
 	// cryptographically secure random data. Unset, an ephemeral key is generated at
 	// startup.
 	CookieKey string `env:"APP_COOKIE_KEY"`
+
+	// SecretKey declares the application secret: 32 random bytes kept in versions, which
+	// every stored secret field (conditions:"secret") is encrypted with. secret:"versioned"
+	// has a deployment generate it and hand the service every enabled version, each in a
+	// variable of its own named by this one and the version's number (APP_SECRET_KEY_1,
+	// APP_SECRET_KEY_2). No variable has this name itself, so the field stays empty: the
+	// versions are read into the key holder when the level opens
+	// (resource.SecretKeysFromEnv, under this name).
+	SecretKey string `env:"APP_SECRET_KEY" secret:"versioned"`
 	// Each auth's Google registration (pkg/auth/crew, pkg/auth/members): the application's
 	// client credentials, the callback Google returns the browser to, the Workspace domain
 	// logins are restricted to, whether the fleet administers the Workspace (its people
