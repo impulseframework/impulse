@@ -835,7 +835,11 @@ func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 // rows and reports whether it did: the roles first, then the user who holds them
 // (seedFoothold). Once a user exists nothing is seeded. An empty password is refused
 // while the table is empty: a deployment carries the generated one, and nothing seeds a
-// user without a password.
+// user without a password. The password is the one the deployment generated, known to
+// whoever can read that secret, so the user is created marked to change it
+// (session.CreateUserRequest.PasswordChangeRequired): the person signs in with it once,
+// is served nothing but the password change until they have chosen one of their own, and
+// the generated one signs nobody in after that.
 func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, error) {
 	empty, err := a.usersTableEmpty(ctx)
 	if err != nil {
@@ -847,7 +851,7 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 	if password == "" {
 		return false, errors.Newf("the %s auth's users table holds no rows and no administrator password was given: a deployment generates one as a secret, and the migrate command seeds nothing without it", Name)
 	}
-	if err := a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password}); err != nil {
+	if err := a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password, PasswordChangeRequired: true}); err != nil {
 		return false, err
 	}
 

@@ -2934,7 +2934,9 @@ import (
 	// without the tenant's segment (@listAcrossTenants): the list handler over the set
 	// of tenants the session reaches, each row naming its tenant. A list across tenants
 	// is plain unless the page asks: a request carrying the subscribe header registers
-	// one live subscription over the set of tenants (live.SubscribeAcrossTenants).
+	// one live subscription over the set of tenants (live.SubscribeAcrossTenants), and
+	// the answer is marked through what that call answers, since a set of more tenants
+	// than one subscription holds is served plain.
 	listAcrossTenantsTemplate = `// {{ Pluralize .Resource.Name }}AcrossTenants lists {{ Pluralize .Resource.Name }} in every tenant the session reaches in which
 // the person holds the List grant (@listAcrossTenants): one filter, one order, one page
 // and one count across them, narrowed by the request's domains parameter. Each row is
@@ -2963,8 +2965,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 
 		// A page that asked for live registers before the query runs, so a commit that
 		// lands during the query is not missed: one subscription over the tenants the
-		// list reads for the person, and none of a tenant it does not.
-		live.SubscribeAcrossTenants(ctx, r, {{ .ReceiverName }}.LiveService(), querySet)
+		// list reads for the person, and none of a tenant it does not. A set of more
+		// tenants than one subscription holds registers nothing, and the list is
+		// served plain.
+		liveness := live.SubscribeAcrossTenants(ctx, r, {{ .ReceiverName }}.LiveService(), querySet)
 
 		res := {{ if .Resource.IsVirtual }}{{ .VirtualResourcesPackage }}{{ else }}{{ .ResourcePackage }}{{ end }}.New{{ .Resource.Name }}QueryFromQuerySet(querySet)
 
@@ -3009,9 +3013,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		if err := page.WriteHeaders(w, r); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		// A request carrying the version parameter is a live refetch: the browser
-		// may cache the answer for the subscription's window.
-		live.SetCacheControl(w, r)
+		// A request carrying the version parameter is a live refetch: the browser may
+		// cache the answer for the subscription's window, unless the list is served
+		// plain, which no change would ever tell the browser to ask again.
+		liveness.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(resp)
 	})

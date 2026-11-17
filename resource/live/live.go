@@ -112,6 +112,17 @@ const (
 	// CacheControl is the header value a list or read response carries when its request
 	// carried the version parameter.
 	CacheControl = "private, max-age=300"
+	// MaxSubscriptionTenants is the most tenants one subscription holds: the ceiling on
+	// the set of a live list across tenants. The record keeps the set on the
+	// subscription's one document, and Firestore allows a document 40,000 index entries.
+	// Each tenant of the set costs two, the automatic array-contains entry of the domains
+	// field and the entry of the (resource, domains, expiry) index the publisher's lookup
+	// reads, so the write of a document fails near 20,000 tenants. The ceiling is half of
+	// that: a set at the ceiling is written with room to spare, and a larger one is never
+	// tried. A list across more tenants is served plain (SubscribeAcrossTenants), and a
+	// subscription whose set has grown past the ceiling is dropped at its renewal
+	// (RenewHandler).
+	MaxSubscriptionTenants = 10_000
 	// BulkThreshold is the number of touched rows per resource in one request above
 	// which the publisher stops looking subscribers up row by row and writes one
 	// resource document per subscribed user instead.
@@ -150,8 +161,9 @@ func ValidTab(tab string) bool {
 // its Domain. A list across tenants (Across) is one subscription over the set the
 // server worked out for the person: the tenants the session reaches in which the
 // person may list the resource, narrowed by the page's filter on the tenant. It is one
-// record per tab and list however many tenants the set holds, and the same record again
-// at each renewal, with the set as the renewal worked it out. The publisher asks who is
+// record per tab and list however many tenants the set holds, up to
+// MaxSubscriptionTenants, and the same record again at each renewal, with the set as the
+// renewal worked it out. The publisher asks who is
 // subscribed to the list in the tenant a write was made in, and the record answers from
 // the sets (InTenant).
 type Subscription struct {

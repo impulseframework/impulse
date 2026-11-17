@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -64,9 +65,11 @@ type RenewRequest struct {
 	Subscriptions []SubscriptionRequest `json:"subscriptions"`
 }
 
-// RenewResponse is the renew route's answer: the subscriptions kept, the ones the user's
-// grants no longer cover (an unknown resource among them), each echoed as sent, and when
-// the kept ones expire.
+// RenewResponse is the renew route's answer: the subscriptions kept, the ones dropped,
+// each echoed as sent, and when the kept ones expire. A subscription is dropped when the
+// user's grants no longer cover it (an unknown resource among them), when it is a list
+// across tenants of a resource not declared for it or of more tenants than one
+// subscription holds (MaxSubscriptionTenants), and when the record did not take it.
 type RenewResponse struct {
 	Kept      []SubscriptionRequest `json:"kept"`
 	Dropped   []SubscriptionRequest `json:"dropped"`
@@ -117,16 +120,21 @@ func (o *renewOptions) declares(res accesstypes.Resource) bool {
 // the tenants the session reaches now, narrowed by the filter the renewal carries, in
 // which the person may list the resource now. It is kept with that set, so a tenant
 // gained or lost since is in or out of it from this renewal on, and dropped when the
-// set is empty. It is kept only for a resource declared for listing across tenants
+// set is empty or has grown past MaxSubscriptionTenants, the most tenants one
+// subscription holds: the list is then a plain one, and the tab's other subscriptions
+// are kept and extended as ever. It is kept only for a resource declared for listing
+// across tenants
 // (WithListsAcrossTenants): for any other resource it is dropped before its set is
 // worked out, as the list's own request is refused before it is made
 // (resource.QueryDecoder.DecodeAcrossTenants), so no record holds a subscription over
 // a set of tenants for one. A
 // subscription the grants no longer cover, or one naming a resource the grants do not
 // know, is dropped, never refused. The application's permission accessor is the one
-// every generated handler checks through. The subscriptions are written for the
-// request's principal id (PrincipalID); an id over Firebase's uid limit is refused with
-// 403, the reason logged, and nothing is written.
+// every generated handler checks through. A subscription the record does not take is
+// dropped too, with the record's reason logged, and stops none of the others (Refusal);
+// a failure of the record as a whole fails the renewal, which the tab makes again. The
+// subscriptions are written for the request's principal id (PrincipalID); an id over
+// Firebase's uid limit is refused with 403, the reason logged, and nothing is written.
 func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.UserPermissions, opts ...RenewOption) http.HandlerFunc {
 	var o renewOptions
 	for _, opt := range opts {
@@ -187,13 +195,42 @@ func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.Us
 		if len(subs) > 0 {
 			ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
 			defer cancel()
-			if err := svc.Renew(ctx, subs); err != nil {
+			refusals, err := svc.Renew(ctx, subs)
+			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
+			kept, dropped = withoutRefused(ctx, req.Tab, kept, dropped, subs, refusals)
 		}
 
 		return httpio.NewEncoder(w).Ok(RenewResponse{Kept: kept, Dropped: dropped, ExpiresAt: expiry})
 	})
+}
+
+// withoutRefused moves the subscriptions the record did not take from the kept to the
+// dropped, each logged with the record's reason: the record wrote the others, so the
+// renewal answers for them as it would have without the refused one. written is what
+// the record was handed, one for each kept subscription in the same order.
+func withoutRefused(ctx context.Context, tab string, kept, dropped []SubscriptionRequest, written []Subscription, refusals []Refusal) (stillKept, nowDropped []SubscriptionRequest) {
+	if len(refusals) == 0 {
+		return kept, dropped
+	}
+	reasons := make(map[string]error, len(refusals))
+	for i := range refusals {
+		reasons[refusals[i].Subscription.ID()] = refusals[i].Err
+	}
+	stillKept = make([]SubscriptionRequest, 0, len(kept))
+	for i, sub := range kept {
+		reason, refused := reasons[written[i].ID()]
+		if !refused {
+			stillKept = append(stillKept, sub)
+
+			continue
+		}
+		logger.FromCtx(ctx).Errorf("live: the record did not take the %s subscription of tab %s at its renewal; it is dropped and the tab's others are kept: %v", sub.Resource, tab, reason)
+		dropped = append(dropped, sub)
+	}
+
+	return stillKept, dropped
 }
 
 // recheckKey groups the subscriptions one Check call answers: one permission in one
@@ -206,8 +243,9 @@ type recheckKey struct {
 // recheck splits the subscriptions, in the order sent, into the ones the grants still
 // cover and the ones they do not: one Check per permission and scope, each against the
 // same environment. A list across tenants is covered while its resource is declared
-// for it and its set, worked out again here, holds a tenant; sets carries each kept
-// subscription's set, nil for a row and for one tenant's list.
+// for it and its set, worked out again here, holds a tenant and no more than one
+// subscription holds (MaxSubscriptionTenants); sets carries each kept subscription's
+// set, nil for a row and for one tenant's list.
 func recheck(ctx context.Context, perms resource.UserPermissions, o *renewOptions, subs []SubscriptionRequest) (kept, dropped []SubscriptionRequest, sets [][]accesstypes.Domain, err error) {
 	kept = make([]SubscriptionRequest, 0, len(subs))
 	dropped = make([]SubscriptionRequest, 0)
@@ -226,6 +264,11 @@ func recheck(ctx context.Context, perms resource.UserPermissions, o *renewOption
 			set, err := resource.TenantsListed(ctx, perms, accesstypes.Resource(sub.Resource), sub.narrowed())
 			if err != nil {
 				return nil, nil, nil, errors.Wrap(err, "resource.TenantsListed()")
+			}
+			// A set past the ceiling is held by no subscription: it is dropped below,
+			// as a set of no tenant is.
+			if len(set) > MaxSubscriptionTenants {
+				continue
 			}
 			across[i] = set
 

@@ -26,9 +26,27 @@ writes the same document with the new set. The publisher's question after a writ
 who is subscribed to this list in this tenant, is `domains array-contains <tenant>`:
 one tenant's list is found as a set of one, and a list across tenants by every tenant
 of its set, from its one document. Firestore indexes an array field once per element,
-so a subscription over n tenants adds n entries to each index that carries `domains`;
-a document's index entries are limited (40,000), which bounds the tenants one
-subscription can hold at several thousand.
+so a subscription over n tenants adds n entries to each index that carries `domains`.
+Two indexes carry it: the automatic array-contains index of the field, and the
+`(resource, domains array-contains, expiry)` composite the lookup reads. A subscription
+over n tenants therefore costs 2n index entries, beside a dozen for its other fields,
+and Firestore allows a document 40,000: the write of a subscription's document fails
+near 20,000 tenants. The library never comes near it. One subscription holds at most
+10,000 tenants (`live.MaxSubscriptionTenants`), half of what the document can carry: a
+list across more tenants registers nothing and is answered as a plain list, and a
+subscription whose set has grown past the ceiling is dropped at its renewal, the tab's
+others kept. A document at the ceiling, 10,000 tenant ids of 36 characters, is about
+400 KB of the 1 MiB a document may be.
+
+The batch a renewal writes is judged document by document. A document the store
+refuses as invalid (`InvalidArgument`) is answered to the renewal as refused, which
+drops that one subscription and keeps the rest. A batch travels in requests of several
+documents, and the store may answer a whole request as invalid for one document's sake
+and write none of it (the emulator does, for a value over the size it allows), so every
+document that came back invalid is written again alone: the refusal that remains is
+that document's own, and a document that was only sent beside it is written. A document
+that failed for any other reason, the database out of reach among them, fails the write
+as a whole, and the tab renews again.
 
 `users/{uid}/changes/{id}` is a user's change set; `uid` is the principal id
 (`live.PrincipalID`), the auth's name and the user name joined by `|`, such as
