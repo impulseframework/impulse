@@ -173,8 +173,8 @@ func seedCrewAccounts(ctx context.Context, t *testing.T, db *initiator.SpannerDB
 	}
 	users := demoUsers(t)
 	ids := make(map[accesstypes.User]impulse.UUID, len(users))
-	for _, user := range users {
-		ids[user.User] = user.ID
+	for i := range users {
+		ids[users[i].User] = users[i].ID
 	}
 
 	return ids

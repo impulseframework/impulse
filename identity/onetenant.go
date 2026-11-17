@@ -58,8 +58,9 @@ func WithOneTenantPerPerson() Option {
 // refuseSecondTenant is the rule of one tenant per person on a membership about to be
 // written: where the application declared it and the membership is held in one tenant,
 // a person who holds a role in another tenant is refused, unless they are one of the
-// application's own people. What the person holds is read as committed
-// (Store.Memberships), and, at a sign-in, as the hooks of the sign-in's transaction have
+// application's own people. What the person holds is read as committed: the roles of
+// their own and the groups they are in (holds), a place in a tenant's group counting as a
+// role in that tenant, and, at a sign-in, as the hooks of the sign-in's transaction have
 // given so far (signInTenants). A membership held for the whole application or in every
 // tenant is not a tenant's and is never refused.
 func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID) error {
@@ -67,9 +68,9 @@ func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWrite
 	if m.oneTenant == nil || !inTenant {
 		return nil
 	}
-	held, err := m.store.Memberships(ctx, txn, userID)
+	held, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return err
 	}
 	if outsideTenants(held) {
 		return nil
@@ -104,9 +105,9 @@ func (m *Manager) refuseInvitedElsewhere(ctx context.Context, txn resource.ReadW
 	if !found {
 		return nil
 	}
-	held, err := m.store.Memberships(ctx, txn, userID)
+	held, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return err
 	}
 	if !outsideTenants(held) && inAnotherTenant(held, accesstypes.DomainPolicyScope(accesstypes.Domain(*domain))) {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(

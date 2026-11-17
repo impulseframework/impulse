@@ -1454,6 +1454,12 @@ auth.SetSignedInHook(func(ctx context.Context, s *session.SignedIn) error {
 A nil hook, a second hook, or a hook set once the `Auth` is in use panics, as
 `SetSignInPolicy` does: set it after `NewAuth` and before serving.
 
+The generated management of an Auth's people answers this hook to remove a person's
+role assignments whose period has ended (`<auth>identity.Client.SignedIn`, the resource
+package's README, section 21): because the hook runs after the commit and its error is
+logged, the removal can neither fail a sign-in nor undo one. An application with a hook
+of its own calls the client's from it.
+
 ### Machine outlets and bearer tokens
 
 A machine outlet is a URL space of the application whose requests carry a bearer token

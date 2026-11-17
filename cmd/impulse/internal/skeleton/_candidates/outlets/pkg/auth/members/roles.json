@@ -107,7 +107,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -187,7 +189,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {

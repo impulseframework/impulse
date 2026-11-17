@@ -95,7 +95,9 @@
             {
               "resource": "StaffUserRoles",
               "fields": [
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {

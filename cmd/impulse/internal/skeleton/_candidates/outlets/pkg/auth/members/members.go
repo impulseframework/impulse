@@ -420,6 +420,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		return nil, errors.Wrap(err, "membersidentity.NewClient()")
 	}
 
+	// A role, a place in a group and a group's role may each be given for a period, and
+	// count inside it alone. A row whose period has ended goes when its person next signs
+	// in: the session library calls the identity client's SignedIn once the session is
+	// committed, apart from the sign-in, so a failure is logged and the session stands.
+	// It removes the person's ended roles and places and nothing else, never the
+	// account, and no job runs on a schedule.
+	authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
+
 	// The directory admission: what a person gets at their first sign-in through a
 	// tenant's directory, before the registration's account rule is reached. The row of
 	// the tenant whose directory the identity came through decides. A row with a default
