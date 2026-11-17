@@ -671,6 +671,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
 		},
 		{
+			url: "/api/staff-sign-in-methods", method: http.MethodGet,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-methods", method: http.MethodPost,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-sign-in-ways", method: http.MethodGet,
 			handlerFunc: "StaffSignInWays",
 			parameters:  map[string]string{},
@@ -731,19 +741,14 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
+			url: "/api/create-tenant", method: http.MethodPost,
+			handlerFunc: "CreateTenant",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/directory-only", method: http.MethodGet,
 			handlerFunc: "DirectoryOnly",
 			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only/consequence", method: http.MethodGet,
-			handlerFunc: "DirectoryOnlyConsequence",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-tenant-directory-only", method: http.MethodPost,
-			handlerFunc: "SetTenantDirectoryOnly", selfBounded: true,
-			parameters: map[string]string{},
 		},
 		{
 			url: "/api/resources", method: http.MethodPatch,
@@ -831,6 +836,10 @@ func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
 	return s.record("CreateStaffUser")
 }
 
+func (s *generatedHandlersStub) CreateTenant() http.HandlerFunc {
+	return s.record("CreateTenant")
+}
+
 func (s *generatedHandlersStub) DeleteStaffGroup() http.HandlerFunc {
 	return s.record("DeleteStaffGroup")
 }
@@ -857,14 +866,6 @@ func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
 	return s.record("DirectoryOnly")
-}
-
-func (s *generatedHandlersStub) DirectoryOnlyConsequence() http.HandlerFunc {
-	return s.record("DirectoryOnlyConsequence")
-}
-
-func (s *generatedHandlersStub) SetTenantDirectoryOnly() http.HandlerFunc {
-	return s.record("SetTenantDirectoryOnly")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {
@@ -921,6 +922,14 @@ func (s *generatedHandlersStub) InviteStaffTenantUser() http.HandlerFunc {
 
 func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
+}
+
+func (s *generatedHandlersStub) MakeStaffInviteOnly() http.HandlerFunc {
+	return s.record("MakeStaffInviteOnly")
+}
+
+func (s *generatedHandlersStub) OpenStaffSignUp() http.HandlerFunc {
+	return s.record("OpenStaffSignUp")
 }
 
 func (s *generatedHandlersStub) RemoveStaffGroupMember() http.HandlerFunc {
@@ -1089,6 +1098,10 @@ func (s *generatedHandlersStub) StaffSessionUsers() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
+}
+
+func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
+	return s.record("StaffSignInMethods")
 }
 
 func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {

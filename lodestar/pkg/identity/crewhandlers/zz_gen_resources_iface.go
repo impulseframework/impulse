@@ -20,8 +20,9 @@ type Resourcer interface {
 		crewresources.CrewSession | crewresources.CrewSessionAuthEvent |
 		crewresources.CrewSessionIdentity | crewresources.CrewSessionImpersonation |
 		crewresources.CrewSessionMailLink | crewresources.CrewSessionSignInAttempt |
-		crewresources.CrewSessionToken | crewresources.CrewSessionTrustedDevice |
-		crewresources.CrewSessionUser | crewresources.CrewUserGroupRole |
-		crewresources.CrewUserRole | crewidentity.CrewSectorRole |
-		crewidentity.CrewSectorSignInWay | crewidentity.CrewSignInWay
+		crewresources.CrewSessionSignInMethod | crewresources.CrewSessionToken |
+		crewresources.CrewSessionTrustedDevice | crewresources.CrewSessionUser |
+		crewresources.CrewUserGroupRole | crewresources.CrewUserRole |
+		crewidentity.CrewSectorRole | crewidentity.CrewSectorSignInWay |
+		crewidentity.CrewSignInMethod | crewidentity.CrewSignInWay
 }

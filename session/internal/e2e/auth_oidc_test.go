@@ -97,7 +97,7 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	googleIssuerMu.Unlock()
 	gatewayMethod := oidc.SignIn[Tx](auth, "gateway", nil, &oidc.Config{
 		Issuer: gatewayIDP.Server.URL, ClientID: "gateway-client", RedirectURL: "https://app.example/gateway/callback", Connection: "gateway",
-		RoleSync: signin.DisableRoleSync(), Accounts: signin.InvitedUsersOnly,
+		RoleSync: signin.DisableRoleSync(),
 	})
 
 	r := chi.NewRouter()
@@ -207,7 +207,7 @@ func runGenericProviderSeams[Tx any](t *testing.T, be backend[Tx]) {
 				}
 				assertEventsSeen(t, v, "oidc:gateway")
 
-				// No user was created for the stranger, so invited users only refuses them.
+				// No user was created for the stranger, so the invite-only method refuses them.
 				other := a.browser(t)
 				assertRedirect(t, other.oidcSignIn(ctx, a.gateway, "/gateway", gatewayClaims("p-nobody", "nobody", "nobody@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
 				if a.db.hasUser(ctx, t, "nobody") {
@@ -238,7 +238,7 @@ func runGenericProviderSeams[Tx any](t *testing.T, be backend[Tx]) {
 }
 
 // gatewayClaims are the claims a generic provider issues: the subject, the preferred
-// username the standard account rules match users by, and an address.
+// username the standard account rule matches users by, and an address.
 func gatewayClaims(sub, preferredUsername, email string) map[string]any {
 	return map[string]any{"sub": sub, "preferred_username": preferredUsername, "email": email, "email_verified": true, "name": preferredUsername}
 }

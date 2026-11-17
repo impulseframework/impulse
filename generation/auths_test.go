@@ -21,7 +21,7 @@ func userFixtureGenerator(t *testing.T, tenanted bool) *resourceGenerator {
 	t.Helper()
 
 	crew := &outletAuth{importPath: crewAuthPath, methods: []AuthMethod{PasswordMethod(), GoogleMethod("google").Labeled(fleetDirectory)}}
-	members := &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{AzureMethod("directory").Labeled("Company directory").InvitedUsers()}}
+	members := &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{AzureMethod("directory").Labeled("Company directory")}}
 	r := &resourceGenerator{
 		client:             &client{},
 		genRoutes:          true,
@@ -176,24 +176,16 @@ func Test_AuthMethod_directoryDeclarations(t *testing.T) {
 		wantString string
 		wantErr    string
 	}{
-		{name: "a registration declaring both", methods: []AuthMethod{AzureMethod("directory").InvitedUsers().SyncsRoles()}, wantString: `AzureMethod("directory").InvitedUsers().SyncsRoles()`},
 		{name: "a registration declaring neither", methods: []AuthMethod{GoogleMethod("google")}, wantString: `GoogleMethod("google")`},
-		{name: "a registration admitting open sign-up", methods: []AuthMethod{GoogleMethod("sign-up").OpenSignUp()}, wantString: `GoogleMethod("sign-up").OpenSignUp()`},
-		{name: "open sign-up beside role synchronization", methods: []AuthMethod{AzureMethod("anyone").SyncsRoles().OpenSignUp()}, wantString: `AzureMethod("anyone").SyncsRoles().OpenSignUp()`},
-		{name: "InvitedUsers on the password method", methods: []AuthMethod{PasswordMethod().InvitedUsers()}, wantErr: "declares InvitedUsers or SyncsRoles on the password method"},
-		{name: "SyncsRoles on the password method", methods: []AuthMethod{PasswordMethod().SyncsRoles()}, wantErr: "declares InvitedUsers or SyncsRoles on the password method"},
-		{name: "the password method offering sign-up", methods: []AuthMethod{PasswordMethod().OpenSignUp()}, wantString: "PasswordMethod().OpenSignUp()"},
-		{name: "the password method whose username is the address", methods: []AuthMethod{PasswordMethod().UsernameIsEmail().OpenSignUp()}, wantString: "PasswordMethod().UsernameIsEmail().OpenSignUp()"},
+		{name: "SyncsRoles on the password method", methods: []AuthMethod{PasswordMethod().SyncsRoles()}, wantErr: "declares SyncsRoles on the password method: it describes a registration's directory"},
+		{name: "the password method whose username is the address", methods: []AuthMethod{PasswordMethod().UsernameIsEmail()}, wantString: "PasswordMethod().UsernameIsEmail()"},
 		{name: "UsernameIsEmail on a registration", methods: []AuthMethod{GoogleMethod("google").UsernameIsEmail()}, wantErr: "declares UsernameIsEmail on a registration: it describes the password method's username"},
-		{name: "InvitedUsers beside OpenSignUp", methods: []AuthMethod{GoogleMethod("google").InvitedUsers().OpenSignUp()}, wantErr: "declares both InvitedUsers and OpenSignUp: a registration admits invited users only or anyone, not both"},
 		{name: "SyncsRoles beside the password method", methods: []AuthMethod{PasswordMethod(), GoogleMethod("google").SyncsRoles()}, wantErr: "declares SyncsRoles beside 1 other method(s): a registration whose directory writes the roles stands alone on its Auth"},
 		{name: "SyncsRoles beside another registration", methods: []AuthMethod{AzureMethod("directory").SyncsRoles(), GoogleMethod("google")}, wantErr: "declares SyncsRoles beside 1 other method(s)"},
-		{name: "SyncsRoles on the persona method", methods: []AuthMethod{PersonaMethod("persona").SyncsRoles()}, wantErr: "declares SyncsRoles or OpenSignUp on the persona method: the persona provider asserts who a persona is and nothing about roles"},
-		{name: "OpenSignUp on the persona method", methods: []AuthMethod{PersonaMethod("persona").OpenSignUp()}, wantErr: "declares SyncsRoles or OpenSignUp on the persona method"},
-		{name: "the persona method beside the password method", methods: []AuthMethod{PersonaMethod("persona").InvitedUsers(), PasswordMethod()}, wantString: `PersonaMethod("persona").InvitedUsers()`},
-		{name: "an organization's identity provider admitting invited users", methods: []AuthMethod{OIDCMethod("okta").InvitedUsers(), PasswordMethod()}, wantString: `OIDCMethod("okta").InvitedUsers()`},
+		{name: "SyncsRoles on the persona method", methods: []AuthMethod{PersonaMethod("persona").SyncsRoles()}, wantErr: "declares SyncsRoles on the persona method: the persona provider asserts who a persona is and nothing about roles"},
+		{name: "the persona method beside the password method", methods: []AuthMethod{PersonaMethod("persona"), PasswordMethod()}, wantString: `PersonaMethod("persona")`},
+		{name: "an organization's identity provider beside the password method", methods: []AuthMethod{OIDCMethod("okta"), PasswordMethod()}, wantString: `OIDCMethod("okta")`},
 		{name: "an organization's identity provider whose token names the roles", methods: []AuthMethod{OIDCMethod("company-sso").SyncsRoles()}, wantString: `OIDCMethod("company-sso").SyncsRoles()`},
-		{name: "OpenSignUp on an organization's identity provider", methods: []AuthMethod{OIDCMethod("okta").OpenSignUp()}, wantErr: "declares OpenSignUp on an organization's identity provider: everyone the provider signs in is a member of its organization"},
 		{name: "a WorkOS registration spelled as its constructor", methods: []AuthMethod{WorkOSMethod("sso")}, wantString: `WorkOSMethod("sso")`},
 		{name: "two registrations declaring SyncsRoles", methods: []AuthMethod{AzureMethod("directory").SyncsRoles(), GoogleMethod("google").SyncsRoles()}, wantErr: "stands alone on its Auth"},
 		{name: "SyncsRoles alone", methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}, wantString: `AzureMethod("directory").SyncsRoles()`},

@@ -580,6 +580,11 @@ func (c *client) templateFuncs() map[string]any {
 		"SetFeatureRoute": func() string {
 			return resource.SetFeatureRoute
 		},
+		// The header a request asks a method's warning with, from the resource package's
+		// constant, so the frames' refusal spells it as the frame reads it.
+		"WarningHeader": func() string {
+			return resource.WarningHeader
+		},
 		"FeatureFlagNameParam": func() string {
 			return string(resource.FeatureFlagNameParam)
 		},

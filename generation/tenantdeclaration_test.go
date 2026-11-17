@@ -525,7 +525,6 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				RouterPackage:       "router",
 				Record:              "Harbor",
 				RecordLower:         "harbor",
-				Shape:               "both",
 				HandlerFunc:         "CreateHarbor",
 				RoutePath:           "/api/create-harbor",
 				Auth:                "Staff",
@@ -607,7 +606,9 @@ func Test_apiClientData_tenantCreation_declaration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("declaration error = %v", err)
 	}
-	tsg := &typescriptGenerator{client: r.client}
+	// The route is generated where it can serve; here the target is told so as the run
+	// tells it.
+	tsg := &typescriptGenerator{client: r.client, tenantCreation: tenantCreationBoth}
 	got := tsg.tenantCreationClientData()
 	if got == nil {
 		t.Fatal("tenantCreationClientData() = nil, want the route")

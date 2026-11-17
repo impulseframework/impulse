@@ -1102,6 +1102,34 @@ func (mr *MockdbMockRecorder) SetSignInAttemptsTableName(name any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInAttemptsTableName", reflect.TypeOf((*Mockdb)(nil).SetSignInAttemptsTableName), name)
 }
 
+// SetSignInMethod mocks base method.
+func (m_2 *Mockdb) SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "SetSignInMethod", ctx, m)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSignInMethod indicates an expected call of SetSignInMethod.
+func (mr *MockdbMockRecorder) SetSignInMethod(ctx, m any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInMethod", reflect.TypeOf((*Mockdb)(nil).SetSignInMethod), ctx, m)
+}
+
+// SetSignInMethodsTableName mocks base method.
+func (m *Mockdb) SetSignInMethodsTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSignInMethodsTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSignInMethodsTableName indicates an expected call of SetSignInMethodsTableName.
+func (mr *MockdbMockRecorder) SetSignInMethodsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInMethodsTableName", reflect.TypeOf((*Mockdb)(nil).SetSignInMethodsTableName), name)
+}
+
 // SetTokensTableName mocks base method.
 func (m *Mockdb) SetTokensTableName(name string) error {
 	m.ctrl.T.Helper()
@@ -1239,6 +1267,21 @@ func (m *Mockdb) SignInAttempts(ctx context.Context, name string) (*dbtype.SignI
 func (mr *MockdbMockRecorder) SignInAttempts(ctx, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInAttempts", reflect.TypeOf((*Mockdb)(nil).SignInAttempts), ctx, name)
+}
+
+// SignInMethods mocks base method.
+func (m *Mockdb) SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignInMethods", ctx)
+	ret0, _ := ret[0].([]*dbtype.SignInMethod)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignInMethods indicates an expected call of SignInMethods.
+func (mr *MockdbMockRecorder) SignInMethods(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInMethods", reflect.TypeOf((*Mockdb)(nil).SignInMethods), ctx)
 }
 
 // TokenByHash mocks base method.

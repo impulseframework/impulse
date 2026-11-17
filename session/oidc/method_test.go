@@ -106,8 +106,8 @@ func claimsOf(t *testing.T, c map[string]any) json.RawMessage {
 }
 
 // TestSignIn_registration proves what SignIn asks the core to register: the method, the
-// standard rule with its default, the issuer, no front-channel logout, and no account
-// rule unless the application gave one.
+// issuer, no front-channel logout, and no account rule unless the application gave one,
+// which leaves a person with no account to the library's standard rule.
 func TestSignIn_registration(t *testing.T) {
 	t.Parallel()
 
@@ -115,17 +115,41 @@ func TestSignIn_registration(t *testing.T) {
 	if reg.Err != nil {
 		t.Fatalf("registration refused: %v", reg.Err)
 	}
-	if reg.Name != "gateway" || reg.Method != sessioninfo.MethodOIDC || reg.StandardRule != signin.MembersOfDirectory || reg.AccountRule != nil || reg.FrontChannelLogout {
-		t.Errorf("registration = {Name %q, Method %q, StandardRule %q, AccountRule nil %v, FrontChannelLogout %v}", reg.Name, reg.Method, reg.StandardRule, reg.AccountRule == nil, reg.FrontChannelLogout)
+	if reg.Name != "gateway" || reg.Method != sessioninfo.MethodOIDC || reg.AccountRule != nil || reg.FrontChannelLogout {
+		t.Errorf("registration = {Name %q, Method %q, AccountRule nil %v, FrontChannelLogout %v}", reg.Name, reg.Method, reg.AccountRule == nil, reg.FrontChannelLogout)
 	}
 	if only, ok := reg.Issuers.Only(); !ok || only != issuer || !reg.Issuers.Contains(issuer) || reg.Issuers.Contains("https://other.example.com") {
 		t.Errorf("Issuers = %v, want exactly %q", reg.Issuers, issuer)
 	}
+}
 
-	cfg := baseConfig(nil)
-	cfg.Accounts = signin.InvitedUsersOnly
-	if reg := register(t, nil, cfg); reg.StandardRule != signin.InvitedUsersOnly {
-		t.Errorf("StandardRule = %q, want the configured %q", reg.StandardRule, signin.InvitedUsersOnly)
+// TestAudienceOf proves how wide a registration says it is, for the page where it is
+// opened to sign-up: the provider is the one organization, by the application's name
+// for it or the host of its issuer.
+func TestAudienceOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		connection string
+		want       string
+	}{
+		{name: "the host of the issuer when the application names no connection", want: "anyone with an account at id.example.com"},
+		{name: "the application's name for the provider", connection: "Lakeside", want: "anyone with an account at Lakeside"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := baseConfig(nil)
+			cfg.Connection = tt.connection
+
+			got := audienceOf(cfg)
+
+			if got.Words() != tt.want || !got.Limited() {
+				t.Errorf("audienceOf() = %q (limited %v), want %q, limited to the provider", got.Words(), got.Limited(), tt.want)
+			}
+		})
 	}
 }
 

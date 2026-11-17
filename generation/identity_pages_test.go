@@ -46,10 +46,10 @@ func Test_identityOn(t *testing.T) {
 			instances: []*identityInstance{crew},
 			served: []string{
 				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewSessionSignInAttempts",
-				"CrewSignInWays",
+				"CrewSignInMethods", "CrewSignInWays",
 				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
 				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
-				"RemoveCrewPassword",
+				"RemoveCrewPassword", "OpenCrewSignUp", "MakeCrewInviteOnly",
 				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices", "RemoveCrewSectorPassword",
 				// Served by the outlet and no part of the auth's management; the tenant record
 				// is named, since a page reads a tenant's name from it.
@@ -64,11 +64,16 @@ func Test_identityOn(t *testing.T) {
 							part("users", "CrewSessionUsers"), part("roles", "CrewUserRoles"), part("identities", "CrewSessionIdentities"),
 							part("signInWays", "CrewSignInWays"),
 							part("invitations", "CrewSessionMailLinks"), part("sessions", "CrewSessions"), part("signInAttempts", "CrewSessionSignInAttempts"),
+							// The auth's sign-in methods, each open to sign-up or invite only. An
+							// application with tenants picks no default role, so it lists no roles
+							// to pick one from.
+							part("signInMethods", "CrewSignInMethods"),
 						},
 						Methods: []identityPart{
 							part("create", "CreateCrewUser"), part("disable", "DisableCrewUser"), part("endUserSessions", "EndCrewUserSessions"),
 							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("removePassword", "RemoveCrewPassword"),
 							part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
+							part("openSignUp", "OpenCrewSignUp"), part("makeInviteOnly", "MakeCrewInviteOnly"),
 						},
 					},
 					{
@@ -91,13 +96,15 @@ func Test_identityOn(t *testing.T) {
 			name:      "an application with no tenant record has the whole application's side alone",
 			outlet:    "console",
 			instances: []*identityInstance{solo},
-			served:    []string{"StaffSessionUsers", "DisableStaffUser"},
+			served:    []string{"StaffSessionUsers", "DisableStaffUser", "StaffSignInMethods", "StaffSignUpRoles", "OpenStaffSignUp", "MakeStaffInviteOnly"},
 			want: []*tsAPIIdentity{{
 				Auth: "Staff", Label: "Staff",
 				Sides: []*tsAPIIdentitySide{{
-					Scope:   accesstypes.GlobalPermissionScope,
-					Lists:   []identityPart{part("users", "StaffSessionUsers")},
-					Methods: []identityPart{part("disable", "DisableStaffUser")},
+					Scope: accesstypes.GlobalPermissionScope,
+					// Without tenants a person who signs up is given a role, picked from the
+					// roles the side lists for it.
+					Lists:   []identityPart{part("users", "StaffSessionUsers"), part("signInMethods", "StaffSignInMethods"), part("signUpRoles", "StaffSignUpRoles")},
+					Methods: []identityPart{part("disable", "DisableStaffUser"), part("openSignUp", "OpenStaffSignUp"), part("makeInviteOnly", "MakeStaffInviteOnly")},
 				}},
 			}},
 		},

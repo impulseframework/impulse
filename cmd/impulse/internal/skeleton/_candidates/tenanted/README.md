@@ -44,8 +44,8 @@ menu holds Your account (the email address, Change your password, Forget this br
 Appearance and Sign out; Help ends with About, which carries the release. A spec beside
 the menu file fails on a page the routes carry and no menu places (`unplacedPages`).
 
-Who may create a tenant is declared on the record, apart from who may enter one. The
-record declares both ways (`@tenant(creation: both)`): an administrator creates tenants
+Who may create a tenant is decided in the running application, apart from who may enter
+one, and there are two ways: an administrator creates tenants
 through the record's create path, under the `Administrator` role's Create grant,
 and a person who signs in holding no tenant creates their own through the generated
 create-your-tenant route (`POST /api/create-tenant`), which takes the tenant's name, writes the row under an id it generates and answers, gives them
@@ -54,11 +54,13 @@ hands the tenant to the roster, so their next request stands in it; a person who
 holds a tenant is refused, an administrator of one tenant never creates another, and the
 console's dashboard offers the new-tenant dialog to a session without a tenant (Tenants ›
 New tenant… opens the same dialog on the administrator's path, the record's create). The order is sign in
-first, then name the tenant: the staff auth carries a Google registration admitting
-anyone (`pkg/auth/staff/google.go`, open sign-up, `.OpenSignUp()` on its declaration in
-the generator program), which the self-service shape requires, since a stranger needs a
-way to sign in before holding anything. `@tenant` alone keeps creation to an
-administrator, and `@tenant(creation: self-service)` to the person alone.
+first, then name the tenant: the staff auth carries a Google registration as wide as any
+Google account (`pkg/auth/staff/google.go`), and every sign-in method starts invite only.
+An administrator opens one to sign-up on the console's Sign-in page (Open sign-up, which
+says who that admits and asks for a typed word), and from then a stranger signs in
+through it and creates their tenant; Make invite only closes it again, and the people
+who have accounts keep them. The create-your-tenant route refuses while every method is
+invite only, so nothing in code says whether a stranger may create a tenant.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -303,7 +305,8 @@ under the current version. It reads the resources packages `pkg/deploy` hands it
 
 That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the North and South tenants,
 roles, the `admin`, `member` and `newcomer` logins with password `password`; `newcomer`
-holds no tenant and creates one from the dashboard), and serves the API on
+holds no tenant and creates one from the dashboard once `admin` has opened a sign-in
+method to sign-up on the Sign-in page), and serves the API on
 `$PORT` (:8092). The first run compiles and bootstraps before it listens; wait for
 "Starting Server" in the server pane.
 
@@ -319,9 +322,10 @@ link opens the login page under `APP_PUBLIC_URL`.
 
 The server builds with the session library's `skipAuth` tag (see the Procfile), which
 simulates the staff auth's Google registration: every sign-in through the Google button is
-`APP_GOOGLE_USERNAME` from `.envrc` (`newcomer`, or `APP_USERNAME` when that is unset), a
-person the auth has never seen becomes a user under that name (open sign-up), no directory
-is contacted, and only `APP_STAFF_GOOGLE_REDIRECT_URL` is read. To sign in through Google
+`APP_GOOGLE_USERNAME` from `.envrc` (`newcomer`, or `APP_USERNAME` when that is unset), no
+directory is contacted, and only `APP_STAFF_GOOGLE_REDIRECT_URL` is read. A person the auth
+has never seen is refused until an administrator opens the registration to sign-up on the
+console's Sign-in page, and becomes a user under that name once it is open. To sign in through Google
 for real, register the application there, fill in the `APP_STAFF_GOOGLE_*` variables, and
 drop the tag. A deployed build never carries it.
 

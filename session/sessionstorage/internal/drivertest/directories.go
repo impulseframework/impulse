@@ -159,7 +159,7 @@ func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	lakesideDirectory := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}
 	cfg := AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Accept: acc.hook, Policy: policy,
+		Auth: true, Accounts: Open, Accept: acc.hook, Policy: policy,
 		Admission: &DirectoryAdmission{
 			Directories: declaringOnly(t, lakesideDirectory, signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn,
 		},
@@ -217,7 +217,7 @@ func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarn
 	// A personal account is no directory: nothing is read for it (declaringOnly fails
 	// the test otherwise), the registration's rule decides, and nothing is seated.
 	open := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.OpenSignUp,
+		Auth: true, Accounts: Open,
 		Admission: &DirectoryAdmission{Directories: declaringOnly(t, lakesideDirectory, signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
 	})
 	const personal = "sam@gmail.com"
@@ -235,7 +235,7 @@ func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarn
 func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newSeatings()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory,
+		Auth: true, Accounts: Open,
 		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
 	})
 
@@ -318,7 +318,7 @@ func testDirectorySeatHookFailsAtLink(ctx context.Context, t *testing.T, h *Auth
 	failure := errors.New("the default seat could not be given")
 	rec.failing(failure)
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory,
+		Auth: true, Accounts: Open,
 		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
 	})
 
@@ -378,7 +378,7 @@ func testDirectoryDefaultSeat(ctx context.Context, t *testing.T, h *AuthHarness)
 		return signin.Allow(), nil
 	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Policy: policy,
+		Auth: true, Accounts: Open, Policy: policy,
 		Admission: &DirectoryAdmission{
 			Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}, signin.DeclaredDirectory{Tenant: "riverside"}), Seat: rec.hook,
 		},
@@ -412,12 +412,12 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 	rec := newSeatings()
 	acc := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Accept: acc.hook,
+		Auth: true, Accounts: Open, Accept: acc.hook,
 		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
 	})
 
-	// The stranger is refused and nothing is written, though the registration admits
-	// members of the directory.
+	// The stranger is refused and nothing is written, though the method is open to
+	// sign-up.
 	strangerIdentity := entra("oid-new", "new@lakeside.edu")
 	stranger := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "new@lakeside.edu", Identity: strangerIdentity}
 	assertRefused(t, signInRequest(ctx, in, stranger), sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly)
@@ -466,7 +466,7 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 
 func testDirectoryUndeclared(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newSeatings()
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Admission: &DirectoryAdmission{Directories: declaring(), Seat: rec.hook}})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Admission: &DirectoryAdmission{Directories: declaring(), Seat: rec.hook}})
 
 	// No tenant declares the directory: the registration's rule decides as before.
 	identity := entra("oid-new", "new@lakeside.edu")
@@ -477,7 +477,7 @@ func testDirectoryUndeclared(ctx context.Context, t *testing.T, h *AuthHarness) 
 
 func testDirectorySeatHookMissing(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory,
+		Auth: true, Accounts: Open,
 		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"})},
 	})
 
@@ -512,7 +512,7 @@ func testDirectorySeatHookFails(ctx context.Context, t *testing.T, h *AuthHarnes
 		return signin.Allow(), nil
 	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Policy: policy,
+		Auth: true, Accounts: Open, Policy: policy,
 		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
 	})
 

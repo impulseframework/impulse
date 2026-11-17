@@ -45,6 +45,7 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // The suites run against the shipped demo world: schema/devseed is the fixture, so the
@@ -300,6 +301,16 @@ func (noSessionAPI) HashPassword(string) (string, error) {
 
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+// SignInMethods answers the two methods of the crew auth a person signs up through, as
+// the crew auth registers them: a suite that charts a sector through the create-sector
+// route opens one to sign-up first, and the route reads that choice against this list.
+func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return []session.RegisteredMethod{
+		{Name: "password", Method: sessioninfo.MethodPassword, Label: "Password", Audience: signin.Audience{Accounts: "an email address"}},
+		{Name: crew.SignUpRegistration, Method: sessioninfo.MethodGoogle, Label: "Google", Audience: signin.Audience{Accounts: "a Google account"}},
+	}
 }
 
 // SignsInThrough judges an identity as an Auth that offers the fleet's Google sign-in

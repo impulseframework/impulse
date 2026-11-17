@@ -671,6 +671,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
 		},
 		{
+			url: "/api/staff-sign-in-methods", method: http.MethodGet,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-methods", method: http.MethodPost,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-sign-in-ways", method: http.MethodGet,
 			handlerFunc: "StaffSignInWays",
 			parameters:  map[string]string{},
@@ -932,6 +942,14 @@ func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
 }
 
+func (s *generatedHandlersStub) MakeStaffInviteOnly() http.HandlerFunc {
+	return s.record("MakeStaffInviteOnly")
+}
+
+func (s *generatedHandlersStub) OpenStaffSignUp() http.HandlerFunc {
+	return s.record("OpenStaffSignUp")
+}
+
 func (s *generatedHandlersStub) RemoveStaffGroupMember() http.HandlerFunc {
 	return s.record("RemoveStaffGroupMember")
 }
@@ -1098,6 +1116,10 @@ func (s *generatedHandlersStub) StaffSessionUsers() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
+}
+
+func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
+	return s.record("StaffSignInMethods")
 }
 
 func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {

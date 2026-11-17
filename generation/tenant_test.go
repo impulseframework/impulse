@@ -109,22 +109,15 @@ func Test_resolveTenant(t *testing.T) {
 			wantShape:  tenantCreationAdministrator,
 		},
 		{
-			name:       "creation: self-service is the self-service shape",
+			name:       "a record has no create-your-tenant route until the outlets say it can serve",
 			structs:    []string{"Station"},
 			wantTenant: "Station",
-			wantShape:  tenantCreationSelfService,
-		},
-		{
-			name:       "creation: both is both shapes",
-			structs:    []string{"Colony"},
-			wantTenant: "Colony",
-			wantShape:  tenantCreationBoth,
-		},
-		{
-			name:       "creation: administrator spells the default out",
-			structs:    []string{"Enclave"},
-			wantTenant: "Enclave",
 			wantShape:  tenantCreationAdministrator,
+		},
+		{
+			name:    "the retired creation argument is refused with what replaced it, whatever it named",
+			structs: []string{"Enclave"},
+			wantErr: "struct Enclave: @tenant(creation: administrator) is no longer declared: who may create an enclave is decided in the running application. An administrator creates one under the record's Create grant, as before, and a person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
 		},
 		{
 			name:       "label: names the word for one tenant",
@@ -139,9 +132,9 @@ func Test_resolveTenant(t *testing.T) {
 			wantErr: "struct Shoal: @tenant(label: Shoal's) is not a word the screen shows as written; a label is letters, digits, single spaces and hyphens, starting with a letter",
 		},
 		{
-			name:    "a creation shape the generator does not know is refused naming the three",
+			name:    "the argument that let a stranger create a tenant is refused the same way",
 			structs: []string{"Outland"},
-			wantErr: "struct Outland: @tenant(creation: nowhere) names no creation shape; the shapes are administrator (an administrator alone, the default), self-service (the person who becomes its administrator) and both",
+			wantErr: "struct Outland: @tenant(creation: self-service) is no longer declared: who may create an outland is decided in the running application.",
 		},
 		{
 			name:    "the shape without its key is refused",
@@ -538,15 +531,6 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			},
 		},
 		{
-			name:     "a self-service record refuses the create path naming the route",
-			tenant:   true,
-			creation: tenantCreationSelfService,
-			wantContains: []string{
-				`return httpio.NewBadRequestMessage("a Sector is created by the person who becomes its administrator, through the create-sector route (@tenant(creation: self-service)); no administrator creates one")`,
-				"if err := a.TenantRoster().Reload(ctx); err != nil {",
-			},
-		},
-		{
 			name:   "the record's create gives its creator the administrator roles in its transaction, and waits on them between the roster's reload and the signal",
 			tenant: true,
 			auth:   true,
@@ -593,13 +577,6 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			name:            "a program that generates no auth's management clears nothing: the memberships are the application's own",
 			tenant:          true,
 			wantNotContains: []string{"ClearTenant"},
-		},
-		{
-			name:            "a self-service record's handler seats nobody, since it creates nothing",
-			tenant:          true,
-			auth:            true,
-			creation:        tenantCreationSelfService,
-			wantNotContains: []string{"AwaitFirstAdministrator", "AssignRole", "AdministratorRoles"},
 		},
 		{
 			name:            "another resource carries none of it",

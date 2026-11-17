@@ -98,7 +98,7 @@ func TestAuth_couldAdmitAddress(t *testing.T) {
 	// bare is an external method that cannot tell which addresses it admits.
 	bare := func(a auth) {
 		a.RegisterExternal(&signin.Registration[mockTx]{
-			Name: "bare", Method: sessioninfo.AuthMethod("bare"), StandardRule: signin.InvitedUsersOnly,
+			Name: "bare", Method: sessioninfo.AuthMethod("bare"),
 			Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
 		})
 	}

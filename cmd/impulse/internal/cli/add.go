@@ -367,7 +367,6 @@ func newAddAuth() *cobra.Command {
 		f               transitionFlags
 		methods         []string
 		authority       string
-		accounts        string
 		usernameIsEmail bool
 		outlet          string
 	)
@@ -378,7 +377,10 @@ func newAddAuth() *cobra.Command {
 		Long:  addAuthLong,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			specs, err := authMethods(cmd, methods, authority, accounts, usernameIsEmail)
+			if err := refuseRetiredAccounts(cmd); err != nil {
+				return err
+			}
+			specs, err := authMethods(cmd, methods, authority, usernameIsEmail)
 			if err != nil {
 				return err
 			}
@@ -394,23 +396,20 @@ func newAddAuth() *cobra.Command {
 		},
 	}
 	f.bind(cmd)
+	bindRetiredAccounts(cmd)
 	cmd.Flags().StringArrayVar(&methods, "method", nil, "a sign-in method the auth starts with (repeatable): password, azure:<registration>, google:<registration>, or oidc:<registration>; password when none is given")
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for the directory methods: directory (roles synchronized at every sign-in) or application (roles assigned in the application); asked when not given")
-	cmd.Flags().StringVar(&accounts, "accounts", "", "the standard account rule for a first sign-in: members (default), invited, or open; the password method takes open alone")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
 	cmd.Flags().StringVar(&outlet, "outlet", "", "the outlet the auth serves, whose declaration is pointed at it: default for the console's, or a WithRouterOutlet name; asked when not given")
 
 	return cmd
 }
 
-// authMethods reads add auth's --method flags and settles the methods' authority and
-// account rule, which the command takes once for all of them: the authority is asked when
-// a directory method is given without it and refused with the password method alone; the
-// account rule goes to every directory method, and open to the password method too (a
-// stranger signs up from a mailed link), while members and invited describe a directory
-// and are refused without one. --username-is-email goes to the password method, and is
-// refused without one.
-func authMethods(cmd *cobra.Command, methods []string, authority, accounts string, usernameIsEmail bool) ([]authpkg.Method, error) {
+// authMethods reads add auth's --method flags and settles the methods' authority, which
+// the command takes once for all of them: it is asked when a directory method is given
+// without it and refused with the password method alone. --username-is-email goes to
+// the password method, and is refused without one.
+func authMethods(cmd *cobra.Command, methods []string, authority string, usernameIsEmail bool) ([]authpkg.Method, error) {
 	specs, err := parseMethods(methods)
 	if err != nil {
 		return nil, err
@@ -433,9 +432,6 @@ func authMethods(cmd *cobra.Command, methods []string, authority, accounts strin
 	if !directory && authority != "" {
 		return nil, errors.New("--authority goes with a directory method (azure, google or oidc); the password method's role membership is the application's")
 	}
-	if !directory && accounts != "" && accounts != authpkg.AccountsOpen {
-		return nil, errors.Newf("--accounts %s goes with a directory method (azure, google or oidc); the password method takes open (a stranger signs up from a link mailed to their address) or no rule (its users are created in the application, or invited)", accounts)
-	}
 	if !password && usernameIsEmail {
 		return nil, errors.New("--username-is-email goes with the password method, whose sign-in name it makes the person's email address; a directory method's people sign in as the directory names them")
 	}
@@ -443,12 +439,8 @@ func authMethods(cmd *cobra.Command, methods []string, authority, accounts strin
 		switch {
 		case specs[i].Directory():
 			specs[i].Authority = authority
-			specs[i].Accounts = accounts
 		default:
 			specs[i].UsernameIsEmail = usernameIsEmail
-			if accounts == authpkg.AccountsOpen {
-				specs[i].Accounts = accounts
-			}
 		}
 	}
 
@@ -563,7 +555,6 @@ func newAddMethod() *cobra.Command {
 		f               transitionFlags
 		authority       string
 		slot            string
-		accounts        string
 		usernameIsEmail bool
 	)
 
@@ -573,7 +564,10 @@ func newAddMethod() *cobra.Command {
 		Long:  addMethodLong,
 		Args:  cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec := authpkg.Method{Kind: args[1], Slot: slot, Accounts: accounts, Authority: authority, UsernameIsEmail: usernameIsEmail}
+			if err := refuseRetiredAccounts(cmd); err != nil {
+				return err
+			}
+			spec := authpkg.Method{Kind: args[1], Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail}
 			switch {
 			case len(args) == 3:
 				spec.Name = args[2]
@@ -605,9 +599,9 @@ func newAddMethod() *cobra.Command {
 		},
 	}
 	f.bind(cmd)
+	bindRetiredAccounts(cmd)
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for a directory method: directory (roles synchronized at every sign-in, one organization only) or application (roles assigned in the application); asked when not given, and application for the persona method")
 	cmd.Flags().StringVar(&slot, "slot", "", "the organization slot of a Microsoft or Google method: azure one|listed|any|personal|one-personal|any-personal, google one|listed|any-workspace|any|mixed (default: one); oidc and persona take none")
-	cmd.Flags().StringVar(&accounts, "accounts", "", "the standard account rule for a first sign-in: members (default), invited, or open; the password method takes open alone, and oidc members or invited")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
 
 	return cmd
@@ -800,20 +794,15 @@ organization's own identity provider over OpenID Connect, one known by its issue
 such as Okta or Keycloak), the registration being the segment of the method's routes
 (user/<registration>/login). An identity provider's registration is the application's word
 for the provider (okta), which every link made through it carries, so it has no default. A
-directory method added here takes one organization, and --accounts its standard account
-rule for a first sign-in, one rule for every method given: members (members of the
-directory, the default: the person becomes a user under the name the directory presents),
-invited (invited users only: a user created beforehand is linked, anyone else refused) or
-open (open sign-up, which the session library allows with any organization or personal
-accounts alone, so it is refused with the one organization taken here, and an identity
-provider never takes it, since everyone it signs in is a member of its organization);
-impulse add method composes the other slots. The rule is
-written to the method file (Accounts) and, for invited, as .InvitedUsers() on the method's
-declaration, so the generated management creates their users. The password method
-takes open alone: a stranger gives their address on the login page, follows the link
-mailed to it and chooses a password (session.OpenSignUp(), and .OpenSignUp() on the
-declaration, so the router serves the sign-up routes); members and invited describe a
-directory and are refused with the password method alone. --username-is-email makes the
+directory method added here takes one organization; impulse add method composes the
+other slots. Every method starts invite only: a person with no account needs an
+invitation, or an account an administrator made for them. Whether a method admits a
+person with no invitation is chosen in the running application, for each method, on the
+application's Sign-in page (Open sign-up, with the role each new person gets, and Make
+invite only), by whoever holds the grant on it; nothing in code or on this command line
+says it. A method whose directory gives the
+roles (--authority directory) has no such choice: everyone the directory signs in becomes
+a user with the roles the directory names. --username-is-email makes the
 password method's sign-in name the person's email address (session.UsernameIsEmail(), and
 .UsernameIsEmail() on the declaration): the generated management derives the address from
 the username, and a verified change of address renames the user, whose roles stay with
@@ -868,16 +857,15 @@ is named in code: its issuer, client id, client secret and callback are the regi
 settings, read from the environment, so it serves the whole application and changes with a
 release. The registration name is required: it is the application's word for the provider
 (okta, company-sso), and the connection every link made through it carries, so it is chosen
-once. It takes no slot, and members or invited for --accounts: everyone the provider signs
-in is a member of its organization, so open has nobody to add. With --authority directory
+once. It takes no slot. With --authority directory
 every sign-in reconciles the person's roles to the role names the provider's ID token
 carries in its roles claim, which the provider has to be set up to send.
 
 The persona method is registered only where the persona provider is configured: the
 placement's persona block names the provider's issuer and the application's client ID root,
 bedrock sets them in the first environment and its pull requests, and a later environment,
-where they are empty, never offers the method. It takes no slot, the application authority
-and invited users only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
+where they are empty, never offers the method. It takes no slot and the application
+authority, and is left invite only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
 written empty here and named by hand), which the migrate command seeds and the deploy
 registers with the provider, and a sign-in links the persona's identity to its account.
 
@@ -888,14 +876,14 @@ accounts), any-personal (any tenant and personal accounts). For google: one (one
 Workspace, the default), listed (named Workspaces), any-workspace (any Workspace), any
 (any Google account), mixed (one Workspace and any Google account).
 
---accounts is the standard account rule for a first sign-in: members (members of the
-directory, the default: the person becomes a user under the name the directory presents),
-invited (invited users only: a user created beforehand is linked, anyone else refused) or
-open (open sign-up). The session library allows open only with any organization or
-personal accounts, and refuses members there, since every organization in the world is
-"the directory". The password method takes open alone: a stranger gives their address on
-the login page, follows the link mailed to it and chooses a password (session.OpenSignUp(),
-and .OpenSignUp() on the declaration, so the router serves the sign-up routes).
+Every method starts invite only: a person with no account needs an invitation, or an
+account an administrator made for them. Whether the method admits a person with no
+invitation is chosen in the running application, on the application's Sign-in page (Open
+sign-up, which says who that admits for a method this wide and asks for the role each
+new person gets, and Make invite only), by whoever holds the grant on it. The slot says
+how wide the method is, which stays in code. Through the password method a stranger
+gives their address on the login page, follows the link mailed to it and chooses a
+password, while the method is open.
 
 --username-is-email makes the password method's sign-in name the person's email address
 (session.UsernameIsEmail(), and .UsernameIsEmail() on the declaration): the generated
@@ -905,3 +893,28 @@ the user, whose roles stay with the account.
 --authority is who owns role membership for a directory method, asked when not given:
 directory (the directory's roles are synchronized at every sign-in, allowed with one
 organization only) or application (roles are assigned in the application).`
+
+// retiredAccountsFlag is the flag add auth and add method took for a method's standard
+// account rule, and accountsRetired what either says of it now.
+const (
+	retiredAccountsFlag = "accounts"
+	accountsRetired     = "--accounts is no longer an option: whether a sign-in method admits a person with no account and no invitation is chosen in the running application, for each method. Every method starts invite only, and an administrator opens one to sign-up, or makes it invite only again, on the application's Sign-in page. Remove --accounts and run the command again"
+)
+
+// bindRetiredAccounts keeps --accounts known to a command, hidden, so that giving it is
+// answered with what replaced it (refuseRetiredAccounts) and not as a flag nobody ever
+// heard of.
+func bindRetiredAccounts(cmd *cobra.Command) {
+	cmd.Flags().String(retiredAccountsFlag, "", "retired: the choice is made in the running application")
+	_ = cmd.Flags().MarkHidden(retiredAccountsFlag)
+}
+
+// refuseRetiredAccounts refuses a command given --accounts, whatever its value, saying
+// where the choice is made now.
+func refuseRetiredAccounts(cmd *cobra.Command) error {
+	if cmd.Flags().Changed(retiredAccountsFlag) {
+		return errors.New(accountsRetired)
+	}
+
+	return nil
+}

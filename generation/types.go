@@ -573,6 +573,11 @@ type rpcMethodInfo struct {
 	// filesStore is S for the typed form, nil for resource.Files.
 	takesFiles bool
 	filesStore *types.Named
+	// Warning is the method's validated @warning declaration: the warning its Warning
+	// method writes for a call is answered before the call is run, and the dialog a
+	// page runs the method through holds its confirm button for the typed word. Nil
+	// for a method that declares none.
+	Warning *rpcWarning
 	// Feature is the method's @feature: the flag its route and its digest entry are
 	// gated behind; nil when the method is not gated.
 	Feature *featureGate
@@ -1326,8 +1331,9 @@ type resourceInfo struct {
 	// route parameter the domain route parameter, and its generated write paths keep
 	// the application's TenantRoster current after their commit.
 	IsTenant bool
-	// TenantCreation is the tenant record's creation shape (@tenant(creation: ...)):
-	// who may create a tenant. The zero value is the default, an administrator alone.
+	// TenantCreation says whether the create-your-tenant route is generated for the
+	// tenant record, beside the administrator's create (validateTenantCreation). The
+	// zero value is no route: an administrator alone creates tenants.
 	TenantCreation tenantCreation
 	// TenantLabel is the word the tenant record's people use for one tenant where it is
 	// not the record's name (@tenant(label: ...)): an application in production changes
@@ -1445,15 +1451,10 @@ func (r *resourceInfo) CreateHandlerDisabled() bool {
 
 // CreateDisabled reports whether the resource's rows come in some other way than a
 // create under a Create grant: a @file whose key column is NOT NULL (a row is added by
-// the @upload method that stores its file), or a tenant record whose creation shape is
-// self-service alone (a tenant is created through the generated create-your-tenant
-// route by the person who becomes its administrator). Create is then not registered
+// the @upload method that stores its file). Create is then not registered
 // and the patch handlers refuse a create op naming the way in (CreateRefusal). A
 // nullable @file key leaves Create ordinary: a row may exist before its file does.
 func (r *resourceInfo) CreateDisabled() bool {
-	if r.IsTenant && !r.TenantCreation.AdministratorCreates() {
-		return true
-	}
 	for _, file := range r.Files {
 		if file.Key != nil && !file.Key.Nullable {
 			return true
@@ -1466,10 +1467,6 @@ func (r *resourceInfo) CreateDisabled() bool {
 // CreateRefusal is the sentence the patch handlers answer a create op with where
 // CreateDisabled: the way a row of the resource comes in instead.
 func (r *resourceInfo) CreateRefusal() string {
-	if r.IsTenant && !r.TenantCreation.AdministratorCreates() {
-		return fmt.Sprintf("a %s is created by the person who becomes its administrator, through the %s route (@tenant(creation: self-service)); no administrator creates one", r.Name(), tenantCreationRoute(r.Name()))
-	}
-
 	return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
 }
 
@@ -2354,6 +2351,7 @@ const (
 	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
 	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
+	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed
 	rowsOfKeyword               string = "rowsOf"               // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
 	changedByKeyword            string = "changedBy"            // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
 	typescriptKeyword           string = "typescript"           // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
@@ -2401,6 +2399,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		targetKeyword:               {genlang.ScanField: genlang.Exclusive},
 		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		warningKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		rowsOfKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		changedByKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		typescriptKeyword:           {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},

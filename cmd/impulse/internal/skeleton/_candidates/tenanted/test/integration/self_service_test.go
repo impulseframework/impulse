@@ -1,24 +1,43 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 )
 
-// TestSelfService_aSignedInStrangerCreatesTheirTenant proves the self-service half of the
-// Tenant record's creation shape (@tenant(creation: both)): a person who signs in holding
-// no tenant creates one through the generated create-your-tenant route and stands in it
-// at once, seated as its administrator in the same call; whoever already holds a tenant
-// is refused, the administrator included, since an administrator creates tenants through
-// the record's own create path (tenants_test.go) and never here; and the body is held to
-// the record, so a refused body writes nothing.
+// The create-your-tenant route's answer while every sign-in method is invite only, and
+// what the Sign-in page's dialog shows before an administrator opens the password
+// method.
+const (
+	signUpClosed      = "sign-up is not open, so you cannot create a tenant of your own: ask an administrator of the application to create one for you, or to invite you to one"
+	passwordOpenWarns = "Anyone with an email address will be able to sign up and create a tenant of their own, without an invitation."
+)
+
+// TestSelfService_aSignedInStrangerCreatesTheirTenant proves who creates a tenant of
+// their own. Nobody does while every sign-in method of the staff auth is invite only,
+// which is how each starts: the generated create-your-tenant route refuses in words that
+// say what to do, and writes nothing. An administrator opens a method to sign-up through
+// the generated OpenStaffSignUp, whose warning says who will be admitted and what they
+// get; a tenant's administrator, who holds no grant on it, is refused, and so is a
+// request that names a default role, since a person who signs up here creates a tenant
+// and holds no role. From then on a person who signs in holding no tenant creates one
+// through the route and stands in it at once, seated as its administrator in the same
+// call; whoever already holds a tenant is refused, the administrator included, since an
+// administrator creates tenants through the record's own create path (tenants_test.go)
+// and never here; and the body is held to the record, so a refused body writes nothing.
+// Made invite only again, the route refuses the next person and the tenant created
+// meanwhile stays its creator's.
 func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 	t.Parallel()
 
@@ -34,9 +53,42 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 		t.Fatalf("user-domains before = %v, want none", domains)
 	}
 
+	// Invite only, as every method starts: nobody creates a tenant of their own, and the
+	// refusal says what to do.
+	if status, body := newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`)); status != http.StatusForbidden || !strings.Contains(string(body), signUpClosed) {
+		t.Fatalf("POST /api/create-tenant while every method is invite only: status %d, want 403 saying sign-up is not open: %s", status, body)
+	}
+	if names := slices.Sorted(maps.Values(tenantNames(ctx, t, admin))); !slices.Equal(names, []string{"North", "South"}) {
+		t.Fatalf("the tenants after the refused create = %v, want North and South alone", names)
+	}
+
+	// The administrator opens the password method. The warning says who will be admitted,
+	// in the server's words; a tenant's administrator holds no grant on the method and
+	// reads no warning of it; a default role is refused here.
+	status, body := askWarning(ctx, admin, "/api/open-staff-sign-up", `{"name":"password"}`)
+	var warning resource.Warning
+	if err := json.Unmarshal(body, &warning); status != http.StatusOK || err != nil || warning.Consequence != passwordOpenWarns || warning.Confirm != "Open to anyone with an email address" {
+		t.Fatalf("the warning of opening the password method: status %d: %s, want %q", status, body, passwordOpenWarns)
+	}
+	if status, body := askWarning(ctx, member, "/api/open-staff-sign-up", `{"name":"password"}`); status != http.StatusForbidden {
+		t.Errorf("the warning as a tenant's member: status %d, want 403: %s", status, body)
+	}
+	if status, body := member.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(`{"name":"password"}`)); status != http.StatusForbidden {
+		t.Errorf("POST /api/open-staff-sign-up as a tenant's member: status %d, want 403: %s", status, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(`{"name":"password","defaultRole":"Administrator"}`)); status != http.StatusBadRequest {
+		t.Errorf("POST /api/open-staff-sign-up naming a default role: status %d, want 400: a person who signs up creates a tenant: %s", status, body)
+	}
+	if status, body := newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`)); status != http.StatusForbidden {
+		t.Fatalf("POST /api/create-tenant after the warning and the refused saves: status %d, want 403: nothing was opened: %s", status, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(`{"name":"password"}`)); status != http.StatusNoContent {
+		t.Fatalf("POST /api/open-staff-sign-up: status %d: %s", status, body)
+	}
+
 	// The newcomer names their tenant, by its name alone, and is answered the id the
 	// route generated for it.
-	status, body := newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`))
+	status, body = newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`))
 	if status != http.StatusOK {
 		t.Fatalf("POST /api/create-tenant: status %d: %s", status, body)
 	}
@@ -100,6 +152,44 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 	if domains := userDomains(ctx, t, another); len(domains) != 0 {
 		t.Errorf("user-domains of the other stranger = %v, want none", domains)
 	}
+
+	// Invite only again: the next person is refused, and West stays its creator's.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/make-staff-invite-only", []byte(`{"name":"password"}`)); status != http.StatusNoContent {
+		t.Fatalf("POST /api/make-staff-invite-only: status %d: %s", status, body)
+	}
+	if status, body := another.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"East"}`)); status != http.StatusForbidden || !strings.Contains(string(body), signUpClosed) {
+		t.Errorf("POST /api/create-tenant once invite only again: status %d, want 403 saying sign-up is not open: %s", status, body)
+	}
+	if domains := userDomains(ctx, t, newcomer); !slices.Equal(domains, []string{west}) {
+		t.Errorf("the newcomer's tenants once invite only again = %v, want [%s]: they keep what they have", domains, west)
+	}
+}
+
+// askWarning asks a method for its warning in place of running it, the way the library's
+// dialog does: the request goes to the method's own route with X-Warning.
+func askWarning(ctx context.Context, b *browser, path, body string) (status int, respBody []byte) {
+	b.t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+path, bytes.NewReader([]byte(body)))
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(resource.WarningHeader, "true")
+	if token := b.xsrfToken(); token != "" {
+		req.Header.Set("X-XSRF-TOKEN", token)
+	}
+	resp, err := b.client.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	respBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+
+	return resp.StatusCode, respBody
 }
 
 // createLogin creates a password login holding no role anywhere: a stranger to every

@@ -8,16 +8,21 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
+	"github.com/impulseframework/impulse/session/internal/signinflow"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
 )
 
-// A sign-up is how a person creates their own account with a password, when the
-// password method offers it (OpenSignUp): they give their address, follow the link
-// mailed to it, and set a password; the account is created with the address
-// verified, since the person just proved they read it. An address an account already
-// holds is pointed at that account by mail, and the screen says nothing. See
-// "Sign-up" in the README.
+// A sign-up is how a person creates their own account with a password, while the
+// password method is open to it: they give their address, follow the link mailed to it,
+// and set a password; the account is created with the address verified, since the
+// person just proved they read it, and with the default role the method's row names.
+// Whether the method is open is an administrator's choice in the running application,
+// its row of the sign-in methods table, read as each request arrives: until it is
+// opened the method is invite only, and every sign-up route answers 404. An address an
+// account already holds is pointed at that account by mail, and the screen says
+// nothing. See "Sign-up" in the README.
 
 // SignUpHandlers are the HTTP handlers of sign-up.
 type SignUpHandlers struct {
@@ -30,26 +35,31 @@ type SignUpHandlers struct {
 // answers {} whatever the address's state, so the screen reveals nothing: an address
 // an account already holds is told so by mail. An address that is not one is 400; a
 // mailbox sent five links within fifteen minutes and using none is refused with
-// too_many_emails and the wait; 404 when sign-up is not offered. Route it behind
-// StartSession and ValidateXSRFToken.
+// too_many_emails and the wait; 404 while the password method is not open to sign-up.
+// Route it behind StartSession and ValidateXSRFToken.
 func (h *SignUpHandlers) Start() http.HandlerFunc { return h.start }
 
 // Open accepts {"token"}, the token the mailed link carried, and answers {"email",
 // "usernameIsEmail"}: the address, and whether the account's username is the address
-// or the person chooses one. A token whose link is no longer live is 404.
+// or the person chooses one. A token whose link is no longer live is 404, as is every
+// token while the password method is not open to sign-up.
 func (h *SignUpHandlers) Open() http.HandlerFunc { return h.open }
 
 // Complete accepts {"token", "password", "username"}, creates the account with the
-// address verified, and signs the person in, answering as the password login does
-// ({"mfaIsRequired"}). username is the address when the password method declares the
-// username as the email address, and chosen otherwise. A taken username or address is
-// 409, a password under eight characters 400, a token whose link is no longer live
-// 404. Route it beside the password login, behind ValidateXSRFToken.
+// address verified and the method's default role, and signs the person in, answering as
+// the password login does ({"mfaIsRequired"}). username is the address when the
+// password method declares the username as the email address, and chosen otherwise. A
+// taken username or address is 409, a password under eight characters 400, a token
+// whose link is no longer live 404, and a sign-up through a method that was closed
+// since the link was mailed 404: the link is spent, the account made and the role
+// given in one transaction that reads the method's row, or none of it is. Route it
+// beside the password login, behind ValidateXSRFToken.
 func (h *SignUpHandlers) Complete() http.HandlerFunc { return h.complete }
 
 // SignUp returns the sign-up handlers. It panics on an Auth without mail, as a wiring
-// mistake; whether sign-up is offered is the password method's (OpenSignUp), checked
-// as each request arrives.
+// mistake. Every application with the password method and mail routes them: whether
+// sign-up is offered is an administrator's choice in the running application, read as
+// each request arrives.
 func (a *Auth[S, U, Tx]) SignUp() *SignUpHandlers {
 	a.requireMail("SignUp()")
 
@@ -60,9 +70,49 @@ func (a *Auth[S, U, Tx]) SignUp() *SignUpHandlers {
 	}
 }
 
-// errNoSignUp is the answer when the password method does not offer sign-up.
-func errNoSignUp() error {
-	return httpio.NewNotFoundMessage("sign-up is not offered here")
+// passwordSignUpOpen reports whether the password method is open to sign-up now: it is
+// registered, and an administrator opened it (its row of the sign-in methods table). A
+// method with no row is invite only.
+func (a *Auth[S, U, Tx]) passwordSignUpOpen(ctx context.Context) (bool, error) {
+	if !a.registered().passwordRegistered() {
+		return false, nil
+	}
+	chosen, err := a.signInMethodRow(ctx, string(sessioninfo.MethodPassword))
+	if err != nil {
+		return false, err
+	}
+
+	return chosen.Open(), nil
+}
+
+// signInMethodRow reads what an administrator chose for the sign-in method registered
+// under name: its row of the sign-in methods table, nil for a method with none.
+func (a *Auth[S, U, Tx]) signInMethodRow(ctx context.Context, name string) (*sessionstorage.SignInMethod, error) {
+	rows, err := a.storage.SignInMethods(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.SignInMethods()")
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			return row, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// refuseSignUpClosed answers a sign-up request while the password method is not open
+// to sign-up, and reports whether it did.
+func (a *Auth[S, U, Tx]) refuseSignUpClosed(ctx context.Context, w http.ResponseWriter) (refused bool, err error) {
+	open, err := a.passwordSignUpOpen(ctx)
+	if err != nil {
+		return true, httpio.NewEncoder(w).ClientMessage(ctx, err)
+	}
+	if !open {
+		return true, httpio.NewEncoder(w).ClientMessage(ctx, signinflow.SignUpClosed())
+	}
+
+	return false, nil
 }
 
 // signUpStart is SignUp().Start().
@@ -71,8 +121,8 @@ func (a *Auth[S, U, Tx]) signUpStart() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if !a.registered().openSignUp() {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errNoSignUp())
+		if refused, err := a.refuseSignUpClosed(ctx, w); refused {
+			return err
 		}
 		req, err := emailDecoder.Decode(r)
 		if err != nil {
@@ -130,8 +180,8 @@ func (a *Auth[S, U, Tx]) signUpOpen() http.HandlerFunc {
 		defer span.End()
 
 		methods := a.registered()
-		if !methods.openSignUp() {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errNoSignUp())
+		if refused, err := a.refuseSignUpClosed(ctx, w); refused {
+			return err
 		}
 		req, err := tokenDecoder.Decode(r)
 		if err != nil {
@@ -159,8 +209,8 @@ func (a *Auth[S, U, Tx]) signUpComplete() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if !a.registered().openSignUp() {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errNoSignUp())
+		if !a.registered().passwordRegistered() {
+			return httpio.NewEncoder(w).ClientMessage(ctx, signinflow.SignUpClosed())
 		}
 		req, err := decoder.Decode(r)
 		if err != nil {
@@ -171,11 +221,16 @@ func (a *Auth[S, U, Tx]) signUpComplete() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		at, err := a.passwordAttempt(user)
+		// The address the sign-up verified goes with the sign-in, as a password login
+		// carries the account's own: an invitation the browser also carries is accepted
+		// only where it was mailed to that address, and one mailed to another is refused
+		// (invitation_address) and left standing for the person it invites.
+		attempt, err := a.passwordAttempt(user)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		outcome, err := a.signIn(ctx, w, at)
+		attempt.identity.Email, attempt.identity.EmailVerified = addressOf(user.Email), true
+		outcome, err := a.signIn(ctx, w, attempt)
 		if err != nil {
 			return writeSignInError(ctx, w, err)
 		}
@@ -184,24 +239,28 @@ func (a *Auth[S, U, Tx]) signUpComplete() http.HandlerFunc {
 	})
 }
 
-// completeSignUp creates the account a live sign-up link names and consumes the link.
-// The account is created first: the address is unique among the users, so two
-// completions of one link cannot both create one, and a link consumed meanwhile has
-// nothing left to do.
+// completeSignUp creates the account a live sign-up link names, in one transaction
+// that reads what an administrator chose for the password method: the method must be
+// open to sign-up still, the link is consumed, the account is written, and the method's
+// default role is given with it (the Auth's sign-up hook), or none of it happens. A
+// link mailed while the method was open creates nothing once it is closed.
 func (a *Auth[S, U, Tx]) completeSignUp(ctx context.Context, token, username, password string) (*sessionstorage.SessionUser, error) {
 	link, err := a.liveLink(ctx, token, sessionstorage.MailLinkSignUp)
 	if err != nil {
 		return nil, err
 	}
-	user, err := a.createAccount(ctx, link.Email, username, password, "")
+	insert, err := a.newAccount(link.Email, username, password, "")
 	if err != nil {
 		return nil, err
 	}
-	if err := a.storage.ConsumeMailLink(ctx, link.TokenHash); err != nil && !httpio.HasNotFound(err) {
-		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ConsumeMailLink()")
+	id, err := a.storage.SignUp(ctx, string(sessioninfo.MethodPassword), insert, link.ID, a.signUpSeated)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.SignUp()")
 	}
 	// The link reached the person: the address's mail count is reset.
 	a.clearMailLimit(ctx, link.Email)
 
-	return user, nil
+	// The hash goes with the user, so the sign-in that follows rests on the password the
+	// account was just created with (passwordAttempt).
+	return &sessionstorage.SessionUser{ID: id, Username: insert.Username, PasswordHash: insert.PasswordHash, Email: insert.Email}, nil
 }

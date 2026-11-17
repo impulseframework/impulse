@@ -49,6 +49,7 @@ export const Resources = {
   CrewSessionTrustedDevices: 'CrewSessionTrustedDevices' as Resource,
   CrewSessionUsers: 'CrewSessionUsers' as Resource,
   CrewSessions: 'CrewSessions' as Resource,
+  CrewSignInMethods: 'CrewSignInMethods' as Resource,
   CrewSignInWays: 'CrewSignInWays' as Resource,
   CrewUserGroupRoles: 'CrewUserGroupRoles' as Resource,
   CrewUserRoles: 'CrewUserRoles' as Resource,
@@ -148,6 +149,8 @@ export const Methods = {
   InviteCrewUser: 'InviteCrewUser' as Method,
   IssueBulletin: 'IssueBulletin' as Method,
   LaunchMission: 'LaunchMission' as Method,
+  MakeCrewInviteOnly: 'MakeCrewInviteOnly' as Method,
+  OpenCrewSignUp: 'OpenCrewSignUp' as Method,
   PassFlightTest: 'PassFlightTest' as Method,
   ReleaseConsignment: 'ReleaseConsignment' as Method,
   RemoveCrewGroupMember: 'RemoveCrewGroupMember' as Method,
@@ -901,6 +904,27 @@ export namespace CrewSessions {
     updatedAt: 'CrewSessions.updatedAt' as Resource,
     userId: 'CrewSessions.userId' as Resource,
     username: 'CrewSessions.username' as Resource,
+  };
+}
+
+export namespace CrewSignInMethods {
+  export const fieldName = {
+    admits: 'admits' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+    directoryGivesRoles: 'directoryGivesRoles' as FieldName,
+    label: 'label' as FieldName,
+    name: 'name' as FieldName,
+    openSignUp: 'openSignUp' as FieldName,
+    says: 'says' as FieldName,
+  };
+  export const resourceName = {
+    admits: 'CrewSignInMethods.admits' as Resource,
+    defaultRole: 'CrewSignInMethods.defaultRole' as Resource,
+    directoryGivesRoles: 'CrewSignInMethods.directoryGivesRoles' as Resource,
+    label: 'CrewSignInMethods.label' as Resource,
+    name: 'CrewSignInMethods.name' as Resource,
+    openSignUp: 'CrewSignInMethods.openSignUp' as Resource,
+    says: 'CrewSignInMethods.says' as Resource,
   };
 }
 
@@ -2228,6 +2252,18 @@ export namespace LaunchMission {
     missionId: 'missionId' as FieldName,
     shipId: 'shipId' as FieldName,
     pilotUserId: 'pilotUserId' as FieldName,
+  };
+}
+
+export namespace MakeCrewInviteOnly {
+  export const fieldName = {
+    name: 'name' as FieldName,
+  };
+}
+
+export namespace OpenCrewSignUp {
+  export const fieldName = {
+    name: 'name' as FieldName,
   };
 }
 

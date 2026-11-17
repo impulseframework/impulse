@@ -154,7 +154,7 @@ func trackingConfig(a *app.App, resourceDir string) string {
 // the auth's Settings carry the reader, New refuses a nil one and sets the library's
 // tenant policy over it on the session, and the data level's settings literal passes
 // the reader in.
-func (tn Tenancy) editAuths(a *app.App, g *app.Generator, ch *Change) error {
+func (tn Tenancy) editAuths(a *app.App, site *app.Site, g *app.Generator, ch *Change) error {
 	if len(a.AuthPackages) == 0 {
 		ch.skipf("no auth package constructs a session.Auth, so no sign-in rule was set; where one is, set signin.TenantPolicy(resource.SignInRoles(<engine>.UserManager()), <handlers>.%s()) on the session with SetSignInPolicy before the first request, so a sign-in is admitted by what the person's tenants declare", tn.DeclarationReader())
 
@@ -175,7 +175,10 @@ func (tn Tenancy) editAuths(a *app.App, g *app.Generator, ch *Change) error {
 
 			continue
 		}
-		if err := tn.editAuth(a, auth, pkg, packageNameOf(a, g.HandlersDir())+"."+tn.DeclarationReader(), packageNameOf(a, g.HandlersDir())+"."+tn.DirectoryReader(), ch); err != nil {
+		// The record is written with no @outlet, so the default outlet serves it: the auth
+		// bound there is the one whose people create a tenant of their own.
+		serves := site.Default.Auth != nil && site.Default.Auth.ImportPath == pkg.Path
+		if err := tn.editAuth(a, auth, pkg, serves, packageNameOf(a, g.HandlersDir())+"."+tn.DeclarationReader(), packageNameOf(a, g.HandlersDir())+"."+tn.DirectoryReader(), ch); err != nil {
 			return err
 		}
 		if err := tn.editSettings(a, g, auth, pkg, ch); err != nil {
@@ -221,8 +224,11 @@ func setsAdmission(a *app.App, auth *app.Auth) bool {
 // editAuth gives the auth's Settings the readers (reader and directoryReader are their
 // constructors as the data level qualifies them) and its New the sign-in rule and, on
 // an auth whose roles the application assigns, the directory admission, worded as the
-// rendered auth packages word them.
-func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, reader, directoryReader string, ch *Change) error {
+// rendered auth packages word them. serves reports the auth whose session outlets
+// serve the tenant record: where the application assigns its roles and generates its
+// management, its people create a tenant of their own through the generated route, so
+// its rule admits a person who holds no tenant yet.
+func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, serves bool, reader, directoryReader string, ch *Change) error {
 	rel := auth.File
 	src, mode, err := readFile(a, rel)
 	if err != nil {
@@ -276,7 +282,7 @@ func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, rea
 		}
 	}
 	session := sessionVar(auth)
-	policy := signInRule(session, admission)
+	policy := signInRule(session, tn.oneLower(), admission, admission && serves)
 	loc := returnAuthRE.FindIndex(edited)
 	if loc == nil {
 		ch.skipf("%s: New does not end in `return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does, so the sign-in rule was not set; call %s.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.%s)) before the first request", rel, session, declarationsAccessor)
@@ -331,9 +337,17 @@ func sessionVar(auth *app.Auth) string {
 }
 
 // signInRule is the source set before New's return: the tenant policy on the session
-// and, on an auth whose roles the application assigns, the directory admission.
-func signInRule(session string, admission bool) string {
-	policy := fmt.Sprintf("\t// The sign-in rule: the library's tenant policy. A person's tenants are where they\n\t// hold a role (the engine's memberships), and what each tenant admits is its\n\t// declaration, read in the sign-in's transaction. A declaration restricts its own\n\t// tenant alone: a tenant that is not directory only admits everyone it seats,\n\t// however they signed in, and a directory-only tenant admits a sign-in through its\n\t// own directory (its method and the connection its identities carry) and nothing\n\t// else, so a person is refused only when every tenant that seats them is closed to\n\t// the way they signed in; a person who holds a role outside any one tenant (a\n\t// global role, or one held in every tenant) is admitted on the library's checks,\n\t// and a super administrator before any of it.\n\t// A person who holds no tenant is refused (no_tenant), since the administrator\n\t// creates tenants here; a record created by its own people (@tenant(creation:\n\t// self-service) or both) adds signin.AdmitWithoutTenant().\n\t// Which tenants the session then reaches is decided again, tenant by tenant, where\n\t// its tenant list is computed (UserPermissions). The memberships are read outside\n\t// the sign-in's transaction (resource.SignInRoles): the Spanner client refuses the\n\t// engine's read under the transaction's context as a nested transaction.\n\t%s.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.%s))\n", session, declarationsAccessor)
+// and, on an auth whose roles the application assigns, the directory admission. record
+// is the tenant record's word in a sentence. admitWithoutTenant marks the auth whose
+// people create a tenant of their own, which admits a person who holds none: a person
+// who signed up through a method an administrator opened.
+func signInRule(session, record string, admission, admitWithoutTenant bool) string {
+	without, option := fmt.Sprintf("\t// A person who holds no tenant is refused (no_tenant): nobody signs up to this auth\n\t// and creates a %s of their own, since another auth's outlets serve the\n\t// record or a directory gives this one's roles.\n", record), ""
+	if admitWithoutTenant {
+		without = fmt.Sprintf("\t// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a\n\t// person who signs up through a sign-in method an administrator opened signs in\n\t// first and creates a %s of their own, and keeps their account when the method\n\t// is made invite only again. Nobody gets an account that way while every method is\n\t// invite only, and the create-your-own route refuses while none is open.\n", record)
+		option = ", signin.AdmitWithoutTenant()"
+	}
+	policy := fmt.Sprintf("\t// The sign-in rule: the library's tenant policy. A person's tenants are where they\n\t// hold a role (the engine's memberships), and what each tenant admits is its\n\t// declaration, read in the sign-in's transaction. A declaration restricts its own\n\t// tenant alone: a tenant that is not directory only admits everyone it seats,\n\t// however they signed in, and a directory-only tenant admits a sign-in through its\n\t// own directory (its method and the connection its identities carry) and nothing\n\t// else, so a person is refused only when every tenant that seats them is closed to\n\t// the way they signed in; a person who holds a role outside any one tenant (a\n\t// global role, or one held in every tenant) is admitted on the library's checks,\n\t// and a super administrator before any of it.\n%[3]s\t// Which tenants the session then reaches is decided again, tenant by tenant, where\n\t// its tenant list is computed (UserPermissions). The memberships are read outside\n\t// the sign-in's transaction (resource.SignInRoles): the Spanner client refuses the\n\t// engine's read under the transaction's context as a nested transaction.\n\t%[1]s.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.%[2]s%[4]s))\n", session, declarationsAccessor, without, option)
 	if admission {
 		policy += fmt.Sprintf("\n\t// The directory admission: what a person gets at their first sign-in through a\n\t// tenant's directory, before the registration's account rule is reached. The row of\n\t// the tenant whose directory the identity came through decides. A row with a default\n\t// seat creates a stranger and gives them that role in the tenant in one transaction\n\t// (the identity client's DirectorySeated, which the session library runs inside the\n\t// transaction that links the account to the directory), and the sign-in rule then\n\t// finds the membership; a row with none refuses a stranger (invitation_only) and no\n\t// account is created, unless they followed an invitation link, which is the way in.\n\t// A person whose account stood before is given the default seat too, at the sign-in\n\t// that links the account to the directory, where they hold no role in the tenant; a\n\t// role an administrator removes afterwards is not given back by signing in. A\n\t// directory no tenant has falls to the registration's rule. The auth's roles are the\n\t// application's, so the admission is set here; an auth whose directory writes the\n\t// roles sets none.\n\t%s.SetDirectoryAdmission(settings.%s, identityClient.DirectorySeated())\n", session, directoriesAccessor)
 	}

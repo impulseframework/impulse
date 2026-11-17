@@ -176,18 +176,22 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	password := session.PasswordSignIn(auth)
 	entra := azure.SignIn(auth, "entra", nil, &azure.Config{
 		RoleSync: signin.DisableRoleSync(), Authority: entraIDP.Server.URL,
-		Tenants: azure.Tenants(azure.NamedTenant(azureTenant, tenantLakeside), azure.Tenant(riversideTenant)), Accounts: signin.MembersOfDirectory,
+		Tenants:  azure.Tenants(azure.NamedTenant(azureTenant, tenantLakeside), azure.Tenant(riversideTenant)),
 		ClientID: "entra-client", ClientSecret: "secret", RedirectURL: "https://app.example/entra/callback",
 	})
 	googleIssuerMu.Lock()
 	issuer := google.IssuerURL
 	google.IssuerURL = googleIDP.Server.URL
 	workspace := google.SignIn(auth, "google", nil, &google.Config{
-		RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("lakeside", hostedDomain), Accounts: signin.MembersOfDirectory,
+		RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("lakeside", hostedDomain),
 		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
 	})
 	google.IssuerURL = issuer
 	googleIssuerMu.Unlock()
+	// An administrator opened both directories to sign-up: a person no tenant's
+	// declaration decides gets an account.
+	openMethod(ctx, t, store, "entra", "")
+	openMethod(ctx, t, store, "google", "")
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
@@ -320,7 +324,7 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamDirectoryDefaultSeat[Tx],
 		},
 		{
-			name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and no account is created, though the registration admits members of the directory; a directory no tenant declares falls to the registration's rule",
+			name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and no account is created, though the method is open to sign-up; a directory no tenant declares falls to what was chosen for the method",
 			run:  seamDirectoryInvitationOnly[Tx],
 		},
 	}
@@ -372,7 +376,7 @@ func seamDirectoryInvitationOnly[Tx any](ctx context.Context, t *testing.T, be b
 	a := newTenantApp(ctx, t, be)
 	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideWorkspace)
 
-	// The registration admits members of the directory; the tenant's declaration
+	// The method is open to sign-up; the tenant's declaration
 	// decides first, and writes nothing.
 	stranger := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, stranger, googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"invitation_only"}})

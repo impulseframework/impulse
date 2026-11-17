@@ -30,7 +30,7 @@ import {
 import { BatchResult, Operation, OperationRoute, operationRoute } from './operations';
 import { ClientResponse, PermissionStore, Requester, RequestOptions, ResponseRequester } from './permissions';
 import { Store } from './store';
-import { dryRunHeader } from './transport';
+import { dryRunHeader, warningHeader } from './transport';
 import {
   LinkHeader,
   ListQuery,
@@ -441,8 +441,25 @@ export interface MethodHandle<Body, Result = void> {
    * method that runs outside a transaction rejects with 400.
    */
   dryRun(body: Body): Promise<void>;
+  /**
+   * Asks a method that declares a warning (`@warning`) what the call would do, in the
+   * server's words for this body, and saves nothing: the server decodes the body and
+   * checks the caller exactly as the call itself is checked, so every refusal rejects
+   * with the same ApiError the call would raise. The body is the request as filled so
+   * far; a field the method requires must be in it. A method that declares no warning
+   * rejects with 400, and is not run.
+   */
+  warning(body: Body): Promise<MethodWarning>;
   can(): boolean;
   state(): PermissionDigestState | undefined;
+}
+
+/** What a method that declares a warning (`@warning`) says before it is run. */
+export interface MethodWarning {
+  /** What the call will do, in sentences a person reads before they confirm it. */
+  consequence: string;
+  /** The words on the button that runs the call, which say what it does. */
+  confirm: string;
 }
 
 /**
@@ -1266,6 +1283,20 @@ function createMethodHandle<Body, Result = void>(
     execute: (body) => post(body),
     dryRun: async (body) => {
       await client.request<unknown>('POST', route, { body, headers: { [dryRunHeader]: 'true' } });
+    },
+    warning: async (body) => {
+      const said = await client.request<MethodWarning | null | undefined>('POST', route, {
+        body,
+        headers: { [warningHeader]: 'true' },
+      });
+      if (!said || typeof said.consequence !== 'string' || typeof said.confirm !== 'string') {
+        // A server that predates warnings would have run the call: it refuses the header
+        // instead (400), so an answer that is no warning is a generation mismatch.
+        throw new Error(
+          `${descriptor.method} answered no warning: its metadata declares one and the server wrote none; regenerate both`,
+        );
+      }
+      return said;
     },
     can: () => client.permissions.can(scope),
     state: () => client.permissions.state(scope),

@@ -32,6 +32,8 @@ const (
 	identityListInvitations    = "invitations"
 	identityListSessions       = "sessions"
 	identityListSignInAttempts = "signInAttempts"
+	identityListSignInMethods  = "signInMethods"
+	identityListSignUpRoles    = "signUpRoles"
 	// The lists over the groups of people (identity_groups.go): the groups, the people
 	// of a group, the roles a group holds, and the roles people hold through a group.
 	identityListGroups        = "groups"
@@ -97,6 +99,8 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListInvitations, data.MailLink()},
 		{identityListSessions, data.Session()},
 		{identityListSignInAttempts, data.SignInAttempt()},
+		{identityListSignInMethods, data.SignInMethod()},
+		{identityListSignUpRoles, data.SignUpRole()},
 		{identityListGroups, data.Group()},
 		{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, false)},
 		{identityListGroupRoles, data.GroupRole()},
@@ -142,6 +146,8 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		parts = append(parts,
 			identityPart{"endSession", "End" + data.Session()},
 			identityPart{"unlockSignIn", "Unlock" + i.auth + "SignIn"},
+			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
+			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
 		)
 	}
 

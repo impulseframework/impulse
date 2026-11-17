@@ -76,10 +76,19 @@ type identityInstance struct {
 	// (SyncsRoles): the directory is the authority for every membership the auth holds,
 	// so the instance carries no method that assigns or removes one.
 	rolesSynced bool
-	// invited marks an auth with a registration that admits invited users alone
-	// (InvitedUsers): its people exist before their first sign-in, so someone creates
-	// them.
+	// invited marks an auth with a registration beside or instead of the password
+	// method, whose roles the application assigns: every such registration is invite
+	// only until an administrator opens it, so its people may exist before their first
+	// sign-in, created by hand with no password.
 	invited bool
+	// createsTenant marks the auth whose people create a tenant of their own: the
+	// application has a tenant record, and the session outlets that serve the record
+	// are this auth's, so the create-your-tenant route seats the person who signed up
+	// through this auth's identity client (tenantCreationServes). Another auth of an
+	// application with tenants has nothing to give a person who signs up, neither a
+	// role of the whole application nor a tenant, so it carries no choice to open one
+	// of its methods.
+	createsTenant bool
 	// session and policy name the auth's tables: the session library's and the
 	// permission store's, each by the library's own rule for the prefix.
 	session session.Tables
@@ -109,6 +118,7 @@ const (
 	identityTokens         identityTable = "tokens"
 	identityMailLinks      identityTable = "mailLinks"
 	identitySignInAttempts identityTable = "signInAttempts"
+	identitySignInMethods  identityTable = "signInMethods"
 	identityAuthEvents     identityTable = "authEvents"
 	identityImpersonations identityTable = "impersonations"
 	identityTrustedDevices identityTable = "trustedDevices"
@@ -138,6 +148,7 @@ func identityDeclarations() []identityDeclaration {
 		{kind: identityTokens, suffix: "SessionToken", template: identityTokensTemplate},
 		{kind: identityMailLinks, suffix: "SessionMailLink", template: identityMailLinksTemplate},
 		{kind: identitySignInAttempts, suffix: "SessionSignInAttempt", template: identitySignInAttemptsTemplate},
+		{kind: identitySignInMethods, suffix: signInMethodRowSuffix, template: identitySignInMethodsTemplate},
 		{kind: identityAuthEvents, suffix: "SessionAuthEvent", template: identityAuthEventsTemplate},
 		{kind: identityImpersonations, suffix: "SessionImpersonation", template: identityImpersonationsTemplate},
 		{kind: identityTrustedDevices, suffix: "SessionTrustedDevice", template: identityTrustedDevicesTemplate},
@@ -165,6 +176,8 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.session.MailLinks
 	case identitySignInAttempts:
 		return i.session.SignInAttempts
+	case identitySignInMethods:
+		return i.session.SignInMethods
 	case identityAuthEvents:
 		return i.session.AuthEvents
 	case identityImpersonations:
@@ -299,7 +312,7 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 		if m.syncsRoles {
 			inst.rolesSynced = true
 		}
-		if m.invited {
+		if m.kind != methodPassword && !m.syncsRoles {
 			inst.invited = true
 		}
 	}
@@ -325,9 +338,10 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	return inst, nil
 }
 
-// createsUsers reports whether the auth's people are created by hand: a password method
-// or a registration that admits invited users alone gives it that, and a directory that
-// writes the roles takes it away, since a person is created holding a role.
+// createsUsers reports whether the auth's people are created by hand: every auth whose
+// roles the application assigns, since each of its methods is invite only until an
+// administrator opens it. A directory that writes the roles takes it away, since a
+// person is created holding a role.
 func (inst *identityInstance) createsUsers() bool {
 	return (inst.password || inst.invited) && !inst.rolesSynced
 }
@@ -358,6 +372,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 	}
 	for _, inst := range instances {
 		inst.tenant = tenant
+		inst.createsTenant = r.identityCreatesTenant(inst)
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}
@@ -599,8 +614,9 @@ func (d *identitySourceData) GivesRoles() bool {
 }
 
 // PasswordOnCreate says what a create does with a password: "required" where the
-// password is the auth's one way in, "optional" beside a registration that admits
-// invited users alone, and "none" where the auth has no password method.
+// password is the auth's one way in, "optional" beside another registration, through
+// which a person created with no password signs in, and "none" where the auth has no
+// password method.
 func (d *identitySourceData) PasswordOnCreate() string {
 	switch {
 	case !d.password:
@@ -691,10 +707,10 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "UserEmail"), template: identitySetUserEmailTemplate, needs: []identityTable{identityUsers}},
 		)
 	}
-	// A person is created by hand where a password is a way in or a registration admits
-	// invited users alone; elsewhere a directory admits its own, and the first sign-in
-	// creates the row. A person is created holding a role, so an auth whose directory
-	// writes the roles creates nobody here either.
+	// A person is created by hand in every auth whose roles the application assigns:
+	// each of its methods is invite only until an administrator opens it. A person is
+	// created holding a role, so an auth whose directory writes the roles creates nobody
+	// here: the directory admits its own, and the first sign-in creates the row.
 	if inst.createsUsers() {
 		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem("Create" + inst.auth + "User"), template: identityCreateUserTemplate, needs: []identityTable{identityUsers, identityMemberships}})
 	}
@@ -709,6 +725,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Remove" + inst.auth + "Role"), template: identityRemoveRoleTemplate, needs: []identityTable{identityMemberships}},
 		)
 	}
+	// Who may sign in without an invitation: the list of the auth's sign-in methods and
+	// the two methods that open one to sign-up and make it invite only again.
+	files = append(files, r.signUpSources(inst)...)
 	// The methods one tenant runs, and the computed resources beside them, where the
 	// application has a tenant record.
 	files = append(files, inst.tenantMethodSources()...)

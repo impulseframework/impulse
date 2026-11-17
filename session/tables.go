@@ -21,6 +21,10 @@ type Tables struct {
 	// factor, and SignInAttempts what the password method's attempt limiter counts.
 	PendingSignIns string
 	SignInAttempts string
+	// SignInMethods holds what an administrator chose for each sign-in method: whether
+	// it is open to sign-up, and the role a person who signs up through it is given. A
+	// method with no row is invite only.
+	SignInMethods string
 	// MailLinks holds the invitations, address verifications and sign-ups the Auth
 	// mails, FactorCodes the sign-in codes it mails, and TrustedDevices the browsers
 	// people asked to be remembered after a code.
@@ -47,6 +51,7 @@ func DefaultTables() Tables {
 		Identities:     dbtype.IdentitiesTable,
 		PendingSignIns: dbtype.PendingSignInsTable,
 		SignInAttempts: dbtype.SignInAttemptsTable,
+		SignInMethods:  dbtype.SignInMethodsTable,
 		MailLinks:      dbtype.MailLinksTable,
 		FactorCodes:    dbtype.FactorCodesTable,
 		TrustedDevices: dbtype.TrustedDevicesTable,
@@ -65,7 +70,7 @@ func DefaultTables() Tables {
 func TablesWithPrefix(prefix string) (Tables, error) {
 	tables := DefaultTables()
 	for _, name := range []*string{
-		&tables.Sessions, &tables.Users, &tables.Identities, &tables.PendingSignIns, &tables.SignInAttempts, &tables.MailLinks,
+		&tables.Sessions, &tables.Users, &tables.Identities, &tables.PendingSignIns, &tables.SignInAttempts, &tables.SignInMethods, &tables.MailLinks,
 		&tables.FactorCodes, &tables.TrustedDevices, &tables.Tokens, &tables.DeviceCodes, &tables.AuthEvents, &tables.Impersonations,
 	} {
 		*name = prefix + *name

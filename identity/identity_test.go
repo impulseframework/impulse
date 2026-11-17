@@ -2,6 +2,8 @@ package identity
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -98,6 +100,8 @@ type fakeStore struct {
 	cameThrough map[impulse.UUID]Link
 	tokens      map[impulse.UUID]*Token
 	families    map[impulse.UUID][]impulse.UUID
+	// methodRows are the rows of the sign-in methods table, by the method's name.
+	methodRows map[string]SignInMethodRow
 	// userTokens are the unrevoked tokens of each user.
 	userTokens map[impulse.UUID][]impulse.UUID
 	// fakeGroupTables are the groups of people, their members and the roles they hold
@@ -433,6 +437,31 @@ func (f *fakeStore) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTrans
 	return nil
 }
 
+func (f *fakeStore) SignInMethodRows(context.Context, resource.ReadOnlyTransaction) ([]SignInMethodRow, error) {
+	if err := f.fail("SignInMethodRows"); err != nil {
+		return nil, err
+	}
+	rows := make([]SignInMethodRow, 0, len(f.methodRows))
+	for _, name := range slices.Sorted(maps.Keys(f.methodRows)) {
+		rows = append(rows, f.methodRows[name])
+	}
+
+	return rows, nil
+}
+
+func (f *fakeStore) SetSignInMethod(_ context.Context, _ resource.ReadWriteTransaction, row *SignInMethodRow) error {
+	if err := f.fail("SetSignInMethod"); err != nil {
+		return err
+	}
+	role := "<none>"
+	if row.DefaultRole != nil {
+		role = *row.DefaultRole
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set sign-in method %s open=%t role=%s", row.Name, row.OpenSignUp, role))
+
+	return nil
+}
+
 func (f *fakeStore) TrustedDevices(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	if err := f.fail("TrustedDevices"); err != nil {
 		return nil, err
@@ -648,12 +677,18 @@ func (u *fakeUserManager) Roles(_ context.Context, scope accesstypes.PolicyScope
 // takes prepared invitations.
 type fakeSessions struct {
 	mail *fakeMail
+	// methods are the sign-in methods the Auth registers.
+	methods []session.RegisteredMethod
 	// unoffered are the sign-in methods the Auth's login page offers no registration of,
 	// and untaken the connections no registration takes: an identity of either signs
 	// nobody in. Every other identity signs in through the registration named for its
 	// method.
 	unoffered map[sessioninfo.AuthMethod]bool
 	untaken   map[string]bool
+}
+
+func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
+	return s.methods
 }
 
 func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {

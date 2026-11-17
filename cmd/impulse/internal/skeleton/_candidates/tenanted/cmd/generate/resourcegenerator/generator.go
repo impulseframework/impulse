@@ -33,7 +33,7 @@ func newGenerator(ctx context.Context) (generation.Generator, error) {
 		// at /.
 		generation.GenerateRouter(),
 		generation.GenerateRoutes("pkg/router", "api",
-			generation.Auth("github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/auth/staff", generation.PasswordMethod(), generation.GoogleMethod("google").OpenSignUp()),
+			generation.Auth("github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/auth/staff", generation.PasswordMethod(), generation.GoogleMethod("google")),
 			generation.WebApp("/"),
 			// The oldest release of the console this outlet still answers. The console sends the
 			// release it was built from in X-Api-Version, and the server answers releases from

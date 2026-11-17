@@ -243,40 +243,60 @@ func TestRefuseShape(t *testing.T) {
 		name     string
 		tenants  TenantSet
 		roleSync signin.RoleSyncConfig
-		accounts signin.StandardAccountRule
-		noRule   bool
 		wantErr  string
 	}{
-		{name: "one tenant with role sync and members of the directory", tenants: Tenant(tenantLake), roleSync: sync, accounts: signin.MembersOfDirectory, noRule: true},
-		{name: "several tenants without role sync, invited users only", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: off, accounts: signin.InvitedUsersOnly, noRule: true},
-		{name: "any tenant with invited users only", tenants: AnyTenant(), roleSync: off, accounts: signin.InvitedUsersOnly, noRule: true},
-		{name: "any tenant with open sign-up", tenants: AnyTenant(), roleSync: off, accounts: signin.OpenSignUp, noRule: true},
-		{name: "personal accounts with open sign-up", tenants: PersonalAccounts(), roleSync: off, accounts: signin.OpenSignUp, noRule: true},
-		{name: "any tenant as members of the directory with a rule of the application's own", tenants: AnyTenant(), roleSync: off, accounts: signin.MembersOfDirectory},
-		{name: "the slot's own rules come first", roleSync: sync, accounts: signin.OpenSignUp, noRule: true, wantErr: "Tenants is required"},
-		{name: "a missing role sync slot", tenants: Tenant(tenantLake), accounts: signin.MembersOfDirectory, noRule: true, wantErr: "roleSync is required"},
-		{name: "role sync across several tenants", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: sync, accounts: signin.InvitedUsersOnly, noRule: true, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
-		{name: "role sync across any tenant", tenants: AnyTenant(), roleSync: sync, accounts: signin.InvitedUsersOnly, noRule: true, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
-		{name: "role sync with personal accounts", tenants: PersonalAccounts(), roleSync: sync, accounts: signin.OpenSignUp, noRule: true, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
-		{name: "open sign-up with one tenant", tenants: Tenant(tenantLake), roleSync: off, accounts: signin.OpenSignUp, noRule: true, wantErr: "Accounts: open sign-up is for any tenant or personal accounts"},
-		{name: "open sign-up with listed tenants", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: off, accounts: signin.OpenSignUp, noRule: true, wantErr: "Accounts: open sign-up is for any tenant or personal accounts"},
-		{name: "any tenant as members of the directory with no rule", tenants: AnyTenant(), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "Accounts: members of the directory with any tenant or personal accounts would sign up the world"},
-		{name: "personal accounts as members of the directory with no rule", tenants: PersonalAccounts(), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "would sign up the world"},
-		{name: "a listed tenant beside any tenant is still an open slot", tenants: Tenants(Tenant(tenantLake), AnyTenant()), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "would sign up the world"},
-		{name: "one tenant with seeded users only", tenants: Tenant(tenantLake), roleSync: off, accounts: signin.SeededUsersOnly, noRule: true},
-		{name: "any tenant with seeded users only", tenants: AnyTenant(), roleSync: off, accounts: signin.SeededUsersOnly, wantErr: "Accounts: seeded users only takes the provider's names for the application's own"},
-		{name: "personal accounts with seeded users only", tenants: PersonalAccounts(), roleSync: off, accounts: signin.SeededUsersOnly, noRule: true, wantErr: "Accounts: seeded users only takes the provider's names for the application's own"},
+		{name: "one tenant with role sync", tenants: Tenant(tenantLake), roleSync: sync},
+		{name: "one tenant without role sync", tenants: Tenant(tenantLake), roleSync: off},
+		{name: "several tenants without role sync", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: off},
+		{name: "any tenant without role sync", tenants: AnyTenant(), roleSync: off},
+		{name: "personal accounts without role sync", tenants: PersonalAccounts(), roleSync: off},
+		{name: "a listed tenant beside any tenant", tenants: Tenants(Tenant(tenantLake), AnyTenant()), roleSync: off},
+		{name: "the slot's own rules come first", roleSync: sync, wantErr: "Tenants is required"},
+		{name: "a missing role sync slot", tenants: Tenant(tenantLake), wantErr: "roleSync is required"},
+		{name: "role sync across several tenants", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: sync, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
+		{name: "role sync across any tenant", tenants: AnyTenant(), roleSync: sync, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
+		{name: "role sync with personal accounts", tenants: PersonalAccounts(), roleSync: sync, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := refuseShape(tt.tenants, tt.roleSync, tt.accounts, tt.noRule)
+			err := refuseShape(tt.tenants, tt.roleSync)
 			if (err != nil) != (tt.wantErr != "") {
 				t.Fatalf("refuseShape() error = %v, wantErr %q", err, tt.wantErr)
 			}
 			if err != nil && !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("refuseShape() error = %q, want it to contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestTenantSet_audience(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tenants TenantSet
+		// want is whom opening the method to sign-up admits, in the page's words.
+		want        string
+		wantLimited bool
+	}{
+		{name: "one tenant the application names", tenants: NamedTenant(tenantLake, "Lakeside"), want: "anyone with an account at Lakeside", wantLimited: true},
+		{name: "one tenant by its id", tenants: Tenant(tenantLake), want: "anyone with an account at the Microsoft Entra tenant " + tenantLake, wantLimited: true},
+		{name: "several tenants", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), NamedTenant(tenantRiver, "Riverside")), want: "anyone with an account at Lakeside or Riverside", wantLimited: true},
+		{name: "any tenant", tenants: AnyTenant(), want: "anyone with a Microsoft work or school account"},
+		{name: "personal accounts", tenants: PersonalAccounts(), want: "anyone with a personal Microsoft account"},
+		{name: "any tenant and personal accounts", tenants: Tenants(AnyTenant(), PersonalAccounts()), want: "anyone with a Microsoft account"},
+		{name: "a listed tenant beside any tenant is as wide as any tenant", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), AnyTenant()), want: "anyone with a Microsoft work or school account"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.tenants.audience()
+			if got.Words() != tt.want || got.Limited() != tt.wantLimited {
+				t.Errorf("audience() = %q (limited %v), want %q (limited %v)", got.Words(), got.Limited(), tt.want, tt.wantLimited)
 			}
 		})
 	}

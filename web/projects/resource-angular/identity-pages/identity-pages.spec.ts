@@ -38,6 +38,7 @@ const metas: Record<string, ResourceMeta> = {
   CrewSessionMailLinks: fields('id', 'kind', 'email', 'name', 'tenantId', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt'),
   CrewSessions: fields('id', 'userId', 'username', 'expired', 'authenticatedAt', 'updatedAt'),
   CrewSessionSignInAttempts: fields('name', 'failures', 'lockedUntil', 'updatedAt'),
+  CrewSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'says'),
   CrewSectorUsers: fields('id', 'domainId', 'username', 'name', 'email', 'disabled', 'passwordChangeRequired', 'lastSignInAt', 'heldElsewhere', 'heldGlobally'),
   CrewSectorUserRoles: fields('domainId', 'userId', 'username', 'role', 'everyDomain', 'createdAt'),
   CrewSectorIdentities: fields('id', 'userId', 'username', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
@@ -57,6 +58,10 @@ const metas: Record<string, ResourceMeta> = {
   // An Auth whose username is the address carries no email column, and whose directory admits its people no password.
   MembersSessionUsers: fields('id', 'username', 'disabled', 'passwordChangeRequired', 'lastSignInAt'),
   MembersUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+  // An application without tenants: a person who signs up is given a role, picked from the roles it lists.
+  StaffSessionUsers: fields('id', 'username', 'disabled'),
+  StaffSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'says'),
+  StaffSignUpRoles: { ...fields('name', 'description'), nameField: 'name' },
   // The tenant record: keyed by an id, and it says which field a sector is called by.
   Sectors: { ...fields('id', 'name', 'region'), nameField: 'name' },
 };
@@ -77,6 +82,7 @@ const crew: IdentityDescriptor = {
         invitations: 'CrewSessionMailLinks',
         sessions: 'CrewSessions',
         signInAttempts: 'CrewSessionSignInAttempts',
+        signInMethods: 'CrewSignInMethods',
       },
       methods: {
         create: 'CreateCrewUser',
@@ -97,6 +103,8 @@ const crew: IdentityDescriptor = {
         unlinkIdentity: 'UnlinkCrewSessionIdentity',
         endSession: 'EndCrewSession',
         unlockSignIn: 'UnlockCrewSignIn',
+        openSignUp: 'OpenCrewSignUp',
+        makeInviteOnly: 'MakeCrewInviteOnly',
       },
     },
     {
@@ -134,13 +142,25 @@ const members: IdentityDescriptor = {
     },
   ],
 };
+// An application without tenants: the whole application's side alone, with the roles a default role is picked from.
+const staff: IdentityDescriptor = {
+  auth: 'Staff',
+  label: 'Staff',
+  sides: [
+    {
+      scope: 'global',
+      lists: { users: 'StaffSessionUsers', signInMethods: 'StaffSignInMethods', signUpRoles: 'StaffSignUpRoles' },
+      methods: { disable: 'DisableStaffUser', openSignUp: 'OpenStaffSignUp', makeInviteOnly: 'MakeStaffInviteOnly' },
+    },
+  ],
+};
 const descriptor = {
   resources: {},
   methods: {},
   permissionDigestRoute: 'permission-digest',
   userDomainsRoute: 'user-domains',
   domainRoute: { segment: 'sectors', param: 'sectorID' },
-  identity: [crew, members],
+  identity: [crew, members, staff],
 } as ApiDescriptor;
 
 const list = (config: RootConfig): ListViewConfig => config.parentConfig as ListViewConfig;
@@ -158,17 +178,121 @@ const children = (config: RootConfig): ListViewConfig[] => config.relatedConfigs
 
 describe("identityPages, the whole application's side", () => {
   const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
-  const [people, invitations, sessions, attempts] = pages;
+  const [people, invitations, sessions, attempts, signIn] = pages;
 
-  it('builds the accounts, the mailed links, the sessions and the failed sign-ins, each at a route named for the auth', () => {
+  it('builds the accounts, the mailed links, the sessions, the failed sign-ins and the sign-in methods, each at a route named for the auth', () => {
     expect(pages.map((page) => [page.routeData.route, page.page?.label, page.page?.icon])).toEqual([
       ['crew-accounts', 'Accounts', 'manage_accounts'],
       ['crew-mailed-links', 'Mailed links', 'forward_to_inbox'],
       ['crew-sessions', 'Sessions', 'devices'],
       ['crew-failed-sign-ins', 'Failed sign-ins', 'gpp_bad'],
+      ['crew-sign-in', 'Sign-in', 'login'],
     ]);
-    expect(pages.map((page) => page.routeData.hasViewRoute)).toEqual([true, false, false, false]);
-    expect(pages.map((page) => list(page).primaryResource)).toEqual(['CrewSessionUsers', 'CrewSessionMailLinks', 'CrewSessions', 'CrewSessionSignInAttempts']);
+    expect(pages.map((page) => page.routeData.hasViewRoute)).toEqual([true, false, false, false, false]);
+    expect(pages.map((page) => list(page).primaryResource)).toEqual([
+      'CrewSessionUsers',
+      'CrewSessionMailLinks',
+      'CrewSessions',
+      'CrewSessionSignInAttempts',
+      'CrewSignInMethods',
+    ]);
+  });
+
+  describe('the Sign-in page', () => {
+    // What the server lists: one row for each method the Auth registers, with what was chosen for it.
+    const password: RecordData = {
+      name: 'password',
+      label: 'Password',
+      admits: 'Anyone with an email address',
+      openSignUp: true,
+      defaultRole: '',
+      directoryGivesRoles: false,
+      says: 'Open: Anyone with an email address will be able to sign up and create a sector of their own, without an invitation.',
+    };
+    const google: RecordData = {
+      name: 'google',
+      label: 'Google',
+      admits: 'Anyone with a Google account',
+      openSignUp: false,
+      defaultRole: '',
+      directoryGivesRoles: false,
+      says: 'Invite only: a person signs in once they are invited.',
+    };
+    const entra: RecordData = {
+      name: 'entra',
+      label: 'Microsoft',
+      admits: 'Anyone with an account at acme.example',
+      openSignUp: false,
+      defaultRole: '',
+      directoryGivesRoles: true,
+      says: 'The directory gives the roles, so it decides who may sign in: a person it gives a role signs in, and nobody else.',
+    };
+
+    it('lists each method by who can sign in with it and what was chosen, and reads what the actions need without drawing it', () => {
+      expect(list(signIn).title).toBe('Crew sign-in');
+      expect(list(signIn).listColumns.map((column) => [column.id, column.header, column.hidden === true])).toEqual([
+        ['label', 'Sign-in method', false],
+        ['admits', 'Who can sign in with it', false],
+        ['openSignUp', 'Sign-up', false],
+        // With tenants a person who signs up creates a sector of their own: no role is chosen here.
+        ['says', 'A person with no invitation', false],
+        ['name', 'Name', true],
+        ['directoryGivesRoles', 'Directory gives roles', true],
+      ]);
+      const choice = list(signIn).listColumns.find((column) => column.id === 'openSignUp')?.valueGetter;
+      expect([password, google, entra].map((row) => choice?.(row))).toEqual(['Open', 'Invite only', 'Set by the directory']);
+    });
+
+    it('offers Open sign-up on a method that is invite only, Make invite only on one that is open, and neither where the directory gives the roles', () => {
+      const open = presentation(list(signIn).rowMethods, 'OpenCrewSignUp');
+      const close = presentation(list(signIn).rowMethods, 'MakeCrewInviteOnly');
+      expect(methodsOf(list(signIn).rowMethods)).toEqual([
+        ['OpenCrewSignUp', 'Open sign-up'],
+        ['MakeCrewInviteOnly', 'Make invite only'],
+      ]);
+      expect([password, google, entra].map((row) => [open.when?.(row), close.when?.(row)])).toEqual([
+        [false, true],
+        [true, false],
+        [false, false],
+      ]);
+      // Neither method names a target row: the page fills the method's name from the row.
+      expect(open.fill?.(google)).toEqual({ name: 'google' });
+      expect(close.fill?.(password)).toEqual({ name: 'password' });
+    });
+
+    it('asks a plain question before a method is made invite only, and leaves the question of opening one to the warning the server writes', () => {
+      const open = presentation(list(signIn).rowMethods, 'OpenCrewSignUp');
+      const close = presentation(list(signIn).rowMethods, 'MakeCrewInviteOnly');
+      expect(close.confirm).toBe('People who already have accounts keep them. New people will need an invitation.');
+      expect(open.confirm).toBeUndefined();
+      // The role each new person gets is picked with its description, where the method asks for one.
+      expect(open.labels).toEqual({ defaultRole: 'Role each new person gets' });
+      expect(open.shows).toEqual({ defaultRole: ['name', 'description'] });
+    });
+
+    it('keeps a notice above the list while a method is open, naming it and saying what a new person gets in the words the server wrote', () => {
+      const notice = list(signIn).notice;
+      expect(notice?.([google, entra])).toBeUndefined();
+      expect(notice?.([password, google, entra])).toBe(
+        'Password is open to sign-up. Anyone with an email address will be able to sign up and create a sector of their own, without an invitation.',
+      );
+      const member = { ...google, openSignUp: true, defaultRole: 'Member', says: 'Open: Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Member.' };
+      expect(notice?.([password, member])).toBe(
+        'Password is open to sign-up. Anyone with an email address will be able to sign up and create a sector of their own, without an invitation.\n' +
+          'Google is open to sign-up. Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Member.',
+      );
+    });
+
+    it('shows the role a new person gets where the application has no tenants', () => {
+      const [, staffSignIn] = identityPages(descriptor, resourceMeta, { auth: 'Staff', scope: 'global' });
+      expect(staffSignIn.routeData.route).toBe('staff-sign-in');
+      expect(columns(list(staffSignIn)).filter(([id]) => id === 'defaultRole')).toEqual([['defaultRole', 'Role a new person gets']]);
+    });
+
+    it('is no page of an auth whose description names no sign-in methods: a directory that gives the roles has nothing to choose', () => {
+      const built = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' });
+      expect(built.map((page) => page.page?.label)).toEqual(['Accounts']);
+    });
   });
 
   it('lists the accounts by the columns the schema carries and offers each method under plain words', () => {
@@ -601,9 +725,9 @@ describe('identityPages, what an auth and an application decide', () => {
     {
       name: 'an auth the description does not carry',
       descriptor,
-      auth: 'Staff',
+      auth: 'Partners',
       scope: 'global',
-      want: 'identityPages: the API description carries no generated management of the auth Staff (it carries: Crew, Members); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it',
+      want: 'identityPages: the API description carries no generated management of the auth Partners (it carries: Crew, Members, Staff); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it',
     },
     {
       name: 'a description with no generated management',
@@ -642,6 +766,7 @@ describe('identityRoutes', () => {
       ['crew-mailed-links', ['']],
       ['crew-sessions', ['']],
       ['crew-failed-sign-ins', ['']],
+      ['crew-sign-in', ['']],
     ]);
   });
 
@@ -655,6 +780,7 @@ describe('identityRoutes', () => {
       ['Mailed links', ['crew-mailed-links'], { resource: 'CrewSessionMailLinks', permission: 'List' }],
       ['Sessions', ['crew-sessions'], { resource: 'CrewSessions', permission: 'List' }],
       ['Failed sign-ins', ['crew-failed-sign-ins'], { resource: 'CrewSessionSignInAttempts', permission: 'List' }],
+      ['Sign-in', ['crew-sign-in'], { resource: 'CrewSignInMethods', permission: 'List' }],
     ]);
   });
 });
@@ -732,6 +858,7 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['crew-mailed-links', 'Mailed links', 'forward_to_inbox', false],
       ['crew-sessions', 'Sessions', 'devices', false],
       ['crew-failed-sign-ins', 'Failed sign-ins', 'gpp_bad', false],
+      ['crew-sign-in', 'Sign-in', 'login', false],
     ]);
     expect(domain.map((page) => [page.routeData.route, page.page?.label, list(page).primaryResource])).toEqual([
       ['sectors/:sectorID/crew-people', 'People', 'CrewSectorUsers'],
@@ -745,7 +872,13 @@ describe('identityPages, an Auth that keeps groups', () => {
 
   it('leaves the Groups page and the roles through groups out where the Auth keeps none', () => {
     const without = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
-    expect(without.map((page) => page.page?.label)).toEqual(['Accounts', 'Mailed links', 'Sessions', 'Failed sign-ins']);
+    expect(without.map((page) => page.page?.label)).toEqual([
+      'Accounts',
+      'Mailed links',
+      'Sessions',
+      'Failed sign-ins',
+      'Sign-in',
+    ]);
     expect(children(without[0]).map((child) => child.title)).toEqual(['Roles held', 'Sign-in identities', 'Sessions']);
   });
 

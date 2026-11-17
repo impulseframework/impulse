@@ -46,7 +46,7 @@ const (
 	// package's method constructors (generation.PasswordMethod(),
 	// generation.GoogleMethod("directory")), with its label when one is chained
 	// (.Labeled("Company directory")) and the registration's flags when they are
-	// (.InvitedUsers(), .SyncsRoles(), .OpenSignUp(), .UsernameIsEmail()).
+	// (.SyncsRoles(), .UsernameIsEmail()).
 	paramAuthMethod
 	// paramRelease is a release: a semantic version string literal, or the generation
 	// package's ThisRelease identifier for the server's own release.
@@ -87,7 +87,7 @@ func (k paramKind) String() string {
 	case paramOutletOption:
 		return "OutletOption"
 	case paramAuthMethod:
-		return "sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"
+		return "sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .SyncsRoles() or .UsernameIsEmail() when chained)"
 	case paramRelease:
 		return "release string literal (\"1.5.0\") or generation." + ThisReleaseIdent
 	case paramInt:
@@ -187,17 +187,14 @@ var authMethodConstructors = map[string]string{
 
 // labeledMethod is the method that chains a label onto a declaration
 // (generation.GoogleMethod("directory").Labeled("Company directory"));
-// invitedUsersMethod, syncsRolesMethod, openSignUpMethod and usernameIsEmailMethod chain
-// the registration's flags: the directory admits only users an operator created, the
-// directory's groups write the user's roles at every sign-in, the method admits anyone
-// (open sign-up: the rule a self-service tenant record needs of a directory, and on the
-// password method a sign-up from a mailed link), and the password method's sign-in name
-// is the person's email address. They mirror generation.AuthMethod's methods.
+// syncsRolesMethod and usernameIsEmailMethod chain the registration's flags: the
+// directory's groups write the user's roles at every sign-in, and the password method's
+// sign-in name is the person's email address. They mirror generation.AuthMethod's
+// methods. Whether a method admits a person with no account and no invitation is no
+// flag: an administrator opens a method to sign-up in the running application.
 const (
 	labeledMethod         = "Labeled"
-	invitedUsersMethod    = "InvitedUsers"
 	syncsRolesMethod      = "SyncsRoles"
-	openSignUpMethod      = "OpenSignUp"
 	usernameIsEmailMethod = "UsernameIsEmail"
 )
 
@@ -224,9 +221,9 @@ func MethodDeclaration(kind, name, label string) string {
 }
 
 // Declaration writes the declaration as a generator program carries it, package-qualified:
-// the constructor with its registration name, then .Labeled(label), .InvitedUsers(),
-// .SyncsRoles(), .OpenSignUp() and .UsernameIsEmail() for what is set. Empty for a method
-// the generated router does not compose.
+// the constructor with its registration name, then .Labeled(label), .SyncsRoles() and
+// .UsernameIsEmail() for what is set. Empty for a method the generated router does not
+// compose.
 func (m *AuthMethodArg) Declaration() string {
 	ctor := MethodConstructor(m.Kind)
 	if ctor == "" {
@@ -240,14 +237,8 @@ func (m *AuthMethodArg) Declaration() string {
 	if m.Label != "" {
 		text += "." + labeledMethod + "(" + strconv.Quote(m.Label) + ")"
 	}
-	if m.InvitedUsers {
-		text += "." + invitedUsersMethod + "()"
-	}
 	if m.SyncsRoles {
 		text += "." + syncsRolesMethod + "()"
-	}
-	if m.OpenSignUp {
-		text += "." + openSignUpMethod + "()"
 	}
 	if m.UsernameIsEmail {
 		text += "." + usernameIsEmailMethod + "()"

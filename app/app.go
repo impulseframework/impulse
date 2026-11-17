@@ -145,6 +145,10 @@ type Auth struct {
 	// AttemptsTable is the sign-in attempts table the password method's attempt limiter
 	// counts in: WithSignInAttemptsTableName or the library default.
 	AttemptsTable string
+	// SignInMethodsTable is the table that keeps what an administrator chose for each
+	// sign-in method, open to sign-up or invite only, which every sign-in reads:
+	// WithSignInMethodsTableName or the library default.
+	SignInMethodsTable string
 	// MailLinksTable is the mail links table the Auth's invitations, address
 	// verifications and sign-ups are kept in: WithMailLinksTableName or the library
 	// default. Read when the Auth sends mail (Mail).
@@ -266,10 +270,6 @@ type Method struct {
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.
 	AuthVar string
-	// OpenSignUp reports a password method registered with session.OpenSignUp(): a
-	// stranger signs up from a link mailed to their address, and the outlet's declaration
-	// chains .OpenSignUp() so the router serves the sign-up routes.
-	OpenSignUp bool
 	// UsernameIsEmail reports a password method registered with
 	// session.UsernameIsEmail(): the sign-in name is the person's email address, and the
 	// outlet's declaration chains .UsernameIsEmail() so the generated management says so.
@@ -339,28 +339,6 @@ type TenantRecord struct {
 	File string
 	Line int
 	Name string
-	// Creation is the record's creation shape as the annotation names it
-	// (@tenant(creation: self-service)): TenantCreationAdministrator (the default, an
-	// administrator alone creates tenants), TenantCreationSelfService (the person who
-	// becomes a tenant's administrator creates it) or TenantCreationBoth; empty when
-	// the annotation names none.
-	Creation string
-}
-
-// The creation shapes a tenant record declares (@tenant(creation: ...)), as the
-// resource generator spells them, and the argument's key.
-const (
-	TenantCreationArg           = "creation"
-	TenantCreationAdministrator = "administrator"
-	TenantCreationSelfService   = "self-service"
-	TenantCreationBoth          = "both"
-)
-
-// SelfService reports a record whose tenants are created by their own people
-// (self-service or both): a person signs in before holding a tenant, so the auths'
-// sign-in rule admits a person who holds none (signin.AdmitWithoutTenant).
-func (r *TenantRecord) SelfService() bool {
-	return r.Creation == TenantCreationSelfService || r.Creation == TenantCreationBoth
 }
 
 // DirectoryRecord is one struct annotated @tenantDirectory: the directories record, the

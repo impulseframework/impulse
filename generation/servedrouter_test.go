@@ -693,7 +693,8 @@ func Test_servedRouterData(t *testing.T) {
 				}
 				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
 					"POST /api/user/pending/code,POST /api/user/pending/code/verify,POST /api/user/pending/email,POST /api/user/browser/forget,POST /api/user/name,POST /api/user/look," +
-					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/invitation/accept,POST /api/user/email,POST /api/user/email/verify," +
+					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/sign-up,POST /api/user/sign-up/open,POST /api/user/sign-up/complete," +
+					"POST /api/user/invitation/accept,POST /api/user/email,POST /api/user/email/verify," +
 					"GET /api/user/tokens,POST /api/user/tokens,POST /api/user/tokens/revoke,GET /api/user/device,POST /api/user/device/approve,POST /api/user/device/deny"; strings.Join(crewRoutes, ",") != want {
 					t.Errorf("crew routes = %v, want %s", crewRoutes, want)
 				}
@@ -880,7 +881,7 @@ func Test_servedRouterData(t *testing.T) {
 		{
 			name: "an organization's identity provider is mounted as a directory is: its login and its callback, always",
 			outlets: []*routerOutlet{
-				{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), OIDCMethod("company-sso").InvitedUsers()}}},
+				{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), OIDCMethod("company-sso")}}},
 			},
 			check: func(t *testing.T, data *servedRouterData) {
 				t.Helper()
@@ -915,7 +916,7 @@ func Test_servedRouterData(t *testing.T) {
 		{
 			name: "a persona method is optional: its routes are open routes the router mounts from the method's own list",
 			outlets: []*routerOutlet{
-				{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona").InvitedUsers()}}},
+				{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona")}}},
 			},
 			check: func(t *testing.T, data *servedRouterData) {
 				t.Helper()
@@ -1314,7 +1315,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 		},
 		{
 			name:    "a persona method is mounted and offered where the surface has it",
-			outlets: []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona").InvitedUsers()}}}},
+			outlets: []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona")}}}},
 			wantRouter: []string{
 				"//\tdefault (/api), sessions (password, persona):",
 				"GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/persona/login, GET /api/user/persona/callback\n",

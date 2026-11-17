@@ -76,7 +76,7 @@ func TestTenancyBrowser(t *testing.T) {
 		"import { tenantsConfig } from './configs/tenants.config';\n",
 		"export function appMenus(actions: FrameActions): Menu[] {\n  const dialog = inject(MatDialog);\n  return [\n    {\n      label: 'Tenants',",
 		"            resourcePage(tenantsConfig, resourceMeta),\n",
-		"              run: () => void openNewTenantDialog(dialog),\n              place: 'outside',\n              permission: { resource: Resources.Tenants, permission: Permissions.Create },\n",
+		"              run: () => void openNewTenantDialog(dialog, { selfService: false }),\n              place: 'outside',\n              permission: { resource: Resources.Tenants, permission: Permissions.Create },\n",
 		"...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'domain' }),",
 		"      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage] }],\n    },\n    {\n      label: 'System',",
 		"              run: () => actions.featureFlags(),\n              place: 'outside',\n              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },\n",
@@ -397,8 +397,10 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"label: 'Service area',",
 	}, nil)
 	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.ts", []string{
-		"import { apiDescriptor, ServiceAreasCreate } from '@app/service/zz_gen_api';",
-		"const body: ServiceAreasCreate = this.form.getRawValue();",
+		"import { apiDescriptor, CreateServiceArea, CreateServiceAreaAnswer, createServiceAreaRoute } from '@app/service/zz_gen_api';",
+		"const body: CreateServiceArea = this.form.getRawValue();",
+		// The person who signed up creates their own through the generated route.
+		"this.http.post<CreateServiceAreaAnswer>(`${environment.apiUrl}/${createServiceAreaRoute}`, body)",
 		// A name another service area carries is refused in the record's word, which the
 		// generated description carries; the reference's word is never written here.
 		"named ${name} already exists. Choose another name.`;",
@@ -407,7 +409,7 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"export function openNewTenantDialog(",
 	}, nil)
 	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.html", []string{
-		"<h2 mat-dialog-title>New service area</h2>",
+		"<h2 mat-dialog-title>{{ data.selfService ? 'Create your service area' : 'New service area' }}</h2>",
 		"The service area is served the moment it exists, and you are its first administrator.",
 		"What people call the service area, wherever it is listed. It can be changed later.",
 		"Create service area</button>",

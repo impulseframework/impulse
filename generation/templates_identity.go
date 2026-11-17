@@ -678,7 +678,7 @@ func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
 	return c.manager.SignedIn("{{ .Auth }}", db)
 }
 {{- end }}
-`
+` + identitySignUpClientTemplate
 
 	// identityStoreTemplate is the instance's implementation of identity.Store: single
 	// reads and single buffered writes over the instance's own queries and patches,
@@ -1493,7 +1493,7 @@ func (store) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTransaction,
 func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
 	return nil, nil
 }
-{{ end }}{{ if .Has "trustedDevices" }}
+{{ end }}` + identitySignInMethodStoreTemplate + `{{ if .Has "trustedDevices" }}
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := {{ .ResourcesPackage }}.New{{ .TrustedDevice }}Query().

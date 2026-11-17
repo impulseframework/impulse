@@ -118,12 +118,3 @@ func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
 func UsernameIsEmail() PasswordOption {
 	return sessioncore.UsernameIsEmail()
 }
-
-// OpenSignUp declares, on the password method, that anyone may create an account:
-// the person gives their address, follows the link mailed to it, and sets a password
-// (SignUp handlers). Without it an account is created by an operator
-// (CreateSessionUser) or by the person through an invitation. It needs mail
-// (WithMail). (default: no sign-up)
-func OpenSignUp() PasswordOption {
-	return sessioncore.OpenSignUp()
-}

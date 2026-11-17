@@ -627,6 +627,49 @@ func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransa
 	return ids, nil
 }
 
+func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
+	query := staffresources.NewStaffSessionSignInMethodQuery().
+		AddColumns(staffresources.NewStaffSessionSignInMethodColumns().Name().OpenSignUp().DefaultRole())
+	var rows []identity.SignInMethodRow
+	for row, err := range query.List(ctx, reader) {
+		if err != nil {
+			return nil, errors.Wrap(err, "staffresources.StaffSessionSignInMethodQuery.List()")
+		}
+		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, DefaultRole: row.Data.DefaultRole})
+	}
+
+	return rows, nil
+}
+
+func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
+	// The row is written whole: created where the method has none, replaced where it
+	// has one, which is read in the transaction. Either write leaves its change event
+	// under the caller, the record of who made the choice and when.
+	_, err := staffresources.NewStaffSessionSignInMethodQuery().
+		AddColumns(staffresources.NewStaffSessionSignInMethodColumns().Name()).
+		SetName(row.Name).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		patch := staffresources.NewStaffSessionSignInMethodUpdatePatch(row.Name).
+			SetOpenSignUp(row.OpenSignUp).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "staffresources.StaffSessionSignInMethodUpdatePatch.Buffer()")
+		}
+
+		return nil
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "staffresources.StaffSessionSignInMethodQuery.Read()")
+	}
+	patch := staffresources.NewStaffSessionSignInMethodCreatePatch(row.Name).
+		SetOpenSignUp(row.OpenSignUp).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "staffresources.StaffSessionSignInMethodCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := staffresources.NewStaffSessionTrustedDeviceQuery().

@@ -36,8 +36,9 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 //
 // The auth mails: an administrator invites a person by address, with the roles the
 // invitation seats, and the invitee follows the link to accept it; a signed-in person
-// adds an address and proves it by following the link sent to it{{if .OpenSignUp}}; and a stranger
-// signs up from a link mailed to the address they give{{end}}.
+// adds an address and proves it by following the link sent to it{{if and .Password .SignUpChoice}}; and, while an
+// administrator has the password method open to sign-up, a stranger signs up from a link
+// mailed to the address they give{{end}}.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -91,21 +92,24 @@ const (
 	// Auth session (a person is one user whichever way they sign in; an identity the
 	// directory verifies links to its user through the identities table), the auth events
 	// each session records, the pending sign-ins that wait for a confirmation, the
-	// sign-in attempts the password method's attempt limiter counts per sign-in name, and
-	// the mail links: the invitations, address verifications and sign-ups the auth mails,
-	// each a single-use token its follower proves; the tokens: the bearer credentials of
-	// the machine outlets whose tokens this auth issues (the application tokens its people
-	// issue and the access and refresh tokens of the device grants they approve); the
-	// device codes: the device authorizations command-line clients wait on; and the second
-	// factor's tables: the sign-in codes mailed to people and the browsers they asked to
-	// be remembered. The names are spelled out in full so the tool's session-tables
-	// check, which reads the literals, finds their migrations.
+	// sign-in attempts the password method's attempt limiter counts per sign-in name, the
+	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
+	// only, which a method with no row is), and the mail links: the invitations, address
+	// verifications and sign-ups the auth mails, each a single-use token its follower
+	// proves; the tokens: the bearer credentials of the machine outlets whose tokens this
+	// auth issues (the application tokens its people issue and the access and refresh
+	// tokens of the device grants they approve); the device codes: the device
+	// authorizations command-line clients wait on; and the second factor's tables: the
+	// sign-in codes mailed to people and the browsers they asked to be remembered. The
+	// names are spelled out in full so the tool's session-tables check, which reads the
+	// literals, finds their migrations.
 	sessionsTable    = "{{.Pascal}}Sessions"
 	usersTable       = "{{.Pascal}}SessionUsers"
 	identitiesTable  = "{{.Pascal}}SessionIdentities"
 	eventsTable      = "{{.Pascal}}SessionAuthEvents"
 	pendingTable     = "{{.Pascal}}SessionPendingSignIns"
 	attemptsTable    = "{{.Pascal}}SessionSignInAttempts"
+	methodsTable     = "{{.Pascal}}SessionSignInMethods"
 	mailLinksTable   = "{{.Pascal}}SessionMailLinks"
 	tokensTable      = "{{.Pascal}}SessionTokens"
 	deviceCodesTable = "{{.Pascal}}SessionDeviceCodes"
@@ -161,7 +165,7 @@ type Settings struct {
 	CookieKey string
 	// SessionTimeout is the idle timeout of a browser session.
 	SessionTimeout time.Duration
-	// Mail sends the auth's mail: the invitation an administrator sends to an address{{if .OpenSignUp}},
+	// Mail sends the auth's mail: the invitation an administrator sends to an address{{if .Password}},
 	// the link that verifies an address a person adds, and the link a sign-up starts from.{{else}}
 	// and the link that verifies an address a person adds.{{end}}
 	// The application's one sender, which the data level opens: the Workspace relay
@@ -384,7 +388,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		return nil, errors.New("{{.Name}}.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
 	}
 	if settings.Mail == nil {
-		return nil, errors.New("{{.Name}}.Settings.Mail is nil: the auth mails its invitations and address verifications{{if .OpenSignUp}} and its sign-up links{{end}} through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
+		return nil, errors.New("{{.Name}}.Settings.Mail is nil: the auth mails its invitations and address verifications{{if .Password}} and its sign-up links{{end}} through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
 	}
 {{- if .TenantPolicy}}
 	if settings.TenantDeclarations == nil {
@@ -437,6 +441,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -489,14 +494,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// tenant (a global role, or one held in every tenant) is admitted on the library's
 	// checks, and a super administrator before any of it.
 {{- if .TenantPolicy.AdmitWithoutTenant}}
-	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant), since
-	// the {{.TenantPolicy.Record}} record's creation shape lets a stranger sign in first and create
-	// their own; an application whose administrator alone creates tenants drops the
-	// option, and such a person is refused (no_tenant).
+	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a
+	// person who signs up through a sign-in method an administrator opened signs in
+	// first and creates a {{.TenantPolicy.Record}} of their own, and keeps their account when the method
+	// is made invite only again. Nobody gets an account that way while every method is
+	// invite only, and the create-your-own route refuses while none is open.
 {{- else}}
-	// A person who holds no tenant is refused (no_tenant), since the administrator
-	// creates tenants here; a record created by its own people (@tenant(creation:
-	// self-service) or both) adds signin.AdmitWithoutTenant().
+	// A person who holds no tenant is refused (no_tenant): nobody signs up to this auth
+	// and creates a {{.TenantPolicy.Record}} of their own, since another auth's outlets serve the
+	// record or a directory gives this one's roles.
 {{- end}}
 	// Which tenants the session then reaches is decided again, tenant by tenant, where
 	// its tenant list is computed (UserPermissions): a super administrator's session
@@ -541,7 +547,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 {{- if .DirectoryAdmission}}
 
 	// The directory admission: what a person gets at their first sign-in through a
-	// tenant's directory, before the registration's account rule is reached. The row of
+	// tenant's directory, before the sign-in method's own choice is reached. The row of
 	// the tenant whose directory the identity came through decides. A row with a default
 	// seat creates a stranger and gives them that role in the tenant in one transaction
 	// (the identity client's DirectorySeated, which the session library runs inside the
@@ -551,7 +557,13 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// A person whose account stood before is given the default seat too, at the sign-in
 	// that links the account to the directory, where they hold no role in the tenant; a
 	// role an administrator removes afterwards is not given back by signing in. A
-	// directory no tenant has falls to the registration's rule. The auth's roles are the
+{{- if .SignUpChoice}}
+	// directory no tenant has falls to the method's choice, which is invite only until an
+	// administrator opens the method to sign-up. The auth's roles are the
+{{- else}}
+	// directory no tenant has falls to the method, which is invite only: an account
+	// stands before the sign-in, or an invitation comes with it. The auth's roles are the
+{{- end}}
 	// application's, so the admission is set here; an auth whose directory writes the
 	// roles sets none.
 	authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
@@ -564,6 +576,21 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// invitation is spent and its roles given together or neither is, and the sign-in
 	// rule that follows finds the memberships.
 	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+
+	// A person who signs up through a sign-in method an administrator opened is given
+	// the method's default role in the transaction that makes their account (the
+	// identity client's SignedUp, which the session library runs inside it), so no
+	// account is left holding nothing.
+{{- if .TenantPolicy}}
+{{- if .TenantPolicy.AdmitWithoutTenant}}
+	// Here a person who signs up holds no role of the whole application: they create a
+	// {{.TenantPolicy.Record}} of their own, and an open method names no default role.
+{{- else}}
+	// No method of this auth is opened to sign-up here: nobody who signed up to it could
+	// be given a {{.TenantPolicy.Record}}, so the hook has nobody to seat.
+{{- end}}
+{{- end}}
+	authSession.SetSignUpSeated(identityClient.SignedUp())
 {{- end}}
 {{- end}}
 
@@ -652,8 +679,12 @@ import (
 // sign-in is checked against the user's hash in the users table; the bootstrap creates
 // the development logins with their passwords, and a deployed environment starts from the
 // administrator the migrate command seeds (foothold.go), the rest coming from its
-// administration surface{{if .OpenSignUp}}, from the invitations it mails, and from the strangers who
-// sign up from a mailed link{{else}} and from the invitations it mails{{end}}.
+{{- if .SignUpChoice}}
+// administration surface, from the invitations it mails and, while an administrator has
+// the method open to sign-up, from the strangers who sign up from a mailed link.
+{{- else}}
+// administration surface and from the invitations it mails.
+{{- end}}
 const {{.Registration}} = "password"
 
 // PasswordLogin checks a username and password and starts the session.
@@ -678,10 +709,18 @@ func (h *Handlers) PasswordRemove() http.HandlerFunc {
 func (h *Handlers) InvitationSignUp() http.HandlerFunc {
 	return h.Invitation().SignUp()
 }
-{{- if .OpenSignUp}}
+
 
 // SignUpStart mails a sign-up link to the address a stranger gives; an address already
-// held gets a notice instead, and the caller learns neither.
+// held gets a notice instead, and the caller learns neither. The three sign-up routes
+{{- if .SignUpChoice}}
+// answer 404 while the password method is invite only, which it is until an
+// administrator opens it to sign-up on the application's Sign-in page.
+{{- else}}
+// answer 404 while the password method is invite only, which it always is here: no
+// method of this auth is opened to sign-up, since nobody who signed up to it could be
+// given a tenant.
+{{- end}}
 func (h *Handlers) SignUpStart() http.HandlerFunc {
 	return h.SignUp().Start()
 }
@@ -697,19 +736,21 @@ func (h *Handlers) SignUpOpen() http.HandlerFunc {
 func (h *Handlers) SignUpComplete() http.HandlerFunc {
 	return h.SignUp().Complete()
 }
-{{- end}}
 
 // register{{.Pascal}} registers the password method on the Auth, before the first request.
-{{- if .OpenSignUp}}
-// Open sign-up (session.OpenSignUp): a stranger gives their address, follows the link
-// mailed to it and chooses a password, and the router serves the sign-up routes.
+{{- if .SignUpChoice}}
+// Whether a stranger may sign up through it is no option here: the method is invite
+// only until an administrator opens it to sign-up in the running application.
+{{- else}}
+// The method is invite only, and no method of this auth is opened to sign-up: a person
+// gets an account by an invitation, or from an administrator.
 {{- end}}
 {{- if .UsernameIsEmail}}
 // The sign-in name is the person's email address (session.UsernameIsEmail): the users
 // surface derives the address from it, and a verified change of address renames the user.
 {{- end}}
 func register{{.Pascal}}(authSession *Session) *session.PasswordMethod {
-	return session.PasswordSignIn(authSession{{if .OpenSignUp}}, session.OpenSignUp(){{end}}{{if .UsernameIsEmail}}, session.UsernameIsEmail(){{end}})
+	return session.PasswordSignIn(authSession{{if .UsernameIsEmail}}, session.UsernameIsEmail(){{end}})
 }
 `
 
@@ -939,13 +980,26 @@ func (h *Handlers) {{.Pascal}}FrontChannelLogout() http.HandlerFunc {
 // directory proves who someone is and the application decides what they may do, so a
 // sign-in neither reads nor changes the person's roles.
 {{- end}}
-// The account rule for an identity Microsoft verifies for the first time is the
-// library's standard one{{if eq .AccountsExpr "signin.MembersOfDirectory"}}, members of the directory: the person becomes a user under their
-// user principal name, with no password, linked by the directory's immutable tenant and
-// object ids so a renamed account stays the same person{{else if eq .AccountsExpr "signin.InvitedUsersOnly"}}, invited users only: a user created beforehand under the
-// person's user principal name is linked and signed in, anyone else is refused
-// (not_invited){{else}}, open sign-up: anyone the slot admits becomes a user under their
-// user principal name{{end}}.
+{{- if .SyncsRoles}}
+// A person Microsoft verifies for the first time becomes a user under their user
+// principal name, with no password, linked by the directory's immutable tenant and
+// object ids so a renamed account stays the same person, holding the roles the
+// directory names: the directory decides who the method's people are, so the method
+// has no invite-only or open choice.
+{{- else}}
+// A person Microsoft verifies for the first time, who has no account, needs an
+{{- if .SignUpChoice}}
+// invitation: the method is invite only until an administrator opens it to sign-up on
+// the application's Sign-in page, and anyone else is refused (not_invited). A person
+{{- else}}
+// invitation, or the directory of a tenant that names a default role: the method is
+// invite only and is never opened to sign-up, since nobody who signed up to this auth
+// could be given a tenant, and anyone else is refused (not_invited). A person
+{{- end}}
+// admitted becomes a user under their user principal name, with no password, linked by
+// the directory's immutable tenant and object ids so a renamed account stays the same
+// person; a user created beforehand under that name is linked and signed in.
+{{- end}}
 func register{{.Pascal}}(authSession *Session, accessClient *access.Client, settings *Settings) (*azure.Method{{if .Fallible}}, error{{end}}) {
 {{- if .SlotFallible}}
 	tenants, err := {{.Field}}Slot(settings)
@@ -965,7 +1019,6 @@ func register{{.Pascal}}(authSession *Session, accessClient *access.Client, sett
 		ClientSecret: settings.{{.Pascal}}.ClientSecret,
 		RedirectURL:  settings.{{.Pascal}}.RedirectURL,
 		RoleSync:     {{.RoleSyncExpr}},
-		Accounts:     {{.AccountsExpr}},
 		LoginURL:     settings.LoginURL,
 	}){{if .Fallible}}, nil{{end}}
 }
@@ -1125,13 +1178,26 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // proves who someone is and the application decides what they may do, so a sign-in
 // neither reads nor changes the person's roles.
 {{- end}}
-// The account rule for an identity Google verifies for the first time is the library's
-// standard one{{if eq .AccountsExpr "signin.MembersOfDirectory"}}, members of the directory: the person becomes a user under their
-// verified email, with no password, linked by Google's immutable subject so a renamed
-// account stays the same person{{else if eq .AccountsExpr "signin.InvitedUsersOnly"}}, invited users only: a user created beforehand under the
-// person's verified email is linked and signed in, anyone else is refused
-// (not_invited){{else}}, open sign-up: anyone the slot admits becomes a user under their
-// verified email{{end}}.
+{{- if .SyncsRoles}}
+// A person Google verifies for the first time becomes a user under their verified
+// email, with no password, linked by Google's immutable subject so a renamed account
+// stays the same person, holding the roles the directory's groups name: the directory
+// decides who the method's people are, so the method has no invite-only or open choice.
+{{- else}}
+{{- if .SignUpChoice}}
+// A person Google verifies for the first time, who has no account, needs an invitation:
+// the method is invite only until an administrator opens it to sign-up on the
+// application's Sign-in page, and anyone else is refused (not_invited). A person
+{{- else}}
+// A person Google verifies for the first time, who has no account, needs an invitation,
+// or the directory of a tenant that names a default role: the method is invite only and
+// is never opened to sign-up, since nobody who signed up to this auth could be given a
+// tenant, and anyone else is refused (not_invited). A person
+{{- end}}
+// admitted becomes a user under their verified email, with no password, linked by
+// Google's immutable subject so a renamed account stays the same person; a user created
+// beforehand under that email is linked and signed in.
+{{- end}}
 {{- if eq .Slot "any"}}
 // The slot admits any Google account, with any Workspace named beside it: a Workspace
 // account's identity then carries its Workspace's domain as its connection, which is
@@ -1161,7 +1227,6 @@ func register{{.Pascal}}(authSession *Session, accessClient *access.Client, sett
 		RedirectURL:  settings.{{.Pascal}}.RedirectURL,
 		Workspaces:   workspaces,
 		RoleSync:     {{.RoleSyncExpr}},
-		Accounts:     {{.AccountsExpr}},
 		LoginURL:     settings.LoginURL,
 	}){{if .Fallible}}, nil{{end}}
 }
@@ -1329,13 +1394,27 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // provider proves who someone is and the application decides what they may do, so a
 // sign-in neither reads nor changes the person's roles.
 {{- end}}
-// The account rule for an identity the provider verifies for the first time is the
-// library's standard one{{if eq .AccountsExpr "signin.MembersOfDirectory"}}, members of the directory: everyone the provider signs in is a
-// member of its organization and becomes a user under the name the provider presents (the
-// preferred username, or the email when it sends none), with no password, linked by the
-// provider's subject so a renamed account stays the same person{{else}}, invited users only: a user created beforehand under the
-// name the provider presents (the preferred username, or the email when it sends none) is
-// linked and signed in, anyone else is refused (not_invited){{end}}.
+{{- if .SyncsRoles}}
+// Everyone the provider signs in is a member of its organization and becomes a user
+// under the name the provider presents (the preferred username, or the email when it
+// sends none), with no password, linked by the provider's subject so a renamed account
+// stays the same person, holding the roles the token names: the provider decides who
+// the method's people are, so the method has no invite-only or open choice.
+{{- else}}
+// A person the provider verifies for the first time, who has no account, needs an
+{{- if .SignUpChoice}}
+// invitation: the method is invite only until an administrator opens it to sign-up on
+// the application's Sign-in page, and anyone else is refused (not_invited). A person
+{{- else}}
+// invitation, or the directory of a tenant that names a default role: the method is
+// invite only and is never opened to sign-up, since nobody who signed up to this auth
+// could be given a tenant, and anyone else is refused (not_invited). A person
+{{- end}}
+// admitted becomes a user under the name the provider presents (the preferred username,
+// or the email when it sends none), with no password, linked by the provider's subject
+// so a renamed account stays the same person; a user created beforehand under that name
+// is linked and signed in.
+{{- end}}
 // A sign-in whose token says a second factor was used (its amr claim names mfa) carries
 // that proof; any other is asked for the sign-in code the Auth mails.
 func register{{.Pascal}}(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method {
@@ -1348,7 +1427,6 @@ func register{{.Pascal}}(authSession *Session, accessClient *access.Client, sett
 		RedirectURL:  settings.{{.Pascal}}.RedirectURL,
 		Connection:   {{.Registration}},
 		RoleSync:     {{.RoleSyncExpr}},
-		Accounts:     {{.AccountsExpr}},
 		LoginURL:     settings.LoginURL,
 	})
 }
@@ -1420,13 +1498,14 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // (signin.DisableRoleSync): the provider says which persona signed in, and the cast the
 // migrate command seeded says what the persona may do. The provider attests (Attesting): the person signed in to the provider's host to
 // pick a persona, which is the whole proof in a test environment, so a persona sign-in is
-// never asked for the sign-in code. The account rule is seeded users
-// only: the persona's identity (its login as the subject) is linked to the account seeded
+// never asked for the sign-in code. The method is left invite only, and declares seeded
+// users (SeededUsers):
+// the persona's identity (its login as the subject) is linked to the account seeded
 // under that login (cast.json, SeedCast), and a persona the seed does not know is refused.
-// The rule takes the provider's names for the application's own: a seeded account has no
-// password and has never signed in, so nothing but its login ties it to a sign-in, and
-// under any other rule an application whose tenants have directories links such an
-// account only through the directory of the one tenant it belongs to, or with its own
+// The declaration takes the provider's names for the application's own: a seeded account
+// has no password and has never signed in, so nothing but its login ties it to a sign-in,
+// and without it an application whose tenants have directories links such an account
+// only through the directory of the one tenant it belongs to, or with its own
 // invitation, and a persona holds its roles in every tenant or in none.
 func register{{.Pascal}}(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method {
 	_ = accessClient
@@ -1441,7 +1520,7 @@ func register{{.Pascal}}(authSession *Session, accessClient *access.Client, sett
 		Connection:  {{.Registration}},
 		Attesting:   true,
 		RoleSync:    {{.RoleSyncExpr}},
-		Accounts:    {{.AccountsExpr}},
+		SeededUsers: true,
 		LoginURL:    settings.LoginURL,
 	})
 }
@@ -1496,7 +1575,8 @@ func Cast() (*cast.Cast, error) {
 // next deploy, and the seed never gives a role to an account it did not create.{{ if eq .Foothold "password" }} A
 // persona named as the first administrator is refused, since the two seeds would derive
 // one account.{{ end }} The persona sign-in links the provider's identity to the user of the same login at the
-// first sign-in (seeded users only), so a persona the seed never made is refused there.
+// first sign-in (the method is invite only, as every sign-in method starts, and declares
+// seeded users), so a persona the seed never made is refused there.
 // It answers how many users it created.
 func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	cast, err := Cast()

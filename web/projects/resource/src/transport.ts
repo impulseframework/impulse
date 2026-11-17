@@ -17,6 +17,13 @@ export interface TransportRequest {
 export const dryRunHeader = 'X-Dry-Run';
 
 /**
+ * The header that asks a method that declares a warning (`@warning`) what the call would
+ * do, in place of doing it: the server checks the request as it checks the call, answers
+ * the warning it writes for it, and saves nothing.
+ */
+export const warningHeader = 'X-Warning';
+
+/**
  * The header that carries the release the application was built from on every request
  * (`ClientOptions.apiVersion`), and, on the server's refusal of it, the release the server
  * runs. A build that names no release, or names `dev`, sends nothing and is never refused.

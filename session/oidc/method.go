@@ -45,24 +45,20 @@ type Config struct {
 	// the sign-in (no_roles) when no recognized role results;
 	// signin.DisableRoleSync() leaves roles to the application.
 	RoleSync signin.RoleSyncConfig
-	// Accounts is the standard account rule for an account that signs in for the first
-	// time: signin.MembersOfDirectory (the default) provisions an account under the
-	// sign-in name, signin.InvitedUsersOnly links only a pre-created user under that
-	// name and refuses anyone else, signin.OpenSignUp provisions anyone. The provider
-	// is the directory: whoever it authenticates is a member of it. A provider asserts
-	// the names it likes, so in an application whose tenants have directories a user
-	// created ahead who has never signed in is linked on the name only through the
-	// directory of the one tenant they belong to, or with their own invitation;
-	// signin.SeededUsersOnly is invited users only for a provider whose names are the
-	// application's own, the one a deployment runs for the accounts it seeds, and
-	// links such a user on the name alone. A rule given to SignIn runs first and may
-	// leave the decision to this one with signin.Standard.
-	Accounts signin.StandardAccountRule
 	// Attesting declares that the provider enforces a second factor at every sign-in,
 	// so a sign-in through it carries the attestation by declaration and is never
 	// held for the library's code; a token whose amr claim names mfa attests by
 	// evidence whatever the declaration. See "The second factor" in the README.
 	Attesting bool
+	// SeededUsers declares that the provider's names are the application's own: the
+	// provider is one the deployment runs for the accounts it seeds, as the persona
+	// provider of the test environments is for the cast. A provider asserts the names
+	// it likes, so in an application whose tenants have directories a user created
+	// ahead who has never signed in is linked on the name only through the directory of
+	// the one tenant they belong to, or with their own invitation; under this
+	// declaration such a user is linked on the name alone. Never set it for an
+	// organization's directory, whose names are the organization's to assert.
+	SeededUsers bool
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
 	// Authenticator replaces the verifier built from the fields above. Tests inject a
@@ -81,7 +77,7 @@ type Identity struct {
 	Email         string
 	EmailVerified bool
 	// PreferredUsername is the preferred_username claim, the name the person signs in
-	// with at the provider. The standard account rules use it as the username, and the
+	// with at the provider. The standard account rule uses it as the username, and the
 	// email when the provider sends none.
 	PreferredUsername string
 	// Name is the name claim.
@@ -96,7 +92,7 @@ type Identity struct {
 	Claims json.RawMessage
 }
 
-// SignInName is the name the standard account rules use as the username: the
+// SignInName is the name the standard account rule uses as the username: the
 // preferred username, or the email when the provider sends none.
 func (id *Identity) SignInName() string {
 	if id.PreferredUsername != "" {
@@ -108,8 +104,9 @@ func (id *Identity) SignInName() string {
 
 // AccountRule is the application's own rule for an identity of the provider that is not
 // linked to any user yet, given to SignIn; nil leaves every such identity to the
-// standard rule in Config.Accounts. See signin.AccountRule for when it runs and what it
-// may do. Tx is the Auth's storage transaction type.
+// library's standard rule, which reads what an administrator chose for the registration
+// in the running application. See signin.AccountRule for when it runs and what it may
+// do. Tx is the Auth's storage transaction type.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
 
 // Method holds the handlers of a generic OpenID Connect sign-in method.
@@ -122,8 +119,10 @@ type Method struct {
 // under name and returns its handlers. name identifies the registration on auth, so one
 // Auth can offer several providers, each a registration of this method. The identity key
 // is (cfg.Connection, sub). An identity that is not linked yet is decided by rule when
-// one is given and by the standard rule in cfg.Accounts otherwise, or when rule answers
-// signin.Standard; nil is the usual value.
+// one is given and by the library's standard rule otherwise, or when rule answers
+// signin.Standard; nil is the usual value. The standard rule admits a person with no
+// account by invitation only, until an administrator opens the registration to sign-up
+// in the running application, which admits whoever the provider authenticates.
 //
 // It panics when name is empty or already used on auth, when auth has served a
 // request, when cfg.Issuer is missing or not an absolute URL, and when cfg.RoleSync is
@@ -132,21 +131,17 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 	if cfg == nil {
 		cfg = &Config{}
 	}
-	accounts := cfg.Accounts
-	if accounts == "" {
-		accounts = signin.MembersOfDirectory
-	}
 	connection := cfg.Connection
 	if connection == "" {
 		connection = cfg.Issuer
 	}
 	reg := &signin.Registration[Tx]{
-		Name:         name,
-		Method:       sessioninfo.MethodOIDC,
-		StandardRule: accounts,
-		AccountRule:  accountRule(rule),
-		Issuers:      signin.IssuerList(cfg.Issuer),
-		Err:          refuseShape(cfg),
+		Name:        name,
+		Method:      sessioninfo.MethodOIDC,
+		AccountRule: accountRule(rule),
+		SeededUsers: cfg.SeededUsers,
+		Issuers:     signin.IssuerList(cfg.Issuer),
+		Err:         refuseShape(cfg),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			roles, err := signin.ReconcilerOf(cfg.RoleSync)
 			if err != nil {
@@ -162,12 +157,27 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 				authn = v
 			}
 
-			return method(authn, roles, cfg.Issuer, connection, cfg.Attesting), nil
+			return method(authn, roles, cfg.Issuer, connection, audienceOf(cfg), cfg.Attesting), nil
 		},
 	}
 	h := signin.Register(auth, reg)
 
 	return &Method{login: h.Login, callback: h.Callback}
+}
+
+// audienceOf is how wide the registration is, for the page where a method is opened to
+// sign-up: the provider is the one organization, by the application's name for it
+// (cfg.Connection) or, without one, the host of its issuer.
+func audienceOf(cfg *Config) signin.Audience {
+	name := cfg.Connection
+	if name == "" {
+		name = cfg.Issuer
+		if u, err := url.Parse(cfg.Issuer); err == nil && u.Host != "" {
+			name = u.Host
+		}
+	}
+
+	return signin.Audience{Organizations: []string{name}}
 }
 
 // refuseShape is the registration's startup check of its configuration, each refusal
@@ -287,10 +297,11 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 // roles is set, the token's roles claim is reconciled. The method cannot tell which
 // addresses the provider admits, so it admits every one for an invitation; a link is
 // one of its own when it carries the registration's connection.
-func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connection string, attesting bool) *signin.Method {
+func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connection string, audience signin.Audience, attesting bool) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodOIDC,
 		LoginURL: authn.LoginURL,
+		Audience: audience,
 		// Every link the registration makes carries its one connection.
 		AdmitsConnection: func(linked string) bool {
 			return linked == connection

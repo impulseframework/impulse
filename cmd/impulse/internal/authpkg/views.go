@@ -24,16 +24,20 @@ type view struct {
 	Directory bool
 	// Application is the application's name as the auth's mail says it.
 	Application string
-	// OpenSignUp reports a password method whose strangers sign up from a mailed link,
-	// and UsernameIsEmail one whose sign-in name is the address, so a verified change
-	// of address renames the user; the roles are held by the account's id and stay.
-	OpenSignUp      bool
+	// Password reports an auth with the password method, whose strangers sign up from a
+	// mailed link while an administrator has the method open to sign-up, and
+	// UsernameIsEmail one whose sign-in name is the address, so a verified change of
+	// address renames the user; the roles are held by the account's id and stay.
+	Password        bool
 	UsernameIsEmail bool
 	// RolesSynced reports an auth with a registration whose directory writes the roles
 	// at every sign-in: the directory is the authority for everyone the auth holds, so
 	// the application gives nobody a role at a sign-in and the auth sets no hook for it
 	// (the generated identity client of such an auth answers none).
 	RolesSynced bool
+	// SignUpChoice reports an auth whose methods an administrator may open to sign-up
+	// (signUpChoice).
+	SignUpChoice bool
 	// IdentityPackage is the import path of the auth's generated identity package
 	// (<module>/<IdentityDir>/<name>identity); empty where the application generates no
 	// management of its auths.
@@ -84,8 +88,6 @@ type methodView struct {
 	// place bedrock reads a Microsoft registration's tenant shape from.
 	SlotKind  string
 	SlotWords string
-	// AccountsExpr is the account rule as the Config takes it.
-	AccountsExpr string
 	// RoleSyncExpr is the role synchronization as the Config takes it.
 	RoleSyncExpr string
 	// Fields are the settings the method reads.
@@ -100,8 +102,20 @@ type methodView struct {
 	// Simulated are the names the simulated directory signs the registration in with:
 	// APP_<REGISTRATION>_USERNAME and _ROLES.
 	SimulatedUsername, SimulatedRoles string
+	// SignUpChoice reports an auth whose methods an administrator may open to sign-up
+	// (signUpChoice).
+	SignUpChoice bool
 	// module is the application's module path.
 	module string
+}
+
+// signUpChoice reports whether an administrator may open the auth's methods to sign-up
+// in the running application: every auth of an application without tenants, and in one
+// with tenants the auth whose people create a tenant of their own (the tenant policy
+// admits a person who holds none). Another auth of a tenanted application has nothing to
+// give a person who signed up, so its methods stay invite only.
+func signUpChoice(spec *Spec) bool {
+	return spec.TenantPolicy == nil || spec.TenantPolicy.AdmitWithoutTenant
 }
 
 // Module is the application's module path, for the imports of the application's own
@@ -117,6 +131,7 @@ func newView(spec *Spec) *view {
 		v.Doc = "the people who sign in to the application"
 	}
 	v.Application = Application(spec)
+	v.SignUpChoice = signUpChoice(spec)
 	for i := range spec.Methods {
 		mv := newMethodView(spec, &spec.Methods[i])
 		v.Methods = append(v.Methods, mv)
@@ -124,7 +139,7 @@ func newView(spec *Spec) *view {
 		if mv.Directory() {
 			v.Directory = true
 		} else {
-			v.OpenSignUp = v.OpenSignUp || mv.OpenSignUp()
+			v.Password = true
 			v.UsernameIsEmail = v.UsernameIsEmail || mv.UsernameIsEmail
 		}
 	}
@@ -232,6 +247,7 @@ func newMethodView(spec *Spec, m *Method) *methodView {
 	mv := &methodView{Method: m, Auth: spec.Name, AuthPascal: names.Pascal(spec.Name), Fields: m.Fields(), SlotKind: m.slot(), SlotWords: slotWords(m), module: spec.Module}
 	mv.Field = lowerFirst(m.Pascal())
 	mv.Foothold = Foothold(spec)
+	mv.SignUpChoice = signUpChoice(spec)
 	for i := range mv.Fields {
 		mv.Variables = append(mv.Variables, m.Variable(spec.Name, &mv.Fields[i]))
 	}
@@ -257,20 +273,6 @@ func newMethodView(spec *Spec, m *Method) *methodView {
 		oidcView(mv, m)
 	case app.MethodPersona:
 		personaView(mv)
-	}
-	switch m.accounts() {
-	case AccountsInvited:
-		mv.AccountsExpr = "signin.InvitedUsersOnly"
-	case AccountsOpen:
-		mv.AccountsExpr = "signin.OpenSignUp"
-	default:
-		mv.AccountsExpr = "signin.MembersOfDirectory"
-	}
-	if m.Kind == app.MethodPersona {
-		// The personas are the accounts the deployment seeds, with no password and ahead
-		// of any sign-in: the registration takes the provider's names for the
-		// application's own, so a seeded account is linked on its login alone.
-		mv.AccountsExpr = "signin.SeededUsersOnly"
 	}
 	mv.StdImports, mv.Imports = splitImports(mv.Imports)
 
@@ -397,7 +399,7 @@ func googleView(mv *methodView, m *Method, settings string) {
 	} else {
 		mv.RoleSyncExpr = "google.DisableRoleSync()"
 	}
-	mv.Imports = []string{netHTTP, "strings", accessImport, "github.com/impulseframework/impulse/session/google", signinImport}
+	mv.Imports = []string{netHTTP, "strings", accessImport, "github.com/impulseframework/impulse/session/google"}
 	if m.slot() == SlotListed {
 		mv.Imports = append(mv.Imports, "slices")
 	}

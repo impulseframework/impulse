@@ -434,6 +434,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-sign-in-methods", method: http.MethodGet,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-methods", method: http.MethodPost,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-sign-in-ways", method: http.MethodGet,
 			handlerFunc: "StaffSignInWays",
 			parameters:  map[string]string{},
@@ -441,6 +451,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/staff-sign-in-ways", method: http.MethodPost,
 			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-up-roles", method: http.MethodGet,
+			handlerFunc: "StaffSignUpRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-up-roles", method: http.MethodPost,
+			handlerFunc: "StaffSignUpRoles",
 			parameters:  map[string]string{},
 		},
 		{
@@ -571,6 +591,14 @@ func (s *generatedHandlersStub) GiveStaffGroupRole() http.HandlerFunc {
 
 func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
+}
+
+func (s *generatedHandlersStub) MakeStaffInviteOnly() http.HandlerFunc {
+	return s.record("MakeStaffInviteOnly")
+}
+
+func (s *generatedHandlersStub) OpenStaffSignUp() http.HandlerFunc {
+	return s.record("OpenStaffSignUp")
 }
 
 func (s *generatedHandlersStub) RemoveStaffGroupMember() http.HandlerFunc {
@@ -705,8 +733,16 @@ func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
 }
 
+func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
+	return s.record("StaffSignInMethods")
+}
+
 func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
 	return s.record("StaffSignInWays")
+}
+
+func (s *generatedHandlersStub) StaffSignUpRoles() http.HandlerFunc {
+	return s.record("StaffSignUpRoles")
 }
 
 func (s *generatedHandlersStub) StaffUserGroupRoles() http.HandlerFunc {

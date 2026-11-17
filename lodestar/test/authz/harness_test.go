@@ -192,6 +192,11 @@ func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationReques
 	return nil, fmt.Errorf("the authorization matrix serves no session manager")
 }
 
+// SignInMethods names no method: the matrix registers none, and a denied case reads none.
+func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return nil
+}
+
 func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
 	return nil
 }

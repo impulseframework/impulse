@@ -37,7 +37,7 @@ export function appMenus(actions: FrameActions): Menu[] {
             {
               label: 'New tenant…',
               icon: 'add_business',
-              run: () => void openNewTenantDialog(dialog),
+              run: () => void openNewTenantDialog(dialog, { selfService: false }),
               place: 'outside',
               permission: { resource: Resources.Tenants, permission: Permissions.Create },
             },

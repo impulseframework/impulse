@@ -13,14 +13,15 @@ type Method interface {
 		DescribeStaffGroup | DescribeStaffTenantGroup | DisableStaffTenantUser | DisableStaffUser |
 		EnableStaffTenantUser | EnableStaffUser | EndStaffSession | EndStaffTenantUserSessions |
 		EndStaffUserSessions | GiveStaffGroupRole | GiveStaffTenantGroupRole |
-		InviteStaffTenantUser | InviteStaffUser | RemoveStaffGroupMember | RemoveStaffPassword |
-		RemoveStaffRole | RemoveStaffTenantGroupMember | RemoveStaffTenantPassword |
-		RemoveStaffTenantRole | RenameStaffTenantUser | RenameStaffUser |
-		RequireStaffPasswordChange | RequireStaffTenantPasswordChange |
-		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
-		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword |
-		SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail | SetStaffTenantUserName |
-		SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole | TakeStaffTenantGroupRole |
-		UnlinkStaffSessionIdentity | UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn |
-		WithdrawStaffInvitation | WithdrawStaffTenantInvitation
+		InviteStaffTenantUser | InviteStaffUser | MakeStaffInviteOnly | OpenStaffSignUp |
+		RemoveStaffGroupMember | RemoveStaffPassword | RemoveStaffRole |
+		RemoveStaffTenantGroupMember | RemoveStaffTenantPassword | RemoveStaffTenantRole |
+		RenameStaffTenantUser | RenameStaffUser | RequireStaffPasswordChange |
+		RequireStaffTenantPasswordChange | RevokeStaffSessionToken |
+		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
+		SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail |
+		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
+		TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
+		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
+		WithdrawStaffTenantInvitation
 }

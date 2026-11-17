@@ -11,8 +11,8 @@
 // returns the handlers to the method.
 //
 // The package also holds the vocabulary of a sign-in's outcomes, which the application's
-// hooks speak: the account rules (the standard ones and a custom AccountRule's
-// Resolution), the sign-in policy's Decision and the causes of a refusal.
+// hooks speak: a custom AccountRule's Resolution, the sign-in policy's Decision and the
+// causes of a refusal.
 //
 // A method package imports this package and never the core.
 package signin
@@ -35,9 +35,8 @@ type Core[Tx any] interface {
 	// RegisterExternal registers a redirect-based method and returns its handlers. It
 	// panics on a registration rule, because that is a wiring mistake found at startup:
 	// the registration has no name or its name is already used, the core has served a
-	// request, the registration has neither a standard account rule nor a custom one
-	// or names a standard rule that does not exist, or reg.Err carries a misuse the
-	// registration function found in its arguments.
+	// request, or reg.Err carries a misuse the registration function found in its
+	// arguments.
 	RegisterExternal(reg *Registration[Tx]) Handlers
 }
 
@@ -50,15 +49,20 @@ type Registration[Tx any] struct {
 	// Method names the method; it is the identity's method and the session's auth
 	// event's.
 	Method sessioninfo.AuthMethod
-	// StandardRule is the standard account rule the core applies to an identity of
-	// the method that is not linked to any user yet, when AccountRule is nil or answers
-	// Standard. It is empty for a method that has no standard rule, whose AccountRule
-	// is then required. The method sets it from its configuration, with its default.
-	StandardRule StandardAccountRule
-	// AccountRule is the application's own rule for such an identity, nil for none:
+	// AccountRule is the application's own rule for an identity of the method that is
+	// not linked to any user yet, nil for none, which leaves every such identity to the
+	// library's standard rule:
 	// the method builds it over the rule the application gave its registration, typed
 	// to the method's identity.
 	AccountRule AccountRule[Tx]
+	// SeededUsers declares that the provider's names are the application's own: an
+	// identity of this registration under the name of a user created ahead is that
+	// user, so the standard rule links the user on the name alone, whatever tenant has
+	// the provider as its directory and whatever the user holds. It is for the provider
+	// a deployment runs for the accounts it seeds, as the persona provider of the test
+	// environments is for the cast, and never for an organization's directory, whose
+	// names are the organization's to assert.
+	SeededUsers bool
 	// Build builds the method over the registration's state cookie, which carries the
 	// browser's half of a round trip to the provider; the core names it for the
 	// registration.
@@ -121,6 +125,10 @@ type Method struct {
 	// admitted by the method, which the core asks before it sends an invitation to the
 	// address. It is nil when the method cannot tell, which admits.
 	AdmitsAddress func(email string) bool
+	// Audience is how wide the method is, which its registration fixes: the
+	// organizations it is limited to, or the kind of account it admits. It is what
+	// opening the method to sign-up admits.
+	Audience Audience
 	// AdmitsConnection reports whether an identity that came through connection (the
 	// Connection its link carries) could sign in through this registration as it is
 	// configured now: a tenant, a Workspace or a provider the registration still takes.

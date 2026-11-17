@@ -55,6 +55,12 @@
               "resource": "UnlockStaffSignIn"
             },
             {
+              "resource": "OpenStaffSignUp"
+            },
+            {
+              "resource": "MakeStaffInviteOnly"
+            },
+            {
               "resource": "InviteStaffUser"
             },
             {
@@ -181,6 +187,23 @@
                 "lockedUntil",
                 "updatedAt",
                 "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "StaffSignInMethods",
+              "fields": [
+                "admits",
+                "defaultRole",
+                "directoryGivesRoles",
+                "label",
+                "openSignUp",
+                "says"
+              ]
+            },
+            {
+              "resource": "StaffSignUpRoles",
+              "fields": [
+                "description"
               ]
             },
             {

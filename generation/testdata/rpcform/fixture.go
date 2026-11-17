@@ -164,6 +164,49 @@ type (
 	// @rpc
 	// @upload(max: 5MB, store: Photos)
 	UploadStoreMismatch struct{}
+
+	// @rpc
+	// @warning(typed: open)
+	WarningForm struct{}
+
+	// @rpc
+	WarningUndeclared struct{}
+
+	// @rpc
+	// @warning(typed: open)
+	WarningNoMethod struct{}
+
+	// @rpc
+	// @warning(typed: open)
+	WarningClientForm struct{}
+
+	// @rpc
+	// @warning(typed: open)
+	// @upload(max: 5MB)
+	WarningUpload struct{}
+
+	// @rpc
+	// @warning(open)
+	WarningNoTyped struct{}
+
+	// @rpc
+	// @warning(typed: Open Sesame)
+	WarningBadWord struct{}
+
+	// @rpc
+	// @warning(typed: open)
+	WarningWrongResult struct{}
+
+	// @rpc
+	// @warning(typed: open)
+	WarningWrongParams struct{}
+
+	// OtherClient is a client type that is not the one the methods' Execute takes.
+	OtherClient struct{}
+
+	// @rpc
+	// @warning(typed: open)
+	WarningOtherClient struct{}
 )
 
 func (Verdict) HTTPStatus() int { return 200 }
@@ -271,4 +314,60 @@ func (*UploadStoreUntyped) Execute(context.Context, resource.ReadWriteTransactio
 }
 func (*UploadStoreMismatch) Execute(context.Context, resource.ReadWriteTransaction, resource.FilesIn[Documents], *Client) error {
 	return nil
+}
+
+func (*WarningForm) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningForm) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningUndeclared) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningUndeclared) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningNoMethod) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningClientForm) Execute(context.Context, resource.Client, *Client) error { return nil }
+func (*WarningClientForm) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningUpload) Execute(context.Context, resource.ReadWriteTransaction, resource.Files, *Client) error {
+	return nil
+}
+func (*WarningUpload) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningNoTyped) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningNoTyped) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningBadWord) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningBadWord) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningWrongResult) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningWrongResult) Warning(context.Context, resource.ReadWriteTransaction, *Client) (string, error) {
+	return "", nil
+}
+func (*WarningWrongParams) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningWrongParams) Warning(context.Context, *Client) (*resource.Warning, error) {
+	return nil, nil
+}
+func (*WarningOtherClient) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*WarningOtherClient) Warning(context.Context, resource.ReadWriteTransaction, *OtherClient) (*resource.Warning, error) {
+	return nil, nil
 }

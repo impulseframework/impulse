@@ -11,7 +11,7 @@ package drivertest
 // tenant the account belongs to, holding a role there and nothing anywhere else, or it
 // carries the account's own invitation. Any other
 // sign-in under the name is refused as a person no account was created for is. A
-// registration under the seeded-users-only rule declares the provider's names the
+// registration that declares seeded users declares the provider's names the
 // application's own, as a deployment's own provider is for the accounts it seeds, and
 // links the account on the name alone. The cases run through the real sign-in flow on
 // both drivers, one for each way an account exists ahead of a sign-in.
@@ -259,19 +259,19 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 		}
 	})
 
-	t.Run("a registration under seeded users only takes its provider's names for the application's own and links an account created ahead on the name alone, where invited users only refuses it; a stranger is refused under both", func(t *testing.T) {
+	t.Run("a registration that declares seeded users takes its provider's names for the application's own and links an account created ahead on the name alone, where a registration that declares nothing refuses it; a stranger is refused under both", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
 		for _, tt := range []struct {
-			accounts signin.StandardAccountRule
-			linked   bool
+			seeded bool
+			linked bool
 		}{
-			{accounts: signin.InvitedUsersOnly},
-			{accounts: signin.SeededUsersOnly, linked: true},
+			{seeded: false},
+			{seeded: true, linked: true},
 		} {
 			w := firstLinkWorld("")
-			w.accounts = tt.accounts
+			w.accounts, w.seeded = InviteOnly, tt.seeded
 			in := w.start(ctx, t, h)
 			// The account a seed made: no password, no link, and no role in the tenant
 			// whose directory the provider is.
@@ -288,8 +288,8 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 				assertUntouched(ctx, t, w, in.Driver, dana, identity, "riverside")
 			}
 
-			// A name no account was created under is a stranger's under either rule:
-			// through a directory no tenant has, the registration's rule refuses it.
+			// A name no account was created under is a stranger's either way: through a
+			// directory no tenant has, the method, which is invite only, refuses it.
 			stranger := google("google-stranger", "nobody@riverside.example")
 			strangerErr := signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "nobody@riverside.example", Identity: stranger})
 			assertRefused(t, strangerErr, sessioninfo.RefusedNotInvited, signin.ErrNotInvited)
@@ -372,7 +372,7 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 		t.Parallel()
 		ctx := t.Context()
 
-		in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory})
+		in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open})
 		dana := createUser(ctx, t, in.Driver, name)
 		identity := google("google-dana", name)
 		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}

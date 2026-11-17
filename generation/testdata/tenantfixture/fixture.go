@@ -113,13 +113,13 @@ type (
 		Input string
 	}
 
-	// Station declares the self-service creation shape: the person who becomes its
-	// administrator creates it, through the generated route, and no administrator does.
-	// Beside the key, the id the route generates, it carries a plain column, a nullable
-	// one, a column of a type from another package and a server-owned one.
+	// Station is a tenant record a person who signs up creates through the generated
+	// create-your-station route, where the route serves. Beside the key, the id the
+	// route generates, it carries a plain column, a nullable one, a column of a type
+	// from another package and a server-owned one.
 	//
 	// @resource
-	// @tenant(creation: self-service)
+	// @tenant
 	Station struct {
 		ID      impulse.UUID `spanner:"Id"`
 		Name    string       `spanner:"Name"`
@@ -128,16 +128,17 @@ type (
 		Derived string       `spanner:"Derived" conditions:"output_only"`
 	}
 
-	// Colony declares both creation shapes.
+	// Colony is a second tenant record with a create-your-colony route where it serves.
 	//
 	// @resource
-	// @tenant(creation: both)
+	// @tenant
 	Colony struct {
 		ID   impulse.UUID `spanner:"Id"`
 		Name string       `spanner:"Name"`
 	}
 
-	// Enclave spells the default shape out.
+	// Enclave still declares the retired creation argument, with the value that was
+	// its default.
 	//
 	// @resource
 	// @tenant(creation: administrator)
@@ -145,10 +146,11 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 	}
 
-	// Outland names a creation shape the generator does not know.
+	// Outland still declares the retired creation argument, with the value that let a
+	// stranger create a tenant.
 	//
 	// @resource
-	// @tenant(creation: nowhere)
+	// @tenant(creation: self-service)
 	Outland struct {
 		ID impulse.UUID `spanner:"Id"`
 	}
@@ -182,7 +184,7 @@ type (
 	// HarborDirectory holds the directories.
 	//
 	// @resource
-	// @tenant(creation: both)
+	// @tenant
 	Harbor struct {
 		ID   impulse.UUID `spanner:"Id"`
 		Name string       `spanner:"Name"`

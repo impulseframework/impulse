@@ -116,18 +116,15 @@ describe('NewTenantDialogComponent', () => {
     fixture.componentInstance.form.setValue({ name: 'West' });
     const pending = fixture.componentInstance.create();
 
-    http
-      .expectOne(`${environment.apiUrl}/${createTenantRoute}`)
-      .flush(
-        { message: 'the session already holds a tenant; a person creates one tenant and becomes its administrator' },
-        { status: 403, statusText: 'Forbidden' },
-      );
+    const refusal = {
+      message: 'the session already holds a tenant; a person creates one tenant and becomes its administrator',
+    };
+    const request = http.expectOne(`${environment.apiUrl}/${createTenantRoute}`);
+    request.flush(refusal, { status: 403, statusText: 'Forbidden' });
     await pending;
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.error()).toBe(
-      'the session already holds a tenant; a person creates one tenant and becomes its administrator',
-    );
+    expect(fixture.componentInstance.error()).toBe(refusal.message);
     expect((fixture.nativeElement as HTMLElement).querySelector('.refusal')?.textContent).toContain(
       'already holds a tenant',
     );

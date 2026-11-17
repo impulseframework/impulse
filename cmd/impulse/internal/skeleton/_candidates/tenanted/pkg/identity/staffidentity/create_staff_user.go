@@ -18,9 +18,9 @@ type (
 	// created holding the roles, at least one: in the global scope, in one domain
 	// (Domain), or in every domain (EveryDomain), written in the same transaction as
 	// the user. Each role must exist where it is given.
-	// Password is a temporary password, which the person changes before anything else
-	// is served: the password is the auth's one way in, so a person is created with
-	// one.
+	// Password, when given, is a temporary password, which the person changes before
+	// anything else is served; without one the person signs in another way, or
+	// follows an invitation and chooses their own.
 	// Name is the person's name as people read it, shown in place of the username
 	// where it is given; the person may change it themselves.
 	// It answers the new user's id. A username or an address another user holds is
@@ -32,7 +32,7 @@ type (
 		Username string `validate:"required"`
 		Name     *string
 		Email    *string
-		Password string `validate:"required" conditions:"secret"`
+		Password *string `conditions:"secret"`
 		// Roles are the roles the person is given. A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.
 		//
@@ -59,7 +59,7 @@ func (m *CreateStaffUser) Execute(ctx context.Context, txn resource.ReadWriteTra
 	}
 	account := &identity.NewAccount{Username: m.Username, Name: m.Name, Scope: scope}
 	account.Email = m.Email
-	account.Password, account.PasswordRequired = &m.Password, true
+	account.Password = m.Password
 	for _, role := range m.Roles {
 		account.Roles = append(account.Roles, accesstypes.Role(role))
 	}

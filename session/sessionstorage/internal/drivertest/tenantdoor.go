@@ -132,9 +132,11 @@ type doorWorld struct {
 	declared map[accesstypes.Domain]*signin.TenantDeclaration
 	// defaultSeats are the default seat each tenant's directory row names, "" for none.
 	defaultSeats map[accesstypes.Domain]accesstypes.Role
-	// accounts is the registrations' standard account rule, members of the directory
-	// when it is not set, and resolve the registrations' own account rule, nil for none.
-	accounts signin.StandardAccountRule
+	// accounts is what was chosen for the sign-in method, open to sign-up when it is not
+	// set; seeded says the registration declared its provider's names the application's
+	// own; and resolve is the registration's own account rule, nil for none.
+	accounts Accounts
+	seeded   bool
 	resolve  func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
 
 	mu      sync.Mutex
@@ -207,19 +209,20 @@ func (w *doorWorld) reached(userID impulse.UUID, identity *sessioninfo.Identity)
 	return reached
 }
 
-// start builds the case's Auth over a fresh database: members of a directory are
-// provisioned by the registration's rule (or the case's own, accounts), the tenants'
-// declarations decide a stranger first, an invitation's roles and a directory's default
-// seat are held once they commit, and the tenant policy decides the sign-in.
+// start builds the case's Auth over a fresh database: the sign-in method is open to
+// sign-up, so its row gives a person with no account one (or is what the case chose,
+// accounts), the tenants' declarations decide a stranger first, an invitation's roles
+// and a directory's default seat are held once they commit, and the tenant policy
+// decides the sign-in.
 func (w *doorWorld) start(ctx context.Context, t *testing.T, h *AuthHarness) *AuthInstance {
 	t.Helper()
 
 	accounts := w.accounts
-	if accounts == "" {
-		accounts = signin.MembersOfDirectory
+	if accounts == NoStandardRule {
+		accounts = Open
 	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Resolve: w.resolve, Accounts: accounts, Accept: w.seats.accept,
+		Auth: true, Resolve: w.resolve, Accounts: accounts, SeededUsers: w.seeded, Accept: w.seats.accept,
 		Policy:    signin.TenantPolicy(w.seats, w.declaration),
 		Admission: &DirectoryAdmission{Directories: w.directories, Seat: w.seats.seat, OnlyIn: w.seats.onlyIn},
 	})

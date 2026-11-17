@@ -752,6 +752,16 @@ export interface CrewSectorSignInWays {
   heldGlobally?: boolean;
 }
 
+export interface CrewSignInMethods {
+  name: string;
+  label?: string;
+  admits?: string;
+  openSignUp?: boolean;
+  defaultRole?: string;
+  directoryGivesRoles?: boolean;
+  says?: string;
+}
+
 export interface CrewSignInWays {
   userId: string;
   way: string;
@@ -1919,6 +1929,23 @@ const resourceMap = defineResourceMap({
       { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewSignInMethods]: {
+    route: 'crew-sign-in-methods',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.CrewSignInWays]: {
     route: 'crew-sign-in-ways',
     readDisabled: true,
@@ -2119,6 +2146,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.BriefingTemplates]: PermissionScopes.global,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
   [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
+  [Resources.CrewSignInMethods]: PermissionScopes.global,
   [Resources.CrewSignInWays]: PermissionScopes.global,
   [Resources.ExpenseManifests]: PermissionScopes.domain,
   [Resources.PilotCards]: PermissionScopes.global,

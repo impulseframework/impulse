@@ -1664,10 +1664,13 @@ var _ interface {
 } = (*{{ .ApplicationName }})(nil)
 
 // {{ .HandlerFunc }} serves the create-your-{{ .RecordLower }} route, POST {{ .RoutePath }}: a signed-in person
-// who holds no {{ .RecordLower }} creates one and becomes its administrator (@tenant(creation: {{ .Shape }})).
-// No grant admits the call. The session must be established, which the router's session
-// group holds it to, and must hold a grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }},
-// and the member or administrator of one is refused (403). The row is written first, in
+// who holds no {{ .RecordLower }} creates one and becomes its administrator, while an administrator has
+// a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
+// must be established, which the router's session group holds it to, and must hold a
+// grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
+// one is refused (403). Whether sign-up is open is read in the transaction that writes
+// the row, from the auth's sign-in methods table: while every method is invite only the
+// call is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
@@ -1731,6 +1734,17 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		var id {{ .Key.Type }}
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// Who is admitted: a person who signed up, which is a person with no {{ .RecordLower }}
+			// while an administrator has a sign-in method open to sign-up. A person who
+			// holds an invitation to create a {{ .RecordLower }} is the next admission, and is
+			// decided here, before the refusal, when that invitation exists.
+			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			if err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()")
+			}
+			if !open {
+				return httpio.NewForbiddenMessage("{{ .ClosedRefusal }}")
+			}
 			patch, err := {{ .ResourcePackage }}.New{{ .Record }}CreatePatch()
 			if err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Record }}CreatePatch()")
@@ -2243,7 +2257,9 @@ type grants map[accesstypes.Permission]bool
 // which runs before required-field validation, defaults, or row reads. Mutation
 // success paths need valid request bodies the generator does not synthesize yet and
 // are left to manual testing. A transaction-form RPC method carries a second denied
-// case under X-Dry-Run: a dry run refuses exactly as the real call does. The features
+// case under X-Dry-Run: a dry run refuses exactly as the real call does. A method that
+// declares a warning carries one more under X-Warning: its warning is refused as the
+// call is. The features
 // route is open to anyone signed in and carries one case: 200 without a grant. A list
 // across tenants (@listAcrossTenants) has no endpoint gate to refuse at: the List grant
 // is asked in each tenant and a tenant in which the caller holds none is left out, so
@@ -3724,6 +3740,12 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
+  /**
+   * Set on a method that warns before it runs (@warning): the server writes what the
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
+   * warning style and holds its confirm button until the person has typed the word.
+   */
+  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 
@@ -3753,6 +3775,9 @@ const methodMap: MethodMap = {
     {{- end }}
     {{- if $rpcMethod.IsTxnForm }}
     dryRun: true,
+    {{- end }}
+    {{- with $rpcMethod.Warning }}
+    warning: { typed: '{{ .Typed }}' },
     {{- end }}
     {{- if $rpcMethod.Fields }}
     fields: [
@@ -3958,10 +3983,11 @@ export const apiDescriptor = defineApiDescriptor({
 {{- with .TenantCreation }}
 
 /**
- * The create-your-{{ .RecordLower }} route (@tenant(creation: {{ .Shape }})): POST {{ .Route }} under the API
+ * The create-your-{{ .RecordLower }} route: POST {{ .Route }} under the API
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no {{ .RecordLower }} creates one and becomes its administrator; a person who already holds one is
- * refused (403). The route generates the new {{ .RecordLower }}'s id and answers it.
+ * refused (403), and so is everyone while no sign-in method is open to sign-up.
+ * The route generates the new {{ .RecordLower }}'s id and answers it.
  */
 export const {{ .RouteConstant }} = '{{ .Route }}';
 /** The body the create-your-{{ .RecordLower }} route takes: the {{ .Record }} record's fields, without its id. */
@@ -4929,6 +4955,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 
 		p := {{ .RPCMethod.RequestConverterName }}(*params)
 		{{- end }}
+		{{- template "rpcWarningAsked" $ }}
 		{{- template "rpcCollectTouched" $ }}
 		{{- template "rpcResultVars" $ }}
 		{{- if .RPCMethod.IsTxnForm }}
@@ -4938,6 +4965,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 			dryRun := resource.IsDryRun(r)
 			if err := {{ $.ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				{{- template "rpcTargetFrame" $ }}
+				{{- template "rpcReadWarning" $ }}
 				{{- if .RPCMethod.Answers -}}
 				answer, err := p.Execute(ctx, txn, {{ $.ReceiverName }}.RPCClient())
 				if err != nil {
@@ -5060,6 +5088,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 
 		p := {{ .RPCMethod.RequestConverterName }}(*params)
 		{{- end }}
+		{{- template "rpcWarningAsked" $ }}
 
 		// The files stream to the store the method names, wired on the resource client,
 		// under keys the frame minted; the body records the keys, and the transaction's
@@ -5384,11 +5413,56 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					return httpio.NewEncoder(w).StatusCodeWithBody(refused, {{ .RPCMethod.ResponseExpr }})
 				}
 				{{- end }}
+				{{- if .RPCMethod.Warning }}
+				if asksWarning && resource.WarningAsked(err) {
+					return httpio.NewEncoder(w).Ok(warning)
+				}
+				{{- end }}
 				if dryRun && resource.DryRunRolledBack(err) {
 					return httpio.NewEncoder(w).Ok(nil)
 				}
 
 				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+{{- end }}
+
+{{- /* rpcWarningAsked is what every frame does with a request that asks for the
+method's warning (X-Warning: true), once the request is decoded and the caller
+checked: a method that declares one reads it inside its transaction
+(rpcReadWarning), and a method that declares none refuses, so a request that asks
+for a warning never runs the call. */ -}}
+{{- define "rpcWarningAsked" }}
+		{{- if .RPCMethod.Warning }}
+
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is, and answers what Warning writes for it in
+		// place of running the call: the transaction below rolls back.
+		asksWarning := resource.AsksWarning(r)
+		var warning *resource.Warning
+		{{- else }}
+
+		if resource.AsksWarning(r) {
+			// The method declares no warning (@warning): a request that asks for one
+			// is refused, and never runs the call.
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("{{ .RPCMethod.Name }} declares no warning: send the call without the {{ WarningHeader }} header"))
+		}
+		{{- end }}
+{{- end }}
+
+{{- define "rpcReadWarning" }}
+				{{- if .RPCMethod.Warning }}
+				if asksWarning {
+					said, err := p.Warning(ctx, txn, {{ $.ReceiverName }}.RPCClient())
+					if err != nil {
+						return errors.Wrap(err, "{{ .RPCMethod.Name }}.Warning()")
+					}
+					if err := resource.CheckWarning("{{ .RPCMethod.Name }}", said); err != nil {
+						return errors.Wrap(err, "resource.CheckWarning()")
+					}
+					warning = said
+
+					return resource.ErrWarningAsked
+				}
+				{{ end -}}
 {{- end }}
 
 {{- define "rpcChooseStatus" }}

@@ -120,6 +120,13 @@ export interface MethodPresentation {
    * caller Execute on it; the server gives no answer for a row it does not name.
    */
   fill?: (row: RecordData) => Record<string, unknown>;
+  /**
+   * What a picker among the request's inputs lists each option by, by the request
+   * field's name, where the option's name alone does not say enough to choose by: the
+   * fields of the listed resource, joined in order (a role with its description). A
+   * field the page does not name lists its options by the source's own name.
+   */
+  shows?: Record<string, string[]>;
 }
 
 export type ListConcatFn =
@@ -969,6 +976,13 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   /** Show the server's total row count in the title. */
   showRowCount?: boolean;
   /**
+   * A standing notice above the list, drawn in the library's warning colors under a
+   * warning icon: what the page must not let a person overlook for as long as it holds
+   * (a sign-in method that is open to sign-up). It is said from the rows on the page,
+   * again each time they are read, and answering nothing draws none.
+   */
+  notice?: (rows: RecordData[]) => string | undefined;
+  /**
    * Whether the page draws the search box over the resource's search fields
    * (`ResourceMeta.searchFields`): drawn above the table when the metadata lists any,
    * unless false. Which fields it searches is the resource's, narrowed by the caller's
@@ -1047,6 +1061,8 @@ export interface ListViewConfig extends BaseConfig {
   sorts: FieldSort[];
   shouldRenderActions: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   showRowCount: boolean;
+  /** The page's standing notice; see ListViewConfigOptions.notice. */
+  notice?: (rows: RecordData[]) => string | undefined;
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */
   showSearchBox: boolean;
   /** The server page size; see ListViewConfigOptions.pageSize. */

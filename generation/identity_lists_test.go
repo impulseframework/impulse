@@ -81,7 +81,7 @@ import "github.com/impulseframework/impulse"
 // Sector is the tenant record.
 //
 // @resource
-// @tenant(creation: selfService)
+// @tenant
 type Sector struct {
 	ID impulse.UUID
 }
@@ -588,8 +588,8 @@ func Test_tenantRecordIn_label(t *testing.T) {
 		wantWord  string
 	}{
 		{name: "no label: the record's name in words", record: "Customer", tenant: "@tenant", wantWord: "customer"},
-		{name: "a record of two words", record: "ServiceArea", tenant: "@tenant(creation: both)", wantWord: "service area"},
-		{name: "a label beside a creation shape", record: "Tenant", tenant: `@tenant(creation: both, label: "Service district")`, wantLabel: "Service district", wantWord: "service district"},
+		{name: "a record of two words", record: "ServiceArea", tenant: "@tenant", wantWord: "service area"},
+		{name: "a label of two words", record: "Tenant", tenant: `@tenant(label: "Service district")`, wantLabel: "Service district", wantWord: "service district"},
 		{name: "a label that opens with an initialism keeps it", record: "Tenant", tenant: `@tenant(label: "HQ unit")`, wantLabel: "HQ unit", wantWord: "HQ unit"},
 	}
 	for _, tt := range tests {
