@@ -19,12 +19,41 @@ import (
 	"github.com/impulseframework/impulse/tracer"
 )
 
-// DirectoryOnlyRoute is the route of the read that says what turning a tenant's
-// directory-only switch on would do (DirectoryOnlyHandler), under an outlet's prefix:
-// GET <prefix>/directory-only?domain=<tenant>. The generated router registers it on
-// every outlet that serves sessions and the tenant record, for a record that declares
-// the switch.
+// DirectoryOnlyRoute is the route of the read of a tenant's directory-only switch as it
+// stands (DirectoryOnlyStateHandler), under the tenant's own route:
+// GET <prefix>/<tenants>/{tenant}/directory-only. The generated router registers it,
+// the read of what turning the switch on would do (DirectoryOnlyConsequenceRoute) and
+// the method that turns it (Set<Record>DirectoryOnly) on every outlet that serves
+// sessions and the tenant record, for a record that declares the switch.
 const DirectoryOnlyRoute = "directory-only"
+
+// DirectoryOnlyConsequenceRoute is the route of the read that says what turning a
+// tenant's directory-only switch on would do (DirectoryOnlyConsequenceHandler), under
+// the tenant's own route: GET <prefix>/<tenants>/{tenant}/directory-only/consequence.
+const DirectoryOnlyConsequenceRoute = DirectoryOnlyRoute + "/consequence"
+
+// SetDirectoryOnlyRequest is the body of the method that turns a tenant's
+// directory-only switch on or off (Set<Record>DirectoryOnly, a method in the tenant's
+// own scope, which the generator writes for a tenant record that declares the switch).
+// The body says which: a request that names neither is refused.
+type SetDirectoryOnlyRequest struct {
+	DirectoryOnly *bool `json:"directoryOnly"`
+}
+
+// Turn answers which way the request turns the switch, or the refusal of a body that
+// does not say.
+func (r *SetDirectoryOnlyRequest) Turn() (on bool, err error) {
+	if r == nil || r.DirectoryOnly == nil {
+		return false, httpio.NewBadRequestMessage(`Say which way to turn directory only: {"directoryOnly": true} turns it on, {"directoryOnly": false} turns it off.`)
+	}
+
+	return *r.DirectoryOnly, nil
+}
+
+// DirectoryOnlyState is a tenant's directory-only switch as it stands.
+type DirectoryOnlyState struct {
+	DirectoryOnly bool `json:"directoryOnly"`
+}
 
 // DirectoryOutsider is a person who holds a seat in a tenant and has never signed in
 // through the tenant's directory: someone the tenant's directory-only switch keeps
@@ -45,6 +74,22 @@ type DirectoryOutsider struct {
 // people; an application names none of them.
 type DirectoryOutsiders func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) ([]DirectoryOutsider, error)
 
+// DirectoryPeople is one auth's part of what turning a tenant's directory-only switch
+// on would do: the reader of the people it would keep out, and the tenant's list of
+// that auth's people, which decides whether the caller is told who they are. The read
+// names people only to someone who may list them: a caller who holds List, in the
+// tenant, on the list and, on no condition, on each field of it that names a person.
+// Anyone else is told how many there are and nobody's name. A reader with no list, or
+// with no field named, names nobody.
+type DirectoryPeople struct {
+	// List is the tenant's list of the auth's people as grants name it, and Fields the
+	// fields of it that name a person: the ones the read answers (DirectoryOutsider).
+	List   accesstypes.Resource
+	Fields []accesstypes.Tag
+	// Outsiders reads the people the switch would keep out.
+	Outsiders DirectoryOutsiders
+}
+
 // DirectoryOnlyConsequence is what turning a tenant's directory-only switch on would
 // do, in words the server writes, for a page to show before the switch is saved.
 type DirectoryOnlyConsequence struct {
@@ -57,9 +102,14 @@ type DirectoryOnlyConsequence struct {
 	// to enter this tenant. 4 people seated here sign in another way and will lose
 	// access."
 	Sentence string `json:"sentence"`
-	// People are the people seated in the tenant who will lose access, by username:
-	// everyone with a seat and no sign-in through the tenant's directory, in every auth
-	// whose people the tenant seats. Never nil.
+	// Count is how many people seated in the tenant will lose access: everyone with a
+	// seat and no sign-in through the tenant's directory, in every auth whose people the
+	// tenant seats.
+	Count int `json:"count"`
+	// People are those people by username, for a caller who may list them: the read
+	// names the people of an auth only to a caller who holds the tenant's list of that
+	// auth's people (DirectoryPeople), so it holds fewer people than Count says, or
+	// none, for a caller who does not. Never nil.
 	People []DirectoryOutsider `json:"people"`
 	// Confirm is what the button that turns the switch on says it does: "Admit only
 	// people who sign in through acme.example".
@@ -83,10 +133,12 @@ type DirectoryOnlyConsequence struct {
 // whichever comes first, as each would be after the other had committed.
 //
 // Nobody is exempt, a super administrator included: the rule is about the directory,
-// not about who may enter. The generated update of the tenant record asks it once the
-// caller's grants have answered (PatchSet.Permitted), for a record that declares the
-// switch (@directoryOnly) and a directories record, and so does its generated create: a
-// tenant created with the switch on is turned on by its create, and has no directory.
+// not about who may enter. The switch is the tenant's own, turned by the tenant's
+// administrator: the generated method of a tenant record that declares it
+// (@directoryOnly) and a directories record, Set<Record>DirectoryOnly in the tenant's
+// scope, asks the rule once the caller's Execute grant has answered and then writes the
+// flag. No other request writes it: the record's field is output only on the wire, so
+// neither the record's update nor its create carries it.
 func (r *TenantDirectoryRules) DirectoryOnly(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, value any) error {
 	writes := notedDirectoryWrites(txn)
 	if !turnsOn(value) {
@@ -188,8 +240,28 @@ func (w *directoryWrites) removesDirectory(tenant accesstypes.Domain) bool {
 // directory only already has nothing to turn on, and the read is refused as a Conflict
 // that says so and names neither its directory nor its people: the write that leaves the
 // switch on is plain whoever makes it, and the read answers nobody what that write
-// would not ask them to prove.
+// would not ask them to prove. Every person is named: the served read names people
+// only to a caller who may list them (DirectoryOnlyConsequenceHandler).
 func (r *TenantDirectoryRules) Consequence(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, outsiders ...DirectoryOutsiders) (*DirectoryOnlyConsequence, error) {
+	readers := make([]outsidersReading, 0, len(outsiders))
+	for _, read := range outsiders {
+		readers = append(readers, outsidersReading{read: read, named: true})
+	}
+
+	return r.consequence(ctx, txn, tenant, readers)
+}
+
+// outsidersReading is one auth's reader of the people the switch would keep out, and
+// whether the answer names them or only counts them.
+type outsidersReading struct {
+	read  DirectoryOutsiders
+	named bool
+}
+
+// consequence is Consequence over readers that each say whether their people are
+// named: everyone is counted, and the people of a reader that does not name them are
+// left out of the answer's list.
+func (r *TenantDirectoryRules) consequence(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, readers []outsidersReading) (*DirectoryOnlyConsequence, error) {
 	on, found, err := r.switchState(ctx, txn, tenant)
 	if err != nil {
 		return nil, err
@@ -205,16 +277,20 @@ func (r *TenantDirectoryRules) Consequence(ctx context.Context, txn ReadWriteTra
 		return nil, err
 	}
 
+	count := 0
 	people := []DirectoryOutsider{}
-	for _, read := range outsiders {
-		if read == nil {
+	for _, reader := range readers {
+		if reader.read == nil {
 			continue
 		}
-		found, err := read(ctx, txn, tenant)
+		found, err := reader.read(ctx, txn, tenant)
 		if err != nil {
 			return nil, errors.Wrap(err, "resource.DirectoryOutsiders()")
 		}
-		people = append(people, found...)
+		count += len(found)
+		if reader.named {
+			people = append(people, found...)
+		}
 	}
 	slices.SortFunc(people, func(a, b DirectoryOutsider) int {
 		if byName := strings.Compare(strings.ToLower(a.Username), strings.ToLower(b.Username)); byName != 0 {
@@ -227,7 +303,8 @@ func (r *TenantDirectoryRules) Consequence(ctx context.Context, txn ReadWriteTra
 	return &DirectoryOnlyConsequence{
 		Directory:  DirectoryName(directory),
 		Connection: directory.Connection,
-		Sentence:   directoryOnlySentence(directory, r.word, len(people)),
+		Sentence:   directoryOnlySentence(directory, r.word, count),
+		Count:      count,
 		People:     people,
 		Confirm:    fmt.Sprintf("Admit only people who sign in through %s", directory.Connection),
 	}, nil
@@ -338,48 +415,102 @@ func turnsOn(value any) bool {
 	return true
 }
 
-// DirectoryOnlyHandler serves the read a tenant's Sign-in page calls before it saves
-// the directory-only switch (DirectoryOnlyRoute): what turning the switch on would do
-// to the tenant the domain query parameter names (DirectoryOnlyConsequence), or the
-// refusal the write itself would answer, in the same words. It is asked under the
-// grant the write is: Update on the tenant record and on its directory-only field, in
-// the global scope, where a caller without it is Forbidden and learns nothing of the
-// tenant. A grant that holds on a condition is refused the same way: the condition is
-// judged against the row a write changes, and the read changes none. Nothing is
-// written.
-//
-// resourceName is the tenant record's resource and field the directory-only field as
-// grants name it; client runs the read in one transaction, and outsiders are the
-// readers of the people the switch keeps out, one for each auth whose people a tenant
-// seats. The generated handler of a tenant record that declares the switch supplies
-// all of them.
-func DirectoryOnlyHandler(
+// State answers tenant's directory-only switch as it stands, in the caller's
+// transaction; a tenant the record does not hold is NotFound.
+func (r *TenantDirectoryRules) State(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*DirectoryOnlyState, error) {
+	on, found, err := r.switchState(ctx, txn, tenant)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, httpio.NewNotFoundMessagef("This %s does not exist.", r.word)
+	}
+
+	return &DirectoryOnlyState{DirectoryOnly: on}, nil
+}
+
+// DirectoryOnlyReads is what the two reads of a tenant's directory-only switch are
+// served from: the switch as it stands (State, DirectoryOnlyRoute) and what turning it
+// on would do (Consequence, DirectoryOnlyConsequenceRoute). Both are the tenant's own:
+// each is served under the tenant's route and asked under the grant the method that
+// turns the switch is, Execute on it in the tenant's scope, where a caller without it
+// is Forbidden and learns nothing of the tenant. A grant that holds on a condition is
+// refused the same way: a read has no request for the condition to judge. Neither
+// writes anything. The generated handlers of a tenant record that declares the switch
+// build one (NewDirectoryOnlyReads).
+type DirectoryOnlyReads struct {
+	client          Client
+	rules           *TenantDirectoryRules
+	userPermissions func(r *http.Request) UserPermissions
+	method          accesstypes.Resource
+	tenantParam     httpio.ParamType
+	people          []DirectoryPeople
+}
+
+// NewDirectoryOnlyReads builds the reads of a tenant's directory-only switch: client
+// runs each in one transaction, rules are the tenant record's, method is the method
+// that turns the switch as grants name it, tenantParam the route parameter that names
+// the tenant, and people one entry for each auth whose people a tenant seats.
+func NewDirectoryOnlyReads(
 	client Client, rules *TenantDirectoryRules, userPermissions func(r *http.Request) UserPermissions,
-	resourceName accesstypes.Resource, field accesstypes.Tag, outsiders ...DirectoryOutsiders,
-) http.HandlerFunc {
+	method accesstypes.Resource, tenantParam httpio.ParamType, people ...DirectoryPeople,
+) *DirectoryOnlyReads {
+	return &DirectoryOnlyReads{client: client, rules: rules, userPermissions: userPermissions, method: method, tenantParam: tenantParam, people: people}
+}
+
+// State serves the switch as it stands (DirectoryOnlyState): what a tenant's Sign-in
+// page shows the person who may turn it.
+func (s *DirectoryOnlyReads) State() http.HandlerFunc {
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		tenant := accesstypes.Domain(r.URL.Query().Get("domain"))
-		if tenant == "" {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("The domain query parameter names the tenant: directory-only?domain=<tenant>."))
-		}
-		perms := userPermissions(r)
-		decisions, err := perms.Check(ctx, RequestEnvironment(), accesstypes.GlobalScope(), accesstypes.Update, resourceName, resourceName.ResourceWithTag(field))
+		tenant, _, err := s.admit(ctx, r)
 		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.UserPermissions.Check()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if refused := slices.Concat(decisions.DeniedResources(), decisions.ConditionalResources()); len(refused) > 0 {
-			slices.Sort(refused)
+		var state *DirectoryOnlyState
+		if err := s.client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+			var err error
+			state, err = s.rules.State(ctx, txn, tenant)
 
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", accesstypes.GlobalScope(), perms.User(), accesstypes.Update, refused))
+			return err
+		}); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(state)
+	})
+}
+
+// Consequence serves the read a tenant's Sign-in page calls before it turns the switch
+// on: what turning it on would do to the tenant (DirectoryOnlyConsequence), or the
+// refusal the method itself would answer, in the same words. Everyone the switch would
+// keep out is counted. A person is named only to a caller who may list them: the people
+// of an auth are named where the caller holds the tenant's list of that auth's people
+// (DirectoryPeople), and counted alone where the caller does not.
+func (s *DirectoryOnlyReads) Consequence() http.HandlerFunc {
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		tenant, perms, err := s.admit(ctx, r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		readers := make([]outsidersReading, 0, len(s.people))
+		for _, people := range s.people {
+			named, err := listsPeople(ctx, perms, tenant, people)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			readers = append(readers, outsidersReading{read: people.Outsiders, named: named})
 		}
 
 		var consequence *DirectoryOnlyConsequence
-		if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+		if err := s.client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 			var err error
-			consequence, err = rules.Consequence(ctx, txn, tenant, outsiders...)
+			consequence, err = s.rules.consequence(ctx, txn, tenant, readers)
 
 			return err
 		}); err != nil {
@@ -388,4 +519,57 @@ func DirectoryOnlyHandler(
 
 		return httpio.NewEncoder(w).Ok(consequence)
 	})
+}
+
+// admit names the tenant the request's route carries and holds the caller to the grant
+// the reads are asked under: Execute on the method that turns the switch, in the
+// tenant's scope, on no condition.
+func (s *DirectoryOnlyReads) admit(ctx context.Context, r *http.Request) (accesstypes.Domain, UserPermissions, error) {
+	tenant := httpio.Param[accesstypes.Domain](r, s.tenantParam)
+	scope := accesstypes.DomainScope(tenant)
+	perms := s.userPermissions(r)
+	decisions, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.Execute, s.method)
+	if err != nil {
+		return "", nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+	}
+	if !decisions[s.method].IsGranted() {
+		return "", nil, httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", scope, perms.User(), accesstypes.Execute, []accesstypes.Resource{s.method})
+	}
+
+	return tenant, perms, nil
+}
+
+// listsPeople reports whether the caller may list the people of one auth in tenant, as
+// the list itself asks it: List on the tenant's list of them, and List on each field of
+// it that names a person, on no condition. A field grant that holds on a condition
+// lists some of the people and not others, so it names nobody here; and a declaration
+// that names no list, or no field of it, names nobody either. An answer that does not
+// hold a resource that was asked is no grant of it.
+func listsPeople(ctx context.Context, perms UserPermissions, tenant accesstypes.Domain, people DirectoryPeople) (bool, error) {
+	if people.List == "" || len(people.Fields) == 0 {
+		return false, nil
+	}
+	scope := accesstypes.DomainScope(tenant)
+	list, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.List, people.List)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.UserPermissions.Check()")
+	}
+	if list[people.List].IsDenied() {
+		return false, nil
+	}
+	asked := make([]accesstypes.Resource, 0, len(people.Fields))
+	for _, field := range people.Fields {
+		asked = append(asked, people.List.ResourceWithTag(field))
+	}
+	decisions, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.List, asked...)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.UserPermissions.Check()")
+	}
+	for _, field := range asked {
+		if !decisions[field].IsGranted() {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }

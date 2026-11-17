@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
@@ -22,23 +23,38 @@ import (
 // directory-only field.
 type namedFlag bool
 
-// switchPermissions scripts the grant the directory-only switch is written under:
-// Update on the tenant record and on its directory-only field, in the global scope.
+// switchMethod is the method that turns a station's directory-only switch, as grants
+// name it, and stationPeople the station's list of its people with the fields that
+// name a person.
+const (
+	switchMethod  accesstypes.Resource = "SetStationDirectoryOnly"
+	stationPeople accesstypes.Resource = "StationUsers"
+)
+
+// switchPermissions scripts the grants the reads of the directory-only switch ask: Execute
+// on the method that turns it, and List on the station's list of its people, each in
+// the station's own scope.
 type switchPermissions struct {
 	stubPermissions
 	denied []accesstypes.Resource
-	// conditional are the resources the grant holds on a condition.
+	// conditional are the resources the grant holds on a condition, and omitted the
+	// ones the answer does not hold at all.
 	conditional []accesstypes.Resource
-	asked       []accesstypes.Resource
+	omitted     []accesstypes.Resource
+	asked       []string
 }
 
 func (s *switchPermissions) Check(_ context.Context, _ accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
-	if !scope.IsGlobal() || perm != accesstypes.Update {
-		return nil, errors.Newf("the read asked %s in %s, want Update in the global scope", perm, scope)
+	if scope.IsGlobal() {
+		return nil, errors.Newf("the read asked %s in the global scope, want the station's own", perm)
 	}
-	s.asked = append(s.asked, resources...)
+	domain, _ := scope.Domain()
 	decisions := accesstypes.Decisions{}
 	for _, res := range resources {
+		s.asked = append(s.asked, string(perm)+" "+string(res)+" in "+string(domain))
+		if slices.Contains(s.omitted, res) {
+			continue
+		}
 		decisions[res] = accesstypes.Granted()
 		if slices.Contains(s.conditional, res) {
 			decisions[res] = accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{res}})
@@ -167,6 +183,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			want: &DirectoryOnlyConsequence{
 				Directory: "Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001", Connection: "6f2c1b7e-0000-4000-8000-000000000001",
 				Sentence: "Only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station. 3 people seated here sign in another way and will lose access.",
+				Count:    3,
 				People:   []DirectoryOutsider{amy, bo, zed},
 				Confirm:  "Admit only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001",
 			},
@@ -176,6 +193,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			want: &DirectoryOnlyConsequence{
 				Directory: "OpenID Connect provider id.delta.example", Connection: "id.delta.example",
 				Sentence: "Only people who sign in through id.delta.example will be able to enter this station. 1 person seated here signs in another way and will lose access.",
+				Count:    1,
 				People:   []DirectoryOutsider{bo},
 				Confirm:  "Admit only people who sign in through id.delta.example",
 			},
@@ -312,19 +330,28 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		})
 	}
 
-	t.Run("the served read is asked under the grant the write is, and answers the consequence or the refusal", func(t *testing.T) {
+	t.Run("the served reads are the station's own, asked under the grant of the method that turns the switch", func(t *testing.T) {
 		t.Parallel()
 
-		serve := func(ctx context.Context, perms *switchPermissions, query string) *httptest.ResponseRecorder {
-			handler := DirectoryOnlyHandler(client, rules, func(*http.Request) UserPermissions { return perms }, "Stations", "directoryOnly", reader(zed))
+		declared := DirectoryPeople{List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(zed)}
+		serveFor := func(ctx context.Context, perms *switchPermissions, path string, people DirectoryPeople) *httptest.ResponseRecorder {
+			reads := NewDirectoryOnlyReads(client, rules, func(*http.Request) UserPermissions { return perms }, switchMethod, "stationID", people)
+			r := chi.NewRouter()
+			r.Use(httpio.WithParams)
+			r.Get("/api/stations/{stationID}/"+DirectoryOnlyRoute, reads.State())
+			r.Get("/api/stations/{stationID}/"+DirectoryOnlyConsequenceRoute, reads.Consequence())
 			rr := httptest.NewRecorder()
-			handler.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/"+DirectoryOnlyRoute+query, http.NoBody))
+			r.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/stations/"+path, http.NoBody))
 
 			return rr
 		}
+		serve := func(ctx context.Context, perms *switchPermissions, path string) *httptest.ResponseRecorder {
+			return serveFor(ctx, perms, path, declared)
+		}
+		const consequence = "beta/" + DirectoryOnlyConsequenceRoute
 
 		granted := &switchPermissions{}
-		rr := serve(through(entra), granted, "?domain=beta")
+		rr := serve(through(entra), granted, consequence)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body %q)", rr.Code, rr.Body.String())
 		}
@@ -335,40 +362,114 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		want := DirectoryOnlyConsequence{
 			Directory: "Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001", Connection: "6f2c1b7e-0000-4000-8000-000000000001",
 			Sentence: "Only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station. 1 person seated here signs in another way and will lose access.",
+			Count:    1,
 			People:   []DirectoryOutsider{zed},
 			Confirm:  "Admit only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001",
 		}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("the served consequence mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff([]accesstypes.Resource{"Stations", "Stations.directoryOnly"}, granted.asked); diff != "" {
+		wantAsked := []string{
+			"Execute SetStationDirectoryOnly in beta",
+			"List StationUsers in beta", "List StationUsers.username in beta", "List StationUsers.name in beta",
+		}
+		if diff := cmp.Diff(wantAsked, granted.asked); diff != "" {
 			t.Errorf("the grants the read asked (-want +got):\n%s", diff)
 		}
 
-		// A caller without the field's grant is Forbidden and learns nothing of the station.
-		for _, denied := range []accesstypes.Resource{"Stations", "Stations.directoryOnly"} {
-			rr := serve(through(entra), &switchPermissions{denied: []accesstypes.Resource{denied}}, "?domain=beta")
-			if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "6f2c1b7e") {
-				t.Errorf("without Update on %s: status = %d, body %q, want 403 that names no directory", denied, rr.Code, rr.Body.String())
+		// The list held on a condition beside the fields that name a person held outright
+		// is the list's own to judge row by row, and names them.
+		rr = serve(through(entra), &switchPermissions{conditional: []accesstypes.Resource{stationPeople}}, consequence)
+		if !strings.Contains(rr.Body.String(), zed.Username) {
+			t.Errorf("with the list on a condition and its naming fields outright: the answer does not name %s: %s", zed.Username, rr.Body.String())
+		}
+
+		// The people are named only to someone who may list them: a caller without the
+		// station's list of its people, or without a field of it that names a person, or
+		// who holds such a field on a condition, is told how many and nobody's name, and
+		// so is one whose answer does not hold what was asked.
+		counted := want
+		counted.People = []DirectoryOutsider{}
+		for _, without := range []*switchPermissions{
+			{denied: []accesstypes.Resource{stationPeople}},
+			{omitted: []accesstypes.Resource{stationPeople}},
+			{denied: []accesstypes.Resource{stationPeople.ResourceWithTag("username")}},
+			{denied: []accesstypes.Resource{stationPeople.ResourceWithTag("name")}},
+			{conditional: []accesstypes.Resource{stationPeople.ResourceWithTag("username")}},
+			{conditional: []accesstypes.Resource{stationPeople.ResourceWithTag("name")}},
+			{omitted: []accesstypes.Resource{stationPeople.ResourceWithTag("name")}},
+		} {
+			rr := serve(through(entra), without, consequence)
+			var got DirectoryOnlyConsequence
+			if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v (body %q)", err, rr.Body.String())
+			}
+			if diff := cmp.Diff(counted, got); diff != "" {
+				t.Errorf("without the list of people (denied %v, on a condition %v): the consequence mismatch (-want +got):\n%s", without.denied, without.conditional, diff)
+			}
+			if strings.Contains(rr.Body.String(), zed.Username) {
+				t.Errorf("without the list of people (denied %v, on a condition %v): the answer names %s: %s", without.denied, without.conditional, zed.Username, rr.Body.String())
 			}
 		}
-		// A grant that holds on a condition is no grant to the read: the condition is
-		// judged against the row a write changes.
-		for _, conditional := range []accesstypes.Resource{"Stations", "Stations.directoryOnly"} {
-			rr := serve(through(entra), &switchPermissions{conditional: []accesstypes.Resource{conditional}}, "?domain=beta")
-			if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "6f2c1b7e") {
-				t.Errorf("with Update on %s held on a condition: status = %d, body %q, want 403 that names no directory", conditional, rr.Code, rr.Body.String())
+		// A declaration that names no field of the list names nobody, whatever the
+		// caller holds.
+		for _, people := range []DirectoryPeople{{List: stationPeople, Outsiders: reader(zed)}, {Fields: []accesstypes.Tag{"username"}, Outsiders: reader(zed)}} {
+			if rr := serveFor(through(entra), &switchPermissions{}, consequence, people); rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), zed.Username) || !strings.Contains(rr.Body.String(), `"count":1`) {
+				t.Errorf("with the people declared as %+v: status = %d, body %q, want 200 with the count and nobody's name", people, rr.Code, rr.Body.String())
 			}
 		}
-		// The refusal is the write's, in the same words.
-		if rr := serve(password, &switchPermissions{}, "?domain=beta"); rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "You signed in with a password.") {
+
+		// The switch as it stands, for the person who may turn it.
+		for station, want := range map[string]string{"alpha": `{"directoryOnly":true}`, "beta": `{"directoryOnly":false}`, "gamma": `{"directoryOnly":false}`} {
+			if rr := serve(password, &switchPermissions{}, station+"/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != want {
+				t.Errorf("the switch of %s: status = %d, body %q, want 200 %s", station, rr.Code, rr.Body.String(), want)
+			}
+		}
+
+		// A caller without the method's grant is Forbidden on both reads and learns
+		// nothing of the station, and a grant that holds on a condition is no grant to
+		// a read: it has no request for the condition to judge.
+		for _, path := range []string{consequence, "alpha/" + DirectoryOnlyRoute} {
+			for name, perms := range map[string]*switchPermissions{
+				"without the method":            {denied: []accesstypes.Resource{switchMethod}},
+				"the method on a condition":     {conditional: []accesstypes.Resource{switchMethod}},
+				"an answer that holds no grant": {omitted: []accesstypes.Resource{switchMethod}},
+			} {
+				rr := serve(through(entra), perms, path)
+				if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "6f2c1b7e") || strings.Contains(rr.Body.String(), "directoryOnly\"") {
+					t.Errorf("%s, %s: status = %d, body %q, want 403 that says nothing of the station", path, name, rr.Code, rr.Body.String())
+				}
+			}
+		}
+		// The refusal is the method's, in the same words.
+		if rr := serve(password, &switchPermissions{}, consequence); rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "You signed in with a password.") {
 			t.Errorf("with a password: status = %d, body %q, want the 409 that says how the caller signed in", rr.Code, rr.Body.String())
 		}
-		if rr := serve(through(entra), &switchPermissions{}, ""); rr.Code != http.StatusBadRequest {
-			t.Errorf("with no domain: status = %d, want 400 (body %q)", rr.Code, rr.Body.String())
+		for _, path := range []string{"nowhere/" + DirectoryOnlyConsequenceRoute, "nowhere/" + DirectoryOnlyRoute} {
+			if rr := serve(through(entra), &switchPermissions{}, path); rr.Code != http.StatusNotFound {
+				t.Errorf("%s, for a station that is not one: status = %d, want 404 (body %q)", path, rr.Code, rr.Body.String())
+			}
 		}
-		if rr := serve(through(entra), &switchPermissions{}, "?domain=nowhere"); rr.Code != http.StatusNotFound {
-			t.Errorf("for a station that is not one: status = %d, want 404 (body %q)", rr.Code, rr.Body.String())
+	})
+
+	t.Run("the method's body says which way it turns the switch", func(t *testing.T) {
+		t.Parallel()
+
+		for body, want := range map[string]bool{`{"directoryOnly":true}`: true, `{"directoryOnly":false}`: false} {
+			var request SetDirectoryOnlyRequest
+			if err := json.Unmarshal([]byte(body), &request); err != nil {
+				t.Fatalf("json.Unmarshal(%s) error = %v", body, err)
+			}
+			if on, err := request.Turn(); err != nil || on != want {
+				t.Errorf("Turn() of %s = %t, %v, want %t", body, on, err, want)
+			}
+		}
+		var silent SetDirectoryOnlyRequest
+		if err := json.Unmarshal([]byte(`{}`), &silent); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if _, err := silent.Turn(); !httpio.HasBadRequest(err) {
+			t.Errorf("Turn() of a body that does not say error = %v, want a BadRequest: a silent body must not turn the switch off", err)
 		}
 	})
 }
