@@ -206,6 +206,7 @@
                       <a
                         mat-icon-button
                         [routerLink]="link"
+                        [attr.aria-label]="col.buttonConfig.label"
                         [matTooltip]="col.buttonConfig.label || ''"
                         [matTooltipPosition]="col.tooltipPosition || 'above'">
                         <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
@@ -215,6 +216,7 @@
                     <a
                       mat-icon-button
                       [routerLink]="'/' + col.buttonConfig.viewRoute + '/' + row[col.buttonConfig.keyField ?? 'id']"
+                      [attr.aria-label]="col.buttonConfig.label"
                       [matTooltip]="col.buttonConfig.label || ''"
                       [matTooltipPosition]="col.tooltipPosition || 'above'">
                       <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>

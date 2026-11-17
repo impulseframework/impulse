@@ -625,3 +625,87 @@ describe('a text cut short', () => {
     expect(tooltip()).toBeNull();
   });
 });
+
+/**
+ * The control a screen reader announces under the role with the name: a button or a link
+ * whose accessible name is the words given. The name is the control's `aria-label`, else
+ * the text it holds that is not hidden from assistive technology.
+ */
+const byRole = (root: HTMLElement, role: 'button' | 'link', name: string): HTMLElement | undefined => {
+  const heard = (node: Element): string => {
+    return Array.from(node.childNodes)
+      .map((child) => {
+        if (!(child instanceof Element)) {
+          return child.textContent ?? '';
+        }
+        return child.getAttribute('aria-hidden') === 'true' ? '' : (child.getAttribute('aria-label') ?? heard(child));
+      })
+      .join('');
+  };
+  return Array.from(root.querySelectorAll<HTMLElement>(role === 'button' ? 'button' : 'a[href]')).find((control) => {
+    return (control.getAttribute('aria-label') ?? heard(control)).trim() === name;
+  });
+};
+
+// A row's button is an icon alone, and Material hides an icon from assistive technology,
+// so the button's label is its accessible name: a screen reader announces "View, link"
+// and "Delete, button", not an unnamed control. The label is the tooltip too.
+describe("a row's buttons", () => {
+  let fixture: ComponentFixture<AppGridComponent>;
+  let element: HTMLElement;
+  let deleted: unknown[];
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    deleted = [];
+    fixture.componentRef.setInput('rowData', [
+      { id: 'm-1', name: 'Anvil run', opensAt: '/sectors/anvil/missions/m-1' },
+    ]);
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'name' },
+      {
+        id: 'view',
+        hideHeader: true,
+        buttonConfig: { label: 'View', icon: 'arrow_forward', viewRoute: 'missions', actionType: 'link' },
+      },
+      {
+        id: 'open',
+        hideHeader: true,
+        buttonConfig: { label: 'Open in its sector', icon: 'arrow_forward', linkField: 'opensAt', actionType: 'link' },
+      },
+      {
+        id: 'delete',
+        hideHeader: true,
+        buttonConfig: {
+          label: 'Delete',
+          icon: 'delete',
+          actionType: 'function',
+          action: (row: unknown): void => {
+            deleted.push(row);
+          },
+        },
+      },
+    ]);
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  it('a link to the row by a route is found by its label', () => {
+    expect(byRole(element, 'link', 'View')?.getAttribute('href')).toBe('/missions/m-1');
+  });
+
+  it('a link the row carries is found by its label', () => {
+    expect(byRole(element, 'link', 'Open in its sector')?.getAttribute('href')).toBe('/sectors/anvil/missions/m-1');
+  });
+
+  it('a button that runs a function is found by its label, and runs it with the row', () => {
+    const button = byRole(element, 'button', 'Delete');
+    expect(button).toBeDefined();
+    button?.click();
+    expect(deleted).toEqual([{ id: 'm-1', name: 'Anvil run', opensAt: '/sectors/anvil/missions/m-1' }]);
+  });
+});
