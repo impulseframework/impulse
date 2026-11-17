@@ -215,7 +215,7 @@ jobs:
           docker run --rm -v "$PWD:/src" semgrep/semgrep@[[.SemgrepDigest]] \
             semgrep ci --config auto --max-target-bytes 500000 --baseline-commit "$(git merge-base HEAD "origin/$BASE_REF")" # [[.Semgrep]]
 
-  # impulse check with its regeneration (the generators start the Spanner emulator in a container, which the runner has), failing on a tree the checks changed, since what they regenerated or rewrote is not committed. It restores go-build's Go caches, as go-vuln does, and saves nothing.
+  # impulse check with its regeneration (the generators start the Spanner emulator in a container, which the runner has), failing on a tree the checks changed, since what they regenerated or rewrote is not committed. It restores go-build's Go caches, as go-vuln does, and saves nothing.[[if .Workspaces]] The browser workspace[[if gt (len .Workspaces) 1]]s are[[else]] is[[end]] installed first (bun ci, as [[if gt (len .Workspaces) 1]]their own jobs install them[[else]]its own job installs it[[end]]), since the check holds the browser files to the prettier a workspace pins and the formatter comes with the install: without it the check would say it was not run, and an unformatted file would pass.[[end]]
   go-check:
     runs-on: [[index .RunsOn "go-check"]]
     timeout-minutes: 30
@@ -236,6 +236,18 @@ jobs:
           go-version-file: go.mod
           cache: false
 [[- template "gocache-restore" (index .Cache "go-check")]]
+[[- if .Workspaces]]
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: [[.Bun]]
+[[- range .Workspaces]]
+      - name: Install the browser workspace at [[.Dir]]
+        # impulse check's prettier check runs the prettier the workspace pins, which this
+        # install brings; a workspace left uninstalled is one the check does not read.
+        working-directory: [[.Dir]]
+        run: bun ci
+[[- end]]
+[[- end]]
       - name: impulse check
         run: go tool impulse check
       - name: The tree is clean
