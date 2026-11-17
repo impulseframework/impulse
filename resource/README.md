@@ -507,11 +507,17 @@ this package supplies the two pieces that must know about it:
   session was established — its sign-in's method and connection, the session's first auth
   event (`sessioninfo.SessionData.EstablishedBy`; `signin.TenantDeclaration.Admits` is the
   decision, the same one the sign-in policy makes over every tenant of the person) — or
-  when the session's actor holds a grant in the global partition, the application's staff,
-  who reach every tenant as the sign-in policy admits them. A tenant that declares nothing
-  admits a password and refuses a sign-in through a directory. An impersonated session is
-  established by its impersonation event, so a directory-only tenant refuses it unless the
-  actor, the real person behind it, is staff. In a tenant the session does not reach it
+  when the session's actor is a super administrator, a holder of the role the access
+  library defines in every auth (`accesstypes.SuperAdministrator`), who reaches every
+  tenant whatever its declaration says; nobody else is exempt, a person holding another
+  role in the global partition or a role in every tenant included. The checker handed to
+  `SessionPermissions` answers the question (`SessionUserChecker.SuperAdministrator`,
+  which `access.UserChecker` implements), by the test the sign-in policy's first rule
+  asks (`accesstypes.RoleCollection.HoldsSuperAdministrator`). A tenant that declares
+  nothing admits a password and refuses a sign-in through a directory. An impersonated
+  session is established by its impersonation event, so a directory-only tenant refuses
+  it unless the actor, the real person behind it, is a super administrator; a super
+  administrator's session started by a person who is none is refused it. In a tenant the session does not reach it
   holds nothing — every `Check` Denied, an empty digest, no foothold — so `Domains`, the
   picker's list, is the roster filtered by the grant and the admission, the generated
   `DomainGuard` refuses a direct request for the tenant exactly as it refuses a domain
@@ -2842,7 +2848,7 @@ and handed to the handler type, which returns it from an accessor named for the 
 // In the Auth's package, once its permission engine and session manager exist.
 identityClient, err := crewidentity.NewClient(accessClient,  // the Auth's permission engine
 	authSession.API(),                                        // the API of the session.Auth that signs its people in
-	identity.WithAdministratorRoles(AdministratorRoles()))    // the roles that administer: global, and in a tenant
+	identity.WithAdministratorRoles(tenantAdministrators))    // the roles that administer a tenant
 
 // In the handler type's package.
 func (a *App) CrewIdentity() *crewidentity.Client {
@@ -2930,24 +2936,38 @@ what an earlier method of the same transaction buffered, so the rule on a person
 role judges one removal per person per transaction. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
 
-**The rules on who is asking.** Who may run a method is the role file's to say. Three
+**The rules on who is asking.** Who may run a method is the role file's to say. Four
 rules of the user management are the methods' own, whatever the role file grants, and
 each judges the request's caller (a method an application runs in a transaction of its
 own, outside any request, has no caller and is the application's act):
 
 - Nobody disables or deletes their own account.
-- A person who removes a role from themselves keeps an administrator role nobody else
-  would hold where it is held. The application names its administrator roles when it
-  builds the client (`identity.WithAdministratorRoles(global, domain)`): the global ones
-  are judged among the holders in the global scope, a tenant's among the tenant's holders
-  and those who hold the role in every tenant. Without the option a person removes no
-  role from themselves.
+- A person who removes a role from themselves in a tenant keeps an administrator role
+  nobody else would hold there. The application names the roles that administer a tenant
+  when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged
+  among the tenant's holders and those who hold the role in every tenant. Without the
+  option a person removes no role from themselves in a tenant. A role held in the global
+  partition goes freely, since a super administrator gives it back.
+- The Super Administrator role (`accesstypes.SuperAdministrator`) is the framework's, in
+  every auth and in no role file, held in the global partition alone. Only a holder makes
+  or removes another: giving the role, taking it away, inviting a person to it and
+  deleting a holder's account each take a caller who holds it, and a caller who came
+  through another Auth (`Manages`) holds no role of this one. There is always one who can
+  sign in: the role is not taken from the last holder whose account is not disabled, and
+  that account is neither disabled nor deleted, whoever asks, the application's own
+  transactions included. What the role does is fixed where the engine is built: the
+  generated client names the methods that give and take the Auth's roles
+  (`crewidentity.SuperAdministratorMethods()`), the Auth's package hands them to the
+  engine (`access.WithSuperAdministratorMethods`), and a super administrator then runs
+  them whatever the role file grants, for any person, in the global scope, in one tenant
+  and in every tenant. The client refuses an engine built without them, so an
+  application that left the option out does not start.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
   nothing admits is not kept.
 
 A caller is named by the id of their account, as the permission store names anyone, and
-the first two rules take the caller for the person acted on only where the request came
+the first three rules take the caller for the person acted on only where the request came
 through the Auth being managed. An outlet's
 routes bind the name of the Auth that signs its people in to every request
 (`live.Subscribing(crew.Name)`, read back with `resource.AuthFrom`), and the client holds

@@ -187,6 +187,17 @@ DML what a later rule must read.
   factor". An application whose users belong to tenants sets the library's
   **tenant policy** (`signin.TenantPolicy`), with its own rule chained after it when it
   has one; see "The tenant policy".
+- A **super administrator** signs in with a second factor whatever the sign-in policy
+  asks of anyone else. The Auth is told who holds the Super Administrator role with
+  `auth.SetSuperAdministrators(signin.SuperAdministrators(userManager))`, after `NewAuth`
+  and before serving (on Spanner over `resource.SignInRoles(userManager)`, as the tenant
+  policy is), and then decides every sign-in by the application's policy and, after it,
+  by a rule of its own (`signin.SuperAdministratorFactor`): a sign-in the policy allows
+  is held for the code the library mails (`sessioninfo.MethodEmailCode`) when the person
+  holds the role, with or without a policy of the application's. The directory's
+  attestation and a remembered browser satisfy it as for any account, and a refusal, or
+  a hold for a factor the policy names itself, stands as the policy decided it. The auth
+  packages `impulse` writes set it; an Auth that is never told holds nobody to it.
 - The **account rules** decide an identity's first sign-in: an identity that is not
   linked to any user yet. A linked identity signs in by its link and never consults
   them. Each Entra and Google registration declares a **standard rule** in
@@ -387,24 +398,33 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
 
 The rules, in order, once the user is known:
 
-1. A person holding a role in the global partition or in every tenant domain is the
-   application's staff and is admitted on the library's own checks; so is a sign-in
-   whose method synchronizes roles, since the directory names the person's roles and
-   the synchronization, which runs once the session stands, refuses a person with none.
-   The application's own directories are admitted by the registration's organization
-   slot already.
-2. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
+1. A super administrator, a person holding the Super Administrator role
+   (`accesstypes.SuperAdministrator`, which the access library defines in every auth and
+   which is held in the global partition alone), is admitted on the library's own
+   checks, whatever any tenant declares: the role is the way back in, and no tenant's
+   sign-in settings shut its holder out. Nobody else is exempt from them. The policy and
+   the session's reach into a tenant ask the question through one function
+   (`accesstypes.RoleCollection.HoldsSuperAdministrator`). A sign-in whose method
+   synchronizes roles is admitted here too, since the directory names the person's
+   roles and the synchronization, which runs once the session stands, refuses a person
+   with none. The application's own directories are admitted by the registration's
+   organization slot already.
+2. A person holding a role outside any one tenant is admitted: in the global partition,
+   which is no tenant's and which no declaration governs, or in every tenant domain,
+   whose tenants the policy has no list of. It is no exemption: the session then
+   reaches a tenant only where the tenant's declaration admits it, as anyone's does.
+3. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
    was built with `signin.AdmitWithoutTenant()`, which the self-service shape of an
    application needs: a stranger signs in, then creates their organization and its
    first membership, and until then the session reaches no tenant.
-3. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
+4. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
    person's tenants declares the directory it came through, and refused otherwise
    (`connection_not_in_tenant`).
-4. Any other sign-in, a password or a session the application starts for a user it
+5. Any other sign-in, a password or a session the application starts for a user it
    authenticated itself, is admitted when one of the person's tenants admits its people
    other than through its directories, and refused when every one of them is directory
    only (`directory_only`): nothing would be reachable.
-5. Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
+6. Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
    rule after the tenant policy, for what the tenant policy cannot know; it is asked
    after an `Allow` and never after a `Deny` or a `RequireMFA`:
 
@@ -951,7 +971,9 @@ memberships again and creates the user. A seed that created the user first would
 give the roles, after a stopped run, to a user it found under a name, and a name is
 something anyone may come to hold. The generated seed of an auth's first administrator
 and the persona cast's seed work this way, and seed nothing for a user that exists,
-whatever it holds.
+whatever it holds. The first administrator is the deployment's first super administrator:
+the seed writes the Super Administrator role under the id beside the application's own
+administrator roles, since only a holder of that role makes another.
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
