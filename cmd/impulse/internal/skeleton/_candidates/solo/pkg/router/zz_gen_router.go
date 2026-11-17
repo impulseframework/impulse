@@ -213,11 +213,12 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
 				// The session routes a signed-in person calls on their own account: the
-				// acceptance of an invitation the browser carries, and the address they add
-				// and verify. They are registered with the outlet's generated routes, inside
+				// acceptance of an invitation the browser carries, the address they add and
+				// verify, and their tokens and device authorizations where the auth issues
+				// tokens. They are registered with the outlet's generated routes, inside
 				// whatever the application's hook wraps those in, so a read-only backstop
 				// mounted there (the session library's EnforceReadOnlyMask) stands in front
-				// of them too; each refuses a session that views as the person itself.
+				// of them too; each one that writes refuses an impersonated session itself.
 				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/invitation/accept", h.InvitationAccept())
 				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email", h.EmailAdd())
 				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email/verify", h.EmailVerify())
