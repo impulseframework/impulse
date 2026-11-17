@@ -917,7 +917,10 @@ describe('the password change', () => {
   it('resolves the refusal of a name at the limit of wrong old passwords with its code and the wait, through no error hook', async () => {
     const { auth, errors } = authOver(
       server({
-        change: { status: 429, body: { message: 'Too many sign-in attempts', code: 'too_many_attempts', retryAfter: 600 } },
+        change: {
+          status: 429,
+          body: { message: 'Too many sign-in attempts', code: 'too_many_attempts', retryAfter: 600 },
+        },
       }),
     );
     expect(await auth.changePassword('secret', 'another')).toEqual({
@@ -984,7 +987,10 @@ describe("removing the person's own password", () => {
   it('resolves the refusal of a name at the limit of wrong passwords with its code and the wait, through no error hook', async () => {
     const { auth, errors } = authOver(
       removing({
-        remove: { status: 429, body: { message: 'Too many sign-in attempts', code: 'too_many_attempts', retryAfter: 600 } },
+        remove: {
+          status: 429,
+          body: { message: 'Too many sign-in attempts', code: 'too_many_attempts', retryAfter: 600 },
+        },
       }),
     );
     expect(await auth.removePassword('secret')).toEqual({
