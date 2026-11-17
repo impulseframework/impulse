@@ -146,7 +146,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	}
 	// The role is held by the login's account: the permission store names a person by the
 	// id of their account, never by the username, which is only what people read.
-	if err := accessClient.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(adminID.String()), "Administrator"); err != nil {
+	if err := accessClient.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(adminID.String()), accesstypes.SuperAdministrator, "Administrator"); err != nil {
 		t.Fatalf("AddUserRoles(%s) error = %v", adminUser, err)
 	}
 

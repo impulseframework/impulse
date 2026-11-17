@@ -465,8 +465,12 @@ type foothold struct {
 // one under the sign-in name the placement names.
 func footholds(data *config.DataConfiguration) []*foothold {
 	password := administratorPassword
+	// Each auth's first administrator holds the Super Administrator role, which the
+	// framework defines in every auth, beside the application's own roles.
 	staffGlobal, staffEveryDomain := staff.FirstAdministratorRoles()
+	staffGlobal = append([]accesstypes.Role{accesstypes.SuperAdministrator}, staffGlobal...)
 	membersGlobal, membersEveryDomain := members.FirstAdministratorRoles()
+	membersGlobal = append([]accesstypes.Role{accesstypes.SuperAdministrator}, membersGlobal...)
 
 	return []*foothold{
 		{
