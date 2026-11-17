@@ -74,6 +74,52 @@ func (i *identityInstance) choosesSignUp() bool {
 	return !i.rolesSynced && (i.tenant == nil || i.createsTenant)
 }
 
+// picksDefaultRole reports whether an administrator who opens a method of the instance
+// picks the role each new person is given: the instance carries the choice, and the
+// application has no tenants. The role is one the opener could give a person directly,
+// so the instance's package answers the role file's grants (roleGrantsSource).
+func (i *identityInstance) picksDefaultRole() bool {
+	return i.choosesSignUp() && i.tenant == nil
+}
+
+// judgesRoleChanges reports whether the instance's client is handed the answers of the
+// role file's grants on the methods that give a role and take one away: a change to a
+// group is judged by them, and so is the default role of a method opened to sign-up.
+// The file is written where the schema holds the tables its part needs
+// (roleGrantsSource).
+func (i *identityInstance) judgesRoleChanges() bool {
+	files := i.roleGrantsSource()
+	for _, file := range files {
+		if slices.ContainsFunc(file.needs, func(kind identityTable) bool { return !i.has(kind) }) {
+			return false
+		}
+	}
+
+	return len(files) > 0
+}
+
+// JudgesRoleChanges reports whether the instance's client is handed the role file's
+// answers on giving a role and taking one away (grants.go).
+func (d *identitySourceData) JudgesRoleChanges() bool { return d.judgesRoleChanges() }
+
+// roleGrantsSource is the source file of the answers the rules ask of the role file
+// (grants.go), by the grants of the methods that give a role and take one away: one
+// file, for an instance that keeps groups, whose changes are judged as the role changes
+// they make, and for one whose administrator picks the default role of an open method.
+func (i *identityInstance) roleGrantsSource() []identitySourceFile {
+	var needs []identityTable
+	switch {
+	case i.keepsGroups():
+		needs = append(append(identityGroupTables(), identityUsers), identityMemberships)
+	case i.picksDefaultRole():
+		needs = []identityTable{identitySignInMethods, identityMemberships}
+	default:
+		return nil
+	}
+
+	return []identitySourceFile{{dir: i.methods, name: "grants", template: identityGrantsTemplate, needs: needs}}
+}
+
 // signUpSources are the source files of the sign-up part of an instance's management.
 func (r *resourceGenerator) signUpSources(inst *identityInstance) []identitySourceFile {
 	if !inst.choosesSignUp() {
@@ -113,10 +159,12 @@ type (
 	// {{ .SignInMethodRow }} is what an administrator chose for one sign-in method of
 	// the {{ .Auth }} auth: a row of {{ .Tables.SignInMethods }}, keyed by the name the
 	// method is registered under. OpenSignUp says the method admits a person who holds
-	// no account and no invitation, and DefaultRole names the role such a person is
-	// given with their account. A method with no row is invite only. The sign-in reads
-	// the row in its own transaction; Open{{ .Auth }}SignUp and Make{{ .Auth }}InviteOnly
-	// write it, and nothing else does.
+	// no account and no invitation, OpenedFor whom the method admitted when it was
+	// opened (the row opens the method for that audience alone, so a registration
+	// widened in code since is invite only until it is opened again), and DefaultRole
+	// names the role such a person is given with their account. A method with no row is
+	// invite only. The sign-in reads the row in its own transaction;
+	// Open{{ .Auth }}SignUp and Make{{ .Auth }}InviteOnly write it, and nothing else does.
 	//
 	// @resource
 	// @suppress(listHandler)
@@ -126,6 +174,7 @@ type (
 	{{ .SignInMethodRow }} struct {
 		Name        string    ` + "`spanner:\"Name\"`" + `
 		OpenSignUp  bool      ` + "`spanner:\"OpenSignUp\"`" + `
+		OpenedFor   *string   ` + "`spanner:\"OpenedFor\"`" + `
 		DefaultRole *string   ` + "`spanner:\"DefaultRole\"`" + `
 		UpdatedAt   time.Time ` + "`spanner:\"UpdatedAt\"`" + `
 	}
@@ -144,13 +193,13 @@ func ({{ .SignInMethodRow }}) Config() resource.Config {
 	identitySignInMethodStoreTemplate = `{{ if .Has "signInMethods" }}
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
 	query := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Columns().Name().OpenSignUp().DefaultRole())
+		AddColumns({{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Columns().Name().OpenSignUp().OpenedFor().DefaultRole())
 	var rows []identity.SignInMethodRow
 	for row, err := range query.List(ctx, reader) {
 		if err != nil {
 			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}Query.List()")
 		}
-		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, DefaultRole: row.Data.DefaultRole})
+		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole})
 	}
 
 	return rows, nil
@@ -167,7 +216,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	switch {
 	case err == nil:
 		patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}UpdatePatch(row.Name).
-			SetOpenSignUp(row.OpenSignUp).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
 		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}UpdatePatch.Buffer()")
 		}
@@ -177,7 +226,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}Query.Read()")
 	}
 	patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}CreatePatch(row.Name).
-		SetOpenSignUp(row.OpenSignUp).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
 	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}CreatePatch.Buffer()")
 	}
@@ -247,7 +296,10 @@ import (
 // open to sign-up. Admits says how wide the method is, in words: whom opening it
 // admits, which the method's registration fixes in code. Says is what a person with no
 // invitation meets at the method now. A method whose directory gives the roles has no
-// choice to make (DirectoryGivesRoles), and Says says why.
+// choice to make (DirectoryGivesRoles), and neither has one whose registration carries
+// an account rule of its own (OwnRule): Says says why. A method opened when its
+// registration admitted someone else is invite only until it is opened again, and Says
+// says for whom it was opened.
 //
 // It is a computed resource. The methods are the ones the auth registers, which no
 // table lists, and a method has a row of {{ .Tables.SignInMethods }} only once somebody
@@ -266,6 +318,7 @@ type {{ .SignInMethod }} struct {
 	OpenSignUp          bool   ` + "`spanner:\"OpenSignUp\"`" + `
 	DefaultRole         string ` + "`spanner:\"DefaultRole\"`" + `
 	DirectoryGivesRoles bool   ` + "`spanner:\"DirectoryGivesRoles\"`" + `
+	OwnRule             bool   ` + "`spanner:\"OwnRule\"`" + `
 	Says                string ` + "`spanner:\"Says\"`" + `
 }
 
@@ -288,7 +341,7 @@ func List{{ .SignInMethod }}(ctx context.Context, _ *resource.QuerySet[{{ .SignI
 		for i := range methods {
 			method := &{{ .SignInMethod }}{
 				Name: methods[i].Name, Label: methods[i].Label, Admits: methods[i].Admits, OpenSignUp: methods[i].OpenSignUp,
-				DefaultRole: methods[i].DefaultRole, DirectoryGivesRoles: methods[i].DirectoryGivesRoles, Says: methods[i].Says,
+				DefaultRole: methods[i].DefaultRole, DirectoryGivesRoles: methods[i].DirectoryGivesRoles, OwnRule: methods[i].OwnRule, Says: methods[i].Says,
 			}
 			if !yield(method, nil) {
 				return
@@ -317,7 +370,10 @@ import (
 // {{ .SignUpRole }} is one role a person who signs up to the {{ .Auth }} auth may be
 // given: a role held for the whole application, the role file's or a custom one, with
 // its description. The Super Administrator role is not among them. The default role of
-// a sign-in method that is opened to sign-up is picked from the list.
+// a sign-in method that is opened to sign-up is picked from the list, which holds the
+// roles the caller may give a person directly (the grant of Assign{{ .Auth }}Role, asked
+// with each role) and no other: opening a method gives its default role to every person
+// who signs up.
 //
 // It is a computed resource: the role file's roles are held by the permission engine,
 // so the engine is asked and no query selects the list. The role file grants it like

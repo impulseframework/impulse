@@ -356,6 +356,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/end_crew_session.go",
 		"crewidentity/end_crew_session_impersonation.go",
 		"crewidentity/end_crew_user_sessions.go",
+		"crewidentity/grants.go",
 		"crewidentity/invite_crew_user.go",
 		"crewidentity/make_crew_invite_only.go",
 		"crewidentity/open_crew_sign_up.go",
