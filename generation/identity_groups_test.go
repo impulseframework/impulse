@@ -81,19 +81,21 @@ func Test_prepareIdentity_groups(t *testing.T) {
 	for file, lines := range map[string][]string{
 		"internal/crewresources/crew_groups.go": {
 			generationHeader, "// @resource", "// @suppress(patchHandler)", "// @outlet(default)", "// @order(Name asc)", "CrewGroup struct {",
-			"ID          impulse.UUID `spanner:\"Id\"`",
+			"// @attribute(group)\n\t\tID          impulse.UUID `spanner:\"Id\"`",
 			// The store finds a group by where it is kept and its name, the key of the
 			// table's unique index, whose leading column alone has a seek of its own.
 			"Axis        string       `spanner:\"Axis\"        allow_filter:\"true\"`", "Name        string       `spanner:\"Name\"        allow_filter:\"true\"`",
 		},
 		"internal/crewresources/crew_group_members.go": {
-			"// @suppress(readHandler)", "CrewGroupMember struct {", "GroupID impulse.UUID `spanner:\"GroupId\"`",
+			// A grant's condition reads the group of a row (group), and the set the same
+			// table declares is what it is tested against (group IN subject.groups).
+			"// @suppress(readHandler)", "CrewGroupMember struct {", "// @attribute(group)\n\t\tGroupID impulse.UUID `spanner:\"GroupId\"`",
 			// The one auth that keeps groups declares the set under the plain name.
 			"// @subjectSet(groups, value: GroupID)\n\t\tUserID    string    `spanner:\"UserId\"`",
 		},
 		"internal/crewresources/crew_group_roles.go": {"// @suppress(readHandler)", "CrewGroupRole struct {", "Role      string       `spanner:\"Role\"`"},
 		"internal/crewresources/crew_group_users.go": {
-			"// @virtual", "CrewGroupUser struct {", "// @primarykey\n\t\tGroupID impulse.UUID", "// @primarykey\n\t\tUserID    impulse.UUID",
+			"// @virtual", "CrewGroupUser struct {", "// @primarykey\n\t\t// @attribute(group)\n\t\tGroupID impulse.UUID", "// @primarykey\n\t\tUserID    impulse.UUID",
 			"FROM CrewGroups g\nJOIN CrewGroupMembers m ON m.GroupId = g.Id\nJOIN CrewSessionUsers u ON u.Id = m.UserId\n`",
 		},
 		"internal/crewresources/crew_user_group_roles.go": {
@@ -122,7 +124,9 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"type GiveCrewGroupRole struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\tRole        string `validate:\"required\"`", "EveryDomain bool",
 			"client.manager.GiveGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))",
 		},
-		"crewidentity/take_crew_group_role.go": {"type TakeCrewGroupRole struct {\n\t// @target(CrewGroup)\n\tGroupID     impulse.UUID", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
+		// The whole application's method names no row: a role is held in a scope whose
+		// columns are empty for the whole application, so a page fills it from a row.
+		"crewidentity/take_crew_group_role.go": {"// @answers(204)\ntype TakeCrewGroupRole struct {\n\tGroupID     impulse.UUID", "client.manager.TakeGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))"},
 		"crewidentity/store.go": {
 			"var _ identity.Store = store{}",
 			"func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {",
@@ -242,7 +246,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 
 	for file, lines := range map[string][]string{
 		"internal/crewresources/crew_ship_groups.go": {
-			"// @virtual", "// @permissionScope(domain)", "CrewShipGroup struct {", "// @primarykey\n\t\tID impulse.UUID", "// @domain\n\t\tDomainID    string",
+			"// @virtual", "// @permissionScope(domain)", "CrewShipGroup struct {", "// @primarykey\n\t\t// @attribute(group)\n\t\tID impulse.UUID", "// @domain\n\t\tDomainID    string",
 			// A group kept for the whole application is no tenant's.
 			"FROM CrewGroups g\nWHERE g.Kind = 'domain' AND g.Axis = ''\n`",
 		},

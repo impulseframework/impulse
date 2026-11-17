@@ -28,12 +28,16 @@ type (
 	// table's index by name leads with where a group is kept, so the list filters by the
 	// rest of that key (the axis, the domain, the name) beside the kind.
 	//
+	// The id is read by a grant's condition (group), so a role file can hold a grant to
+	// the groups its holder is in (group IN subject.{{ .GroupSet }}).
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	{{ .Group }} struct {
+		// @attribute(group)
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `
 		Kind        string       ` + "`spanner:\"Kind\"`" + `
 		Axis        string       ` + "`spanner:\"Axis\" allow_filter:\"true\"`" + `
@@ -78,6 +82,7 @@ type (
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
 	{{ .GroupMember }} struct {
+		// @attribute(group)
 		GroupID impulse.UUID ` + "`spanner:\"GroupId\"`" + `
 		// @subjectSet({{ .GroupSet }}, value: GroupID)
 		UserID    string    ` + "`spanner:\"UserId\"`" + `
@@ -114,6 +119,7 @@ type (
 	// @order(Role asc)
 	// @page(default: 25, max: 200)
 	{{ .GroupRole }} struct {
+		// @attribute(group)
 		GroupID   impulse.UUID ` + "`spanner:\"GroupId\"`" + `
 		Kind      string       ` + "`spanner:\"Kind\"`" + `
 		Axis      string       ` + "`spanner:\"Axis\"`" + `
@@ -537,14 +543,18 @@ type (
 	// and the group's name. The key is the group's id and the account's id, two columns
 	// that name the row within its tenant; DomainId is the tenant the group is kept in. A
 	// tenant's group holds any account, so a person listed here need hold no role of
-	// their own in the tenant.
+	// their own in the tenant. The group's id is read by a grant's condition (group), so
+	// a role file can show a person the people of the groups they are in themselves
+	// (group IN subject.{{ .GroupSet }}).
 	//
 	// @virtual
 	// @permissionScope(domain)
 	{{- else }}
 	// {{ .SubjectGroupUser }} is one person in a group of the {{ .Auth }} auth: a row for
 	// each member of each group, wherever the group is kept, with the person's username
-	// and name and the group's name. The key is the group's id and the account's id.
+	// and name and the group's name. The key is the group's id and the account's id. The
+	// group's id is read by a grant's condition (group), so a role file can show a person
+	// the people of the groups they are in themselves (group IN subject.{{ .GroupSet }}).
 	//
 	// @virtual
 	{{- end }}
@@ -557,6 +567,7 @@ type (
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		{{- end }}
 		// @primarykey
+		// @attribute(group)
 		GroupID impulse.UUID ` + "`spanner:\"GroupId\" index:\"true\"`" + `
 		// @primarykey
 		UserID    impulse.UUID ` + "`spanner:\"UserId\" index:\"true\"`" + `
@@ -613,7 +624,9 @@ type (
 	// DomainId is the tenant. A group kept for the whole application is no tenant's and
 	// is not listed, whichever tenants it holds a role in. A tenant's group is managed in
 	// the tenant, holds roles there alone, and counts in a grant's condition
-	// (subject.{{ .GroupSet }}) wherever the tenant's rows name it.
+	// (subject.{{ .GroupSet }}) wherever the tenant's rows name it. The id is read by a
+	// condition itself (group), so a role file can show a person the groups they are in
+	// (group IN subject.{{ .GroupSet }}).
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -622,6 +635,7 @@ type (
 	// @page(default: 25, max: 200)
 	{{ .SubjectGroup }} struct {
 		// @primarykey
+		// @attribute(group)
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
 		// @domain
 		DomainID    string    ` + "`spanner:\"DomainId\" index:\"true\"`" + `
@@ -680,6 +694,7 @@ type (
 		// @domain
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
+		// @attribute(group)
 		GroupID   impulse.UUID ` + "`spanner:\"GroupId\" index:\"true\"`" + `
 		GroupName string       ` + "`spanner:\"GroupName\" index:\"true\"`" + `
 		// @primarykey
@@ -760,6 +775,7 @@ type (
 		UserID   impulse.UUID ` + "`spanner:\"UserId\" index:\"true\"`" + `
 		Username string       ` + "`spanner:\"Username\" index:\"true\"`" + `
 		// @primarykey
+		// @attribute(group)
 		GroupID   impulse.UUID ` + "`spanner:\"GroupId\" index:\"true\"`" + `
 		GroupName string       ` + "`spanner:\"GroupName\" index:\"true\"`" + `
 		{{- if .ForTenant }}
@@ -1262,12 +1278,13 @@ type Take{{ .Subject }}GroupRole struct {
 // one held in the global scope, in one domain (Domain), or in every domain
 // (EveryDomain). Every person in the group is served without it at their next request,
 // unless they hold it some other way. A role the group does not hold there is no error.
+// It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the groups
+// hold, filling the request from the row.
 //
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Take{{ .Subject }}GroupRole struct {
-	// @target({{ .SubjectGroup }})
 	GroupID     impulse.UUID
 	Role        string ` + "`validate:\"required\"`" + `
 	Domain      *string
