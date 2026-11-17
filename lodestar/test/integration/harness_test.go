@@ -109,7 +109,7 @@ const (
 	wingForgeID = "40000000-0000-4000-8000-000000000001" // anvil
 
 	squadronHammerID     = "50000000-0000-4000-8000-000000000001" // Forge Wing, anvil: lead, veteran, wingco, dispatcher
-	squadronTongsID      = "50000000-0000-4000-8000-000000000002" // Forge Wing, anvil: dispatcher, pilot
+	squadronTongsID      = "50000000-0000-4000-8000-000000000002" // Forge Wing, anvil: dispatcher, pilot, armorer
 	squadronPortcullisID = "50000000-0000-4000-8000-000000000003" // Rampart Wing, bastion: dispatcher, pilot
 	squadronAshfallID    = "50000000-0000-4000-8000-000000000004" // Ember Wing, cinder
 

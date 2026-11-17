@@ -100,7 +100,7 @@ func TestRowsOfViews(t *testing.T) {
 		{name: "the cadet holds no List on the board, so the page's request is refused", user: "cadet", target: sectorPath(anvil, "mission-boards?columns=id,title"), wantStatus: http.StatusForbidden},
 		{name: "the cadet holds no List on the roster either", user: "cadet", target: sectorPath(anvil, "squadron-rosters?columns=squadronId,userId"), wantStatus: http.StatusForbidden},
 		{name: "the dispatcher, who edits missions, lists the board", user: "dispatcher", target: sectorPath(anvil, "mission-boards?columns=id,title&limit=200"), wantStatus: http.StatusOK, wantRows: 30},
-		{name: "the dispatcher lists the roster", user: "dispatcher", target: sectorPath(anvil, "squadron-rosters?columns=squadronId,userId,pilotName"), wantStatus: http.StatusOK, wantRows: 6},
+		{name: "the dispatcher lists the roster", user: "dispatcher", target: sectorPath(anvil, "squadron-rosters?columns=squadronId,userId,pilotName"), wantStatus: http.StatusOK, wantRows: 7},
 		{name: "the booking agent, who books missions, lists the board", user: "booking", target: sectorPath(anvil, "mission-boards?columns=id,title&limit=200"), wantStatus: http.StatusOK, wantRows: 30},
 	}
 
@@ -163,14 +163,14 @@ func TestRowsOfWrites(t *testing.T) {
 		wantRows   int
 		check      func(t *testing.T, respBody []byte)
 	}{
-		{name: "Tongs' roster is the dispatcher and the pilot", method: http.MethodGet, target: roster, wantStatus: http.StatusOK, wantRows: 2},
+		{name: "Tongs' roster is the dispatcher, the pilot and the armorer", method: http.MethodGet, target: roster, wantStatus: http.StatusOK, wantRows: 3},
 		{name: "the cadet is assigned nowhere", method: http.MethodGet, target: assignments, wantStatus: http.StatusOK, wantRows: 0},
 		{
 			name: "a create goes into the table, its compound key in the operation's path", method: http.MethodPatch, target: "/console/api/resources",
 			body: fmt.Sprintf(`[{"op":"add","path":%q,"value":{}}]`, membership), wantStatus: http.StatusOK,
 		},
 		{
-			name: "the new row shows up in the roster on the next list", method: http.MethodGet, target: roster, wantStatus: http.StatusOK, wantRows: 3,
+			name: "the new row shows up in the roster on the next list", method: http.MethodGet, target: roster, wantStatus: http.StatusOK, wantRows: 4,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				if got := rowsByID(t, decodeRows(t, respBody), "userId")[cadet]["pilotName"]; got != "Cadet Cass" {
@@ -191,7 +191,7 @@ func TestRowsOfWrites(t *testing.T) {
 			name: "a delete removes the row through the table, lifting the key the view carries", method: http.MethodPatch, target: "/console/api/resources",
 			body: fmt.Sprintf(`[{"op":"remove","path":%q}]`, membership), wantStatus: http.StatusOK,
 		},
-		{name: "the roster is back to two", method: http.MethodGet, target: roster, wantStatus: http.StatusOK, wantRows: 2},
+		{name: "the roster is back to three", method: http.MethodGet, target: roster, wantStatus: http.StatusOK, wantRows: 3},
 		{name: "and the cadet is assigned nowhere again", method: http.MethodGet, target: assignments, wantStatus: http.StatusOK, wantRows: 0},
 	}
 

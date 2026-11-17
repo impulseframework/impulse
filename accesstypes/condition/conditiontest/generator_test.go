@@ -273,6 +273,59 @@ func TestGenerator_staysInVocabulary(t *testing.T) {
 	}
 }
 
+// TestGenerator_whereVocabulary pins the vocabulary of a subject set's where:
+// part: every emission is a condition condition.ParseWhere admits, read back
+// from its rendering, over the declared columns alone, and each of the forms a
+// where: has is drawn, so the property is not vacuous.
+func TestGenerator_whereVocabulary(t *testing.T) {
+	t.Parallel()
+
+	vocab := conditiontest.Vocabulary{
+		Attributes: []conditiontest.Attribute{
+			{Name: "Level", Type: accesstypes.AttributeTypeString},
+			{Name: "Rank", Type: accesstypes.AttributeTypeNumber},
+			{Name: "Active", Type: accesstypes.AttributeTypeBool},
+			{Name: "ExpiresAt", Type: accesstypes.AttributeTypeTimestamp},
+			{Name: "StartsOn", Type: accesstypes.AttributeTypeDate},
+		},
+		Where: true,
+	}
+	columns := make([]string, 0, len(vocab.Attributes))
+	for _, attr := range vocab.Attributes {
+		columns = append(columns, attr.Name)
+	}
+
+	var comparisons, lists, nullTests, nowOperands int
+	for i, expr := range generate(&vocab, 600, 3) {
+		parsed, err := condition.ParseWhere(expr.String())
+		if err != nil {
+			t.Fatalf("case %d: ParseWhere(%q) error = %v", i, expr.String(), err)
+		}
+		if parsed.String() != expr.String() {
+			t.Fatalf("case %d: %q reads back as %q", i, expr.String(), parsed.String())
+		}
+		for _, name := range condition.Bindings(expr) {
+			if !slices.Contains(columns, name) {
+				t.Fatalf("case %d: %q names %q, which the vocabulary does not declare", i, expr.String(), name)
+			}
+		}
+		text := expr.String()
+		switch {
+		case strings.Contains(text, " IN ("):
+			lists++
+		case strings.Contains(text, " NULL"):
+			nullTests++
+		}
+		if condition.UsesNow(expr) {
+			nowOperands++
+		}
+		comparisons++
+	}
+	if lists == 0 || nullTests == 0 || nowOperands == 0 || comparisons == 0 {
+		t.Errorf("the where: vocabulary drew %d literal lists, %d null tests and %d comparisons to now over %d cases; each form has to occur", lists, nullTests, nowOperands, comparisons)
+	}
+}
+
 // TestGenerator_pairsSubjectTypes pins the subject-side typing over the full
 // vocabulary: every subject value comparison and every subject set membership
 // pairs an attribute of the entry's comparison type, and every now-against-value
@@ -617,6 +670,23 @@ func TestNew_rejectsVocabulary(t *testing.T) {
 				SubjectSets: []conditiontest.SubjectBinding{{Name: "new", Type: accesstypes.AttributeTypeString}},
 			},
 			wantPanic: "reserved word",
+		},
+		{
+			name: "a where: vocabulary that declares a subject set",
+			vocab: conditiontest.Vocabulary{
+				Attributes:  []conditiontest.Attribute{{Name: "Level", Type: accesstypes.AttributeTypeString}},
+				SubjectSets: []conditiontest.SubjectBinding{{Name: "crews", Type: accesstypes.AttributeTypeString}},
+				Where:       true,
+			},
+			wantPanic: "a where: vocabulary is the columns of the set's own row",
+		},
+		{
+			name: "a where: vocabulary with a join path",
+			vocab: conditiontest.Vocabulary{
+				Attributes: []conditiontest.Attribute{{Name: "Sector", Type: accesstypes.AttributeTypeString, JoinPath: true}},
+				Where:      true,
+			},
+			wantPanic: "a where: vocabulary is the columns of the set's own row",
 		},
 		{
 			name: "subject value of an unknown type",

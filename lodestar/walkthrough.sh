@@ -203,7 +203,7 @@ BEACON_CALL=d0000000-0000-4000-8000-000000000001
 # file's order under one prefix, and the members' under another. A person a sign-in
 # creates during the run (the navigator, the pioneer) has a generated id, read from the
 # list that names them.
-CAST="governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor rigger bosun droid-r7"
+CAST="governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor rigger bosun armorer droid-r7"
 account() { # account <persona>: the fixed id of a crew account of the cast, by the persona's place in the cast file
   local n=0 p
   for p in $CAST; do
@@ -231,7 +231,7 @@ if [ "$r" = "307 $B/console/" ]; then echo "PASS  the root alone redirects to th
 r=$(curl -s -o /dev/null -w '%{http_code}' "$B/nowhere")
 if [ "$r" = 404 ]; then echo "PASS  an unmatched path at the root is not found (404)"; else echo "FAIL  an unmatched path at the root: status $r, want 404"; fails=$((fails + 1)); fi
 
-for p in governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor; do
+for p in governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor armorer; do
   login "$p"
 done
 login_portal client
@@ -273,6 +273,10 @@ r=$(req pilot GET "$ANVIL/missions?limit=200"); assert_py "pilot: clearance 3 an
 r=$(req veteran GET "$ANVIL/missions?limit=200"); assert_py "veteran: NOT (hazard IN (1,2) OR fee < 5000)" "$r" "sorted(m['id'][-3:] for m in rows) == ['002','003','005','007','014','015','016','019','024','025','026','030','031']"
 r=$(req wingco GET "$ANVIL/missions?limit=200"); assert_py "wingco: hazard >= 4" "$r" "sorted(m['id'][-3:] for m in rows) == ['003','005','015','016','020','021','025','026','030','031']"
 r=$(req wingco GET "$ANVIL/squadrons"); assert_py "wingco: wing IN subject.wings (Forge Wing's two)" "$r" "len(rows)==2"
+# The armorer holds no pass that counts in his own name: both hangars reach him through Tongs, a set that follows the squadron set, and the pass's level and expiry decide what he may do there.
+r=$(req armorer GET "$ANVIL/hangars"); assert_py "armorer: hangar IN subject.hangarsOpen (the dock Tongs runs and the bay Tongs visits)" "$r" "sorted(h['name'] for h in rows)==['Anvil Dock One','Quarantine Bay']"
+r=$(req armorer PATCH "$ANVIL/hangars" "[{\"op\":\"patch\",\"path\":\"/$QUARANTINE_BAY\",\"value\":{\"zone\":\"dock\"}}]"); check "armorer refused the bay: Tongs visits it, Hammer runs it, and his own pass to run it has expired (hangar IN subject.hangarsRun)" 403 "$r"
+r=$(req armorer PATCH "$ANVIL/hangars" "[{\"op\":\"patch\",\"path\":\"/$DOCK_ONE\",\"value\":{\"zone\":\"dock\"}}]"); check "armorer writes the dock's zone: Tongs holds it at the run level" 200 "$r"
 r=$(req lead GET "$ANVIL/missions?capabilities=Execute,Create&limit=200"); assert_py "lead: Hammer's missions" "$r" "sorted(m['id'][-3:] for m in rows) == ['002','003','005','014','018','020','022','028']"
 assert_py "lead: Add sortie lights on the underway convoy only" "$r" "all((m['zzCapabilities']['Create']==['Sorties']) == (m['statusId']=='underway') for m in rows)"
 r=$(req archivist GET "$ANVIL/missions?limit=200"); assert_py "archivist: fee redacted until completed" "$r" "rows and all(('fee' in m) == (m['statusId']=='completed') for m in rows)"

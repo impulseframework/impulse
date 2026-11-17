@@ -2,9 +2,11 @@ package resource
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 )
 
 // StateAttribute is the uniform attribute name the generator synthesizes on
@@ -83,12 +85,58 @@ type DomainBindingData struct {
 // generation from that column's Go type exactly as an attribute's is; deploy
 // validation admits a grant only where it compares or tests the entry against
 // an attribute of the same type.
+//
+// A subject set may write two more parts. Who says which rows of the table
+// are the requester's: empty, it is UserColumn equal to the requester; written,
+// it is the tests below joined by OR, and UserColumn is the column of one of
+// them, the one the declaration sits on. Where says which of those rows count:
+// nil, every one does. A subject value writes neither.
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
 	Column     string
 	Type       AttributeType
 	Path       []BindingHop
+	Who        []SubjectWhoData
+	Where      *SubjectWhereData
+}
+
+// SubjectWhoData is one test of a subject set's who: part. Column is the
+// column of the set's row the test reads. With Set empty the test is the
+// column equal to the requester; with Set named it is the column's membership
+// in that subject set of the requester's (Column IN subject.<Set>), the test a
+// grant's condition writes with the row's column where the attribute stands.
+type SubjectWhoData struct {
+	Column string
+	Set    string
+}
+
+// SubjectWhereData is a subject set's where: part: a condition over the
+// columns of the set's own row, compared to literals and to now
+// (condition.ParseWhere). Condition is the part as the declaration writes it,
+// and Columns resolves each name it reads to the row's column and that
+// column's comparison type, which a literal binds as.
+type SubjectWhereData struct {
+	Condition string
+	Columns   []SubjectColumnData
+}
+
+// SubjectColumnData is one column a subject set's where: part reads: the name
+// the condition writes for it, the column, and the column's comparison type.
+type SubjectColumnData struct {
+	Name   string
+	Column string
+	Type   AttributeType
+}
+
+// attributes returns the columns as the vocabulary a where: lowers against.
+func (w *SubjectWhereData) attributes() []AttributeData {
+	attributes := make([]AttributeData, 0, len(w.Columns))
+	for _, column := range w.Columns {
+		attributes = append(attributes, AttributeData{Name: column.Name, Column: column.Column, Type: column.Type})
+	}
+
+	return attributes
 }
 
 // Bindings is one resource's complete binding vocabulary.
@@ -273,6 +321,126 @@ func validateCollectionBindings(resources []CollectionResource) error {
 	}
 
 	return nil
+}
+
+// validateSubjectSetParts enforces what the runtime can check of the two parts
+// a subject set may write, and compiles each where: once. A who: test names a
+// column and, when it tests another set, a set the collection declares; sets
+// never build on each other in a loop, which no statement could render; a
+// where: is a condition condition.ParseWhere admits that reads only the
+// columns it resolves, each of a comparison type in the vocabulary; and a
+// subject value writes neither part. The generator refuses the same mistakes
+// with the struct and the field named; reaching one here means the generated
+// collection is stale or was written by hand.
+func validateSubjectSetParts(resources []CollectionResource) (map[string]condition.Expr, error) {
+	wheres := make(map[string]condition.Expr)
+	sets := make(map[string]*SubjectBindingData)
+	var names []string
+	for i := range resources {
+		res := &resources[i]
+		for j := range res.SubjectValues {
+			if value := &res.SubjectValues[j]; len(value.Who) > 0 || value.Where != nil {
+				return nil, errors.Newf("resource %q subject value %q writes a who: or a where: part, which a subject set alone takes — regenerate the collection", res.Name, value.Name)
+			}
+		}
+		for j := range res.SubjectSets {
+			set := &res.SubjectSets[j]
+			sets[set.Name] = set
+			names = append(names, set.Name)
+			for _, test := range set.Who {
+				if test.Column == "" {
+					return nil, errors.Newf("resource %q subject set %q writes a who: test that names no column — regenerate the collection", res.Name, set.Name)
+				}
+			}
+			if set.Where == nil {
+				continue
+			}
+			expr, err := compileSubjectSetWhere(set.Where)
+			if err != nil {
+				return nil, errors.Wrapf(err, "resource %q subject set %q", res.Name, set.Name)
+			}
+			wheres[set.Name] = expr
+		}
+	}
+
+	slices.Sort(names)
+	for _, name := range names {
+		for _, test := range sets[name].Who {
+			if test.Set == "" {
+				continue
+			}
+			if _, declared := sets[test.Set]; !declared {
+				return nil, errors.Newf("subject set %q tests %s against subject.%s, which is not a declared subject set — regenerate the collection", name, test.Column, test.Set)
+			}
+		}
+	}
+	for _, name := range names {
+		if loop := subjectSetLoop(name, sets, nil); loop != nil {
+			return nil, errors.Newf("subject sets build on each other in a loop (%s); a set's who: may name only sets that do not come back to it", strings.Join(loop, " → "))
+		}
+	}
+
+	return wheres, nil
+}
+
+// compileSubjectSetWhere parses a where: part and checks that every name it
+// reads resolves to a column of a comparison type in the vocabulary.
+func compileSubjectSetWhere(where *SubjectWhereData) (condition.Expr, error) {
+	expr, err := condition.ParseWhere(where.Condition)
+	if err != nil {
+		return nil, errors.Wrap(err, "condition.ParseWhere()")
+	}
+	columns := make(map[string]SubjectColumnData, len(where.Columns))
+	for _, column := range where.Columns {
+		if column.Column == "" || !accesstypes.ValidAttributeType(column.Type) {
+			return nil, errors.Newf("where: resolves %q to column %q of comparison type %q, which is not a column of a type in the vocabulary — regenerate the collection", column.Name, column.Column, column.Type)
+		}
+		columns[column.Name] = column
+	}
+	for _, name := range condition.Bindings(expr) {
+		if _, ok := columns[name]; !ok {
+			return nil, errors.Newf("where: reads %q, which the collection resolves to no column — regenerate the collection", name)
+		}
+	}
+
+	return expr, nil
+}
+
+// subjectSetLoop follows a set through the sets its who: names and returns the
+// loop it comes back on, from the set that repeats to itself, or nil.
+func subjectSetLoop(name string, sets map[string]*SubjectBindingData, path []string) []string {
+	if at := slices.Index(path, name); at >= 0 {
+		return append(slices.Clone(path[at:]), name)
+	}
+	set, ok := sets[name]
+	if !ok {
+		return nil
+	}
+	path = append(path, name)
+	for _, test := range set.Who {
+		if test.Set == "" {
+			continue
+		}
+		if loop := subjectSetLoop(test.Set, sets, path); loop != nil {
+			return loop
+		}
+	}
+
+	return nil
+}
+
+// subjectSetWhere returns a subject set's compiled where: part, nil for a set
+// that writes none. A collection NewGeneratedCollection built holds every one
+// compiled; any other parses the part where it is read.
+func (g *GeneratedCollection) subjectSetWhere(set *SubjectBindingData) (condition.Expr, error) {
+	if set.Where == nil {
+		return nil, nil
+	}
+	if expr, ok := g.setWheres[set.Name]; ok {
+		return expr, nil
+	}
+
+	return compileSubjectSetWhere(set.Where)
 }
 
 // SubjectAnchor is a subject-vocabulary entry with everything its rendering

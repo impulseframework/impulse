@@ -71,6 +71,24 @@
 // request is partitioned and the anchor is domain-bound; a present value is
 // IN an empty set FALSE and NOT IN it TRUE.
 //
+// Which rows of a set's table are the requester's anchor rows is the set's
+// own definition, in two optional parts written in this language over the
+// columns of the set's row (ParseWho, ParseWhere):
+//
+//	who      := who-test { OR who-test }
+//	who-test := column = subject | column IN subject.identifier
+//	where    := a condition whose attributes are the row's columns and whose
+//	            operands are literals and now
+//
+// A row is an anchor row when its who: is TRUE and its where: is TRUE, each
+// judged as a condition is, so a test over a column with no value is UNKNOWN
+// and the row does not count. A set that writes no who: has one test, the
+// column its declaration sits on equal to subject; a set that writes no
+// where: counts every row its who: admits. A who: test against another set
+// reads that set as a condition does, restricted to the request's partition
+// by that set's own table and by nothing of the set that names it: a set on a
+// table outside every partition answers the same in each.
+//
 // A list attribute reads a list column, and is typed by one item. A condition
 // that reads one is judged once for each item of the row's list, the whole
 // condition each time with the item as the attribute's value, and permits only

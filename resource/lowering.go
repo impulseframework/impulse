@@ -61,6 +61,11 @@ type loweringContext struct {
 	// item: a reference to it resolves to the item, not to the column. Set by
 	// lowerRowCondition alone.
 	item *listItem
+
+	// sets names the subject sets being rendered around this one, outermost
+	// first: a set whose who: tests another set renders that set inside its
+	// own, and a set met again would never finish (subjectSetRows).
+	sets []string
 }
 
 // listItem is the list attribute a condition reads and the alias its items
@@ -490,11 +495,12 @@ func (ctx *loweringContext) pathTarget(start *comparand, path []BindingHop, regi
 // subjectSetExists renders `attr IN subject.<name>`: a correlated EXISTS over
 // the anchor table matching the requester's rows whose value equals the
 // attribute — with the anchor's own tenancy filter when both the request
-// and the anchor table are partitioned. A dotted value (`value: F.G`)
-// continues from the anchor row through its join path, so the equality
-// lands on the terminal column inside the nested EXISTS chain, the same
-// shape a join-path attribute renders. An empty set matches nothing:
-// fail-closed for free.
+// and the anchor table are partitioned. Which rows are the requester's, and
+// which of them count, is the set's own definition (subjectSetRows). A dotted
+// value (`value: F.G`) continues from the anchor row through its join path,
+// so the equality lands on the terminal column inside the nested EXISTS
+// chain, the same shape a join-path attribute renders. An empty set matches
+// nothing: fail-closed for free.
 func (ctx *loweringContext) subjectSetExists(name string, attr *comparand, registry *paramRegistry) (ExpressionNode, error) {
 	anchor, ok := ctx.collection.SubjectSet(name)
 	if !ok {
@@ -502,10 +508,9 @@ func (ctx *loweringContext) subjectSetExists(name string, attr *comparand, regis
 	}
 
 	alias := registry.alias()
-	requester := &loweredComparisonNode{
-		left:  columnComparand(alias, anchor.Binding.UserColumn),
-		op:    "=",
-		right: namedComparand(subjectParamName),
+	rows, err := ctx.subjectSetRows(&anchor, alias, registry)
+	if err != nil {
+		return nil, err
 	}
 
 	var match ExpressionNode
@@ -517,9 +522,94 @@ func (ctx *loweringContext) subjectSetExists(name string, attr *comparand, regis
 		match = wrap(&loweredComparisonNode{left: target, op: "=", right: *attr})
 	}
 
-	where := ctx.withAnchorTenancy(andChain(requester, match), &anchor, alias, registry)
+	where := ctx.withAnchorTenancy(andChain(rows, match), &anchor, alias, registry)
 
 	return &existsNode{table: string(anchor.Resource), alias: alias, where: where}, nil
+}
+
+// subjectSetRows renders which rows of a subject set's table count toward the
+// set, over the table read under alias: the rows that are the requester's
+// (who:), and of them the rows the set's filter keeps (where:). Both parts go
+// inside the statement that reads the set, the EXISTS a condition's membership
+// test renders and the read of a computed resource's facts alike, so a set
+// means one thing wherever it is read.
+//
+// A set that writes no who: has one test, its user column equal to the
+// requester, and renders as it always has. A written who: is its tests joined
+// by OR: a column equal to the requester, or a column tested against another
+// subject set, which is the test a condition writes for `x IN subject.<set>`
+// with the row's column where the attribute stood. That inner set is rendered
+// by its own definition and filtered to the request's partition by its own
+// table's tenancy binding, never by this one's. No null guard stands around
+// it: a who: test is never negated, and a column with no value matches no row
+// of the inner set, which is the answer a row with no value there should get.
+//
+// A where: is a condition over the row's own columns and lowers as a grant's
+// condition does, its names resolved to the columns of the set's row.
+func (ctx *loweringContext) subjectSetRows(anchor *SubjectAnchor, alias string, registry *paramRegistry) (ExpressionNode, error) {
+	set := &anchor.Binding
+	if slices.Contains(ctx.sets, set.Name) {
+		return nil, errors.Newf("condition lowering: subject sets build on each other in a loop (%s → %s)", strings.Join(ctx.sets, " → "), set.Name)
+	}
+
+	rows, err := ctx.subjectSetWho(set, alias, registry)
+	if err != nil {
+		return nil, err
+	}
+
+	where, err := ctx.collection.subjectSetWhere(set)
+	if err != nil {
+		return nil, errors.Wrapf(err, "condition lowering: subject.%s", set.Name)
+	}
+	if where == nil {
+		return rows, nil
+	}
+	row := &loweringContext{outer: alias, bindings: Bindings{Attributes: set.Where.attributes()}}
+	filter, err := lowerCondition(where, row, registry)
+	if err != nil {
+		return nil, errors.Wrapf(err, "subject.%s where:", set.Name)
+	}
+
+	return andChain(rows, filter), nil
+}
+
+// subjectSetWho renders a subject set's who: part over the table read under
+// alias: the tests that make a row the requester's, joined by OR.
+func (ctx *loweringContext) subjectSetWho(set *SubjectBindingData, alias string, registry *paramRegistry) (ExpressionNode, error) {
+	requester := func(column string) ExpressionNode {
+		return &loweredComparisonNode{left: columnComparand(alias, column), op: "=", right: namedComparand(subjectParamName)}
+	}
+	if len(set.Who) == 0 {
+		return requester(set.UserColumn), nil
+	}
+
+	inner := *ctx
+	inner.sets = append(slices.Clone(ctx.sets), set.Name)
+
+	tests := make([]ExpressionNode, 0, len(set.Who))
+	for _, test := range set.Who {
+		if test.Set == "" {
+			tests = append(tests, requester(test.Column))
+
+			continue
+		}
+		column := columnComparand(alias, test.Column)
+		member, err := inner.subjectSetExists(test.Set, &column, registry)
+		if err != nil {
+			return nil, err
+		}
+		tests = append(tests, member)
+	}
+	if len(tests) == 1 {
+		return tests[0], nil
+	}
+
+	chain := tests[0]
+	for _, next := range tests[1:] {
+		chain = &LogicalOpNode{Left: chain, Operator: OperatorOr, Right: next}
+	}
+
+	return &GroupNode{Expression: chain}, nil
 }
 
 // subjectValueSubquery renders a scalar subject.<name>: one value off the
