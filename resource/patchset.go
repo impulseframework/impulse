@@ -1289,7 +1289,32 @@ type PatchSetComparer interface {
 	PrimaryKey() KeySet
 }
 
+// secretFielder is how PatchSetDiff asks a patch which of its fields the resource declares
+// a secret (conditions:"secret"). A PatchSet answers.
+type secretFielder interface {
+	secretField(field accesstypes.Field) bool
+}
+
+// secretField reports whether the resource declares the field a secret.
+func (p *PatchSet[Resource]) secretField(field accesstypes.Field) bool {
+	return p.querySet.rMeta.secret(field)
+}
+
+// holdsSecret reports whether either of two compared patches declares the field a secret.
+func holdsSecret(field accesstypes.Field, patches ...PatchSetComparer) bool {
+	for _, patch := range patches {
+		if fielder, ok := patch.(secretFielder); ok && fielder.secretField(field) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // PatchSetDiff compares two PatchSetComparer objects for equality. It checks resource, patch type, data, fields, and primary keys.
+// A difference in a secret field is reported with [secret] on both sides: what it
+// answers is printed by tests and carried in errors, and a patch holds a secret as the
+// text it was given.
 func PatchSetDiff(opts ...cmp.Option) func(a, b PatchSetComparer) string {
 	return func(a, b PatchSetComparer) string {
 		if a.Resource() != b.Resource() {
@@ -1309,6 +1334,13 @@ func PatchSetDiff(opts ...cmp.Option) func(a, b PatchSetComparer) string {
 		}
 
 		for k, v := range aData {
+			if holdsSecret(k, a, b) {
+				if !cmp.Equal(v, bData[k], opts...) {
+					return fmt.Sprintf("Value mismatch for field %s, (-want +got):\n- %s\n+ %s", k, secretRedaction, secretRedaction)
+				}
+
+				continue
+			}
 			if diff := cmp.Diff(v, bData[k], opts...); diff != "" {
 				return fmt.Sprintf("Value mismatch for field %s, (-want +got):\n%s", k, diff)
 			}

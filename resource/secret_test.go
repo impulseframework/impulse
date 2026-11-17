@@ -1412,3 +1412,47 @@ func TestQuerySet_AddField_aSecretBringsItsKey(t *testing.T) {
 		t.Errorf("the fields of a query for a key column = %v, want it alone", got)
 	}
 }
+
+// A difference between two patches in a secret field is reported, and neither value is
+// printed: the generated Patch.Diff of every resource compares through PatchSetDiff, and
+// what it answers goes to a test's log or an error.
+func TestPatchSetDiff_secret(t *testing.T) {
+	t.Parallel()
+
+	patch := func(title, code string) *PatchSet[sealedRow] {
+		p := NewPatchSet(NewMetadata[sealedRow]()).SetPatchType(UpdatePatchType)
+		p.SetKey("ID", "row-1")
+		p.Set("Title", title)
+		p.Set("AccessCode", &code)
+
+		return p
+	}
+	diff := PatchSetDiff()
+
+	if got := diff(patch("sealed", "open-sesame"), patch("sealed", "open-sesame")); got != "" {
+		t.Errorf("PatchSetDiff() of two patches setting the same secret = %q, want no difference", got)
+	}
+
+	got := diff(patch("sealed", "open-sesame"), patch("sealed", "close-sesame"))
+	if want := "Value mismatch for field AccessCode, (-want +got):\n- [secret]\n+ [secret]"; got != want {
+		t.Errorf("PatchSetDiff() of two patches setting different secrets = %q, want %q", got, want)
+	}
+	for _, leak := range []string{"open-sesame", "close-sesame", "sesame"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("PatchSetDiff() prints the secret: %q", got)
+		}
+	}
+
+	// A secret set on one side and cleared on the other, and one given as its stored
+	// bytes, are differences too, shown the same way.
+	cleared := patch("sealed", "open-sesame")
+	cleared.Set("AccessCode", (*string)(nil))
+	if got := diff(patch("sealed", "open-sesame"), cleared); !strings.Contains(got, "- [secret]\n+ [secret]") || strings.Contains(got, "sesame") {
+		t.Errorf("PatchSetDiff() of a secret set and a secret cleared = %q, want the difference with neither value", got)
+	}
+
+	// A field that is no secret is still shown as it is.
+	if got := diff(patch("sealed", "open-sesame"), patch("unsealed", "open-sesame")); !strings.Contains(got, "Value mismatch for field Title") || !strings.Contains(got, "unsealed") {
+		t.Errorf("PatchSetDiff() of two titles = %q, want the titles shown", got)
+	}
+}
