@@ -5,16 +5,18 @@ import (
 
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/sessionstorage/internal/drivertest"
 )
 
-// TestSessionStorageDriver_PasswordLessUser proves a password-less user (an
-// user provisioned for external sign-in) round-trips on the shipped schema: it is
-// created and read with no hash, gains a password, and loses it again.
+// TestSessionStorageDriver_PasswordLessUser proves a password-less user (a user
+// provisioned for external sign-in) round-trips on the shipped schema with the auth
+// set, which the write of a password needs to end the user's sessions with it: the
+// user is created and read with no hash, gains a password, and loses it again.
 func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	db, err := prepareDatabase(ctx, t, "file://../../../schema/spanner/migrations")
+	db, err := prepareDatabase(ctx, t, authSources(drivertest.Auth)...)
 	if err != nil {
 		t.Fatalf("prepareDatabase() error = %v", err)
 	}
