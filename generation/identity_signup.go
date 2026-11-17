@@ -399,8 +399,8 @@ import (
 // @answers(204)
 // @warning(typed: open)
 type Open{{ .Auth }}SignUp struct {
-	// Method is the name the sign-in method is registered under.
-	Method string ` + "`validate:\"required\"`" + `
+	// Name is the name the sign-in method is registered under.
+	Name string ` + "`validate:\"required\"`" + `
 	{{- if not .CreatesTenant }}
 	// DefaultRole is the role each person who signs up is given.
 	//
@@ -433,9 +433,9 @@ func (m *Open{{ .Auth }}SignUp) Execute(ctx context.Context, txn resource.ReadWr
 // signUp is the request as the rules read it.
 func (m *Open{{ .Auth }}SignUp) signUp() *identity.SignUp {
 	{{- if .CreatesTenant }}
-	return &identity.SignUp{Method: m.Method, CreatesTenant: true}
+	return &identity.SignUp{Method: m.Name, CreatesTenant: true}
 	{{- else }}
-	return &identity.SignUp{Method: m.Method, DefaultRole: accesstypes.Role(m.DefaultRole)}
+	return &identity.SignUp{Method: m.Name, DefaultRole: accesstypes.Role(m.DefaultRole)}
 	{{- end }}
 }
 `
@@ -465,13 +465,13 @@ import (
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Make{{ .Auth }}InviteOnly struct {
-	// Method is the name the sign-in method is registered under.
-	Method string ` + "`validate:\"required\"`" + `
+	// Name is the name the sign-in method is registered under.
+	Name string ` + "`validate:\"required\"`" + `
 }
 
 // Execute buffers the choice into the caller's transaction.
 func (m *Make{{ .Auth }}InviteOnly) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
-	if err := client.manager.MakeInviteOnly(ctx, txn, m.Method); err != nil {
+	if err := client.manager.MakeInviteOnly(ctx, txn, m.Name); err != nil {
 		return errors.Wrap(err, "identity.Manager.MakeInviteOnly()")
 	}
 

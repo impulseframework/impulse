@@ -137,8 +137,8 @@ type servedEmail struct {
 	Verify string
 }
 
-// servedSignUp are the sign-up routes of a session outlet whose password method
-// declares open sign-up: start from an address, open the mailed link, complete with a
+// servedSignUp are the sign-up routes of a session outlet whose auth declares the
+// password method: start from an address, open the mailed link, complete with a
 // password.
 type servedSignUp struct {
 	Start    string
@@ -617,8 +617,7 @@ type servedOutlet struct {
 	ChangeLook string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
-	// password method, SignUp when the password method declares open sign-up (nil
-	// otherwise).
+	// password method, SignUp with a password method too (nil otherwise).
 	Invitation servedInvitation
 	Email      servedEmail
 	SignUp     *servedSignUp
@@ -1219,8 +1218,8 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 // (session.Auth.Invitation, Email and SignUp) to the outlet: the login page opens an
 // invitation and, with a password method, an invited stranger signs up at it, behind
 // the XSRF guard alone; a signed-in person accepts it and adds or verifies an address
-// inside the validated group; open sign-up, when the password method declares it,
-// starts, opens and completes behind the XSRF guard alone. It answers the guarded
+// inside the validated group; a sign-up, with a password method, starts, opens and
+// completes behind the XSRF guard alone. It answers the guarded
 // routes with the mail ones appended, and the validated routes.
 func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute, route func(method, suffix, handler string, xsrf bool) servedRoute) (guardedRoutes, validatedRoutes []servedRoute) {
 	prefix := "/" + o.prefix

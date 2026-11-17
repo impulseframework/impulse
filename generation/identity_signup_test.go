@@ -105,14 +105,14 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		// request that asks for the warning.
 		"crewidentity/open_crew_sign_up.go": {
 			generationHeader, "// @rpc\n// @outlet(default)\n// @answers(204)\n// @warning(typed: open)\ntype OpenCrewSignUp struct {",
-			"Method string `validate:\"required\"`", "// @enumerate(CrewSignUpRoles)\n\tDefaultRole string\n",
+			"Name string `validate:\"required\"`", "// @enumerate(CrewSignUpRoles)\n\tDefaultRole string\n",
 			"func (m *OpenCrewSignUp) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {",
 			"client.manager.OpenSignUpWarning(ctx, txn, m.signUp())", "client.manager.OpenSignUp(ctx, txn, m.signUp())",
-			"return &identity.SignUp{Method: m.Method, DefaultRole: accesstypes.Role(m.DefaultRole)}",
+			"return &identity.SignUp{Method: m.Name, DefaultRole: accesstypes.Role(m.DefaultRole)}",
 		},
 		"crewidentity/make_crew_invite_only.go": {
-			generationHeader, "// @rpc\n// @outlet(default)\n// @answers(204)\ntype MakeCrewInviteOnly struct {", "Method string `validate:\"required\"`",
-			"client.manager.MakeInviteOnly(ctx, txn, m.Method)",
+			generationHeader, "// @rpc\n// @outlet(default)\n// @answers(204)\ntype MakeCrewInviteOnly struct {", "Name string `validate:\"required\"`",
+			"client.manager.MakeInviteOnly(ctx, txn, m.Name)",
 		},
 		"crewidentity/store.go": {
 			"func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {",
@@ -168,8 +168,8 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 	}
 	assertFileContains(t, "crewidentity/open_crew_sign_up.go",
 		[]string{
-			"// @warning(typed: open)\ntype OpenCrewSignUp struct {", "Method string `validate:\"required\"`\n}",
-			"return &identity.SignUp{Method: m.Method, CreatesTenant: true}", "they create a ship of their own",
+			"// @warning(typed: open)\ntype OpenCrewSignUp struct {", "Name string `validate:\"required\"`\n}",
+			"return &identity.SignUp{Method: m.Name, CreatesTenant: true}", "they create a ship of their own",
 		},
 		[]string{"DefaultRole", "accesstypes"},
 	)

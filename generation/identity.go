@@ -683,10 +683,10 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "UserEmail"), template: identitySetUserEmailTemplate, needs: []identityTable{identityUsers}},
 		)
 	}
-	// A person is created by hand where a password is a way in or a registration admits
-	// invited users alone; elsewhere a directory admits its own, and the first sign-in
-	// creates the row. A person is created holding a role, so an auth whose directory
-	// writes the roles creates nobody here either.
+	// A person is created by hand in every auth whose roles the application assigns:
+	// each of its methods is invite only until an administrator opens it. A person is
+	// created holding a role, so an auth whose directory writes the roles creates nobody
+	// here: the directory admits its own, and the first sign-in creates the row.
 	if inst.createsUsers() {
 		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem("Create" + inst.auth + "User"), template: identityCreateUserTemplate, needs: []identityTable{identityUsers, identityMemberships}})
 	}
