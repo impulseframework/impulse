@@ -210,6 +210,17 @@ func TestSuperAdministrator_methods(t *testing.T) {
 			t.Errorf("RoleGrants(SuperAdministrator) = %v, want Execute on the one method alone", grants)
 		}
 	})
+	t.Run("the client says which methods it was built with", func(t *testing.T) {
+		t.Parallel()
+		client, _ := superClient(t, WithSuperAdministratorMethods("DoThing"))
+		if got := client.SuperAdministratorMethods(); len(got) != 1 || got[0] != "DoThing" {
+			t.Errorf("SuperAdministratorMethods() = %v, want [DoThing]", got)
+		}
+		bare, _ := superClient(t)
+		if got := bare.SuperAdministratorMethods(); len(got) != 0 {
+			t.Errorf("SuperAdministratorMethods() of a client built without the option = %v, want none", got)
+		}
+	})
 	t.Run("without the methods the role holds nothing of its own", func(t *testing.T) {
 		t.Parallel()
 		client, _ := superClient(t)

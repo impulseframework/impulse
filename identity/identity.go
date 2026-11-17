@@ -20,6 +20,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -291,10 +292,10 @@ func WithAdministratorRoles(domain []accesstypes.Role) Option {
 // for the whole application, the ones the auth's generated management serves. A super
 // administrator gives and takes any role whatever the role file grants, which the
 // permission engine provides when it is built with the same methods
-// (access.WithSuperAdministratorMethods). New holds the engine to it and refuses one
-// built without them, so an application that forgot the option does not start with a
-// super administrator who can be locked out of the roles. The generated client passes
-// the methods; an application does not.
+// (access.WithSuperAdministratorMethods). New holds the access library's engine to it
+// and refuses one built without them, so an application that forgot the option does not
+// start with a super administrator who can be locked out of the roles. The generated
+// client passes the methods; an application does not.
 func WithSuperAdministratorMethods(methods ...accesstypes.Resource) Option {
 	return func(m *Manager) {
 		m.superMethods = methods
@@ -344,20 +345,27 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	return m, nil
 }
 
-// requireSuperAdministratorMethods refuses a permission engine that does not let a super
-// administrator execute the methods that give and take the auth's roles
-// (WithSuperAdministratorMethods): the engine answers the role's grants from what it was
-// built with, so nothing is read from the database.
+// superAdministratorEngine is the access library's own engine as New holds it to the
+// methods: it says which methods it was built to let a super administrator execute
+// (access.Client.SuperAdministratorMethods). A controller that does not say, such as the
+// scripted one a test stands in for the engine, answers its checks as scripted and is
+// held to nothing.
+type superAdministratorEngine interface {
+	SuperAdministratorMethods() []accesstypes.Resource
+}
+
+// requireSuperAdministratorMethods refuses a permission engine that was not built to let
+// a super administrator execute the methods that give and take the auth's roles
+// (WithSuperAdministratorMethods): the engine says what it was built with, so nothing is
+// read from the database.
 func (m *Manager) requireSuperAdministratorMethods() error {
-	if len(m.superMethods) == 0 {
+	engine, says := m.access.(superAdministratorEngine)
+	if !says {
 		return nil
 	}
-	grants, err := m.access.UserManager().RoleGrants(context.Background(), accesstypes.GlobalPolicyScope(), accesstypes.SuperAdministrator)
-	if err != nil {
-		return errors.Wrap(err, "access.UserManager.RoleGrants()")
-	}
+	built := engine.SuperAdministratorMethods()
 	for _, method := range m.superMethods {
-		if _, granted := grants[accesstypes.Execute][method]; !granted {
+		if !slices.Contains(built, method) {
 			return errors.Newf("identity.New(): the permission engine of the %s auth does not let a super administrator execute %s, a method that gives or takes the auth's roles; build the engine with access.WithSuperAdministratorMethods and the methods the auth's generated management names (its SuperAdministratorMethods)", m.auth, method)
 		}
 	}

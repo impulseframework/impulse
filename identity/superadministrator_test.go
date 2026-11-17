@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -362,44 +363,36 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 	}
 }
 
-// superGrantsEngine is an engine that answers the Super Administrator role's grants, as
-// the library does from what it was built with.
-type superGrantsEngine struct {
+// builtEngine is an engine that says which methods it was built to let a super
+// administrator execute, as the access library's own does.
+type builtEngine struct {
 	fakeEngine
 	methods []accesstypes.Resource
 }
 
-func (e *superGrantsEngine) UserManager() access.UserManager {
-	return &superGrantsManager{fakeUserManager: fakeUserManager{engine: &e.fakeEngine}, methods: e.methods}
-}
-
-type superGrantsManager struct {
-	fakeUserManager
-	methods []accesstypes.Resource
-}
-
-func (u *superGrantsManager) RoleGrants(context.Context, accesstypes.PolicyScope, accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
-	granted := map[accesstypes.Resource][]string{}
-	for _, method := range u.methods {
-		granted[method] = []string{""}
-	}
-
-	return map[accesstypes.Permission]map[accesstypes.Resource][]string{accesstypes.Execute: granted}, nil
+func (e *builtEngine) SuperAdministratorMethods() []accesstypes.Resource {
+	return e.methods
 }
 
 // TestNew_superAdministratorMethods pins that a manager told the methods that give and
-// take the auth's roles refuses an engine that does not let a super administrator
-// execute them, naming what the application left out.
+// take the auth's roles refuses an engine built without one of them, naming what the
+// application left out, and holds an engine that does not say what it was built with, a
+// test's scripted one, to nothing.
 func TestNew_superAdministratorMethods(t *testing.T) {
 	t.Parallel()
 
 	option := WithSuperAdministratorMethods("AssignMembersRole", "RemoveMembersRole")
-	if _, err := New(managedAuth, &fakeStore{}, &superGrantsEngine{methods: []accesstypes.Resource{"AssignMembersRole", "RemoveMembersRole"}}, fakeSessions{}, option); err != nil {
+	if _, err := New(managedAuth, &fakeStore{}, &builtEngine{methods: []accesstypes.Resource{"AssignMembersRole", "RemoveMembersRole"}}, fakeSessions{}, option); err != nil {
 		t.Errorf("New() over an engine built with the methods: error = %v", err)
 	}
-	_, err := New(managedAuth, &fakeStore{}, &superGrantsEngine{methods: []accesstypes.Resource{"AssignMembersRole"}}, fakeSessions{}, option)
-	want := "the permission engine of the members auth does not let a super administrator execute RemoveMembersRole, a method that gives or takes the auth's roles; build the engine with access.WithSuperAdministratorMethods"
-	if err == nil || !strings.Contains(err.Error(), want) {
-		t.Errorf("New() over an engine built without a method: error = %v, want one containing %q", err, want)
+	for missing, built := range map[accesstypes.Resource][]accesstypes.Resource{"RemoveMembersRole": {"AssignMembersRole"}, "AssignMembersRole": nil} {
+		_, err := New(managedAuth, &fakeStore{}, &builtEngine{methods: built}, fakeSessions{}, option)
+		want := fmt.Sprintf("the permission engine of the members auth does not let a super administrator execute %s, a method that gives or takes the auth's roles; build the engine with access.WithSuperAdministratorMethods", missing)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("New() over an engine built with %v: error = %v, want one containing %q", built, err, want)
+		}
+	}
+	if _, err := New(managedAuth, &fakeStore{}, &fakeEngine{}, fakeSessions{}, option); err != nil {
+		t.Errorf("New() over a scripted engine that does not say what it was built with: error = %v, want none", err)
 	}
 }

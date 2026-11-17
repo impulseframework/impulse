@@ -3,6 +3,7 @@ package access
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -21,6 +22,9 @@ type Client struct {
 	store       Store
 	defaults    *defaultRoles
 	collection  PermissionCollection
+	// superMethods are the methods the client was built to let a super
+	// administrator execute (WithSuperAdministratorMethods).
+	superMethods []accesstypes.Resource
 }
 
 // New creates a new Client over a policy store built by one of the store
@@ -74,12 +78,13 @@ func New(store Store, opts ...Option) (*Client, error) {
 	manager.onPolicyChange = snapEngine.policyChanged
 
 	return &Client{
-		evaluator:   snapEngine,
-		snapEngine:  snapEngine,
-		userManager: newUserManager(manager, defaults, snapEngine),
-		store:       store,
-		defaults:    defaults,
-		collection:  options.collection,
+		evaluator:    snapEngine,
+		snapEngine:   snapEngine,
+		userManager:  newUserManager(manager, defaults, snapEngine),
+		store:        store,
+		defaults:     defaults,
+		collection:   options.collection,
+		superMethods: slices.Clone(options.superMethods),
 	}, nil
 }
 
@@ -348,6 +353,16 @@ func (c *Client) UserIsSuperAdministrator(ctx context.Context, user accesstypes.
 	defer span.End()
 
 	return c.evaluator.userIsSuperAdministrator(ctx, user)
+}
+
+// SuperAdministratorMethods returns the methods the client lets a super
+// administrator execute whatever the role file grants anybody: the ones it
+// was built with (WithSuperAdministratorMethods), none without the option.
+// The identity library holds the engine it is handed to the methods its
+// auth's generated management names (identity.New), so an application that
+// built the engine without them does not start.
+func (c *Client) SuperAdministratorMethods() []accesstypes.Resource {
+	return slices.Clone(c.superMethods)
 }
 
 // UserPermissionDigest returns user's structural grant enumeration within
