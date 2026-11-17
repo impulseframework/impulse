@@ -43,6 +43,14 @@ type loweringContext struct {
 	// authored); a global request has no partition to filter by.
 	partitioned bool
 
+	// rowTenant renders the checked row's own tenant, for a list across
+	// tenants: the request's partition is a set there, so a subject subquery
+	// over a domain-scoped anchor table filters to the tenant of the row being
+	// checked, never to a parameter, and a set held in one tenant answers only
+	// for rows of that tenant. Nil in a request of one tenant, whose subject
+	// subqueries filter to @domain.
+	rowTenant func(registry *paramRegistry) comparand
+
 	// proposed carries the touched columns' proposed values — the post-write
 	// overlay: new.attr reads the proposed value where the mutation touches
 	// the column and the existing column where it doesn't. Values bind as
@@ -655,7 +663,9 @@ func (ctx *loweringContext) subjectValueSubquery(name string, registry *paramReg
 // exactly when the request is partitioned and the anchor table carries a
 // domain binding — a membership in another tenant can never satisfy a
 // condition in this one. A global request, or a global anchor table, adds
-// nothing (§07's policy-shared pattern is deliberate).
+// nothing (§07's policy-shared pattern is deliberate). In a list across
+// tenants the filter follows the row: the anchor's tenant is compared to the
+// tenant of the row being checked (requestTenant).
 func (ctx *loweringContext) withAnchorTenancy(where ExpressionNode, anchor *SubjectAnchor, alias string, registry *paramRegistry) ExpressionNode {
 	if !ctx.partitioned || anchor.Domain == nil {
 		return where
@@ -666,15 +676,26 @@ func (ctx *loweringContext) withAnchorTenancy(where ExpressionNode, anchor *Subj
 		filter = &loweredComparisonNode{
 			left:  columnComparand(alias, anchor.Domain.Column),
 			op:    "=",
-			right: namedComparand(domainParamName),
+			right: ctx.requestTenant(registry),
 		}
 	} else {
 		anchorColumn := columnComparand(alias, anchor.Domain.Column)
 		target, wrap := ctx.pathTarget(&anchorColumn, anchor.Domain.Path, registry)
-		filter = wrap(&loweredComparisonNode{left: target, op: "=", right: namedComparand(domainParamName)})
+		filter = wrap(&loweredComparisonNode{left: target, op: "=", right: ctx.requestTenant(registry)})
 	}
 
 	return andChain(where, filter)
+}
+
+// requestTenant is what an anchor's tenant is compared to: the request's one
+// tenant, @domain, or in a list across tenants the tenant of the row being
+// checked (rowTenant).
+func (ctx *loweringContext) requestTenant(registry *paramRegistry) comparand {
+	if ctx.rowTenant != nil {
+		return ctx.rowTenant(registry)
+	}
+
+	return namedComparand(domainParamName)
 }
 
 // attribute resolves a binding name on the checked resource.

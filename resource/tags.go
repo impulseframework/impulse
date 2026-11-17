@@ -99,6 +99,10 @@ const (
 	cursorParam       = "cursor"
 	countParam        = "count"
 	capabilitiesParam = "capabilities"
+	// domainsParam is a list across tenants' filter on the tenant: the keys of the
+	// tenants the list is narrowed to, separated by commas
+	// (QueryDecoder.DecodeAcrossTenants). A tenant's own list refuses it.
+	domainsParam = "domains"
 	// offsetParam is reserved so a request still carrying it is refused with a
 	// message naming the cursor as its replacement, never treated as a filter.
 	offsetParam = "offset"

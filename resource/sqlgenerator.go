@@ -57,6 +57,11 @@ type sqlGenerator struct {
 	// outer is the resource the statement reads, which a PostgreSQL branch
 	// correlates its child table with; "" renders the key bare.
 	outer string
+	// acrossTenants says the statement is a list over several tenants: a
+	// @searchAlso branch's child rows are filtered to the tenants of the set,
+	// where a tenant's own statement filters them to its one tenant
+	// (branchTenancy).
+	acrossTenants bool
 }
 
 // searchGrant is one search field's standing under the caller's grants.
@@ -67,6 +72,10 @@ type searchGrant struct {
 	// the field's match so the index stays usable; "" for an unconditional grant
 	// and for a positional field, whose match renders bare.
 	condition string
+	// always says the condition is conjoined inside a positional field's match
+	// too: in a list across tenants it names the tenants whose grants cover the
+	// field at all, and no declaration opens a field where no grant covers it.
+	always bool
 }
 
 // newSQLGenerator creates a new SQL generator for the specified dialect.
@@ -93,7 +102,7 @@ func (s *sqlGenerator) generateSQLRecursive(node ExpressionNode) (string, []Quer
 		return s.generateLogicalOpSQL(n)
 	case *GroupNode:
 		return s.generateGroupSQL(n)
-	case *loweredComparisonNode, *loweredInNode, *loweredNullTestNode, *notNode, *existsNode, *nullGuardNode, *truthNode, *everyItemNode:
+	case *loweredComparisonNode, *loweredInNode, *loweredNullTestNode, *notNode, *existsNode, *nullGuardNode, *truthNode, *everyItemNode, *loweredMemberNode:
 		return s.generateLoweredNodeSQL(node)
 	case nil:
 		return "", nil, nil
@@ -120,6 +129,8 @@ func (s *sqlGenerator) generateLoweredNodeSQL(node ExpressionNode) (string, []Qu
 		sql, err = s.generateLoweredInSQL(n)
 	case *loweredNullTestNode:
 		sql, err = s.generateLoweredNullTestSQL(n)
+	case *loweredMemberNode:
+		sql, err = s.generateLoweredMemberSQL(n)
 	case *notNode:
 		sql, err = s.generateNotSQL(n)
 	case *existsNode:

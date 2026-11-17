@@ -540,12 +540,18 @@ func (q *QuerySet[Resource]) loweringCtx() *loweringContext {
 	bindings, _ := q.collection.Bindings(q.collection.Scope(q.Resource()), q.Resource())
 	_, partitioned := q.scope.Domain()
 
-	return &loweringContext{
+	lctx := &loweringContext{
 		outer:       string(q.Resource()),
 		bindings:    bindings,
 		collection:  q.collection,
 		partitioned: partitioned,
 	}
+	if q.severalTenants() != nil && bindings.Domain != nil {
+		// A list across tenants: a subject set follows the row it is checked for.
+		lctx.rowTenant = rowTenant(lctx.outer, bindings.Domain)
+	}
+
+	return lctx
 }
 
 // lowerToSQL runs one condition through the lowering and the statement's SQL
@@ -663,6 +669,13 @@ func (q *QuerySet[Resource]) namedParamValue(name string) (any, error) {
 		}
 
 		return string(domain), nil
+	case domainsParamName:
+		across := q.severalTenants()
+		if across == nil {
+			return nil, errors.New("condition rendering referenced a set of tenants outside a list across tenants")
+		}
+
+		return domainStrings(across.domains), nil
 	default:
 		return nil, errors.Newf("condition rendering referenced unknown named parameter %q", name)
 	}
