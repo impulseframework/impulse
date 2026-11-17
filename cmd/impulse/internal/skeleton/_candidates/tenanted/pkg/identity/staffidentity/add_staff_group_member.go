@@ -22,7 +22,13 @@ import (
 // optional): outside it the person holds none of the group's roles through it, and
 // nothing is written when it begins or ends. Putting in a person who is in the group
 // already gives their place the period of this request in place of the one it had, so a
-// request that names neither makes the place stand until they are taken out.
+// request that names neither makes the place stand until they are taken out. Nobody
+// gives their own place a period that lasts longer than the one it has.
+//
+// A group gives nobody a power that giving the role directly would not: beside the
+// grant of this method, the change needs what the same roles given or taken away
+// directly need of the caller (the grants of AssignStaffRole and RemoveStaffRole, each read with the
+// role in question), and is refused where one of them would be.
 //
 // @rpc
 // @outlet(default)
