@@ -196,7 +196,10 @@ func (w *directoryWrites) removesDirectory(tenant accesstypes.Domain) bool {
 // its button under until the person has typed DirectoryOnlyWord. The consequence says
 // who will be able to enter the tenant and how many of the people seated in it will
 // not, counted through people, one entry for each auth whose people the tenant seats;
-// the confirm words say what the button does.
+// the confirm words say what the button does. Where no entry reads anybody (an
+// application whose people no generated management lists) nobody was counted, and the
+// sentence says who will lose access without a number: it never says that everyone has
+// signed in through the directory on a count nobody made.
 //
 // Everyone the switch would keep out is counted. A person is named only to a caller who
 // may list them: the people of an auth are named where the request's caller
@@ -226,12 +229,13 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	}
 
 	caller := CallerFrom(ctx)
-	count := 0
+	count, counted := 0, false
 	var named []DirectoryOutsider
 	for _, auth := range people {
 		if auth.Outsiders == nil {
 			continue
 		}
+		counted = true
 		outsiders, err := auth.Outsiders(ctx, txn, tenant)
 		if err != nil {
 			return nil, errors.Wrap(err, "resource.DirectoryOutsiders()")
@@ -261,7 +265,7 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	}
 
 	return &Warning{
-		Consequence: directoryOnlySentence(directory, r.word, count, len(names)),
+		Consequence: directoryOnlySentence(directory, r.word, counted, count, len(names)),
 		Names:       names,
 		Confirm:     fmt.Sprintf("Admit only people who sign in through %s", directory.Connection),
 	}, nil
@@ -280,9 +284,14 @@ func outsiderName(person DirectoryOutsider) string {
 // directoryOnlySentence is the consequence of the switch in words: who will be able
 // to enter, how many of the people seated in the tenant will not, and, where the
 // warning lists fewer of them than it counts, that the list is the ones the caller may
-// list, so a part of them is never read as all of them.
-func directoryOnlySentence(directory signin.Directory, word string, outsiders, named int) string {
+// list, so a part of them is never read as all of them. counted says somebody read the
+// people: where nobody did, the sentence gives no number, and does not say that nobody
+// loses access.
+func directoryOnlySentence(directory signin.Directory, word string, counted bool, outsiders, named int) string {
 	only := fmt.Sprintf("Only people who sign in through %s will be able to enter this %s.", directory.Connection, word)
+	if !counted {
+		return only + " Anyone seated here who signs in another way will lose access."
+	}
 	var lose string
 	switch outsiders {
 	case 0:

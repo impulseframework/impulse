@@ -210,8 +210,16 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			want: &Warning{Consequence: deltaOnly + " 1 person seated here signs in another way and will lose access.", Names: []string{"bo"}, Confirm: deltaConfirm},
 		},
 		{
-			name: "nobody outside the directory is said so, and no list is drawn", ctx: asks(through(provider), &switchPermissions{}), station: "delta",
+			name: "nobody outside the directory is said so, and no list is drawn", ctx: asks(through(provider), &switchPermissions{}), station: "delta", people: people(reader()),
 			want: &Warning{Consequence: deltaOnly + " Everyone seated here has signed in through it.", Confirm: deltaConfirm},
+		},
+		{
+			name: "people nobody reads are not counted, and the sentence does not say that nobody loses access", ctx: asks(through(provider), &switchPermissions{}), station: "delta",
+			want: &Warning{Consequence: deltaOnly + " Anyone seated here who signs in another way will lose access.", Confirm: deltaConfirm},
+		},
+		{
+			name: "nor where the one entry has no reader", ctx: asks(through(provider), &switchPermissions{}), station: "delta", people: people(nil),
+			want: &Warning{Consequence: deltaOnly + " Anyone seated here who signs in another way will lose access.", Confirm: deltaConfirm},
 		},
 		{
 			name: "a caller who may not list the people is told how many and nobody's name", ctx: asks(through(entra), &switchPermissions{denied: []accesstypes.Resource{stationPeople}}), station: "beta",

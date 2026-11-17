@@ -16,10 +16,12 @@ import (
 // TestManager_DirectoryRole pins the rule of the role a tenant is opened to its
 // directory's people with: it is a role of the tenant, and one the request's caller
 // could give there directly, asked of the grant of the method that gives a role, for no
-// person in particular. A role the tenant does not hold is a BadRequest before any
-// grant is asked; a role the caller may not give is Forbidden; a call outside any
-// request is the application's own act; a manager that cannot ask refuses the request,
-// never passes it. The rule writes nothing.
+// person in particular. The grant answers first: a role the caller may not give is
+// Forbidden in the same words whether the tenant holds it or not, so the refusal tells
+// nobody of a role the grant keeps from them; a role the caller could give that the
+// tenant does not hold is a BadRequest; a call outside any request is the application's
+// own act; a manager that cannot ask refuses the request, never passes it. The rule
+// writes nothing.
 func TestManager_DirectoryRole(t *testing.T) {
 	t.Parallel()
 
@@ -41,8 +43,19 @@ func TestManager_DirectoryRole(t *testing.T) {
 			wantForbidden: "you may not give the role Warden in this tenant, so you cannot make it the role everyone from its directory gets",
 			wantAsked:     []string{"give domain/alpha " + nobody + " Warden"},
 		},
-		{name: "a role the tenant does not hold is refused before any grant is asked", role: "Steward", wantBadRequest: `"Steward" is not a role of this tenant`},
-		{name: "a role that exists nowhere is refused", role: "Nobody", wantBadRequest: `"Nobody" is not a role of this tenant`},
+		{
+			name: "a role the caller may not give is refused in the same words where the tenant does not hold it: the refusal is no word on whether it exists", role: "Ghost",
+			wantForbidden: "you may not give the role Ghost in this tenant, so you cannot make it the role everyone from its directory gets",
+			wantAsked:     []string{"give domain/alpha " + nobody + " Ghost"},
+		},
+		{
+			name: "a role the caller could give that the tenant does not hold is refused", role: "Steward",
+			wantBadRequest: `"Steward" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " Steward"},
+		},
+		{
+			name: "a role that exists nowhere is refused", role: "Nobody",
+			wantBadRequest: `"Nobody" is not a role of this tenant`, wantAsked: []string{"give domain/alpha " + nobody + " Nobody"},
+		},
 		{name: "a call outside any request is the application's own act, held to the role's existence alone", role: "Warden", outside: true},
 		{name: "and still refuses a role the tenant does not hold", role: "Steward", outside: true, wantBadRequest: `"Steward" is not a role of this tenant`},
 	}
@@ -51,7 +64,7 @@ func TestManager_DirectoryRole(t *testing.T) {
 			t.Parallel()
 
 			store := groupStore()
-			grants := &fakeGrants{noGive: []accesstypes.Role{"Warden"}}
+			grants := &fakeGrants{noGive: []accesstypes.Role{"Warden", "Ghost"}}
 			m, _ := newManager(t, store, wardenRoles, WithRoleGrants(grants))
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {

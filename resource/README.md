@@ -2683,6 +2683,9 @@ alone where the caller does not. Where the list is shorter than the count the se
 says so ("The one of them you may list is named here.", "The 3 of them you may list are
 named here."), so a part of them is never read as all of them, and where the caller may
 list nobody the warning carries no names and a page says how many without saying who.
+An application whose people no generated management lists counts nobody, and the
+sentence then gives no number ("Anyone seated here who signs in another way will lose
+access."): a count nobody made is never read as nobody.
 The warning is refused as the call is refused, with the same sentences, so a page that
 asks for it first shows the refusal and opens no dialog. For a
 tenant that is directory only already there is nothing to turn on, and the warning is a
@@ -2773,7 +2776,9 @@ of them gets." The role is held to what giving it by hand needs
 of the tenant ("... is not a role of this tenant: choose one of the roles the picker
 lists", 400), and the caller could give it there directly, by the grant of the method
 that gives a role in a tenant, conditions included (403, saying which role and what to
-do). A default role is given to people who are not known yet, so the grant is judged
+do; the grant answers before the role is looked for, so the refusal is the same for a
+role the tenant holds and one it does not, and tells nobody of a role the grant keeps
+from them). A default role is given to people who are not known yet, so the grant is judged
 for no person: a grant whose condition reads the person a role is given to admits no
 default role. A tenant with no directory is refused (409): there is nobody to open it
 to. `Make<Record>InviteOnly` is plain and declares no warning. Each method writes the

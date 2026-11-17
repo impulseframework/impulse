@@ -1863,8 +1863,9 @@ import (
 // {{ .Word }}'s list of that auth's people and, on no condition, on the fields of it that name
 // a person.
 {{- else }}
-// The program generates no auth's management, so the warning counts and names no person:
-// the application's own lists say who holds a role in a {{ .Word }}.
+// The program generates no auth's management, so the warning counts and names no person,
+// and says who will lose access without a number: the application's own lists say who
+// holds a role in a {{ .Word }}.
 {{- end }}
 //
 // The flag is written through the record's update patch, so its change event is written
