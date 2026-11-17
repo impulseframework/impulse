@@ -73,6 +73,11 @@ func (a *App) SectorHazardBoards() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The caller the request was checked as rides the context, as it does for a
+		// method's body: a List function that asks what the caller may do elsewhere
+		// is answered for that person, and never as a call the application makes
+		// outside any request.
+		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live list registers before the query runs, so a commit that lands during
 		// the query is not missed; a refused request registers nothing.
@@ -181,6 +186,11 @@ func (a *App) SectorHazardBoard() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The caller the request was checked as rides the context, as it does for a
+		// method's body: a Read function that asks what the caller may do elsewhere
+		// is answered for that person, and never as a call the application makes
+		// outside any request.
+		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live row registers before the read runs, so a commit that lands during the
 		// read is not missed; a refused request registers nothing.
