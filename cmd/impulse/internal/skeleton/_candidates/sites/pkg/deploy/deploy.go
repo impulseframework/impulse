@@ -159,7 +159,8 @@ func CheckRoles(ctx context.Context, client *access.Client, name string) error {
 // SeedAdministrators gives the staff auth its first administrator while its users table
 // holds no rows, the foothold a deployed environment starts from, and prints what it did:
 // the administrator user, the deployment's first super administrator, with the password
-// the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD). It runs after the role check, so the memberships
+// the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD), which the first sign-in changes
+// before anything else is served. It runs after the role check, so the memberships
 // name roles the release ships, and seeds nothing while a user exists: every user after
 // the first comes from the administration surface, and the development bootstrap creates
 // its own logins instead.

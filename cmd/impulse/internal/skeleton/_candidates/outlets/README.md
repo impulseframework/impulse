@@ -216,7 +216,11 @@ generated router test proves the route sits behind the token check.
   administrator's roles; the members auth's user without a password under the
   sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), holding the administrator
   roles in every domain, which that person's first sign-in through the directory links to.
-  A user that exists stops the seed; the auth's management
+  The staff auth's generated password is for the first sign-in alone: sign in as
+  `administrator` with it, give an email address and confirm it with the sign-in code
+  mailed there (the account starts with no address), then choose a new password, which
+  the login page asks for before it opens anything else; the generated password signs
+  nobody in after that. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development
