@@ -143,21 +143,25 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 		t.Errorf("setting Anvil's directory as the rigger, who holds no grant on the record: status %d, want 403: %s", status, body)
 	}
 
-	// The navigator is made a marshal in every sector and one of the fleet's own staff
-	// (a role of the whole application): a sector with no directory admits no directory
-	// session, so it is staff, who reach a sector whatever it declares, who set a
-	// sector's first directory once the sector exists.
+	// The navigator is made a marshal in every sector, which is no way into a sector
+	// that does not admit his session, and then a super administrator, by the governor,
+	// who is one: a sector with no directory admits no directory session, and a super
+	// administrator alone enters a sector whatever its sign-in settings say, so it is
+	// one who sets a sector's first directory once the sector exists.
 	navigatorID := crewAccountID(ctx, t, governor, navigatorUser)
-	for _, role := range []map[string]any{
-		{"userId": navigatorID, "role": "CrewCommon"},
-		{"userId": navigatorID, "role": "SectorMarshal", "everyDomain": true},
-	} {
-		if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, role)); status != http.StatusNoContent {
-			t.Fatalf("giving the navigator %v: status %d: %s", role, status, body)
-		}
+	marshalEverywhere := map[string]any{"userId": navigatorID, "role": "SectorMarshal", "everyDomain": true}
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, marshalEverywhere)); status != http.StatusNoContent {
+		t.Fatalf("making the navigator a marshal in every sector: status %d: %s", status, body)
+	}
+	if got, want := navigator.domains(ctx), []string{cinder}; !slices.Equal(got, want) {
+		t.Fatalf("the navigator's chart as a marshal in every sector = %v, want %v: nobody but a super administrator is exempt from a sector's declaration", got, want)
+	}
+	superAdministrator := map[string]any{"userId": navigatorID, "role": "SuperAdministrator"}
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, superAdministrator)); status != http.StatusNoContent {
+		t.Fatalf("making the navigator a super administrator: status %d: %s", status, body)
 	}
 	if got, want := navigator.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
-		t.Fatalf("the navigator's chart as staff = %v, want %v", got, want)
+		t.Fatalf("the navigator's chart as a super administrator = %v, want %v", got, want)
 	}
 
 	// A sector has one directory, and a directory belongs to one sector: the fleet's

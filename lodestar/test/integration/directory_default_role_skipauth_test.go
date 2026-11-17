@@ -47,6 +47,20 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	}
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
+	// Her second session comes through the fleet's directory while it is Cinder's, which
+	// admits it: her password confirms the sign-in, which links the identity to her
+	// account. It is the session that sets a directory, further down.
+	through := newBrowser(t, s, consoleAPI)
+	if status, body := through.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the marshal's Google login: status %d: %s", status, body)
+	}
+	held := consoleLogin + "?pending=confirmation&returnUrl=" + url.QueryEscape(consolePage)
+	if status, location := through.loginConsoleGoogle(ctx, "marshal"); status != http.StatusFound || location != held {
+		t.Fatalf("the marshal's Google login: status %d to %q, want %d to %q", status, location, http.StatusFound, held)
+	}
+	if status, body := through.do(ctx, http.MethodPost, consoleAPI+"/user/pending/confirm", jsonBody(t, map[string]string{"password": personaPassword})); status != http.StatusOK {
+		t.Fatalf("confirming the sign-in with the marshal's password: status %d: %s", status, body)
+	}
 
 	rows := directories(ctx, t, marshal, cinder)
 	if len(rows) != 1 {
@@ -114,25 +128,16 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	}
 
 	// Signed in through the fleet's directory, the marshal is offered the action. Her
-	// password confirms the sign-in, which links the identity to her account, and the
-	// governor makes her one of the fleet's staff (a role of the whole application),
-	// since a sector with no directory admits no directory session. A create that names
-	// a default role is refused her whatever the role, and writes nothing; the create
-	// that names nothing makes the fleet's Workspace Cinder's, with no default role.
-	staff := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, "marshal"), "role": "CrewCommon"})
-	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), staff); status != http.StatusNoContent {
-		t.Fatalf("making the marshal one of the fleet's staff: status %d: %s", status, body)
-	}
-	through := newBrowser(t, s, consoleAPI)
-	if status, body := through.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
-		t.Fatalf("GET session before the marshal's Google login: status %d: %s", status, body)
-	}
-	held := consoleLogin + "?pending=confirmation&returnUrl=" + url.QueryEscape(consolePage)
-	if status, location := through.loginConsoleGoogle(ctx, "marshal"); status != http.StatusFound || location != held {
-		t.Fatalf("the marshal's Google login: status %d to %q, want %d to %q", status, location, http.StatusFound, held)
-	}
-	if status, body := through.do(ctx, http.MethodPost, consoleAPI+"/user/pending/confirm", jsonBody(t, map[string]string{"password": personaPassword})); status != http.StatusOK {
-		t.Fatalf("confirming the sign-in with the marshal's password: status %d: %s", status, body)
+	// session through it stands from before the removal (through, above), and the
+	// governor now makes her a super administrator, since a sector with no directory
+	// admits no directory session and a super administrator alone enters a sector
+	// whatever its sign-in settings say. The role carries no grant on the record: a
+	// create that names a default role is refused her whatever the role, and writes
+	// nothing; the create that names nothing makes the fleet's Workspace Cinder's, with
+	// no default role.
+	superAdministrator := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, "marshal"), "role": "SuperAdministrator"})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), superAdministrator); status != http.StatusNoContent {
+		t.Fatalf("making the marshal a super administrator: status %d: %s", status, body)
 	}
 	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
 		if status, body := set(through, `"defaultSeat":"`+role+`"`); status != http.StatusForbidden {
