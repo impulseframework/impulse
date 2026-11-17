@@ -29,6 +29,7 @@ export function openMethodDialog(
     preset: { ...(target ? targetBody(method.method, method.meta, target) : {}), ...filledBody(method, from) },
     confirm: typeof confirm === 'function' ? confirm(from ?? {}) : confirm,
     ...(method.presentation?.labels ? { labels: method.presentation.labels } : {}),
+    ...(method.presentation?.shows ? { shows: method.presentation.shows } : {}),
   };
   return dialog
     .open<MethodDialogComponent, MethodDialogData, MethodDialogResult>(MethodDialogComponent, { data, delayFocusTrap: false })

@@ -278,6 +278,27 @@ describe('MethodDialogComponent', () => {
     expect(o.component.elements.map((e) => e.label)).toEqual(['New name', 'Note', 'Tell the person']);
   });
 
+  it("lists a picker's options by the fields the page names for it, and leaves every other input as the metadata draws it", async () => {
+    const { component } = await open(
+      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1' }, shows: { note: ['name', 'description'] } },
+      scriptedTransport({ status: 200, body: undefined }),
+    );
+    const config = (name: string): { listDisplay: string[]; viewDisplay: string[] } => {
+      const found = component.elements.find((element) => element.name === name);
+      if (!found) {
+        throw new Error(`no input named ${name}`);
+      }
+      return found.enumeratedConfig;
+    };
+    // The named input lists each option by those fields, in the list and once chosen.
+    expect([config('note').listDisplay, config('note').viewDisplay]).toEqual([
+      ['name', 'description'],
+      ['name', 'description'],
+    ]);
+    // An input the page did not name keeps the default: the source's own name.
+    expect([config('username').listDisplay, config('username').viewDisplay]).toEqual([[], []]);
+  });
+
   it('is a question when the page filled every field', async () => {
     const o = await open(
       { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1', username: 'ada.l', note: 'n', notify: false } },

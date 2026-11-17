@@ -215,8 +215,9 @@ export interface IdentitySideDescriptor {
  * The lists of a side, each a resource in `resources`: the people; the roles they hold
  * (one row for each role a person holds); the identities they sign in with; the
  * invitations (a tenant's) or every mailed link (the whole application's); and, for the
- * whole application alone, the sessions and the names whose sign-in is being counted or
- * is locked.
+ * whole application alone, the sessions, the names whose sign-in is being counted or
+ * is locked, the Auth's sign-in methods (each invite only or open to sign-up) and, in
+ * an application without tenants, the roles a person who signs up may be given.
  */
 export interface IdentityLists {
   readonly users: string;
@@ -225,6 +226,8 @@ export interface IdentityLists {
   readonly invitations?: string;
   readonly sessions?: string;
   readonly signInAttempts?: string;
+  readonly signInMethods?: string;
+  readonly signUpRoles?: string;
 }
 
 /**
@@ -233,8 +236,9 @@ export interface IdentityLists {
  * `removeRole` against a role held; on the whole application's side both take the
  * person's name, since a role may be held by a name that has no account.
  * `withdrawInvitation` runs against an invitation, `unlinkIdentity` against an identity,
- * `endSession` against a session, `unlockSignIn` against a counted name, and the rest
- * against a person.
+ * `endSession` against a session, `unlockSignIn` against a counted name, `openSignUp`
+ * and `makeInviteOnly` name a sign-in method, which the page fills from its row, and the
+ * rest run against a person.
  */
 export interface IdentityMethods {
   readonly create?: string;
@@ -256,6 +260,8 @@ export interface IdentityMethods {
   readonly removePassword?: string;
   readonly endSession?: string;
   readonly unlockSignIn?: string;
+  readonly openSignUp?: string;
+  readonly makeInviteOnly?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

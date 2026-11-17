@@ -9,6 +9,7 @@ import { MatInputModule } from '@angular/material/input';
 import { ApiError, MethodHandle, MethodWarning, UploadMethodHandle } from '@impulseframework/resource';
 import {
   DataType,
+  enumeratedConfig,
   field,
   FieldElement,
   FieldName,
@@ -38,6 +39,12 @@ export interface MethodDialogData {
   confirm?: string;
   /** The words above an input, by the request field's name; a field not named is labeled with its name in words. */
   labels?: Record<string, string>;
+  /**
+   * What a picker among the inputs lists each option by, by the request field's name:
+   * the fields of the listed resource, joined in order. A field not named lists its
+   * options by the source's own name.
+   */
+  shows?: Record<string, string[]>;
 }
 
 /** What a method dialog closes with once the method has run; a dialog dismissed closes with nothing. */
@@ -114,8 +121,23 @@ export class MethodDialogComponent {
       name: asked.fieldName as FieldName,
       label: this.data.labels?.[asked.fieldName] ?? nameInWords(asked.fieldName),
       cols: 12,
+      ...this.picker(asked.fieldName),
     }),
   );
+  /**
+   * How the picker of an input lists its options, where the page said: the fields it
+   * named, joined in order, in the list and once one is chosen. Nothing for an input
+   * the page did not name, whose picker lists the source's own name.
+   */
+  private picker(fieldName: string): Pick<FieldElement, 'enumeratedConfig'> | Record<string, never> {
+    const shown = this.data.shows?.[fieldName];
+    if (!shown || shown.length === 0) {
+      return {};
+    }
+    const display = shown as FieldName[];
+    return { enumeratedConfig: enumeratedConfig({ listDisplay: display, viewDisplay: display }) };
+  }
+
   /** Each input's value before anything is typed: an empty list for a field that holds a list, empty text otherwise. */
   readonly pristine: Record<string, DataType> = Object.fromEntries(
     this.asked.map((asked): [string, DataType] => [asked.fieldName, asked.displayType.endsWith('[]') ? [] : '']),

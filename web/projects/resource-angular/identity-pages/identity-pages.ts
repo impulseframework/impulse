@@ -27,7 +27,8 @@ import {
 // the configuration the library's list and row pages are drawn from, so an application
 // writes no page for it: the people with what the caller may do to each, a person's row
 // page with the roles and the identities under it, the invitations, and, for the whole
-// application, the sessions and the failed sign-ins. What differs from one application
+// application, the sessions, the failed sign-ins and the Auth's sign-in methods, each
+// invite only or open to sign-up. What differs from one application
 // to the next is read from the description: the Auth's name and label, the tenant
 // record's name, which side the pages are for, and what the Auth's sign-in methods give
 // (a list or a method the description does not name draws nothing).
@@ -38,7 +39,7 @@ import {
 // disabled account and Disable on an enabled one.
 
 /** The pages of one side of an Auth's management, by what each lists. */
-export type IdentityPage = 'users' | 'invitations' | 'sessions' | 'signInAttempts';
+export type IdentityPage = 'users' | 'invitations' | 'sessions' | 'signInAttempts' | 'signIn';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -68,8 +69,8 @@ const made = new WeakMap<ApiDescriptor, Map<string, RootConfig[]>>();
 
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
- * people, the invitations, and for the whole application the sessions and the failed
- * sign-ins, each with its label and icon. A page whose list the description does not
+ * people, the invitations, and for the whole application the sessions, the failed
+ * sign-ins and the sign-in methods, each with its label and icon. A page whose list the description does not
  * name is left out. The same request answers the same configurations. Refused, naming
  * what is missing: an Auth the description does not carry, a side it does not carry,
  * and a tenant's side on an API with no tenant segment.
@@ -110,7 +111,7 @@ function buildPages(
     );
   }
   const build = new SideBuilder(descriptor, identity, side, resourceMeta, options);
-  return [build.people(), build.invitations(), build.sessions(), build.signInAttempts()].filter(
+  return [build.people(), build.invitations(), build.sessions(), build.signInAttempts(), build.signIn()].filter(
     (config): config is RootConfig => config !== undefined,
   );
 }
@@ -316,6 +317,89 @@ class SideBuilder {
               label: 'Unlock',
               icon: 'lock_open',
               confirm: (row) => `Unlock ${String(row['name'])}? The count of failed tries starts over.`,
+            },
+          ],
+        ]),
+        elements: [],
+      }),
+    });
+  }
+
+  /**
+   * The Auth's sign-in methods, one row each: who can sign in with it, which is how wide
+   * the method is and is fixed in the application's code, and whether a person with no
+   * invitation is admitted, which an administrator chooses here. The whole application's
+   * alone. A method that is invite only offers Open sign-up, and one that is open
+   * offers Make invite only; a method whose directory gives the roles offers neither,
+   * and its row says why. The caller sees an action only while their roles grant the
+   * method, as on every list.
+   *
+   * Opening a method is a warning the server writes for that method (who will be
+   * admitted, and what each of them gets), confirmed by typing a word: the method
+   * declares both, and the library's dialog draws them. Without tenants the dialog also
+   * asks for the role each new person gets, listed with its description; with tenants a
+   * person who signs up creates a tenant of their own and gets no role here. While a
+   * method is open the page says so above the list, in the warning colors.
+   */
+  signIn(): RootConfig | undefined {
+    const { lists, methods } = this.side;
+    if (!lists.signInMethods) {
+      return undefined;
+    }
+    const resource = lists.signInMethods as Resource;
+    const fromRow = (row: RecordData): Record<string, unknown> => ({ name: row['name'] });
+    return rootConfig({
+      page: { label: 'Sign-in', icon: 'login' },
+      routeData: { route: this.route('signIn', 'sign-in'), hasViewRoute: false },
+      parentConfig: listViewConfig({
+        title: `${this.identity.label} sign-in`,
+        primaryResource: resource,
+        showViewButton: false,
+        showRowCount: false,
+        notice: openToSignUp,
+        listColumns: [
+          ...this.columns(resource, [
+            ['label', 'Sign-in method'],
+            ['admits', 'Who can sign in with it'],
+          ]),
+          ...this.columns(resource, [['openSignUp', 'Sign-up']]).map((column) => ({
+            ...column,
+            valueGetter: signUpChoice,
+            filterable: false,
+          })),
+          // The role a new person gets is chosen where the application has no tenants.
+          ...(lists.signUpRoles ? this.columns(resource, [['defaultRole', 'Role a new person gets']]) : []),
+          ...this.columns(resource, [['says', 'A person with no invitation']]),
+          // Read with each row and not drawn: what the actions are offered by and filled from.
+          ...this.columns(resource, [
+            ['name', 'Name'],
+            ['directoryGivesRoles', 'Directory gives roles'],
+          ]).map((column) => ({ ...column, hidden: true })),
+        ],
+        rowMethods: this.present([
+          [
+            methods.openSignUp,
+            {
+              label: 'Open sign-up',
+              icon: 'public',
+              // A method that is open already has nothing to open, and a directory that
+              // gives the roles decides who signs in.
+              when: (row) => row['openSignUp'] !== true && row['directoryGivesRoles'] !== true,
+              fill: fromRow,
+              labels: { defaultRole: 'Role each new person gets' },
+              shows: { defaultRole: ['name', 'description'] },
+              successMessage: 'The method is open to sign-up.',
+            },
+          ],
+          [
+            methods.makeInviteOnly,
+            {
+              label: 'Make invite only',
+              icon: 'lock',
+              when: (row) => row['openSignUp'] === true,
+              fill: fromRow,
+              confirm: 'People who already have accounts keep them. New people will need an invitation.',
+              successMessage: 'The method is invite only.',
             },
           ],
         ]),
@@ -659,6 +743,36 @@ class SideBuilder {
     }
     return `${route.segment}/:${route.param}`;
   }
+}
+
+/** What a sign-in method's row says of sign-up: who decides, or what an administrator chose. */
+function signUpChoice(row: RecordData): string {
+  if (row['directoryGivesRoles'] === true) {
+    return 'Set by the directory';
+  }
+  return row['openSignUp'] === true ? 'Open' : 'Invite only';
+}
+
+/** The words the server opens an open method's sentence with, which the notice says its own way. */
+const openPrefix = 'Open: ';
+
+/**
+ * The Sign-in page's standing notice: one sentence for each method that is open to
+ * sign-up, naming the method and saying, in the server's words for it, who is admitted
+ * and what each new person gets. Nothing while every method is invite only.
+ */
+function openToSignUp(rows: RecordData[]): string | undefined {
+  const open = rows.filter((row) => row['openSignUp'] === true);
+  if (open.length === 0) {
+    return undefined;
+  }
+  return open
+    .map((row) => {
+      const says = String(row['says'] ?? '');
+      const consequence = says.startsWith(openPrefix) ? says.slice(openPrefix.length) : says;
+      return `${String(row['label'] ?? row['name'])} is open to sign-up. ${consequence}`.trim();
+    })
+    .join('\n');
 }
 
 /** The columns of a session, beside whose it is. */
