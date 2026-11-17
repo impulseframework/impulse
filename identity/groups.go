@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"slices"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -159,7 +160,9 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 // permission engine told once the transaction has committed. A group that still has a
 // member or holds a role is refused until it is emptied: nobody loses a role because a
 // group was deleted, each person is removed and each role taken by an act of its own.
-// The members and the roles are read as committed.
+// The members and the roles are read as committed. A member or a role whose period has
+// ended gives nobody anything: it does not stand in the way, and its row goes with the
+// group. One whose period has not begun stands in the way like one that counts.
 func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -176,8 +179,26 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.GroupRoles()")
 	}
-	if len(members) > 0 || len(roles) > 0 {
-		return httpio.NewConflictMessagef("the group %s still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", group.Name, len(members), len(roles))
+	periods, err := m.store.GroupPeriods(ctx, txn, groupID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.GroupPeriods()")
+	}
+	now := time.Now()
+	standingMembers := slices.DeleteFunc(slices.Clone(members), func(user accesstypes.User) bool { return periods.Members[user].Ended(now) })
+	standingRoles := slices.DeleteFunc(slices.Clone(roles), func(key access.GroupRoleKey) bool { return periods.Roles[key].Ended(now) })
+	if len(standingMembers) > 0 || len(standingRoles) > 0 {
+		return httpio.NewConflictMessagef("the group %s still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", group.Name, len(standingMembers), len(standingRoles))
+	}
+	// What is left has ended, and goes with the group.
+	for _, user := range members {
+		if err := m.store.DeleteGroupMember(ctx, txn, &access.GroupMemberKey{Group: GroupID(groupID), User: user}); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+		}
+	}
+	for _, key := range roles {
+		if err := m.store.DeleteGroupRole(ctx, txn, &key); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteGroupRole()")
+		}
 	}
 	if err := m.store.DeleteGroup(ctx, txn, groupID); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteGroup()")
@@ -186,22 +207,29 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 	return m.policyChangesAtCommit(txn)
 }
 
-// AddGroupMember buffers a person's place in a group, in the caller's transaction, and
+// AddGroupMemberFor buffers a person's place in a group, in the caller's transaction, and
 // has the permission engine told once the transaction has committed, so the person's
 // next request is served with the group's roles. The person is named by the id of their
-// account and is not looked up, as AssignRole looks nobody up; a person who is in the
-// group already is left as they are. A group holds any account, also a person who holds
-// roles in other tenants.
+// account and is not looked up, as AssignRole looks nobody up. A group holds any account,
+// also a person who holds roles in other tenants.
+//
+// The place is given for the period: the person holds the group's roles while their
+// place and the group's role both count, and a person who is in the group already is
+// given the period handed in place of the one their place had. AddGroupMember gives the
+// place with no period.
 //
 // Where a person belongs to one tenant (WithOneTenantPerPerson), a place in a tenant's
 // group is a role in that tenant: it is refused for a person who holds a role, or a
 // place in a group, in another one (refuseSecondTenant).
-func (m *Manager) AddGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) error {
+func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a person is put in a group: the user id is empty")
+	}
+	if err := period.Validate(); err != nil {
+		return httpio.NewBadRequestMessage(err.Error())
 	}
 	group, err := m.requireGroup(ctx, txn, groupID)
 	if err != nil {
@@ -214,11 +242,16 @@ func (m *Manager) AddGroupMember(ctx context.Context, txn resource.ReadWriteTran
 	if err := m.refuseSecondTenant(ctx, txn, kept, userID); err != nil {
 		return err
 	}
-	inserted, err := m.store.InsertGroupMember(ctx, txn, &access.GroupMemberKey{Group: GroupID(groupID), User: User(userID)})
+	key := access.GroupMemberKey{Group: GroupID(groupID), User: User(userID)}
+	inserted, err := m.store.InsertGroupMember(ctx, txn, &key)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertGroupMember()")
 	}
-	if !inserted {
+	changed, err := m.settlePlacePeriod(ctx, txn, userID, &key, period, inserted)
+	if err != nil {
+		return err
+	}
+	if !inserted && !changed {
 		return nil
 	}
 
@@ -234,7 +267,8 @@ func (m *Manager) AddGroupMember(ctx context.Context, txn resource.ReadWriteTran
 // account nothing admits applies here as it does to a role taken away (RemoveRole): a
 // person left with no role of their own and no place in any group is deleted with their
 // identity links and sessions, in the same transaction. What the person holds is read as
-// committed.
+// committed, and a row whose period has ended keeps the account like any other: an
+// account goes when nothing at all is left of what was given to it (keeps).
 func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -287,19 +321,23 @@ func (m *Manager) deleteLeftWithNothing(ctx context.Context, txn resource.ReadWr
 	return nil
 }
 
-// GiveGroupRole buffers the role a group holds in the scope, in the caller's
+// GiveGroupRoleFor buffers the role a group holds in the scope, in the caller's
 // transaction, and has the permission engine told once the transaction has committed,
-// so every person in the group is served with the role at their next request. A role
-// the group holds there already is left as it is.
+// so every person in the group is served with the role at their next request. The role
+// is given for the period, and a role the group holds there already is given the period
+// handed in place of the one it had. GiveGroupRole gives the role with no period.
 //
 // The rule is the permission engine's (access.UserManager.GroupRole): the role exists in
 // the scope under exactly this spelling; a group kept in one tenant holds roles in that
 // tenant alone; and no group holds the Super Administrator role, which a super
 // administrator gives to one person at a time.
-func (m *Manager) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+func (m *Manager) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := period.Validate(); err != nil {
+		return httpio.NewBadRequestMessage(err.Error())
+	}
 	group, err := m.requireGroup(ctx, txn, groupID)
 	if err != nil {
 		return err
@@ -323,7 +361,11 @@ func (m *Manager) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertGroupRole()")
 	}
-	if !inserted {
+	changed, err := m.settleGroupRolePeriod(ctx, txn, groupID, &key, period, inserted)
+	if err != nil {
+		return err
+	}
+	if !inserted && !changed {
 		return nil
 	}
 
@@ -367,21 +409,18 @@ func (m *Manager) requireGroup(ctx context.Context, txn resource.ReadWriteTransa
 	return group, nil
 }
 
-// holds answers everything that keeps a person's account and places them in a tenant or
-// outside the tenants: the memberships of their own, and a key for each group they are
-// in, spelled as a membership held where the group is kept with no role named. The rules
-// that read where a person belongs (one tenant per person, the account nothing admits)
-// read it, so a place in a tenant's group counts as a role in that tenant and a place in
-// a group kept for the whole application as a role held outside the tenants. A key with
-// no role is never the membership a caller removes.
+// holds answers everything that places a person in a tenant or outside the tenants: the
+// memberships of their own, and a key for each group they are in, spelled as a
+// membership held where the group is kept with no role named. The rules that read where
+// a person belongs (one tenant per person) read it, so a place in a tenant's group
+// counts as a role in that tenant and a place in a group kept for the whole application
+// as a role held outside the tenants. A key with no role is never the membership a
+// caller removes. An assignment whose period has ended places a person nowhere, and is
+// left out (standing); one whose period has not begun places them where it will count.
 func (m *Manager) holds(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
-	held, err := m.store.Memberships(ctx, txn, userID)
+	held, places, err := m.standing(ctx, txn, userID)
 	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	places, err := m.store.UserGroups(ctx, txn, userID)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
+		return nil, err
 	}
 	for _, place := range places {
 		held = append(held, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(userID)})

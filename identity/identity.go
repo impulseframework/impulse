@@ -161,6 +161,9 @@ type Store interface {
 	// GroupStore is the auth's groups of people, their members and the roles they hold
 	// (groups.go).
 	GroupStore
+	// PeriodStore is the period of an assignment: a person's role, a person's place in
+	// a group and a group's role (periods.go).
+	PeriodStore
 }
 
 // SessionAPI is what the rules take from the session library's Auth, the one that signs

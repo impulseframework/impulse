@@ -24,6 +24,11 @@ type fakeGroupTables struct {
 	groupRoles   map[access.GroupRoleKey]bool
 	// nextGroupID is the id InsertGroup answers.
 	nextGroupID impulse.UUID
+	// The periods of the committed rows that carry one (periods_test.go): a
+	// membership's, a place's in a group and a group's role's.
+	membershipPeriods map[access.MembershipKey]accesstypes.Period
+	placePeriods      map[access.GroupMemberKey]accesstypes.Period
+	rolePeriods       map[access.GroupRoleKey]accesstypes.Period
 }
 
 func groupRoleText(key *access.GroupRoleKey) string {

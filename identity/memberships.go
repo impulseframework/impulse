@@ -63,12 +63,21 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // The Super Administrator role is given in the global scope alone, and by a caller who
 // holds it (requireSuperAdministrator): only a super administrator makes another. A
 // call outside any request is the application's own act and gives it.
-func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
+//
+// The membership is given for the period: it counts from the period's start, where it
+// has one, until its end, where it has one, and a membership the person holds already
+// is given the period handed in place of the one it had (periods.go). Whoever may give
+// the role gives it a period, and the Super Administrator role takes none
+// (access.ValidatePeriod). AssignRole gives the membership with no period.
+func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
+	}
+	if err := access.ValidatePeriod(role, period); err != nil {
+		return errors.Wrap(err, "access.ValidatePeriod()")
 	}
 	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
 		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named",
@@ -97,7 +106,11 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
 	}
-	if !inserted {
+	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, period, inserted)
+	if err != nil {
+		return err
+	}
+	if !inserted && !changed {
 		return nil
 	}
 
@@ -159,7 +172,8 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 		}
 	}
 	// What the person holds beside the membership: the roles of their own and the
-	// groups they are in, each of which keeps the account as a role does (holds).
+	// groups they are in. Where they belong is read from what has not ended (holds);
+	// the account is kept by every row that stands in the tables, ended or not (keeps).
 	all, err := m.holds(ctx, txn, userID)
 	if err != nil {
 		return err
@@ -167,7 +181,11 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
 		return err
 	}
-	if err := m.deleteWithLastRole(ctx, txn, userID, all, key); err != nil {
+	kept, err := m.keeps(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	if err := m.deleteWithLastRole(ctx, txn, userID, kept, key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {
