@@ -150,7 +150,7 @@ func TestEnvTemplateVersionedSecret(t *testing.T) {
 		covered         = "export LIGHTHOUSE_BEACON_API_KEY=\n"
 		fixtureTemplate = "# Lighthouse local development\nexport LIGHTHOUSE_PROJECT_ID=\nexport LIGHTHOUSE_SPANNER_DATABASE=\n# export LIGHTHOUSE_COOKIE_KEY=\n"
 		addedByFix      = "# Added by impulse check --fix: LIGHTHOUSE_SECRET_KEY_1 is version 1 of LIGHTHOUSE_SECRET_KEY for development, 32 random bytes made once for this checkout and kept in .lighthouse-secret-key.dev, which .gitignore ignores.\n"
-		aKey            = "ZGV2ZWxvcG1lbnQtb25seSBhcHBsaWNhdGlvbiBrZXk="
+		aKey            = "YSBrZXkgd3JpdHRlbiBpbiBhIHRyYWNrZWQgZmlsZSE="
 		missing         = "1 variable(s) missing from .envrc.template (--fix adds them)"
 		notSet          = versionedAt + " is not set in .envrc.template"
 	)
