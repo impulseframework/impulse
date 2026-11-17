@@ -212,7 +212,9 @@ jobs:
     # over the library, a library change that breaks an application, or a component spec,
     # fails here and not in a downstream application. The specs run on Angular's unit-test
     # builder (Vitest under jsdom, in Node), so the test step needs nothing the job does not
-    # already install.
+    # already install. The job ends by holding Lodestar's browser files to the prettier its
+    # workspace pins, as an application's own CI holds its files (impulse check's prettier
+    # check), which needs Go for the tool and nothing else.
     name: lodestar web (console + portal)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.lodestar-web == 'true') }}
@@ -267,6 +269,22 @@ jobs:
       - name: Test
         working-directory: lodestar/web
         run: bun run test
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: The formatting check on Lodestar
+        # impulse check's prettier check, built from this commit, over Lodestar's browser
+        # files: here, where Lodestar's packages are installed, since the formatter comes
+        # with them. The job that runs the rest of impulse check on Lodestar installs
+        # none, so there the check says it was not run. It is this job's last step, so a
+        # file that is not formatted fails the job after the build, the lint and the specs
+        # have reported. A check that did not run reports SKIP and exits 0, which is no
+        # proof, so the report must read PASS. impulse check --app lodestar --only prettier
+        # --fix, with Lodestar's packages installed, formats what the check names.
+        run: |
+          go run ./cmd/impulse check --app lodestar --only prettier | tee "$RUNNER_TEMP/prettier-report"
+          grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::Lodestar's browser files are not formatted as its prettier formats them, or the check did not run"; exit 1; }
   lodestar-go-integration:
     # Lodestar (lodestar/) is its own Go module, replacing the framework module with this
     # checkout, so it is the application that proves the framework at this commit: it is
