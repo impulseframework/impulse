@@ -110,3 +110,55 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 		t.Errorf("the governor making the marshal a super administrator: status %d, want 204: %s", status, body)
 	}
 }
+
+// TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain proves on the served stack that
+// giving the Super Administrator role ends the sessions the person holds, in the
+// transaction that gives it. The marshal holds a session of her own and one she started
+// as the rigger, whose reach is hers; the governor gives her the role, and both are
+// refused from then on, so no session that began before the role carries it. The
+// governor's own session, the giver's, stands. The marshal signs in again, and the role
+// asked for her a second time, which she holds already, ends nothing.
+//
+// Demonstrates: auth.super-administrator.
+func TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	userDomains := consoleAPI + "/user-domains"
+
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	own := newBrowser(t, s, consoleAPI)
+	own.signIn(ctx, "marshal")
+	viewing := newBrowser(t, s, consoleAPI)
+	viewing.signIn(ctx, "marshal")
+	if status, body := viewing.impersonate(ctx, viewAs(t, "rigger", "walkthrough")); status != http.StatusOK {
+		t.Fatalf("the marshal viewing as the rigger: status %d: %s", status, body)
+	}
+	// answers fails the test unless each of the marshal's sessions answers want.
+	answers := func(when string, sessions map[string]*browser, want int) {
+		t.Helper()
+		for name, b := range sessions {
+			if status, body := b.do(ctx, http.MethodGet, userDomains, nil); status != want {
+				t.Errorf("%s %s: status %d, want %d: %s", name, when, status, want, body)
+			}
+		}
+	}
+	before := map[string]*browser{"the marshal's own session": own, "the marshal's session as the rigger": viewing}
+	answers("before the role", before, http.StatusOK)
+
+	toMarshal := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "marshal"))
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
+		t.Fatalf("the governor making the marshal a super administrator: status %d, want 204: %s", status, body)
+	}
+	answers("after the marshal was given the role", before, http.StatusUnauthorized)
+	answers("after giving the role", map[string]*browser{"the governor's session, the giver's": governor}, http.StatusOK)
+
+	again := newBrowser(t, s, consoleAPI)
+	again.signIn(ctx, "marshal")
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
+		t.Fatalf("the governor giving the marshal the role she holds: status %d, want 204: %s", status, body)
+	}
+	answers("after the role was asked for her again", map[string]*browser{"the session the marshal signed in to as a super administrator": again}, http.StatusOK)
+}

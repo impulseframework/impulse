@@ -862,7 +862,10 @@ and the last holder of a sector's administrator role (`SectorMarshal`,
 `identity.WithAdministratorRoles`) is refused leaving it until another holds it, so an
 operator creates a customer's sector, makes its first administrator and leaves. The
 whole service is kept by the Super Administrator role instead: only a holder makes or
-removes another, a holder gives and takes any role of the crew whatever the role file
+removes another or changes how another signs in (headquarters, which manages the crew's
+accounts, sets no password, username or email address on a holder and unlinks none of
+their identities), a person given the role signs in again since giving it ends their
+sessions, a holder gives and takes any role of the crew whatever the role file
 grants (`access.WithSuperAdministratorMethods`, handed the generated
 `crewidentity.SuperAdministratorMethods`), and the last holder who can sign in keeps the
 role and the account, whoever asks. Demonstrates: tenancy.declaration,
