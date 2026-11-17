@@ -416,7 +416,7 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 // holds that password.
 func (a *Auth[S, U, Tx]) checkCredentials(
 	ctx context.Context, username, password string, client attempts.Client,
-) (*sessionstorage.SessionUser, sessionstorage.PasswordProof, error) {
+) (user *sessionstorage.SessionUser, proof sessionstorage.PasswordProof, err error) {
 	methods := a.registered()
 	if err := a.limitAttempt(ctx, username, client); err != nil {
 		return nil, nil, err
@@ -461,7 +461,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 	if user.Disabled {
 		return nil, nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
-	proof, err := sessionstorage.ProofOfPassword(held)
+	proof, err = sessionstorage.ProofOfPassword(held)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "sessionstorage.ProofOfPassword()")
 	}

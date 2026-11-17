@@ -176,10 +176,11 @@ func testProvenPendingSignIn(ctx context.Context, t *testing.T, h *AuthHarness) 
 		t.Fatalf("SignIn() on the proof the row carries, the password standing, error = %v", err)
 	}
 
-	for i, w := range laterWrites() {
+	writes := laterWrites()
+	for n := byte(0); int(n) < len(writes); n++ {
+		w := writes[n]
 		t.Run(w.name, func(t *testing.T) {
-			n := byte(i)
-			user := linkedPasswordUser(ctx, t, in.Driver, fmt.Sprintf("held-%d", i), original, false)
+			user := linkedPasswordUser(ctx, t, in.Driver, fmt.Sprintf("held-%d", n), original, false)
 			proof := heldProof(ctx, t, in.Driver, user.ID)
 			if err := in.Driver.InsertPendingSignIn(ctx, passwordPending(user, tokenHash(10+n), proof)); err != nil {
 				t.Fatalf("InsertPendingSignIn() error = %v", err)

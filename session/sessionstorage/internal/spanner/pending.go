@@ -155,7 +155,7 @@ func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtyp
 			return err
 		}
 		if err := p.PasswordProof.Check(user.PasswordProof); err != nil {
-			return err
+			return errors.Wrap(err, "dbtype.PasswordProof.Check()")
 		}
 		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")

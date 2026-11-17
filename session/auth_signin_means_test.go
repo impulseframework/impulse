@@ -40,12 +40,12 @@ func signInMeansAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *
 }
 
 // signInMeansList is the methods list of signInMeansAuth, naming the sign-in means
-// route at path, Google under the words google and the Lakeside Entra registration
+// route at path, Google under the words fleet and the Lakeside Entra registration
 // under the words lakeside.
-func signInMeansList(path, google, lakeside string) *MethodList {
+func signInMeansList(path, fleet, lakeside string) *MethodList {
 	return &MethodList{
 		Methods: []AdvertisedMethod{
-			{Name: "google", Label: google, Path: "/api/user/google/login"},
+			{Name: "google", Label: fleet, Path: "/api/user/google/login"},
 			{Name: "password", Label: "Password", Path: "/api/user/password/login"},
 			{Name: "lakeside-entra", Label: lakeside, Path: "/api/user/lakeside-entra/login"},
 			{Name: "river-entra", Label: "Riverside", Path: "/api/user/river-entra/login"},

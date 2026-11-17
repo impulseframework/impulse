@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
-	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -113,8 +112,8 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 	password := way{Way: "password", Method: "password", Through: "Password", Password: true}
 
 	t.Run("a person with a password alone signs in with it and nothing else", func(t *testing.T) {
-		if diff := cmp.Diff([]way{password}, waysOf(anvil, "ada")); diff != "" {
-			t.Errorf("how ada signs in, holding a password alone (-want +got):\n%s", diff)
+		if got, want := waysOf(anvil, "ada"), []way{password}; !slices.Equal(got, want) {
+			t.Errorf("how ada signs in, holding a password alone = %+v, want %+v", got, want)
 		}
 	})
 	t.Run("a password is not removed from a person who holds no identity", func(t *testing.T) {
@@ -149,8 +148,8 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 		if got := hash("ada"); got.StringVal != "the-hash-of-ada" {
 			t.Errorf("ada's password after the refused removal = %v, want it kept", got)
 		}
-		if diff := cmp.Diff([]way{password}, waysOf(anvil, "ada")); diff != "" {
-			t.Errorf("how ada signs in, linked to a retired sign-in alone (-want +got):\n%s", diff)
+		if got, want := waysOf(anvil, "ada"), []way{password}; !slices.Equal(got, want) {
+			t.Errorf("how ada signs in, linked to a retired sign-in alone = %+v, want %+v", got, want)
 		}
 	})
 
@@ -180,15 +179,15 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 	t.Run("the list says how each of the sector's people signs in: the password first, then the identities that count", func(t *testing.T) {
 		// ada is Anvil's alone: her password and the directory's identity, and nothing of
 		// the retired sign-in's.
-		if diff := cmp.Diff([]way{password, through("ada")}, waysOf(anvil, "ada")); diff != "" {
-			t.Errorf("how ada signs in (-want +got):\n%s", diff)
+		if got, want := waysOf(anvil, "ada"), []way{password, through("ada")}; !slices.Equal(got, want) {
+			t.Errorf("how ada signs in = %+v, want %+v", got, want)
 		}
 		// bo holds a role at Bastion too and fay one for the whole application: each row
 		// carries the fact, which a grant's condition reads.
 		boPassword, boIdentity := password, through("bo")
 		boPassword.HeldElsewhere, boIdentity.HeldElsewhere = true, true
-		if diff := cmp.Diff([]way{boPassword, boIdentity}, waysOf(anvil, "bo")); diff != "" {
-			t.Errorf("how bo signs in, as Anvil reads it (-want +got):\n%s", diff)
+		if got, want := waysOf(anvil, "bo"), []way{boPassword, boIdentity}; !slices.Equal(got, want) {
+			t.Errorf("how bo signs in, as Anvil reads it = %+v, want %+v", got, want)
 		}
 		for _, row := range waysOf(anvil, "fay") {
 			if !row.HeldGlobally {
@@ -265,8 +264,8 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 		// Nothing is left to remove, and the list says so: the identity alone.
 		status, body = remove("marshal", anvil, "ada")
 		assertStatus(t, status, http.StatusBadRequest, body)
-		if diff := cmp.Diff([]way{through("ada")}, waysOf(anvil, "ada")); diff != "" {
-			t.Errorf("how ada signs in after the removal (-want +got):\n%s", diff)
+		if got, want := waysOf(anvil, "ada"), []way{through("ada")}; !slices.Equal(got, want) {
+			t.Errorf("how ada signs in after the removal = %+v, want %+v", got, want)
 		}
 		// The identity stands, and is now ada's last way in.
 		unlink := fmt.Sprintf(`{"identityId":%q}`, links["ada"])

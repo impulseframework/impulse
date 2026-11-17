@@ -207,11 +207,11 @@ func (m *Manager) SignInWays(ctx context.Context, txn resource.ReadOnlyTransacti
 		return nil, false, errors.Wrap(err, "identity.Store.Identities()")
 	}
 	if hasPassword {
-		ways = append(ways, SignInWay{Password: true, Method: sessioninfo.MethodPassword, Registrations: []string{PasswordWay}})
+		ways = append(ways, SignInWay{Password: true, Identity: impulse.NilUUID, Method: sessioninfo.MethodPassword, Connection: "", Registrations: []string{PasswordWay}})
 	}
 	for _, link := range links {
 		if names := m.sessions.SignsInThrough(link.Method, link.Connection); len(names) > 0 {
-			ways = append(ways, SignInWay{Identity: link.ID, Method: link.Method, Connection: link.Connection, Registrations: names})
+			ways = append(ways, SignInWay{Password: false, Identity: link.ID, Method: link.Method, Connection: link.Connection, Registrations: names})
 		}
 	}
 

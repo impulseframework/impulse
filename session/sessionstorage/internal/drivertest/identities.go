@@ -121,8 +121,11 @@ func removeStanding(ctx context.Context, d AuthDriver, userID impulse.UUID) erro
 	if err != nil {
 		return err
 	}
+	if err := d.RemoveUserPassword(ctx, userID, standing); err != nil {
+		return errors.Wrap(err, "AuthDriver.RemoveUserPassword()")
+	}
 
-	return d.RemoveUserPassword(ctx, userID, standing)
+	return nil
 }
 
 func mustLink(ctx context.Context, t *testing.T, d AuthDriver, userID impulse.UUID, identity *sessioninfo.Identity) *dbtype.SessionIdentity {

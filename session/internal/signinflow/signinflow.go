@@ -546,7 +546,7 @@ func LinkConfirmed[Tx any](
 				return errors.Wrap(err, "Driver.UserIn()")
 			}
 			if err := proven.Check(user.PasswordProof); err != nil {
-				return err
+				return errors.Wrap(err, "dbtype.PasswordProof.Check()")
 			}
 		}
 		if err := d.LinkIdentityIn(ctx, tx, userID, identity, tenant); err != nil {
@@ -1157,7 +1157,7 @@ func decideAndInsert[Tx any](
 			return errors.Wrap(err, "Driver.UserIn()")
 		}
 		if err := proven.Check(user.PasswordProof); err != nil {
-			return err
+			return errors.Wrap(err, "dbtype.PasswordProof.Check()")
 		}
 		req.User = &sessioninfo.SignInUser{ID: req.UserID, Username: user.Username, HasPassword: user.HasPassword, Source: source, Tenant: tenant}
 
