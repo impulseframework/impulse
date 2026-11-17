@@ -110,7 +110,7 @@ func TestStore_readsWhileATransactionIsOpen(t *testing.T) {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
 
-	tx, err := db.Pool.Begin(ctx)
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		t.Fatalf("pgxpool.Pool.Begin() error = %v", err)
 	}

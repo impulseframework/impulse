@@ -118,7 +118,7 @@ func TestStore_readsUnderATransactionsContext(t *testing.T) {
 	}
 
 	var readErr, listErr error
-	if _, err := db.Client.ReadWriteTransaction(ctx, func(ctx context.Context, _ *spanner.ReadWriteTransaction) error {
+	if _, err := db.ReadWriteTransaction(ctx, func(ctx context.Context, _ *spanner.ReadWriteTransaction) error {
 		_, readErr = store.ReadPolicy(ctx)
 		_, listErr = store.ListRoles(ctx, scope)
 
