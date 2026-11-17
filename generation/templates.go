@@ -850,15 +850,23 @@ const (
 					{{- end }}`
 
 	// directoryStamped is spliced into the directories record's create, once the create
-	// patch is built and before it is buffered (patch and domain, which the splice's
-	// place sets): a directory is never typed in, so the wire carries neither its method
-	// nor its connection, and the create stamps both from the directory the caller is
-	// signed in through, held to the rules of a tenant's directory
+	// patch is built and before it is buffered (patchSet, patch and domain, which the
+	// splice's place sets): a directory is never typed in, so the wire carries neither
+	// its method nor its connection, and the create stamps both from the directory the
+	// caller is signed in through, held to the rules of a tenant's directory
 	// (resource.TenantDirectoryRules.FromSession). A caller who came by password, or
 	// through a directory the tenant cannot take, is refused there and nothing is
-	// buffered. The splice reads the resource as its dot.
+	// buffered. The caller's grants are asked before the rules
+	// (resource.PatchSet.Permitted), so a caller who may not create the record is
+	// refused as on any record, and learns nothing a rule's sentence says. The splice
+	// reads the resource as its dot.
 	directoryStamped = `// A directory is never typed in: the row takes the directory the caller is
-					// signed in through, held to the rules of a {{ .DirectoryTenantWord }}'s directory.
+					// signed in through, held to the rules of a {{ .DirectoryTenantWord }}'s directory. The
+					// caller's grants answer first, so a caller they refuse learns nothing
+					// from a rule.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
 					directory, err := {{ .DirectoryRules }}.FromSession(ctx, txn, domain)
 					if err != nil {
 						return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
@@ -866,12 +874,16 @@ const (
 					patch.Set{{ .DirectoryMethodField.Name }}(string(directory.Method)).Set{{ .DirectoryConnectionField.Name }}(directory.Connection)`
 
 	// directoryKept is spliced into the directories record's delete, before the row's
-	// removal is buffered (domain, which the splice's place sets): the directory of a
-	// tenant that is directory only is not removed, since nobody could then enter the
-	// tenant (resource.TenantDirectoryRules.Remove). The splice reads the resource as
-	// its dot.
+	// removal is buffered (patchSet and domain, which the splice's place sets): the
+	// directory of a tenant that is directory only is not removed, since nobody could
+	// then enter the tenant (resource.TenantDirectoryRules.Remove). The caller's grants
+	// are asked before the rule, as on the create. The splice reads the resource as its
+	// dot.
 	directoryKept = `// A {{ .DirectoryTenantWord }} that is directory only keeps its directory: its people
-					// enter through it alone.
+					// enter through it alone. The caller's grants answer first.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
 					if err := {{ .DirectoryRules }}.Remove(ctx, txn, domain); err != nil {
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`

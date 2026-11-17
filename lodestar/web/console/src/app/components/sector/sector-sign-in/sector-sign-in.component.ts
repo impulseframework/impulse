@@ -139,9 +139,12 @@ export class SectorSignInComponent {
   /** The server's refusal of the last write, in its words, or empty. */
   readonly error = signal('');
 
-  /** A directory as a sentence names it: what its method reaches, and its connection. */
-  nameOf(directory: { method: string; connection: string }): string {
-    return `${directoryKinds[directory.method] ?? 'Directory'} ${directory.connection}`;
+  /**
+   * A directory as a sentence names it: what its method reaches, and its connection. A
+   * row lists either only where the reader's grants show it, so both may be absent.
+   */
+  nameOf(directory: { method?: string; connection?: string }): string {
+    return `${directoryKinds[directory.method ?? ''] ?? 'Directory'} ${directory.connection ?? ''}`.trim();
   }
 
   /**

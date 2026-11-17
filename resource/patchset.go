@@ -107,6 +107,18 @@ func (p *PatchSet[Resource]) checkPermissions(ctx context.Context, dbType DBType
 	return p.querySet.checkPermissions(ctx, dbType)
 }
 
+// Permitted checks the caller's grants for the write an armed PatchSet carries, as Apply
+// and Buffer check them before anything else: the permission on the resource and on
+// each field the patch names. The conditions a grant carries are left to Apply and
+// Buffer, which evaluate them against the row. A write whose answer depends on what
+// the database holds (a rule that reads other rows and refuses in words) calls it
+// before the rule is asked, so a caller the grants refuse gets the same Forbidden
+// whatever the rule would have said, and learns nothing from it. A PatchSet that is not
+// armed passes, since it runs trusted.
+func (p *PatchSet[Resource]) Permitted(ctx context.Context, txn ReadWriteTransaction) error {
+	return p.checkPermissions(ctx, txn.DBType())
+}
+
 // Set adds or updates a field's value in the PatchSet.
 func (p *PatchSet[Resource]) Set(field accesstypes.Field, value any) *PatchSet[Resource] {
 	p.data.Set(field, value)

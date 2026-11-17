@@ -2246,6 +2246,12 @@ wrong and what to do, in the record's own word for a tenant:
   without one. Turn directory only off first, then remove the directory." Once removed,
   the roles the directory gave stand, and the directory is free for another tenant.
 
+The caller's grants answer before a rule does: the generated create and delete ask
+`PatchSet.Permitted` first, the check `Buffer` opens with (the permission on the record
+and on each field the request names), so a caller who holds no grant for the write is
+refused with the Forbidden (403) any record answers, and learns nothing a rule's
+sentence says.
+
 Nobody types a directory in. The record's method and connection are output-only, so a
 request that names either is refused as naming fields the record does not take, and
 the generated create (the record's `add`, under its Create grant in the tenant) sets

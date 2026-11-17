@@ -420,12 +420,16 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
+			// The caller's grants answer before the rules do, on the create and on the
+			// delete: a caller the grants refuse learns nothing from a rule's sentence.
 			assertInOrder(t, out,
 				".NewHarborDirectoryCreatePatchFromPatchSet(patchSet)",
+				"if err := patchSet.Permitted(ctx, txn); err != nil {",
 				"directory, err := NewHarborDirectoryRules().FromSession(ctx, txn, domain)",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")`,
 				"patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
 				"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+				"if err := patchSet.Permitted(ctx, txn); err != nil {",
 				"if err := NewHarborDirectoryRules().Remove(ctx, txn, domain); err != nil {",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")`,
 				".NewHarborDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",

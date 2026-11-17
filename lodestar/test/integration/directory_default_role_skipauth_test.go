@@ -104,6 +104,11 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	if status, body := set(marshal, ``); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Errorf("setting Cinder's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
+	// Her grants answer before that rule does: a create that names a default role is
+	// refused by the grant, which carries no field, however she is signed in.
+	if status, body := set(marshal, `"defaultSeat":"SectorCrew"`); status != http.StatusForbidden {
+		t.Errorf("setting Cinder's directory with a default role from a password session: status %d, want 403: %s", status, body)
+	}
 	if rows := directories(ctx, t, marshal, cinder); len(rows) != 0 {
 		t.Fatalf("Cinder's directory after the refused call = %+v, want none", rows)
 	}

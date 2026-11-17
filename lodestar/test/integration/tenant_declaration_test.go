@@ -26,7 +26,9 @@ import (
 //
 // Nobody types a directory in. The governor, signed in with a password, is told by the
 // session read that he came through no directory, and his call is refused with how a
-// directory is set, as is a request that types a method and a connection. The
+// directory is set, as is a request that types a method and a connection. A caller who
+// holds no grant on the record is refused by the grants, as on any record, before a
+// rule answers. The
 // navigator, a marshal signed in through the fleet's Workspace, is refused a second
 // sector for it and refused setting it again where it is, each with what to do; once
 // Cinder's is removed the Workspace is free, and he makes it Bastion's with a create
@@ -134,6 +136,12 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if rows := directories(ctx, t, governor, anvil); len(rows) != 0 {
 		t.Fatalf("Anvil's directory after the refused calls = %+v, want none", rows)
 	}
+	// The caller's grants answer before the rules do. The rigger holds no Create on the
+	// record, so she is refused as on any record, and is not told how a directory is
+	// set.
+	if status, body := rigger.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(anvil)); status != http.StatusForbidden {
+		t.Errorf("setting Anvil's directory as the rigger, who holds no grant on the record: status %d, want 403: %s", status, body)
+	}
 
 	// The navigator is made a marshal in every sector and one of the fleet's own staff
 	// (a role of the whole application): a sector with no directory admits no directory
@@ -234,6 +242,12 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	}
 	if got, want := rigger.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
 		t.Errorf("the rigger's chart with Bastion still directory only = %v, want %v", got, want)
+	}
+	// The drifter reaches Bastion and holds no Delete on the record: her removal is
+	// refused by her grants, as on any record, and not by the rule, whose sentence
+	// would tell her Bastion is directory only.
+	if status, body := drifter.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"`+bastionRow+`"}]`)); status != http.StatusForbidden || strings.Contains(string(body), "directory only") {
+		t.Errorf("removing Bastion's directory as the drifter, who holds no grant on the record: status %d, want 403 that says nothing of the rule: %s", status, body)
 	}
 	// Cleared with an explicit null, the way the Sign-in page clears it, the row names
 	// no default role again.
