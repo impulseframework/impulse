@@ -1,7 +1,7 @@
 <ng-container [formGroup]="form()">
   @if (showField()) {
     @let options = availableEnumOptions();
-    @if (editMode() === 'edit') {
+    @if (editMode() === 'edit' && closedTo() !== 'source') {
       <div class="enumerated-field-container">
         <mat-form-field class="field {{ fieldClass() }}" [subscriptSizing]="'dynamic'">
           <mat-label>{{ fieldConfig().label }}</mat-label>
@@ -79,7 +79,9 @@
               }
             </mat-select>
           }
-          @if (refusal(); as refusal) {
+          @if (notice(); as notice) {
+            <mat-hint class="picker-notice">{{ notice }}</mat-hint>
+          } @else if (refusal(); as refusal) {
             <mat-hint class="picker-refusal">{{ refusal }}</mat-hint>
           }
         </mat-form-field>
@@ -96,7 +98,9 @@
             type="text"
             [required]="hasRequiredValidator()"
             [value]="singleEnumDisplayText()" />
-          @if (refusal(); as refusal) {
+          @if (notice(); as notice) {
+            <mat-hint class="picker-notice">{{ notice }}</mat-hint>
+          } @else if (refusal(); as refusal) {
             <mat-hint class="picker-refusal">{{ refusal }}</mat-hint>
           }
         </mat-form-field>

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal, untracked, viewChild } from '@angular/core';
 import { ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
@@ -17,6 +17,9 @@ import {
   EnumerationOption,
   FieldName,
   keyFields,
+  ListPermission,
+  Permission,
+  ReadPermission,
   Resource,
   RootConfig,
 } from '@impulseframework/resource-angular/types';
@@ -35,9 +38,12 @@ import {
 } from '../../../search-box/search-fields';
 import { BaseInputComponent } from '../../base-field.directive';
 import {
+  closedRecordText,
+  closedSourceText,
   displayFromOptions,
   matchOptions,
   narrowedFilter,
+  notPermitted,
   optionColumns,
   optionDisplay,
   PickerOption,
@@ -68,9 +74,17 @@ import {
  * the source has search fields the caller may list, else by a prefix match on the display
  * field when it answers startswith, and a paged source with neither is refused when the
  * field is built. Which fields the box searches is the source resource's, never the
- * picker's. A request the server refuses shows the refusal in its words under the field,
- * never an empty list: the page of options, and the read of the chosen row too, which
- * then shows as its key (a person may open a row and not the row its field names).
+ * picker's.
+ *
+ * The picker offers only what the person may see of its source. Where the source is
+ * closed to them (sourceClosed: the permission digest grants nothing of what the picker
+ * asks, or the server refused the list itself as not permitted) it asks nothing, shows
+ * the stored key read-only, and says one sentence of its own under the field. Where the
+ * source is open and the row the field holds is not theirs to read (rowClosed: a
+ * condition on the row, say) it shows the stored key with a sentence of its own, asks no
+ * more for that value, and stays a picker while it is edited, so a row they may read can
+ * be chosen. Neither touches the form's value. Any other failure of a request shows in
+ * the words pickerRefusal gives it, never as an empty list.
  */
 @Component({
   selector: 'impulse-enumerated-field',
@@ -218,8 +232,9 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return searchPlaceholder(this.sourceSearchFields().map((field) => searchFieldLabel(field)));
   });
 
+  /** Whether the read field links to the chosen row's page: never to a row closed to the person. */
   viewDetails = computed(() => {
-    return this.editMode() === 'view' && this.picker().viewDetails === true;
+    return this.editMode() === 'view' && this.picker().viewDetails === true && this.closedTo() === undefined;
   });
 
   sorts = computed(() => {
@@ -294,12 +309,77 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   });
 
   /**
+   * Whether the permission digest at hand says the person does not hold the permission
+   * on the picker's source. A conditional grant is held: the server narrows it. False too
+   * while nothing is known: the digest that answers for the source has not loaded, no
+   * tenant is selected for a domain-scoped source, or the generated API does not describe
+   * the source (a resource registered by hand has no word in the digest).
+   */
+  private deniedByDigest(permission: Permission): boolean {
+    const resource = this.resource();
+    const descriptor = this.descriptor();
+    if (!resource || !descriptor || (descriptor.scope === 'domain' && !this.store.domain())) {
+      return false;
+    }
+    const scope = { resource, permission };
+    return this.auth.hasDigestFor(scope) && !this.auth.hasPermission(scope);
+  }
+
+  /** The source in the selected tenant: what a refusal of its list is remembered for. */
+  private readonly sourceKey = computed((): string => `${this.route() ?? ''}|${this.store.domain() ?? ''}`);
+
+  /** The chosen value in its source: what a refusal of its read is remembered for. */
+  private readonly rowKey = computed((): string => `${this.sourceKey()}|${this.chosenValue()}`);
+
+  /** The source (sourceKey) whose list the server refused as not permitted, once it has. */
+  private readonly listRefusedFor = signal<string | undefined>(undefined);
+
+  /** The chosen values (rowKey) whose read the server refused as not permitted. */
+  private readonly rowsRefused = signal<ReadonlySet<string>>(new Set<string>());
+
+  /**
+   * Whether the source is closed to the person: there is nothing to pick from, and no
+   * name for what is stored. The digest says so where it grants nothing of what the
+   * picker asks: List on a source read whole, whose list is all the picker asks; on a
+   * paged source, List while the field is edited (the page of options), and both List and
+   * Read while it is read (the chosen row is all a read field asks, so Read alone keeps
+   * it open). The server says so by refusing the list itself as not permitted, which is
+   * remembered for the source. A closed source is asked nothing.
+   */
+  private readonly sourceClosed = computed((): boolean => {
+    if (!this.resource() || this.showField() === false) {
+      return false;
+    }
+    if (this.listRefusedFor() === this.sourceKey()) {
+      return true;
+    }
+    if (!this.deniedByDigest(ListPermission)) {
+      return false;
+    }
+    return !this.paged() || this.editMode() === 'edit' || this.deniedByDigest(ReadPermission);
+  });
+
+  /**
+   * Whether the row the field holds is closed to the person while its source is not: the
+   * digest grants no Read on a paged source they may list, or the server refused the read
+   * of this value as not permitted (a condition on the row keeps it from them), which is
+   * remembered for each such value. Such a row is not asked for again; another value is.
+   */
+  private readonly rowClosed = computed((): boolean => {
+    if (!this.paged() || this.showField() === false || this.chosenValue() === '' || this.sourceClosed()) {
+      return false;
+    }
+    return this.deniedByDigest(ReadPermission) || this.rowsRefused().has(this.rowKey());
+  });
+
+  /**
    * The route the chosen row is read from: the paged source's, while the field is shown.
-   * Empty for a whole source (its list holds every row), a fixed enumeration, and a
-   * hidden field, so the reader below stays idle with no request.
+   * Empty for a whole source (its list holds every row), a fixed enumeration, a hidden
+   * field, a source closed to the person, and a chosen row closed to them, so the reader
+   * below stays idle with no request.
    */
   private readonly chosenRoute = computed((): string => {
-    if (this.showField() === false || !this.resource() || !this.paged()) {
+    if (this.showField() === false || !this.resource() || !this.paged() || this.sourceClosed() || this.rowClosed()) {
       return '';
     }
     return this.route() ?? '';
@@ -333,9 +413,9 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /** Whether the read of the chosen row was refused or failed. */
   private readonly chosenRowFailed = computed((): boolean => this.singleEnumResourceRef()?.status() === 'error');
 
-  /** Every row of a whole source, read in one request; nothing on a paged source. */
+  /** Every row of a whole source, read in one request; nothing on a paged source, and nothing of a source closed to the person. */
   enumResourceRef = computed(() => {
-    if (this.showField() === false || !this.resource() || this.paged()) return undefined;
+    if (this.showField() === false || !this.resource() || this.paged() || this.sourceClosed()) return undefined;
     const enumeratedMeta = this.resourceMeta(this.resource() as Resource);
     const config = this.picker();
     return this.store.resourceList(
@@ -349,11 +429,12 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   /**
    * The paged source's request while the picker is open for editing: the page the panel
-   * shows, in the picker's sort. Nothing in view mode, where the chosen row is read by key.
+   * shows, in the picker's sort. Nothing in view mode, where the chosen row is read by
+   * key, and nothing of a source closed to the person.
    */
   private pageRequest = computed((): PagedListRequest | undefined => {
     const descriptor = this.descriptor();
-    if (!this.paged() || !descriptor || this.showField() === false || this.editMode() !== 'edit') {
+    if (!this.paged() || !descriptor || this.showField() === false || this.editMode() !== 'edit' || this.sourceClosed()) {
       return undefined;
     }
     const config = this.picker();
@@ -370,9 +451,42 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /** The pager over a paged source, following pageRequest; nothing on a whole source. */
   pager = computed(() => (this.paged() ? this.store.resourcePage(this.pageRequest) : undefined));
 
-  /** Every option a whole source answered, in the mode's display. */
+  /** Whether the list the picker asked for, whole or a page of it, stands refused as not permitted. */
+  private readonly listRefused = computed((): boolean => {
+    const pager = this.pager();
+    if (pager) {
+      return pager.status() === 'error' && notPermitted(pager.error());
+    }
+    const list = this.enumResourceRef();
+    return list !== undefined && list.status() === 'error' && notPermitted(list.error());
+  });
+
+  /** Whether the read of the chosen row stands refused as not permitted. */
+  private readonly rowRefused = computed((): boolean => {
+    const row = this.singleEnumResourceRef();
+    return row !== undefined && row.status() === 'error' && notPermitted(row.error());
+  });
+
+  /**
+   * What is closed to the person, as the field shows it: the source (nothing to pick
+   * from, the stored key read-only), the row the field holds (the stored key, and still a
+   * picker while edited), or nothing. A refusal the server has just answered counts at
+   * once, before it is remembered and its reader goes idle.
+   */
+  closedTo = computed((): 'source' | 'row' | undefined => {
+    if (this.sourceClosed() || this.listRefused()) {
+      return 'source';
+    }
+    return this.rowClosed() || this.rowRefused() ? 'row' : undefined;
+  });
+
+  /**
+   * Every option a whole source answered, in the mode's display; none while the list is
+   * out, and none when it failed, which the field says under itself.
+   */
   private allEnumOptions = computed((): PickerOption[] => {
-    const records = this.enumResourceRef()?.value();
+    const list = this.enumResourceRef();
+    const records = list?.hasValue() ? list.value() : undefined;
     if (!records || !records.length) return [];
     return records.map((record) => this.toEnumerated(record as Record<string, string>));
   });
@@ -402,13 +516,18 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (fixed) {
       return fixed.find((option) => option.id === value)?.display ?? defaultEmptyFieldValue;
     }
+    // Nothing names what is stored where the source is closed to the person: its key shows.
+    if (this.closedTo() === 'source') {
+      return value ? String(value) : defaultEmptyFieldValue;
+    }
     // A whole source holds every row in its list: the display comes from there, and a
     // value the list does not hold shows as itself.
     if (!this.paged()) {
       return value ? displayFromOptions(this.allEnumOptions(), value).display : defaultEmptyFieldValue;
     }
-    // A row the source would not give shows as its key, beside the refusal under the field.
-    if (this.chosenRowFailed()) {
+    // A row the person may not read, or one whose read failed, shows as its key, beside
+    // what the field says under itself.
+    if (this.closedTo() === 'row' || this.chosenRowFailed()) {
       return value ? String(value) : defaultEmptyFieldValue;
     }
     const record = this.chosenRow();
@@ -465,7 +584,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (!this.paged()) {
       return [displayFromOptions(this.allEnumOptions(), String(currentValue))];
     }
-    if (this.chosenRowFailed()) {
+    if (this.closedTo() === 'row' || this.chosenRowFailed()) {
       return [{ id: String(currentValue), display: String(currentValue) }];
     }
     const record = this.chosenRow();
@@ -515,9 +634,35 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   });
 
   /**
-   * What the picker says when a request of its own was refused or failed; nothing while
-   * it works. A paged source has two: the page of options, and the read of the chosen
-   * row, which a person who may not read the source is refused on a row they may open.
+   * The one sentence under the field when something is closed to the person, in the
+   * library's own words: the source (with nothing stored, only while the field is
+   * edited, where it says nothing can be chosen), or the row the field holds. While the
+   * field is edited the open page may hold that row, and then its name shows and nothing
+   * is said: the sentence is for a key shown as itself.
+   */
+  notice = computed((): string | undefined => {
+    const closed = this.closedTo();
+    if (closed === 'source') {
+      const stored = this.chosenValue() !== '' || this.chosenKeys().length > 0;
+      return stored || this.editMode() === 'edit' ? closedSourceText(stored) : undefined;
+    }
+    if (closed !== 'row') {
+      return undefined;
+    }
+    if (this.editMode() === 'edit') {
+      const held = this.pageOptions().some((option) => option.id === this.chosenValue());
+      if (held || this.pager()?.status() === 'loading') {
+        return undefined;
+      }
+    }
+    return closedRecordText;
+  });
+
+  /**
+   * What the picker says when a request of its own failed for a reason that is no
+   * permission's; nothing while it works, and nothing for a refusal of permission, which
+   * notice says. A paged source has two requests: the page of options, and the read of
+   * the chosen row.
    */
   refusal = computed((): string | undefined => {
     const pager = this.pager();
@@ -530,6 +675,23 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const ref = this.enumResourceRef();
     return ref && ref.status() === 'error' ? pickerRefusal(ref.error()) : undefined;
   });
+
+  constructor() {
+    super();
+    // What the server refused as not permitted is remembered, so the picker asks nothing
+    // more of a source the person may not list and never again for a row they may not
+    // read. The readers go idle once it is, which is why it is kept here and not read
+    // from them.
+    effect(() => {
+      if (this.listRefused()) {
+        this.listRefusedFor.set(untracked(this.sourceKey));
+      }
+      if (this.rowRefused()) {
+        const key = untracked(this.rowKey);
+        this.rowsRefused.update((refused) => (refused.has(key) ? refused : new Set(refused).add(key)));
+      }
+    });
+  }
 
   toEnumerated(resource: Record<string, string>): PickerOption {
     const enumeratedConfig = this.picker();

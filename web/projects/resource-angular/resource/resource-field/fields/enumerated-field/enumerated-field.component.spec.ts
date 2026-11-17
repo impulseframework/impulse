@@ -1,7 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup } from '@angular/forms';
-import { ApiDescriptor, createClient, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import { ApiDescriptor, ClientBase, createClient, PermissionDigest, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
+import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   defaultEmptyFieldValue,
@@ -153,21 +154,40 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   };
   /** A wing the server refuses to read: the person may open the squadron and not its wing. */
   const sealedWing = 'w-sealed';
+  /** Another the server refuses. */
+  const alsoSealedWing = 'w-sealed-too';
+  /** A wing whose read fails for a reason that is no permission's. */
+  const brokenWing = 'w-broken';
+  const closedSource = 'You do not have access to this list, so only the id is shown.';
+  const nothingToChoose = 'You do not have access to this list, so nothing can be chosen here.';
+  const closedRecord = 'You do not have access to this record, so only its id is shown.';
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
   let transport: ScriptedTransport;
+  /** The global permission digest the server answers, once a spec loads it. */
+  let digest: PermissionDigest;
+  /** Whether the server refuses the list of wings as not permitted. */
+  let listRefused: boolean;
 
   const server = (request: TransportRequest): TransportResponse => {
     const path = request.url.split('?')[0];
     const key = path.match(/^\/api\/wings\/(.+)$/)?.[1];
+    if (path === '/api/permission-digest') {
+      return { status: 200, body: digest };
+    }
     if (key && wingRows[key]) {
       return { status: 200, body: wingRows[key] };
     }
-    if (key === sealedWing) {
+    if (key === sealedWing || key === alsoSealedWing) {
       return { status: 403, body: { message: 'you may not read Wings here' } };
     }
+    if (key === brokenWing) {
+      return { status: 500, body: { message: 'the database is away' } };
+    }
     if (path === '/api/wings') {
-      return { status: 200, body: Object.values(wingRows), headers: { 'total-count': '2' } };
+      return listRefused
+        ? { status: 403, body: { message: 'you may not list Wings here' } }
+        : { status: 200, body: Object.values(wingRows), headers: { 'total-count': '2' } };
     }
     return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   };
@@ -177,6 +197,22 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     transport.requests
       .map((request) => request.url.split('?')[0].match(/^\/api\/wings\/(.+)$/)?.[1])
       .filter((key): key is string => key !== undefined);
+
+  /** How many times the list of wings was asked for. */
+  const wingLists = (): number => transport.requests.filter((request) => request.url.split('?')[0] === '/api/wings').length;
+
+  const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
+  const text = (): string => element().textContent ?? '';
+  /** What the read-only control shows, or undefined where the picker is drawn. */
+  const readOnly = (): string | undefined => element().querySelector<HTMLInputElement>('input[readonly]')?.value;
+  const picks = (): boolean => element().querySelector('mat-select') !== null;
+
+  /** Loads the global digest the spec names, as the page's guard has by the time a form is drawn. */
+  const loadDigest = async (entries: PermissionDigest): Promise<void> => {
+    digest = entries;
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    await settle();
+  };
 
   const settle = async (): Promise<void> => {
     for (let i = 0; i < 10; i++) {
@@ -189,6 +225,8 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   const formOver = (value: string | null): FormGroup => new FormGroup({ wingId: new FormControl<string | null>(value) });
 
   beforeEach(async () => {
+    digest = {};
+    listRefused = false;
     transport = scriptedTransport(server);
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
@@ -254,22 +292,346 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(wingReads()).toEqual(['w-1']);
   });
 
-  // A person may open a row and not the row its field names. The refused read is an
-  // answer the field shows; reading the reader's value while it is in error would throw.
-  it('shows a chosen row the server refuses as its key, with the refusal under the field, read or edited', async () => {
-    fixture.componentRef.setInput('form', formOver(sealedWing));
+  // A person may open a row and not the row its field names: a condition on the row keeps
+  // it from them, while the source stays theirs to pick from. The field says so in one
+  // sentence of the library's own, shows the stored key, asks nothing more for that value,
+  // and stays a picker while it is edited. Reading the reader's value while it is in
+  // error would throw.
+  it('shows a chosen row the server refuses as its key, with one plain sentence under the field, and stays a picker while edited', async () => {
+    const form = formOver(sealedWing);
+    fixture.componentRef.setInput('form', form);
     await settle();
-    const text = (): string => (fixture.nativeElement as HTMLElement).textContent ?? '';
 
     expect(wingReads()).toEqual(['w-1', sealedWing]);
-    expect(fixture.componentInstance.singleEnumDisplayText()).toBe(sealedWing);
-    expect(fixture.componentInstance.refusal()).toBe('This picker is not available to you: you may not read Wings here');
-    expect(text()).toContain('This picker is not available to you: you may not read Wings here');
+    expect(readOnly()).toBe(sealedWing);
+    expect(text()).toContain(closedRecord);
+    // Never the server's words, which name the permission and the resource.
+    expect(text()).not.toContain('you may not read Wings here');
+    expect(text()).not.toContain('not available to you');
 
     fixture.componentRef.setInput('editMode', 'edit');
     await settle();
-    expect(fixture.componentInstance.availableEnumOptions()?.map((option) => option.id)).toContain(sealedWing);
-    expect(text()).toContain('This picker is not available to you: you may not read Wings here');
+    expect(picks()).toBe(true);
+    expect(wingLists()).toBe(1);
+    expect(fixture.componentInstance.availableEnumOptions()?.map((option) => option.id)).toEqual([null, sealedWing, 'w-1', 'w-2']);
+    expect(text()).toContain(closedRecord);
+    expect(text()).not.toContain('you may not read Wings here');
+    // Nothing more is asked for that value, and leaving the field alone keeps it.
+    fixture.componentRef.setInput('editMode', 'view');
+    await settle();
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(wingReads()).toEqual(['w-1', sealedWing]);
+    expect(form.get('wingId')?.value).toBe(sealedWing);
+    expect(form.dirty).toBe(false);
+
+    // A wing they may read is theirs to choose: it is read, and nothing is said.
+    fixture.componentInstance.select('w-2');
+    await settle();
+    expect(wingReads()).toEqual(['w-1', sealedWing, 'w-2']);
+    expect(text()).not.toContain(closedRecord);
+
+    // Chosen again, the refused wing is not asked for again.
+    fixture.componentInstance.select(sealedWing);
+    await settle();
+    expect(wingReads()).toEqual(['w-1', sealedWing, 'w-2']);
+    expect(text()).toContain(closedRecord);
+
+    // Nor is either of two refused wings, chosen in turn: each is asked for once.
+    fixture.componentInstance.select(alsoSealedWing);
+    await settle();
+    fixture.componentInstance.select(sealedWing);
+    await settle();
+    fixture.componentInstance.select(alsoSealedWing);
+    await settle();
+    expect(wingReads()).toEqual(['w-1', sealedWing, 'w-2', alsoSealedWing]);
+    expect(text()).toContain(closedRecord);
+  });
+
+  it("links a read field to the chosen row's page only where the row is the person's to read", async () => {
+    fixture.componentRef.setInput(
+      'fieldConfig',
+      field({ name: 'wingId' as FieldName, label: 'Wing', enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName], viewDetails: true }) }),
+    );
+    await settle();
+    expect(element().querySelector('a[mat-icon-button]')).not.toBeNull();
+
+    fixture.componentRef.setInput('form', formOver(sealedWing));
+    await settle();
+    expect(element().querySelector('a[mat-icon-button]')).toBeNull();
+  });
+
+  // The digest already says the person holds nothing on the source: nothing is asked,
+  // the field is read-only and shows the stored key, and one sentence says why.
+  it('asks nothing where the digest grants the person nothing on the source: the stored key, read-only, and one plain sentence', async () => {
+    await loadDigest({});
+    const form = formOver('w-2');
+    fixture.componentRef.setInput('form', form);
+    await settle();
+
+    // The one read is the first wing's, made before the digest was at hand.
+    expect(wingReads()).toEqual(['w-1']);
+    expect(readOnly()).toBe('w-2');
+    expect(text()).toContain(closedSource);
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(picks()).toBe(false);
+    expect(readOnly()).toBe('w-2');
+    expect(text()).toContain(closedSource);
+    expect(wingLists()).toBe(0);
+    expect(wingReads()).toEqual(['w-1']);
+    expect(form.get('wingId')?.value).toBe('w-2');
+    expect(form.dirty).toBe(false);
+
+    // With nothing stored there is no id to show: only that nothing can be chosen.
+    fixture.componentRef.setInput('form', formOver(null));
+    await settle();
+    expect(picks()).toBe(false);
+    expect(text()).toContain(nothingToChoose);
+    expect(wingLists()).toBe(0);
+    fixture.componentRef.setInput('editMode', 'view');
+    await settle();
+    expect(text()).not.toContain('You do not have access');
+  });
+
+  it('asks nothing for the chosen row where the digest grants List alone, and stays a picker', async () => {
+    await loadDigest({ Wings: { List: 'granted' } });
+    fixture.componentRef.setInput('form', formOver('w-2'));
+    await settle();
+
+    expect(wingReads()).toEqual(['w-1']);
+    expect(readOnly()).toBe('w-2');
+    expect(text()).toContain(closedRecord);
+
+    // The page of wings holds the chosen one, so its name shows and nothing is said.
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(picks()).toBe(true);
+    expect(wingLists()).toBe(1);
+    expect(wingReads()).toEqual(['w-1']);
+    expect(text()).not.toContain('You do not have access');
+  });
+
+  it('reads the chosen row where the digest grants Read alone, and has nothing to pick from while edited', async () => {
+    await loadDigest({ Wings: { Read: 'granted' } });
+    fixture.componentRef.setInput('form', formOver('w-2'));
+    await settle();
+
+    expect(wingReads()).toEqual(['w-1', 'w-2']);
+    expect(readOnly()).toBe('Forge Wing');
+    expect(text()).not.toContain('You do not have access');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(picks()).toBe(false);
+    expect(readOnly()).toBe('w-2');
+    expect(text()).toContain(closedSource);
+    expect(wingLists()).toBe(0);
+  });
+
+  it('is a picker as ever where the digest grants both', async () => {
+    await loadDigest({ Wings: { List: 'granted', Read: 'conditional' } });
+    fixture.componentRef.setInput('form', formOver('w-2'));
+    await settle();
+    expect(wingReads()).toEqual(['w-1', 'w-2']);
+    expect(readOnly()).toBe('Forge Wing');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(picks()).toBe(true);
+    expect(wingLists()).toBe(1);
+    expect(text()).not.toContain('You do not have access');
+  });
+
+  // No digest is at hand, and the server refuses the list itself: the same state as the
+  // digest's no, from then on, with nothing more asked.
+  it('is closed once the server refuses the list as not permitted: the stored key, read-only, the sentence, and nothing more asked', async () => {
+    listRefused = true;
+    const form = formOver('w-1');
+    fixture.componentRef.setInput('form', form);
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+
+    expect(wingLists()).toBe(1);
+    expect(picks()).toBe(false);
+    expect(readOnly()).toBe('w-1');
+    expect(text()).toContain(closedSource);
+    expect(text()).not.toContain('you may not list Wings here');
+
+    fixture.componentRef.setInput('editMode', 'view');
+    await settle();
+    expect(readOnly()).toBe('w-1');
+    expect(text()).toContain(closedSource);
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(wingLists()).toBe(1);
+    expect(wingReads()).toEqual(['w-1']);
+    expect(form.get('wingId')?.value).toBe('w-1');
+    expect(form.dirty).toBe(false);
+  });
+
+  // A failure that is no permission's keeps the words the picker always had for it.
+  it('says a failed read that is no refusal of permission in the words it always had, and stays a picker', async () => {
+    fixture.componentRef.setInput('form', formOver(brokenWing));
+    await settle();
+
+    expect(readOnly()).toBe(brokenWing);
+    expect(text()).toContain('This picker could not be loaded: the database is away');
+    expect(text()).not.toContain('You do not have access');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(picks()).toBe(true);
+    expect(wingLists()).toBe(1);
+  });
+});
+
+// A source with no maximum is read whole, and its list is all the picker asks: the names
+// of its rows come from it. Where the person may not list it, by the digest or by the
+// server's refusal, there is nothing to pick from and no name for what is stored. A
+// source the generated API does not describe has no word in the digest, and is asked.
+describe('EnumeratedFieldComponent over a source read whole that the person may not list', () => {
+  const hangars = 'Hangars' as Resource;
+  const docks = 'Docks' as Resource;
+  const piers = 'Piers' as Resource;
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: {
+      [docks]: { resource: docks, property: 'docks', route: 'docks', scope: 'global', consolidated: false, keys: ['id'], operations: ['list'] },
+    },
+  };
+  const idField: FieldMeta = { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true };
+  const nameField: FieldMeta = { fieldName: 'name', displayType: 'string', required: true, isIndex: true };
+  const dockField: FieldMeta = { fieldName: 'dockId', displayType: 'enumerated', required: false, isIndex: true, enumeratedResource: docks };
+  const pierField: FieldMeta = { fieldName: 'pierId', displayType: 'enumerated', required: false, isIndex: true, enumeratedResource: piers };
+  const metas: Record<string, ResourceMeta> = {
+    [hangars]: { route: 'hangars', fields: [dockField, pierField] },
+    [docks]: { route: 'docks', fields: [idField, nameField] },
+    [piers]: { route: 'piers', fields: [idField, nameField] },
+  };
+  const closedSource = 'You do not have access to this list, so only the id is shown.';
+
+  let fixture: ComponentFixture<EnumeratedFieldComponent>;
+  let transport: ScriptedTransport;
+  let digest: PermissionDigest;
+  let listStatus: number;
+
+  const server = (request: TransportRequest): TransportResponse => {
+    const path = request.url.split('?')[0];
+    if (path === '/api/permission-digest') {
+      return { status: 200, body: digest };
+    }
+    if (path === '/api/docks' || path === '/api/piers') {
+      return listStatus === 200
+        ? { status: 200, body: [{ id: 'd-1', name: 'North Dock' }] }
+        : { status: listStatus, body: { message: 'the server said no in words of its own' } };
+    }
+    return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+  };
+  const lists = (route: string): number => transport.requests.filter((request) => request.url.split('?')[0] === `/api/${route}`).length;
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+  const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
+  const text = (): string => element().textContent ?? '';
+  const readOnly = (): string | undefined => element().querySelector<HTMLInputElement>('input[readonly]')?.value;
+  const picks = (): boolean => element().querySelector('mat-select') !== null;
+
+  /** Draws the field over the stored key, as a form that is read or edited. */
+  const draw = async (source: FieldMeta, mode: 'view' | 'edit'): Promise<FormGroup> => {
+    const name = source.fieldName as FieldName;
+    const form = new FormGroup({ [name]: new FormControl<string | null>('d-1') });
+    fixture = TestBed.createComponent(EnumeratedFieldComponent);
+    fixture.componentRef.setInput('meta', metas[hangars]);
+    fixture.componentRef.setInput('fieldMeta', source);
+    fixture.componentRef.setInput('fieldConfig', field({ name, label: 'Berth', enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName] }) }));
+    fixture.componentRef.setInput('editMode', mode);
+    fixture.componentRef.setInput('showField', true);
+    fixture.componentRef.setInput('form', form);
+    fixture.detectChanges();
+    await settle();
+    return form;
+  };
+
+  beforeEach(async () => {
+    digest = {};
+    listStatus = 200;
+    transport = scriptedTransport(server);
+    await TestBed.configureTestingModule({
+      imports: [EnumeratedFieldComponent],
+      providers: [
+        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
+        ResourceStore,
+      ],
+    }).compileComponents();
+  });
+
+  it('lists the source and shows the name where nothing says the person may not', async () => {
+    await draw(dockField, 'view');
+    expect(lists('docks')).toBe(1);
+    expect(readOnly()).toBe('North Dock');
+    expect(text()).not.toContain('You do not have access');
+  });
+
+  it('asks nothing where the digest grants no List on the source, read or edited', async () => {
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+
+    await draw(dockField, 'view');
+    expect(lists('docks')).toBe(0);
+    expect(readOnly()).toBe('d-1');
+    expect(text()).toContain(closedSource);
+
+    const form = await draw(dockField, 'edit');
+    expect(lists('docks')).toBe(0);
+    expect(picks()).toBe(false);
+    expect(readOnly()).toBe('d-1');
+    expect(text()).toContain(closedSource);
+    expect(form.get('dockId')?.value).toBe('d-1');
+    expect(form.dirty).toBe(false);
+  });
+
+  it('is closed once the server refuses the list as not permitted, and asks nothing more', async () => {
+    listStatus = 403;
+    await draw(dockField, 'edit');
+
+    expect(lists('docks')).toBe(1);
+    expect(picks()).toBe(false);
+    expect(readOnly()).toBe('d-1');
+    expect(text()).toContain(closedSource);
+    expect(text()).not.toContain('the server said no in words of its own');
+
+    fixture.componentRef.setInput('editMode', 'view');
+    await settle();
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(lists('docks')).toBe(1);
+  });
+
+  it('says a list that failed for another reason in the words it always had', async () => {
+    listStatus = 500;
+    await draw(dockField, 'view');
+
+    expect(readOnly()).toBe('d-1');
+    expect(text()).toContain('This picker could not be loaded: the server said no in words of its own');
+    expect(text()).not.toContain('You do not have access');
+  });
+
+  it('asks a source the generated API does not describe, whatever the digest holds: the digest has no word of it', async () => {
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+
+    await draw(pierField, 'view');
+    expect(lists('piers')).toBe(1);
+    expect(readOnly()).toBe('North Dock');
+    expect(text()).not.toContain('You do not have access');
   });
 });
 
