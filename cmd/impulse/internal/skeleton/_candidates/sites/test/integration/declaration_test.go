@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -26,14 +27,20 @@ import (
 // a request that names a method and a connection is refused, and the directory is set
 // in code through the generated step a sign-in takes (setDirectory), which holds it to
 // the rules: a second directory for a tenant, and the directory on another tenant, are
-// each refused with what to do. The directory admits nobody yet, since nobody signs in
-// through one: north's leaves the member's password session where it was. North
-// admitting its people through its directory only refuses the member's password session
-// at reach time on the console and on the portal alike, at once, since the console's
-// write reloads the shared roster; a fresh password sign-in is refused naming the rule,
-// since every tenant of the member is directory only; its directory is not removed
-// while it is directory only; the administrator, a super administrator, keeps every
-// tenant. Every edit leaves a change event.
+// each refused with what to do. A tenant's sign-in settings restrict its own door
+// alone, and a directory closes its tenant to nobody until the tenant is directory
+// only: north's leaves the member's password session where it was. Turning directory
+// only on is refused unless the person is signed in through the tenant's directory
+// themselves, and until the tenant has one, on the write and on the read that says what
+// it would do; the staff sign in by password, so here nobody can, and the suite sets
+// the flag in the table as a seed does. North admitting its people through its
+// directory only refuses the member's password session at reach time on the console
+// and on the portal alike, at once, since both read the shared roster; north stays in
+// the member's list marked closed, with the reason, and its list of its people says
+// who it keeps out; a fresh password sign-in is refused naming the rule, since every
+// tenant of the member is directory only; its directory is not removed while it is
+// directory only; turning it off is plain; the administrator, a super administrator,
+// keeps every tenant. Every edit leaves a change event.
 func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	t.Parallel()
 
@@ -63,15 +70,15 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Fatalf("north's directory after the refused calls = %+v, want none", rows)
 	}
 
-	// The Workspace becomes north's directory as a sign-in through it sets it. It
-	// admits the people who come through it; the member, who came by password, keeps
-	// north as before.
+	// The Workspace becomes north's directory as a sign-in through it sets it. A
+	// directory closes its tenant to nobody until the tenant is directory only: the
+	// member, who came by password, keeps north as before.
 	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "north.example"}
 	if err := setDirectory(ctx, t, s, north, workspace); err != nil {
 		t.Fatalf("setting north's directory: %v", err)
 	}
 	if domains := chart(ctx, t, member); !slices.Equal(domains, []string{north}) {
-		t.Fatalf("the member's chart with north's directory set = %v, want [%s]: a password is admitted", domains, north)
+		t.Fatalf("the member's chart with north's directory set = %v, want [%s]: north is not directory only", domains, north)
 	}
 	if rows := directories(ctx, t, admin, north); len(rows) != 1 || rows[0].Connection != "north.example" {
 		t.Errorf("north's directory = %+v, want the one set", rows)
@@ -103,13 +110,51 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("south's directory after the refusals = %+v, want none", rows)
 	}
 
-	// North admits its people through its directory only: the member loses north on
-	// both sites at once, and a fresh password sign-in is refused naming the rule. The
-	// administrator keeps every tenant.
-	closeNorth := `[{"op":"patch","path":"/tenants/` + north + `","value":{"directoryOnly":true}}]`
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(closeNorth)); status != http.StatusOK {
-		t.Fatalf("setting north directory only: status %d: %s", status, body)
+	// Directory only. Turning it on is refused unless the person is signed in through
+	// the tenant's directory themselves, on the read a page asks first and on the write,
+	// in the same words, which say what to do. The staff sign in by password, so here
+	// nobody can turn it on until a directory method joins the staff auth. A tenant with
+	// no directory has nothing to be only of. Nothing is written.
+	directoryOnly := func(tenant string, on bool) []byte {
+		value := "false"
+		if on {
+			value = "true"
+		}
+
+		return []byte(`[{"op":"patch","path":"/tenants/` + tenant + `","value":{"directoryOnly":` + value + `}}]`)
 	}
+	consequence := func(b *browser, tenant string) (int, []byte) {
+		return b.do(ctx, http.MethodGet, "/api/directory-only?domain="+tenant, nil)
+	}
+	notThroughIt := "Directory only is turned on by a person who is signed in through this tenant's directory, Google Workspace north.example: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through Google Workspace north.example and try again."
+	if status, body := consequence(admin, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
+		t.Errorf("asking what directory only would do to north, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(north, true)); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
+		t.Errorf("turning north's directory only on, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
+	}
+	noDirectory := "This tenant has no directory, so it cannot be directory only: nobody could enter it. Set its directory first: sign in through your organization's directory, make it this tenant's directory, then turn directory only on."
+	if status, body := consequence(admin, south); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
+		t.Errorf("asking what directory only would do to south, which has no directory: status %d, want 409 saying %q: %s", status, noDirectory, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(south, true)); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
+		t.Errorf("turning directory only on for south, which has no directory: status %d, want 409 saying %q: %s", status, noDirectory, body)
+	}
+	// The caller's grants answer before the rules do: the member holds no grant on the
+	// tenant record, so the read is refused as on any record.
+	if status, body := consequence(member, north); status != http.StatusForbidden {
+		t.Errorf("asking what directory only would do as the member, who holds no grant on the tenant record: status %d, want 403: %s", status, body)
+	}
+	if domains := chart(ctx, t, member); !slices.Equal(domains, []string{north}) {
+		t.Fatalf("the member's chart after the refusals = %v, want [%s]: nothing was written", domains, north)
+	}
+
+	// North is made directory only in the table, as a seed makes it: the member loses
+	// north on both sites at once, where it stays in their list marked closed, with the
+	// reason, and a fresh password sign-in is refused naming the rule. The
+	// administrator keeps every tenant.
+	setDirectoryOnly(ctx, t, s, north, true)
+	byPassword := map[string]string{north: "North admits only people who sign in through its own directory. You signed in with a password."}
 	for _, site := range []struct {
 		name    string
 		browser *browser
@@ -117,12 +162,33 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		if domains := chart(ctx, t, site.browser); len(domains) != 0 {
 			t.Errorf("the member's chart on the %s once north is directory only = %v, want none", site.name, domains)
 		}
+		if closed := closedDomains(ctx, t, site.browser, "/api/user-domains"); !maps.Equal(closed, byPassword) {
+			t.Errorf("the tenants the member's list on the %s marks closed = %v, want %v", site.name, closed, byPassword)
+		}
 		if status, body := site.browser.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusNotFound {
 			t.Errorf("GET north announcements on the %s as the member once north is directory only: status %d, want 404: %s", site.name, status, body)
 		}
 	}
 	if domains := chart(ctx, t, admin); !slices.Equal(domains, []string{north, south}) {
 		t.Errorf("the administrator's chart = %v, want both: a super administrator reaches every tenant", domains)
+	}
+	// North's list of its people is made from who holds a role there, not from who can
+	// sign in: the member stays in it, and while north is directory only their row says
+	// they cannot enter; the administrator's, a super administrator, says nothing. The
+	// read a page asks before turning it on has nothing to turn on: it says so, and
+	// names neither the directory nor the people.
+	keptOut := "Has not signed in through north.example, so cannot enter while this tenant is directory only"
+	people := tenantRows(ctx, t, admin, north, "staff-tenant-users")
+	if got, _ := people[s.memberID]["cannotEnter"].(string); got != keptOut {
+		t.Errorf("north's people: the member's row says %q, want %q", got, keptOut)
+	}
+	if row, listed := people[s.adminID]; !listed || row["cannotEnter"] != nil {
+		t.Errorf("north's people: the administrator's row is listed = %v saying %v, want listed saying nothing", listed, row["cannotEnter"])
+	}
+	onAlready := "This tenant is directory only already: only people who sign in through its directory enter it. There is nothing to turn on."
+	status, body = consequence(admin, north)
+	if status != http.StatusConflict || !strings.Contains(string(body), onAlready) || strings.Contains(string(body), memberUser) || strings.Contains(string(body), "north.example") {
+		t.Errorf("asking what directory only would do to north while it is on: status %d: %s, want 409 saying %q and naming nobody", status, body, onAlready)
 	}
 	fresh := newBrowser(t, s, s.console)
 	if status, body := fresh.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
@@ -153,27 +219,45 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("north's directory after the refused removal = %+v, want it kept", rows)
 	}
 
-	// Back to passwords: the member signs in again, on the portal too, and the
+	// Turning it off is plain: the administrator does it on the console, by password.
+	// The member signs in again, on the portal too with nothing closed, and the
 	// directory is removed.
-	openNorth := `[{"op":"patch","path":"/tenants/` + north + `","value":{"directoryOnly":false}}]`
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(openNorth)); status != http.StatusOK {
-		t.Fatalf("setting north back to passwords: status %d: %s", status, body)
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(north, false)); status != http.StatusOK {
+		t.Fatalf("turning north's directory only off, signed in with a password: status %d: %s", status, body)
 	}
 	if status, body := fresh.login(ctx, memberUser, adminPassword); status != http.StatusOK {
-		t.Errorf("the member's password sign-in once north admits passwords again: status %d, want 200: %s", status, body)
+		t.Errorf("the member's password sign-in once north is not directory only: status %d, want 200: %s", status, body)
 	}
 	if domains := chart(ctx, t, portalMember); !slices.Equal(domains, []string{north}) {
-		t.Errorf("the member's chart on the portal once north admits passwords again = %v, want [%s]", domains, north)
+		t.Errorf("the member's chart on the portal once north is not directory only = %v, want [%s]", domains, north)
+	}
+	if closed := closedDomains(ctx, t, portalMember, "/api/user-domains"); len(closed) != 0 {
+		t.Errorf("the tenants the member's list on the portal marks closed once north is not directory only = %v, want none", closed)
 	}
 
 	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(keep)); status != http.StatusOK {
-		t.Errorf("removing north's directory once it admits passwords again: status %d: %s", status, body)
+		t.Errorf("removing north's directory once it is not directory only: status %d: %s", status, body)
 	}
 
 	// Every edit is audited: the records' change events carry the declaration's writes.
 	events := changeEvents(ctx, t, s, "Tenants", "TenantDirectories")
-	if events["Tenants"] < 2 || events["TenantDirectories"] < 2 {
-		t.Errorf("change events = %v, want the two flag writes on Tenants and the setting and the removal on TenantDirectories", events)
+	if events["Tenants"] != 1 || events["TenantDirectories"] < 2 {
+		t.Errorf("change events = %v, want the one flag write the console made on Tenants, the refused ones leaving none, and the setting and the removal on TenantDirectories", events)
+	}
+}
+
+// setDirectoryOnly writes a tenant's directory-only flag in the table, as a seed does,
+// and reloads the roster as the record's write paths do after their commit. The
+// record's update holds turning the flag on to a person who is signed in through the
+// tenant's directory, which nobody on a site whose staff sign in by password is.
+func setDirectoryOnly(ctx context.Context, t *testing.T, s *served, tenant string, on bool) {
+	t.Helper()
+
+	if _, err := s.db.Client.Apply(ctx, []*cloudspanner.Mutation{cloudspanner.Update("Tenants", []string{"Id", "DirectoryOnly"}, []any{tenant, on})}); err != nil {
+		t.Fatalf("writing %s's directory-only flag: %v", tenant, err)
+	}
+	if err := s.tenants.Reload(ctx); err != nil {
+		t.Fatalf("resource.TenantRoster.Reload() error = %v", err)
 	}
 }
 
