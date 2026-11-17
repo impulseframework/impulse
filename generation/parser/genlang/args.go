@@ -41,6 +41,24 @@ type ArgSpec struct {
 	Expressions []string
 }
 
+// ScanFlags returns the flags a keyword whose arguments the spec parses is scanned
+// with, to be joined to the keyword's own: Expressions where the spec names an
+// expression key. A keyword table that takes them from the spec has the scanner
+// end the keyword's annotation by the quotes the spec splits its arguments by.
+func (s *ArgSpec) ScanFlags() keywordFlag {
+	if s.takesExpressions() {
+		return Expressions
+	}
+
+	return 0
+}
+
+// takesExpressions reports whether an argument of the spec may be an expression of
+// the condition language.
+func (s *ArgSpec) takesExpressions() bool {
+	return len(s.Expressions) > 0
+}
+
 // NamedArgs is one keyword invocation's parsed argument list: the leading
 // positional values in order, then the named arguments.
 type NamedArgs struct {
@@ -85,7 +103,7 @@ func (a Arg) ParseInvocations(spec *ArgSpec) ([]NamedArgs, error) {
 func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 	args := NamedArgs{named: make(map[string][]string)}
 
-	parts, err := splitArguments(invocation, len(spec.Expressions) > 0)
+	parts, err := splitArguments(invocation, spec.takesExpressions())
 	if err != nil {
 		return NamedArgs{}, err
 	}

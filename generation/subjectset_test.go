@@ -4,12 +4,14 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
+	"github.com/impulseframework/impulse/generation/parser/genlang"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -717,6 +719,27 @@ func Test_collectionTemplate_subjectSetStrings(t *testing.T) {
 `
 	if !strings.Contains(formatted, want) {
 		t.Errorf("rendered collection file does not hold the subject sets as\n%s\ngot:\n%s", want, formatted)
+	}
+}
+
+// Test_resourceKeywords_expressions pins which annotations are scanned as holding
+// expressions of the condition language: the two the subject binding spec parses,
+// and no other, so an apostrophe in any other annotation's arguments is a character
+// like the rest.
+func Test_resourceKeywords_expressions(t *testing.T) {
+	t.Parallel()
+
+	var got []string
+	for keyword, opts := range resourceKeywords() {
+		for _, flags := range opts {
+			if flags&genlang.Expressions != 0 {
+				got = append(got, keyword)
+			}
+		}
+	}
+	slices.Sort(got)
+	if diff := cmp.Diff([]string{subjectSetKeyword, subjectValueKeyword}, got); diff != "" {
+		t.Errorf("keywords scanned as holding expressions mismatch (-want +got):\n%s", diff)
 	}
 }
 

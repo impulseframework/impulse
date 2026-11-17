@@ -194,10 +194,14 @@ func Test_ScanStructComment(t *testing.T) {
 	}
 }
 
-// quoteKeywords are the keywords the quote tests scan with: set takes expressions of the
-// condition language, as a subject set does, and the others take names and quoted values.
+// setSpec is the argument shape of the set keyword the quote tests scan: a subject set's,
+// whose who: and where: are expressions of the condition language.
+var setSpec = &genlang.ArgSpec{Positional: 1, Keys: []string{"value", "who", "where"}, Required: []string{"value"}, Expressions: []string{"who", "where"}}
+
+// quoteKeywords are the keywords the quote tests scan with: set takes its scan flags from
+// its spec, as a keyword parsed with one does, and the others take names and quoted values.
 var quoteKeywords = map[string]genlang.KeywordOpts{
-	"set":        {genlang.ScanStruct: genlang.ArgsRequired | genlang.Expressions},
+	"set":        {genlang.ScanStruct: genlang.ArgsRequired | setSpec.ScanFlags()},
 	"typescript": {genlang.ScanStruct: genlang.ArgsRequired},
 	"label":      {genlang.ScanStruct: genlang.ArgsRequired},
 	"view":       {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
@@ -355,5 +359,35 @@ func Test_ScanStructComment_unclosed(t *testing.T) {
 				t.Errorf("ScanStructComment() refusal mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Test_ScanStructComment_parsed pins that what the scanner hands over, the keyword's
+// spec parses: an annotation ended by its own parenthesis splits on the commas outside
+// its strings, so a string that holds a parenthesis and a comma reaches the part it was
+// written in, whole.
+func Test_ScanStructComment_parsed(t *testing.T) {
+	t.Parallel()
+
+	got, err := genlang.NewScanner(quoteKeywords).ScanStructComment("@set(marked, where: Code IN (':)', 'a, b(', 'it''s)'), value: ProjectID,\n    who: UserID = subject)\n@view\n")
+	if err != nil {
+		t.Fatalf("ScanStructComment() error = %v", err)
+	}
+	invocations, err := got.Get("set").ParseInvocations(setSpec)
+	if err != nil {
+		t.Fatalf("ParseInvocations() error = %v", err)
+	}
+	if len(invocations) != 1 {
+		t.Fatalf("ParseInvocations() read %d invocations, want 1", len(invocations))
+	}
+
+	want := map[string]string{"where": "Code IN (':)', 'a, b(', 'it''s)')", "value": "ProjectID", "who": "UserID = subject"}
+	for key, wantValue := range want {
+		if value, _ := invocations[0].Named(key); value != wantValue {
+			t.Errorf("%s: = %q, want %q", key, value, wantValue)
+		}
+	}
+	if diff := cmp.Diff([]string{"marked"}, invocations[0].Positional); diff != "" {
+		t.Errorf("positional values mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -14,9 +14,9 @@ const (
 	Exclusive                            // Exclusive limits the keyword to a single use per instance of field or struct.
 
 	// Expressions marks a keyword whose arguments may hold an expression of the condition
-	// language, as the arguments an ArgSpec that names Expressions parses do. In them a
-	// single quote opens and closes a string; in any other keyword's arguments it is an
-	// apostrophe.
+	// language. In them a single quote opens and closes a string; in any other keyword's
+	// arguments it is an apostrophe. A keyword parsed with an ArgSpec takes the flag from
+	// the spec (ArgSpec.ScanFlags), which splits the arguments by the same reading.
 	Expressions
 )
 
