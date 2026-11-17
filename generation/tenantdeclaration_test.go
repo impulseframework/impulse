@@ -240,10 +240,11 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			name: "the declaration's columns, the option and the reader constructor",
 			data: &tenantsData{
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
-				Declaration:     &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
-				Directory:       harborDirectoryWrite(),
-				Word:            "harbor",
-				ResourcePackage: "resources",
+				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+				Directory:           harborDirectoryWrite(),
+				Word:                "harbor",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
 			},
 			wantContains: []string{
 				`"cloud.google.com/go/spanner"`,
@@ -264,28 +265,29 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				// The rules of a harbor's directory, and the one step that sets a
 				// directory from a sign-in: the rules are asked, then the row is buffered
 				// through the record's create patch.
-				"var harborDirectoryRules = NewHarborDirectoryRules()",
+				"func NewHarborDirectoryRules() *resource.TenantDirectoryRules {",
 				`return resource.NewTenantDirectoryRules("Harbors", "Id", &harborDeclaration, "harbor")`,
 				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {",
-				"if err := harborDirectoryRules.Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {",
+				"if err := NewHarborDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {",
 				"patch, err := resources.NewHarborDirectoryCreatePatch()",
 				"patch.SetHarborID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
 				"if err := patch.Buffer(ctx, txn, eventSource...); err != nil {",
 			},
-			wantNotContains: []string{"DefaultSeatColumn", "AdministratorRoles"},
+			wantNotContains: []string{"DefaultSeatColumn", "AdministratorRoles", "harborDirectoryRules"},
 		},
 		{
 			name: "a directories record whose tenant column is a string takes the tenant's key as text",
 			data: &tenantsData{
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Marina",
-				Declaration:     &tenantDeclarationColumns{DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
-				Directory:       &tenantDirectoryWrite{TenantField: "HarborID", TenantType: "string", TenantParam: "tenant", TenantDomain: "accesstypes.Domain(tenant)", MethodField: "Method", ConnectionField: "Connection"},
-				Word:            "harbor",
-				ResourcePackage: "resources",
+				Declaration:         &tenantDeclarationColumns{DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+				Directory:           &tenantDirectoryWrite{TenantField: "HarborID", TenantType: "string", TenantParam: "tenant", TenantDomain: "accesstypes.Domain(tenant)", MethodField: "Method", ConnectionField: "Connection"},
+				Word:                "harbor",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
 			},
 			wantContains: []string{
 				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant string, directory signin.Directory, eventSource ...string) error {",
-				"if err := harborDirectoryRules.Set(ctx, txn, accesstypes.Domain(tenant), directory); err != nil {",
+				"if err := NewHarborDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant), directory); err != nil {",
 				"patch, err := resources.NewMarinaCreatePatch()",
 			},
 		},
@@ -293,13 +295,14 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			name: "the seat column and the creator's seat contract",
 			data: &tenantsData{
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory", DefaultSeat: "DefaultSeat",
-				Declaration:     &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DefaultSeatColumn: "DefaultSeat"},
-				Directory:       harborDirectoryWrite(),
-				Word:            "harbor",
-				ResourcePackage: "resources",
-				Seat:            &tenantSeatData{Record: "Harbor", RecordLower: "harbor", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "HarborAdministratorRoles"},
-				RouterPackage:   "router",
-				ApplicationName: "App",
+				Declaration:         &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DefaultSeatColumn: "DefaultSeat"},
+				Directory:           harborDirectoryWrite(),
+				Word:                "harbor",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
+				Seat:                &tenantSeatData{Record: "Harbor", RecordLower: "harbor", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "HarborAdministratorRoles"},
+				RouterPackage:       "router",
+				ApplicationName:     "App",
 			},
 			wantContains: []string{
 				`DefaultSeatColumn: "DefaultSeat",`,
@@ -334,6 +337,19 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
 			}
 			assertContains(t, "tenantsTemplate", string(out), tt.wantContains, tt.wantNotContains)
+			// Every qualifier the file references resolves to an import the template
+			// declares, as generation resolves it: the tenant's key in the signature
+			// of the step that sets a directory is the framework's id type.
+			fixed, err := c.formatGoBytes("app/zz_gen_tenant_roster.go", "tenantsTemplate", out, tt.data)
+			if err != nil {
+				t.Fatalf("formatGoBytes() error = %v\n%s", err, out)
+			}
+			if tt.data.Directory != nil {
+				wantsID := tt.data.Directory.TenantType == impulseUUIDGoType
+				if got := strings.Contains(string(fixed), "\t\"github.com/impulseframework/impulse\"\n"); got != wantsID {
+					t.Errorf("the file imports the framework's root package = %t, want %t for a tenant column of type %s:\n%s", got, wantsID, tt.data.Directory.TenantType, fixed)
+				}
+			}
 		})
 	}
 }
@@ -383,6 +399,7 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		HasTenant:           true,
 		DomainRouteSegment:  "harbors",
 		DomainPatternPrefix: "/harbors/{harborID}",
+		LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 		Package:             "app",
 		ResourcePackage:     "resources",
 		ApplicationName:     "App",
@@ -395,6 +412,9 @@ func Test_directoriesRecord_writes(t *testing.T) {
 	if _, err := format.Source(consolidated); err != nil {
 		t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
 	}
+	if _, err := c.formatGoBytes("app/zz_gen_consolidated_handler.go", "consolidatedPatchTemplate", consolidated, nil); err != nil {
+		t.Fatalf("formatGoBytes() error = %v\n%s", err, consolidated)
+	}
 
 	for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
 		t.Run(name, func(t *testing.T) {
@@ -402,11 +422,11 @@ func Test_directoriesRecord_writes(t *testing.T) {
 
 			assertInOrder(t, out,
 				".NewHarborDirectoryCreatePatchFromPatchSet(patchSet)",
-				"directory, err := harborDirectoryRules.FromSession(ctx, txn, domain)",
+				"directory, err := NewHarborDirectoryRules().FromSession(ctx, txn, domain)",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")`,
 				"patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
 				"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
-				"if err := harborDirectoryRules.Remove(ctx, txn, domain); err != nil {",
+				"if err := NewHarborDirectoryRules().Remove(ctx, txn, domain); err != nil {",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")`,
 				".NewHarborDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
 			)
@@ -491,7 +511,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			if diff := cmp.Diff(tt.wantDirectory, directory); diff != "" {
 				t.Errorf("Directory mismatch (-want +got):\n%s", diff)
 			}
-			out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, &tenantCreationData{
+			data := &tenantCreationData{
 				Source:              "resources",
 				Package:             "app",
 				LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
@@ -513,12 +533,18 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				Refusal:             tenantCreationRefusal("Harbor"),
 				Directory:           directory,
 				record:              record,
-			})
+			}
+			out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, data)
 			if err != nil {
 				t.Fatalf("generateTemplateOutput() error = %v", err)
 			}
 			if _, err := format.Source(out); err != nil {
 				t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
+			}
+			// Every qualifier the route references resolves to an import the template
+			// declares, as generation resolves it.
+			if _, err := r.formatGoBytes("app/zz_gen_tenant_creation.go", "tenantCreationTemplate", out, data); err != nil {
+				t.Fatalf("formatGoBytes() error = %v\n%s", err, out)
 			}
 			assertContains(t, "tenantCreationTemplate", string(out), []string{
 				`"github.com/impulseframework/impulse/session/sessioninfo"`,

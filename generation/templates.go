@@ -1412,6 +1412,11 @@ import (
 {{- end }}
 {{- if or .Seat .Declaration }}
 	{{ .LocalPackageImports }}
+{{- end }}
+{{- if .Declaration }}
+	"github.com/impulseframework/impulse"
+{{- end }}
+{{- if or .Seat .Declaration }}
 	"github.com/impulseframework/impulse/accesstypes"
 {{- end }}
 	"github.com/impulseframework/impulse/resource"
@@ -1504,16 +1509,13 @@ func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTr
 	return resource.NewTenantDirectoryReader(&{{ GoCamel .Name }}Declaration)
 }
 
-// {{ GoCamel .Name }}DirectoryRules holds every write of the {{ .Directories }} record to the rules of a
-// {{ .Word }}'s directory (resource.TenantDirectoryRules): a {{ .Word }} has one directory, a
-// directory is one {{ .Word }}'s, a personal account is no directory, and the directory of a
-// {{ .Word }} that is directory only is not removed. The generated {{ .Directories }} write paths ask
-// them: the create stamps the directory the caller is signed in through, which no
-// request types, and the delete asks before it removes.
-var {{ GoCamel .Name }}DirectoryRules = New{{ .Name }}DirectoryRules()
-
-// New{{ .Name }}DirectoryRules builds the rules of a {{ .Word }}'s directory over the {{ .Name }}
-// record's table and its declaration's columns.
+// New{{ .Name }}DirectoryRules builds the rules of a {{ .Word }}'s directory
+// (resource.TenantDirectoryRules) over the {{ .Name }} record's table and its declaration's
+// columns: a {{ .Word }} has one directory, a directory is one {{ .Word }}'s, a personal account
+// is no directory, and the directory of a {{ .Word }} that is directory only is not removed.
+// Every write of the {{ .Directories }} record is held to them. The generated {{ .Directories }}
+// write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes.
 func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
 	return resource.NewTenantDirectoryRules({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration, {{ printf "%q" .Word }})
 }
@@ -1524,13 +1526,13 @@ func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
 // person typed: the create-your-{{ .Word }} route hands the directory its creator came
 // through, and a caller inside a sign-in hands the identity's
 // (resource.NewSpannerReadWriteTransaction wraps the sign-in's transaction). The rules
-// are asked first ({{ GoCamel .Name }}DirectoryRules.Set), each refusal a Conflict that says what
+// are asked first (New{{ .Name }}DirectoryRules, Set), each refusal a Conflict that says what
 // to do: a personal account, a {{ .Word }} that has a directory, a directory another {{ .Word }}
 // has. Then the {{ .Directories }} row is buffered through the record's create patch, so its
 // change event is written with it. The caller reloads the roster and signals the
 // tenants kind once the transaction has committed, as the record's write paths do.
 func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, directory signin.Directory, eventSource ...string) error {
-	if err := {{ GoCamel .Name }}DirectoryRules.Set(ctx, txn, {{ .Directory.TenantDomain }}, directory); err != nil {
+	if err := New{{ .Name }}DirectoryRules().Set(ctx, txn, {{ .Directory.TenantDomain }}, directory); err != nil {
 		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
 	}
 	patch, err := {{ .ResourcePackage }}.New{{ .Directories }}CreatePatch()

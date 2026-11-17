@@ -374,16 +374,17 @@ func (r *resourceGenerator) directoryTenantWord(record *resourceInfo) string {
 	return strings.ToLower(r.tenantWord(record).One)
 }
 
-// DirectoryRules is the name of the generated rules of a tenant's directory the
-// directories record's write paths ask (<record>DirectoryRules in the handler
-// package, which the tenant record's roster file declares); empty on every other
-// resource.
+// DirectoryRules is the expression of the rules of a tenant's directory the
+// directories record's write paths ask: a call of New<Record>DirectoryRules, which the
+// tenant record's roster file declares in the handler package. It is a call and never
+// a package variable: a handler file that named a variable another file declares would
+// read to the import resolution as naming a package. Empty on every other resource.
 func (r *resourceInfo) DirectoryRules() string {
 	if r.directoryOf == nil {
 		return ""
 	}
 
-	return strcase.ToGoCamel(r.directoryOf.Name()) + "DirectoryRules"
+	return "New" + r.directoryOf.Name() + "DirectoryRules()"
 }
 
 // DirectoryTenantWord is the word for one tenant in the comments the directories
