@@ -42,7 +42,8 @@ func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 // empty. The development bootstrap seeds the development identities instead.
 //
 // The account is seeded for the directory registration, the auth's one directory method
-// (session.SeedUserIDThrough, over DirectoryRegistration): its id says which of the auth's
+// whose roles the application gives (session.SeedUserIDThrough, over
+// DirectoryRegistration): its id says which of the auth's
 // registrations the name is believed from. An account with no password that has never
 // signed in is tied to whoever signs in next by nothing but its name, and a directory
 // asserts the names it likes, so where the application's tenants have directories a
@@ -50,10 +51,10 @@ func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 // application and belongs to no tenant, so no tenant's directory vouches for the
 // account; the deployment does, by this id, which no request can give an account, and
 // the sign-in rule links it at the person's first sign-in through that registration,
-// which admits one organization and nobody else. A sign-in under the name through
-// another registration of the auth links nothing, and neither does one through this
-// registration once it is widened to more than one organization: keep it to the one
-// until the first administrator has signed in.
+// which admits one organization and nobody else. There, a sign-in under the name
+// through another directory's registration links nothing, and neither does one through
+// this registration once it is widened to more than one organization: keep it to the
+// one until the first administrator has signed in.
 func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, error) {
 	empty, err := a.usersTableEmpty(ctx)
 	if err != nil {
