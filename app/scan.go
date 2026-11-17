@@ -186,15 +186,8 @@ func (a *App) scanGoFile(abs, rel string) error {
 
 	a.goFiles = append(a.goFiles, rel)
 
-	switch {
-	case filepath.Base(rel) == secretHoldersFile:
-		a.SecretHolders = append(a.SecretHolders, SecretHolders{File: rel, Package: a.packagePath(path.Dir(rel)), Stored: bytes.Contains(data, []byte(secretHolderOfFunc+"["))})
-	case !generated && bytes.Contains(data, []byte(retireSecretFunc+"(")):
-		retirements, err := parseSecretRetirements(rel, data, a.packagePath(path.Dir(rel)))
-		if err != nil {
-			return err
-		}
-		a.SecretRetirements = append(a.SecretRetirements, retirements...)
+	if err := a.scanSecretRetirement(rel, data, generated); err != nil {
+		return err
 	}
 
 	return a.scanAccess(rel, data)
@@ -206,7 +199,8 @@ func (a *App) scanGoFile(abs, rel string) error {
 // many arguments it takes before the holders, and the standard library's package and
 // function that join several packages' lists.
 const (
-	secretHoldersFile  = "zz_gen_secret_holders.go"
+	generatedHoldersFile = "zz_gen_secret_holders.go"
+
 	secretHoldersFunc  = "SecretHolders"
 	secretHolderOfFunc = "SecretHolderOf"
 	retireSecretFunc   = "RetireSecretVersion"
@@ -216,6 +210,24 @@ const (
 	appendBuiltin      = "append"
 	nilIdentifier      = "nil"
 )
+
+// scanSecretRetirement records what one Go file says of the retirement of a version of
+// the application secret: a package's generated list of the resources that store a
+// secret, or, in a file the author wrote, the calls that retire a version.
+func (a *App) scanSecretRetirement(rel string, data []byte, generated bool) error {
+	switch {
+	case filepath.Base(rel) == generatedHoldersFile:
+		a.SecretHolders = append(a.SecretHolders, SecretHolders{File: rel, Package: a.packagePath(path.Dir(rel)), Stored: bytes.Contains(data, []byte(secretHolderOfFunc+"["))})
+	case !generated && bytes.Contains(data, []byte(retireSecretFunc+"(")):
+		retirements, err := parseSecretRetirements(rel, data, a.packagePath(path.Dir(rel)))
+		if err != nil {
+			return err
+		}
+		a.SecretRetirements = append(a.SecretRetirements, retirements...)
+	}
+
+	return nil
+}
 
 // parseSecretRetirements returns every resource.RetireSecretVersion call in the file,
 // each with the packages whose generated SecretHolders() it is handed. The holders are

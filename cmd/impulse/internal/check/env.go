@@ -102,7 +102,7 @@ func (c envTemplate) Run(_ context.Context, env *Env) Result {
 	}
 
 	found := c.read(a, string(data), string(gitignore))
-	details := append(found.details, found.unmended...)
+	details := slices.Concat(found.details, found.unmended)
 	if len(details) == 0 {
 		return pass(c.Name(), fmt.Sprintf("%d env tag(s) covered by %s", len(a.EnvTags), a.EnvTemplate))
 	}

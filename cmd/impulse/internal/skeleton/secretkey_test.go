@@ -21,7 +21,7 @@ const (
 
 // keyConstantRE finds a key written out: a version of the application secret, or the
 // name itself, assigned a run of Base64.
-var keyConstantRE = regexp.MustCompile(`APP_SECRET_KEY(_[0-9]+)?=["']?[A-Za-z0-9+/]{16,}`)
+var keyConstantRE = regexp.MustCompile(`APP_SECRET_KEY(_\d+)?=["']?[A-Za-z0-9+/]{16,}`)
 
 // TestDevelopmentSecretKeyIsMade holds the development value of the application secret
 // to a key made for the checkout, in every candidate and in Lodestar. A key written in a

@@ -127,7 +127,7 @@ func TestSecretHolders(t *testing.T) {
 			}
 			for rel, content := range files {
 				abs := filepath.Join(dir, filepath.FromSlash(rel))
-				if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
 					t.Fatalf("os.MkdirAll() error = %v", err)
 				}
 				if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
