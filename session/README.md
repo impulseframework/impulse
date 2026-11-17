@@ -189,7 +189,9 @@ DML what a later rule must read.
   and a holder would never sign in. It refuses the argument's zero value and a nil check
   too, each saying what to pass. An application with no permission engine, and so no
   role of any kind, passes `session.NoSuperAdministrators()`, and its Auth holds nobody
-  to the rule. The auth packages `impulse` writes pass the first.
+  to the rule. The auth packages `impulse` writes pass the first, and `impulse check`
+  (`super-administrators`) fails an auth package with a role file that passes the
+  second, or that builds its check over another auth's engine.
 - The **account rules** decide an identity's first sign-in: an identity that is not
   linked to any user yet. A linked identity signs in by its link and never consults
   them. Each Entra and Google registration declares a **standard rule** in

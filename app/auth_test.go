@@ -1,8 +1,11 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // registrationFile renders an auth package's file constructing one Auth and registering
@@ -227,7 +230,7 @@ func parseDirectoryTenants(value string, administered []string) (azure.TenantSet
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statements, tt.decls...)))
+			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statements, tt.decls...)), "example.com/harbor/pkg/auth/members")
 			if err != nil {
 				t.Fatalf("parseAuths() error = %v", err)
 			}
@@ -251,7 +254,7 @@ func parseDirectoryTenants(value string, administered []string) (azure.TenantSet
 func TestPersonaRegistration(t *testing.T) {
 	t.Parallel()
 
-	auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(`	_ = oidc.SignIn(authSession, "reviewers", nil, &oidc.Config{Issuer: settings.Reviewers.Issuer, RoleSync: signin.DisableRoleSync()})`)))
+	auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(`	_ = oidc.SignIn(authSession, "reviewers", nil, &oidc.Config{Issuer: settings.Reviewers.Issuer, RoleSync: signin.DisableRoleSync()})`)), "example.com/harbor/pkg/auth/members")
 	if err != nil {
 		t.Fatalf("parseAuths() error = %v", err)
 	}
@@ -300,7 +303,7 @@ func TestOIDCRegistration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statement)))
+			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statement)), "example.com/harbor/pkg/auth/members")
 			if err != nil {
 				t.Fatalf("parseAuths() error = %v", err)
 			}
@@ -310,6 +313,116 @@ func TestOIDCRegistration(t *testing.T) {
 			m := auths[0].Methods[0]
 			if m.Kind != tt.wantKind || m.Name != "okta" || m.Authority != tt.wantAuthority {
 				t.Errorf("method = %s %q under %q; want %s okta under %q", m.Kind, m.Name, m.Authority, tt.wantKind, tt.wantAuthority)
+			}
+		})
+	}
+}
+
+// TestReadSuperAdministrators reads what an Auth construction is told about its super
+// administrators: the form of the argument session.NewAuth takes after the cookie key,
+// and, for a check, the permission engine the constructor opens behind it with the
+// package whose role file that engine is handed. The check is followed through the
+// identifiers the function assigns, and an engine opened anywhere else does not read.
+func TestReadSuperAdministrators(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ownPkg  = "example.com/harbor/pkg/auth/members"
+		session = "github.com/impulseframework/impulse/session"
+		signin  = "github.com/impulseframework/impulse/session/signin"
+		res     = "github.com/impulseframework/impulse/resource"
+		// The engine as an auth package opens it, on line 15 of the file, and the
+		// construction of the Auth over an argument.
+		ownEngine = `	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.Signals))
+	if err != nil {
+		return
+	}
+`
+		construct = `	_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, %s, session.WithCookieName("members"))
+`
+		scaffolded = `session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))`
+	)
+	tests := []struct {
+		name string
+		body string
+		want SuperAdministrators
+	}{
+		{
+			name: "nobody is a super administrator",
+			body: fmt.Sprintf(construct, `session.NoSuperAdministrators()`),
+			want: SuperAdministrators{Form: SuperAdministratorsNone},
+		},
+		{
+			name: "a check over the engine the constructor opens with its own role file, as add auth writes it",
+			body: ownEngine + fmt.Sprintf(construct, scaffolded),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: ownPkg, Packages: []string{res, session, signin}},
+		},
+		{
+			name: "a check assigned before the call, over a user manager assigned before it",
+			body: ownEngine + `	userManager := accessClient.UserManager()
+	superAdministrators := session.SuperAdministratorsBy(signin.SuperAdministrators(userManager))
+` + fmt.Sprintf(construct, `superAdministrators`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: ownPkg, Packages: []string{session, signin}},
+		},
+		{
+			name: "an engine handed another auth package's role file",
+			body: strings.Replace(ownEngine, "Roles()", "staff.Roles()", 1) + fmt.Sprintf(construct, scaffolded),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: "example.com/harbor/pkg/auth/staff", Packages: []string{res, session, signin}},
+		},
+		{
+			name: "an engine handed no role file here",
+			body: strings.Replace(ownEngine, "access.WithDefaultRoles(settings.Collection, Roles()), ", "", 1) + fmt.Sprintf(construct, scaffolded),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, Packages: []string{res, session, signin}},
+		},
+		{
+			name: "a check taken from another auth package",
+			body: fmt.Sprintf(construct, `session.SuperAdministratorsBy(staff.SuperAdministrators())`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, Packages: []string{"example.com/harbor/pkg/auth/staff", session}},
+		},
+		{
+			name: "an engine the constructor is handed does not read",
+			body: fmt.Sprintf(construct, `session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(settings.Engine.UserManager())))`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, Packages: []string{res, session, signin}},
+		},
+		{
+			name: "an argument the constructor is handed has no form",
+			body: fmt.Sprintf(construct, `settings.SuperAdministrators`),
+		},
+		{
+			name: "the two-argument form, which no longer compiles, has no form",
+			body: `	_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			src := `package members
+
+import (
+	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
+
+	"example.com/harbor/pkg/auth/staff"
+)
+
+func open(client any, key string, store access.Store, settings *Settings) {
+	_ = staff.Name
+` + tt.body + `}
+`
+			auths, _, err := parseAuths("pkg/auth/members/members.go", []byte(src), ownPkg)
+			if err != nil {
+				t.Fatalf("parseAuths() error = %v", err)
+			}
+			if len(auths) != 1 {
+				t.Fatalf("parseAuths() = %d auths, want one", len(auths))
+			}
+			if diff := cmp.Diff(tt.want, auths[0].SuperAdministrators); diff != "" {
+				t.Errorf("SuperAdministrators mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

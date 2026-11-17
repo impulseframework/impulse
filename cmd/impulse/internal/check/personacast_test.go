@@ -15,7 +15,7 @@ import (
 // The staff auth registering the persona method beside its password method.
 var staffPersonaAuth = strings.Replace(strings.Replace(staffAuth,
 	"\t\"github.com/impulseframework/impulse/session/sessionstorage\"\n",
-	"\t\"github.com/impulseframework/impulse/session/oidc\"\n\t\"github.com/impulseframework/impulse/session/sessionstorage\"\n\t\"github.com/impulseframework/impulse/session/signin\"\n", 1),
+	"\t\"github.com/impulseframework/impulse/session/oidc\"\n\t\"github.com/impulseframework/impulse/session/sessionstorage\"\n", 1),
 	"\tsession.PasswordSignIn(s)\n",
 	"\tsession.PasswordSignIn(s)\n\t_ = oidc.SignIn(s, \"persona\", nil, &oidc.Config{Issuer: \"https://persona.example.com\", RoleSync: signin.DisableRoleSync()})\n", 1)
 

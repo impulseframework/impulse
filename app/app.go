@@ -188,11 +188,47 @@ type Auth struct {
 	// the callers add are not visible here, so the tables are the defaults as far as
 	// this construction shows.
 	OptionsForwarded bool
+	// SuperAdministrators is what the construction tells the Auth about its super
+	// administrators: the argument session.NewAuth takes after the cookie key.
+	SuperAdministrators SuperAdministrators
 	// Methods are the sign-in methods registered on the Auth, in source order: the
 	// password method (session.PasswordSignIn) and the redirect methods (azure.SignIn,
 	// google.SignIn, workos.SignIn, and oidc.SignIn, the persona method) whose first
 	// argument names this construction.
 	Methods []Method
+}
+
+// The forms of the argument that tells an Auth who its super administrators are:
+// session.NoSuperAdministrators(), which says the application has none, and
+// session.SuperAdministratorsBy(...), which hands the Auth a check that answers who
+// holds the role.
+const (
+	SuperAdministratorsNone    = "none"
+	SuperAdministratorsChecked = "checked"
+)
+
+// SuperAdministrators is what one Auth construction is told about its super
+// administrators, read from the argument session.NewAuth takes after the cookie key,
+// written in the call or assigned to the identifier the call takes.
+type SuperAdministrators struct {
+	// Form is SuperAdministratorsNone or SuperAdministratorsChecked, or empty when the
+	// argument reads some other way (a parameter of the enclosing function, say).
+	Form string
+	// EngineLine is the line of the permission engine's construction (access.New) the
+	// check is built over, when the enclosing function opens the engine itself and the
+	// check takes its user manager (x.UserManager(), with x, err := access.New(...)
+	// before it); zero when the engine is opened somewhere the function does not show.
+	EngineLine int
+	// RolesPackage is the import path of the package whose Roles() that engine is
+	// handed (access.WithDefaultRoles among the construction's arguments), which says
+	// whose engine it is: the file's own package for Roles() unqualified, the imported
+	// package for <auth>.Roles(). Empty when no engine reads or its roles read some
+	// other way.
+	RolesPackage string
+	// Packages are the import paths of the packages the check's expression names up
+	// to the engine, sorted and without repeats: the session library's own, and
+	// another auth package's when the check is taken from one.
+	Packages []string
 }
 
 // Method is one sign-in method registered on an Auth.
