@@ -782,11 +782,12 @@ access tables copied from an auth the application has; an empty role file is wri
 the package (the file its Roles() embeds and hands to the permission engine), and the data
 level constructs it beside that auth. The package carries a foothold (foothold.go): the
 first administrator the migrate command seeds while the auth's users table holds no rows,
-a user named administrator with the password the stack generates for a password auth, or
-a user without a password under a sign-in name the placement names, which that person's
-first sign-in links to, for an auth whose roles the application assigns; its roles, its
-setting in the data level and its seeding from pkg/deploy are handed to the agent. Where
-the application's tenants have directories, a name alone links no account that has never
+a user named administrator with the password the stack generates for a password auth,
+which the first sign-in changes before anything else is served, or a user without a
+password under a sign-in name the placement names, which that person's first sign-in
+links to, for an auth whose roles the application assigns; its roles, its setting in the
+data level and its seeding from pkg/deploy are handed to the agent. Where the
+application's tenants have directories, a name alone links no account that has never
 signed in, so such a user is seeded for the registration its name is believed from. The
 foothold names that registration itself only for an auth whose one directory method is
 of one Microsoft Entra tenant or one Google Workspace; for any other auth (several

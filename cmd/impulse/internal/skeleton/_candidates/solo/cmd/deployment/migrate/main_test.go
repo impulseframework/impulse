@@ -350,7 +350,8 @@ func TestExecute(t *testing.T) {
 // users table is empty, and it is two writes: the administrator's roles first, the Super
 // Administrator role among them, which the permission store holds under an id the seed
 // derives (session.SeedUserID, the same on every run), then the user, created under that
-// id. The user's row is what says the seed
+// id with the password the seed is handed, marked for change: the deployment generated
+// it, and the first sign-in changes it. The user's row is what says the seed
 // is done: a run that stopped between the two left the table empty, and the next run
 // writes the same memberships again, each left as it is, and creates the user. Once the
 // table holds a user nothing is seeded, whoever that user is and whatever it holds: a
@@ -535,16 +536,38 @@ func accounts(t *testing.T, auth *staff.Auth) map[impulse.UUID]string {
 }
 
 // administratorAlone checks what the seed leaves: the users table holds the first
-// administrator alone, under the id the seed derives, and the permission store holds the
-// administrator's roles under that id.
+// administrator alone, under the id the seed derives, with the password the seed was
+// handed marked for change, and the permission store holds the administrator's roles
+// under that id.
 func administratorAlone(t *testing.T, data *config.DataConfiguration) {
 	t.Helper()
 
 	id := seedID()
 	if got, want := accounts(t, data.Staff()), map[impulse.UUID]string{id: staff.Administrator}; !maps.Equal(got, want) {
 		t.Errorf("the users table after the run = %v, want %v: %s alone, under the id the seed derives", got, want, staff.Administrator)
+	} else {
+		mustChangePassword(t, data.Staff(), id)
 	}
 	holdsAdministratorRoles(t, data, id)
+}
+
+// mustChangePassword checks the first administrator's row holds a password and the mark
+// that it must change (PasswordChangeRequired). The deployment generated the password,
+// so the session library serves the person nothing but the change until they have chosen
+// one of their own, and the generated one signs nobody in after that.
+func mustChangePassword(t *testing.T, auth *staff.Auth, id impulse.UUID) {
+	t.Helper()
+
+	user, err := auth.Session().API().User(t.Context(), id)
+	if err != nil {
+		t.Fatalf("session.AuthAPI.User(%s) error = %v", id, err)
+	}
+	if user.PasswordHash == nil {
+		t.Errorf("%s holds no password, want the one the seed was handed", staff.Administrator)
+	}
+	if !user.PasswordChangeRequired {
+		t.Errorf("%s is not marked to change the password, want the mark: the deployment generated the password, and the first sign-in changes it", staff.Administrator)
+	}
 }
 
 // nothingSeeded checks what a run that seeds nothing leaves: the users table as the run

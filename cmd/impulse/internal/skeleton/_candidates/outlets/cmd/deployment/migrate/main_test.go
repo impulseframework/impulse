@@ -367,7 +367,8 @@ func TestExecute(t *testing.T) {
 // and creates the user. Once the table holds a user nothing is seeded, whoever that user
 // is and whatever it holds: a user under the administrator's name whom the seed did not
 // create is given no role. The staff auth's first administrator is created with the
-// password the seed is handed; the members auth's, whose people the directory signs in,
+// password the seed is handed, marked for change: the deployment generated it, and the
+// first sign-in changes it. The members auth's, whose people the directory signs in,
 // is a user without a password under the sign-in name the seed is handed, which the
 // person's first sign-in links to. The data level reads its target from the environment,
 // so the cases run one at a time.
@@ -611,30 +612,51 @@ func (f *foothold) accounts(t *testing.T) map[impulse.UUID]string {
 	return byID
 }
 
-// hasPassword reports whether the auth's user under the id holds a password.
-func (f *foothold) hasPassword(t *testing.T, id impulse.UUID) bool {
+// passwordAsSeeded checks the password of the auth's first administrator as the seed
+// leaves it. The staff auth's holds the password the seed was handed and the mark that it
+// must change (PasswordChangeRequired): the deployment generated it, so the session
+// library serves the person nothing but the change until they have chosen one of their
+// own, and the generated one signs nobody in after that. The members auth's, whose
+// people the directory signs in, holds no password and so no mark, which the session
+// library refuses on a user with none.
+func (f *foothold) passwordAsSeeded(t *testing.T, id impulse.UUID) {
 	t.Helper()
 
 	user, err := f.users.User(t.Context(), id)
 	if err != nil {
 		t.Fatalf("session.AuthAPI.User(%s) of the %s auth error = %v", id, f.auth, err)
 	}
+	if f.password == nil {
+		if user.PasswordHash != nil {
+			t.Errorf("%s holds a password in the %s auth, want none: the directory signs the auth's people in", f.username, f.auth)
+		}
+		if user.PasswordChangeRequired {
+			t.Errorf("%s is marked to change a password in the %s auth, want no mark: the user holds no password", f.username, f.auth)
+		}
 
-	return user.PasswordHash != nil
+		return
+	}
+	if user.PasswordHash == nil {
+		t.Errorf("%s holds no password in the %s auth, want the one the seed was handed", f.username, f.auth)
+	}
+	if !user.PasswordChangeRequired {
+		t.Errorf("%s is not marked to change the password in the %s auth, want the mark: the deployment generated the password, and the first sign-in changes it", f.username, f.auth)
+	}
 }
 
 // administratorAlone checks what the auth's seed leaves: the auth's users table holds
-// the first administrator alone, under the id the seed derives, without a password where
-// the directory signs the auth's people in, and the auth's permission store holds the
-// administrator's roles under that id.
+// the first administrator alone, under the id the seed derives, with the password the
+// seed was handed marked for change, or without a password where the directory signs the
+// auth's people in, and the auth's permission store holds the administrator's roles
+// under that id.
 func (f *foothold) administratorAlone(t *testing.T) {
 	t.Helper()
 
 	id := f.seedID()
 	if got, want := f.accounts(t), map[impulse.UUID]string{id: f.username}; !maps.Equal(got, want) {
 		t.Errorf("the %s auth's users table after the run = %v, want %v: %s alone, under the id the seed derives", f.auth, got, want, f.username)
-	} else if f.password == nil && f.hasPassword(t, id) {
-		t.Errorf("%s holds a password in the %s auth, want none: the directory signs the auth's people in", f.username, f.auth)
+	} else {
+		f.passwordAsSeeded(t, id)
 	}
 	f.holdsAdministratorRoles(t, id)
 }

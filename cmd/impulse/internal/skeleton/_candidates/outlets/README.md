@@ -227,7 +227,11 @@ generated router test proves the route sits behind the token check.
   (`session.SeedUserIDThrough`): the id is the deployment's word on which registration
   the name is believed from, and the sign-in rule links the account at the person's
   first sign-in through it while it admits one organization alone (`azure.Tenant`).
-  A user that exists stops the seed; the auth's management
+  The staff auth's generated password is for the first sign-in alone: sign in as
+  `administrator` with it, give an email address and confirm it with the sign-in code
+  mailed there (the account starts with no address), then choose a new password, which
+  the login page asks for before it opens anything else; the generated password signs
+  nobody in after that. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development

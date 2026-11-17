@@ -299,10 +299,15 @@ func (b *browser) verifyCode(ctx context.Context, code string, remember bool) (s
 	return b.do(ctx, http.MethodPost, "/api/user/pending/code/verify", verify)
 }
 
-// sessionInfo is the session route's answer as the suites read it.
+// sessionInfo is the session route's answer as the suites read it: who is signed in,
+// whether they must change their password before anything else is served, and the
+// address they hold, with whether they have proven it.
 type sessionInfo struct {
-	Authenticated bool   `json:"authenticated"`
-	Username      string `json:"username"`
+	Authenticated          bool   `json:"authenticated"`
+	Username               string `json:"username"`
+	PasswordChangeRequired bool   `json:"passwordChangeRequired"`
+	Email                  string `json:"email"`
+	EmailVerified          bool   `json:"emailVerified"`
 }
 
 // session reads the session route as this browser.

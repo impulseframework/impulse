@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"maps"
 	"os"
 	"path/filepath"
@@ -416,6 +417,105 @@ func TestFiles_superAdministrator(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFiles_firstAdministratorChangesThePassword holds the user the seed of an auth's
+// first administrator creates. The password of an auth with a password method is the
+// one the deployment generated, so the seed creates the user marked to change it
+// (session.CreateUserRequest.PasswordChangeRequired): the session library serves the
+// person nothing but the change until they have chosen a password of their own, and the
+// generated one signs nobody in after that. The first administrator of an auth whose
+// people a directory signs in is created under a sign-in name with no password, which
+// has none to change: the session library refuses the mark on such a user, and the seed
+// sets none.
+func TestFiles_firstAdministratorChangesThePassword(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		spec *Spec
+		// want is the request the rendered SeedAdministrator creates the user with: each
+		// field it sets, as the file writes it.
+		want map[string]string
+	}{
+		{
+			name: "a password auth: the generated password is marked for change",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
+			want: map[string]string{"Username": "Administrator", "Password": "&password", "PasswordChangeRequired": "true"},
+		},
+		{
+			name: "a password auth with a directory beside it: the generated password is marked for change",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "tenants", Methods: []Method{
+				{Kind: app.MethodPassword},
+				{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
+			}},
+			want: map[string]string{"Username": "Administrator", "Password": "&password", "PasswordChangeRequired": "true"},
+		},
+		{
+			name: "a directory auth whose roles the application gives: no password and no mark",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: []Method{
+				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
+			}},
+			want: map[string]string{"Username": "signInName"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			foothold, ok := files[footholdFile]
+			if !ok {
+				t.Fatalf("Files(%s) wrote no %s", tt.spec.Name, footholdFile)
+			}
+			if got := seedRequest(t, foothold); !maps.Equal(got, tt.want) {
+				t.Errorf("%s: SeedAdministrator creates the user with %v, want %v", footholdFile, got, tt.want)
+			}
+		})
+	}
+}
+
+// seedRequest reads the session.CreateUserRequest the SeedAdministrator of a rendered
+// foothold file creates the first administrator with: each field the literal sets, by
+// name, as the file writes its value. The file must hold exactly one such literal in
+// that function.
+func seedRequest(t *testing.T, foothold []byte) map[string]string {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), footholdFile, foothold, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parser.ParseFile(%s) error = %v", footholdFile, err)
+	}
+	var requests []map[string]string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "SeedAdministrator" {
+			continue
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok || types.ExprString(lit.Type) != "session.CreateUserRequest" {
+				return true
+			}
+			fields := map[string]string{}
+			for _, elt := range lit.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					t.Fatalf("%s: SeedAdministrator's session.CreateUserRequest sets a field without naming it: %s", footholdFile, types.ExprString(elt))
+				}
+				fields[types.ExprString(kv.Key)] = types.ExprString(kv.Value)
+			}
+			requests = append(requests, fields)
+
+			return true
+		})
+	}
+	if len(requests) != 1 {
+		t.Fatalf("%s: SeedAdministrator holds %d session.CreateUserRequest literals, want one", footholdFile, len(requests))
+	}
+
+	return requests[0]
 }
 
 // TestFiles_signedInHook holds what an auth package sets for the roles given for a
