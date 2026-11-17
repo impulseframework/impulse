@@ -29,7 +29,10 @@ type (
 	// record, and they are held to the rules the record's create applies when the
 	// invitation is sent: the caller needs the Create grant on the record and on each
 	// field given, as someone who created the sector directly would. A secret
-	// field of the record is not among them: no invitation carries a secret.
+	// field of the record is not among them: no invitation carries a secret. What the
+	// invitation says beyond the record's fields (directory only, the starting role) no Create
+	// grant covers: a role file withholds it by a condition on this method's grant, which
+	// reads each as the attribute its field declares.
 	//
 	// The message is sent once the invitation is committed, and the answer says whether
 	// it went (Sent). When it did not, the invitation is withdrawn, so no link stands
@@ -48,7 +51,12 @@ type (
 		// SectorDirectoryOnly says the sector's people enter through its
 		// directory only. The invitation is then accepted through an organization's
 		// directory alone: a first sign-in by password or with a personal account is
-		// refused, and the invitation stands.
+		// refused, and the invitation stands. The switch is no field the record's
+		// Create grant covers, so a grant's condition reads it as new.directoryOnly: a
+		// role that may invite but not close a sector to its directory is granted
+		// the method where new.directoryOnly = false.
+		//
+		// @attribute(directoryOnly)
 		SectorDirectoryOnly bool
 		// DefaultRole is the role a person from the sector's directory starts with,
 		// where the first sign-in sets one; empty, the sector admits its

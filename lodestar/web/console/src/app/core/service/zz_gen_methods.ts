@@ -1646,7 +1646,7 @@ const methodMap: MethodMap = {
       { fieldName: 'sectorName', displayType: 'string', required: true },
       { fieldName: 'sectorRegion', displayType: 'string', required: true },
       { fieldName: 'sectorEstablished', displayType: 'civildate', required: true },
-      { fieldName: 'sectorDirectoryOnly', displayType: 'boolean' },
+      { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', attribute: 'directoryOnly' },
       { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
     ],
   },

@@ -1762,6 +1762,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Attributes: []resource.AttributeData{
+					{Name: "directoryOnly", Column: "SectorDirectoryOnly", Type: "bool"},
 					{Name: "role", Column: "DefaultRole", Type: "string"},
 				},
 			},

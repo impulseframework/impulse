@@ -139,11 +139,11 @@ func NewSectorMaker(roster *resource.TenantRoster, signals live.Service) identit
 // Make buffers the sector's row from the invitation's details, through the
 // record's create patch, so the record's own rules apply and its change event is written
 // with it. The details name the record's fields by their Go names; a name the record
-// does not carry on an invitation is refused, and so is a value another sector
-// holds under a unique index. At the check a send makes (tenant.Caller), the patch is
-// armed with the caller, so the record's Create grant, on the record and on each field
-// given, answers as it would for a create, and the transaction is rolled back by
-// whoever asked. A rule the database alone applies at a commit (a CHECK constraint, a
+// does not carry on an invitation is refused. At the check a send makes
+// (tenant.Caller), the patch is armed with the caller, so the record's Create grant, on
+// the record and on each field given, answers as it would for a create, and the
+// transaction is rolled back by whoever asked. A value another sector holds
+// under a unique index is refused once the grants have answered. A rule the database alone applies at a commit (a CHECK constraint, a
 // unique index over several columns) is not seen by the check: it refuses the first
 // sign-in's commit, and the invitation stands.
 //
@@ -171,14 +171,6 @@ func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 		var given string
 		if err := json.Unmarshal(value, &given); err != nil {
 			return "", httpio.NewBadRequestMessageWithError(err, "the sector's name does not read")
-		}
-		// The database keeps one sector to a name (a unique index), and
-		// refuses a second at the commit: it is refused here, where the answer says so.
-		switch _, err := resources.NewSectorQuery().SetName(given).AddColumns(resources.NewSectorColumns().ID()).Read(ctx, txn); {
-		case err == nil:
-			return "", httpio.NewConflictMessagef("a sector with the name %v already exists: give the new one another", given)
-		case !httpio.HasNotFound(err):
-			return "", errors.Wrap(err, "resources.SectorQuery.Read()")
 		}
 		patch.SetName(given)
 		delete(carried, "Name")
@@ -214,6 +206,19 @@ func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 	}
 	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
+	}
+	if patch.NameIsSet() {
+		// The database keeps one sector to a name (a unique index), and
+		// refuses a second at the commit: it is refused here, where the answer says so,
+		// and after the caller's grants have answered (the buffer above), so the answer
+		// tells nobody who may not create a sector which values are taken. The
+		// read sees what is committed, never the row just buffered.
+		switch _, err := resources.NewSectorQuery().SetName(patch.Name()).AddColumns(resources.NewSectorColumns().ID()).Read(ctx, txn); {
+		case err == nil:
+			return "", httpio.NewConflictMessagef("a sector with the name %v already exists: give the new one another", patch.Name())
+		case !httpio.HasNotFound(err):
+			return "", errors.Wrap(err, "resources.SectorQuery.Read()")
+		}
 	}
 	if hasDirectory {
 		// The directory the person came through becomes the sector's own, held to
