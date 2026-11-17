@@ -385,6 +385,11 @@ func TestReadSuperAdministrators(t *testing.T) {
 			want: SuperAdministrators{Form: SuperAdministratorsChecked, Packages: []string{res, session, signin}},
 		},
 		{
+			name: "a check written in place is not entered, whatever its body names",
+			body: ownEngine + fmt.Sprintf(construct, `session.SuperAdministratorsBy(func(context.Context, string) (bool, error) { _ = accessClient; return false, nil })`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, Packages: []string{session}},
+		},
+		{
 			name: "an argument the constructor is handed has no form",
 			body: fmt.Sprintf(construct, `settings.SuperAdministrators`),
 		},

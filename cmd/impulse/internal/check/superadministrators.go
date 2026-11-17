@@ -25,7 +25,8 @@ import (
 // The check reads what the constructor shows: the form of the argument, the engine the
 // same function opens behind the check (access.New) and the role file that engine is
 // handed. An engine opened anywhere else, the data level say, cannot be followed from
-// here, so whose it is goes unjudged and is a warning.
+// here, so whose it is goes unjudged and is a warning; so is a check written by hand
+// as a function, and an engine handed a role file that is no auth package's.
 type superAdministratorsTold struct{}
 
 // superAdministratorsToldName is the check's name.
@@ -36,7 +37,7 @@ func (superAdministratorsTold) Name() string {
 }
 
 func (superAdministratorsTold) Describe() string {
-	return "every auth package with a role file tells its Auth who the auth's own super administrators are: session.NewAuth is handed session.SuperAdministratorsBy over a check built on the permission engine the package opens with its own Roles(), never session.NoSuperAdministrators() and never a check built over another auth's engine or taken from another auth package; a check whose engine is opened outside the constructor cannot be followed and is reported (WARN)"
+	return "every auth package with a role file tells its Auth who the auth's own super administrators are: session.NewAuth is handed session.SuperAdministratorsBy over a check built on the permission engine the package opens with its own Roles(), never session.NoSuperAdministrators() and never a check built over another auth's engine or taken from another auth package; a check written by hand, or one whose engine is opened outside the constructor, cannot be followed and is reported (WARN)"
 }
 
 // superAdministratorsForm is the argument an auth package passes, as impulse add auth
@@ -97,7 +98,7 @@ func (superAdministratorsTold) judge(a *app.App, p *app.AuthPackage, auth *app.A
 			at, p.Name, rolesFileOf(p), own), ""
 	case app.SuperAdministratorsChecked:
 	default:
-		return "", fmt.Sprintf("%s: what the %s auth's Auth is told about its super administrators does not read here: the argument after the cookie key is neither session.SuperAdministratorsBy(...) nor session.NoSuperAdministrators(), in the call or assigned in the same function, so it is not judged; %s",
+		return "", fmt.Sprintf("%s: what the %s auth's Auth is told about its super administrators does not read here: the argument after the cookie key is neither session.SuperAdministratorsBy(...) nor session.NoSuperAdministrators(), written in the call or assigned to the name the call takes (name := ... or name = ...) earlier in the same function, so it is not judged; %s",
 			at, p.Name, own)
 	}
 
@@ -115,22 +116,25 @@ func (superAdministratorsTold) judge(a *app.App, p *app.AuthPackage, auth *app.A
 	case told.RolesPackage == "":
 		return "", fmt.Sprintf("%s: the check the %s auth's Auth is handed is built over the engine opened at %s:%d, and the role file that engine is handed does not read there (no access.WithDefaultRoles(collection, Roles()) among its arguments), so whose engine it is is not judged here; %s",
 			at, p.Name, auth.File, told.EngineLine, own)
-	case told.RolesPackage != p.Path:
-		return fmt.Sprintf("%s: the %s auth's Auth takes its super administrators from the engine opened at %s:%d, which is handed %s's role file and is that auth's engine, so it holds that auth's holders to the second factor and none of its own; %s",
-			at, p.Name, auth.File, told.EngineLine, rolesOwner(a, told.RolesPackage), own), ""
+	case told.RolesPackage == p.Path:
+		return "", ""
+	}
+	if other := authPackageAt(a, told.RolesPackage); other != nil {
+		return fmt.Sprintf("%s: the %s auth's Auth takes its super administrators from the engine opened at %s:%d, which is handed the %s auth's role file and is that auth's engine, so it holds that auth's holders to the second factor and none of its own; %s",
+			at, p.Name, auth.File, told.EngineLine, other.Name, own), ""
 	}
 
-	return "", ""
+	return "", fmt.Sprintf("%s: the check the %s auth's Auth is handed is built over the engine opened at %s:%d, which is handed the Roles() of %s, no auth package of the application, and not the package's own, so whose engine it is is not judged here; %s",
+		at, p.Name, auth.File, told.EngineLine, told.RolesPackage, own)
 }
 
-// rolesOwner names the package a role file comes from: the auth's name when the package
-// is one of the application's auths, or its import path.
-func rolesOwner(a *app.App, pkg string) string {
+// authPackageAt returns the application's auth package at the import path, or nil.
+func authPackageAt(a *app.App, pkg string) *app.AuthPackage {
 	for i := range a.AuthPackages {
 		if a.AuthPackages[i].Path == pkg {
-			return "the " + a.AuthPackages[i].Name + " auth"
+			return &a.AuthPackages[i]
 		}
 	}
 
-	return pkg
+	return nil
 }

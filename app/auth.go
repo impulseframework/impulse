@@ -622,13 +622,17 @@ type checkReader struct {
 
 // read walks one expression: a package named before a selector is recorded, an
 // identifier the function assigned is followed into its value, and the walk stops at an
-// engine's construction, whose own arguments say nothing about the check.
+// engine's construction, whose own arguments say nothing about the check. A function
+// written in place is not entered: what its body names says nothing of what it answers,
+// so a check written by hand leads to no engine.
 func (r *checkReader) read(expr ast.Expr, steps int) {
 	if expr == nil || steps > maxCheckSteps {
 		return
 	}
 	ast.Inspect(expr, func(n ast.Node) bool {
 		switch e := n.(type) {
+		case *ast.FuncLit:
+			return false
 		case *ast.CallExpr:
 			if r.access != "" && isQualified(e.Fun, r.access, engineNewFunc) {
 				if r.engine == nil {

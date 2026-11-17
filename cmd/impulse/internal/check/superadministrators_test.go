@@ -93,16 +93,28 @@ func TestSuperAdministratorsTold(t *testing.T) {
 			wantDetails: []string{"pkg/auth/staff/staff.go:37: the check the staff auth's Auth is handed is built over the engine opened at pkg/auth/staff/staff.go:33, and the role file that engine is handed does not read there (no access.WithDefaultRoles(collection, Roles()) among its arguments), so whose engine it is is not judged here; " + staffOwn},
 		},
 		{
+			name:       "a check over an engine handed a role file that is no auth package's is not judged",
+			files:      one(strings.Replace(staffAuth, "access.WithDefaultRoles(collection, Roles())", "access.WithDefaultRoles(collection, signin.Roles())", 1)),
+			wantStatus: Warn, wantSummary: "1 Auth(s) whose super administrators cannot be followed to an engine",
+			wantDetails: []string{"pkg/auth/staff/staff.go:37: the check the staff auth's Auth is handed is built over the engine opened at pkg/auth/staff/staff.go:33, which is handed the Roles() of github.com/impulseframework/impulse/session/signin, no auth package of the application, and not the package's own, so whose engine it is is not judged here; " + staffOwn},
+		},
+		{
+			name:       "a check written by hand as a function is not judged",
+			files:      one(told(staffAuth, "session.SuperAdministratorsBy(func(context.Context, string) (bool, error) { _ = engine; return false, nil })")),
+			wantStatus: Warn, wantSummary: "1 Auth(s) whose super administrators cannot be followed to an engine",
+			wantDetails: []string{"pkg/auth/staff/staff.go:37: the check the staff auth's Auth is handed does not lead to a permission engine opened in the same function (access.New), so whose roles it reads is not judged here; " + staffOwn},
+		},
+		{
 			name: "an argument the constructor is handed is not judged", files: one(told(staffAuth, "superAdministrators")),
 			wantStatus: Warn, wantSummary: "1 Auth(s) whose super administrators cannot be followed to an engine",
-			wantDetails: []string{"pkg/auth/staff/staff.go:37: what the staff auth's Auth is told about its super administrators does not read here: the argument after the cookie key is neither session.SuperAdministratorsBy(...) nor session.NoSuperAdministrators(), in the call or assigned in the same function, so it is not judged; " + staffOwn},
+			wantDetails: []string{"pkg/auth/staff/staff.go:37: what the staff auth's Auth is told about its super administrators does not read here: the argument after the cookie key is neither session.SuperAdministratorsBy(...) nor session.NoSuperAdministrators(), written in the call or assigned to the name the call takes (name := ... or name = ...) earlier in the same function, so it is not judged; " + staffOwn},
 		},
 		{
 			name: "a finding beside a warning fails, the finding first", files: both,
 			wantStatus: Fail, wantSummary: "1 Auth(s) not told who their own auth's super administrators are",
 			wantDetails: []string{
 				"pkg/auth/members/members.go:39: the members auth has a role file (pkg/auth/members/roles.json), so its people hold roles and the Super Administrator role is among them, and its Auth is built with session.NoSuperAdministrators(), which leaves a holder to the sign-in rule alone, with no second factor of the library's own; " + membersOwn,
-				"pkg/auth/staff/staff.go:37: what the staff auth's Auth is told about its super administrators does not read here: the argument after the cookie key is neither session.SuperAdministratorsBy(...) nor session.NoSuperAdministrators(), in the call or assigned in the same function, so it is not judged; " + staffOwn,
+				"pkg/auth/staff/staff.go:37: what the staff auth's Auth is told about its super administrators does not read here: the argument after the cookie key is neither session.SuperAdministratorsBy(...) nor session.NoSuperAdministrators(), written in the call or assigned to the name the call takes (name := ... or name = ...) earlier in the same function, so it is not judged; " + staffOwn,
 			},
 		},
 		{
