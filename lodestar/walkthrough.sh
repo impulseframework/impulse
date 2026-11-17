@@ -567,9 +567,10 @@ HERON_BEFORE=$(body "$r" | py "print(rows['lastRefitAt'])")   # the seeded stamp
 cache_header "the live read is cacheable the same way" "$S/live-row.h" "private, max-age=300"
 r=$(req harbormaster GET "$ANVIL/ships" "" -D "$S/plain-list.h"); check "the same list asked plainly" 200 "$r"
 cache_header "a request without _v stays uncached" "$S/plain-list.h" "no-cache, no-store, must-revalidate"
-assert_fs "two subscriptions are on record for her tab: the Heron's row and the Anvil list" subscriptions "sorted((d['resource'],d['key'],d['domain']) for d in rows if d['principal']=='$(uid harbormaster)' and d['tab']=='$TAB')==[('Ships','','$ANVIL_ID'),('Ships','$HERON','')]"
+# A subscription's record names the sectors it is held over (domains): the one sector of a sector's list, the empty one alone for a row.
+assert_fs "two subscriptions are on record for her tab: the Heron's row and the Anvil list" subscriptions "sorted((d['resource'],d['key'],[x['stringValue'] for x in d['domains']['values']]) for d in rows if d['principal']=='$(uid harbormaster)' and d['tab']=='$TAB')==[('Ships','',['$ANVIL_ID']),('Ships','$HERON',[''])]"
 r=$(req pilot GET "$ANVIL/ships?_v=$SEED" "" -H "X-Subscribe: $TAB-pilot"); check "the pilot's fleet board at Anvil, live" 200 "$r"
-assert_fs "the pilot's Anvil list is on record" subscriptions "any(d['principal']=='$(uid pilot)' and d['tab']=='$TAB-pilot' and d['resource']=='Ships' and d['domain']=='$ANVIL_ID' for d in rows)"
+assert_fs "the pilot's Anvil list is on record" subscriptions "any(d['principal']=='$(uid pilot)' and d['tab']=='$TAB-pilot' and d['resource']=='Ships' and [x['stringValue'] for x in d['domains']['values']]==['$ANVIL_ID'] for d in rows)"
 r=$(req cadet GET "$ANVIL/ships"); check "the cadet holds no List on Ships" 403 "$r"
 r=$(req cadet GET "$ANVIL/ships?_v=$SEED" "" -H "X-Subscribe: $TAB-cadet"); check "asking live changes nothing for her: refused as before" 403 "$r"
 assert_fs "no record was written for the refused request" subscriptions "not any(d['principal']=='$(uid cadet)' for d in rows)"

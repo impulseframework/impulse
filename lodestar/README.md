@@ -264,8 +264,8 @@ token route hands the browser too. So with the stack running and `.envrc` loaded
     curl -s -H 'Authorization: Bearer owner' \
       "http://$FIRESTORE_EMULATOR_HOST/v1/projects/live-emulator/databases/(default)/documents/subscriptions"
 
-lists every live subscription (`principal`, `tab`, `resource`, `key` for a row or
-`domain` for a list, `expiry`), and
+lists every live subscription (`principal`, `tab`, `resource`, `key` for a row,
+`domains` for the sectors a list is held over, `expiry`), and
 `.../documents/users/crew%7Cf0000000-0000-4000-8000-000000000024/changes`
 lists the documents written into Hollis's set: a `row` document for the ship she had open
 and a `list` document for the fleet board in Anvil, each with its server timestamp `at`,
