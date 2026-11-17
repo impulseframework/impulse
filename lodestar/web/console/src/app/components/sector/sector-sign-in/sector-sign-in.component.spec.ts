@@ -365,7 +365,7 @@ describe('SectorSignInComponent', () => {
     expect(sent('make-sector-invite-only')).toEqual([]);
     expect(dialogText('[mat-dialog-title]')).toBe('Make invite only');
     expect(dialogText('.question')).toBe(
-      'People who sign in through the directory will need an invitation to enter this sector. The people it already seated keep their roles.',
+      'People who sign in through the directory will need an invitation to enter. The people it already seated keep their roles.',
     );
     expect(inDialog('.typed-word')).toBeNull();
 

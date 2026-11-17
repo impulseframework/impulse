@@ -221,7 +221,7 @@ export class TenantSignInComponent {
   async inviteOnly(): Promise<void> {
     await this.run(Methods.MakeTenantInviteOnly, 'Make invite only', {
       confirm:
-        'People who sign in through the directory will need an invitation to enter this tenant. The people it already seated keep their roles.',
+        'People who sign in through the directory will need an invitation to enter. The people it already seated keep their roles.',
     });
   }
 

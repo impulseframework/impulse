@@ -222,7 +222,7 @@ export class SectorSignInComponent {
   async inviteOnly(): Promise<void> {
     await this.run(Methods.MakeSectorInviteOnly, 'Make invite only', {
       confirm:
-        'People who sign in through the directory will need an invitation to enter this sector. The people it already seated keep their roles.',
+        'People who sign in through the directory will need an invitation to enter. The people it already seated keep their roles.',
     });
   }
 

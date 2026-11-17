@@ -245,7 +245,7 @@ describe('TenantSignInComponent', () => {
     // The tenant's administrator cannot read the tenant record: the name is the one the
     // session's tenant list carries.
     expect(texts('h1')).toEqual(['Who may enter Acme']);
-    expect(texts('.signed-in-through')).toEqual(['You are signed in through Google Workspace example.']);
+    expect(texts('.signed-in-through')).toEqual(['You are signed in through Google Workspace acme.example.']);
     expect(texts('.make-directory')).toEqual(["Make acme.example this tenant's directory"]);
     expect(element().querySelector('.how-to-set')).toBeNull();
     // No field takes a method or a connection: a directory is never typed in.
@@ -371,7 +371,7 @@ describe('TenantSignInComponent', () => {
     expect(sent('make-tenant-invite-only')).toEqual([]);
     expect(dialogText('[mat-dialog-title]')).toBe('Make invite only');
     expect(dialogText('.question')).toBe(
-      'People who sign in through the directory will need an invitation to enter this tenant. The people it already seated keep their roles.',
+      'People who sign in through the directory will need an invitation to enter. The people it already seated keep their roles.',
     );
     expect(inDialog('.typed-word')).toBeNull();
 

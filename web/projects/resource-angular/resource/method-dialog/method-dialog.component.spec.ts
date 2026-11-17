@@ -850,7 +850,9 @@ describe('MethodDialogComponent running a method that warns', () => {
     await o.component.askWarning();
     await settle(o);
 
-    expect(text(o, '.warning .warning-consequence')).toBe('2 people seated here sign in another way and will lose access.');
+    expect(text(o, '.warning .warning-consequence')).toBe(
+      '2 people seated here sign in another way and will lose access.',
+    );
     const names = Array.from((o.fixture.nativeElement as HTMLElement).querySelectorAll('.warning .warning-names li'));
     expect(names.map((li) => li.textContent?.trim())).toEqual(['Bosun Bram (bosun)', 'Rigger Rook (rigger)']);
   });
