@@ -751,13 +751,23 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only/consequence", method: http.MethodGet,
-			handlerFunc: "DirectoryOnlyConsequence",
-			parameters:  map[string]string{},
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-directory-only", method: http.MethodPost,
+			handlerFunc: "MakeTenantDirectoryOnly", selfBounded: true,
+			parameters: map[string]string{},
 		},
 		{
-			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-tenant-directory-only", method: http.MethodPost,
-			handlerFunc: "SetTenantDirectoryOnly", selfBounded: true,
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/end-tenant-directory-only", method: http.MethodPost,
+			handlerFunc: "EndTenantDirectoryOnly", selfBounded: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/open-tenant-to-directory", method: http.MethodPost,
+			handlerFunc: "OpenTenantToDirectory", selfBounded: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-invite-only", method: http.MethodPost,
+			handlerFunc: "MakeTenantInviteOnly", selfBounded: true,
 			parameters: map[string]string{},
 		},
 		{
@@ -878,12 +888,20 @@ func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
 	return s.record("DirectoryOnly")
 }
 
-func (s *generatedHandlersStub) DirectoryOnlyConsequence() http.HandlerFunc {
-	return s.record("DirectoryOnlyConsequence")
+func (s *generatedHandlersStub) MakeTenantDirectoryOnly() http.HandlerFunc {
+	return s.record("MakeTenantDirectoryOnly")
 }
 
-func (s *generatedHandlersStub) SetTenantDirectoryOnly() http.HandlerFunc {
-	return s.record("SetTenantDirectoryOnly")
+func (s *generatedHandlersStub) EndTenantDirectoryOnly() http.HandlerFunc {
+	return s.record("EndTenantDirectoryOnly")
+}
+
+func (s *generatedHandlersStub) OpenTenantToDirectory() http.HandlerFunc {
+	return s.record("OpenTenantToDirectory")
+}
+
+func (s *generatedHandlersStub) MakeTenantInviteOnly() http.HandlerFunc {
+	return s.record("MakeTenantInviteOnly")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {

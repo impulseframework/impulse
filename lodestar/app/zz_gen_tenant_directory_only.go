@@ -19,26 +19,64 @@ import (
 	"github.com/impulseframework/impulse/tracer"
 )
 
-// SetSectorDirectoryOnly serves the method that turns a sector's directory-only switch on or off
-// (Sector.DirectoryOnly), POST <prefix>/sectors/{sectorID}/set-sector-directory-only on every outlet that
+// MakeSectorDirectoryOnly serves the method that turns a sector's directory-only switch on
+// (Sector.DirectoryOnly), POST <prefix>/sectors/{sectorID}/make-sector-directory-only on every outlet that
 // serves sessions and the Sector record. The switch is the sector's own: the method runs
-// in the sector's scope, to an Execute grant on SetSectorDirectoryOnly there, which the sector's
+// in the sector's scope, to an Execute grant on MakeSectorDirectoryOnly there, which the sector's
 // administrator holds, and the Sector record's own write paths, which are global, show
-// the flag and never write it. The body says which way: {"directoryOnly": true} turns it
-// on, {"directoryOnly": false} turns it off, and a body that says neither is refused.
+// the flag and never write it.
 //
 // Turning it on closes the sector to every sign-in but one through its directory, so it
 // is held to its rules (resource.TenantDirectoryRules.DirectoryOnly), each refusal a
 // Conflict with a sentence the person can act on: the sector has its directory, and the
 // caller is signed in through it. The grant answers first, so a caller it refuses learns
-// nothing from a rule. Turning it off is plain. The flag is written through the record's
-// update patch, so its change event is written with it; this instance's roster rereads
-// what the sector declares once the transaction has committed, and the tenants kind is
-// signaled, so the next request on every instance is decided by it. A dry run
-// (X-Dry-Run: true) runs the whole frame and rolls back: every refusal answers as the
-// real call would, and a call that would have succeeded answers 200 and writes nothing.
-func (a *App) SetSectorDirectoryOnly() http.HandlerFunc {
-	decoder := resource.MustNewRPCDecoder[resource.SetDirectoryOnlyRequest](a, "SetSectorDirectoryOnly", accesstypes.Execute).WithCollection(router.Collection())
+// nothing from a rule.
+//
+// The method declares a warning, which a person types "close" under before the
+// dialog a page runs it through lets them confirm. A request that asks for it
+// (X-Warning: true) is decoded and checked as the call is and answers, in place of
+// running the call, what it would do (resource.TenantDirectoryRules.DirectoryOnlyWarning):
+// only people who sign in through the sector's directory will be able to enter, how many
+// of the people seated in it will lose access, and the words for the button; or the
+// refusal the call itself would answer, in the same words.
+// The people are read through the generated identity client of each auth whose people a
+// sector seats (DirectoryOutsiders): everyone who holds a role in the sector and has no
+// sign-in through its directory, a super administrator left out. Everyone is counted, and
+// a person is named only to a caller who may list them: one who holds List on the
+// sector's list of that auth's people and, on no condition, on the fields of it that name
+// a person.
+//
+// The flag is written through the record's update patch, so its change event is written
+// with it; this instance's roster rereads what the sector declares once the transaction
+// has committed, and the tenants kind is signaled, so the next request on every instance
+// is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and rolls back:
+// every refusal answers as the real call would, and a call that would have succeeded
+// answers 200 and writes nothing.
+func (a *App) MakeSectorDirectoryOnly() http.HandlerFunc {
+	return sectorDirectoryOnly(a, "MakeSectorDirectoryOnly", true)
+}
+
+// EndSectorDirectoryOnly serves the method that turns a sector's directory-only switch off,
+// POST <prefix>/sectors/{sectorID}/end-sector-directory-only, to an Execute grant on EndSectorDirectoryOnly in the
+// sector: every person seated in the sector enters it again, however they signed in.
+// Turning it off is plain: no rule holds it and it declares no warning, so a request
+// that asks for one is refused (400) and never runs the call. While the switch is on,
+// the sector's routes, this one among them, are served to the people the sector admits:
+// a person signed in through its directory, and a super administrator, whom no sector's
+// sign-in settings shut out. The flag is written, the roster reread and the tenants kind
+// signaled as MakeSectorDirectoryOnly does, and a dry run answers the same way.
+func (a *App) EndSectorDirectoryOnly() http.HandlerFunc {
+	return sectorDirectoryOnly(a, "EndSectorDirectoryOnly", false)
+}
+
+// sectorDirectoryOnly is the frame of the two methods that turn a sector's
+// directory-only switch: method is the one served, as grants name it, and only the way
+// it turns the switch.
+func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {
+	// Neither method takes anything in its body: the route names the sector.
+	type request struct{}
+
+	decoder := resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())
 	rules := NewSectorDirectoryRules()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
@@ -49,14 +87,21 @@ func (a *App) SetSectorDirectoryOnly() http.HandlerFunc {
 		// The body is bounded at the application's limit, router.BodyLimit, as every
 		// method's is: the route registers beside the router's bounded group.
 		r.Body = http.MaxBytesReader(w, r.Body, router.BodyLimit)
-		req, err := decoder.Decode(r, accesstypes.DomainScope(domain))
+		_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		only, err := req.Turn()
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		ctx = resource.WithCaller(ctx, caller)
+
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is. Turning the switch on answers its warning in
+		// place of running the call: the transaction below rolls back. Turning it
+		// off declares none, so the request is refused and never runs the call.
+		asksWarning := resource.AsksWarning(r)
+		if asksWarning && !only {
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("%s declares no warning: send the call without the X-Warning header", method))
 		}
+		var warning *resource.Warning
 		id, err := impulse.UUIDFromString(string(domain))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessage("This sector does not exist."))
@@ -66,6 +111,21 @@ func (a *App) SetSectorDirectoryOnly() http.HandlerFunc {
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun := resource.IsDryRun(r)
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			if asksWarning {
+				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
+					resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders},
+					resource.DirectoryPeople{List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders},
+				)
+				if err != nil {
+					return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnlyWarning()")
+				}
+				if err := resource.CheckWarning(string(method), said); err != nil {
+					return errors.Wrap(err, "resource.CheckWarning()")
+				}
+				warning = said
+
+				return resource.ErrWarningAsked
+			}
 			if err := rules.DirectoryOnly(ctx, txn, domain, only); err != nil {
 				return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")
 			}
@@ -78,6 +138,9 @@ func (a *App) SetSectorDirectoryOnly() http.HandlerFunc {
 
 			return nil
 		}); err != nil {
+			if asksWarning && resource.WarningAsked(err) {
+				return httpio.NewEncoder(w).Ok(warning)
+			}
 			if dryRun && resource.DryRunRolledBack(err) {
 				return httpio.NewEncoder(w).Ok(nil)
 			}
@@ -102,37 +165,8 @@ func (a *App) SetSectorDirectoryOnly() http.HandlerFunc {
 // DirectoryOnly serves a sector's directory-only switch as it stands, GET
 // <prefix>/sectors/{sectorID}/directory-only: what the sector's Sign-in page shows the person
 // who may turn it, who does not read the global Sector record. It is asked under the
-// grant the method is, Execute on SetSectorDirectoryOnly in the sector, and writes nothing
-// (resource.DirectoryOnlyReads).
+// grant of either method that turns it, Execute on MakeSectorDirectoryOnly or on EndSectorDirectoryOnly in the
+// sector, and writes nothing (resource.DirectoryOnlyStateHandler).
 func (a *App) DirectoryOnly() http.HandlerFunc {
-	return sectorDirectoryOnlyReads(a).State()
-}
-
-// DirectoryOnlyConsequence serves the read a sector's Sign-in page calls before it turns
-// the switch on, GET <prefix>/sectors/{sectorID}/directory-only/consequence: what turning it on would do,
-// in words the server writes (resource.DirectoryOnlyConsequence: only people who sign in
-// through the sector's directory will be able to enter, and how many of the people seated
-// in it will lose access), or the refusal the method itself would answer, in the same
-// words: a sector with no directory, a caller who is not signed in through it. It is asked
-// under the grant the method is, Execute on SetSectorDirectoryOnly in the sector, and writes nothing.
-// The people are read through the generated identity client of each auth whose people a
-// sector seats (DirectoryOutsiders): everyone who holds a role in the sector and has no
-// sign-in through its directory, a super administrator left out. Everyone is counted, and
-// a person is named only to a caller who may list them: one who holds List on the
-// sector's list of that auth's people and, on no condition, on the fields of it that name
-// a person.
-func (a *App) DirectoryOnlyConsequence() http.HandlerFunc {
-	return sectorDirectoryOnlyReads(a).Consequence()
-}
-
-// sectorDirectoryOnlyReads builds the two reads of a sector's directory-only switch
-// over the application: its client, the Sector record's rules, the method whose grant
-// the reads are asked under, the route parameter that names the sector, and each auth's
-// reader of the people the switch keeps out, with the list that decides whether the
-// caller is told who they are.
-func sectorDirectoryOnlyReads(a *App) *resource.DirectoryOnlyReads {
-	return resource.NewDirectoryOnlyReads(a.ResourceClient(), NewSectorDirectoryRules(), a.UserPermissions, "SetSectorDirectoryOnly", router.Domain,
-		resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders},
-		resource.DirectoryPeople{List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders},
-	)
+	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewSectorDirectoryRules(), a.UserPermissions, router.Domain, "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly")
 }

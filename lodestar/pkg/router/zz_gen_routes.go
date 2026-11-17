@@ -279,8 +279,10 @@ type GeneratedHandlers interface {
 	DescribeCrewSectorGroup() http.HandlerFunc
 
 	DirectoryOnly() http.HandlerFunc
-	DirectoryOnlyConsequence() http.HandlerFunc
-	SetSectorDirectoryOnly() http.HandlerFunc
+	MakeSectorDirectoryOnly() http.HandlerFunc
+	EndSectorDirectoryOnly() http.HandlerFunc
+	OpenSectorToDirectory() http.HandlerFunc
+	MakeSectorInviteOnly() http.HandlerFunc
 
 	DisableCrewSectorUser() http.HandlerFunc
 
@@ -866,9 +868,13 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/console/api/sectors/{sectorID}/directory-only", domainGuard(h.DirectoryOnly()))
 
-	bounded.Get("/console/api/sectors/{sectorID}/directory-only/consequence", domainGuard(h.DirectoryOnlyConsequence()))
+	r.Post("/console/api/sectors/{sectorID}/make-sector-directory-only", domainGuard(h.MakeSectorDirectoryOnly()))
 
-	r.Post("/console/api/sectors/{sectorID}/set-sector-directory-only", domainGuard(h.SetSectorDirectoryOnly()))
+	r.Post("/console/api/sectors/{sectorID}/end-sector-directory-only", domainGuard(h.EndSectorDirectoryOnly()))
+
+	r.Post("/console/api/sectors/{sectorID}/open-sector-to-directory", domainGuard(h.OpenSectorToDirectory()))
+
+	r.Post("/console/api/sectors/{sectorID}/make-sector-invite-only", domainGuard(h.MakeSectorInviteOnly()))
 
 	r.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
 

@@ -41,7 +41,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		TenantID    impulse.UUID `json:"-"`
 		Method      string       `json:"-"`
 		Connection  string       `json:"-"`
-		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
+		DefaultSeat *string      `json:"-"`
 	}
 	tenantDirectoryDecoder := NewDecoder[resources.TenantDirectory, tenantDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 

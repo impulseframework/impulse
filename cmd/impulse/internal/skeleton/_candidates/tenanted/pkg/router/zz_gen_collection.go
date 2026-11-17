@@ -94,6 +94,11 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffTenantUsers",
 			},
 			{
+				Name:        "EndTenantDirectoryOnly",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
 				Name:        "GiveStaffTenantGroupRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -109,6 +114,21 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
+			},
+			{
+				Name:        "MakeTenantDirectoryOnly",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:        "MakeTenantInviteOnly",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:        "OpenTenantToDirectory",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "RemoveStaffTenantGroupMember",
@@ -163,11 +183,6 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "StaffTenantUsers",
-			},
-			{
-				Name:        "SetTenantDirectoryOnly",
-				Scope:       accesstypes.DomainPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "StaffTenantGroupRoles",
@@ -400,7 +415,7 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
 					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
-					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
 					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "tenantId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},

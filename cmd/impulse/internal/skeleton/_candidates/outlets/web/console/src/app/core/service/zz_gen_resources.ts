@@ -780,7 +780,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'tenantId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants, readOnly: true },
       { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
-      { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, maxLength: 64 },
+      { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
     ],
   },
   [Resources.StaffSignInMethods]: {

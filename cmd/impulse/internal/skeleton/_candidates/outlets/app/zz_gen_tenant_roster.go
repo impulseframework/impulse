@@ -29,12 +29,13 @@ var _ interface {
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var tenantDeclaration = resource.TenantDeclarationColumns{
-	DirectoryOnly:     "DirectoryOnly",
-	DirectoriesTable:  "TenantDirectories",
-	TenantColumn:      "TenantId",
-	MethodColumn:      "Method",
-	ConnectionColumn:  "Connection",
-	DefaultSeatColumn: "DefaultSeat",
+	DirectoryOnly:        "DirectoryOnly",
+	DirectoriesTable:     "TenantDirectories",
+	TenantColumn:         "TenantId",
+	MethodColumn:         "Method",
+	ConnectionColumn:     "Connection",
+	DirectoriesKeyColumn: "Id",
+	DefaultSeatColumn:    "DefaultSeat",
 }
 
 // NewTenantRoster builds the application's tenant roster over the Tenant record

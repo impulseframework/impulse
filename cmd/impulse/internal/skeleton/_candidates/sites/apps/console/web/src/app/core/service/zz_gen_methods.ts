@@ -633,18 +633,25 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
-/**
- * The body SetTenantDirectoryOnly takes: which way to turn the tenant's directory-only switch.
- * The method is the tenant's own, run in its scope; the server refuses turning the
- * switch on until the tenant has its directory and unless the caller is signed in
- * through it, in a sentence the person can act on.
- */
-export interface SetTenantDirectoryOnlyConfig {
-  directoryOnly: boolean | FieldPointer;
+/** The body MakeTenantDirectoryOnly takes. The method turns the tenant's directory-only switch on, which closes the tenant to every sign-in but one through its directory; the server refuses it until the tenant has its directory and unless the caller is signed in through it, in a sentence the person can act on. */
+export interface MakeTenantDirectoryOnlyConfig {}
+export interface MakeTenantDirectoryOnly {}
+
+/** The body EndTenantDirectoryOnly takes. The method turns the tenant's directory-only switch off: every sign-in is admitted again. */
+export interface EndTenantDirectoryOnlyConfig {}
+export interface EndTenantDirectoryOnly {}
+
+/** The body OpenTenantToDirectory takes. The method opens the tenant to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+export interface OpenTenantToDirectoryConfig {
+  role: string | FieldPointer;
 }
-export interface SetTenantDirectoryOnly {
-  directoryOnly: boolean;
+export interface OpenTenantToDirectory {
+  role: string;
 }
+
+/** The body MakeTenantInviteOnly takes. The method makes the tenant invite only for its directory's people: a person from the directory enters once they are invited. */
+export interface MakeTenantInviteOnlyConfig {}
+export interface MakeTenantInviteOnly {}
 
 
 export interface RPCFieldMeta {
@@ -1257,12 +1264,29 @@ const methodMap: MethodMap = {
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
   },
-  [Methods.SetTenantDirectoryOnly]: {
-    route: 'set-tenant-directory-only',
+  [Methods.MakeTenantDirectoryOnly]: {
+    route: 'make-tenant-directory-only',
     dryRun: true,
+    warning: { typed: 'close' },
+    fields: [],
+  },
+  [Methods.EndTenantDirectoryOnly]: {
+    route: 'end-tenant-directory-only',
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.OpenTenantToDirectory]: {
+    route: 'open-tenant-to-directory',
+    dryRun: true,
+    warning: { typed: 'open' },
     fields: [
-      { fieldName: 'directoryOnly', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTenantRoles, required: true },
     ],
+  },
+  [Methods.MakeTenantInviteOnly]: {
+    route: 'make-tenant-invite-only',
+    dryRun: true,
+    fields: [],
   },
 
 };

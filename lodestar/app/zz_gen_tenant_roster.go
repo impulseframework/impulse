@@ -29,12 +29,13 @@ var _ interface {
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var sectorDeclaration = resource.TenantDeclarationColumns{
-	DirectoryOnly:     "DirectoryOnly",
-	DirectoriesTable:  "SectorDirectories",
-	TenantColumn:      "SectorId",
-	MethodColumn:      "Method",
-	ConnectionColumn:  "Connection",
-	DefaultSeatColumn: "DefaultSeat",
+	DirectoryOnly:        "DirectoryOnly",
+	DirectoriesTable:     "SectorDirectories",
+	TenantColumn:         "SectorId",
+	MethodColumn:         "Method",
+	ConnectionColumn:     "Connection",
+	DirectoriesKeyColumn: "Id",
+	DefaultSeatColumn:    "DefaultSeat",
 }
 
 // NewSectorRoster builds the application's tenant roster over the Sector record

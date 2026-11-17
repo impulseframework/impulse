@@ -2835,13 +2835,23 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/directory-only/consequence", method: http.MethodGet,
-			handlerFunc: "DirectoryOnlyConsequence",
-			parameters:  map[string]string{},
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/make-sector-directory-only", method: http.MethodPost,
+			handlerFunc: "MakeSectorDirectoryOnly", selfBounded: true,
+			parameters: map[string]string{},
 		},
 		{
-			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-sector-directory-only", method: http.MethodPost,
-			handlerFunc: "SetSectorDirectoryOnly", selfBounded: true,
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/end-sector-directory-only", method: http.MethodPost,
+			handlerFunc: "EndSectorDirectoryOnly", selfBounded: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/open-sector-to-directory", method: http.MethodPost,
+			handlerFunc: "OpenSectorToDirectory", selfBounded: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/make-sector-invite-only", method: http.MethodPost,
+			handlerFunc: "MakeSectorInviteOnly", selfBounded: true,
 			parameters: map[string]string{},
 		},
 		{
@@ -3261,12 +3271,20 @@ func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
 	return s.record("DirectoryOnly")
 }
 
-func (s *generatedHandlersStub) DirectoryOnlyConsequence() http.HandlerFunc {
-	return s.record("DirectoryOnlyConsequence")
+func (s *generatedHandlersStub) MakeSectorDirectoryOnly() http.HandlerFunc {
+	return s.record("MakeSectorDirectoryOnly")
 }
 
-func (s *generatedHandlersStub) SetSectorDirectoryOnly() http.HandlerFunc {
-	return s.record("SetSectorDirectoryOnly")
+func (s *generatedHandlersStub) EndSectorDirectoryOnly() http.HandlerFunc {
+	return s.record("EndSectorDirectoryOnly")
+}
+
+func (s *generatedHandlersStub) OpenSectorToDirectory() http.HandlerFunc {
+	return s.record("OpenSectorToDirectory")
+}
+
+func (s *generatedHandlersStub) MakeSectorInviteOnly() http.HandlerFunc {
+	return s.record("MakeSectorInviteOnly")
 }
 
 func (s *generatedHandlersStub) DisableCrewSectorUser() http.HandlerFunc {

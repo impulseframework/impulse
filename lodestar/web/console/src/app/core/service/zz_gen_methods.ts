@@ -1072,18 +1072,25 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
-/**
- * The body SetSectorDirectoryOnly takes: which way to turn the sector's directory-only switch.
- * The method is the sector's own, run in its scope; the server refuses turning the
- * switch on until the sector has its directory and unless the caller is signed in
- * through it, in a sentence the person can act on.
- */
-export interface SetSectorDirectoryOnlyConfig {
-  directoryOnly: boolean | FieldPointer;
+/** The body MakeSectorDirectoryOnly takes. The method turns the sector's directory-only switch on, which closes the sector to every sign-in but one through its directory; the server refuses it until the sector has its directory and unless the caller is signed in through it, in a sentence the person can act on. */
+export interface MakeSectorDirectoryOnlyConfig {}
+export interface MakeSectorDirectoryOnly {}
+
+/** The body EndSectorDirectoryOnly takes. The method turns the sector's directory-only switch off: every sign-in is admitted again. */
+export interface EndSectorDirectoryOnlyConfig {}
+export interface EndSectorDirectoryOnly {}
+
+/** The body OpenSectorToDirectory takes. The method opens the sector to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+export interface OpenSectorToDirectoryConfig {
+  role: string | FieldPointer;
 }
-export interface SetSectorDirectoryOnly {
-  directoryOnly: boolean;
+export interface OpenSectorToDirectory {
+  role: string;
 }
+
+/** The body MakeSectorInviteOnly takes. The method makes the sector invite only for its directory's people: a person from the directory enters once they are invited. */
+export interface MakeSectorInviteOnlyConfig {}
+export interface MakeSectorInviteOnly {}
 
 
 export interface RPCFieldMeta {
@@ -2089,12 +2096,29 @@ const methodMap: MethodMap = {
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
   },
-  [Methods.SetSectorDirectoryOnly]: {
-    route: 'set-sector-directory-only',
+  [Methods.MakeSectorDirectoryOnly]: {
+    route: 'make-sector-directory-only',
     dryRun: true,
+    warning: { typed: 'close' },
+    fields: [],
+  },
+  [Methods.EndSectorDirectoryOnly]: {
+    route: 'end-sector-directory-only',
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.OpenSectorToDirectory]: {
+    route: 'open-sector-to-directory',
+    dryRun: true,
+    warning: { typed: 'open' },
     fields: [
-      { fieldName: 'directoryOnly', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorRoles, required: true },
     ],
+  },
+  [Methods.MakeSectorInviteOnly]: {
+    route: 'make-sector-invite-only',
+    dryRun: true,
+    fields: [],
   },
 
 };
