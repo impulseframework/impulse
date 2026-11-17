@@ -176,6 +176,15 @@ export interface StaffUserRoles {
   endsAt?: Date;
 }
 
+export interface StaffSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
+}
+
 /** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
 export interface FeatureFlags {
   name: string;
@@ -469,6 +478,22 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffSignInWays]: {
+    route: 'staff-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.FeatureFlags]: {
     route: 'feature-flags',
     createDisabled: true,
@@ -512,5 +537,6 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffSessionUsers]: PermissionScopes.global,
   [Resources.StaffUserGroupRoles]: PermissionScopes.global,
   [Resources.StaffUserRoles]: PermissionScopes.global,
+  [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };

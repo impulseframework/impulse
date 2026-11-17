@@ -147,6 +147,8 @@ type GeneratedHandlers interface {
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
 
+	StaffSignInWays() http.HandlerFunc
+
 	StaffUserGroupRoles() http.HandlerFunc
 	StaffUserGroupRole() http.HandlerFunc
 
@@ -322,6 +324,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionUserHandler := h.StaffSessionUser()
 	bounded.Get("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
+
+	staffSignInWaysHandler := h.StaffSignInWays()
+	bounded.Get("/api/staff-sign-in-ways", staffSignInWaysHandler)
+	bounded.Post("/api/staff-sign-in-ways", staffSignInWaysHandler)
 
 	staffUserGroupRolesHandler := h.StaffUserGroupRoles()
 	bounded.Get("/api/staff-user-group-roles", staffUserGroupRolesHandler)

@@ -217,6 +217,8 @@ type GeneratedHandlers interface {
 
 	CrewSectorRoles() http.HandlerFunc
 
+	CrewSectorSignInWays() http.HandlerFunc
+
 	CrewSectorUsers() http.HandlerFunc
 	CrewSectorUser() http.HandlerFunc
 
@@ -250,6 +252,8 @@ type GeneratedHandlers interface {
 
 	CrewSessionUsers() http.HandlerFunc
 	CrewSessionUser() http.HandlerFunc
+
+	CrewSignInWays() http.HandlerFunc
 
 	CrewUserGroupRoles() http.HandlerFunc
 	CrewUserGroupRole() http.HandlerFunc
@@ -722,6 +726,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-roles", crewSectorRolesHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-roles", crewSectorRolesHandler)
 
+	crewSectorSignInWaysHandler := domainGuard(h.CrewSectorSignInWays())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-sign-in-ways", crewSectorSignInWaysHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-sign-in-ways", crewSectorSignInWaysHandler)
+
 	crewSectorUsersHandler := domainGuard(h.CrewSectorUsers())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-users", crewSectorUsersHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-users", crewSectorUsersHandler)
@@ -809,6 +817,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewSessionUserHandler := h.CrewSessionUser()
 	bounded.Get("/console/api/crew-session-users/{crewSessionUserID}", crewSessionUserHandler)
 	bounded.Post("/console/api/crew-session-users/{crewSessionUserID}", crewSessionUserHandler)
+
+	crewSignInWaysHandler := h.CrewSignInWays()
+	bounded.Get("/console/api/crew-sign-in-ways", crewSignInWaysHandler)
+	bounded.Post("/console/api/crew-sign-in-ways", crewSignInWaysHandler)
 
 	crewUserGroupRolesHandler := h.CrewUserGroupRoles()
 	bounded.Get("/console/api/crew-user-group-roles", crewUserGroupRolesHandler)

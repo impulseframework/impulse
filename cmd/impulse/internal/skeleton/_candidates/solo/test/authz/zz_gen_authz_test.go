@@ -401,6 +401,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "StaffSignInWays denied",
+			method:       http.MethodGet,
+			target:       "/api/staff-sign-in-ways",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "StaffSignInWays granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/api/staff-sign-in-ways",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "AddStaffGroupMember denied",
 			method:       http.MethodPost,
 			target:       "/api/add-staff-group-member",

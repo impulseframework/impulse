@@ -295,9 +295,29 @@ export interface TenantDirectories {
   defaultSeat?: string;
 }
 
+export interface StaffSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
+}
+
 export interface StaffTenantRoles {
   name: string;
   description?: string;
+}
+
+export interface StaffTenantSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
+  heldElsewhere?: boolean;
+  heldGlobally?: boolean;
 }
 
 /** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
@@ -749,6 +769,22 @@ const resourceMap = defineResourceMap({
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, maxLength: 64 },
     ],
   },
+  [Resources.StaffSignInWays]: {
+    route: 'staff-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffTenantRoles]: {
     route: 'tenants/{tenantID}/staff-tenant-roles',
     readDisabled: true,
@@ -759,6 +795,24 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffTenantSignInWays]: {
+    route: 'tenants/{tenantID}/staff-tenant-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'heldElsewhere', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
   [Resources.FeatureFlags]: {
@@ -823,6 +877,8 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffUserRoles]: PermissionScopes.global,
   [Resources.Tenants]: PermissionScopes.global,
   [Resources.TenantDirectories]: PermissionScopes.domain,
+  [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.StaffTenantRoles]: PermissionScopes.domain,
+  [Resources.StaffTenantSignInWays]: PermissionScopes.domain,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };

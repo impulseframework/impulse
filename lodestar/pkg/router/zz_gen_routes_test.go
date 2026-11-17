@@ -361,6 +361,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/briefing-templates", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodGet},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodPost},
+		{url: "/droids/crew-sign-in-ways", method: http.MethodGet},
+		{url: "/droids/crew-sign-in-ways", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests/testExpenseManifestMissionID", method: http.MethodGet},
@@ -657,6 +661,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodGet},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodPost},
+		{url: "/portal/api/crew-sign-in-ways", method: http.MethodGet},
+		{url: "/portal/api/crew-sign-in-ways", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests/testExpenseManifestMissionID", method: http.MethodGet},
@@ -2639,6 +2647,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "CrewSectorSignInWays",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "CrewSectorSignInWays",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/crew-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "CrewSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "CrewSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodGet,
 			handlerFunc: "ExpenseManifests",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -3052,6 +3080,10 @@ func (s *generatedHandlersStub) CrewSectorRoles() http.HandlerFunc {
 	return s.record("CrewSectorRoles")
 }
 
+func (s *generatedHandlersStub) CrewSectorSignInWays() http.HandlerFunc {
+	return s.record("CrewSectorSignInWays")
+}
+
 func (s *generatedHandlersStub) CrewSectorUsers() http.HandlerFunc {
 	return s.record("CrewSectorUsers")
 }
@@ -3138,6 +3170,10 @@ func (s *generatedHandlersStub) CrewSessionUsers() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CrewSessionUser() http.HandlerFunc {
 	return s.record("CrewSessionUser")
+}
+
+func (s *generatedHandlersStub) CrewSignInWays() http.HandlerFunc {
+	return s.record("CrewSignInWays")
 }
 
 func (s *generatedHandlersStub) CrewUserGroupRoles() http.HandlerFunc {
