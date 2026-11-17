@@ -3585,9 +3585,14 @@ variable; a variable that is set and does not hold a version is an error naming 
 variable, never its value. A stored value names its version in two bytes, so a secret's
 versions run from 1 to 65535: the variable of a version past 65535, or of version 0
 (`APP_SECRET_KEY_65536`, `APP_SECRET_KEY_0`), is an error at start that says the range.
-The development environment file carries `APP_SECRET_KEY_1` (a fixed development value in
-the skeletons' and Lodestar's `.envrc.template`), and `impulse check` (`env-template`)
-holds the template to it.
+The development environment file carries `APP_SECRET_KEY_1`, generated: the skeletons'
+and Lodestar's `.envrc.template` write 32 random bytes to `.app-secret-key.dev` the first
+time the file is sourced from the application's root and read the variable from that file
+from then on, so a checkout keeps one key and `.gitignore` keeps it out of git. No
+template holds a key: a key in a tracked file is every checkout's, and the library cannot
+tell it from a real one. `impulse check` (`env-template`) holds the template to that: the
+variable set by a line, never a key written in the template, the key's file ignored; and
+`--fix` writes the two lines.
 
 **Writing.** No code of the author's. A request and a typed patch give the value as text
 (`patch.SetTransponderKey(&key)`; the generated request structs, the typed patches'

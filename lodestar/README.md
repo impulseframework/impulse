@@ -36,8 +36,13 @@ overmind start
 The environment file carries `APP_SECRET_KEY_1`, version 1 of the application secret, which
 a ship's transponder key is encrypted with (a secret field, `conditions:"secret"` on
 [Ship.TransponderKey](pkg/resources/ships.go): the column holds the key sealed, and nothing
-serves it back); the server refuses to start without a version, so an `.envrc` copied
-before the variable existed takes the line from the template. A deployment generates the
+serves it back). The template makes the value for the checkout: 32 random bytes, written
+to `.app-secret-key.dev` the first time the file is sourced from Lodestar's root and read
+from it from then on, with `.gitignore` keeping that file out of git, so no key is
+written in a tracked file. The server refuses to start without a version, naming the
+variable, so an `.envrc` copied before the lines existed takes them from the template; an
+`.envrc` that holds a key of its own keeps it, since the secrets the development database
+already holds open under no other. A deployment generates the
 secret and hands the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`),
 and the migrate command retires one (`-retire-secret APP_SECRET_KEY_1`) by writing every key
 that names it again under the current version. Demonstrates: secret, secret.rotation.
