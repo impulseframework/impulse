@@ -11,6 +11,7 @@ func newSession(spannerClient any, cookieKey string) (*session.PasswordMethod, e
 	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(spannerClient),
 		cookieKey,
+		session.NoSuperAdministrators(),
 		session.WithSessionTableName("LighthouseSessions"),
 		session.WithCookieName("lighthouse"),
 	)

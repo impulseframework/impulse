@@ -21,7 +21,7 @@ import (
 )
 
 func register(client any, key string, settings *Settings) {
-	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)
+	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
 ` + statements + `
 }
 ` + strings.Join(decls, "\n")

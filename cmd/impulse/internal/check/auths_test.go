@@ -48,7 +48,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	if _, err := access.New(nil, access.WithDefaultRoles(collection, Roles())); err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key,
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(),
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -246,7 +246,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	if _, err := access.New(nil, access.WithDefaultRoles(collection, Roles())); err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key,
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(),
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -297,7 +297,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	if _, err := access.New(nil, access.WithDefaultRoles(collection, Roles())); err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key,
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(),
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
