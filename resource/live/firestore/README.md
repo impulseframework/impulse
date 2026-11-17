@@ -74,6 +74,11 @@ every subscriber of a resource, the bulk path's one lookup. The unsubscribe quer
 equality-only (`principal`, `principal` and `tab`) and need no composite index. The
 change sets query one field, `at`, which the default single-field index serves.
 
+An application carries its own copy of this file and of `firestore.rules` under
+`schema/firestore`, and its deployment applies that copy. A new application starts with
+the copies of the skeleton it was made from, which a test of the skeleton holds to the
+files here, so a lookup that changes its index changes them in the same change.
+
 ## Time-to-live policies
 
 Two, named in `firestore.indexes.json` as `fieldOverrides` with `ttl: true`:
