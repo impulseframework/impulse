@@ -258,16 +258,16 @@ func testOpenRowOfAnotherAudience(_ context.Context, t *testing.T, h *AuthHarnes
 		// opened is whom the row says the method was opened for, nil for a row that
 		// names no audience; now is whom the registration admits.
 		opened *signin.Audience
-		now    signin.Audience
+		now    Admits
 		// admitted says the row stands: the two are one audience.
 		admitted bool
 	}{
-		{name: "widened: opened for one organization, and the registration admits a second beside it now", opened: &lakeside, now: signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}},
-		{name: "widened: opened for one organization, and the registration admits any account of the provider now", opened: &lakeside, now: signin.Audience{Accounts: "a Google account"}},
-		{name: "widened: opened for one organization, and the registration admits personal accounts beside it now", opened: &lakeside, now: signin.Audience{Organizations: []string{"lakeside.edu"}, Accounts: "a Microsoft personal account"}},
-		{name: "narrowed: opened for two organizations, and the registration admits one of them now", opened: &signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}, now: lakeside},
-		{name: "a row that names no audience", now: lakeside},
-		{name: "the same organizations in another order are the audience the row was opened for", opened: &signin.Audience{Organizations: []string{"acme.example", "lakeside.edu"}}, now: signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}, admitted: true},
+		{name: "widened: opened for one organization, and the registration admits a second beside it now", opened: &lakeside, now: AdmitsTwoOrganizations},
+		{name: "widened: opened for one organization, and the registration admits any account of the provider now", opened: &lakeside, now: AdmitsAnyAccount},
+		{name: "widened: opened for one organization, and the registration admits personal accounts beside it now", opened: &lakeside, now: AdmitsPersonalAccounts},
+		{name: "narrowed: opened for two organizations, and the registration admits one of them now", opened: &signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}, now: AdmitsOneOrganization},
+		{name: "a row that names no audience", now: AdmitsOneOrganization},
+		{name: "the same organizations in another order are the audience the row was opened for", opened: &signin.Audience{Organizations: []string{"acme.example", "lakeside.edu"}}, now: AdmitsTwoOrganizations, admitted: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -275,7 +275,7 @@ func testOpenRowOfAnotherAudience(_ context.Context, t *testing.T, h *AuthHarnes
 			ctx := t.Context()
 
 			rec := newSignUps()
-			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Audience: &tt.now, SignUp: rec.hook})
+			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Admits: tt.now, SignUp: rec.hook})
 			row := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true, DefaultRole: strPtr(signUpRole)}
 			if tt.opened != nil {
 				row.OpenedFor = openedFor(*tt.opened)

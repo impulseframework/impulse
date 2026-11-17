@@ -78,7 +78,7 @@ func AudienceOfKey(key string) (audience Audience, ok bool) {
 	if err := json.Unmarshal([]byte(key), &read); err != nil {
 		return Audience{}, false
 	}
-	audience = Audience{Organizations: read.Organizations, Accounts: read.Accounts}
+	audience = Audience(read)
 	if audience.Key() != key {
 		return Audience{}, false
 	}

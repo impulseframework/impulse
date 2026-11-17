@@ -214,7 +214,8 @@ func (m *Manager) mayGiveBySignUp(ctx context.Context, txn resource.ReadWriteTra
 		return true, nil
 	}
 	if m.grants == nil {
-		return false, errors.New("a request chooses the default role of a sign-in method and the manager holds no role grants to judge it by: build it with identity.WithRoleGrants, as the generated client does")
+		return false, errors.New("a request chooses the default role of a sign-in method and the manager holds no role grants to judge it by: " +
+			"build it with identity.WithRoleGrants, as the generated client does")
 	}
 	may, err := m.grants.MayGive(ctx, txn, accesstypes.GlobalPolicyScope(), impulse.NilUUID, role)
 	if err != nil {
@@ -363,7 +364,9 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 		return err
 	}
 	if !may {
-		return httpio.NewForbiddenMessagef("opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method", string(role), string(role))
+		return httpio.NewForbiddenMessagef(
+			"opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method",
+			string(role), string(role))
 	}
 
 	return nil

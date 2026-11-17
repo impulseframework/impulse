@@ -156,19 +156,17 @@ type AuthConfig struct {
 	// sign-in method (MethodName), applied when Resolve is nil or answers
 	// signin.Standard; NoStandardRule for none.
 	Accounts Accounts
+	// Admits is whom the instance's sign-in method admits now, as its registration
+	// fixes it; the zero value is MethodAudience. A scenario of a registration that
+	// code changed after an administrator opened it names another audience here and
+	// writes the row itself, opened for the audience of before.
+	Admits Admits
 	// Resolve is the custom account rule the instance's SignIn runs with, which the
 	// harness adapts to the driver's transaction. Nil with NoStandardRule rejects every
 	// unlinked identity.
 	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
 	// DefaultRole is the default role an Open method's row names, "" for none.
 	DefaultRole string
-	// Audience is whom the instance's sign-in method admits now, as its registration
-	// fixes it; nil for MethodAudience. OpenedFor is whom an Open method's row says the
-	// method was opened for, where that is not the audience the method has now: a
-	// registration that code changed after an administrator opened it. Nil for a row
-	// opened for the audience the method has.
-	Audience  *signin.Audience
-	OpenedFor *signin.Audience
 	// SignUp is the hook that gives a person who signed up through an Open method its
 	// default role, inside the transaction that makes the account, which the harness
 	// adapts to the driver's transaction; nil for none. See signinflow.SignUpSeater.
@@ -213,14 +211,42 @@ func MethodAudience() signin.Audience {
 	return signin.Audience{Organizations: []string{"lakeside.edu"}}
 }
 
+// Admits is whom an instance's sign-in method admits now: one of the audiences the
+// scenarios turn on, named by a small value so that a configuration stays cheap to
+// hand around. The zero value is the audience of every scenario that does not turn on
+// it (MethodAudience).
+type Admits uint8
+
+const (
+	// AdmitsOneOrganization is MethodAudience: the people of lakeside.edu.
+	AdmitsOneOrganization Admits = iota
+	// AdmitsTwoOrganizations is the people of lakeside.edu and of acme.example.
+	AdmitsTwoOrganizations
+	// AdmitsAnyAccount is anyone with an account of the provider.
+	AdmitsAnyAccount
+	// AdmitsPersonalAccounts is the people of lakeside.edu, and personal accounts
+	// beside them.
+	AdmitsPersonalAccounts
+)
+
+// Audience is the audience the value names.
+func (a Admits) Audience() signin.Audience {
+	switch a {
+	case AdmitsTwoOrganizations:
+		return signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}
+	case AdmitsAnyAccount:
+		return signin.Audience{Accounts: "a Google account"}
+	case AdmitsPersonalAccounts:
+		return signin.Audience{Organizations: []string{"lakeside.edu"}, Accounts: "a Microsoft personal account"}
+	default:
+		return MethodAudience()
+	}
+}
+
 // audience is whom the instance's method admits now, as the rule compares it with the
 // audience the method's row was opened for.
 func (cfg *AuthConfig) audience() string {
-	if cfg.Audience != nil {
-		return cfg.Audience.Key()
-	}
-
-	return MethodAudience().Key()
+	return cfg.Admits.Audience().Key()
 }
 
 // openedFor is the audience a row opened for audience keeps.
@@ -232,9 +258,8 @@ func openedFor(audience signin.Audience) *string {
 
 // SeedSignInMethod writes the row an Open method has, with cfg's default role, through
 // the driver; a harness calls it once its driver is built. The row is opened for the
-// audience the method has, or for cfg's OpenedFor where the test says the registration
-// changed since. It writes nothing for any other choice, so an invite-only instance
-// runs with no row.
+// audience the method has. It writes nothing for any other choice, so an invite-only
+// instance runs with no row.
 func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthConfig) {
 	t.Helper()
 
@@ -243,9 +268,6 @@ func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthC
 	}
 	audience := cfg.audience()
 	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true, OpenedFor: &audience}
-	if cfg.OpenedFor != nil {
-		m.OpenedFor = openedFor(*cfg.OpenedFor)
-	}
 	if cfg.DefaultRole != "" {
 		m.DefaultRole = &cfg.DefaultRole
 	}

@@ -183,8 +183,13 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	t.Cleanup(server.Close)
 
 	// An administrator opens a method for the audience its registration has, so the
-	// methods are opened once they are registered.
-	for name, chosen := range map[string]accounts{"entra": shape.entraAccounts, "google": shape.googleAccounts} {
+	// methods are opened once they are registered, and a method the shape does not
+	// register has nothing to open.
+	registered := map[string]accounts{"entra": shape.entraAccounts}
+	if workspace != nil {
+		registered["google"] = shape.googleAccounts
+	}
+	for name, chosen := range registered {
 		if chosen == openSignUp {
 			openMethod(ctx, t, store, auth.API(), name, shape.defaultRole)
 		}
