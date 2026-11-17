@@ -236,7 +236,7 @@ func OpenSecretIn[Resource Resourcer](ctx context.Context, txn ReadWriteTransact
 	if stored.KeyVersion() == keys.Current() {
 		return plain, nil
 	}
-	if err := rewriteSecret(ctx, txn, rMeta, keys, key, field, stored, plain); err != nil {
+	if _, err := rewriteSecret(ctx, txn, rMeta, keys, key, field, stored, plain); err != nil {
 		return "", err
 	}
 
@@ -258,11 +258,12 @@ func OpenNullableSecretIn[Resource Resourcer](ctx context.Context, txn ReadWrite
 }
 
 // rewriteSecret buffers the value of a secret field sealed again under the current
-// version, when the row still holds the bytes that were opened.
-func rewriteSecret[Resource Resourcer](ctx context.Context, txn ReadWriteTransaction, rMeta *Metadata[Resource], keys *SecretKeys, key KeySet, field accesstypes.Field, opened Secret, plain string) error {
+// version, when the row still holds the bytes that were opened, and reports whether it
+// did.
+func rewriteSecret[Resource Resourcer](ctx context.Context, txn ReadWriteTransaction, rMeta *Metadata[Resource], keys *SecretKeys, key KeySet, field accesstypes.Field, opened Secret, plain string) (bool, error) {
 	var res Resource
 	if !rMeta.secret(field) {
-		return errors.Newf("%s.%s is not declared conditions:%q", res.Resource(), field, secretCondition)
+		return false, errors.Newf("%s.%s is not declared conditions:%q", res.Resource(), field, secretCondition)
 	}
 
 	qSet := NewQuerySet(rMeta)
@@ -274,38 +275,38 @@ func rewriteSecret[Resource Resourcer](ctx context.Context, txn ReadWriteTransac
 	qSet.AddField(field)
 	stmt, err := qSet.stmt(txn.DBType())
 	if err != nil {
-		return errors.Wrap(err, "QuerySet.stmt()")
+		return false, errors.Wrap(err, "QuerySet.stmt()")
 	}
 	row, err := newReader[Resource](txn).Read(ctx, stmt)
 	if err != nil {
 		if httpio.HasNotFound(err) {
-			return nil
+			return false, nil
 		}
 
-		return errors.Wrap(err, "Reader.Read()")
+		return false, errors.Wrap(err, "Reader.Read()")
 	}
 	// field names a field the resource struct declares a secret, checked above.
 	// nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
 	held, isHeld, err := readStoredSecret(field, reflect.ValueOf(&row.Data).Elem().FieldByName(string(field)).Interface())
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !isHeld || !held.Equal(opened) {
-		return nil
+		return false, nil
 	}
 
 	sealed, err := keys.Seal(key, plain)
 	if err != nil {
-		return errors.Wrapf(err, "%s.%s", res.Resource(), field)
+		return false, errors.Wrapf(err, "%s.%s", res.Resource(), field)
 	}
 	p.Set(field, sealed)
 	columns, err := p.Resolve(txn.DBType(), keys)
 	if err != nil {
-		return errors.Wrap(err, "PatchSet.Resolve()")
+		return false, errors.Wrap(err, "PatchSet.Resolve()")
 	}
 	if err := txn.BufferMap(p, columns); err != nil {
-		return errors.Wrap(err, "ReadWriteTransaction.BufferMap()")
+		return false, errors.Wrap(err, "ReadWriteTransaction.BufferMap()")
 	}
 
-	return nil
+	return true, nil
 }

@@ -71,6 +71,10 @@ type SecretKeys struct {
 	current int
 	// fields are the working keys that seal resource fields, by version.
 	fields map[int]cipher.AEAD
+	// variable is the name the versions were read from the environment under
+	// (SecretKeysFromEnv), which a retirement holds the variable it is given to
+	// (RetireSecretVersion); empty for a holder built from the versions themselves.
+	variable string
 }
 
 // NewSecretKeys builds the key holder from the versions of the application secret: each
@@ -82,7 +86,7 @@ func NewSecretKeys(versions map[int][]byte) (*SecretKeys, error) {
 		return nil, errors.New("resource.NewSecretKeys: no version of the application secret was given")
 	}
 
-	keys := &SecretKeys{current: 0, fields: make(map[int]cipher.AEAD, len(versions))}
+	keys := &SecretKeys{current: 0, fields: make(map[int]cipher.AEAD, len(versions)), variable: ""}
 	for version, secret := range versions {
 		if version < 1 || version > maxSecretVersion {
 			return nil, errors.Newf("resource.NewSecretKeys: version %d of the application secret: a version is a number from 1 to %d", version, maxSecretVersion)
@@ -148,8 +152,13 @@ func SecretKeysFromEnv(name string, lookup func(string) (string, bool)) (*Secret
 	if len(versions) == 0 {
 		return nil, nil
 	}
+	keys, err := NewSecretKeys(versions)
+	if err != nil {
+		return nil, err
+	}
+	keys.variable = name
 
-	return NewSecretKeys(versions)
+	return keys, nil
 }
 
 // Current returns the version new values are sealed under: the highest one given.
