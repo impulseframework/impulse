@@ -2784,9 +2784,19 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/console/api/directory-only", method: http.MethodGet,
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
 			handlerFunc: "DirectoryOnly",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/directory-only/consequence", method: http.MethodGet,
+			handlerFunc: "DirectoryOnlyConsequence",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-sector-directory-only", method: http.MethodPost,
+			handlerFunc: "SetSectorDirectoryOnly", selfBounded: true,
+			parameters: map[string]string{},
 		},
 		{
 			url: "/console/api/resources", method: http.MethodPatch,
@@ -3191,6 +3201,14 @@ func (s *generatedHandlersStub) DescribeCrewSectorGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
 	return s.record("DirectoryOnly")
+}
+
+func (s *generatedHandlersStub) DirectoryOnlyConsequence() http.HandlerFunc {
+	return s.record("DirectoryOnlyConsequence")
+}
+
+func (s *generatedHandlersStub) SetSectorDirectoryOnly() http.HandlerFunc {
+	return s.record("SetSectorDirectoryOnly")
 }
 
 func (s *generatedHandlersStub) DisableCrewSectorUser() http.HandlerFunc {

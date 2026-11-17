@@ -102,6 +102,7 @@ export const Methods = {
   WithdrawStaffInvitation: 'WithdrawStaffInvitation' as Method,
   WithdrawStaffTenantInvitation: 'WithdrawStaffTenantInvitation' as Method,
   SetFeature: 'SetFeature' as Method,
+  SetTenantDirectoryOnly: 'SetTenantDirectoryOnly' as Method,
 };
 
 export namespace Announcements {

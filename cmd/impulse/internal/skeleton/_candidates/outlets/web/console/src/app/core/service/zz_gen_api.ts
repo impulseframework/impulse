@@ -2,7 +2,7 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, ResourceHandle } from '@impulseframework/resource';
 import { Methods, Resources } from './zz_gen_constants';
 import { Announcements, StaffGroups, StaffGroupMembers, StaffGroupRoles, StaffGroupUsers, StaffRoles, StaffRoleGrants, StaffSessions, StaffSessionAuthEvents, StaffSessionIdentities, StaffSessionMailLinks, StaffSessionSignInAttempts, StaffSessionTokens, StaffSessionTrustedDevices, StaffSessionUsers, StaffTenantGroups, StaffTenantGroupRoles, StaffTenantGroupUsers, StaffTenantIdentities, StaffTenantInvitations, StaffTenantUsers, StaffTenantUserGroupRoles, StaffTenantUserRoles, StaffUserGroupRoles, StaffUserRoles, Tenants, TenantDirectories, StaffTenantRoles, FeatureFlags } from './zz_gen_resources';
-import { AddStaffGroupMember, AddStaffTenantGroupMember, AssignStaffRole, AssignStaffTenantRole, CreateStaffGroup, CreateStaffGroupResult, CreateStaffTenantGroup, CreateStaffTenantGroupResult, CreateStaffTenantUser, CreateStaffTenantUserResult, CreateStaffUser, CreateStaffUserResult, DeleteStaffGroup, DeleteStaffTenantGroup, DeleteStaffTenantUser, DeleteStaffUser, DescribeStaffGroup, DescribeStaffTenantGroup, DisableStaffTenantUser, DisableStaffUser, EnableStaffTenantUser, EnableStaffUser, EndStaffSession, EndStaffTenantUserSessions, EndStaffUserSessions, GiveStaffGroupRole, GiveStaffTenantGroupRole, InviteStaffTenantUser, InviteStaffTenantUserResult, InviteStaffUser, InviteStaffUserResult, RemoveStaffGroupMember, RemoveStaffPassword, RemoveStaffRole, RemoveStaffTenantGroupMember, RemoveStaffTenantPassword, RemoveStaffTenantRole, RenameStaffTenantUser, RenameStaffUser, RequireStaffPasswordChange, RequireStaffTenantPasswordChange, RevokeStaffSessionToken, RevokeStaffTenantUserTrustedDevices, RevokeStaffUserTrustedDevices, SetStaffTemporaryPassword, SetStaffTenantTemporaryPassword, SetStaffTenantUserEmail, SetStaffTenantUserName, SetStaffUserEmail, SetStaffUserName, TakeStaffGroupRole, TakeStaffTenantGroupRole, UnlinkStaffSessionIdentity, UnlinkStaffTenantSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, WithdrawStaffTenantInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { AddStaffGroupMember, AddStaffTenantGroupMember, AssignStaffRole, AssignStaffTenantRole, CreateStaffGroup, CreateStaffGroupResult, CreateStaffTenantGroup, CreateStaffTenantGroupResult, CreateStaffTenantUser, CreateStaffTenantUserResult, CreateStaffUser, CreateStaffUserResult, DeleteStaffGroup, DeleteStaffTenantGroup, DeleteStaffTenantUser, DeleteStaffUser, DescribeStaffGroup, DescribeStaffTenantGroup, DisableStaffTenantUser, DisableStaffUser, EnableStaffTenantUser, EnableStaffUser, EndStaffSession, EndStaffTenantUserSessions, EndStaffUserSessions, GiveStaffGroupRole, GiveStaffTenantGroupRole, InviteStaffTenantUser, InviteStaffTenantUserResult, InviteStaffUser, InviteStaffUserResult, RemoveStaffGroupMember, RemoveStaffPassword, RemoveStaffRole, RemoveStaffTenantGroupMember, RemoveStaffTenantPassword, RemoveStaffTenantRole, RenameStaffTenantUser, RenameStaffUser, RequireStaffPasswordChange, RequireStaffTenantPasswordChange, RevokeStaffSessionToken, RevokeStaffTenantUserTrustedDevices, RevokeStaffUserTrustedDevices, SetStaffTemporaryPassword, SetStaffTenantTemporaryPassword, SetStaffTenantUserEmail, SetStaffTenantUserName, SetStaffUserEmail, SetStaffUserName, TakeStaffGroupRole, TakeStaffTenantGroupRole, UnlinkStaffSessionIdentity, UnlinkStaffTenantSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, WithdrawStaffTenantInvitation, SetFeature, SetFeatureResult, SetTenantDirectoryOnly } from './zz_gen_methods';
 
 /**
  * The fields a client may set when creating Announcements. Server-owned fields are
@@ -98,12 +98,10 @@ export type StaffUserRolesKey = [kind: string, axis: string, domainId: string, r
  */
 export interface TenantsCreate {
   name: string;
-  directoryOnly?: boolean;
 }
 /** The fields a client may change on Tenants. Keys, server-owned, and immutable fields are absent. */
 export interface TenantsPatch {
   name?: string;
-  directoryOnly?: boolean;
 }
 /** The primary key of Tenants, in route order. */
 export type TenantsKey = [id: string];
@@ -433,7 +431,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 50 },
       order: [{ field: 'name', direction: 'asc' }],
-      patchable: ['name', 'directoryOnly'],
+      patchable: ['name'],
     },
     [Resources.TenantDirectories]: {
       resource: Resources.TenantDirectories,
@@ -523,6 +521,7 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.WithdrawStaffInvitation]: { method: Methods.WithdrawStaffInvitation, property: 'withdrawStaffInvitation', route: 'withdraw-staff-invitation', scope: 'global', statuses: [204] },
     [Methods.WithdrawStaffTenantInvitation]: { method: Methods.WithdrawStaffTenantInvitation, property: 'withdrawStaffTenantInvitation', route: 'withdraw-staff-tenant-invitation', scope: 'domain', statuses: [204] },
     [Methods.SetFeature]: { method: Methods.SetFeature, property: 'setFeature', route: 'set-feature', scope: 'global', answers: true },
+    [Methods.SetTenantDirectoryOnly]: { method: Methods.SetTenantDirectoryOnly, property: 'setTenantDirectoryOnly', route: 'set-tenant-directory-only', scope: 'domain' },
   },
   identity: [
     {
@@ -641,6 +640,7 @@ export interface DomainApi {
   takeStaffTenantGroupRole: MethodHandle<TakeStaffTenantGroupRole>;
   unlinkStaffTenantSessionIdentity: MethodHandle<UnlinkStaffTenantSessionIdentity>;
   withdrawStaffTenantInvitation: MethodHandle<WithdrawStaffTenantInvitation>;
+  setTenantDirectoryOnly: MethodHandle<SetTenantDirectoryOnly>;
 }
 
 export type Api = Client<GlobalApi, DomainApi>;

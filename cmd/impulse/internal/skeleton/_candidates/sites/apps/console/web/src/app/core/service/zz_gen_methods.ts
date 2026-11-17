@@ -615,6 +615,19 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
+/**
+ * The body SetTenantDirectoryOnly takes: which way to turn the tenant's directory-only switch.
+ * The method is the tenant's own, run in its scope; the server refuses turning the
+ * switch on until the tenant has its directory and unless the caller is signed in
+ * through it, in a sentence the person can act on.
+ */
+export interface SetTenantDirectoryOnlyConfig {
+  directoryOnly: boolean | FieldPointer;
+}
+export interface SetTenantDirectoryOnly {
+  directoryOnly: boolean;
+}
+
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -1201,6 +1214,13 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'name', displayType: 'string' },
       { fieldName: 'enabled', displayType: 'boolean' },
+    ],
+  },
+  [Methods.SetTenantDirectoryOnly]: {
+    route: 'set-tenant-directory-only',
+    dryRun: true,
+    fields: [
+      { fieldName: 'directoryOnly', displayType: 'boolean' },
     ],
   },
 

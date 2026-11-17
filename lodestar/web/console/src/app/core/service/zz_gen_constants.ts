@@ -193,6 +193,7 @@ export const Methods = {
   WithdrawCrewSectorInvitation: 'WithdrawCrewSectorInvitation' as Method,
   AssumeRole: 'AssumeRole' as Method,
   SetFeature: 'SetFeature' as Method,
+  SetSectorDirectoryOnly: 'SetSectorDirectoryOnly' as Method,
   ViewAsUser: 'ViewAsUser' as Method,
 };
 

@@ -1054,6 +1054,19 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
+/**
+ * The body SetSectorDirectoryOnly takes: which way to turn the sector's directory-only switch.
+ * The method is the sector's own, run in its scope; the server refuses turning the
+ * switch on until the sector has its directory and unless the caller is signed in
+ * through it, in a sentence the person can act on.
+ */
+export interface SetSectorDirectoryOnlyConfig {
+  directoryOnly: boolean | FieldPointer;
+}
+export interface SetSectorDirectoryOnly {
+  directoryOnly: boolean;
+}
+
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -2033,6 +2046,13 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'name', displayType: 'string' },
       { fieldName: 'enabled', displayType: 'boolean' },
+    ],
+  },
+  [Methods.SetSectorDirectoryOnly]: {
+    route: 'set-sector-directory-only',
+    dryRun: true,
+    fields: [
+      { fieldName: 'directoryOnly', displayType: 'boolean' },
     ],
   },
 

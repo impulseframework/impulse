@@ -1730,7 +1730,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
-      { fieldName: 'directoryOnly', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: false, isIndex: false, readOnly: true },
     ],
   },
   [Resources.SectorDirectories]: {

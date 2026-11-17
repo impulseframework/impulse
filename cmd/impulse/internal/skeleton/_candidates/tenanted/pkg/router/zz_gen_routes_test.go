@@ -716,9 +716,19 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/api/directory-only", method: http.MethodGet,
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
 			handlerFunc: "DirectoryOnly",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only/consequence", method: http.MethodGet,
+			handlerFunc: "DirectoryOnlyConsequence",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-tenant-directory-only", method: http.MethodPost,
+			handlerFunc: "SetTenantDirectoryOnly", selfBounded: true,
+			parameters: map[string]string{},
 		},
 		{
 			url: "/api/resources", method: http.MethodPatch,
@@ -836,6 +846,14 @@ func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
 	return s.record("DirectoryOnly")
+}
+
+func (s *generatedHandlersStub) DirectoryOnlyConsequence() http.HandlerFunc {
+	return s.record("DirectoryOnlyConsequence")
+}
+
+func (s *generatedHandlersStub) SetTenantDirectoryOnly() http.HandlerFunc {
+	return s.record("SetTenantDirectoryOnly")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {
