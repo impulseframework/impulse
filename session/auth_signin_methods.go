@@ -29,6 +29,10 @@ type RegisteredMethod struct {
 	// signs in. Such a method has no choice to make: the directory says who holds a
 	// role, a person it gives one is admitted, and one it gives none is refused.
 	SyncsRoles bool
+	// OwnRule reports a registration that carries an account rule of its own
+	// (signin.AccountRule): the application's code decides who may sign in through it,
+	// so an administrator neither opens it to sign-up nor makes it invite only.
+	OwnRule bool
 }
 
 // SignInMethods lists the sign-in methods registered on the Auth, in the login page's
@@ -47,7 +51,7 @@ func (p *AuthAPI[S, U, Tx]) SignInMethods() []RegisteredMethod {
 	for _, name := range names {
 		method := RegisteredMethod{Name: name, Method: sessioninfo.MethodPassword, Label: m.labels[name], Audience: passwordAudience()}
 		if external, ok := m.external[name]; ok {
-			method.Method, method.Audience, method.SyncsRoles = external.Name, external.Audience, external.SyncRoles != nil
+			method.Method, method.Audience, method.SyncsRoles, method.OwnRule = external.Name, external.Audience, external.SyncRoles != nil, external.rule != nil
 		}
 		methods = append(methods, method)
 	}

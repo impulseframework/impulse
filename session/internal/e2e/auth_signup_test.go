@@ -142,7 +142,7 @@ func seamSignUpChoice[Tx any](ctx context.Context, t *testing.T, be backend[Tx])
 
 	// An administrator opens it with the default role Member: the page is told the
 	// routes, and a person signs up and holds the role in their first session.
-	openMethod(ctx, t, a.store, "password", "Member")
+	openMethod(ctx, t, a.store, a.api, "password", "Member")
 	if !a.offersSignUp(ctx, b) {
 		t.Error("the login page is not offered sign-up once the method is open, want the routes")
 	}
@@ -179,7 +179,7 @@ func seamSignUpChoice[Tx any](ctx context.Context, t *testing.T, be backend[Tx])
 	}
 
 	// The refusal spent nothing: once the method is open again the same link finishes.
-	openMethod(ctx, t, a.store, "password", "")
+	openMethod(ctx, t, a.store, a.api, "password", "")
 	late.expect(ctx, http.StatusOK, http.MethodPost, "/sign-up/complete", map[string]string{"token": lateToken, "password": seedPassword, "username": "sam"})
 	signedInAs(ctx, t, late, "sam")
 	if got := late.sessionData(ctx).Partner; got != "" {

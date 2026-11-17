@@ -162,6 +162,13 @@ type AuthConfig struct {
 	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
 	// DefaultRole is the default role an Open method's row names, "" for none.
 	DefaultRole string
+	// Audience is whom the instance's sign-in method admits now, as its registration
+	// fixes it; nil for MethodAudience. OpenedFor is whom an Open method's row says the
+	// method was opened for, where that is not the audience the method has now: a
+	// registration that code changed after an administrator opened it. Nil for a row
+	// opened for the audience the method has.
+	Audience  *signin.Audience
+	OpenedFor *signin.Audience
 	// SignUp is the hook that gives a person who signed up through an Open method its
 	// default role, inside the transaction that makes the account, which the harness
 	// adapts to the driver's transaction; nil for none. See signinflow.SignUpSeater.
@@ -200,16 +207,45 @@ const (
 	Open
 )
 
+// MethodAudience is whom the instance's sign-in method (MethodName) admits, as its
+// registration would fix it: the people of one organization.
+func MethodAudience() signin.Audience {
+	return signin.Audience{Organizations: []string{"lakeside.edu"}}
+}
+
+// audience is whom the instance's method admits now, as the rule compares it with the
+// audience the method's row was opened for.
+func (cfg *AuthConfig) audience() string {
+	if cfg.Audience != nil {
+		return cfg.Audience.Key()
+	}
+
+	return MethodAudience().Key()
+}
+
+// openedFor is the audience a row opened for audience keeps.
+func openedFor(audience signin.Audience) *string {
+	key := audience.Key()
+
+	return &key
+}
+
 // SeedSignInMethod writes the row an Open method has, with cfg's default role, through
-// the driver; a harness calls it once its driver is built. It writes nothing for any
-// other choice, so an invite-only instance runs with no row.
+// the driver; a harness calls it once its driver is built. The row is opened for the
+// audience the method has, or for cfg's OpenedFor where the test says the registration
+// changed since. It writes nothing for any other choice, so an invite-only instance
+// runs with no row.
 func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthConfig) {
 	t.Helper()
 
 	if cfg.Accounts != Open {
 		return
 	}
-	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true}
+	audience := cfg.audience()
+	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true, OpenedFor: &audience}
+	if cfg.OpenedFor != nil {
+		m.OpenedFor = openedFor(*cfg.OpenedFor)
+	}
 	if cfg.DefaultRole != "" {
 		m.DefaultRole = &cfg.DefaultRole
 	}
@@ -261,7 +297,7 @@ func NewSignUp[Tx any](
 	seat := adaptSignUp(cfg, adapt)
 
 	return func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error) {
-		id, err := signinflow.SignUp(ctx, d, MethodName, user, linkID, seat)
+		id, err := signinflow.SignUp(ctx, d, MethodName, cfg.audience(), user, linkID, seat)
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignUp()")
 		}
@@ -382,7 +418,7 @@ func NewSignIn[Tx any](
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
-		rules := signinflow.Rules[Tx]{Account: rule, Method: MethodName, Policy: policy, Accept: accept, SignUp: signUp, Directories: directories, Seat: seat, Proven: oneProof(proven)}
+		rules := signinflow.Rules[Tx]{Account: rule, Method: MethodName, Audience: cfg.audience(), Policy: policy, Accept: accept, SignUp: signUp, Directories: directories, Seat: seat, Proven: oneProof(proven)}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
@@ -437,6 +473,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
+		{name: "a row opens its method for the audience it was opened for alone: a registration widened or narrowed in code since refuses a stranger and writes nothing, at a sign-in and at a password sign-up, and a row that names no audience opens nothing", run: testOpenRowOfAnotherAudience},
 		{name: "a person with an account, and a person with an invitation, sign in the same under either choice: the invitation's role, never the default role beside it", run: testEitherChoiceSameForAccountsAndInvitations},
 		{name: "a dead invitation carried through an open method gives nothing, and the person gets the method's default role", run: testOpenMethodDeadInvitation},
 		{name: "a default role on an Auth with no sign-up hook fails the sign-in in its transaction: no user is created", run: testOpenMethodHookMissing},

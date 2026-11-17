@@ -33,3 +33,52 @@ func TestAudienceWords(t *testing.T) {
 		})
 	}
 }
+
+func TestAudienceKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a, b Audience
+		same bool
+	}{
+		{name: "the same organizations in another order", a: Audience{Organizations: []string{"acme.example", "lakeside.edu"}}, b: Audience{Organizations: []string{"lakeside.edu", "acme.example"}}, same: true},
+		{name: "an organization named twice", a: Audience{Organizations: []string{"acme.example", "acme.example"}}, b: Audience{Organizations: []string{"acme.example"}}, same: true},
+		{name: "no organizations, nil and empty", a: Audience{Accounts: "a Google account"}, b: Audience{Organizations: []string{}, Accounts: "a Google account"}, same: true},
+		{name: "one organization more", a: Audience{Organizations: []string{"acme.example"}}, b: Audience{Organizations: []string{"acme.example", "lakeside.edu"}}},
+		{name: "one organization fewer", a: Audience{Organizations: []string{"acme.example", "lakeside.edu"}}, b: Audience{Organizations: []string{"lakeside.edu"}}},
+		{name: "named organizations widened to any account", a: Audience{Organizations: []string{"acme.example"}}, b: Audience{Accounts: "a Google account"}},
+		{name: "personal accounts admitted beside the organization", a: Audience{Organizations: []string{"Acme"}}, b: Audience{Organizations: []string{"Acme"}, Accounts: "a Microsoft personal account"}},
+		{name: "another kind of account", a: Audience{Accounts: "a Google account"}, b: Audience{Accounts: "an email address"}},
+		{name: "a name that holds the separators of the key", a: Audience{Organizations: []string{`a","b`}}, b: Audience{Organizations: []string{"a", "b"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.a.Key() == tt.b.Key(); got != tt.same {
+				t.Errorf("Key() of %+v and of %+v equal = %v, want %v (%s, %s)", tt.a, tt.b, got, tt.same, tt.a.Key(), tt.b.Key())
+			}
+		})
+	}
+}
+
+func TestAudienceOfKey(t *testing.T) {
+	t.Parallel()
+
+	for _, want := range []Audience{
+		{Organizations: []string{"acme.example", "lakeside.edu"}},
+		{Accounts: "a Google account"},
+		{Organizations: []string{"Acme"}, Accounts: "a Microsoft personal account"},
+		{},
+	} {
+		got, ok := AudienceOfKey(want.Key())
+		if !ok || got.Words() != want.Words() || got.Key() != want.Key() {
+			t.Errorf("AudienceOfKey(%s) = %+v, %v; want %+v", want.Key(), got, ok, want)
+		}
+	}
+	for _, text := range []string{"", "open", `{"organizations":["b","a"],"accounts":""}`, `{"accounts":"x"}`, `["acme.example"]`} {
+		if got, ok := AudienceOfKey(text); ok {
+			t.Errorf("AudienceOfKey(%q) = %+v, true; want no audience for text that is no key", text, got)
+		}
+	}
+}

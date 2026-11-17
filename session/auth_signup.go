@@ -71,8 +71,8 @@ func (a *Auth[S, U, Tx]) SignUp() *SignUpHandlers {
 }
 
 // passwordSignUpOpen reports whether the password method is open to sign-up now: it is
-// registered, and an administrator opened it (its row of the sign-in methods table). A
-// method with no row is invite only.
+// registered, and an administrator opened it (its row of the sign-in methods table),
+// for the audience the method has. A method with no row is invite only.
 func (a *Auth[S, U, Tx]) passwordSignUpOpen(ctx context.Context) (bool, error) {
 	if !a.registered().passwordRegistered() {
 		return false, nil
@@ -82,7 +82,7 @@ func (a *Auth[S, U, Tx]) passwordSignUpOpen(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	return chosen.Open(), nil
+	return chosen.OpenFor(passwordAudience().Key()), nil
 }
 
 // signInMethodRow reads what an administrator chose for the sign-in method registered
@@ -253,7 +253,7 @@ func (a *Auth[S, U, Tx]) completeSignUp(ctx context.Context, token, username, pa
 	if err != nil {
 		return nil, err
 	}
-	id, err := a.storage.SignUp(ctx, string(sessioninfo.MethodPassword), insert, link.ID, a.signUpSeated)
+	id, err := a.storage.SignUp(ctx, string(sessioninfo.MethodPassword), passwordAudience().Key(), insert, link.ID, a.signUpSeated)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.SignUp()")
 	}

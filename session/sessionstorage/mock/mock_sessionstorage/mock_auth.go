@@ -1149,18 +1149,18 @@ func (mr *MockAuthStoreMockRecorder[Tx]) SignInMethods(ctx any) *gomock.Call {
 }
 
 // SignUp mocks base method.
-func (m *MockAuthStore[Tx]) SignUp(ctx context.Context, method string, user *sessionstorage.InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error) {
+func (m *MockAuthStore[Tx]) SignUp(ctx context.Context, method, audience string, user *sessionstorage.InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SignUp", ctx, method, user, linkID, seat)
+	ret := m.ctrl.Call(m, "SignUp", ctx, method, audience, user, linkID, seat)
 	ret0, _ := ret[0].(impulse.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SignUp indicates an expected call of SignUp.
-func (mr *MockAuthStoreMockRecorder[Tx]) SignUp(ctx, method, user, linkID, seat any) *gomock.Call {
+func (mr *MockAuthStoreMockRecorder[Tx]) SignUp(ctx, method, audience, user, linkID, seat any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignUp", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignUp), ctx, method, user, linkID, seat)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignUp", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignUp), ctx, method, audience, user, linkID, seat)
 }
 
 // Token mocks base method.
