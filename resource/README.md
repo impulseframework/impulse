@@ -3295,7 +3295,8 @@ the next time it is opened inside a read-write transaction (`Open<Field>In`, whi
 the keys from the transaction's client). That rewrite is the stored bytes alone: the value
 does not change, so no permission is asked, no update function stamps the row and no change
 record is written, and it is buffered only when the row, read again inside the transaction,
-still holds the bytes that were opened. `Open<Field>(keys)` never writes. At a rotation, a
+still holds the bytes that were opened, and never for a row a patch of the same transaction
+has already written, since no read sees a buffered write. `Open<Field>(keys)` never writes. At a rotation, a
 request already running on a revision that was not handed the new version can meet a value
 the new revision rewrote, and answers an error for that request.
 
