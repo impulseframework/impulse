@@ -275,13 +275,16 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			t.Parallel()
 
 			var err error
+			// stopped is the write the last attempt of the last request stopped at: the
+			// emulator aborts a transaction that meets another, and the client runs the
+			// request again, so only the attempt that answered counts.
+			stopped := -1
 			for i, request := range tt.requests {
 				err = client.ExecuteFunc(through(entra), func(ctx context.Context, txn ReadWriteTransaction) error {
+					stopped = -1
 					for j, write := range request {
 						if err := write(ctx, txn); err != nil {
-							if i != len(tt.requests)-1 || j != len(request)-1 {
-								t.Errorf("write %d of request %d error = %v, want only the last write refused", j+1, i+1, err)
-							}
+							stopped = j
 
 							return err
 						}
@@ -289,6 +292,9 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 
 					return nil
 				})
+				if err != nil && i != len(tt.requests)-1 {
+					t.Fatalf("request %d error = %v, want it made", i+1, err)
+				}
 			}
 			if tt.wantRefusal == "" {
 				if err != nil {
@@ -299,6 +305,9 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			}
 			if !httpio.HasConflict(err) || httpio.Message(err) != tt.wantRefusal {
 				t.Fatalf("the last request error = %v, want the Conflict %q", err, tt.wantRefusal)
+			}
+			if last := len(tt.requests[len(tt.requests)-1]) - 1; stopped != last {
+				t.Errorf("the last request stopped at write %d, want its last write, %d, refused", stopped+1, last+1)
 			}
 		})
 	}
