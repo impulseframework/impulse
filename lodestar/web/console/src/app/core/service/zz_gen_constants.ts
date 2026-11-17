@@ -24,11 +24,19 @@ export const Resources = {
   Clients: 'Clients' as Resource,
   Commendations: 'Commendations' as Resource,
   Consignments: 'Consignments' as Resource,
+  CrewGroupMembers: 'CrewGroupMembers' as Resource,
+  CrewGroupRoles: 'CrewGroupRoles' as Resource,
+  CrewGroupUsers: 'CrewGroupUsers' as Resource,
+  CrewGroups: 'CrewGroups' as Resource,
   CrewRoleGrants: 'CrewRoleGrants' as Resource,
   CrewRoles: 'CrewRoles' as Resource,
+  CrewSectorGroupRoles: 'CrewSectorGroupRoles' as Resource,
+  CrewSectorGroupUsers: 'CrewSectorGroupUsers' as Resource,
+  CrewSectorGroups: 'CrewSectorGroups' as Resource,
   CrewSectorIdentities: 'CrewSectorIdentities' as Resource,
   CrewSectorInvitations: 'CrewSectorInvitations' as Resource,
   CrewSectorRoles: 'CrewSectorRoles' as Resource,
+  CrewSectorUserGroupRoles: 'CrewSectorUserGroupRoles' as Resource,
   CrewSectorUserRoles: 'CrewSectorUserRoles' as Resource,
   CrewSectorUsers: 'CrewSectorUsers' as Resource,
   CrewSessionAuthEvents: 'CrewSessionAuthEvents' as Resource,
@@ -40,6 +48,7 @@ export const Resources = {
   CrewSessionTrustedDevices: 'CrewSessionTrustedDevices' as Resource,
   CrewSessionUsers: 'CrewSessionUsers' as Resource,
   CrewSessions: 'CrewSessions' as Resource,
+  CrewUserGroupRoles: 'CrewUserGroupRoles' as Resource,
   CrewUserRoles: 'CrewUserRoles' as Resource,
   DistressCalls: 'DistressCalls' as Resource,
   ExpenseManifests: 'ExpenseManifests' as Resource,
@@ -89,6 +98,8 @@ export const Resources = {
 };
 
 export const Methods = {
+  AddCrewGroupMember: 'AddCrewGroupMember' as Method,
+  AddCrewSectorGroupMember: 'AddCrewSectorGroupMember' as Method,
   AssignCrewRole: 'AssignCrewRole' as Method,
   AssignCrewSectorRole: 'AssignCrewSectorRole' as Method,
   AttachMissionDocument: 'AttachMissionDocument' as Method,
@@ -97,12 +108,18 @@ export const Methods = {
   ClaimMission: 'ClaimMission' as Method,
   CompileBriefing: 'CompileBriefing' as Method,
   CompleteMission: 'CompleteMission' as Method,
+  CreateCrewGroup: 'CreateCrewGroup' as Method,
+  CreateCrewSectorGroup: 'CreateCrewSectorGroup' as Method,
   CreateCrewSectorUser: 'CreateCrewSectorUser' as Method,
   CreateCrewUser: 'CreateCrewUser' as Method,
+  DeleteCrewGroup: 'DeleteCrewGroup' as Method,
+  DeleteCrewSectorGroup: 'DeleteCrewSectorGroup' as Method,
   DeleteCrewSectorUser: 'DeleteCrewSectorUser' as Method,
   DeleteCrewUser: 'DeleteCrewUser' as Method,
   DeleteMembersSectorUser: 'DeleteMembersSectorUser' as Method,
   DeleteMembersUser: 'DeleteMembersUser' as Method,
+  DescribeCrewGroup: 'DescribeCrewGroup' as Method,
+  DescribeCrewSectorGroup: 'DescribeCrewSectorGroup' as Method,
   DisableCrewSectorUser: 'DisableCrewSectorUser' as Method,
   DisableCrewUser: 'DisableCrewUser' as Method,
   DisableMembersSectorUser: 'DisableMembersSectorUser' as Method,
@@ -120,6 +137,8 @@ export const Methods = {
   EndMembersUserSessions: 'EndMembersUserSessions' as Method,
   FailFlightTest: 'FailFlightTest' as Method,
   FailMission: 'FailMission' as Method,
+  GiveCrewGroupRole: 'GiveCrewGroupRole' as Method,
+  GiveCrewSectorGroupRole: 'GiveCrewSectorGroupRole' as Method,
   HailShip: 'HailShip' as Method,
   HoldMission: 'HoldMission' as Method,
   InspectShip: 'InspectShip' as Method,
@@ -129,8 +148,10 @@ export const Methods = {
   LaunchMission: 'LaunchMission' as Method,
   PassFlightTest: 'PassFlightTest' as Method,
   ReleaseConsignment: 'ReleaseConsignment' as Method,
+  RemoveCrewGroupMember: 'RemoveCrewGroupMember' as Method,
   RemoveCrewPassword: 'RemoveCrewPassword' as Method,
   RemoveCrewRole: 'RemoveCrewRole' as Method,
+  RemoveCrewSectorGroupMember: 'RemoveCrewSectorGroupMember' as Method,
   RemoveCrewSectorPassword: 'RemoveCrewSectorPassword' as Method,
   RemoveCrewSectorRole: 'RemoveCrewSectorRole' as Method,
   RenameCrewSectorUser: 'RenameCrewSectorUser' as Method,
@@ -160,6 +181,8 @@ export const Methods = {
   SetSectorPilotClearance: 'SetSectorPilotClearance' as Method,
   StandDownMission: 'StandDownMission' as Method,
   StartFlightTest: 'StartFlightTest' as Method,
+  TakeCrewGroupRole: 'TakeCrewGroupRole' as Method,
+  TakeCrewSectorGroupRole: 'TakeCrewSectorGroupRole' as Method,
   UnlinkCrewSectorSessionIdentity: 'UnlinkCrewSectorSessionIdentity' as Method,
   UnlinkCrewSessionIdentity: 'UnlinkCrewSessionIdentity' as Method,
   UnlinkMembersSectorSessionIdentity: 'UnlinkMembersSectorSessionIdentity' as Method,
@@ -287,6 +310,78 @@ export namespace Consignments {
   };
 }
 
+export namespace CrewGroupMembers {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    groupId: 'groupId' as FieldName,
+    userId: 'userId' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'CrewGroupMembers.createdAt' as Resource,
+    groupId: 'CrewGroupMembers.groupId' as Resource,
+    userId: 'CrewGroupMembers.userId' as Resource,
+  };
+}
+
+export namespace CrewGroupRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    domainId: 'domainId' as FieldName,
+    groupId: 'groupId' as FieldName,
+    kind: 'kind' as FieldName,
+    role: 'role' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'CrewGroupRoles.axis' as Resource,
+    createdAt: 'CrewGroupRoles.createdAt' as Resource,
+    domainId: 'CrewGroupRoles.domainId' as Resource,
+    groupId: 'CrewGroupRoles.groupId' as Resource,
+    kind: 'CrewGroupRoles.kind' as Resource,
+    role: 'CrewGroupRoles.role' as Resource,
+  };
+}
+
+export namespace CrewGroupUsers {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    groupId: 'groupId' as FieldName,
+    groupName: 'groupName' as FieldName,
+    name: 'name' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'CrewGroupUsers.createdAt' as Resource,
+    groupId: 'CrewGroupUsers.groupId' as Resource,
+    groupName: 'CrewGroupUsers.groupName' as Resource,
+    name: 'CrewGroupUsers.name' as Resource,
+    userId: 'CrewGroupUsers.userId' as Resource,
+    username: 'CrewGroupUsers.username' as Resource,
+  };
+}
+
+export namespace CrewGroups {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    description: 'description' as FieldName,
+    domainId: 'domainId' as FieldName,
+    id: 'id' as FieldName,
+    kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'CrewGroups.axis' as Resource,
+    description: 'CrewGroups.description' as Resource,
+    domainId: 'CrewGroups.domainId' as Resource,
+    id: 'CrewGroups.id' as Resource,
+    kind: 'CrewGroups.kind' as Resource,
+    name: 'CrewGroups.name' as Resource,
+    updatedAt: 'CrewGroups.updatedAt' as Resource,
+  };
+}
+
 export namespace CrewRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -328,6 +423,61 @@ export namespace CrewRoles {
     kind: 'CrewRoles.kind' as Resource,
     role: 'CrewRoles.role' as Resource,
     updatedAt: 'CrewRoles.updatedAt' as Resource,
+  };
+}
+
+export namespace CrewSectorGroupRoles {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    domainId: 'domainId' as FieldName,
+    groupId: 'groupId' as FieldName,
+    groupName: 'groupName' as FieldName,
+    role: 'role' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'CrewSectorGroupRoles.createdAt' as Resource,
+    domainId: 'CrewSectorGroupRoles.domainId' as Resource,
+    groupId: 'CrewSectorGroupRoles.groupId' as Resource,
+    groupName: 'CrewSectorGroupRoles.groupName' as Resource,
+    role: 'CrewSectorGroupRoles.role' as Resource,
+  };
+}
+
+export namespace CrewSectorGroupUsers {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    domainId: 'domainId' as FieldName,
+    groupId: 'groupId' as FieldName,
+    groupName: 'groupName' as FieldName,
+    name: 'name' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'CrewSectorGroupUsers.createdAt' as Resource,
+    domainId: 'CrewSectorGroupUsers.domainId' as Resource,
+    groupId: 'CrewSectorGroupUsers.groupId' as Resource,
+    groupName: 'CrewSectorGroupUsers.groupName' as Resource,
+    name: 'CrewSectorGroupUsers.name' as Resource,
+    userId: 'CrewSectorGroupUsers.userId' as Resource,
+    username: 'CrewSectorGroupUsers.username' as Resource,
+  };
+}
+
+export namespace CrewSectorGroups {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    domainId: 'domainId' as FieldName,
+    id: 'id' as FieldName,
+    name: 'name' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+  };
+  export const resourceName = {
+    description: 'CrewSectorGroups.description' as Resource,
+    domainId: 'CrewSectorGroups.domainId' as Resource,
+    id: 'CrewSectorGroups.id' as Resource,
+    name: 'CrewSectorGroups.name' as Resource,
+    updatedAt: 'CrewSectorGroups.updatedAt' as Resource,
   };
 }
 
@@ -399,6 +549,29 @@ export namespace CrewSectorRoles {
   export const resourceName = {
     description: 'CrewSectorRoles.description' as Resource,
     name: 'CrewSectorRoles.name' as Resource,
+  };
+}
+
+export namespace CrewSectorUserGroupRoles {
+  export const fieldName = {
+    domainId: 'domainId' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+    globalGroup: 'globalGroup' as FieldName,
+    groupId: 'groupId' as FieldName,
+    groupName: 'groupName' as FieldName,
+    role: 'role' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    domainId: 'CrewSectorUserGroupRoles.domainId' as Resource,
+    everyDomain: 'CrewSectorUserGroupRoles.everyDomain' as Resource,
+    globalGroup: 'CrewSectorUserGroupRoles.globalGroup' as Resource,
+    groupId: 'CrewSectorUserGroupRoles.groupId' as Resource,
+    groupName: 'CrewSectorUserGroupRoles.groupName' as Resource,
+    role: 'CrewSectorUserGroupRoles.role' as Resource,
+    userId: 'CrewSectorUserGroupRoles.userId' as Resource,
+    username: 'CrewSectorUserGroupRoles.username' as Resource,
   };
 }
 
@@ -670,6 +843,29 @@ export namespace CrewSessions {
     updatedAt: 'CrewSessions.updatedAt' as Resource,
     userId: 'CrewSessions.userId' as Resource,
     username: 'CrewSessions.username' as Resource,
+  };
+}
+
+export namespace CrewUserGroupRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    domainId: 'domainId' as FieldName,
+    groupId: 'groupId' as FieldName,
+    groupName: 'groupName' as FieldName,
+    kind: 'kind' as FieldName,
+    role: 'role' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'CrewUserGroupRoles.axis' as Resource,
+    domainId: 'CrewUserGroupRoles.domainId' as Resource,
+    groupId: 'CrewUserGroupRoles.groupId' as Resource,
+    groupName: 'CrewUserGroupRoles.groupName' as Resource,
+    kind: 'CrewUserGroupRoles.kind' as Resource,
+    role: 'CrewUserGroupRoles.role' as Resource,
+    userId: 'CrewUserGroupRoles.userId' as Resource,
+    username: 'CrewUserGroupRoles.username' as Resource,
   };
 }
 
@@ -1600,6 +1796,20 @@ export namespace Wings {
   };
 }
 
+export namespace AddCrewGroupMember {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    userId: 'userId' as FieldName,
+  };
+}
+
+export namespace AddCrewSectorGroupMember {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    userId: 'userId' as FieldName,
+  };
+}
+
 export namespace AssignCrewRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -1656,6 +1866,21 @@ export namespace CompleteMission {
   };
 }
 
+export namespace CreateCrewGroup {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    description: 'description' as FieldName,
+    domain: 'domain' as FieldName,
+  };
+}
+
+export namespace CreateCrewSectorGroup {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    description: 'description' as FieldName,
+  };
+}
+
 export namespace CreateCrewSectorUser {
   export const fieldName = {
     username: 'username' as FieldName,
@@ -1675,6 +1900,18 @@ export namespace CreateCrewUser {
     roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace DeleteCrewGroup {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+  };
+}
+
+export namespace DeleteCrewSectorGroup {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
   };
 }
 
@@ -1699,6 +1936,20 @@ export namespace DeleteMembersSectorUser {
 export namespace DeleteMembersUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+  };
+}
+
+export namespace DescribeCrewGroup {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    description: 'description' as FieldName,
+  };
+}
+
+export namespace DescribeCrewSectorGroup {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    description: 'description' as FieldName,
   };
 }
 
@@ -1805,6 +2056,22 @@ export namespace FailMission {
   };
 }
 
+export namespace GiveCrewGroupRole {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    role: 'role' as FieldName,
+    domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace GiveCrewSectorGroupRole {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    role: 'role' as FieldName,
+  };
+}
+
 export namespace HailShip {
   export const fieldName = {
     shipId: 'shipId' as FieldName,
@@ -1867,6 +2134,13 @@ export namespace ReleaseConsignment {
   };
 }
 
+export namespace RemoveCrewGroupMember {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    userId: 'userId' as FieldName,
+  };
+}
+
 export namespace RemoveCrewPassword {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -1879,6 +2153,13 @@ export namespace RemoveCrewRole {
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace RemoveCrewSectorGroupMember {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    userId: 'userId' as FieldName,
   };
 }
 
@@ -2069,6 +2350,22 @@ export namespace StandDownMission {
 export namespace StartFlightTest {
   export const fieldName = {
     refitId: 'refitId' as FieldName,
+  };
+}
+
+export namespace TakeCrewGroupRole {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    role: 'role' as FieldName,
+    domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace TakeCrewSectorGroupRole {
+  export const fieldName = {
+    groupId: 'groupId' as FieldName,
+    role: 'role' as FieldName,
   };
 }
 

@@ -573,3 +573,77 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 
 	return nil
 }
+
+// errNoGroups answers a call that writes a group, a member or a group's role on an auth
+// that keeps no groups of people: a directory writes the Members auth's roles at every
+// sign-in, and its own groups do that job. The generator wrote no method that
+// reaches one.
+var errNoGroups = errors.New("the Members auth keeps no groups of people: its groups are not managed here")
+
+// Nobody is in a group an auth does not keep. The rules every auth keeps ask what a
+// person holds, whatever its tables: where a person belongs and whether an account is
+// left with nothing read the person's groups, and here there are none.
+
+func (store) InsertGroup(context.Context, resource.ReadWriteTransaction, *access.GroupRow) (impulse.UUID, error) {
+	return impulse.NilUUID, errNoGroups
+}
+
+func (store) Group(context.Context, resource.ReadWriteTransaction, impulse.UUID) (group *identity.Group, found bool, err error) {
+	return nil, false, nil
+}
+
+func (store) GroupNamed(context.Context, resource.ReadWriteTransaction, *access.GroupRow) (bool, error) {
+	return false, nil
+}
+
+func (store) DescribeGroup(context.Context, resource.ReadWriteTransaction, impulse.UUID, string) error {
+	return errNoGroups
+}
+
+func (store) DeleteGroup(context.Context, resource.ReadWriteTransaction, impulse.UUID) error {
+	return errNoGroups
+}
+
+func (store) TenantGroups(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
+	return nil, nil
+}
+
+func (store) GroupMembers(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]accesstypes.User, error) {
+	return nil, nil
+}
+
+func (store) HasGroupMember(context.Context, resource.ReadWriteTransaction, *access.GroupMemberKey) (bool, error) {
+	return false, nil
+}
+
+func (store) InsertGroupMember(context.Context, resource.ReadWriteTransaction, *access.GroupMemberKey) (bool, error) {
+	return false, errNoGroups
+}
+
+func (store) DeleteGroupMember(context.Context, resource.ReadWriteTransaction, *access.GroupMemberKey) error {
+	return errNoGroups
+}
+
+func (store) UserGroups(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]identity.GroupPlace, error) {
+	return nil, nil
+}
+
+func (store) GroupRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.GroupRoleKey, error) {
+	return nil, nil
+}
+
+func (store) HasGroupRole(context.Context, resource.ReadWriteTransaction, *access.GroupRoleKey) (bool, error) {
+	return false, nil
+}
+
+func (store) InsertGroupRole(context.Context, resource.ReadWriteTransaction, *access.GroupRoleKey) (bool, error) {
+	return false, errNoGroups
+}
+
+func (store) DeleteGroupRole(context.Context, resource.ReadWriteTransaction, *access.GroupRoleKey) error {
+	return errNoGroups
+}
+
+func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.GroupRoleKey, error) {
+	return nil, nil
+}

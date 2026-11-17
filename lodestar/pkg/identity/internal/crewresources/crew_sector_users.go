@@ -72,11 +72,17 @@ SELECT
   ) OR EXISTS (
     SELECT 1 FROM CrewUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og ON og.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
   )) AS HeldElsewhere,
-  EXISTS (
+  (EXISTS (
     SELECT 1 FROM CrewUserRoles g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
-  ) AS HeldGlobally
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups gg ON gg.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND gg.Kind = 'global'
+  )) AS HeldGlobally
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM CrewUserRoles m
@@ -86,6 +92,24 @@ FROM (
   FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Sectors s
   WHERE m.Kind = 'every' AND m.Axis = ''
+  UNION DISTINCT
+  SELECT g.DomainId AS DomainId, gm.UserId AS UserId
+  FROM CrewGroups g
+  JOIN CrewGroupMembers gm ON gm.GroupId = g.Id
+  WHERE g.Kind = 'domain' AND g.Axis = ''
+  UNION DISTINCT
+  SELECT r.DomainId AS DomainId, gm.UserId AS UserId
+  FROM CrewGroupRoles r
+  JOIN CrewGroups g ON g.Id = r.GroupId
+  JOIN CrewGroupMembers gm ON gm.GroupId = r.GroupId
+  WHERE r.Kind = 'domain' AND r.Axis = '' AND g.Kind = 'global' AND r.Role != 'SuperAdministrator'
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, gm.UserId AS UserId
+  FROM CrewGroupRoles r
+  JOIN CrewGroups g ON g.Id = r.GroupId
+  JOIN CrewGroupMembers gm ON gm.GroupId = r.GroupId
+  CROSS JOIN Sectors s
+  WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
 ) t
 JOIN CrewSessionUsers u ON u.Id = t.UserId
 `

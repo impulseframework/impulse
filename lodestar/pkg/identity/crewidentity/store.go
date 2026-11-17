@@ -665,3 +665,272 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 
 	return nil
 }
+
+// groupID answers a group's id as the declarations hold it, from the text the permission
+// store names a group by.
+func groupID(group accesstypes.Group) (impulse.UUID, error) {
+	id, err := impulse.UUIDFromString(string(group))
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "impulse.UUIDFromString()")
+	}
+
+	return id, nil
+}
+
+func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {
+	patch, err := crewresources.NewCrewGroupCreatePatch()
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "crewresources.NewCrewGroupCreatePatch()")
+	}
+	patch.SetKind(group.Kind).SetAxis(group.Axis).SetDomainID(group.Domain).SetName(group.Name).SetDescription(group.Description).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "crewresources.CrewGroupCreatePatch.Buffer()")
+	}
+
+	return patch.ID(), nil
+}
+
+func (store) Group(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (group *identity.Group, found bool, err error) {
+	row, err := crewresources.NewCrewGroupQuery().
+		AddColumns(crewresources.NewCrewGroupColumns().Kind().Axis().DomainID().Name()).
+		SetID(id).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return nil, false, nil
+		}
+
+		return nil, false, errors.Wrap(err, "crewresources.CrewGroupQuery.Read()")
+	}
+
+	return &identity.Group{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Name: row.Data.Name}, true, nil
+}
+
+func (store) GroupNamed(ctx context.Context, txn resource.ReadWriteTransaction, place *access.GroupRow) (bool, error) {
+	// The table's unique index by name leads with where a group is kept, then the name.
+	clause := crewresources.NewCrewGroupQueryClause()
+	query := crewresources.NewCrewGroupQuery().
+		AddColumns(crewresources.NewCrewGroupColumns().ID()).
+		Where(clause.Kind().Equal(place.Kind).And().Axis().Equal(place.Axis).And().DomainID().Equal(place.Domain).And().Name().Equal(place.Name))
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return false, errors.Wrap(err, "crewresources.CrewGroupQuery.List()")
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, description string) error {
+	patch := crewresources.NewCrewGroupUpdatePatch(id).SetDescription(description).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "crewresources.CrewGroupUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	if err := crewresources.NewCrewGroupDeletePatch(id).Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
+	// The table's index by name leads with where a group is kept: the list is the rows
+	// kept in the tenant.
+	at := access.NewGroupRoleKey("", accesstypes.DomainPolicyScope(domain), "")
+	clause := crewresources.NewCrewGroupQueryClause()
+	query := crewresources.NewCrewGroupQuery().
+		AddColumns(crewresources.NewCrewGroupColumns().ID()).
+		Where(clause.Kind().Equal(at.Kind).And().Axis().Equal(at.Axis).And().DomainID().Equal(at.Domain))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupQuery.List()")
+		}
+		ids = append(ids, row.Data.ID)
+	}
+
+	return ids, nil
+}
+
+func (store) GroupMembers(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) ([]accesstypes.User, error) {
+	// The table's key leads with the group: the list is the rows under it.
+	query := crewresources.NewCrewGroupMemberQuery().
+		AddColumns(crewresources.NewCrewGroupMemberColumns().UserID()).
+		SetGroupID(id)
+	var users []accesstypes.User
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupMemberQuery.List()")
+		}
+		users = append(users, accesstypes.User(row.Data.UserID))
+	}
+
+	return users, nil
+}
+
+func (store) HasGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	_, err = crewresources.NewCrewGroupMemberQuery().
+		AddColumns(crewresources.NewCrewGroupMemberColumns().UserID()).
+		SetGroupID(id).SetUserID(string(key.User)).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "crewresources.CrewGroupMemberQuery.Read()")
+	}
+
+	return true, nil
+}
+
+// InsertGroupMember is a create-unless-there: a person who is in the group, committed or
+// written earlier in this transaction, keeps the time they were put in it.
+func (store) InsertGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	patch := crewresources.NewCrewGroupMemberCreatePatch(id, string(key.User)).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return false, errors.Wrap(err, "crewresources.CrewGroupMemberCreatePatch.Buffer()")
+	}
+
+	return !patch.RowSkipped(), nil
+}
+
+func (store) DeleteGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(key.User)).Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "crewresources.CrewGroupMemberDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (s store) UserGroups(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]identity.GroupPlace, error) {
+	// The table's index by user leads with the person, the id of their account; where
+	// each group is kept is read off the group's own row.
+	query := crewresources.NewCrewGroupMemberQuery().
+		AddColumns(crewresources.NewCrewGroupMemberColumns().GroupID()).
+		Where(crewresources.NewCrewGroupMemberQueryClause().UserID().Equal(userID.String()))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupMemberQuery.List()")
+		}
+		ids = append(ids, row.Data.GroupID)
+	}
+	places := make([]identity.GroupPlace, 0, len(ids))
+	for _, id := range ids {
+		group, found, err := s.Group(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			places = append(places, identity.GroupPlace{ID: id, Kind: group.Kind, Axis: group.Axis, Domain: group.Domain})
+		}
+	}
+
+	return places, nil
+}
+
+func (store) GroupRoles(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) ([]access.GroupRoleKey, error) {
+	// The table's key leads with the group: the list is the rows under it.
+	query := crewresources.NewCrewGroupRoleQuery().
+		AddColumns(crewresources.NewCrewGroupRoleColumns().GroupID().Kind().Axis().DomainID().Role()).
+		SetGroupID(id)
+	var keys []access.GroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupRoleQuery.List()")
+		}
+		keys = append(keys, access.GroupRoleKey{Group: identity.GroupID(row.Data.GroupID), Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role)})
+	}
+
+	return keys, nil
+}
+
+func (store) HasGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	_, err = crewresources.NewCrewGroupRoleQuery().
+		AddColumns(crewresources.NewCrewGroupRoleColumns().Role()).
+		SetGroupID(id).SetKind(key.Kind).SetAxis(key.Axis).SetDomainID(key.Domain).SetRole(string(key.Role)).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "crewresources.CrewGroupRoleQuery.Read()")
+	}
+
+	return true, nil
+}
+
+// InsertGroupRole is a create-unless-there: a role the group holds there, committed or
+// written earlier in this transaction, keeps the time it was given.
+func (store) InsertGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	patch := crewresources.NewCrewGroupRoleCreatePatch(id, key.Kind, key.Axis, key.Domain, string(key.Role)).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return false, errors.Wrap(err, "crewresources.CrewGroupRoleCreatePatch.Buffer()")
+	}
+
+	return !patch.RowSkipped(), nil
+}
+
+func (store) DeleteGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := crewresources.NewCrewGroupRoleDeletePatch(id, key.Kind, key.Axis, key.Domain, string(key.Role))
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "crewresources.CrewGroupRoleDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) TenantGroupRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.GroupRoleKey, error) {
+	// The table's index by scope leads with where a role is held: the list is the rows
+	// under the tenant's own scope, whichever group holds each.
+	at := access.NewGroupRoleKey("", accesstypes.DomainPolicyScope(domain), "")
+	query := crewresources.NewCrewGroupRoleQuery().
+		AddColumns(crewresources.NewCrewGroupRoleColumns().GroupID().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	var keys []access.GroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupRoleQuery.List()")
+		}
+		keys = append(keys, access.GroupRoleKey{Group: identity.GroupID(row.Data.GroupID), Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role)})
+	}
+
+	return keys, nil
+}
