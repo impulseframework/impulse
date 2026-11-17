@@ -19,6 +19,25 @@ import {
 /** The page each config makes, so the route and the menu file hold the same one. */
 const pages = new WeakMap<RootConfig, Page>();
 
+/** Whether the config's page lists its resource across tenants (ListViewConfig.acrossTenants). */
+function listsAcrossTenants(config: RootConfig): boolean {
+  return config.parentConfig.type === 'ListView' && config.parentConfig.acrossTenants === true;
+}
+
+/**
+ * The route of a page that lists its resource across tenants: the one its config names.
+ * The resource's own route carries the tenant's segment, which is where one tenant's
+ * list lives, so a config that names no route is refused, naming the resource.
+ */
+function acrossTenantsRoute(config: RootConfig, resource: Resource): string {
+  if (!config.routeData.route) {
+    throw new Error(
+      `the config of ${resource} lists it across tenants and names no route: set routeData.route to where the page lives, outside the tenant's segment (the resource's own route is one tenant's list)`,
+    );
+  }
+  return config.routeData.route;
+}
+
 /**
  * The page a config-driven resource's routes carry, for the application's menu file to
  * place: the config's label and icon at the page's route, needing List on the resource
@@ -40,11 +59,14 @@ export function resourcePage(config: RootConfig, resourceMeta: (resource: Resour
   if (!meta) {
     throw new Error(`resourcePage: the generated metadata carries no resource ${resource}`);
   }
+  const across = listsAcrossTenants(config);
   const declared = page({
     label: config.page.label,
     icon: config.page.icon,
-    route: [config.routeData.route || meta.route],
-    permission: config.page.permission ?? { resource, permission: ListPermission },
+    route: [across ? acrossTenantsRoute(config, resource) : config.routeData.route || meta.route],
+    // A list across tenants has no one tenant whose digest could answer List for it: the
+    // page needs the config's permission alone, and none where the config names none.
+    permission: config.page.permission ?? (across ? undefined : { resource, permission: ListPermission }),
     feature: config.page.feature ?? meta.feature,
   });
   pages.set(config, declared);
@@ -77,6 +99,15 @@ export function resourcePage(config: RootConfig, resourceMeta: (resource: Resour
  * (the metadata's `feature`) gets a match guard from it: while the flag is off the router
  * passes over the page and a dark URL falls to the application's wildcard, and the page
  * sits behind the flag too, so the menus leave it out while the flag is off.
+ *
+ * A page that lists its resource across tenants (`acrossTenants` on the list config) is
+ * mounted at `routeData.route`, which it must name: the resource's own route is one
+ * tenant's list. It gets no row route and is not registered as where the resource's rows
+ * open, since a row opens inside its tenant. Its route and its page need no List
+ * permission: the selected tenant's digest speaks for one tenant, and the server leaves
+ * out, tenant by tenant, what the person may not list, so someone who may list the
+ * resource in no tenant opens an empty list. A `page.permission` on the config is what
+ * the menus ask before showing it; the feature flag gates it as it gates any page.
  */
 export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Resource) => ResourceMeta): Route => {
   const resource = config.parentConfig.primaryResource as Resource;
@@ -92,6 +123,23 @@ export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Reso
     const matched = meta.feature ? { ...route, canMatch: [featureMatch(meta.feature)] } : route;
     return config.page ? pageRoute(resourcePage(config, resourceMeta), matched) : matched;
   };
+
+  if (listsAcrossTenants(config)) {
+    // The page reads and opens no row of its own: a row's link leads into its tenant's
+    // routes. The server answers who may list what, tenant by tenant, so the route asks
+    // no one tenant's digest.
+    return gated({
+      path: acrossTenantsRoute(config, resource),
+      data: { config } satisfies RouteResourceData,
+      children: [
+        {
+          path: '',
+          loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
+          canDeactivate: [canDeactivateGuard],
+        },
+      ],
+    });
+  }
 
   const path = config.routeData.route || meta.route;
   const rowResource = writeResource(resource, meta);

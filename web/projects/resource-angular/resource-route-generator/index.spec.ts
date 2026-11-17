@@ -8,6 +8,7 @@ import { resourcePageRoute } from '@impulseframework/resource-angular/resource-n
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
+  ConfigPage,
   FieldMeta,
   ListPermission,
   listViewConfig,
@@ -302,6 +303,77 @@ describe('resourceRoutes', () => {
       const route = resourceRoutes(config, meta);
       expect(route.canMatch).toBeUndefined();
       expect(resourcePage(config, meta).feature).toBeUndefined();
+    });
+  });
+
+  // A page that lists its resource across tenants lives outside the tenant's segment and
+  // has no one tenant: it is the list alone at the route its config names, it asks no
+  // tenant's digest, and a row still opens on the tenant's own page.
+  describe('over a list across tenants', () => {
+    const dispatches = 'Dispatches' as Resource;
+    const dispatchesMeta = (extra: Partial<ResourceMeta> = {}) => (): ResourceMeta =>
+      keyed('sectors/{sectorID}/dispatches', extra);
+    const acrossConfig = (routeData: RootRouteData | undefined, page: ConfigPage = { label: 'Dispatches in every sector' }) =>
+      rootConfig({
+        ...(routeData ? { routeData } : {}),
+        page,
+        parentConfig: listViewConfig({ primaryResource: dispatches, acrossTenants: true, listColumns: [], elements: [] }),
+      });
+
+    it("mounts the list alone at the configured route, guarded by no one tenant's digest", () => {
+      const route = resourceRoutes(acrossConfig({ route: 'hq/dispatches' }), dispatchesMeta());
+      expect(route.path).toBe('hq/dispatches');
+      expect(route.children?.map((child) => child.path)).toEqual(['']);
+      expect(rowRoute(route)).toBeUndefined();
+      expect(scopeOf(route)).toBeUndefined();
+      expect(route.canActivate).toBeUndefined();
+    });
+
+    it("leaves the tenant's own page as where the resource's rows open", () => {
+      expect(resourcePageRoute(dispatches)).toBeUndefined();
+      resourceRoutes(acrossConfig({ route: 'hq/dispatches' }), dispatchesMeta());
+      expect(resourcePageRoute(dispatches)).toBeUndefined();
+
+      const inTenant = rootConfig({
+        routeData: { route: 'sectors/:sectorID/dispatches' },
+        parentConfig: listViewConfig({ primaryResource: dispatches, listColumns: [], elements: [] }),
+      });
+      resourceRoutes(inTenant, dispatchesMeta());
+      expect(resourcePageRoute(dispatches)).toBe('sectors/:sectorID/dispatches');
+    });
+
+    it('carries a page that needs no List permission, at the configured route', () => {
+      const config = acrossConfig({ route: 'hq/dispatches' }, { label: 'Dispatches in every sector', icon: 'travel_explore' });
+      const route = resourceRoutes(config, dispatchesMeta());
+      expect(route.data?.[pageDataKey]).toBe(resourcePage(config, dispatchesMeta()));
+      expect(resourcePage(config, dispatchesMeta())).toEqual({
+        label: 'Dispatches in every sector',
+        icon: 'travel_explore',
+        route: ['hq/dispatches'],
+        permission: undefined,
+        feature: undefined,
+      });
+    });
+
+    it("keeps the config's own permission for the menus", () => {
+      const permission = { resource: 'Charters' as Resource, permission: ListPermission };
+      const config = acrossConfig({ route: 'hq/dispatches' }, { label: 'Dispatches in every sector', permission });
+      expect(resourcePage(config, dispatchesMeta()).permission).toBe(permission);
+      expect(scopeOf(resourceRoutes(config, dispatchesMeta()))).toBeUndefined();
+    });
+
+    it('sits behind the feature flag of its resource', () => {
+      const config = acrossConfig({ route: 'hq/dispatches' });
+      const route = resourceRoutes(config, dispatchesMeta({ feature: 'dispatches' }));
+      expect(route.canMatch).toHaveLength(1);
+      expect(resourcePage(config, dispatchesMeta({ feature: 'dispatches' })).feature).toBe('dispatches');
+    });
+
+    it("refuses a config that names no route, since the resource's own route is one tenant's list", () => {
+      const refusal =
+        "the config of Dispatches lists it across tenants and names no route: set routeData.route to where the page lives, outside the tenant's segment (the resource's own route is one tenant's list)";
+      expect(() => resourceRoutes(acrossConfig(undefined), dispatchesMeta())).toThrow(refusal);
+      expect(() => resourcePage(acrossConfig(undefined), dispatchesMeta())).toThrow(refusal);
     });
   });
 });

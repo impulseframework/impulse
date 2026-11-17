@@ -745,6 +745,10 @@ describe('ResourceListComponent', () => {
       if (url.pathname === '/api/user-domains') {
         return { status: 200, body: [{ domain: anvil, name: 'Anvil' }, { domain: bastion, name: 'Bastion' }] };
       }
+      if (url.pathname === '/api/permission-digest') {
+        // One tenant's digest, when something asks it: the title alone, no fee.
+        return { status: 200, body: { [missions]: { List: 'granted' }, [`${missions}.title`]: { List: 'granted' } } };
+      }
       if (url.pathname === '/api/missions') {
         return { status: 200, body: rows, headers: { 'total-count': '2' } };
       }
@@ -825,6 +829,18 @@ describe('ResourceListComponent', () => {
       expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
     });
 
+    it("keeps a column the selected tenant's digest does not grant: no one tenant speaks for the rows", async () => {
+      await page(missions);
+      // A tenant is selected and its digest, which grants the title alone, is loaded.
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest(anvil as Domain);
+      domain.set(anvil as Domain);
+      fixture.detectChanges();
+      await settle();
+
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+    });
+
     it('sorts and filters as the page asks, and a click on the tenant column sorts nothing', async () => {
       await page(missions, { sorts: [{ field: 'title' as FieldName, direction: 'desc' }], pageSize: 10 });
       fixture.detectChanges();
@@ -841,6 +857,8 @@ describe('ResourceListComponent', () => {
 
     it('reads alone: no create, no delete, no method, whatever the page configures', async () => {
       await page(missions, { createTitle: 'Book a mission', listMethods: [{ method: 'BookMission' as never }], rowMethods: [{ method: 'ClaimMission' as never }] });
+      // The page's host would show the create button: the list still draws none.
+      fixture.componentRef.setInput('hideCreateButton', false);
       fixture.detectChanges();
       await settle();
 

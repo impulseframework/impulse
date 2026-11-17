@@ -16,7 +16,9 @@ export interface FieldPointer {
  * and resourcePage answers the same page for the menu file to place. The page needs the
  * resource's List permission and sits behind the resource's feature flag unless these
  * say otherwise. A config without one makes a page no menu reaches, such as one only a
- * row link opens.
+ * row link opens. A page that lists its resource across tenants needs no List permission:
+ * no one tenant's digest speaks for it, so the menus show it to every signed-in person
+ * unless `permission` names what it needs.
  */
 export interface ConfigPage {
   label: string;
