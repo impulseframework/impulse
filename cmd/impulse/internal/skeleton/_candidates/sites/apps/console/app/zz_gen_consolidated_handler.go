@@ -39,8 +39,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 	type tenantDirectoryRequest struct {
 		ID          impulse.UUID `json:"-"`
 		TenantID    impulse.UUID `json:"-"`
-		Method      string       `json:"method"      sqltype:"STRING(16)"`
-		Connection  string       `json:"connection"`
+		Method      string       `json:"-"`
+		Connection  string       `json:"-"`
 		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
 	}
 	tenantDirectoryDecoder := NewDecoder[resources.TenantDirectory, tenantDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
@@ -213,6 +213,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err != nil {
 								return errors.Wrap(err, "tenantDirectoryCreatePatchFromPatchSet()")
 							}
+							// A directory is never typed in: the row takes the directory the caller is
+							// signed in through, held to the rules of a tenant's directory.
+							directory, err := NewTenantDirectoryRules().FromSession(ctx, txn, domain)
+							if err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
+							}
+							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
 							}
@@ -224,6 +231,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
+							// A tenant that is directory only keeps its directory: its people
+							// enter through it alone.
+							if err := NewTenantDirectoryRules().Remove(ctx, txn, domain); err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+							}
 							if err := resources.NewTenantDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDirectoryDeletePatch.Buffer()")
 							}

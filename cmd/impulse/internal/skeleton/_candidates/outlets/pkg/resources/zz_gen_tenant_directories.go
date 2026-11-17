@@ -41,8 +41,8 @@ var tenantDirectoryReadSets resource.SetCache[TenantDirectory, tenantDirectoryRe
 type tenantDirectoryWrite struct {
 	ID          impulse.UUID `json:"-"`
 	TenantID    impulse.UUID `json:"-"`
-	Method      string       `json:"method"      sqltype:"STRING(16)"`
-	Connection  string       `json:"connection"`
+	Method      string       `json:"-"`
+	Connection  string       `json:"-"`
 	DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
 }
 
@@ -70,6 +70,18 @@ func (q *TenantDirectoryQuery) SetID(v impulse.UUID) *TenantDirectoryQuery {
 
 func (q *TenantDirectoryQuery) ID() impulse.UUID {
 	v, _ := q.qSet.Key("ID").(impulse.UUID)
+
+	return v
+}
+
+func (q *TenantDirectoryQuery) SetTenantID(v impulse.UUID) *TenantDirectoryQuery {
+	q.qSet.SetKey("TenantID", v)
+
+	return q
+}
+
+func (q *TenantDirectoryQuery) TenantID() impulse.UUID {
+	v, _ := q.qSet.Key("TenantID").(impulse.UUID)
 
 	return v
 }

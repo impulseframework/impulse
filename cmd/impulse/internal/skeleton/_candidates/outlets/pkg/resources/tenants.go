@@ -33,15 +33,15 @@ type (
 	// concern. Its list comes in name order (@order) when the request names no sort.
 	//
 	// Who may enter a tenant is the record's declaration, data of the application
-	// rather than deploy configuration: the directories the tenant admits its people
-	// through (TenantDirectory, one row each) and whether its people enter through them
-	// only (DirectoryOnly). Each auth's sign-in policy reads it in the sign-in's own
-	// transaction (NewTenantDeclarationReader, handed to the staff and the members auth)
-	// and every instance's roster keeps a copy beside the keys (NewTenantRoster,
-	// Declarations), which the record's and the directories' generated write paths
-	// reload after their commit; a tenant is offered to a session only when the session
-	// may enter it. The record's change events (DataChangeEvents, Config) are the audit
-	// of every edit.
+	// rather than deploy configuration: the directory its people sign in through
+	// (TenantDirectory, one row at most, set from a sign-in through the directory and
+	// never typed in) and whether its people enter through it only (DirectoryOnly).
+	// Each auth's sign-in policy reads it in the sign-in's own transaction
+	// (NewTenantDeclarationReader, handed to the staff and the members auth) and every
+	// instance's roster keeps a copy beside the keys (NewTenantRoster, Declarations),
+	// which the record's and the directories' generated write paths reload after their
+	// commit; a tenant is offered to a session only when the session may enter it. The
+	// record's change events (DataChangeEvents, Config) are the audit of every edit.
 	//
 	// @resource
 	// @tenant
@@ -52,7 +52,7 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `spanner:"Name"`
-		// DirectoryOnly says the tenant's people enter through its directories only: a
+		// DirectoryOnly says the tenant's people enter through its directory only: a
 		// password does not reach the tenant. Set by whoever holds the record's Update
 		// grant on the column (Administrator), never at creation: a new tenant
 		// declares nothing.

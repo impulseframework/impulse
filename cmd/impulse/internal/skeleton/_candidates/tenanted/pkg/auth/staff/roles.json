@@ -349,9 +349,7 @@
             {
               "resource": "TenantDirectories",
               "fields": [
-                "connection",
-                "defaultSeat",
-                "method"
+                "defaultSeat"
               ]
             }
           ],

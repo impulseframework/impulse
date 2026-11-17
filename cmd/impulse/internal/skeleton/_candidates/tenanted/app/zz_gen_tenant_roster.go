@@ -4,8 +4,13 @@
 package app
 
 import (
+	"context"
+
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -72,4 +77,42 @@ func NewTenantDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // auth's generated identity client's DirectorySeated).
 func NewTenantDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDirectoryReader(&tenantDeclaration)
+}
+
+// NewTenantDirectoryRules builds the rules of a tenant's directory
+// (resource.TenantDirectoryRules) over the Tenant record's table and its declaration's
+// columns: a tenant has one directory, a directory is one tenant's, a personal account
+// is no directory, and the directory of a tenant that is directory only is not removed.
+// Every write of the TenantDirectory record is held to them. The generated TenantDirectory
+// write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes.
+func NewTenantDirectoryRules() *resource.TenantDirectoryRules {
+	return resource.NewTenantDirectoryRules("Tenants", "Id", &tenantDeclaration, "tenant")
+}
+
+// SetTenantDirectory makes directory the tenant's directory, in the caller's
+// transaction: the step every write that sets a tenant's directory from a sign-in takes.
+// The directory is one a sign-in names, its method and its connection, never one a
+// person typed: the create-your-tenant route hands the directory its creator came
+// through, and a caller inside a sign-in hands the identity's
+// (resource.NewSpannerReadWriteTransaction wraps the sign-in's transaction). The rules
+// are asked first (NewTenantDirectoryRules, Set), each refusal a Conflict that says what
+// to do: a personal account, a tenant that has a directory, a directory another tenant
+// has. Then the TenantDirectory row is buffered through the record's create patch, so its
+// change event is written with it. The caller reloads the roster and signals the
+// tenants kind once the transaction has committed, as the record's write paths do.
+func SetTenantDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {
+	if err := NewTenantDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {
+		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
+	}
+	patch, err := resources.NewTenantDirectoryCreatePatch()
+	if err != nil {
+		return errors.Wrap(err, "resources.NewTenantDirectoryCreatePatch()")
+	}
+	patch.SetTenantID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)
+	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
+		return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
+	}
+
+	return nil
 }

@@ -1,78 +1,59 @@
-import { Component, computed, input, resource, signal } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Component, computed, inject, input, resource, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatTableModule } from '@angular/material/table';
 import { injectApi } from '@app/api/api';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { StaffTenantRoles, TenantDirectories, Tenants } from '@app/service/zz_gen_resources';
-import { ApiError, Domain, Permission } from '@impulseframework/resource';
+import { Domain, Permission } from '@impulseframework/resource';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 
-/** A sign-in method a directory is reached through, with what its connection is. */
-export interface DirectoryMethod {
-  value: string;
-  label: string;
-  connection: string;
-  example: string;
-}
-
-/** A Google Workspace, named by its domain: the form's first choice. */
-const googleWorkspace: DirectoryMethod = {
-  value: 'google',
-  label: 'Google Workspace',
-  connection: "the Workspace's domain",
-  example: 'acme.example',
+/**
+ * What the directory a sign-in method reaches is called, by the method as the session
+ * library spells it. The connection that follows names the one organization: a Google
+ * Workspace by its domain, a Microsoft Entra tenant by its tenant id.
+ */
+export const directoryKinds: Readonly<Record<string, string>> = {
+  google: 'Google Workspace',
+  azure: 'Microsoft Entra tenant',
+  workos: 'WorkOS connection',
 };
 
 /**
- * The methods a directory is reached through, as the session library spells them, each
- * with the connection a tenant names it by: the value the session's first auth event
- * records when a person signs in through it.
- */
-export const directoryMethods: readonly DirectoryMethod[] = [
-  googleWorkspace,
-  { value: 'azure', label: 'Microsoft Entra', connection: "the Entra tenant's id", example: '6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a' },
-  { value: 'workos', label: 'WorkOS', connection: "the connection's id", example: 'conn_01HXYZ' },
-];
-
-/**
  * The tenant's sign-in page: who may enter the tenant, as its declaration says. The
- * declaration is two things on the Tenant record: the directories the tenant admits its
- * people through (the TenantDirectories rows under the tenant: a sign-in method and the
- * connection its identities carry), and whether its people enter through those only
- * (the record's directory-only flag, which closes passwords). A directory is declared or
- * withdrawn here under the tenant's Create and Delete grants on TenantDirectories, which
- * the tenant's administrator holds; the flag is set under the Update grant on the global
- * Tenants record, the application's administrator's. Each declared directory carries a
- * default seat, the role a stranger who signs in through it is seated with in the tenant
- * at their first sign-in: the tenant's administrator picks it from the tenant's roles, or
- * none, under the Update grant on the row, and a row with none tells the directory's
- * strangers the tenant admits them by invitation only. The server reloads what every
- * instance knows after each write, so a change decides the next request at once, and
- * each write leaves a change event.
+ * declaration is two things on the Tenant record: the tenant's directory (its row of
+ * TenantDirectories: the organization its people sign in through, a sign-in method and
+ * the connection its identities carry), and whether its people enter through it only
+ * (the record's directory-only flag, which closes passwords).
+ *
+ * A tenant has one directory and a directory belongs to one tenant, and nobody types
+ * one in. It is set from a sign-in: a person who holds the tenant's Create grant on
+ * TenantDirectories and is signed in through an organization's directory is offered to
+ * make it the tenant's, and the request names no directory, since the server sets the
+ * one the session came through. A session that came by password or with a personal
+ * account is offered no such action, and is told how a directory is set. The directory
+ * is removed under the Delete grant, which the server refuses while the tenant is
+ * directory only. The flag is set under the Update grant on the global Tenants record,
+ * the application's administrator's.
+ *
+ * The directory carries a default role, the role a person is given in the tenant at
+ * their first sign-in through it: the tenant's administrator picks it from the tenant's
+ * roles, or none, under the Update grant on the row, and with none the directory's
+ * people are told the tenant admits them by invitation only. The server reloads what
+ * every instance knows after each write, so a change decides the next request at once,
+ * and each write leaves a change event.
  */
 @Component({
   selector: 'app-tenant-sign-in',
-  imports: [
-    MatButtonModule,
-    MatCardModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
-    MatSlideToggleModule,
-    MatTableModule,
-    ReactiveFormsModule,
-  ],
+  imports: [MatButtonModule, MatCardModule, MatSelectModule, MatSlideToggleModule],
   templateUrl: './tenant-sign-in.component.html',
   styleUrl: './tenant-sign-in.component.scss',
 })
 export class TenantSignInComponent {
   private api = injectApi();
+  private auth = inject(AuthService);
   /**
    * The client's digest cache as a signal. The questions below read it, so they are asked
    * again when a digest loads: a page opened by its address asks before the tenant's
@@ -83,9 +64,7 @@ export class TenantSignInComponent {
   /** The tenant the URL names, bound from the route. */
   tenantID = input.required<string>();
 
-  readonly methods = directoryMethods;
-  readonly columns = ['method', 'connection', 'seat', 'withdraw'];
-  /** The picker's choice for a directory whose strangers are admitted by invitation only. */
+  /** The picker's choice for a directory whose people are admitted by invitation only. */
   readonly invitationOnly = '';
 
   /** The tenant's row on the global record: its name and its directory-only flag. */
@@ -105,7 +84,7 @@ export class TenantSignInComponent {
     return this.tenant.value()?.name || this.api.permissions.domainName(this.tenantID() as Domain);
   });
 
-  /** The directories the tenant declares, listed under the tenant where the digest grants List. */
+  /** The tenant's rows of the directories record, listed under the tenant where the digest grants List. */
   directories = resource({
     params: () => ({ tenant: this.tenantID(), listed: this.canList() }),
     loader: ({ params }): Promise<TenantDirectories[]> =>
@@ -113,7 +92,16 @@ export class TenantSignInComponent {
     defaultValue: [],
   });
 
-  /** The tenant's roles, the default seat's choices, listed where the digest grants List on them. */
+  /** The tenant's directory: a tenant has one, so the one row the list holds, or none. */
+  directory = computed((): TenantDirectories | undefined => this.directories.value()[0]);
+
+  /**
+   * The organization's directory the person is signed in through, as the session read
+   * reports it: none for a session that came by password or with a personal account.
+   */
+  sessionDirectory = computed(() => this.auth.sessionInfo().directory);
+
+  /** The tenant's roles, the default role's choices, listed where the digest grants List on them. */
   roles = resource({
     params: () => ({ tenant: this.tenantID(), listed: this.canListRoles() }),
     loader: ({ params }): Promise<StaffTenantRoles[]> =>
@@ -123,8 +111,8 @@ export class TenantSignInComponent {
 
   canList = computed(() => this.directoriesAllow(Permissions.List));
   canSeat = computed(() => this.directoriesAllow(Permissions.Update));
-  canDeclare = computed(() => this.directoriesAllow(Permissions.Create));
-  canWithdraw = computed(() => this.directoriesAllow(Permissions.Delete));
+  canSet = computed(() => this.directoriesAllow(Permissions.Create));
+  canRemove = computed(() => this.directoriesAllow(Permissions.Delete));
   canClose = computed(() => {
     this.permissions();
     return this.api.can(Permissions.Update, Resources.Tenants);
@@ -138,61 +126,52 @@ export class TenantSignInComponent {
     return this.api.domain(this.tenantID() as Domain).staffTenantRoles.can(Permissions.List);
   });
 
-  /** Whether the digest grants permission on the tenant's directories, asked again when a digest loads. */
+  /** Whether the digest grants permission on the tenant's directory, asked again when a digest loads. */
   private directoriesAllow(permission: Permission): boolean {
     this.permissions();
     return this.api.domain(this.tenantID() as Domain).tenantDirectories.can(permission);
   }
-
-  /** The directory being declared. */
-  readonly form = new FormGroup({
-    method: new FormControl(googleWorkspace.value, { nonNullable: true, validators: [Validators.required] }),
-    connection: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-  });
 
   /** True while a write is in flight. */
   readonly busy = signal(false);
   /** The server's refusal of the last write, in its words, or empty. */
   readonly error = signal('');
 
-  /** The method the form has chosen, for the connection's hint. */
-  chosen = computed(() => this.methods.find((m) => m.value === this.method()) ?? googleWorkspace);
-  private method = signal(googleWorkspace.value);
-
-  constructor() {
-    this.form.controls.method.valueChanges.subscribe((value) => this.method.set(value));
+  /** A directory as a sentence names it: what its method reaches, and its connection. */
+  nameOf(directory: { method: string; connection: string }): string {
+    return `${directoryKinds[directory.method] ?? 'Directory'} ${directory.connection}`;
   }
 
-  labelOf(method: string): string {
-    return this.methods.find((m) => m.value === method)?.label ?? method;
-  }
-
-  async declare(): Promise<void> {
-    if (this.form.invalid || this.busy()) {
-      return;
-    }
-    const { method, connection } = this.form.getRawValue();
+  /**
+   * Makes the directory the person is signed in through this tenant's directory. The
+   * request names no directory: the server sets the one the session came through, and
+   * refuses a session that came through none, a directory another tenant has and a
+   * tenant that has one already, each in its own words.
+   */
+  async makeDirectory(): Promise<void> {
     await this.write(async () => {
-      await this.api.domain(this.tenantID() as Domain).tenantDirectories.create({ method, connection: connection.trim() });
-      this.form.controls.connection.reset();
+      await this.api.domain(this.tenantID() as Domain).tenantDirectories.create({});
       this.directories.reload();
     });
   }
 
-  /** What the directory's strangers get, as the row says. */
+  /** What the directory's people are given, as the row says. */
   seatOf(directory: TenantDirectories): string {
     return directory.defaultSeat || 'Invitation only';
   }
 
-  /** Sets the directory's default seat: a role of the tenant, or none (null clears the column). */
+  /** Sets the directory's default role: a role of the tenant, or none (null clears the column). */
   async seat(directory: TenantDirectories, role: string): Promise<void> {
     await this.write(async () => {
-      await this.api.domain(this.tenantID() as Domain).tenantDirectories.patch([directory.id], { defaultSeat: role || null });
+      await this.api
+        .domain(this.tenantID() as Domain)
+        .tenantDirectories.patch([directory.id], { defaultSeat: role || null });
       this.directories.reload();
     });
   }
 
-  async withdraw(directory: TenantDirectories): Promise<void> {
+  /** Removes the tenant's directory, which the server refuses while the tenant is directory only. */
+  async remove(directory: TenantDirectories): Promise<void> {
     await this.write(async () => {
       await this.api.domain(this.tenantID() as Domain).tenantDirectories.remove([directory.id]);
       this.directories.reload();
@@ -219,10 +198,7 @@ export class TenantSignInComponent {
   }
 }
 
-/** The sentence a failed write is reported with: the server's message where it gave one. */
+/** The sentence a failed write is reported with: the server's own words, which say what to do. */
 function refusal(failure: unknown): string {
-  if (failure instanceof ApiError) {
-    return `${failure.status}: ${failure.message}`;
-  }
   return failure instanceof Error ? failure.message : String(failure);
 }

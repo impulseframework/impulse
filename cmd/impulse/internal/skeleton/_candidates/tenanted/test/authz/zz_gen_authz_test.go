@@ -541,7 +541,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			name:         "PatchResources TenantDirectory update denied",
 			method:       http.MethodPatch,
 			target:       "/api/resources",
-			body:         `[{"op":"patch","path":"/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/00000000-0000-0000-0000-000000000001","value":{"method":"authz-test-value"}}]`,
+			body:         `[{"op":"patch","path":"/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/00000000-0000-0000-0000-000000000001","value":{"defaultSeat":"authz-test-value"}}]`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
 		{

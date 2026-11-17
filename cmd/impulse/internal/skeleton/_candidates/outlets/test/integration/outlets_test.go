@@ -89,8 +89,8 @@ func TestPortalOutlet(t *testing.T) {
 // TestPortalOutlet_aRoleUnderANameAdmitsNobody proves a role is held by an account and
 // by nothing else. A membership written under the name a person will sign in with, for
 // a person no user was created for, is held by nobody: the directory proves who they
-// are, the tenants that declare the directory find a stranger, and since the seeded
-// declarations name no default seat the stranger is refused by invitation only, with no
+// are, the tenant whose directory it is finds a stranger, and since the seeded
+// directory names no default role the stranger is refused by invitation only, with no
 // account made. The portal's client, who has the account the harness created, is
 // admitted on the same stack (TestPortalOutlet).
 func TestPortalOutlet_aRoleUnderANameAdmitsNobody(t *testing.T) {
