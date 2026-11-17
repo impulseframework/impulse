@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -15,15 +17,26 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
+// askedToGive is how the role file's grants are asked whether the caller may give a
+// role for the whole application to a person who has no account yet: the question names
+// nobody in particular.
+func askedToGive(role accesstypes.Role) []string {
+	key := access.NewMembershipKey(globalScope, User(impulse.NilUUID), role)
+
+	return []string{"give " + membershipText(&key)}
+}
+
 // registeredMethods are the sign-in methods of the auth the sign-up tests manage, one
 // of each width: a method limited to one organization, one that admits any account of
-// its provider, the password method, and one whose directory gives the roles.
+// its provider, the password method, one whose directory gives the roles, and one whose
+// registration carries an account rule of its own.
 func registeredMethods() []session.RegisteredMethod {
 	return []session.RegisteredMethod{
 		{Name: "password", Method: sessioninfo.MethodPassword, Label: "Password", Audience: signin.Audience{Accounts: "an email address"}},
 		{Name: "workspace", Method: sessioninfo.MethodGoogle, Label: "Acme", Audience: signin.Audience{Organizations: []string{"acme.example"}}},
 		{Name: "google", Method: sessioninfo.MethodGoogle, Label: "Google", Audience: signin.Audience{Accounts: "a Google account"}},
 		{Name: "entra", Method: sessioninfo.MethodAzure, Label: "Staff directory", Audience: signin.Audience{Organizations: []string{"Lakeside"}}, SyncsRoles: true},
+		{Name: "partners", Method: sessioninfo.MethodOIDC, Label: "Partners", Audience: signin.Audience{Organizations: []string{"Harbor"}}, OwnRule: true},
 	}
 }
 
@@ -46,16 +59,58 @@ func TestManager_OpenSignUp(t *testing.T) {
 	tests := []struct {
 		name string
 		open SignUp
-		// wantWrites are the store's buffered writes; none for a refusal.
+		// caller makes the request, "" for a call outside any request; grants are the
+		// role file's answers on giving a role, nil for a manager built without them.
+		caller accesstypes.User
+		grants *fakeGrants
+		// wantWrites are the store's buffered writes; none for a refusal. wantFor is the
+		// audience the row written was opened for, as words.
 		wantWrites []string
+		wantFor    string
 		// refused says how a refusal answers, and wantHas what its words say.
 		refused func(err error) bool
 		wantHas string
+		// wantAsked is what the role file's grants were asked.
+		wantAsked []string
 	}{
 		{
-			name:       "without tenants, a method is opened with its default role",
+			name:       "without tenants, a method is opened with its default role, for the audience its registration has",
 			open:       SignUp{Method: "google", DefaultRole: "Steward"},
 			wantWrites: []string{"set sign-in method google open=true role=Steward"},
+			wantFor:    "anyone with a Google account",
+		},
+		{
+			name:   "a caller who may give the role opens a method with it: the grant of the method that gives a role is asked, for the whole application and nobody in particular",
+			open:   SignUp{Method: "workspace", DefaultRole: "Steward"},
+			caller: erin, grants: &fakeGrants{},
+			wantWrites: []string{"set sign-in method workspace open=true role=Steward"},
+			wantFor:    "anyone with an account at acme.example",
+			wantAsked:  askedToGive("Steward"),
+		},
+		{
+			name:   "a caller who may not give the role does not make it a default role: opening the method would give it to every person who signs up",
+			open:   SignUp{Method: "google", DefaultRole: "Steward"},
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
+			refused: httpio.HasForbidden, wantHas: "the role Steward, which you may not give",
+			wantAsked: askedToGive("Steward"),
+		},
+		{
+			name:    "a request reaches a manager built without the role file's grants: an error, never a pass",
+			open:    SignUp{Method: "google", DefaultRole: "Steward"},
+			caller:  erin,
+			refused: func(err error) bool { return err != nil && !httpio.HasForbidden(err) }, wantHas: "identity.WithRoleGrants",
+		},
+		{
+			name:   "with tenants no role is given, so the role file's grants are not asked",
+			open:   SignUp{Method: "google", CreatesTenant: true},
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
+			wantWrites: []string{"set sign-in method google open=true role=<none>"},
+			wantFor:    "anyone with a Google account",
+		},
+		{
+			name:    "a method whose registration carries an account rule of its own is refused by name",
+			open:    SignUp{Method: "partners", DefaultRole: "Steward"},
+			refused: httpio.HasConflict, wantHas: `partners\" is decided by the application's own account rule`,
 		},
 		{
 			name:    "without tenants, open without a default role is refused at the save",
@@ -76,6 +131,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			name:       "with tenants, a method is opened with no role",
 			open:       SignUp{Method: "google", CreatesTenant: true},
 			wantWrites: []string{"set sign-in method google open=true role=<none>"},
+			wantFor:    "anyone with a Google account",
 		},
 		{
 			name:    "with tenants, a default role is refused",
@@ -85,7 +141,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 		{
 			name:    "a method the auth does not register is refused, and its methods named",
 			open:    SignUp{Method: "github", DefaultRole: "Steward"},
-			refused: httpio.HasNotFound, wantHas: "its methods are password, workspace, google, entra",
+			refused: httpio.HasNotFound, wantHas: "its methods are password, workspace, google, entra, partners",
 		},
 		{
 			name:    "a method whose directory gives the roles is refused",
@@ -96,6 +152,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			name:       "the password method is opened like any other",
 			open:       SignUp{Method: "password", DefaultRole: "Steward"},
 			wantWrites: []string{"set sign-in method password open=true role=Steward"},
+			wantFor:    "anyone with an email address",
 		},
 	}
 	for _, tt := range tests {
@@ -103,11 +160,31 @@ func TestManager_OpenSignUp(t *testing.T) {
 			t.Parallel()
 
 			store := &fakeStore{roles: map[access.RoleKey]bool{}}
-			m := newSignUpManager(t, store)
+			var opts []Option
+			if tt.grants != nil {
+				opts = append(opts, WithRoleGrants(tt.grants))
+			}
+			m := newSignUpManager(t, store, opts...)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.OpenSignUp(ctx, txn, &tt.open)
+				return m.OpenSignUp(asCaller(ctx, tt.caller), txn, &tt.open)
 			})
+			if tt.grants != nil {
+				if diff := cmp.Diff(tt.wantAsked, tt.grants.asked); diff != "" {
+					t.Errorf("the role file's grants were asked (-want +got):\n%s", diff)
+				}
+			}
+			var openedFor string
+			if store.openedFor != nil {
+				audience, ok := signin.AudienceOfKey(*store.openedFor)
+				if !ok {
+					t.Fatalf("the row was opened for %q, which is no audience's key", *store.openedFor)
+				}
+				openedFor = audience.Words()
+			}
+			if openedFor != tt.wantFor {
+				t.Errorf("the row was opened for %q, want %q", openedFor, tt.wantFor)
+			}
 
 			if tt.refused == nil {
 				if err != nil {
@@ -231,6 +308,31 @@ func TestManager_OpenSignUpWarning(t *testing.T) {
 	})
 }
 
+// TestManager_OpenSignUpWarning_roleTheCallerMayNotGive pins that the warning refuses
+// what the call would refuse of the role: a caller reads no warning that promises a role
+// they may not give, and the role file's grants are not asked while no role is picked.
+func TestManager_OpenSignUpWarning_roleTheCallerMayNotGive(t *testing.T) {
+	t.Parallel()
+	grants := &fakeGrants{noGive: []accesstypes.Role{"Steward"}}
+	m := newSignUpManager(t, &fakeStore{roles: map[access.RoleKey]bool{}}, WithRoleGrants(grants))
+
+	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if _, err := m.OpenSignUpWarning(asCaller(ctx, erin), txn, &SignUp{Method: "google"}); err != nil {
+			t.Errorf("OpenSignUpWarning() with no role picked yet error = %v, want the warning", err)
+		}
+		if len(grants.asked) != 0 {
+			t.Errorf("the role file's grants were asked %v while no role is picked, want nothing", grants.asked)
+		}
+		_, err := m.OpenSignUpWarning(asCaller(ctx, erin), txn, &SignUp{Method: "google", DefaultRole: "Steward"})
+
+		return err
+	})
+
+	if !httpio.HasForbidden(err) || !containsText(err, "the role Steward, which you may not give") {
+		t.Errorf("OpenSignUpWarning() error = %v, want it forbidden, naming the role", err)
+	}
+}
+
 func TestManager_MakeInviteOnly(t *testing.T) {
 	t.Parallel()
 
@@ -261,6 +363,13 @@ func TestManager_MakeInviteOnly(t *testing.T) {
 		},
 		{name: "a method the auth does not register is refused", method: "github", refused: httpio.HasNotFound},
 		{name: "a method whose directory gives the roles is refused", method: "entra", refused: httpio.HasConflict},
+		{name: "a method whose registration carries an account rule of its own is refused", method: "partners", refused: httpio.HasConflict},
+		{
+			name:       "a method whose row was opened for another audience opens nothing, and is made invite only all the same: the row is written closed",
+			method:     "workspace",
+			rows:       map[string]SignInMethodRow{"workspace": {Name: "workspace", OpenSignUp: true, DefaultRole: &member}},
+			wantWrites: []string{"set sign-in method workspace open=false role=<none>"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -291,13 +400,31 @@ func TestManager_SignInMethods(t *testing.T) {
 	t.Parallel()
 
 	member := "Steward"
+	audienceOf := func(name string) *string {
+		for _, method := range registeredMethods() {
+			if method.Name == name {
+				key := method.Audience.Key()
+
+				return &key
+			}
+		}
+		t.Fatalf("no method is registered under %q", name)
+
+		return nil
+	}
+	narrower := signin.Audience{Organizations: []string{"lakeside.edu"}}.Key()
 	store := &fakeStore{methodRows: map[string]SignInMethodRow{
-		"google":   {Name: "google", OpenSignUp: true, DefaultRole: &member},
+		"google":   {Name: "google", OpenSignUp: true, OpenedFor: audienceOf("google"), DefaultRole: &member},
 		"password": {Name: "password"},
+		// A row opened when the registration admitted one organization opens nothing now
+		// that it admits another: the method is invite only until it is opened again.
+		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &narrower, DefaultRole: &member},
 		// A row the directory's method was given by hand opens nothing: the directory decides.
-		"entra": {Name: "entra", OpenSignUp: true, DefaultRole: &member},
+		"entra": {Name: "entra", OpenSignUp: true, OpenedFor: audienceOf("entra"), DefaultRole: &member},
+		// Neither does a row of a registration whose own rule decides.
+		"partners": {Name: "partners", OpenSignUp: true, OpenedFor: audienceOf("partners"), DefaultRole: &member},
 		// A row for a method the auth no longer registers lists nothing.
-		"retired": {Name: "retired", OpenSignUp: true},
+		"retired": {Name: "retired", OpenSignUp: true, OpenedFor: audienceOf("google")},
 	}}
 	m := newSignUpManager(t, store)
 
@@ -308,7 +435,10 @@ func TestManager_SignInMethods(t *testing.T) {
 
 	want := []SignInMethod{
 		{Name: "password", Label: "Password", Admits: "Anyone with an email address", Says: "Invite only: a person signs in once they are invited."},
-		{Name: "workspace", Label: "Acme", Admits: "Anyone with an account at acme.example", Says: "Invite only: a person signs in once they are invited."},
+		{
+			Name: "workspace", Label: "Acme", Admits: "Anyone with an account at acme.example",
+			Says: "Invite only: this method was opened for anyone with an account at lakeside.edu, and it admits anyone with an account at acme.example now. Open it again to admit them.",
+		},
 		{
 			Name: "google", Label: "Google", Admits: "Anyone with a Google account", OpenSignUp: true, DefaultRole: "Steward",
 			Says: "Open: Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Steward.",
@@ -316,6 +446,10 @@ func TestManager_SignInMethods(t *testing.T) {
 		{
 			Name: "entra", Label: "Staff directory", Admits: "Anyone with an account at Lakeside", DirectoryGivesRoles: true,
 			Says: "The directory gives the roles, so it decides who may sign in: a person it gives a role signs in, and nobody else.",
+		},
+		{
+			Name: "partners", Label: "Partners", Admits: "Anyone with an account at Harbor", OwnRule: true,
+			Says: "The application's own rule decides who may sign in through this method: it is neither opened to sign-up nor made invite only here.",
 		},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -327,12 +461,23 @@ func TestManager_SignInMethods(t *testing.T) {
 		t.Errorf("AnyMethodOpen() = %v, %v; want true while google is open", open, err)
 	}
 	closed := newSignUpManager(t, &fakeStore{methodRows: map[string]SignInMethodRow{
-		"password": {Name: "password"},
-		"entra":    {Name: "entra", OpenSignUp: true},
-		"retired":  {Name: "retired", OpenSignUp: true},
+		"password":  {Name: "password"},
+		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &narrower},
+		"google":    {Name: "google", OpenSignUp: true},
+		"entra":     {Name: "entra", OpenSignUp: true, OpenedFor: audienceOf("entra")},
+		"partners":  {Name: "partners", OpenSignUp: true, OpenedFor: audienceOf("partners")},
+		"retired":   {Name: "retired", OpenSignUp: true, OpenedFor: audienceOf("google")},
 	}})
 	if open, err := closed.AnyMethodOpen(t.Context(), nil); err != nil || open {
-		t.Errorf("AnyMethodOpen() = %v, %v; want false: a row of the directory's method, and one of a method the auth no longer registers, open nothing", open, err)
+		t.Errorf("AnyMethodOpen() = %v, %v; want false: a row opened for another audience, a row that names none, a row of the directory's method, one of a registration whose own rule decides, and one of a method the auth no longer registers open nothing", open, err)
+	}
+	// A row that names no audience says so in the list too.
+	listed, err := closed.SignInMethods(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("SignInMethods() error = %v", err)
+	}
+	if want := "Invite only: this method was opened before its audience was kept, and it admits anyone with a Google account now. Open it again to admit them."; listed[2].OpenSignUp || listed[2].Says != want {
+		t.Errorf("a row that names no audience lists as open = %v saying %q, want invite only saying %q", listed[2].OpenSignUp, listed[2].Says, want)
 	}
 }
 
@@ -343,18 +488,68 @@ func TestManager_SignUpRoles(t *testing.T) {
 		globalScope: {accesstypes.SuperAdministrator, "Steward", "Member"},
 		alphaScope:  {"Reader"},
 	}
-	m, _ := newManager(t, &fakeStore{}, roles)
+	steward := access.RoleInfo{Name: "Steward", Description: "the Steward role"}
+	member := access.RoleInfo{Name: "Member", Description: "the Member role"}
 
-	got, err := m.SignUpRoles(t.Context())
-	if err != nil {
-		t.Fatalf("SignUpRoles() error = %v", err)
+	tests := []struct {
+		name string
+		// caller makes the request, "" for a call outside any request; grants are the
+		// role file's answers on giving a role, nil for a manager built without them.
+		caller  accesstypes.User
+		grants  *fakeGrants
+		want    []access.RoleInfo
+		wantErr string
+	}{
+		{
+			// The roles held for the whole application, each with its description, and
+			// never the Super Administrator role or a tenant's role.
+			name: "outside a request: every role held for the whole application but the Super Administrator's",
+			want: []access.RoleInfo{steward, member},
+		},
+		{
+			name:   "a caller who may give every role is offered every one",
+			caller: erin, grants: &fakeGrants{},
+			want: []access.RoleInfo{steward, member},
+		},
+		{
+			name:   "a caller is offered the roles they may give and no other: the dialog offers no role its save would refuse",
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
+			want: []access.RoleInfo{member},
+		},
+		{
+			name:   "a caller who may give no role is offered none",
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward", "Member"}},
+		},
+		{
+			name:   "a request reaches a manager built without the role file's grants: an error, never the whole list",
+			caller: erin, wantErr: "identity.WithRoleGrants",
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var opts []Option
+			if tt.grants != nil {
+				opts = append(opts, WithRoleGrants(tt.grants))
+			}
+			m, _ := newManager(t, &fakeStore{}, roles, opts...)
 
-	// The roles held for the whole application, each with its description, and never
-	// the Super Administrator role or a tenant's role.
-	want := []access.RoleInfo{{Name: "Steward", Description: "the Steward role"}, {Name: "Member", Description: "the Member role"}}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("SignUpRoles() (-want +got):\n%s", diff)
+			got, err := m.SignUpRoles(asCaller(t.Context(), tt.caller))
+
+			if tt.wantErr != "" {
+				if err == nil || !containsText(err, tt.wantErr) {
+					t.Fatalf("SignUpRoles() = %v, %v; want an error saying %q", got, err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("SignUpRoles() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("SignUpRoles() (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

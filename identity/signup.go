@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -26,10 +27,20 @@ import (
 // methods table, which the session library reads in the sign-in's own transaction; a
 // method with no row is invite only. The rules here are the ones the choice is made
 // under: the method is one the auth registers, a method whose directory gives the
-// roles has no choice to make, and an application without tenants cannot open a method
-// without the role each new person is given. The methods the generator writes over
-// them carry the grant that says who may make the choice, and the generated patch keeps
-// who made it and when.
+// roles has no choice to make, neither has one whose registration carries an account
+// rule of its own, and an application without tenants cannot open a method without the
+// role each new person is given. The methods the generator writes over them carry the
+// grant that says who may make the choice, and the generated patch keeps who made it
+// and when.
+//
+// Opening a method with a default role gives that role to every person who signs up, so
+// it needs what giving the role to a person needs: the caller's grant on the method
+// that gives a role, asked with the role (RoleGrants.MayGive). The roles the dialog
+// offers are the ones the caller may give, and a request that names another is refused.
+//
+// The row keeps whom the method admitted when it was opened, and opens the method for
+// that audience alone: a registration that code widens afterwards is invite only until
+// an administrator opens it for the audience it has now.
 //
 // How wide a method is, which is whom opening it admits, is fixed in code where the
 // method is registered and is read here from the session library (SessionAPI.SignInMethods)
@@ -43,6 +54,10 @@ type SignInMethodRow struct {
 	Name string
 	// OpenSignUp says the method admits a person who holds no account and no invitation.
 	OpenSignUp bool
+	// OpenedFor is whom the method admitted when it was opened, as its registration's
+	// audience spells itself (signin.Audience.Key), nil for a row that opens nothing.
+	// The row opens the method for that audience and no other.
+	OpenedFor *string
 	// DefaultRole is the role such a person is given with their account, nil for none.
 	DefaultRole *string
 }
@@ -66,6 +81,10 @@ type SignInMethod struct {
 	// DirectoryGivesRoles marks a method whose directory gives the roles: the directory
 	// decides who may sign in, and the method is neither opened nor made invite only.
 	DirectoryGivesRoles bool
+	// OwnRule marks a method whose registration carries an account rule of its own: the
+	// application's code decides who may sign in through it, and the method is neither
+	// opened nor made invite only.
+	OwnRule bool
 	// Says is the row's state as a sentence a person reads: what a person with no
 	// invitation meets at this method.
 	Says string
@@ -105,9 +124,11 @@ func (m *Manager) SignInMethods(ctx context.Context, reader resource.ReadOnlyTra
 }
 
 // AnyMethodOpen reports whether an administrator has some sign-in method of the auth
-// open to sign-up now. In an application with tenants it is what lets a person who
-// holds no tenant create one: a person who signed up through an open method, and nobody
-// while every method is invite only.
+// open to sign-up now, for the audience the method has. In an application with tenants
+// it is what lets a person who holds no tenant create one: a person who signed up
+// through an open method, and nobody while every method is invite only. A row of a
+// method the auth no longer registers opens nothing, and neither does one opened for
+// another audience than its registration has now.
 func (m *Manager) AnyMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
 	methods, err := m.SignInMethods(ctx, reader)
 	if err != nil {
@@ -121,17 +142,24 @@ func (m *Manager) AnyMethodOpen(ctx context.Context, reader resource.ReadOnlyTra
 func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignInMethodRow) SignInMethod {
 	method := SignInMethod{
 		Name: registered.Name, Label: registered.Label, Admits: sentenceStart(registered.Audience.Words()),
-		OpenSignUp: false, DefaultRole: "", DirectoryGivesRoles: registered.SyncsRoles, Says: "",
+		OpenSignUp: false, DefaultRole: "", DirectoryGivesRoles: registered.SyncsRoles, OwnRule: registered.OwnRule, Says: "",
 	}
+	now := registered.Audience.Words()
 	switch {
 	case registered.SyncsRoles:
 		method.Says = "The directory gives the roles, so it decides who may sign in: a person it gives a role signs in, and nobody else."
-	case row != nil && row.OpenSignUp:
+	case registered.OwnRule:
+		method.Says = "The application's own rule decides who may sign in through this method: it is neither opened to sign-up nor made invite only here."
+	case row != nil && row.OpenSignUp && row.OpenedFor != nil && *row.OpenedFor == registered.Audience.Key():
 		method.OpenSignUp = true
 		if row.DefaultRole != nil {
 			method.DefaultRole = *row.DefaultRole
 		}
 		method.Says = "Open: " + m.consequence(registered, method.DefaultRole, method.DefaultRole == "")
+	case row != nil && row.OpenSignUp:
+		// The row was opened when the registration admitted someone else: it opens
+		// nothing, and the page says for whom it was opened and whom the method admits.
+		method.Says = "Invite only: this method was opened " + openedForWords(row.OpenedFor) + ", and it admits " + now + " now. Open it again to admit them."
 	default:
 		method.Says = "Invite only: a person signs in once they are invited."
 	}
@@ -139,10 +167,13 @@ func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignIn
 	return method
 }
 
-// SignUpRoles lists the roles a person who signs up may be given: the roles held for the
-// whole application, by name, the role file's and the custom ones. The Super
-// Administrator role is not among them: it is given by a super administrator, to a
-// person they name.
+// SignUpRoles lists the roles a person who signs up may be given, as the dialog that
+// opens a method offers them: the roles held for the whole application, by name, the
+// role file's and the custom ones, that the request's caller may give. A default role
+// is given to every person who signs up, so a caller is offered the roles they could
+// give a person directly and no other (mayGiveBySignUp); a call outside any request is
+// the application's own and lists them all. The Super Administrator role is not among
+// them: it is given by a super administrator, to a person they name.
 func (m *Manager) SignUpRoles(ctx context.Context) ([]access.RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -151,27 +182,71 @@ func (m *Manager) SignUpRoles(ctx context.Context) ([]access.RoleInfo, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "access.UserManager.Roles()")
 	}
+	offered := make([]access.RoleInfo, 0, len(roles))
+	for _, role := range roles {
+		if role.Name == accesstypes.SuperAdministrator {
+			continue
+		}
+		// The list is read outside any transaction, and the whole application's method
+		// that gives a role names no row, so its grant is settled without one.
+		may, err := m.mayGiveBySignUp(ctx, nil, role.Name)
+		if err != nil {
+			return nil, err
+		}
+		if may {
+			offered = append(offered, role)
+		}
+	}
 
-	return slices.DeleteFunc(roles, func(role access.RoleInfo) bool { return role.Name == accesstypes.SuperAdministrator }), nil
+	return offered, nil
+}
+
+// mayGiveBySignUp reports whether the request's caller may make role the default role of
+// a sign-in method: whether they may give it, for the whole application, to a person.
+// Opening a method gives its default role to every person who signs up, so it is held
+// to what giving the role directly needs, the grant of the method that gives a role
+// (RoleGrants.MayGive), asked of nobody in particular since the people it will be given
+// to have no account yet. A call outside any request is the application's own act and
+// is not judged; a request that reaches a manager built without the grants cannot be
+// judged, which is an error and never a pass.
+func (m *Manager) mayGiveBySignUp(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) (bool, error) {
+	if resource.CallerFrom(ctx).IsZero() {
+		return true, nil
+	}
+	if m.grants == nil {
+		return false, errors.New("a request chooses the default role of a sign-in method and the manager holds no role grants to judge it by: build it with identity.WithRoleGrants, as the generated client does")
+	}
+	may, err := m.grants.MayGive(ctx, txn, accesstypes.GlobalPolicyScope(), impulse.NilUUID, role)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.RoleGrants.MayGive()")
+	}
+
+	return may, nil
 }
 
 // OpenSignUp buffers the choice that opens a sign-in method to sign-up, into the
 // caller's transaction: from the commit on, a person with no account and no invitation
 // who signs in through the method gets an account. It refuses a method the auth does
-// not register and a method whose directory gives the roles. In an application without
-// tenants it refuses a request that names no default role, and one whose role is not
-// held for the whole application or is the Super Administrator role: nobody signs up
-// holding nothing, and nobody signs up administering the application. In an
-// application with tenants (CreatesTenant) it refuses a request that names a role,
-// since a person who signs up there creates a tenant of their own.
+// not register, a method whose directory gives the roles and one whose registration
+// carries an account rule of its own. In an application without tenants it refuses a
+// request that names no default role, one whose role is not held for the whole
+// application or is the Super Administrator role, and one whose role the caller may not
+// give a person directly (403): nobody signs up holding nothing, nobody signs up
+// administering the application, and nobody gives through a sign-in method what they
+// could not give by hand. In an application with tenants (CreatesTenant) it refuses a
+// request that names a role, since a person who signs up there creates a tenant of
+// their own. The row keeps whom the method admits as it is registered now, and opens
+// the method for that audience alone.
 func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransaction, open *SignUp) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if _, err := m.choosable(open.Method); err != nil {
+	registered, err := m.choosable(open.Method)
+	if err != nil {
 		return err
 	}
-	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, DefaultRole: nil}
+	audience := registered.Audience.Key()
+	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
 		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
@@ -221,7 +296,8 @@ func (m *Manager) OpenSignUpWarning(ctx context.Context, txn resource.ReadWriteT
 // the caller's transaction: from the commit on, a person with no account needs an
 // invitation. The people who have accounts keep them, with what they hold. It refuses a
 // method the auth does not register and a method whose directory gives the roles; a
-// method that is invite only already is left as it is.
+// method that is invite only already is left as it is, and one whose row was opened for
+// another audience, which opens nothing, has its row written closed.
 func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTransaction, method string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -236,7 +312,7 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	if row := rowNamed(rows, method); row == nil || !row.OpenSignUp {
 		return nil
 	}
-	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method, OpenSignUp: false, DefaultRole: nil}); err != nil {
+	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
 
@@ -244,7 +320,8 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 }
 
 // choosable answers the registered method of the name, and refuses a name the auth
-// registers no method under and a method whose directory gives the roles.
+// registers no method under, a method whose directory gives the roles, and one whose
+// registration carries an account rule of its own.
 func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 	registered := m.sessions.SignInMethods()
 	i := slices.IndexFunc(registered, func(method session.RegisteredMethod) bool { return method.Name == name })
@@ -259,13 +336,17 @@ func (m *Manager) choosable(name string) (*session.RegisteredMethod, error) {
 	if registered[i].SyncsRoles {
 		return nil, httpio.NewConflictMessagef("the sign-in method %q takes its roles from its directory, which decides who may sign in: it is neither opened to sign-up nor made invite only here", name)
 	}
+	if registered[i].OwnRule {
+		return nil, httpio.NewConflictMessagef("the sign-in method %q is decided by the application's own account rule: it is neither opened to sign-up nor made invite only here", name)
+	}
 
 	return &registered[i], nil
 }
 
 // requireSignUpRole holds a default role to its rule: a role held for the whole
-// application, by the rule a membership's role is held to, and never the Super
-// Administrator role.
+// application, by the rule a membership's role is held to, never the Super
+// Administrator role, and one the request's caller may give a person directly
+// (mayGiveBySignUp), refused with 403 naming the role otherwise.
 func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteTransaction, role accesstypes.Role) error {
 	if role == accesstypes.SuperAdministrator {
 		return httpio.NewBadRequestMessagef("the %s role is never a default role: every person who signed up would administer the application; choose another role", string(role))
@@ -277,8 +358,28 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 	if !exists {
 		return httpio.NewBadRequestMessagef("%q is not a role held for the whole application: choose one of the roles the picker lists", string(role))
 	}
+	may, err := m.mayGiveBySignUp(ctx, txn, role)
+	if err != nil {
+		return err
+	}
+	if !may {
+		return httpio.NewForbiddenMessagef("opening the method gives every person who signs up the role %s, which you may not give: choose a role you may give, or have someone who may give %s open the method", string(role), string(role))
+	}
 
 	return nil
+}
+
+// openedForWords says whom a row was opened for, as the sentence about a method whose
+// audience changed since reads it: "for anyone with an account at lakeside.edu", or
+// that it was opened before its audience was kept, for a row that names none.
+func openedForWords(openedFor *string) string {
+	if openedFor != nil {
+		if audience, ok := signin.AudienceOfKey(*openedFor); ok {
+			return "for " + audience.Words()
+		}
+	}
+
+	return "before its audience was kept"
 }
 
 // consequence is what a method open to sign-up means for the people it admits, as the
