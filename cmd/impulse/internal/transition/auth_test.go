@@ -557,21 +557,29 @@ func TestAuthApply(t *testing.T) {
 			// client in New and sets the hooks a sign-in gives roles through from it.
 			extra: map[string]string{"pkg/config/data.go": declaredConfig, "pkg/resources/tenants.go": tenantRecord, programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
 			wantDid: []string{
-				packageDid + ", and the sign-in rule over the Tenant record's declaration (signin.TenantPolicy through the reader its settings carry, app.NewTenantDeclarationReader), admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since a person who signs up through a method an administrator opened creates their own, and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, app.NewTenantDirectoryReader: a stranger from a declared directory gets the row's default seat or is refused by invitation only)",
+				packageDid + ", and the sign-in rule over the Tenant record's declaration (signin.TenantPolicy through the reader its settings carry, app.NewTenantDeclarationReader), admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since a person who signs up through a method an administrator opened creates their own, and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, app.NewTenantDirectoryReader: a stranger from a declared directory gets the row's default seat or is refused by invitation only), and what makes a tenant from an accepted invitation (TenantMaker in its settings, app.NewTenantMaker, which New refuses nil and hands the identity client: staff of this auth bring a tenant in by inviting one person)",
 				migrationsDid, rolesDid, configDid, "ran go generate ./...",
+			},
+			// The default outlet serves the tenant record, so a tenant is made through the
+			// auth bound there now: the copy of the staff auth's construction, which made
+			// none, hands the new auth no maker, and the wiring is the agent's.
+			wantSkipped: []string{
+				"pkg/config/data.go: a tenant is made through the partners auth, whose outlet serves the Tenant record, and the construction copied from the staff auth hands it nothing to make one with, so it refuses to start (partners.Settings.TenantMaker is nil); build the roster before the auth and pass app.NewTenantMaker(<the roster>, <the live service>) in its Settings",
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				pkg := read(t, a, "pkg/auth/partners/partners.go")
 				for _, want := range []string{
 					"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
-					"\tTenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]\n}",
+					"\tTenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]\n",
+					"\tTenantMaker identity.TenantMaker\n}",
+					"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n\tstore, err := spannerstore.New(",
 					"\tif settings.TenantDeclarations == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in\")\n\t}\n",
-					"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\tstore, err := spannerstore.New(",
+					"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\tif settings.TenantMaker == nil {",
 					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
 					"\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n\t\tsession.WithSessionTableName(sessionsTable),\n",
 					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n\t)",
-					"\t_, tenantAdministrators := AdministratorRoles()\n\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
+					"\t_, tenantAdministrators := AdministratorRoles()\n\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
 					// What a sign-in clears is set before what a sign-in gives: the identity
 					// client's hook for a sign-in that stands, over the application's database.
 					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// The directory admission",
@@ -1236,5 +1244,59 @@ func Test_servesTenantRecord(t *testing.T) {
 				t.Errorf("servesTenantRecord() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestWithoutMaker pins what a copy of the wiring of the auth a tenant is made through
+// leaves behind for an auth that makes none: the settings function's parameter and the
+// paragraph of its comment that names it, the element of its Settings literal, and the
+// construction's argument, as the tenanted skeleton's data level writes them. The Settings
+// of an auth a tenant is not made through have no TenantMaker field, so a copy that kept
+// any of them would not compile. Everything else of the copy stands.
+func TestWithoutMaker(t *testing.T) {
+	t.Parallel()
+
+	sub, err := skeleton.FS("tenanted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(sub, "pkg/config/data.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	level := string(data)
+	for _, carried := range []string{
+		"//\n// tenants is what makes a tenant from an accepted invitation",
+		"sender mail.Sender, tenants identity.TenantMaker) *staff.Settings {",
+		"\t\tTenantMaker:        tenants,\n",
+		"sender, app.NewTenantMaker(tenants, liveService)))\n",
+	} {
+		if !strings.Contains(level, carried) {
+			t.Fatalf("the tenanted skeleton's data level no longer carries the maker as %q, which withoutMaker reads", carried)
+		}
+	}
+
+	got := withoutMaker(level)
+	for _, left := range []string{"TenantMaker", "NewTenantMaker", "tenants is what makes a tenant"} {
+		if strings.Contains(got, left) {
+			t.Errorf("withoutMaker() left %q behind:\n%s", left, got)
+		}
+	}
+	for _, kept := range []string{
+		"// so the constructor stays one call per auth.\nfunc (env *dataConfig) staffSettings(collection access.PermissionCollection, signals staff.Signals, cookieKey string, sender mail.Sender) *staff.Settings {\n",
+		"\t\tTenantDeclarations: app.NewTenantDeclarationReader(),\n\t\tTenantDirectories:  app.NewTenantDirectoryReader(),\n\t\tSessionTimeout:     env.SessionTimeout,\n",
+		"\tstaffAuth, err := staff.New(ctx, db.SpannerClient, env.staffSettings(router.Collection(), liveService, cookieKey, sender))\n",
+		"\ttenants := app.NewTenantRoster(db.ResourceClient, resource.WithTenantSignals(liveService))\n",
+	} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("withoutMaker() result lacks %q:\n%s", kept, got)
+		}
+	}
+
+	// A construction carrying its Settings literal inline, as an application composed
+	// before the settings function has it.
+	inline := "\tpartnersAuth, err := partners.New(ctx, spannerClient, &partners.Settings{CookieKey: cookieKey, TenantDeclarations: app.NewTenantDeclarationReader(), TenantMaker: app.NewTenantMaker(tenants, liveService)})\n"
+	if got, want := withoutMaker(inline), "\tpartnersAuth, err := partners.New(ctx, spannerClient, &partners.Settings{CookieKey: cookieKey, TenantDeclarations: app.NewTenantDeclarationReader()})\n"; got != want {
+		t.Errorf("withoutMaker() of an inline literal = %q, want %q", got, want)
 	}
 }

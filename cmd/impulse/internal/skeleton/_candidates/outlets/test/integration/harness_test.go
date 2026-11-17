@@ -188,7 +188,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	// feature flags from, and the tenant roster reloads on: in-memory in the suites.
 	svc := live.NewFake()
 	// The tenant roster, started over the seeded tenants as production's data level
-	// starts it; a tenant the suites create through the API reaches it after the commit.
+	// starts it; a tenant an invitation makes in a suite reaches it after the commit.
 	roster := app.NewTenantRoster(resource.NewSpannerClient(db.Client), resource.WithTenantSignals(svc))
 	if err := roster.Start(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
@@ -205,6 +205,9 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		DevicePage:         "/console/device",
 		TenantDeclarations: app.NewTenantDeclarationReader(),
 		TenantDirectories:  app.NewTenantDirectoryReader(),
+		// What makes a tenant from an accepted invitation, over the stack's roster and
+		// live service, as production's data level hands it in.
+		TenantMaker: app.NewTenantMaker(roster, svc),
 	})
 	if err != nil {
 		t.Fatalf("staff.New() error = %v", err)

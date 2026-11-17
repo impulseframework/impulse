@@ -360,7 +360,7 @@ func factorIfHeld(ctx context.Context, t *testing.T, b *browser, username string
 	t.Helper()
 
 	if heldForFactor(t, body) {
-		b.secondFactor(ctx, username, false)
+		b.secondFactor(ctx, username)
 	}
 }
 

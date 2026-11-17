@@ -231,14 +231,14 @@ func TestTenancyApply(t *testing.T) {
 	wantApp = strings.Replace(wantApp, "\t\taccess:      cfg.Access(),\n\t\tconsoleDist: cfg.ConsoleDist(),\n\t}", "\t\taccess:       cfg.Access(),\n\t\tconsoleDist:  cfg.ConsoleDist(),\n\t\ttenants:      cfg.TenantRoster(),\n\t\tdeclarations: cfg.TenantDeclarations(),\n\t}", 1)
 	// The fixtures' data level holds no live service and their App composes no session
 	// permissions, so the two edits that need them are recorded as the agent's.
-	noSignals := "pkg/config/tenancy.go: DataConfiguration holds no *firestore.Service field (resource/live/firestore), so the roster is built without resource.WithTenantSignals and reloads at its backstop alone; pass the live service the level opens, so a tenant created on another instance reaches this one at once"
-	noMenus := "web/console/src/app/app.menus.ts does not exist, so the tenant menus were not written: the Tenants menu (All tenants, New tenant…), People and Tenant (Sign-in settings)"
+	noSignals := "pkg/config/tenancy.go: DataConfiguration holds no *firestore.Service field (resource/live/firestore), so the roster is built without resource.WithTenantSignals and reloads at its backstop alone; pass the live service the level opens, so a tenant made on another instance reaches this one at once"
+	noMenus := "web/console/src/app/app.menus.ts does not exist, so the tenant menus were not written: the Tenants menu (All tenants), People and Tenant (Sign-in settings)"
 	noPermissions := "app/app.go: UserPermissions passes no nil roster to resource.SessionPermissions, so the roster's Domains and the declarations were not handed to it; pass a.tenants.Domains and a.declarations where the session permissions are composed, so a login's tenant list is the roster filtered by its footholds and by what each tenant declares"
 	// The fixtures construct no auth, so the sign-in rule is the agent's.
 	noAuth := "no auth package constructs a session.Auth, so no sign-in rule was set; where one is, set signin.TenantPolicy(resource.SignInRoles(<engine>.UserManager()), <handlers>.NewTenantDeclarationReader()) on the session with SetSignInPolicy before the first request, so a sign-in is admitted by what the person's tenants declare"
-	// Without an auth whose roles the application assigns, the creator's seat roles are
-	// the agent's too.
-	noSeatAuth := "no auth whose roles the application assigns constructs a session.Auth the scan reads, so the roles the Tenant record's create path seats a tenant's creator with were not exposed on the app; the generated contract asks the handlers for TenantAdministratorRoles() []accesstypes.Role (the domain roles the creator holds in the new tenant, the auth's AdministratorRoles held in every tenant) beside the auth's identity client (<Auth>Identity()); add them where the App is declared"
+	// Without an auth whose roles the application assigns, the roles of a person who
+	// creates a tenant of their own are the agent's too.
+	noSeatAuth := "no auth whose roles the application assigns constructs a session.Auth the scan reads, so the roles a person who creates a tenant of their own holds in it were not exposed on the app; the generated create-your-own route of the Tenant record asks the handlers for TenantAdministratorRoles() []accesstypes.Role (the domain roles that person holds in the new tenant, the auth's AdministratorRoles held in every tenant) beside the auth's identity client (<Auth>Identity()); add them where the App is declared"
 
 	tests := []struct {
 		name        string
@@ -258,7 +258,7 @@ func TestTenancyApply(t *testing.T) {
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
-				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the New tenant dialog (an administrator holding Create on the record creates one) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher",
+				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noSignals, noAuth, noSeatAuth, noPermissions, noMenus},
@@ -325,7 +325,7 @@ func TestTenancyApply(t *testing.T) {
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
 				"app/app.go: UserPermissions passes the roster's Domains and the declarations to resource.SessionPermissions",
-				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the New tenant dialog (an administrator holding Create on the record creates one) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher",
+				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noAuth, noSeatAuth, noMenus},
@@ -368,7 +368,7 @@ func TestTenancyApply(t *testing.T) {
 				"no file declares a DataConfiguration struct, so the tenant roster was not added to the data level; build it where the database is opened with app.NewTenantRoster(client, resource.WithTenantSignals(<the live service>)), start it (Start) and fail the start on its error, and expose it as TenantRoster()",
 				noAuth,
 				"no file declares a Configurer interface, so the tenant roster was not exposed on the app; the generated code needs TenantRoster() *resource.TenantRoster on the handlers, answering the roster the data level built",
-				"web/angular.json has no project rooted over console/src/app/core/service, so the browser was left as it was: the tenant pages (the tenant's sign-in page, the All tenants page's configuration and the New tenant dialog), the tenant menus and the tenant segment in the routes",
+				"web/angular.json has no project rooted over console/src/app/core/service, so the browser was left as it was: the tenant pages (the tenant's sign-in page, the All tenants page's configuration and the dialog a person who signed up creates their own tenant through), the tenant menus and the tenant segment in the routes",
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
@@ -386,7 +386,7 @@ func TestTenancyApply(t *testing.T) {
 	// The auth package gains the reader in its Settings and the sign-in rule in New, and
 	// the data level's settings literal passes the reader in.
 	withAuthDid := slices.Clone(tests[0].wantDid)
-	withAuthDid[6] = "app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()), App.TenantRoster() and App.TenantAdministratorRoles() (the staff auth's AdministratorRoles held in every tenant: the domain roles the Tenant record's create path seats a tenant's creator with, through the auth's identity client, which the generated contract asks the handlers for); app/app.go gained the fields and their assignments"
+	withAuthDid[6] = "app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()), App.TenantRoster() and App.TenantAdministratorRoles() (the staff auth's AdministratorRoles held in every tenant: the domain roles the Tenant record's generated create-your-own route gives the person who creates a tenant of their own, through the auth's identity client, which the generated contract asks the handlers for); app/app.go gained the fields and their assignments"
 	withAuthDid = slices.Insert(withAuthDid, 6,
 		"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and the directory reader (TenantDirectories), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) and the directory admission (session.Auth.SetDirectoryAdmission over the directory reader, the default role given by the identity client's DirectorySeated in the transaction that creates the person)",
 		"pkg/config/data.go: the staff.Settings literal in NewDataConfiguration (an application composed before the staffSettings method) passes the declaration reader (app.NewTenantDeclarationReader()) and the directory reader (app.NewTenantDirectoryReader()) to the staff auth",
@@ -610,4 +610,208 @@ func TestTenancyApply_whoIsAdmittedWithoutATenant(t *testing.T) {
 	if refused := "A person who holds no tenant is refused (no_tenant)"; strings.Contains(staff, refused) {
 		t.Errorf("staff.go says %q of the auth whose people create a tenant of their own", refused)
 	}
+}
+
+// makerConfig is a data level in the skeleton's shape: the database driver, the live
+// service, and the staff auth built from the settings function on the environment struct.
+const makerConfig = `package config
+
+import (
+	"context"
+
+	"github.com/go-playground/errors/v5"
+	database "github.com/impulseframework/impulse/resource/database/spanner"
+	livefirestore "github.com/impulseframework/impulse/resource/live/firestore"
+
+	"example.com/acme/beacon/pkg/auth/staff"
+)
+
+// DataConfiguration is the second level.
+type DataConfiguration struct {
+	database *database.Driver
+	staff    *staff.Auth
+	live     *livefirestore.Service
+}
+
+// NewDataConfiguration opens the clients.
+func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
+	env := &dataConfig{}
+	db, liveService, cookieKey, err := open(ctx, env)
+	if err != nil {
+		return nil, errors.Wrap(err, "open()")
+	}
+
+	staffAuth, err := staff.New(ctx, db.SpannerClient, env.staffSettings(liveService, cookieKey))
+	if err != nil {
+		return nil, errors.Wrap(err, "staff.New()")
+	}
+
+	return &DataConfiguration{
+		database: db,
+		staff:    staffAuth,
+		live:     liveService,
+	}, nil
+}
+
+// staffSettings builds the staff auth's settings.
+func (env *dataConfig) staffSettings(signals staff.Signals, cookieKey string) *staff.Settings {
+	return &staff.Settings{
+		Signals:   signals,
+		CookieKey: cookieKey,
+	}
+}
+`
+
+// boundProgram is the fixture program with the staff auth bound to its default outlet,
+// which serves the tenant record: a tenant is made through that auth.
+func boundProgram(t *testing.T) string {
+	t.Helper()
+
+	bound := strings.Replace(beaconProgram,
+		"\t\tgeneration.GenerateRoutes(\"pkg/router\", \"api\"),\n",
+		"\t\tgeneration.GenerateRoutes(\"pkg/router\", \"api\", generation.Auth(\"example.com/acme/beacon/pkg/auth/staff\", generation.PasswordMethod())),\n", 1)
+	if bound == beaconProgram {
+		t.Fatal("the fixture program no longer declares its routes as this test rewrites them")
+	}
+
+	return bound
+}
+
+// TestTenancyApply_theAuthATenantIsMadeThrough pins what add tenancy gives the auth whose
+// outlets serve the tenant record, where the application assigns its roles and generates
+// its management: nobody creates a tenant directly, staff of that auth invite one person
+// and that person's first sign-in makes the tenant, so the auth's Settings carry the
+// generated maker, New refuses a nil one and hands it to the identity client as the
+// generated client's third argument. On a data level in the skeleton's shape the roster
+// is built ahead of the auth, the maker is passed through the settings function, and
+// startTenants only starts the roster. On a level the tool cannot follow (here one with
+// no live service, which the maker is constructed over) the roster is built in
+// startTenants as before and handing the maker in is recorded as the agent's, since the
+// auth refuses to start without it. An auth no outlet binds makes no tenant and gains
+// none of it.
+func TestTenancyApply_theAuthATenantIsMadeThrough(t *testing.T) {
+	t.Parallel()
+
+	inAuth := []string{
+		"\t// TenantMaker makes a Tenant from an accepted invitation: the generated maker over\n\t// the record's own create patch (app.NewTenantMaker). Nobody creates a tenant\n\t// directly: staff invite one person with its details, which the auth's identity\n\t// client checks with the maker when the invitation is sent, and that person's first\n\t// sign-in makes the tenant with it. Required; New refuses nil.\n\tTenantMaker identity.TenantMaker\n}",
+		"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n\n\tstore, err := spannerstore.New(",
+		"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n",
+	}
+	carried := "pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations), the directory reader (TenantDirectories) and what makes a tenant from an accepted invitation (TenantMaker, which New hands the identity client), New refuses a nil one, and New sets the sign-in rule on the session"
+	obligation := "the staff auth is not handed what makes a tenant from an accepted invitation, and refuses to start without it (staff.Settings.TenantMaker is nil): a tenant is made through this auth, by the first sign-in of a person its staff invited, so build the roster before the auth where the data level is opened (app.NewTenantRoster(<the client>, resource.WithTenantSignals(<the live service>)), which startTenants then only starts) and pass app.NewTenantMaker(<the roster>, <the live service>) in the auth's Settings"
+
+	t.Run("the skeleton's data level builds the roster ahead of the auth and passes the maker", func(t *testing.T) {
+		t.Parallel()
+
+		files := tenancyFiles()
+		files["pkg/config/data.go"] = makerConfig
+		files["pkg/auth/staff/staff.go"] = staffPackage(t, "staff.go")
+		files["cmd/generate/resourcegenerator/main.go"] = boundProgram(t)
+		a := beacon(t, files)
+		ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		staff := read(t, a, "pkg/auth/staff/staff.go")
+		for _, want := range inAuth {
+			if !strings.Contains(staff, want) {
+				t.Errorf("staff.go lacks %q:\n%s", want, staff)
+			}
+		}
+		data := read(t, a, "pkg/config/data.go")
+		for _, want := range []string{
+			"\t// The tenant roster is built ahead of the staff auth: a tenant is made through that\n",
+			"\ttenants := app.NewTenantRoster(db.ResourceClient, resource.WithTenantSignals(liveService))\n\n\tstaffAuth, err := staff.New(ctx, db.SpannerClient, env.staffSettings(liveService, cookieKey, app.NewTenantMaker(tenants, liveService)))\n",
+			"\t\ttenants:  tenants,\n",
+			"\tif err := conf.startTenants(ctx); err != nil {\n",
+			"func (env *dataConfig) staffSettings(signals staff.Signals, cookieKey string, tenants identity.TenantMaker) *staff.Settings {\n",
+			"\t\tTenantMaker:        tenants,\n",
+			"\t\"github.com/impulseframework/impulse/identity\"\n",
+			"\t\"example.com/acme/beacon/app\"\n",
+		} {
+			if !strings.Contains(data, want) {
+				t.Errorf("data.go lacks %q:\n%s", want, data)
+			}
+		}
+		// startTenants starts the roster the level built and constructs none, so its file
+		// imports no handlers package.
+		tenancy := read(t, a, "pkg/config/tenancy.go")
+		for _, want := range []string{"// startTenants starts the tenant roster, built over the Tenant record with the generated\n// constructor where the level is opened, ahead of the auth a tenant is made through", "\tif err := c.tenants.Start(ctx); err != nil {\n", "\tc.staff.Session().SetTenantNames(c.tenants)\n"} {
+			if !strings.Contains(tenancy, want) {
+				t.Errorf("tenancy.go lacks %q:\n%s", want, tenancy)
+			}
+		}
+		for _, notWant := range []string{"NewTenantRoster(", "example.com/acme/beacon/app"} {
+			if strings.Contains(tenancy, notWant) {
+				t.Errorf("tenancy.go holds %q, want the roster built in NewDataConfiguration alone:\n%s", notWant, tenancy)
+			}
+		}
+		for _, want := range []string{
+			"pkg/config/tenancy.go: the tenant roster (NewDataConfiguration builds it with app.NewTenantRoster ahead of the staff auth, through which a tenant is made, and startTenants starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start and the roster's construction",
+			"pkg/config/data.go: dataConfig.staffSettings passes the declaration reader (app.NewTenantDeclarationReader()), the directory reader (app.NewTenantDirectoryReader()) and what makes a tenant from an accepted invitation (app.NewTenantMaker(tenants, liveService), over the roster built ahead of the auth) to the staff auth",
+		} {
+			if !slices.Contains(ch.Did, want) {
+				t.Errorf("Did lacks %q; got:\n%s", want, strings.Join(ch.Did, "\n"))
+			}
+		}
+		if !slices.ContainsFunc(ch.Did, func(did string) bool { return strings.HasPrefix(did, carried) }) {
+			t.Errorf("Did lacks a line starting %q; got:\n%s", carried, strings.Join(ch.Did, "\n"))
+		}
+		if slices.Contains(ch.Skipped, obligation) {
+			t.Errorf("Skipped records the maker as the agent's on a level the command wired:\n%s", strings.Join(ch.Skipped, "\n"))
+		}
+	})
+
+	t.Run("a data level with no live service leaves handing the maker in to the agent", func(t *testing.T) {
+		t.Parallel()
+
+		files := tenancyFiles()
+		files["pkg/config/data.go"] = authConfig
+		files["pkg/auth/staff/staff.go"] = staffPackage(t, "staff.go")
+		files["cmd/generate/resourcegenerator/main.go"] = boundProgram(t)
+		a := beacon(t, files)
+		ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		staff := read(t, a, "pkg/auth/staff/staff.go")
+		for _, want := range inAuth {
+			if !strings.Contains(staff, want) {
+				t.Errorf("staff.go lacks %q:\n%s", want, staff)
+			}
+		}
+		if !slices.Contains(ch.Skipped, obligation) {
+			t.Errorf("Skipped lacks %q; got:\n%s", obligation, strings.Join(ch.Skipped, "\n"))
+		}
+		if data := read(t, a, "pkg/config/data.go"); strings.Contains(data, "TenantMaker") || strings.Contains(data, "tenants := ") {
+			t.Errorf("data.go was handed a maker over a roster the level does not build ahead of the auth:\n%s", data)
+		}
+		if tenancy := read(t, a, "pkg/config/tenancy.go"); !strings.Contains(tenancy, "c.tenants = app.NewTenantRoster(resource.NewSpannerClient(c.spannerClient))") {
+			t.Errorf("tenancy.go does not build the roster in startTenants:\n%s", tenancy)
+		}
+	})
+
+	t.Run("an auth no outlet binds makes no tenant", func(t *testing.T) {
+		t.Parallel()
+
+		files := tenancyFiles()
+		files["pkg/config/data.go"] = makerConfig
+		files["pkg/auth/staff/staff.go"] = staffPackage(t, "staff.go")
+		a := beacon(t, files)
+		ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		for rel, notWant := range map[string]string{"pkg/auth/staff/staff.go": "TenantMaker", "pkg/config/data.go": "TenantMaker"} {
+			if got := read(t, a, rel); strings.Contains(got, notWant) {
+				t.Errorf("%s holds %q for an auth a tenant is not made through:\n%s", rel, notWant, got)
+			}
+		}
+		if tenancy := read(t, a, "pkg/config/tenancy.go"); !strings.Contains(tenancy, "c.tenants = app.NewTenantRoster(c.database.ResourceClient, resource.WithTenantSignals(c.live))") {
+			t.Errorf("tenancy.go does not build the roster in startTenants:\n%s", tenancy)
+		}
+		if slices.Contains(ch.Skipped, obligation) {
+			t.Errorf("Skipped records a maker for an auth a tenant is not made through:\n%s", strings.Join(ch.Skipped, "\n"))
+		}
+	})
 }
