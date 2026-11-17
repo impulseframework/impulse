@@ -165,7 +165,7 @@ Values recognized in a `conditions` tag:
   a foreign key or a field with a picker (`@enumerate`), on a field typed anything but
   `resource.Secret` (a plain `string` or `[]byte` would be stored as it was typed; the
   refusal names the type to give it), and on a column that is not `BYTES` with room for
-  the 41 bytes sealing adds. A method's request field takes the same word, unchanged: text
+  the 42 bytes sealing adds. A method's request field takes the same word, unchanged: text
   or bytes, no picker, and the method's dialog draws the same masked input (the generated
   temporary-password methods declare theirs so). That value is never stored, so it is
   never sealed, and a request field typed `resource.Secret` is refused.
@@ -3382,7 +3382,7 @@ TransponderKey *resource.Secret `spanner:"TransponderKey" conditions:"secret"`
 ```
 
 ```sql
-TransponderKey BYTES(105),  -- a key of up to 64 bytes, and the 41 sealing adds
+TransponderKey BYTES(106),  -- a key of up to 64 bytes, and the 42 sealing adds
 ```
 
 **The application secret.** One secret of the application, 32 random bytes, kept in
@@ -3392,12 +3392,15 @@ version (the session library derives its cookie key the same way), so the keys t
 resource fields have no relation to the keys of any other use.
 
 **What a column holds.** One value of three parts: the version of the application secret
-that sealed it (one byte, 1 to 255), a random number drawn for the write (24 bytes), and
-the encrypted value with its 16-byte check. The cipher is XChaCha20-Poly1305
-(`golang.org/x/crypto/chacha20poly1305`). Sealing adds 41 bytes (`resource.SecretOverhead`),
-so a column that takes a value of up to n bytes is `BYTES(n+41)`, or `BYTES(MAX)`; the
-value limit a request is held to (section 11) and the form's `maxLength` are the column's
-length less 41, counted in bytes.
+that sealed it (two bytes, the high byte first, 1 to 65535), a random number drawn for the
+write (24 bytes), and the encrypted value with its 16-byte check. The cipher is
+XChaCha20-Poly1305 (`golang.org/x/crypto/chacha20poly1305`). Sealing adds 42 bytes
+(`resource.SecretOverhead`), so a column that takes a value of up to n bytes is
+`BYTES(n+42)`, or `BYTES(MAX)`; the value limit a request is held to (section 11) and the
+form's `maxLength` are the column's length less 42, counted in bytes. The version takes
+two bytes because a deployment's version numbers never repeat, and a rotation that fails
+uses one up: the 255 versions one byte names would run out in a secret's life, with no
+way forward.
 
 **The context.** The row's primary key, every key column in key order, is mixed into the
 check when a value is sealed and again when it is opened. It is never stored: each
@@ -3443,10 +3446,12 @@ bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set, re
 whole environment so that no variable the name numbers is passed over. With none set
 it answers no keys and no error, so an application that stores no secret runs without the
 variable; a variable that is set and does not hold a version is an error naming the
-variable, never its value. A stored value names its version in one byte, so a secret has
-255 versions in its life: the variable of a version past 255 is an error at start. The development environment file carries `APP_SECRET_KEY_1` (a
-fixed development value in the skeletons' and Lodestar's `.envrc.template`), and
-`impulse check` (`env-template`) holds the template to it.
+variable, never its value. A stored value names its version in two bytes, so a secret's
+versions run from 1 to 65535: the variable of a version past 65535, or of version 0
+(`APP_SECRET_KEY_65536`, `APP_SECRET_KEY_0`), is an error at start that says the range.
+The development environment file carries `APP_SECRET_KEY_1` (a fixed development value in
+the skeletons' and Lodestar's `.envrc.template`), and `impulse check` (`env-template`)
+holds the template to it.
 
 **Writing.** No code of the author's. A request and a typed patch give the value as text
 (`patch.SetTransponderKey(&key)`; the generated request structs, the typed patches'
@@ -3499,7 +3504,8 @@ wrote, never a value. Its environment is the migration's with one variable for e
 enabled version, the one being retired among them, since its values are opened under it.
 The current version, the highest the environment carries, is refused: new values are
 sealed under it. So is a variable that is not a version of the secret the keys were read
-from. A value that does not open (bytes moved from another row, or altered) fails the
+from, and one whose number is 0 or past 65535, with the range a version's number takes. A
+value that does not open (bytes moved from another row, or altered) fails the
 retirement, naming its resource, field and row, once every other value is written: set it
 again or clear it, and run the retirement again. A second run finds nothing to write and
 exits 0. The service keeps serving meanwhile: a value is written back only while its row
@@ -3530,11 +3536,14 @@ statements of its own, the PostgreSQL client's transactions not being built.
 
 **Tests.** `resource/secret_test.go` holds the type (nothing prints it), the key holder (a
 value opens on its row and on no other, under the version that sealed it and no version the
-holder was not given), the write path and the rewrite against a capturing transaction;
-`resource/secret_spanner_test.go` and `resource/secret_postgres_test.go` hold the column
-(no plain value, the change record names the field without its values) and a rotation over
-the emulator and a PostgreSQL container, and the retirement of a version on both;
-`resource/secret_retire_test.go` holds the retirement's refusals and its final check;
+holder was not given, the versions one byte cannot name among them), the write path and
+the rewrite against a capturing transaction; `resource/secret_spanner_test.go` and
+`resource/secret_postgres_test.go` hold the column (no plain value, the change record
+names the field without its values) and a rotation over the emulator and a PostgreSQL
+container, and the retirement of a version on both, of versions 256 and 258 under version
+65535 as of version 1 under version 2; `resource/secret_retire_test.go` holds the
+retirement's refusals, its final check, and that it tells a version from one that shares
+one of its two bytes;
 `generation/secret_test.go` holds the refusals, the generated methods and the secret
 holders. Lodestar's ship carries a transponder key
 (`lodestar/test/integration/secret_test.go`), and its migrate command retires a version

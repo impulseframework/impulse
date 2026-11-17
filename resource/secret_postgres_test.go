@@ -107,8 +107,8 @@ func TestSecret_onPostgres(t *testing.T) {
 
 	write(create)
 	stored := column("row-1")
-	if len(stored) != SecretOverhead+len(first) || stored[0] != 1 || bytes.Contains(stored, []byte(first)) {
-		t.Errorf("the column holds %d bytes opening with version %d, carrying the value as given: %v", len(stored), stored[0], bytes.Contains(stored, []byte(first)))
+	if len(stored) != SecretOverhead+len(first) || storedVersion(stored) != 1 || bytes.Contains(stored, []byte(first)) {
+		t.Errorf("the column holds %d bytes naming version %d, carrying the value as given: %v", len(stored), storedVersion(stored), bytes.Contains(stored, []byte(first)))
 	}
 	row := read("row-1")
 	if row.AccessCode == nil || !bytes.Equal(row.AccessCode.sealed, stored) {
@@ -246,8 +246,8 @@ func TestSecret_retireOnPostgres(t *testing.T) {
 		columns := stored()
 		for i := range rows {
 			code := columns[rowID(i)]
-			if len(code) == 0 || int(code[0]) != version {
-				t.Fatalf("%s names version %v, want %d", rowID(i), code[:min(1, len(code))], version)
+			if storedVersion(code) != version {
+				t.Fatalf("%s names version %d, want %d", rowID(i), storedVersion(code), version)
 			}
 			if got, err := keys.Open(rowKey(rowID(i)), Secret{sealed: code}); err != nil || got != value(i) {
 				t.Fatalf("%s opens to another value, error %v", rowID(i), err)
@@ -311,7 +311,7 @@ func TestSecret_retireOnPostgres(t *testing.T) {
 	if strings.Contains(err.Error(), "a-value-to-move") {
 		t.Errorf("the refusal carries a value: %v", err)
 	}
-	if code := stored()["moved-from"]; len(code) == 0 || code[0] != 2 {
+	if code := stored()["moved-from"]; storedVersion(code) != 2 {
 		t.Errorf("the value beside the one that does not open still names version 1")
 	}
 	if _, err := db.Exec(ctx, `UPDATE "SealedRows" SET "AccessCode" = NULL WHERE "Id" = 'moved-to'`); err != nil {
@@ -319,5 +319,115 @@ func TestSecret_retireOnPostgres(t *testing.T) {
 	}
 	if again, err := RetireSecretVersion(ctx, rotated, "APP_SECRET_KEY_1", holder); err != nil || again.Rewritten() != 0 {
 		t.Errorf("RetireSecretVersion() once the row is cleared rewrote %v value(s), error %v; want none and no error", again, err)
+	}
+
+	// The versions one byte cannot name. A deployment's version numbers never repeat, so
+	// in time a secret's versions pass 255. Values are sealed under versions 256, 258
+	// and 65535, the last there is, beside every value above, which names version 2.
+	// Version 256 shares its high byte with 258, and 258 its low byte with 2: the
+	// statement that finds a version's values tells each from the others by its whole
+	// number.
+	wideKeys := testSecretKeys(t, 2, 256, 258, 65535)
+	wide := NewPostgresClient(db.Pool, WithSecretKeys(wideKeys))
+	write(testSecretKeys(t, 2, 256), "under-256", ptr("sealed-under-256"))
+	write(testSecretKeys(t, 2, 256, 258), "under-258", ptr("sealed-under-258"))
+	write(wideKeys, "under-65535", ptr("sealed-under-65535"))
+	// names asserts one row's stored bytes name the version and open to the row's value,
+	// and answers them.
+	names := func(id string, version int) []byte {
+		t.Helper()
+
+		code := stored()[id]
+		if storedVersion(code) != version {
+			t.Fatalf("%s names version %d, want %d", id, storedVersion(code), version)
+		}
+		if got, err := wideKeys.Open(rowKey(id), Secret{sealed: code}); err != nil || got != "sealed-"+id {
+			t.Fatalf("%s opens to another value, error %v", id, err)
+		}
+
+		return code
+	}
+	names("under-256", 256)
+	under258, under65535 := names("under-258", 258), names("under-65535", 65535)
+	// untouched asserts the values a retirement had no business with are as they were.
+	untouched := func(step string, want map[string][]byte) {
+		t.Helper()
+
+		now := stored()
+		for id, code := range want {
+			if !bytes.Equal(now[id], code) {
+				t.Errorf("%s wrote %s, which names another version", step, id)
+			}
+		}
+	}
+	// counted asserts the retirement's own count of the values that name each version:
+	// what its last read holds a version to before it is disabled.
+	counted := func(step string, want map[int]int) {
+		t.Helper()
+
+		for version, values := range want {
+			if got, err := holder.named(ctx, wide, "AccessCode", version); err != nil || got != values {
+				t.Errorf("%s: the retirement counts %d value(s) naming version %d, error %v; want %d", step, got, version, err, values)
+			}
+		}
+	}
+	counted("before the retirements", map[int]int{1: 0, 2: rows + 2, 256: 1, 258: 1, 65535: 1})
+
+	// Retiring version 256 writes its one value again under version 65535, and no other.
+	got, err = RetireSecretVersion(ctx, wide, "APP_SECRET_KEY_256", holder)
+	if err != nil {
+		t.Fatalf("RetireSecretVersion(APP_SECRET_KEY_256) error = %v", err)
+	}
+	if got.Version != 256 || got.Current != 65535 || got.Rewritten() != 1 {
+		t.Errorf("RetireSecretVersion(APP_SECRET_KEY_256) = %+v, want version 256 retired under version 65535 with 1 value rewritten", got)
+	}
+	names("under-256", 65535)
+	opens(wideKeys, 2)
+	untouched("retiring version 256", map[string][]byte{"under-258": under258, "under-65535": under65535})
+
+	// Retiring version 2 writes every value that names it, the rows above and the two
+	// set beside them, and leaves the value under version 258.
+	got, err = RetireSecretVersion(ctx, wide, "APP_SECRET_KEY_2", holder)
+	if err != nil {
+		t.Fatalf("RetireSecretVersion(APP_SECRET_KEY_2) error = %v", err)
+	}
+	if got.Version != 2 || got.Current != 65535 || got.Rewritten() != rows+2 {
+		t.Errorf("RetireSecretVersion(APP_SECRET_KEY_2) = %+v, want version 2 retired under version 65535 with %d values rewritten", got, rows+2)
+	}
+	opens(wideKeys, 65535)
+	untouched("retiring version 2", map[string][]byte{"under-258": under258, "under-65535": under65535})
+
+	// Version 258 last: every stored value then names version 65535, and a service
+	// handed that version alone opens every one.
+	got, err = RetireSecretVersion(ctx, wide, "APP_SECRET_KEY_258", holder)
+	if err != nil || got.Rewritten() != 1 {
+		t.Fatalf("RetireSecretVersion(APP_SECRET_KEY_258) = %+v, error %v; want 1 value rewritten", got, err)
+	}
+	names("under-258", 65535)
+	untouched("retiring version 258", map[string][]byte{"under-65535": under65535})
+	opens(testSecretKeys(t, 65535), 65535)
+	for id, code := range stored() {
+		if code != nil && storedVersion(code) != 65535 {
+			t.Errorf("%s names version %d once every older version is retired, want 65535", id, storedVersion(code))
+		}
+	}
+
+	counted("once every older version is retired", map[int]int{1: 0, 2: 0, 256: 0, 258: 0, 65535: rows + 5})
+
+	// A second run of each writes nothing, and the last version there is cannot be
+	// retired, being the current one.
+	settled := stored()
+	for _, variable := range []string{"APP_SECRET_KEY_2", "APP_SECRET_KEY_256", "APP_SECRET_KEY_258"} {
+		if again, err := RetireSecretVersion(ctx, wide, variable, holder); err != nil || again.Rewritten() != 0 {
+			t.Errorf("a second RetireSecretVersion(%s) rewrote %v value(s), error %v; want none and no error", variable, again, err)
+		}
+	}
+	if _, err := RetireSecretVersion(ctx, wide, "APP_SECRET_KEY_65535", holder); err == nil || !strings.Contains(err.Error(), "APP_SECRET_KEY_65535 is the current version of the application secret") {
+		t.Errorf("RetireSecretVersion(APP_SECRET_KEY_65535): error = %v, want the refusal of the current version", err)
+	}
+	for id, code := range stored() {
+		if !bytes.Equal(code, settled[id]) {
+			t.Errorf("the second runs changed the stored bytes of %s", id)
+		}
 	}
 }

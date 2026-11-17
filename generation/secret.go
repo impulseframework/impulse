@@ -128,7 +128,7 @@ func (r *resourceInfo) SecretKeyExpr() string {
 
 // secretFieldRefusal is the refusal of a stored secret whose type or column would keep
 // the value as it was given, and empty for one that is sealed. The field is typed
-// resource.Secret, and its column is BYTES with room for the 41 bytes sealing adds.
+// resource.Secret, and its column is BYTES with room for the 42 bytes sealing adds.
 func secretFieldRefusal(path string, field *resourceField) string {
 	wanted := secretGoType
 	if field.IsPointer() || field.IsNullable {

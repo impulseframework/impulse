@@ -179,7 +179,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		LastRefitAt    *time.Time   `json:"-"`
 		UpdatedAt      *time.Time   `json:"-"`
 		CargoBays      []int64      `json:"cargoBays"`
-		TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(105)"`
+		TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(106)"`
 	}
 	shipDecoder := NewDecoder[resources.Ship, shipRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
