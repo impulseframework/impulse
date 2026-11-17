@@ -2,11 +2,15 @@ import { Methods, Resources, IssueBulletin, Sectors } from '@app/service/zz_gen_
 import { field, listViewConfig, rootConfig, rpcConfig, section } from '@impulseframework/resource-angular/types';
 
 // Sectors is the tenant record itself: rows here ARE the permission domains, and every
-// instance holds a roster of them that keeps up without a restart, so a sector the
-// surveyor creates on this page is served at once; the list of every sector here comes
-// from this resource's own generated (permission-checked) List. A sector's key is an id
-// the server generates, which nobody types: the list names a sector, and the row page
-// shows the id read only, for whoever supports the application. Issue
+// instance holds a roster of them that keeps up without a restart, so a new sector is
+// served at once; the list of every sector here comes from this resource's own generated
+// (permission-checked) List. Nobody creates a sector on this page: headquarters and the
+// surveyor bring one in by inviting the person who will run it (the crew's Invited
+// sectors page, which the library builds), and that person's first sign-in makes the
+// sector. The record's metadata says so (createDisabled), and the list draws no Create
+// button. A sector's key is an id the server generates, which nobody types: the list
+// names a sector, and the row page shows the id read only, for whoever supports the
+// application. Issue
 // Bulletin is the global, row-free Execute gated for the Bulletin Officer by `now < ...`.
 export const sectorsConfig = rootConfig({
   page: { label: 'Sectors', icon: 'public' },
@@ -22,7 +26,6 @@ export const sectorsConfig = rootConfig({
   ],
   parentConfig: listViewConfig({
     title: 'Sectors',
-    createTitle: 'Sector',
     primaryResource: Resources.Sectors,
     listColumns: [
       { id: Sectors.fieldName.name },
