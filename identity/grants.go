@@ -41,6 +41,12 @@ import (
 // made under a tenant, the grant of the tenant's method; for one made for the whole
 // application, the grant of the whole application's. An implementation holds no rule of
 // its own.
+//
+// The default role of a sign-in method opened to sign-up is asked the same way
+// (Manager.OpenSignUp), since opening the method gives the role to every person who
+// signs up: for the whole application, of nobody in particular (the nil id, no account
+// yet), and from the list of roles the dialog offers with no transaction (nil), which
+// the whole application's method, naming no row, does not read.
 type RoleGrants interface {
 	// MayGive reports whether the caller may give the person the role in the scope: the
 	// grant of the method that gives a role admits it for that role and that person.

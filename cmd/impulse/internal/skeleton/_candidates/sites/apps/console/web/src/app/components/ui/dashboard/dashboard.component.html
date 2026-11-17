@@ -1,5 +1,5 @@
 <h1>Signed in as {{ auth.sessionInfo().username }}</h1>
-@if (tenants.tenants().length === 0) {
+@if (creationOffered()) {
   <mat-card appearance="outlined" class="create-tenant-card">
     <mat-card-header>
       <mat-card-title>You hold no tenant yet</mat-card-title>

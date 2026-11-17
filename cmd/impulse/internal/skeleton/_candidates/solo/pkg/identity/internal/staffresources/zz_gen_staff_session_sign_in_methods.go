@@ -27,6 +27,7 @@ func (StaffSessionSignInMethod) DefaultConfig() resource.Config {
 type staffSessionSignInMethodRead struct {
 	Name        string    `json:"name"        perm:"-"`
 	OpenSignUp  bool      `json:"openSignUp"`
+	OpenedFor   *string   `json:"openedFor"`
 	DefaultRole *string   `json:"defaultRole"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -39,6 +40,7 @@ var staffSessionSignInMethodReadSets resource.SetCache[StaffSessionSignInMethod,
 type staffSessionSignInMethodWrite struct {
 	Name        string    `json:"-"`
 	OpenSignUp  bool      `json:"openSignUp"`
+	OpenedFor   *string   `json:"openedFor"`
 	DefaultRole *string   `json:"defaultRole"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -151,6 +153,7 @@ func (c *StaffSessionSignInMethodColumns) All() *StaffSessionSignInMethodColumns
 	c.fields = []accesstypes.Field{
 		"Name",
 		"OpenSignUp",
+		"OpenedFor",
 		"DefaultRole",
 		"UpdatedAt",
 	}
@@ -166,6 +169,12 @@ func (c *StaffSessionSignInMethodColumns) Name() *StaffSessionSignInMethodColumn
 
 func (c *StaffSessionSignInMethodColumns) OpenSignUp() *StaffSessionSignInMethodColumns {
 	c.fields = append(c.fields, "OpenSignUp")
+
+	return c
+}
+
+func (c *StaffSessionSignInMethodColumns) OpenedFor() *StaffSessionSignInMethodColumns {
+	c.fields = append(c.fields, "OpenedFor")
 
 	return c
 }
@@ -270,6 +279,10 @@ func (c *staffSessionSignInMethodSort) Name() *StaffSessionSignInMethodSort {
 
 func (c *staffSessionSignInMethodSort) OpenSignUp() *StaffSessionSignInMethodSort {
 	return c.addField("OpenSignUp")
+}
+
+func (c *staffSessionSignInMethodSort) OpenedFor() *StaffSessionSignInMethodSort {
+	return c.addField("OpenedFor")
 }
 
 func (c *staffSessionSignInMethodSort) DefaultRole() *StaffSessionSignInMethodSort {
@@ -391,6 +404,26 @@ func (p *StaffSessionSignInMethodCreatePatch) OpenSignUp() bool {
 
 func (p *StaffSessionSignInMethodCreatePatch) OpenSignUpIsSet() bool {
 	return p.patchSet.IsSet("OpenSignUp")
+}
+
+func (p *StaffSessionSignInMethodCreatePatch) SetOpenedFor(v *string) *StaffSessionSignInMethodCreatePatch {
+	if v != nil {
+		p.patchSet.Set("OpenedFor", v)
+	} else {
+		p.patchSet.Set("OpenedFor", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionSignInMethodCreatePatch) OpenedFor() *string {
+	v, _ := p.patchSet.Get("OpenedFor").(*string)
+
+	return v
+}
+
+func (p *StaffSessionSignInMethodCreatePatch) OpenedForIsSet() bool {
+	return p.patchSet.IsSet("OpenedFor")
 }
 
 func (p *StaffSessionSignInMethodCreatePatch) SetDefaultRole(v *string) *StaffSessionSignInMethodCreatePatch {
@@ -535,6 +568,26 @@ func (p *StaffSessionSignInMethodUpdatePatch) OpenSignUp() bool {
 
 func (p *StaffSessionSignInMethodUpdatePatch) OpenSignUpIsSet() bool {
 	return p.patchSet.IsSet("OpenSignUp")
+}
+
+func (p *StaffSessionSignInMethodUpdatePatch) SetOpenedFor(v *string) *StaffSessionSignInMethodUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("OpenedFor", v)
+	} else {
+		p.patchSet.Set("OpenedFor", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionSignInMethodUpdatePatch) OpenedFor() *string {
+	v, _ := p.patchSet.Get("OpenedFor").(*string)
+
+	return v
+}
+
+func (p *StaffSessionSignInMethodUpdatePatch) OpenedForIsSet() bool {
+	return p.patchSet.IsSet("OpenedFor")
 }
 
 func (p *StaffSessionSignInMethodUpdatePatch) SetDefaultRole(v *string) *StaffSessionSignInMethodUpdatePatch {

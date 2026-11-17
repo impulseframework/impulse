@@ -190,8 +190,8 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	googleIssuerMu.Unlock()
 	// An administrator opened both directories to sign-up: a person no tenant's
 	// declaration decides gets an account.
-	openMethod(ctx, t, store, "entra", "")
-	openMethod(ctx, t, store, "google", "")
+	openMethod(ctx, t, store, auth.API(), "entra", "")
+	openMethod(ctx, t, store, auth.API(), "google", "")
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {

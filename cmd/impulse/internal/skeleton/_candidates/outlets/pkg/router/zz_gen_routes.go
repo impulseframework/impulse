@@ -137,6 +137,8 @@ type GeneratedHandlers interface {
 
 	CreateTenant() http.HandlerFunc
 
+	CreateTenantOffered() http.HandlerFunc
+
 	DeleteStaffGroup() http.HandlerFunc
 
 	DeleteStaffTenantGroup() http.HandlerFunc
@@ -365,6 +367,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/create-staff-user", h.CreateStaffUser())
 
 	bounded.Post("/console/api/create-tenant", h.CreateTenant())
+
+	bounded.Get("/console/api/create-tenant", h.CreateTenantOffered())
 
 	r.Post("/console/api/delete-staff-group", h.DeleteStaffGroup())
 

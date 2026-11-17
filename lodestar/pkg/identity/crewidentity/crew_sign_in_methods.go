@@ -17,7 +17,10 @@ import (
 // open to sign-up. Admits says how wide the method is, in words: whom opening it
 // admits, which the method's registration fixes in code. Says is what a person with no
 // invitation meets at the method now. A method whose directory gives the roles has no
-// choice to make (DirectoryGivesRoles), and Says says why.
+// choice to make (DirectoryGivesRoles), and neither has one whose registration carries
+// an account rule of its own (OwnRule): Says says why. A method opened when its
+// registration admitted someone else is invite only until it is opened again, and Says
+// says for whom it was opened.
 //
 // It is a computed resource. The methods are the ones the auth registers, which no
 // table lists, and a method has a row of CrewSessionSignInMethods only once somebody
@@ -36,6 +39,7 @@ type CrewSignInMethod struct {
 	OpenSignUp          bool   `spanner:"OpenSignUp"`
 	DefaultRole         string `spanner:"DefaultRole"`
 	DirectoryGivesRoles bool   `spanner:"DirectoryGivesRoles"`
+	OwnRule             bool   `spanner:"OwnRule"`
 	Says                string `spanner:"Says"`
 }
 
@@ -58,7 +62,7 @@ func ListCrewSignInMethod(ctx context.Context, _ *resource.QuerySet[CrewSignInMe
 		for i := range methods {
 			method := &CrewSignInMethod{
 				Name: methods[i].Name, Label: methods[i].Label, Admits: methods[i].Admits, OpenSignUp: methods[i].OpenSignUp,
-				DefaultRole: methods[i].DefaultRole, DirectoryGivesRoles: methods[i].DirectoryGivesRoles, Says: methods[i].Says,
+				DefaultRole: methods[i].DefaultRole, DirectoryGivesRoles: methods[i].DirectoryGivesRoles, OwnRule: methods[i].OwnRule, Says: methods[i].Says,
 			}
 			if !yield(method, nil) {
 				return

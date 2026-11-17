@@ -467,6 +467,7 @@ export namespace StaffSignInMethods {
     label: 'label' as FieldName,
     name: 'name' as FieldName,
     openSignUp: 'openSignUp' as FieldName,
+    ownRule: 'ownRule' as FieldName,
     says: 'says' as FieldName,
   };
   export const resourceName = {
@@ -476,6 +477,7 @@ export namespace StaffSignInMethods {
     label: 'StaffSignInMethods.label' as Resource,
     name: 'StaffSignInMethods.name' as Resource,
     openSignUp: 'StaffSignInMethods.openSignUp' as Resource,
+    ownRule: 'StaffSignInMethods.ownRule' as Resource,
     says: 'StaffSignInMethods.says' as Resource,
   };
 }

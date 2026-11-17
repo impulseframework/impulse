@@ -161,6 +161,10 @@ type Rules[Tx any] struct {
 	// standard rule reads what an administrator chose for it (the method's row of the
 	// sign-in methods table). A sign-in that names none is invite only.
 	Method string
+	// Audience is whom the method's registration admits now, as it spells itself
+	// (signin.Audience.Key): the method's row opens it only where the row was opened for
+	// that audience (dbtype.SignInMethod.OpenFor).
+	Audience string
 	// Policy is the sign-in policy, nil for none.
 	Policy signin.Policy[Tx]
 	// Accept is the application's invitation acceptor, nil for none.
@@ -566,8 +570,9 @@ func SignUpClosed() error {
 
 // SignUp makes the account of a person who signs up with a password, in one
 // transaction, and returns its id. method is the name the password method is registered
-// under, and the transaction reads what an administrator chose for it: a method that
-// is not open to sign-up refuses (SignUpClosed), so a sign-up link mailed while the
+// under and audience whom its registration admits (signin.Audience.Key), and the
+// transaction reads what an administrator chose for it: a method that is not open to
+// sign-up for that audience refuses (SignUpClosed), so a sign-up link mailed while the
 // method was open creates nothing once it is closed. The mail link linkID, which
 // carried the person here, is consumed, the user row written, and the method's default
 // role given by seat, handed the transaction (nil for none; a role with no hook fails
@@ -578,7 +583,7 @@ func SignUpClosed() error {
 // A link that is no longer live is NotFound. An address another user holds, verified or
 // not, and a username that is taken are a Conflict. Nothing is written by a refusal.
 func SignUp[Tx any](
-	ctx context.Context, d Driver[Tx], method string, user *dbtype.InsertSessionUser, linkID impulse.UUID, seat SignUpSeater[Tx],
+	ctx context.Context, d Driver[Tx], method, audience string, user *dbtype.InsertSessionUser, linkID impulse.UUID, seat SignUpSeater[Tx],
 ) (impulse.UUID, error) {
 	if err := dbtype.ValidateInsertUser(user, d.UsernameIsEmail()); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "dbtype.ValidateInsertUser()")
@@ -594,7 +599,7 @@ func SignUp[Tx any](
 		if err != nil {
 			return errors.Wrap(err, "Driver.SignInMethodIn()")
 		}
-		if !chosen.Open() {
+		if !chosen.OpenFor(audience) {
 			return SignUpClosed()
 		}
 		if user.Email != nil {
@@ -972,7 +977,7 @@ func standardRule[Tx any](
 		return accountDecision{res: res, byInvitation: byInvitation}, stop, nil
 	}
 
-	return methodRule(ctx, d, tx, req, tenant, rules.Method)
+	return methodRule(ctx, d, tx, req, tenant, rules.Method, rules.Audience)
 }
 
 // methodRule decides a person no user was created for, who came through no directory a
@@ -984,7 +989,8 @@ func standardRule[Tx any](
 //   - A method an administrator opened to sign-up (its row of the sign-in methods
 //     table, read here, in the sign-in's own transaction) admits the person: they are
 //     provisioned, and given the default role the row names where it names one
-//     (Rules.SignUp).
+//     (Rules.SignUp). The row counts for the audience it was opened for alone
+//     (Rules.Audience): a registration changed since is invite only.
 //   - Every other method is invite only, a method with no row among them. The
 //     invitation the browser carries is the account: the person was invited by
 //     address, and SignIn has already held the directory's address to the invited one.
@@ -994,7 +1000,7 @@ func standardRule[Tx any](
 // so an invitation that has died meanwhile does not refuse them, and takes the
 // invitation's roles where it is live (resolveIn).
 func methodRule[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, tenant, method string,
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, tenant, method, audience string,
 ) (decided accountDecision, stop, err error) {
 	provision := signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant))
 	if req.RoleNames != nil {
@@ -1007,7 +1013,7 @@ func methodRule[Tx any](
 		}
 	}
 	switch {
-	case chosen.Open():
+	case chosen.OpenFor(audience):
 		return accountDecision{res: provision, signUpRole: chosen.Role()}, nil, nil
 	case req.Invitation != nil:
 		return accountDecision{res: provision, byInvitation: true}, nil, nil

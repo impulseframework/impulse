@@ -217,6 +217,7 @@
                 "directoryGivesRoles",
                 "label",
                 "openSignUp",
+                "ownRule",
                 "says"
               ]
             },

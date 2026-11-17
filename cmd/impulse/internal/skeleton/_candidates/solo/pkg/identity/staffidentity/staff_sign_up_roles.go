@@ -15,7 +15,10 @@ import (
 // StaffSignUpRole is one role a person who signs up to the Staff auth may be
 // given: a role held for the whole application, the role file's or a custom one, with
 // its description. The Super Administrator role is not among them. The default role of
-// a sign-in method that is opened to sign-up is picked from the list.
+// a sign-in method that is opened to sign-up is picked from the list, which holds the
+// roles the caller may give a person directly (the grant of AssignStaffRole, asked
+// with each role) and no other: opening a method gives its default role to every person
+// who signs up.
 //
 // It is a computed resource: the role file's roles are held by the permission engine,
 // so the engine is asked and no query selects the list. The role file grants it like
@@ -38,10 +41,13 @@ func (StaffSignUpRole) Resource() accesstypes.Resource {
 }
 
 // ListStaffSignUpRole yields the roles a person who signs up may be given; the
-// generated handler applies the request's filter, sort and page over them.
-func ListStaffSignUpRole(ctx context.Context, _ *resource.QuerySet[StaffSignUpRole], _ resource.Client, client *Client) iter.Seq2[*StaffSignUpRole, error] {
+// generated handler applies the request's filter, sort and page over them. The roles
+// are the ones the request's caller may give, so the list is read as that caller: a
+// method's frame stamps the caller for its body and a list's does not, and the query
+// carries the caller it was checked as.
+func ListStaffSignUpRole(ctx context.Context, qSet *resource.QuerySet[StaffSignUpRole], _ resource.Client, client *Client) iter.Seq2[*StaffSignUpRole, error] {
 	return func(yield func(*StaffSignUpRole, error) bool) {
-		roles, err := client.manager.SignUpRoles(ctx)
+		roles, err := client.manager.SignUpRoles(resource.WithCaller(ctx, qSet.Caller()))
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.Manager.SignUpRoles()"))
 

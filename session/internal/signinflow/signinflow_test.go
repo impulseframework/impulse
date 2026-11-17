@@ -944,10 +944,20 @@ func TestAcceptInvitation_theInvitedName(t *testing.T) {
 	}
 }
 
-// openMethod is the row of a method an administrator opened to sign-up with role as its
-// default role, "" for none.
+// methodAudience is whom the sign-in method of these tests admits, as its registration
+// spells it.
+var methodAudience = signin.Audience{Accounts: "a Google account"}.Key()
+
+// openMethod is the row of a method an administrator opened to sign-up, for the
+// audience the method has, with role as its default role, "" for none.
 func openMethod(name, role string) *dbtype.SignInMethod {
-	m := &dbtype.SignInMethod{Name: name, OpenSignUp: true}
+	return openedFor(name, role, methodAudience)
+}
+
+// openedFor is the row of a method an administrator opened to sign-up when its
+// registration admitted audience.
+func openedFor(name, role, audience string) *dbtype.SignInMethod {
+	m := &dbtype.SignInMethod{Name: name, OpenSignUp: true, OpenedFor: &audience}
 	if role != "" {
 		m.DefaultRole = &role
 	}
@@ -988,6 +998,20 @@ func TestSignIn_theMethodsRowDecidesAStranger(t *testing.T) {
 		{
 			name:     "a row that says not open: refused, nothing written",
 			rows:     []*dbtype.SignInMethod{{Name: "google"}},
+			wantCode: sessioninfo.RefusedNotInvited,
+			// A refusal ends the transaction with nothing written in it.
+			wantSteps: []string{"method google read in run 1", "commit"},
+		},
+		{
+			name:     "a row opened for a narrower audience than the registration has now: refused, nothing written",
+			rows:     []*dbtype.SignInMethod{openedFor("google", "Member", signin.Audience{Organizations: []string{"lakeside.edu"}}.Key())},
+			wantCode: sessioninfo.RefusedNotInvited,
+			// A refusal ends the transaction with nothing written in it.
+			wantSteps: []string{"method google read in run 1", "commit"},
+		},
+		{
+			name:     "an open row that names no audience opens nothing: refused, nothing written",
+			rows:     []*dbtype.SignInMethod{{Name: "google", OpenSignUp: true}},
 			wantCode: sessioninfo.RefusedNotInvited,
 			// A refusal ends the transaction with nothing written in it.
 			wantSteps: []string{"method google read in run 1", "commit"},
@@ -1079,7 +1103,7 @@ func TestSignIn_theMethodsRowDecidesAStranger(t *testing.T) {
 			}
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store, signUpFail: tt.signUpFail}
-			rules := Rules[*memTx]{Method: "google", Policy: hooks.policy, Accept: hooks.accept, SignUp: hooks.signUp}
+			rules := Rules[*memTx]{Method: "google", Audience: methodAudience, Policy: hooks.policy, Accept: hooks.accept, SignUp: hooks.signUp}
 			if tt.noMethod {
 				rules.Method = ""
 			}
@@ -1157,7 +1181,7 @@ func TestSignIn_aPersonWithAnAccountSignsInTheSameUnderEitherChoice(t *testing.T
 			store.links[linkKey(sessioninfo.MethodAzure, "tenant-1", "oid-pat")] = id
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
-			rules := Rules[*memTx]{Method: "google", Policy: hooks.policy, Accept: hooks.accept, SignUp: hooks.signUp}
+			rules := Rules[*memTx]{Method: "google", Audience: methodAudience, Policy: hooks.policy, Accept: hooks.accept, SignUp: hooks.signUp}
 			req := strangerRequest(nil)
 
 			if err := signInWith(t, d, req, rules); err != nil {

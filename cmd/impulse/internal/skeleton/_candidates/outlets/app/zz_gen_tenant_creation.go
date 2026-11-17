@@ -165,3 +165,39 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(response{ID: id})
 	})
 }
+
+// CreateTenantOffered serves GET /console/api/create-tenant: whether the caller may create a tenant of
+// their own now. A page offers a person only what they may do, so the page that offers
+// the create-your-tenant card asks this first and hides the card on a no. The answer is
+// the one CreateTenant would reach for the same caller before it reads a body, by the
+// same two facts: the session holds a grant in no tenant, and an administrator has a
+// sign-in method of the Staff auth open to sign-up, read as committed. No grant admits the
+// call, which any signed-in person makes, and nothing is written. The POST decides again
+// in its own transaction: what is offered here may be refused there a moment later.
+func (a *App) CreateTenantOffered() http.HandlerFunc {
+	type offer struct {
+		Offered bool `json:"offered"`
+	}
+
+	identity := a.StaffIdentity()
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		// One tenant per person: a session holding a grant in any tenant is offered none.
+		held, err := a.UserPermissions(r).Domains(ctx)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if len(held) > 0 {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "StaffIdentity().AnySignInMethodOpen()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(offer{Offered: open})
+	})
+}

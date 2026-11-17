@@ -27,6 +27,7 @@ func (CrewSessionSignInMethod) DefaultConfig() resource.Config {
 type crewSessionSignInMethodRead struct {
 	Name        string    `json:"name"        perm:"-"`
 	OpenSignUp  bool      `json:"openSignUp"`
+	OpenedFor   *string   `json:"openedFor"`
 	DefaultRole *string   `json:"defaultRole"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -39,6 +40,7 @@ var crewSessionSignInMethodReadSets resource.SetCache[CrewSessionSignInMethod, c
 type crewSessionSignInMethodWrite struct {
 	Name        string    `json:"-"`
 	OpenSignUp  bool      `json:"openSignUp"`
+	OpenedFor   *string   `json:"openedFor"`
 	DefaultRole *string   `json:"defaultRole"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -151,6 +153,7 @@ func (c *CrewSessionSignInMethodColumns) All() *CrewSessionSignInMethodColumns {
 	c.fields = []accesstypes.Field{
 		"Name",
 		"OpenSignUp",
+		"OpenedFor",
 		"DefaultRole",
 		"UpdatedAt",
 	}
@@ -166,6 +169,12 @@ func (c *CrewSessionSignInMethodColumns) Name() *CrewSessionSignInMethodColumns 
 
 func (c *CrewSessionSignInMethodColumns) OpenSignUp() *CrewSessionSignInMethodColumns {
 	c.fields = append(c.fields, "OpenSignUp")
+
+	return c
+}
+
+func (c *CrewSessionSignInMethodColumns) OpenedFor() *CrewSessionSignInMethodColumns {
+	c.fields = append(c.fields, "OpenedFor")
 
 	return c
 }
@@ -270,6 +279,10 @@ func (c *crewSessionSignInMethodSort) Name() *CrewSessionSignInMethodSort {
 
 func (c *crewSessionSignInMethodSort) OpenSignUp() *CrewSessionSignInMethodSort {
 	return c.addField("OpenSignUp")
+}
+
+func (c *crewSessionSignInMethodSort) OpenedFor() *CrewSessionSignInMethodSort {
+	return c.addField("OpenedFor")
 }
 
 func (c *crewSessionSignInMethodSort) DefaultRole() *CrewSessionSignInMethodSort {
@@ -391,6 +404,26 @@ func (p *CrewSessionSignInMethodCreatePatch) OpenSignUp() bool {
 
 func (p *CrewSessionSignInMethodCreatePatch) OpenSignUpIsSet() bool {
 	return p.patchSet.IsSet("OpenSignUp")
+}
+
+func (p *CrewSessionSignInMethodCreatePatch) SetOpenedFor(v *string) *CrewSessionSignInMethodCreatePatch {
+	if v != nil {
+		p.patchSet.Set("OpenedFor", v)
+	} else {
+		p.patchSet.Set("OpenedFor", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionSignInMethodCreatePatch) OpenedFor() *string {
+	v, _ := p.patchSet.Get("OpenedFor").(*string)
+
+	return v
+}
+
+func (p *CrewSessionSignInMethodCreatePatch) OpenedForIsSet() bool {
+	return p.patchSet.IsSet("OpenedFor")
 }
 
 func (p *CrewSessionSignInMethodCreatePatch) SetDefaultRole(v *string) *CrewSessionSignInMethodCreatePatch {
@@ -535,6 +568,26 @@ func (p *CrewSessionSignInMethodUpdatePatch) OpenSignUp() bool {
 
 func (p *CrewSessionSignInMethodUpdatePatch) OpenSignUpIsSet() bool {
 	return p.patchSet.IsSet("OpenSignUp")
+}
+
+func (p *CrewSessionSignInMethodUpdatePatch) SetOpenedFor(v *string) *CrewSessionSignInMethodUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("OpenedFor", v)
+	} else {
+		p.patchSet.Set("OpenedFor", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionSignInMethodUpdatePatch) OpenedFor() *string {
+	v, _ := p.patchSet.Get("OpenedFor").(*string)
+
+	return v
+}
+
+func (p *CrewSessionSignInMethodUpdatePatch) OpenedForIsSet() bool {
+	return p.patchSet.IsSet("OpenedFor")
 }
 
 func (p *CrewSessionSignInMethodUpdatePatch) SetDefaultRole(v *string) *CrewSessionSignInMethodUpdatePatch {

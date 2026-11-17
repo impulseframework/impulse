@@ -1,12 +1,15 @@
-import { Component, computed, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
+import { CreateTenantOffered, createTenantRoute } from '@app/service/zz_gen_api';
 import { Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { PlaceService, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
+import { environment } from '@env';
 import { openNewTenantDialog } from '../new-tenant/new-tenant-dialog.component';
 
 /** One row of the permissions card: a resource and the digest state of each permission on it. */
@@ -21,11 +24,12 @@ interface PermissionRow {
  * there, per generated resource, the digest state of each permission — in the tenant the
  * page is open in for tenant-scoped resources, globally for global ones. It lives outside
  * the tenant segment and under it: Configuration's first page, and the tenant's. A session
- * holding no tenant is offered its own: a person who signed up creates one through the
- * new-tenant dialog, and the server refuses in its own words while no sign-in method is
- * open to sign-up. The person's email address and the look of the application are theirs,
- * not a place's: the account page and Appearance in the person's menu, which the frame
- * draws.
+ * holding no tenant is offered its own while the server would create it: a person who
+ * signed up creates one through the new-tenant dialog. The page asks the server whether a
+ * tenant can be created now and shows the offer only where it says yes, so while every
+ * sign-in method is invite only nobody is offered a dialog the server would refuse. The
+ * person's email address and the look of the application are theirs, not a place's: the
+ * account page and Appearance in the person's menu, which the frame draws.
  */
 @Component({
   selector: 'app-dashboard',
@@ -37,6 +41,21 @@ export class DashboardComponent {
   auth = inject(AuthService);
   tenants = inject(TenantService);
   private places = inject(PlaceService);
+  private http = inject(HttpClient);
+
+  /** True for a session that holds no tenant, the one a tenant of its own could be offered to. */
+  private readonly holdsNoTenant = computed(() => this.tenants.tenants().length === 0);
+
+  /**
+   * Whether the server would let the person create a tenant of their own now. The server
+   * says so where it creates one (GET on the generated create-your-tenant route, the
+   * `createTenantRoute` constant): yes for a person who holds no tenant while an
+   * administrator has a sign-in method open to sign-up, by the two facts the creation
+   * itself refuses on. The route is no resource or method of the client, so the page asks
+   * with the application's HttpClient. It is false until the server answers and where it
+   * does not answer, so the card never shows on a guess.
+   */
+  readonly creationOffered = signal(false);
 
   /**
    * The name of the tenant the page is open in, empty outside every tenant. A tenant's key is
@@ -63,6 +82,22 @@ export class DashboardComponent {
     }
     return rows;
   });
+
+  constructor() {
+    // A session that holds a tenant is never asked for: the server would say no. The
+    // question is asked again when what the session holds changes.
+    effect((onCleanup) => {
+      this.creationOffered.set(false);
+      if (!this.holdsNoTenant()) {
+        return;
+      }
+      const asked = this.http.get<CreateTenantOffered>(`${environment.apiUrl}/${createTenantRoute}`).subscribe({
+        next: (answer) => this.creationOffered.set(answer.offered),
+        error: () => this.creationOffered.set(false),
+      });
+      onCleanup(() => asked.unsubscribe());
+    });
+  }
 
   /** Opens the new-tenant dialog on its self-service path: the person becomes the tenant's administrator. */
   createYourTenant(): void {

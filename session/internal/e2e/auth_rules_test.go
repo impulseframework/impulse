@@ -136,11 +136,6 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	auth.SetSignUpSeated(func(ctx context.Context, tx Tx, userID impulse.UUID, _, _, role string) (func(ctx context.Context), error) {
 		return nil, be.rows.addMember(ctx, tx, userID, role)
 	})
-	for name, chosen := range map[string]accounts{"entra": shape.entraAccounts, "google": shape.googleAccounts} {
-		if chosen == openSignUp {
-			openMethod(ctx, t, store, name, shape.defaultRole)
-		}
-	}
 
 	var entraRule azure.AccountRule[Tx]
 	if shape.entraRule {
@@ -187,6 +182,19 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
+	// An administrator opens a method for the audience its registration has, so the
+	// methods are opened once they are registered, and a method the shape does not
+	// register has nothing to open.
+	registered := map[string]accounts{"entra": shape.entraAccounts}
+	if workspace != nil {
+		registered["google"] = shape.googleAccounts
+	}
+	for name, chosen := range registered {
+		if chosen == openSignUp {
+			openMethod(ctx, t, store, auth.API(), name, shape.defaultRole)
+		}
+	}
+
 	return &rulesApp[Tx]{
 		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
 		entra:   entraIDP, google: googleIDP, store: store,
@@ -194,11 +202,24 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 }
 
 // openMethod writes the row of a method an administrator opened to sign-up, with role
-// as its default role, "" for none.
-func openMethod[Tx any](ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx], name, role string) {
+// as its default role, "" for none. The row is opened for the audience the method's
+// registration has, as the generated management writes it: a row opened for another
+// audience opens nothing.
+func openMethod[Tx any](
+	ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx], api *session.AuthAPI[appSessionData, appUserData, Tx], name, role string,
+) {
 	t.Helper()
 
 	row := &sessionstorage.SignInMethod{Name: name, OpenSignUp: true}
+	for _, method := range api.SignInMethods() {
+		if method.Name == name {
+			audience := method.Audience.Key()
+			row.OpenedFor = &audience
+		}
+	}
+	if row.OpenedFor == nil {
+		t.Fatalf("no sign-in method is registered under %q", name)
+	}
 	if role != "" {
 		row.DefaultRole = &role
 	}

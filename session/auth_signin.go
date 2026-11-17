@@ -129,16 +129,16 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	// store reads by the registration's name; a password identity, or the
 	// application's own, names its user and needs neither.
 	var (
-		rule   signin.AccountRule[Tx]
-		method string
-		seeded bool
+		rule             signin.AccountRule[Tx]
+		method, audience string
+		seeded           bool
 	)
 	if m, ok := a.registered().external[at.registration]; ok {
-		rule, method, seeded = m.rule, m.name, m.seededUsers
+		rule, method, audience, seeded = m.rule, m.name, m.Audience.Key(), m.seededUsers
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
-			Account: rule, Method: method, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
+			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
 			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn, TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 		})
 		if err != nil {

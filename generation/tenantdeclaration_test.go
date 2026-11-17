@@ -528,6 +528,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				Record:              "Harbor",
 				RecordLower:         "harbor",
 				HandlerFunc:         "CreateHarbor",
+				OfferedHandlerFunc:  "CreateHarborOffered",
 				RoutePath:           "/api/create-harbor",
 				Auth:                "Staff",
 				IdentityAccessor:    "StaffIdentity",

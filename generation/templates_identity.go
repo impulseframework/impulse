@@ -571,9 +571,12 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	opts = append([]identity.Option{identity.WithTenantWord({{ printf "%q" .TenantWord }})}, opts...)
 	{{- end }}
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
-	{{- if .KeepsGroups }}
-	// A change to a group is judged as the role changes it makes, by the grants of the
-	// methods that give a role and take one away (grants.go).
+	{{- if .JudgesRoleChanges }}
+	// What gives a person a role without naming them is judged as giving the role
+	// directly, by the grants of the methods that give a role and take one away
+	// (grants.go): a change to a group, as the role changes it makes, and the default
+	// role of a sign-in method opened to sign-up, which every person who signs up is
+	// given.
 	opts = append(opts, identity.WithRoleGrants(grants{}))
 	{{- end }}
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)

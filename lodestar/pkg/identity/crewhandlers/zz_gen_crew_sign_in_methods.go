@@ -23,6 +23,7 @@ func (h *Handlers) CrewSignInMethods() http.HandlerFunc {
 		OpenSignUp          bool   `json:"openSignUp"`
 		DefaultRole         string `json:"defaultRole"`
 		DirectoryGivesRoles bool   `json:"directoryGivesRoles"`
+		OwnRule             bool   `json:"ownRule"`
 		Says                string `json:"says"`
 	}
 
@@ -73,6 +74,8 @@ func (h *Handlers) CrewSignInMethods() http.HandlerFunc {
 					rmap["defaultRole"] = rec.DefaultRole
 				case "DirectoryGivesRoles":
 					rmap["directoryGivesRoles"] = rec.DirectoryGivesRoles
+				case "OwnRule":
+					rmap["ownRule"] = rec.OwnRule
 				case "Says":
 					rmap["says"] = rec.Says
 				}
