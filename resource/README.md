@@ -2708,7 +2708,12 @@ create-your-tenant route (`POST <prefix>/create-<record>`, no grant needed), whi
 signed-in person holding no tenant calls with the new tenant's fields. Whether anyone
 may is no declaration: the route reads, in the transaction that writes the row, whether
 an administrator has a sign-in method of the auth open to sign-up (section 21, "Who may
-sign up"), and refuses while every method is invite only. `@tenant(creation: ...)`,
+sign up"), and refuses while every method is invite only. The same route answers `GET`
+with whether the caller may create one now (`{"offered": true}`, the generated client's
+`Create<Record>Offered`), by the two facts the creation refuses on: the caller holds no
+tenant, and a method is open. A page reads it before it offers the creation, so nobody
+is shown a dialog the server would refuse; the skeletons' home page shows its
+create-your-tenant card only while the answer is yes. `@tenant(creation: ...)`,
 which declared the choice in code, is refused at generation with these words.
 
 **The creator's seat.** The person who creates a tenant is its first administrator,
@@ -3522,17 +3527,20 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
 invitation is chosen for each method in the running application, never in code. The
 choice is a row of the Auth's sign-in methods table (`CrewSessionSignInMethods`, declared
 with the Auth's other tables and migrated with them): the method's registration name,
-whether it is open to sign-up, and the default role a new person gets. A method with no
-row is invite only, which is how every method starts, and the sign-in reads the row in its
-own transaction. The generated management gives every Auth whose roles the application
+whether it is open to sign-up, whom the method admitted when it was opened (`OpenedFor`),
+and the default role a new person gets. A method with no row is invite only, which is how
+every method starts, and the sign-in reads the row in its own transaction. The generated
+management gives every Auth whose roles the application
 assigns the page's two halves, with nothing written by the application:
 
 - `CrewSignInMethods`, a list with one row for each method the Auth registers, ordered
   by label: its registration name and label, who can sign in with it in words
   (`admits`: "Anyone with a Google account", "Anyone with an account at acme.example",
-  from how wide the method's registration is), `openSignUp`, `defaultRole`, and `says`,
-  what a person with no invitation meets, as a sentence. It is computed from the Auth's
-  registrations and the table's rows, so a method with no row is listed as invite only.
+  from how wide the method's registration is), `openSignUp`, `defaultRole`,
+  `directoryGivesRoles` and `ownRule` (the two kinds of method nothing is chosen for,
+  below), and `says`, what a person with no invitation meets, as a sentence. It is
+  computed from the Auth's registrations and the table's rows, so a method with no row is
+  listed as invite only, and a row of a method the Auth no longer registers is not listed.
 - `OpenCrewSignUp` and `MakeCrewInviteOnly`, the two methods that write the row. Opening
   declares a warning (`@warning(typed: open)`, section 7): asked with `X-Warning`, the
   server says who will be able to sign in without an invitation and what each of them
@@ -3543,7 +3551,16 @@ assigns the page's two halves, with nothing written by the application:
 What a person who signs up gets depends on the application. Without tenants they get the
 method's default role, a role held for the whole application: opening a method without
 one is refused at the save, the Super Administrator's role is never one, and the roles
-to pick from are the list `CrewSignUpRoles` (name and description). The role is given by
+to pick from are the list `CrewSignUpRoles` (name and description). A default role is a
+role given to every person who signs up, so it is one the opener could give a person
+directly: the generated client asks the permission engine for the caller's grant on the
+Auth's assign method with the role as the new value (the judge that already holds a
+role given to a group to what its giver may give, `identity.RoleGrants`, written to the
+client's `grants.go`), so a role file that conditions the assign method's grant on the
+role (`"when": "new.role in [...]"`) holds the default role to the same list. Opening a
+method with a role the caller may not give is refused with 403 naming the role, at the
+warning as at the save, and `CrewSignUpRoles` lists only the roles the caller may give.
+The role is given by
 the identity client in the transaction that makes the account
 (`authSession.SetSignUpSeated(identityClient.SignedUp())`, which the Auth's package sets
 beside the invitation's hook), so no account is left holding nothing. With tenants the
@@ -3557,9 +3574,21 @@ invitation or through the directory of a tenant that names a default role. A met
 whose directory gives the roles (`SyncsRoles`) is neither opened nor made invite only:
 the directory decides who signs in, the two methods refuse it, and its Auth, where the
 directory is the one way in, has neither. A registration that carries an account rule of
-its own in code (`signin.AccountRule`) is decided by that rule first, and the row decides
-only where the rule answers `signin.Standard`: the list says what was chosen for the
-method, never what such a rule does.
+its own in code (`signin.AccountRule`) is decided by that rule, which the page cannot
+read, so nothing is chosen for it either: its row of the list says the application's own
+rule decides (`ownRule`), and the two methods refuse it by name with 409.
+
+**An open method is open for the audience it was opened for.** The warning an
+administrator confirms names who can sign in with the method ("Anyone with an account at
+acme.example"), and that is a fact of the method's registration in code, which a later
+release can widen. So opening a method writes into its row whom the registration admitted
+then (`OpenedFor`, the registration's audience in a form that compares exactly:
+`signin.Audience.Key`), and the sign-in honors the row only while the registration's
+audience is still that one. A method whose registration has changed since, wider or
+narrower, is invite only until someone opens it again: the list says whom it was opened
+for and whom it admits now, `openSignUp` is false, the page offers Open sign-up, and the
+warning names the audience of today. An invitation, and a person who has an account, are
+not affected. A row written before the audience was kept names none and opens nothing.
 
 A person who has an account, and a person who follows an invitation, sign in the same
 under either choice. The password method's sign-up routes (`POST <prefix>/user/sign-up`,
@@ -3825,8 +3854,9 @@ held, the ways they sign in and the sign-in identities under it (and the session
 the whole application), the invitations, and for the whole application the sessions, the
 failed sign-ins and the Sign-in page: one row for each sign-in method, Open sign-up on a
 method that is invite only and Make invite only on one that is open, each only where the
-caller holds the grant, the method's warning drawn by the method dialog, and a notice
-above the list while a method is open. Above the ways a person signs in, the page offers
+caller holds the grant and never on a method the directory or the application's own rule
+decides, the method's warning drawn by the method dialog, and a notice above the list
+while a method is open. Above the ways a person signs in, the page offers
 Remove password for an Auth with a password method where the removal can happen: the
 server's answer for the person's row lists the method, and the list shows a password and
 an identity that counts. It asks first, naming what is left by the words of the rows, and
