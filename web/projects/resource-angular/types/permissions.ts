@@ -6,6 +6,7 @@ export {
   CreatePermission,
   DeletePermission,
   ExecutePermission,
+  ListAcrossTenantsPermission,
   ListPermission,
   ReadPermission,
   UpdatePermission,

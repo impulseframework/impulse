@@ -71,6 +71,10 @@ func (r *resourceGenerator) runRouteGeneration() error {
 	if err := validateShippedProgramRoutes(outlets, outletRoutes); err != nil {
 		return err
 	}
+	// And a list across tenants is served where no other route of its outlet answers.
+	if err := validateAcrossTenantsRoutes(outletRoutes); err != nil {
+		return err
+	}
 
 	stubDomainGuard, stubFeatureGuard := false, false
 	routeRequestLogs, routeMinSeverities := false, false
@@ -298,6 +302,10 @@ func (r *resourceGenerator) accumulateResourceRoutes(outlets []*routerOutlet, ou
 			}
 			outletRoutes[i].RoutesMap[res.Name()] = append(outletRoutes[i].RoutesMap[res.Name()], files...)
 			routerTestRoutes = append(routerTestRoutes, files...)
+
+			across := r.resourceAcrossTenantsRoutes(res, outlet.prefix)
+			outletRoutes[i].RoutesMap[res.Name()] = append(outletRoutes[i].RoutesMap[res.Name()], across...)
+			routerTestRoutes = append(routerTestRoutes, across...)
 		}
 	}
 
@@ -719,7 +727,7 @@ func (r *resourceGenerator) negativeTestsForOutlet(outlet *routerOutlet) ([]nega
 		if err != nil {
 			return nil, err
 		}
-		for _, route := range files {
+		for _, route := range slices.Concat(files, r.resourceAcrossTenantsRoutes(res, outlet.prefix)) {
 			tests = append(tests, routeNegativeTests(route)...)
 		}
 	}

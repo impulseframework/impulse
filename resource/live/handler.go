@@ -153,6 +153,56 @@ func Subscribe(ctx context.Context, r *http.Request, svc Service, gate Gate, sub
 	}
 }
 
+// AcrossTenantsList is a decoded list across tenants as the live layer reads it: its
+// resource, and the set of tenants a subscription to it is held over with the page's
+// filter on the tenant (nil for every tenant). A QuerySet decoded for a list across
+// tenants is one (resource.QuerySet.TenantsListed).
+type AcrossTenantsList interface {
+	Resource() accesstypes.Resource
+	TenantsListed(ctx context.Context) (set, narrowed []accesstypes.Domain, err error)
+}
+
+// SubscribeAcrossTenants registers the subscription of a list across tenants when the
+// request carries the subscribe header, before the handler runs the query: one
+// subscription over the set of tenants the list reads for the person, however many they
+// are, so a commit in any of them finds it and a commit in a tenant the person cannot
+// enter does not. A list across tenants is plain unless the page asks, so a request
+// without the header registers nothing; neither does a list that reads no tenant, which
+// nothing can change. As with Subscribe, a set that cannot be worked out or a record
+// that fails to take the subscription is logged and the request is still answered.
+func SubscribeAcrossTenants(ctx context.Context, r *http.Request, svc Service, list AcrossTenantsList) {
+	tab, err := Tab(r)
+	if err != nil || tab == "" {
+		// A malformed tab was refused by the outlet's middleware before the handler ran.
+		return
+	}
+	res := list.Resource()
+	set, narrowed, err := list.TenantsListed(ctx)
+	if err != nil {
+		logger.FromCtx(ctx).Errorf("live: working out the tenants of the %s subscription across tenants of tab %s failed; the subscription is not registered: %v", res, tab, err)
+
+		return
+	}
+	if len(set) == 0 {
+		return
+	}
+	principal, err := PrincipalID(ctx)
+	if err != nil {
+		logger.FromCtx(ctx).Errorf("live: the %s subscription across tenants of tab %s is not registered; the page is served without it: %v", res, tab, err)
+
+		return
+	}
+	registered := AcrossTenantsSubscription(res, set, narrowed).Normalized()
+	registered.Principal = principal
+	registered.Tab = tab
+	registered.Expiry = time.Now().Add(SubscriptionTTL)
+	ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
+	defer cancel()
+	if err := svc.Register(ctx, []Subscription{registered}); err != nil {
+		logger.FromCtx(ctx).Errorf("live: registering the %s subscription across tenants of tab %s failed; the page is served without it: %v", res, tab, err)
+	}
+}
+
 // SetCacheControl marks a list or read response cacheable by the browser when its
 // request carried the version parameter: Cache-Control private with the subscription's
 // window, and the no-cache Pragma and Expires the outlet's NoCaching middleware set are

@@ -321,6 +321,7 @@ func (r *resourceGenerator) generatePermissions() error {
 		ResourcePackage:        r.resource.Package(),
 		RouterPackage:          r.router.Package(),
 		TenantNames:            r.namesTenants(),
+		ListsAcrossTenants:     r.listsAcrossTenants(),
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
@@ -354,6 +355,9 @@ func (r *resourceGenerator) generateLive() error {
 		RoutePrefix:            r.routePrefix,
 		DefaultServesSessions:  r.allOutlets()[0].servesSessions,
 		HasExtraSessionOutlets: extraSessionOutlets,
+		LocalPackageImports:    r.localPackageImports(),
+		RouterPackage:          r.router.Package(),
+		ListsAcrossTenants:     r.listsAcrossTenants(),
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
@@ -433,11 +437,21 @@ func (r *resourceGenerator) anyOutletServesSessions() bool {
 func (r *resourceGenerator) generateHandlers(res *resourceInfo) error {
 	handlerTypes := resourceEndpoints(res)
 
-	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files))
+	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files)+1)
 	for _, handlerTyp := range handlerTypes {
 		data, err := r.handlerContent(handlerTyp, res)
 		if err != nil {
 			return errors.Wrap(err, "handlerContent()")
+		}
+
+		handlerData = append(handlerData, data)
+	}
+	// The list across tenants is the list asked without the tenant's segment, so its
+	// handler follows the resource's own.
+	if res.ListsAcrossTenants {
+		data, err := r.acrossTenantsHandlerContent(res)
+		if err != nil {
+			return errors.Wrap(err, "acrossTenantsHandlerContent()")
 		}
 
 		handlerData = append(handlerData, data)

@@ -94,8 +94,6 @@ export interface MembersSectorUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
-  outsideDirectory?: boolean;
-  cannotEnter?: string;
 }
 
 export interface MembersSectorUserRoles {
@@ -105,6 +103,8 @@ export interface MembersSectorUserRoles {
   role: string;
   everyDomain?: boolean;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface MembersSessions {
@@ -188,6 +188,8 @@ export interface MembersUserRoles {
   role: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface Missions {
@@ -389,8 +391,6 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSectorUserRoles]: {
@@ -403,6 +403,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSessions]: {
@@ -537,6 +539,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.Missions]: {

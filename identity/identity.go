@@ -159,6 +159,13 @@ type Store interface {
 	TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
 	// RevokeTrustedDevice buffers the revocation of one remembered browser.
 	RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+
+	// GroupStore is the auth's groups of people, their members and the roles they hold
+	// (groups.go).
+	GroupStore
+	// PeriodStore is the period of an assignment: a person's role, a person's place in
+	// a group and a group's role (periods.go).
+	PeriodStore
 }
 
 // SessionAPI is what the rules take from the session library's Auth, the one that signs

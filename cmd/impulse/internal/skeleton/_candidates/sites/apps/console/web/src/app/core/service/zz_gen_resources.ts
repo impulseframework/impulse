@@ -10,6 +10,46 @@ export interface Announcements {
   body?: string;
 }
 
+export interface StaffGroups {
+  id: string;
+  kind?: string;
+  axis?: string;
+  domainId?: string;
+  name?: string;
+  description?: string;
+  updatedAt?: Date;
+}
+
+export interface StaffGroupMembers {
+  groupId: string;
+  userId: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface StaffGroupRoles {
+  groupId: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface StaffGroupUsers {
+  groupId: string;
+  userId: string;
+  username?: string;
+  name?: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface StaffRoles {
   kind: string;
   axis: string;
@@ -120,6 +160,36 @@ export interface StaffSessionUsers {
   lastSignInAt?: Date;
 }
 
+export interface StaffTenantGroups {
+  id: string;
+  domainId?: string;
+  name?: string;
+  description?: string;
+  updatedAt?: Date;
+}
+
+export interface StaffTenantGroupRoles {
+  domainId?: string;
+  groupId: string;
+  groupName?: string;
+  role: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface StaffTenantGroupUsers {
+  domainId?: string;
+  groupId: string;
+  userId: string;
+  username?: string;
+  name?: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface StaffTenantIdentities {
   id: string;
   domainId?: string;
@@ -162,8 +232,19 @@ export interface StaffTenantUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
-  outsideDirectory?: boolean;
-  cannotEnter?: string;
+}
+
+export interface StaffTenantUserGroupRoles {
+  domainId?: string;
+  userId: string;
+  username?: string;
+  groupId: string;
+  groupName?: string;
+  role: string;
+  globalGroup?: boolean;
+  everyDomain?: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface StaffTenantUserRoles {
@@ -173,6 +254,21 @@ export interface StaffTenantUserRoles {
   role: string;
   everyDomain?: boolean;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface StaffUserGroupRoles {
+  userId: string;
+  username?: string;
+  groupId: string;
+  groupName?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface StaffUserRoles {
@@ -182,6 +278,8 @@ export interface StaffUserRoles {
   role: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface Tenants {
@@ -235,6 +333,69 @@ const resourceMap = defineResourceMap({
       { fieldName: 'kindId', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 64 },
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffGroups]: {
+    route: 'staff-groups',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
+      { fieldName: 'axis', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffGroupMembers]: {
+    route: 'staff-group-members',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffGroups },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffGroupRoles]: {
+    route: 'staff-group-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffGroups },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffGroupUsers]: {
+    route: 'staff-group-users',
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.StaffRoles]: {
@@ -411,6 +572,45 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffTenantGroups]: {
+    route: 'tenants/{tenantID}/staff-tenant-groups',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffTenantGroupRoles]: {
+    route: 'tenants/{tenantID}/staff-tenant-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffTenantGroupUsers]: {
+    route: 'tenants/{tenantID}/staff-tenant-group-users',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffTenantIdentities]: {
     route: 'tenants/{tenantID}/staff-tenant-identities',
     live: true,
@@ -462,8 +662,22 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffTenantUserGroupRoles]: {
+    route: 'tenants/{tenantID}/staff-tenant-user-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.StaffTenantUserRoles]: {
@@ -476,6 +690,24 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffUserGroupRoles]: {
+    route: 'staff-user-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.StaffUserRoles]: {
@@ -492,6 +724,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.Tenants]: {
@@ -565,6 +799,10 @@ export const DomainRoutePath = 'tenants/:tenantID';
 
 export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Announcements]: PermissionScopes.domain,
+  [Resources.StaffGroups]: PermissionScopes.global,
+  [Resources.StaffGroupMembers]: PermissionScopes.global,
+  [Resources.StaffGroupRoles]: PermissionScopes.global,
+  [Resources.StaffGroupUsers]: PermissionScopes.global,
   [Resources.StaffRoles]: PermissionScopes.global,
   [Resources.StaffRoleGrants]: PermissionScopes.global,
   [Resources.StaffSessions]: PermissionScopes.global,
@@ -575,10 +813,15 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffSessionTokens]: PermissionScopes.global,
   [Resources.StaffSessionTrustedDevices]: PermissionScopes.global,
   [Resources.StaffSessionUsers]: PermissionScopes.global,
+  [Resources.StaffTenantGroups]: PermissionScopes.domain,
+  [Resources.StaffTenantGroupRoles]: PermissionScopes.domain,
+  [Resources.StaffTenantGroupUsers]: PermissionScopes.domain,
   [Resources.StaffTenantIdentities]: PermissionScopes.domain,
   [Resources.StaffTenantInvitations]: PermissionScopes.domain,
   [Resources.StaffTenantUsers]: PermissionScopes.domain,
+  [Resources.StaffTenantUserGroupRoles]: PermissionScopes.domain,
   [Resources.StaffTenantUserRoles]: PermissionScopes.domain,
+  [Resources.StaffUserGroupRoles]: PermissionScopes.global,
   [Resources.StaffUserRoles]: PermissionScopes.global,
   [Resources.Tenants]: PermissionScopes.global,
   [Resources.TenantDirectories]: PermissionScopes.domain,

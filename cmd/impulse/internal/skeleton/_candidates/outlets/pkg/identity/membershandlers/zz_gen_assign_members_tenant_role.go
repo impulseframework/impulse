@@ -6,6 +6,7 @@ package membershandlers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -21,8 +22,10 @@ import (
 
 func (h *Handlers) AssignMembersTenantRole() http.HandlerFunc {
 	type request struct {
-		UserID impulse.UUID `json:"userId"`
-		Role   string       `json:"role"`
+		UserID   impulse.UUID `json:"userId"`
+		Role     string       `json:"role"`
+		StartsAt *time.Time   `json:"startsAt"`
+		EndsAt   *time.Time   `json:"endsAt"`
 	}
 
 	decoder := NewTargetedRPCDecoder[membersidentity.AssignMembersTenantRole, request](h, accesstypes.Execute)

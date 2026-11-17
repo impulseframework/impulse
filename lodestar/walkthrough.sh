@@ -199,11 +199,11 @@ BEACON_CALL=d0000000-0000-4000-8000-000000000001
 # or who wrote it carries the id (with the username beside it where a page shows who), a
 # role method and a view-as session take the id, and a live page's set is keyed by it. The
 # bootstrap creates each account of the cast under a fixed id (cmd/bootstrap/users.json):
-# the crew's accounts, the droid service account last among them, are numbered in the
-# file's order under one prefix, and the members' under another. A person a sign-in
+# the crew's accounts, the droid service account among them, are numbered under one
+# prefix in the order they joined the cast, and the members' under another. A person a sign-in
 # creates during the run (the navigator, the pioneer) has a generated id, read from the
 # list that names them.
-CAST="governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor rigger bosun armorer droid-r7"
+CAST="governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor rigger bosun armorer droid-r7 liaison"
 account() { # account <persona>: the fixed id of a crew account of the cast, by the persona's place in the cast file
   local n=0 p
   for p in $CAST; do
@@ -231,7 +231,7 @@ if [ "$r" = "307 $B/console/" ]; then echo "PASS  the root alone redirects to th
 r=$(curl -s -o /dev/null -w '%{http_code}' "$B/nowhere")
 if [ "$r" = 404 ]; then echo "PASS  an unmatched path at the root is not found (404)"; else echo "FAIL  an unmatched path at the root: status $r, want 404"; fails=$((fails + 1)); fi
 
-for p in governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor armorer; do
+for p in governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor armorer liaison; do
   login "$p"
 done
 login_portal client
@@ -292,6 +292,21 @@ r=$(req archivist GET "$ANVIL/missions?limit=200"); assert_py "archivist: fee re
 r=$(req archivist GET "$ANVIL/missions?sort=fee"); check "the archivist sorts by fee: the masked cells run over the visible projection" 200 "$r"
 assert_py "masked fees fall to the NULL region, first ascending in Spanner's placement" "$r" "[('fee' in m) for m in rows] == [False,False,False,False,True,True,True]"
 r=$(req archivist GET "$ANVIL/missions?filter=sectorId:eq:$ANVIL_ID,fee:isnull"); assert_py "fee isnull matches exactly the redacted rows" "$r" "len(rows)==4 and all('fee' not in m for m in rows)"
+# The list across sectors: Mission declares @listAcrossTenants, so its list is also served
+# without the sector's segment. The liaison holds the Cadet's board in Anvil and the
+# Archivist's ledger in Cinder, and nothing in Bastion: one request reads both sectors'
+# missions, each row under her roles in its own sector and naming it.
+r=$(req liaison GET "$API/missions?limit=200&count=true"); check "the liaison lists the missions of every sector she reaches in one request" 200 "$r"
+assert_py "every row names its sector: Anvil's low-hazard missions with no fee, Cinder's closed sweep with its fee, nothing of Bastion" "$r" "{m['zzTenant'] for m in rows}=={'$ANVIL_ID','$CINDER_ID'} and all(('fee' in m)==(m['zzTenant']=='$CINDER_ID') for m in rows) and all(m['hazard'] in (1,2) for m in rows if m['zzTenant']=='$ANVIL_ID')"
+r=$(req liaison GET "$API/missions?domains=$BASTION_ID"); assert_py "Bastion asked for by name answers no row and no refusal: a sector she does not reach is never named" "$r" "rows==[]"
+r=$(req yeoman GET "$API/missions"); check "the yeoman may list missions in no sector: an empty list, not a refusal" 200 "$r"
+assert_py "and it is empty" "$r" "rows==[]"
+# Who the Missions in every sector page is for: the server tells the global digest whether
+# a person may list missions in at least one sector they reach, and the page's menu entry
+# and route ask that. A sector's own digest never says it.
+r=$(req liaison GET "$API/permission-digest"); assert_py "the global digest tells the liaison's page she lists missions somewhere" "$r" "rows.get('Missions',{}).get('ListAcrossTenants')=='granted'"
+r=$(req liaison GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "Anvil's digest speaks for Anvil: List on missions, and no word of the other sectors" "$r" "'List' in rows.get('Missions',{}) and 'ListAcrossTenants' not in rows.get('Missions',{})"
+r=$(req yeoman GET "$API/permission-digest"); assert_py "the yeoman lists the sectors and missions in none of them: her digest names her no list across sectors" "$r" "'List' in rows.get('Sectors',{}) and 'ListAcrossTenants' not in rows.get('Missions',{})"
 # The assessor's grid sorts by a hazard it does not display. The key is a named variant
 # of INT64 (HazardLevel), concealing, hers only while a mission is open, and left out of
 # columns=, so every page turns on the cursor's copy decoded into the field's own type,
@@ -561,9 +576,10 @@ HERON_BEFORE=$(body "$r" | py "print(rows['lastRefitAt'])")   # the seeded stamp
 cache_header "the live read is cacheable the same way" "$S/live-row.h" "private, max-age=300"
 r=$(req harbormaster GET "$ANVIL/ships" "" -D "$S/plain-list.h"); check "the same list asked plainly" 200 "$r"
 cache_header "a request without _v stays uncached" "$S/plain-list.h" "no-cache, no-store, must-revalidate"
-assert_fs "two subscriptions are on record for her tab: the Heron's row and the Anvil list" subscriptions "sorted((d['resource'],d['key'],d['domain']) for d in rows if d['principal']=='$(uid harbormaster)' and d['tab']=='$TAB')==[('Ships','','$ANVIL_ID'),('Ships','$HERON','')]"
+# A subscription's record names the sectors it is held over (domains): the one sector of a sector's list, the empty one alone for a row.
+assert_fs "two subscriptions are on record for her tab: the Heron's row and the Anvil list" subscriptions "sorted((d['resource'],d['key'],[x['stringValue'] for x in d['domains']['values']]) for d in rows if d['principal']=='$(uid harbormaster)' and d['tab']=='$TAB')==[('Ships','',['$ANVIL_ID']),('Ships','$HERON',[''])]"
 r=$(req hazards GET "$API/sectors/$CINDER_ID/ships?_v=$SEED" "" -H "X-Subscribe: $TAB-hazards"); check "the hazard analyst's fleet board at Cinder, live" 200 "$r"
-assert_fs "the hazard analyst's Cinder list is on record" subscriptions "any(d['principal']=='$(uid hazards)' and d['tab']=='$TAB-hazards' and d['resource']=='Ships' and d['domain']=='$CINDER_ID' for d in rows)"
+assert_fs "the hazard analyst's Cinder list is on record" subscriptions "any(d['principal']=='$(uid hazards)' and d['tab']=='$TAB-hazards' and d['resource']=='Ships' and [x['stringValue'] for x in d['domains']['values']]==['$CINDER_ID'] for d in rows)"
 r=$(req cadet GET "$ANVIL/ships"); check "the cadet holds no List on Ships" 403 "$r"
 r=$(req cadet GET "$ANVIL/ships?_v=$SEED" "" -H "X-Subscribe: $TAB-cadet"); check "asking live changes nothing for her: refused as before" 403 "$r"
 assert_fs "no record was written for the refused request" subscriptions "not any(d['principal']=='$(uid cadet)' for d in rows)"

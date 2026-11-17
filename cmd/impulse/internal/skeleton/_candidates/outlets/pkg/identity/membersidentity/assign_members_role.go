@@ -5,6 +5,7 @@ package membersidentity
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -16,9 +17,16 @@ import (
 // AssignMembersRole gives a person of the Members auth a role: in the global
 // scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
 // by the id of their account, and an id no user holds is refused: a role is held by an
-// account. The role must exist where it is given; a role the person holds there already
-// is left as it is. The person's next request is served with the role. The Super
-// Administrator role is given in the global scope alone, and by a super administrator.
+// account. The role must exist where it is given. The person's next request is served
+// with the role. The Super Administrator role is given in the global scope alone, and by
+// a super administrator.
+//
+// The role is given for a period where the request names one (StartsAt, EndsAt, each
+// optional): outside it the role grants nothing, and nothing is written when it begins
+// or ends. Giving a role the person holds there already gives it the period of this
+// request in place of the one it had, so a request that names neither makes the role
+// stand until it is taken away; ending a role now is taking it away. The Super
+// Administrator role takes no period: there is always one.
 //
 // @rpc
 // @outlet(portal)
@@ -32,6 +40,11 @@ type AssignMembersRole struct {
 	Role        string `validate:"required"`
 	Domain      *string
 	EveryDomain bool
+	// StartsAt is the first instant it counts. Left out, it counts from now.
+	StartsAt *time.Time
+	// EndsAt is the first instant it no longer counts. Left out, it counts until it is
+	// taken away.
+	EndsAt *time.Time
 }
 
 // Execute buffers the membership into the caller's transaction.
@@ -40,11 +53,15 @@ func (m *AssignMembersRole) Execute(ctx context.Context, txn resource.ReadWriteT
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
+	if err != nil {
+		return errors.Wrap(err, "identity.RequestPeriod()")
+	}
 	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
 		return errors.Wrap(err, "identity.Manager.RequireUser()")
 	}
-	if err := client.manager.AssignRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role)); err != nil {
-		return errors.Wrap(err, "identity.Manager.AssignRole()")
+	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+		return errors.Wrap(err, "identity.Manager.AssignRoleFor()")
 	}
 
 	return nil

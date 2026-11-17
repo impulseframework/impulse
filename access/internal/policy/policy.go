@@ -12,6 +12,7 @@ import (
 	"hash"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -20,19 +21,21 @@ import (
 // SubjectKind discriminates who a grant or membership row refers to.
 type SubjectKind uint8
 
-// The two subject kinds: a role or a user.
+// The three subject kinds: a role, a user, or a group of people.
 const (
 	SubjectRole SubjectKind = iota
 	SubjectUser
+	SubjectGroup
 )
 
 // Subject is a grant target or membership holder. The typed stores only ever
-// produce role grant subjects and user members; the compiler additionally
-// supports user-direct grants and role-to-role membership (inheritance), so
-// the record model does too.
+// produce role grant subjects, and user and group members; the compiler
+// additionally supports user-direct grants and role-to-role membership
+// (inheritance), so the record model does too. A group is named by the id the
+// store keeps it under.
 type Subject struct {
 	Kind SubjectKind
-	Name string // bare (unprefixed) role or user name
+	Name string // bare (unprefixed) role or user name, or a group's id
 }
 
 // Grant is one normalized permission grant, held where its Scope says: the
@@ -62,13 +65,19 @@ type Grant struct {
 }
 
 // Membership is one normalized role membership, held where its Scope says.
-// Member is usually a user; a role member expresses role inheritance, which
-// the compiler folds at load time. The typed stores only ever produce user
-// members.
+// Member is usually a user. A group member is a role a group of people holds,
+// which the compiler folds at load time into a membership of each person in
+// the group; a role member expresses role inheritance, folded at load time
+// too. The typed stores produce user and group members.
+//
+// Period is when the membership counts. The zero Period is no start and no
+// end, which is every membership a store wrote without one and every
+// inheritance edge.
 type Membership struct {
 	Scope  accesstypes.PolicyScope
 	Member Subject
 	Role   accesstypes.Role
+	Period accesstypes.Period
 }
 
 // Role is one custom role row: a role that exists where its Scope says
@@ -89,11 +98,57 @@ type RoleRow struct {
 	Description string
 }
 
+// Group is one group of people: the id the store keeps it under and where it
+// is kept, the global partition or one tenant domain. A group is never kept in
+// every domain. Its name and description are not policy: the snapshot compiler
+// never reads them, so the record does not carry them and GroupRow does.
+type Group struct {
+	ID    accesstypes.Group
+	Scope accesstypes.PolicyScope
+}
+
+// GroupRow is one group as a store lists it: the record and the words people
+// read it by.
+type GroupRow struct {
+	Group
+
+	Name        string
+	Description string
+}
+
+// GroupMember is one person's place in a group, with the period it counts in:
+// the person holds the group's roles while their place and the group's role
+// both count.
+type GroupMember struct {
+	Group  accesstypes.Group
+	User   accesstypes.User
+	Period accesstypes.Period
+}
+
+// GroupRole is one role a group holds, with the group it belongs to as a
+// store's join returns it: the shape of the listing of what a person holds
+// through the groups they are in.
+type GroupRole struct {
+	Group Group
+	Scope accesstypes.PolicyScope
+	Role  accesstypes.Role
+}
+
+// ErrStillAssigned is the refusal of a deletion that assignments stand in the
+// way of: a role that people hold now or will, a group that has a member or a
+// role now or will. A store wraps it, so the access package tells the refusal
+// from a failure and says it to the caller in words. The listings above the
+// store leave out an assignment whose period has not begun, so the store's own
+// check is the one that sees it.
+var ErrStillAssigned = errors.New("assignments that have not ended stand in the way")
+
 // Records is a reader's complete, store-agnostic output.
 type Records struct {
-	Grants      []Grant
-	Memberships []Membership
-	Roles       []Role
+	Grants       []Grant
+	Memberships  []Membership
+	Roles        []Role
+	Groups       []Group
+	GroupMembers []GroupMember
 }
 
 // RoleGrant is one stored grant row scoped to an already-known (scope, role):
@@ -107,8 +162,9 @@ type RoleGrant struct {
 
 // Hash returns a canonical content hash of the records: independent of row
 // order (stores return rows in arbitrary order) but sensitive to any change
-// in effective policy. The heartbeat compares it to decide whether a fresh
-// read needs a recompile and snapshot swap.
+// in effective policy, an assignment's period among them. The heartbeat
+// compares it to decide whether a fresh read needs a recompile and snapshot
+// swap.
 func (r *Records) Hash() [sha256.Size]byte {
 	grants := slices.Clone(r.Grants)
 	slices.SortFunc(grants, compareGrants)
@@ -116,6 +172,10 @@ func (r *Records) Hash() [sha256.Size]byte {
 	slices.SortFunc(memberships, compareMemberships)
 	roles := slices.Clone(r.Roles)
 	slices.SortFunc(roles, compareRoles)
+	groups := slices.Clone(r.Groups)
+	slices.SortFunc(groups, compareGroups)
+	members := slices.Clone(r.GroupMembers)
+	slices.SortFunc(members, compareGroupMembers)
 
 	h := sha256.New()
 	for _, g := range grants {
@@ -134,11 +194,23 @@ func (r *Records) Hash() [sha256.Size]byte {
 		hashByte(h, byte(m.Member.Kind))
 		hashString(h, m.Member.Name)
 		hashString(h, string(m.Role))
+		hashPeriod(h, m.Period)
 	}
 	for _, role := range roles {
 		hashString(h, "r")
 		hashScope(h, role.Scope)
 		hashString(h, string(role.Name))
+	}
+	for _, group := range groups {
+		hashString(h, "G")
+		hashString(h, string(group.ID))
+		hashScope(h, group.Scope)
+	}
+	for _, member := range members {
+		hashString(h, "M")
+		hashString(h, string(member.Group))
+		hashString(h, string(member.User))
+		hashPeriod(h, member.Period)
 	}
 
 	return [sha256.Size]byte(h.Sum(nil))
@@ -162,11 +234,26 @@ func compareMemberships(a, b Membership) int {
 		int(a.Member.Kind)-int(b.Member.Kind),
 		strings.Compare(a.Member.Name, b.Member.Name),
 		strings.Compare(string(a.Role), string(b.Role)),
+		comparePeriods(a.Period, b.Period),
 	)
 }
 
 func compareRoles(a, b Role) int {
 	return cmpChain(CompareScopes(a.Scope, b.Scope), strings.Compare(string(a.Name), string(b.Name)))
+}
+
+func compareGroups(a, b Group) int {
+	return cmpChain(strings.Compare(string(a.ID), string(b.ID)), CompareScopes(a.Scope, b.Scope))
+}
+
+func compareGroupMembers(a, b GroupMember) int {
+	return cmpChain(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(string(a.User), string(b.User)), comparePeriods(a.Period, b.Period))
+}
+
+// comparePeriods orders two periods by start then end. A store holds one row
+// for a membership's key, so the order only settles records built by hand.
+func comparePeriods(a, b accesstypes.Period) int {
+	return cmpChain(a.Start.Compare(b.Start), a.End.Compare(b.End))
 }
 
 // CompareScopes orders two places policy is held by their stored column
@@ -226,6 +313,30 @@ func ScopeFromColumns(kind, axis, domain string) (accesstypes.PolicyScope, error
 	}
 }
 
+// GroupColumns decomposes where a group is kept into the column triple the
+// stores persist, as ScopeColumns does for a membership. A group is kept in the
+// global partition or in one domain: every domain is refused, since a group
+// kept in every tenant would be every tenant's to manage and nobody's.
+func GroupColumns(s accesstypes.PolicyScope) (kind, axis, domain string, err error) {
+	if s.IsEveryDomain() {
+		return "", "", "", errors.New("a group is kept for the whole application or in one tenant, never in every tenant")
+	}
+	kind, axis, domain = ScopeColumns(s)
+
+	return kind, axis, domain, nil
+}
+
+// GroupFromColumns reassembles where a group is kept from its stored column
+// triple, refusing what ScopeFromColumns refuses and the every-domain kind,
+// which no store writes for a group.
+func GroupFromColumns(kind, axis, domain string) (accesstypes.PolicyScope, error) {
+	if kind == KindEvery {
+		return accesstypes.PolicyScope{}, errors.Newf("a group row is kept in kind %q, and a group is kept globally or in one domain", kind)
+	}
+
+	return ScopeFromColumns(kind, axis, domain)
+}
+
 // cmpChain returns the first non-zero comparison result.
 func cmpChain(results ...int) int {
 	for _, r := range results {
@@ -248,6 +359,22 @@ func hashString(h hash.Hash, s string) {
 
 func hashByte(h hash.Hash, b byte) {
 	h.Write([]byte{b})
+}
+
+// hashPeriod writes a period's two instants, each as the nanoseconds since the
+// epoch behind a byte that says whether it is there: no start and a start at
+// the epoch hash apart.
+func hashPeriod(h hash.Hash, p accesstypes.Period) {
+	for _, instant := range []time.Time{p.Start, p.End} {
+		var nanos [8]byte
+		if instant.IsZero() {
+			hashByte(h, 0)
+		} else {
+			hashByte(h, 1)
+			binary.BigEndian.PutUint64(nanos[:], uint64(instant.UnixNano()))
+		}
+		h.Write(nanos[:])
+	}
 }
 
 // hashScope writes a scope's structural triple (kind, axis, domain).

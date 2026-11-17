@@ -93,6 +93,9 @@ type identityInstance struct {
 	// tenant is the application's tenant record, nil when it declares none: with one
 	// the instance carries the tenant's lists (identity_lists.go).
 	tenant *identityTenant
+	// groupSet is the name of the subject set of a person's groups, "" where the
+	// instance keeps no groups (identity_groups.go).
+	groupSet string
 }
 
 // identityTable names one of an auth's tables by what it holds.
@@ -140,6 +143,9 @@ func identityDeclarations() []identityDeclaration {
 		{kind: identityMemberships, suffix: "UserRole", template: identityMembershipsTemplate},
 		{kind: identityRoles, suffix: "Role", template: identityRolesTemplate},
 		{kind: identityRoleGrants, suffix: "RoleGrant", template: identityRoleGrantsTemplate},
+		{kind: identityGroups, suffix: "Group", template: identityGroupsTemplate},
+		{kind: identityGroupMembers, suffix: "GroupMember", template: identityGroupMembersTemplate},
+		{kind: identityGroupRoles, suffix: "GroupRole", template: identityGroupRolesTemplate},
 	}
 }
 
@@ -170,6 +176,12 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.policy.Roles
 	case identityRoleGrants:
 		return i.policy.RoleGrants
+	case identityGroups:
+		return i.policy.Groups
+	case identityGroupMembers:
+		return i.policy.GroupMembers
+	case identityGroupRoles:
+		return i.policy.GroupRoles
 	default:
 		panic(fmt.Sprintf("unexpected identityTable: %q", kind))
 	}
@@ -302,6 +314,9 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	if inst.has(identityMemberships) != inst.has(identityRoles) {
 		return nil, errors.Newf("Auth(%q): the schema holds one of %s and %s and not the other; they are the permission store's tables under the auth's prefix and are migrated together", auth.importPath, inst.policy.UserRoles, inst.policy.Roles)
 	}
+	if err := inst.settleGroupTables(); err != nil {
+		return nil, err
+	}
 	for _, kind := range []identityTable{identityUsers, identitySessions} {
 		if !inst.has(kind) {
 			return nil, errors.Newf("Auth(%q): the schema holds no table %s, so there is nothing of the auth to manage; its tables are named by its package's name in PascalCase (TablePrefix = %q), each the session library's own name under it", auth.importPath, inst.tableName(kind), name)
@@ -330,6 +345,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 	if len(instances) == 0 {
 		return nil
 	}
+	nameGroupSets(instances)
 	begin := time.Now()
 
 	if err := r.settleIdentityTree(); err != nil {
@@ -634,6 +650,8 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The tenant's lists, beside the tables they read, where the application has a
 	// tenant record.
 	files = append(files, r.listSources(inst)...)
+	// The lists over the groups of people, where the instance keeps groups.
+	files = append(files, r.groupListSources(inst)...)
 	files = append(files, []identitySourceFile{
 		{dir: inst.methods, name: "client", template: identityClientTemplate},
 		{dir: inst.methods, name: "store", template: identityStoreTemplate},
@@ -696,6 +714,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// application has a tenant record.
 	files = append(files, inst.tenantMethodSources()...)
 	files = append(files, r.tenantComputedSources(inst)...)
+	// The methods that manage the groups of people, the whole application's and one
+	// tenant's.
+	files = append(files, inst.groupMethodSources()...)
 	for _, file := range files {
 		if slices.ContainsFunc(file.needs, func(kind identityTable) bool { return !inst.has(kind) }) {
 			continue

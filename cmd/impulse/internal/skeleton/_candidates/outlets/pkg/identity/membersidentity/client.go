@@ -145,3 +145,15 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("Members")
 }
+
+// SignedIn answers the session library's hook for a sign-in that stands
+// (session.Auth.SetSignedInHook) over the Members auth's tables: the person's roles
+// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
+// in a transaction of the hook's own on db, the application's database. Nothing else
+// removes them: no job runs on a schedule. The session library calls the hook once the
+// session is committed and logs an error it answers, so the removal neither fails a
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
+// package sets it where it sets the invitation's.
+func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
+	return c.manager.SignedIn("Members", db)
+}

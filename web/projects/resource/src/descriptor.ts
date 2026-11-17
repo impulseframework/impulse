@@ -73,6 +73,14 @@ export interface ResourceDescriptor {
    * zz_gen_api.ts narrows this string; absent on an ungated resource.
    */
   feature?: string;
+  /**
+   * Set on a tenant-scoped resource whose list is also served without the tenant's
+   * segment (`@listAcrossTenants`): one request reads its rows in every tenant the session
+   * reaches in which the person may list it, each row checked in its own tenant and
+   * naming it (`zzTenant`). The client hangs the list's handle off
+   * `client.acrossTenants`. Absent, the resource is listed inside one tenant alone.
+   */
+  acrossTenants?: boolean;
 }
 
 /** One generated RPC method as the client needs to address it. */
@@ -232,7 +240,8 @@ export interface IdentitySideDescriptor {
  * (one row for each role a person holds); the identities they sign in with; the
  * invitations (a tenant's) or every mailed link (the whole application's); and, for the
  * whole application alone, the sessions and the names whose sign-in is being counted or
- * is locked.
+ * is locked. Where the Auth keeps groups of people, the side also names the groups, the
+ * people in them, the roles they hold and the roles each person holds through one.
  */
 export interface IdentityLists {
   readonly users: string;
@@ -241,6 +250,14 @@ export interface IdentityLists {
   readonly invitations?: string;
   readonly sessions?: string;
   readonly signInAttempts?: string;
+  /** The groups of people, where the Auth keeps them: a tenant's own on its side. */
+  readonly groups?: string;
+  /** The people of the groups: one row for each person in each group, with their name. */
+  readonly groupUsers?: string;
+  /** The roles the groups hold: one row for each role of each group. */
+  readonly groupRoles?: string;
+  /** The roles people hold through a group, beside `roles`, the ones each holds directly. */
+  readonly rolesThroughGroups?: string;
 }
 
 /**
@@ -250,7 +267,11 @@ export interface IdentityLists {
  * person's name, since a role may be held by a name that has no account.
  * `withdrawInvitation` runs against an invitation, `unlinkIdentity` against an identity,
  * `endSession` against a session, `unlockSignIn` against a counted name, and the rest
- * against a person.
+ * against a person. The methods over groups: `createGroup` names no row;
+ * `describeGroup`, `deleteGroup`, `addGroupMember` and `giveGroupRole` run against a
+ * group; `removeGroupMember` against a person's place in one; and `takeGroupRole`
+ * against a role a group holds on a tenant's side, while the whole application's takes
+ * the group's id and where the role is held.
  */
 export interface IdentityMethods {
   readonly create?: string;
@@ -272,6 +293,13 @@ export interface IdentityMethods {
   readonly removePassword?: string;
   readonly endSession?: string;
   readonly unlockSignIn?: string;
+  readonly createGroup?: string;
+  readonly describeGroup?: string;
+  readonly deleteGroup?: string;
+  readonly addGroupMember?: string;
+  readonly removeGroupMember?: string;
+  readonly giveGroupRole?: string;
+  readonly takeGroupRole?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

@@ -153,6 +153,7 @@ checks:
   migrations-reader
   auths-wired
   roles-file
+  super-administrators
   persona-cast
   directory-admission
   tenant-accounts

@@ -174,7 +174,7 @@ func (q *QuerySet[Resource]) searchFieldGrants(dbType DBType, rendered *rendered
 			if grant, dropped := grants[dbField.ColumnName]; dropped && grant.dropped {
 				continue
 			}
-			grants[dbField.ColumnName] = searchGrant{condition: conditionSQL}
+			grants[dbField.ColumnName] = searchGrant{condition: conditionSQL, always: q.severalTenants() != nil}
 		}
 	}
 
@@ -188,6 +188,9 @@ func (q *QuerySet[Resource]) searchFieldGrants(dbType DBType, rendered *rendered
 // attributes resolve to its columns), bare otherwise. The registry is the
 // statement's, so the condition's parameters merge with the rest.
 func (q *QuerySet[Resource]) searchBranchGrants(dbType DBType, registry *paramRegistry) (map[string]searchGrant, error) {
+	if q.severalTenants() != nil {
+		return q.acrossBranchGrants(dbType, registry)
+	}
 	if len(q.droppedBranches) == 0 && len(q.branchDecisions) == 0 {
 		return nil, nil
 	}

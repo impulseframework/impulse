@@ -28,6 +28,14 @@ export const ExecutePermission = 'Execute' as Permission;
 export const ListPermission = 'List' as Permission;
 export const ReadPermission = 'Read' as Permission;
 export const UpdatePermission = 'Update' as Permission;
+/**
+ * The global digest's answer for a resource listed across tenants (`@listAcrossTenants`):
+ * the person may list it in at least one tenant the session reaches. No role grants it;
+ * the server works it out, and a page that lists the resource across tenants is shown,
+ * and its route opened, to whoever holds it. It is asked in the global digest whatever
+ * tenant is open (`client.can`, `AcrossTenantsHandle.can`).
+ */
+export const ListAcrossTenantsPermission = 'ListAcrossTenants' as Permission;
 
 /**
  * The scope a resource or method is permissioned in: `global` resources are asked of

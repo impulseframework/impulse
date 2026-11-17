@@ -17,7 +17,7 @@
 -- 10 wingco, 11 engineer, 12 quartermaster, 13 supercargo, 14 salvor, 15 yeoman,
 -- 16 purser, 17 registrar, 18 photographer, 19 archivist, 20 assessor, 21 hazards,
 -- 22 dock, 23 watch, 24 harbormaster, 25 adjutant, 26 surveyor, 27 rigger, 28 bosun,
--- 29 armorer, 30 droid-r7 (the service account). The members' accounts, the portal's people,
+-- 29 armorer, 30 droid-r7 (the service account), 31 liaison. The members' accounts, the portal's people,
 -- f1000000-0000-4000-8000-0000000000NN: 01 client (Client Cleo of Halvard Freight),
 -- 02 surveyor (Ines Marrow of the Meridian Survey Office, who is not the crew's surveyor:
 -- the same username in two auths is two people).

@@ -25,12 +25,14 @@ func (StaffUserRole) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffUserRoleReadSets holds one Set per read operation.
 type staffUserRoleRead struct {
-	Kind      string    `json:"kind"      perm:"-"`
-	Axis      string    `json:"axis"      perm:"-"`
-	DomainID  string    `json:"domainId"  perm:"-"`
-	Role      string    `json:"role"      perm:"-"`
-	UserID    string    `json:"userId"    perm:"-"`
-	CreatedAt time.Time `json:"createdAt"`
+	Kind      string     `json:"kind"      perm:"-"`
+	Axis      string     `json:"axis"      perm:"-"`
+	DomainID  string     `json:"domainId"  perm:"-"`
+	Role      string     `json:"role"      perm:"-"`
+	UserID    string     `json:"userId"    perm:"-"`
+	CreatedAt time.Time  `json:"createdAt"`
+	StartsAt  *time.Time `json:"startsAt"`
+	EndsAt    *time.Time `json:"endsAt"`
 }
 
 var staffUserRoleReadSets resource.SetCache[StaffUserRole, staffUserRoleRead]
@@ -39,12 +41,14 @@ var staffUserRoleReadSets resource.SetCache[StaffUserRole, staffUserRoleRead]
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; staffUserRoleWriteSets holds one Set per mutation.
 type staffUserRoleWrite struct {
-	Kind      string    `json:"-"`
-	Axis      string    `json:"-"`
-	DomainID  string    `json:"-"`
-	Role      string    `json:"-"`
-	UserID    string    `json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
+	Kind      string     `json:"-"`
+	Axis      string     `json:"-"`
+	DomainID  string     `json:"-"`
+	Role      string     `json:"-"`
+	UserID    string     `json:"-"`
+	CreatedAt time.Time  `json:"createdAt"`
+	StartsAt  *time.Time `json:"startsAt"`
+	EndsAt    *time.Time `json:"endsAt"`
 }
 
 var staffUserRoleWriteSets resource.SetCache[StaffUserRole, staffUserRoleWrite]
@@ -207,6 +211,8 @@ func (c *StaffUserRoleColumns) All() *StaffUserRoleColumns {
 		"Role",
 		"UserID",
 		"CreatedAt",
+		"StartsAt",
+		"EndsAt",
 	}
 
 	return c
@@ -244,6 +250,18 @@ func (c *StaffUserRoleColumns) UserID() *StaffUserRoleColumns {
 
 func (c *StaffUserRoleColumns) CreatedAt() *StaffUserRoleColumns {
 	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
+func (c *StaffUserRoleColumns) StartsAt() *StaffUserRoleColumns {
+	c.fields = append(c.fields, "StartsAt")
+
+	return c
+}
+
+func (c *StaffUserRoleColumns) EndsAt() *StaffUserRoleColumns {
+	c.fields = append(c.fields, "EndsAt")
 
 	return c
 }
@@ -356,6 +374,14 @@ func (c *staffUserRoleSort) UserID() *StaffUserRoleSort {
 
 func (c *staffUserRoleSort) CreatedAt() *StaffUserRoleSort {
 	return c.addField("CreatedAt")
+}
+
+func (c *staffUserRoleSort) StartsAt() *StaffUserRoleSort {
+	return c.addField("StartsAt")
+}
+
+func (c *staffUserRoleSort) EndsAt() *StaffUserRoleSort {
+	return c.addField("EndsAt")
 }
 
 type StaffUserRoleSort struct {
@@ -503,6 +529,46 @@ func (p *StaffUserRoleCreatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
 }
 
+func (p *StaffUserRoleCreatePatch) SetStartsAt(v *time.Time) *StaffUserRoleCreatePatch {
+	if v != nil {
+		p.patchSet.Set("StartsAt", v)
+	} else {
+		p.patchSet.Set("StartsAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffUserRoleCreatePatch) StartsAt() *time.Time {
+	v, _ := p.patchSet.Get("StartsAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffUserRoleCreatePatch) StartsAtIsSet() bool {
+	return p.patchSet.IsSet("StartsAt")
+}
+
+func (p *StaffUserRoleCreatePatch) SetEndsAt(v *time.Time) *StaffUserRoleCreatePatch {
+	if v != nil {
+		p.patchSet.Set("EndsAt", v)
+	} else {
+		p.patchSet.Set("EndsAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffUserRoleCreatePatch) EndsAt() *time.Time {
+	v, _ := p.patchSet.Get("EndsAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffUserRoleCreatePatch) EndsAtIsSet() bool {
+	return p.patchSet.IsSet("EndsAt")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *StaffUserRoleCreatePatch) Diff(got *StaffUserRoleCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -641,6 +707,46 @@ func (p *StaffUserRoleUpdatePatch) CreatedAt() time.Time {
 
 func (p *StaffUserRoleUpdatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
+}
+
+func (p *StaffUserRoleUpdatePatch) SetStartsAt(v *time.Time) *StaffUserRoleUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("StartsAt", v)
+	} else {
+		p.patchSet.Set("StartsAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffUserRoleUpdatePatch) StartsAt() *time.Time {
+	v, _ := p.patchSet.Get("StartsAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffUserRoleUpdatePatch) StartsAtIsSet() bool {
+	return p.patchSet.IsSet("StartsAt")
+}
+
+func (p *StaffUserRoleUpdatePatch) SetEndsAt(v *time.Time) *StaffUserRoleUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("EndsAt", v)
+	} else {
+		p.patchSet.Set("EndsAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffUserRoleUpdatePatch) EndsAt() *time.Time {
+	v, _ := p.patchSet.Get("EndsAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffUserRoleUpdatePatch) EndsAtIsSet() bool {
+	return p.patchSet.IsSet("EndsAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

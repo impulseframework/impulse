@@ -21,8 +21,32 @@ import (
 // publish, and hand that one to the handlers of this package too.
 var LiveDerivations = &live.Derivations{
 	Resources: []live.DerivedResource{
+		// CrewGroupUsers: the tables its query reads.
+		{Resource: crewresources.CrewGroupUser{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
+		// CrewSectorGroups: the tables its query reads.
+		{Resource: crewresources.CrewSectorGroup{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+		}},
+		// CrewSectorGroupRoles: the tables its query reads.
+		{Resource: crewresources.CrewSectorGroupRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+		}},
+		// CrewSectorGroupUsers: the tables its query reads.
+		{Resource: crewresources.CrewSectorGroupUser{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
 		// CrewSectorIdentities: the tables its query reads.
 		{Resource: crewresources.CrewSectorIdentity{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
@@ -34,10 +58,19 @@ var LiveDerivations = &live.Derivations{
 		}},
 		// CrewSectorUsers: the tables its query reads.
 		{Resource: crewresources.CrewSectorUser{}.Resource(), Tables: []live.SourceTable{
-			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
-			{Name: resources.SectorDirectory{}.Resource()},
+			{Name: resources.Sector{}.Resource(), Global: true},
+		}},
+		// CrewSectorUserGroupRoles: the tables its query reads.
+		{Resource: crewresources.CrewSectorUserGroupRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// CrewSectorUserRoles: the tables its query reads.
@@ -45,6 +78,13 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 			{Name: resources.Sector{}.Resource(), Global: true},
+		}},
+		// CrewUserGroupRoles: the tables its query reads.
+		{Resource: crewresources.CrewUserGroupRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 		}},
 	},
 }

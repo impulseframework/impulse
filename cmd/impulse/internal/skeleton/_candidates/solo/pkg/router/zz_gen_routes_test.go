@@ -138,12 +138,21 @@ type generatedRouterTest struct {
 func generatedRouteParameters() []string {
 	keys := []string{
 		"featureFlagName",
+		"staffGroupID",
+		"staffGroupUserGroupID",
+		"staffGroupUserUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
 		"staffSessionMailLinkID",
 		"staffSessionTokenID",
 		"staffSessionTrustedDeviceID",
 		"staffSessionUserID",
+		"staffUserGroupRoleUserID",
+		"staffUserGroupRoleGroupID",
+		"staffUserGroupRoleKind",
+		"staffUserGroupRoleAxis",
+		"staffUserGroupRoleDomainID",
+		"staffUserGroupRoleRole",
 	}
 
 	return keys
@@ -173,6 +182,66 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/live/token", method: http.MethodGet,
 			handlerFunc: "LiveToken",
 			selfBounded: true,
+		},
+		{
+			url: "/api/staff-groups", method: http.MethodGet,
+			handlerFunc: "StaffGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-groups", method: http.MethodPost,
+			handlerFunc: "StaffGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-groups/testStaffGroupID", method: http.MethodGet,
+			handlerFunc: "StaffGroup",
+			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
+		},
+		{
+			url: "/api/staff-groups/testStaffGroupID", method: http.MethodPost,
+			handlerFunc: "StaffGroup",
+			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
+		},
+		{
+			url: "/api/staff-group-members", method: http.MethodGet,
+			handlerFunc: "StaffGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-members", method: http.MethodPost,
+			handlerFunc: "StaffGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-users", method: http.MethodGet,
+			handlerFunc: "StaffGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-users", method: http.MethodPost,
+			handlerFunc: "StaffGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodGet,
+			handlerFunc: "StaffGroupUser",
+			parameters:  map[string]string{"staffGroupUserGroupID": "testStaffGroupUserGroupID", "staffGroupUserUserID": "testStaffGroupUserUserID"},
+		},
+		{
+			url: "/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodPost,
+			handlerFunc: "StaffGroupUser",
+			parameters:  map[string]string{"staffGroupUserGroupID": "testStaffGroupUserGroupID", "staffGroupUserUserID": "testStaffGroupUserUserID"},
 		},
 		{
 			url: "/api/staff-roles", method: http.MethodGet,
@@ -335,6 +404,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
 		},
 		{
+			url: "/api/staff-user-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-user-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "StaffUserGroupRole",
+			parameters:  map[string]string{"staffUserGroupRoleUserID": "testStaffUserGroupRoleUserID", "staffUserGroupRoleGroupID": "testStaffUserGroupRoleGroupID", "staffUserGroupRoleKind": "testStaffUserGroupRoleKind", "staffUserGroupRoleAxis": "testStaffUserGroupRoleAxis", "staffUserGroupRoleDomainID": "testStaffUserGroupRoleDomainID", "staffUserGroupRoleRole": "testStaffUserGroupRoleRole"},
+		},
+		{
+			url: "/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "StaffUserGroupRole",
+			parameters:  map[string]string{"staffUserGroupRoleUserID": "testStaffUserGroupRoleUserID", "staffUserGroupRoleGroupID": "testStaffUserGroupRoleGroupID", "staffUserGroupRoleKind": "testStaffUserGroupRoleKind", "staffUserGroupRoleAxis": "testStaffUserGroupRoleAxis", "staffUserGroupRoleDomainID": "testStaffUserGroupRoleDomainID", "staffUserGroupRoleRole": "testStaffUserGroupRoleRole"},
+		},
+		{
 			url: "/api/staff-user-roles", method: http.MethodGet,
 			handlerFunc: "StaffUserRoles",
 			parameters:  map[string]string{},
@@ -410,16 +499,32 @@ func (s *generatedHandlersStub) LiveToken() http.HandlerFunc {
 	return s.record("LiveToken")
 }
 
+func (s *generatedHandlersStub) AddStaffGroupMember() http.HandlerFunc {
+	return s.record("AddStaffGroupMember")
+}
+
 func (s *generatedHandlersStub) AssignStaffRole() http.HandlerFunc {
 	return s.record("AssignStaffRole")
+}
+
+func (s *generatedHandlersStub) CreateStaffGroup() http.HandlerFunc {
+	return s.record("CreateStaffGroup")
 }
 
 func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
 	return s.record("CreateStaffUser")
 }
 
+func (s *generatedHandlersStub) DeleteStaffGroup() http.HandlerFunc {
+	return s.record("DeleteStaffGroup")
+}
+
 func (s *generatedHandlersStub) DeleteStaffUser() http.HandlerFunc {
 	return s.record("DeleteStaffUser")
+}
+
+func (s *generatedHandlersStub) DescribeStaffGroup() http.HandlerFunc {
+	return s.record("DescribeStaffGroup")
 }
 
 func (s *generatedHandlersStub) DisableStaffUser() http.HandlerFunc {
@@ -450,8 +555,16 @@ func (s *generatedHandlersStub) Features() http.HandlerFunc {
 	return s.record("Features")
 }
 
+func (s *generatedHandlersStub) GiveStaffGroupRole() http.HandlerFunc {
+	return s.record("GiveStaffGroupRole")
+}
+
 func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
+}
+
+func (s *generatedHandlersStub) RemoveStaffGroupMember() http.HandlerFunc {
+	return s.record("RemoveStaffGroupMember")
 }
 
 func (s *generatedHandlersStub) RemoveStaffPassword() http.HandlerFunc {
@@ -492,6 +605,30 @@ func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
 	return s.record("SetStaffUserName")
+}
+
+func (s *generatedHandlersStub) StaffGroups() http.HandlerFunc {
+	return s.record("StaffGroups")
+}
+
+func (s *generatedHandlersStub) StaffGroup() http.HandlerFunc {
+	return s.record("StaffGroup")
+}
+
+func (s *generatedHandlersStub) StaffGroupMembers() http.HandlerFunc {
+	return s.record("StaffGroupMembers")
+}
+
+func (s *generatedHandlersStub) StaffGroupRoles() http.HandlerFunc {
+	return s.record("StaffGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffGroupUsers() http.HandlerFunc {
+	return s.record("StaffGroupUsers")
+}
+
+func (s *generatedHandlersStub) StaffGroupUser() http.HandlerFunc {
+	return s.record("StaffGroupUser")
 }
 
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
@@ -558,8 +695,20 @@ func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
 }
 
+func (s *generatedHandlersStub) StaffUserGroupRoles() http.HandlerFunc {
+	return s.record("StaffUserGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffUserGroupRole() http.HandlerFunc {
+	return s.record("StaffUserGroupRole")
+}
+
 func (s *generatedHandlersStub) StaffUserRoles() http.HandlerFunc {
 	return s.record("StaffUserRoles")
+}
+
+func (s *generatedHandlersStub) TakeStaffGroupRole() http.HandlerFunc {
+	return s.record("TakeStaffGroupRole")
 }
 
 func (s *generatedHandlersStub) UnlinkStaffSessionIdentity() http.HandlerFunc {

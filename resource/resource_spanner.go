@@ -154,7 +154,7 @@ func (c *spannerReader[Resource]) DBType() DBType {
 // an assembly plan, requiring the lenient per-row scan instead of the plain
 // spxscan path.
 func envelopeScan(stmt *Statement) bool {
-	return stmt.maskedNamesColumn != "" || stmt.capabilityPlan != nil || len(stmt.cursorColumns) > 0
+	return stmt.maskedNamesColumn != "" || stmt.capabilityPlan != nil || len(stmt.cursorColumns) > 0 || stmt.tenantColumn != ""
 }
 
 // querier returns the transaction a statement runs on. A statement that names a query
@@ -253,7 +253,7 @@ func (c *spannerReader[Resource]) List(ctx context.Context, stmt *Statement) ite
 
 				return
 			}
-			if !yield(&Row[Resource]{Data: *r}, nil) {
+			if !yield(&Row[Resource]{Data: *r, tenant: stmt.tenant}, nil) {
 				return
 			}
 		}
@@ -317,6 +317,14 @@ func scanEnvelopeRow[Resource Resourcer](spannerRow *spanner.Row, stmt *Statemen
 	row := new(Row[Resource])
 	if err := spannerRow.ToStructLenient(&row.Data); err != nil {
 		return nil, errors.Wrap(err, "spanner.Row.ToStructLenient()")
+	}
+	row.tenant = stmt.tenant
+	if stmt.tenantColumn != "" {
+		var tenant spanner.NullString
+		if err := spannerRow.ColumnByName(stmt.tenantColumn, &tenant); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		row.tenant = accesstypes.Domain(tenant.StringVal)
 	}
 	if stmt.maskedNamesColumn != "" {
 		if err := spannerRow.ColumnByName(stmt.maskedNamesColumn, &row.masked); err != nil {

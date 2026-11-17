@@ -16,6 +16,10 @@ type (
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	//
+	// A role counts inside its period alone: a person whose only role in the tenant has
+	// ended, or has not begun, is not one of its people, whether or not the role's row
+	// still stands. CrewSectorUserRole lists a role that has not begun, with its period.
+	//
 	// Two columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
@@ -24,16 +28,6 @@ type (
 	// alone. The list filters and sorts by the username and by the two facts; the
 	// account's other columns are no filter keys, so a role file may grant any of them
 	// under a condition at no cost to a page.
-	//
-	// Two more columns say what the tenant's directory-only switch does to the person.
-	// OutsideDirectory says the person has no sign-in through the tenant's directory, so
-	// the switch keeps them out while it is on: it is who turning the switch on would
-	// shut out, asked before it is on. CannotEnter is the sentence the list shows while
-	// the tenant is directory only, on the row of a person it keeps out ("Has not signed
-	// in through acme.example, so cannot enter while this sector is directory only"), and
-	// nothing on every other row. The list is made from who holds a role in the tenant,
-	// not from who can sign in, so a person the switch keeps out stays in it with their
-	// roles. A super administrator is outside no tenant's directory.
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -56,9 +50,7 @@ type (
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
-		HeldGlobally     bool    `spanner:"HeldGlobally"     index:"true"`
-		OutsideDirectory bool    `spanner:"OutsideDirectory" index:"true"`
-		CannotEnter      *string `spanner:"CannotEnter"`
+		HeldGlobally bool `spanner:"HeldGlobally" index:"true"`
 	}
 )
 
@@ -81,43 +73,61 @@ SELECT
   (EXISTS (
     SELECT 1 FROM CrewUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
     SELECT 1 FROM CrewUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og ON og.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
-  EXISTS (
+  (EXISTS (
     SELECT 1 FROM CrewUserRoles g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
-  ) AS HeldGlobally,
-  (td.SectorId IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM CrewSessionIdentities di
-    WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
-  ) AND NOT EXISTS (
-    SELECT 1 FROM CrewUserRoles sa
-    WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
-  )) AS OutsideDirectory,
-  IF(ts.DirectoryOnly AND td.SectorId IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM CrewSessionIdentities di
-    WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
-  ) AND NOT EXISTS (
-    SELECT 1 FROM CrewUserRoles sa
-    WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
-  ),
-    CONCAT('Has not signed in through ', td.Connection, ', so cannot enter while this sector is directory only'),
-    NULL) AS CannotEnter
+      AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups gg ON gg.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND gg.Kind = 'global'
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldGlobally
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM CrewUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
   SELECT s.Id AS DomainId, m.UserId AS UserId
   FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Sectors s
   WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT g.DomainId AS DomainId, gm.UserId AS UserId
+  FROM CrewGroups g
+  JOIN CrewGroupMembers gm ON gm.GroupId = g.Id
+  WHERE g.Kind = 'domain' AND g.Axis = ''
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT r.DomainId AS DomainId, gm.UserId AS UserId
+  FROM CrewGroupRoles r
+  JOIN CrewGroups g ON g.Id = r.GroupId
+  JOIN CrewGroupMembers gm ON gm.GroupId = r.GroupId
+  WHERE r.Kind = 'domain' AND r.Axis = '' AND g.Kind = 'global' AND r.Role != 'SuperAdministrator'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, gm.UserId AS UserId
+  FROM CrewGroupRoles r
+  JOIN CrewGroups g ON g.Id = r.GroupId
+  JOIN CrewGroupMembers gm ON gm.GroupId = r.GroupId
+  CROSS JOIN Sectors s
+  WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
 ) t
 JOIN CrewSessionUsers u ON u.Id = t.UserId
-LEFT JOIN Sectors ts ON ts.Id = t.DomainId
-LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id
 `
 
 // Subquery is the query the rows are read from.

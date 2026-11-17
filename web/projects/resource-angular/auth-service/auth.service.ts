@@ -4,6 +4,7 @@ import {
   CHANGE_FEED,
   Domain,
   FRONTEND_LOGIN_PATH,
+  ListAcrossTenantsPermission,
   LOGIN_REDIRECT_URL,
   LOGOUT_ACTION,
   Method,
@@ -132,9 +133,14 @@ export class AuthService {
    * naming none is asked in the selected tenant (RESOURCE_DOMAIN) when the client's
    * descriptor places the target in the domain scope, else in the global digest; a
    * domain-scoped target with no tenant selected stays global-keyed and answers false,
-   * since no domain digest holds it.
+   * since no domain digest holds it. Whether a resource may be listed across tenants
+   * (ListAcrossTenantsPermission) is asked in the global digest whatever tenant is
+   * selected or named: the server answers it there, for the session's every tenant.
    */
   private scoped(scope: PermissionScope): PermissionScope {
+    if (scope.permission === ListAcrossTenantsPermission) {
+      return { resource: scope.resource, permission: scope.permission };
+    }
     if (scope.domain !== undefined) {
       return scope;
     }

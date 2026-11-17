@@ -5,7 +5,6 @@ package app
 
 import (
 	"context"
-	"net/http"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -116,22 +115,4 @@ func SetTenantDirectory(ctx context.Context, txn resource.ReadWriteTransaction, 
 	}
 
 	return nil
-}
-
-// DirectoryOnly serves the read a tenant's Sign-in page calls before it saves the
-// directory-only switch (Tenant.DirectoryOnly), GET <prefix>/directory-only?domain=<tenant>
-// on every outlet that serves sessions and the Tenant record: what turning the switch on
-// would do, in words the server writes (resource.DirectoryOnlyConsequence: only people
-// who sign in through the tenant's directory will be able to enter, and how many of the
-// people seated in it will lose access, each named), or the refusal the write itself
-// would answer, in the same words: a tenant with no directory, a caller who is not signed
-// in through it. It is asked under the grant the write is, Update on Tenants and on its
-// directoryOnly field, and writes nothing (resource.DirectoryOnlyHandler).
-// The people are read through the generated identity client of each auth whose people a
-// tenant seats (DirectoryOutsiders): everyone who holds a role in the tenant and has no
-// sign-in through its directory, a super administrator left out.
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyHandler(a.ResourceClient(), NewTenantDirectoryRules(), a.UserPermissions, "Tenants", "directoryOnly",
-		a.StaffIdentity().DirectoryOutsiders,
-	)
 }

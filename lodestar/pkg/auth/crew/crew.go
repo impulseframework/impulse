@@ -787,6 +787,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Demonstrates: tenancy.default-seat, auth.invitation.
 	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+	// What a sign-in clears. A role, a place in a group and a group's role given for a
+	// period count inside it alone, and nothing is written when one ends: the row goes
+	// when its person next signs in. The session library calls this hook once the
+	// session is committed, and the identity client removes the person's ended roles and
+	// places, nothing else and never the account; a failure is logged and the session
+	// stands. The members' roles are their directory's and carry no period: no hook.
+	//
+	// Demonstrates: auth.periods.
+	crewSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
 	// The machine outlet the auth issues tokens for, registered before the first
 	// request as the methods are: the droids' channel, whose token check the generated

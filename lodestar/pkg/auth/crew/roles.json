@@ -152,7 +152,9 @@
             {
               "resource": "CrewUserRoles",
               "fields": [
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -355,6 +357,45 @@
                 "revokedAt",
                 "userId"
               ]
+            },
+            {
+              "resource": "CrewGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "startsAt",
+                "endsAt"
+              ]
             }
           ],
           "Read": [
@@ -531,6 +572,17 @@
                 "lastUsedAt",
                 "revokedAt",
                 "userId"
+              ]
+            },
+            {
+              "resource": "CrewGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
               ]
             }
           ],
@@ -746,6 +798,27 @@
             },
             {
               "resource": "SetMembersUserName"
+            },
+            {
+              "resource": "CreateCrewGroup"
+            },
+            {
+              "resource": "DescribeCrewGroup"
+            },
+            {
+              "resource": "DeleteCrewGroup"
+            },
+            {
+              "resource": "AddCrewGroupMember"
+            },
+            {
+              "resource": "RemoveCrewGroupMember"
+            },
+            {
+              "resource": "GiveCrewGroupRole"
+            },
+            {
+              "resource": "TakeCrewGroupRole"
             }
           ]
         }
@@ -1180,7 +1253,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -1241,6 +1316,45 @@
                 "squadrons",
                 "clearance",
                 "fliesElsewhere"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroupRoles",
+              "fields": [
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewSectorUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "globalGroup",
+                "everyDomain",
+                "startsAt",
+                "endsAt"
               ]
             }
           ],
@@ -1443,7 +1557,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -1497,6 +1613,14 @@
                 "squadrons",
                 "clearance",
                 "fliesElsewhere"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
               ]
             }
           ],
@@ -1898,13 +2022,36 @@
             {
               "resource": "RemoveCrewSectorPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "CreateCrewSectorGroup"
+            },
+            {
+              "resource": "DescribeCrewSectorGroup"
+            },
+            {
+              "resource": "DeleteCrewSectorGroup"
+            },
+            {
+              "resource": "AddCrewSectorGroupMember"
+            },
+            {
+              "resource": "RemoveCrewSectorGroupMember"
+            },
+            {
+              "resource": "GiveCrewSectorGroupRole",
+              "condition": "new.role != 'SectorMarshal'"
+            },
+            {
+              "resource": "TakeCrewSectorGroupRole",
+              "condition": "role != 'SectorMarshal'"
             }
           ]
         }
       },
       {
         "name": "SectorCrew",
-        "description": "Sees a sector's wings and hangars.",
+        "description": "Sees a sector's wings and hangars, and the groups of the sector they are in themselves, with the people in them.",
         "permissions": {
           "List": [
             {
@@ -1921,6 +2068,23 @@
                 "name",
                 "zone"
               ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ],
+              "condition": "group IN subject.groups"
+            },
+            {
+              "resource": "CrewSectorGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName"
+              ],
+              "condition": "group IN subject.groups"
             }
           ],
           "Read": [
@@ -1938,6 +2102,14 @@
                 "name",
                 "zone"
               ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ],
+              "condition": "group IN subject.groups"
             }
           ]
         }

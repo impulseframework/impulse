@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -28,10 +29,33 @@ const (
 // resource). A row subscription of a domain-scoped resource names the domain the row
 // was read in, so the server re-checks Read in that domain; without it the re-check
 // runs in the global scope, where a domain-scoped resource holds no grants.
+//
+// A list across tenants is its resource with AcrossTenants set, and Domains when the
+// page narrowed the list to tenants it named, spelled as the list's own domains
+// parameter spells them, the tenants' keys separated by commas: the page's filter on
+// the tenant travels with the renewal, and the server works the set out again from it.
+// It names no key and no domain. Without Domains the list is of every tenant.
 type SubscriptionRequest struct {
-	Resource string `json:"resource"`
-	Key      string `json:"key,omitempty"`
-	Domain   string `json:"domain,omitempty"`
+	Resource      string `json:"resource"`
+	Key           string `json:"key,omitempty"`
+	Domain        string `json:"domain,omitempty"`
+	AcrossTenants bool   `json:"acrossTenants,omitempty"`
+	Domains       string `json:"domains,omitempty"`
+}
+
+// narrowed is the page's filter on the tenant a renewal of a list across tenants
+// carries: nil for every tenant.
+func (s *SubscriptionRequest) narrowed() []accesstypes.Domain {
+	if s.Domains == "" {
+		return nil
+	}
+	names := strings.Split(s.Domains, ",")
+	narrowed := make([]accesstypes.Domain, 0, len(names))
+	for _, domain := range names {
+		narrowed = append(narrowed, accesstypes.Domain(domain))
+	}
+
+	return narrowed
 }
 
 // RenewRequest is the renew route's body: the tab and its live subscriptions.
@@ -56,16 +80,59 @@ type UnsubscribeRequest struct {
 	All bool   `json:"all"`
 }
 
+// RenewOption configures RenewHandler.
+type RenewOption func(*renewOptions)
+
+// renewOptions is what the options set.
+type renewOptions struct {
+	across AcrossTenantsDeclarations
+}
+
+// AcrossTenantsDeclarations answers whether a resource is declared for listing across
+// tenants (@listAcrossTenants), as the generated collection does.
+type AcrossTenantsDeclarations interface {
+	ListsAcrossTenants(res accesstypes.Resource) bool
+}
+
+// WithListsAcrossTenants names the resources a subscription over a set of tenants may
+// be renewed for: the ones declared for listing across tenants, which the generated
+// collection answers (Collection()). Without it the handler knows of none, and keeps
+// no such subscription.
+func WithListsAcrossTenants(declared AcrossTenantsDeclarations) RenewOption {
+	return func(o *renewOptions) {
+		o.across = declared
+	}
+}
+
+// declares reports whether the resource is declared for listing across tenants.
+func (o *renewOptions) declares(res accesstypes.Resource) bool {
+	return o.across != nil && o.across.ListsAcrossTenants(res)
+}
+
 // RenewHandler serves POST <prefix>/live/renew: the tab's subscriptions are each
 // re-checked against the user's grants (Read for a row, List for a list, in the
 // subscription's domain or the global scope), the kept ones are written with a fresh
-// expiry in one batch, and the answer says which were kept and which dropped. A
+// expiry in one batch, and the answer says which were kept and which dropped. A list
+// across tenants is re-checked by working its set out again (resource.TenantsListed):
+// the tenants the session reaches now, narrowed by the filter the renewal carries, in
+// which the person may list the resource now. It is kept with that set, so a tenant
+// gained or lost since is in or out of it from this renewal on, and dropped when the
+// set is empty. It is kept only for a resource declared for listing across tenants
+// (WithListsAcrossTenants): for any other resource it is dropped before its set is
+// worked out, as the list's own request is refused before it is made
+// (resource.QueryDecoder.DecodeAcrossTenants), so no record holds a subscription over
+// a set of tenants for one. A
 // subscription the grants no longer cover, or one naming a resource the grants do not
 // know, is dropped, never refused. The application's permission accessor is the one
 // every generated handler checks through. The subscriptions are written for the
 // request's principal id (PrincipalID); an id over Firebase's uid limit is refused with
 // 403, the reason logged, and nothing is written.
-func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.UserPermissions) http.HandlerFunc {
+func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.UserPermissions, opts ...RenewOption) http.HandlerFunc {
+	var o renewOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -84,20 +151,26 @@ func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.Us
 			if sub.Resource == "" {
 				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("a subscription names its resource"))
 			}
+			if sub.AcrossTenants && (sub.Key != "" || sub.Domain != "") {
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("the %s subscription across tenants names a key or a domain: a list across tenants names neither, and narrows itself with domains", sub.Resource))
+			}
+			if !sub.AcrossTenants && sub.Domains != "" {
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("the %s subscription carries domains and is not a list across tenants: one tenant's list names its tenant in domain", sub.Resource))
+			}
 		}
 
 		principal, err := PrincipalID(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		kept, dropped, err := recheck(ctx, userPermissions(r), req.Subscriptions)
+		kept, dropped, sets, err := recheck(ctx, userPermissions(r), &o, req.Subscriptions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
 		expiry := time.Now().Add(SubscriptionTTL)
 		subs := make([]Subscription, 0, len(kept))
-		for _, sub := range kept {
+		for i, sub := range kept {
 			renewed := Subscription{
 				Principal: principal,
 				Tab:       req.Tab,
@@ -105,6 +178,9 @@ func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.Us
 				Key:       sub.Key,
 				Domain:    accesstypes.Domain(sub.Domain),
 				Expiry:    expiry,
+			}
+			if sub.AcrossTenants {
+				renewed.Across = &TenantSet{Narrowed: sub.narrowed(), Domains: sets[i]}
 			}
 			subs = append(subs, renewed.Normalized())
 		}
@@ -129,15 +205,32 @@ type recheckKey struct {
 
 // recheck splits the subscriptions, in the order sent, into the ones the grants still
 // cover and the ones they do not: one Check per permission and scope, each against the
-// same environment.
-func recheck(ctx context.Context, perms resource.UserPermissions, subs []SubscriptionRequest) (kept, dropped []SubscriptionRequest, err error) {
+// same environment. A list across tenants is covered while its resource is declared
+// for it and its set, worked out again here, holds a tenant; sets carries each kept
+// subscription's set, nil for a row and for one tenant's list.
+func recheck(ctx context.Context, perms resource.UserPermissions, o *renewOptions, subs []SubscriptionRequest) (kept, dropped []SubscriptionRequest, sets [][]accesstypes.Domain, err error) {
 	kept = make([]SubscriptionRequest, 0, len(subs))
 	dropped = make([]SubscriptionRequest, 0)
+	sets = make([][]accesstypes.Domain, 0, len(subs))
 	env := resource.RequestEnvironment()
 
 	keys := make([]recheckKey, len(subs))
 	groups := make(map[recheckKey][]accesstypes.Resource)
+	across := make(map[int][]accesstypes.Domain)
 	for i, sub := range subs {
+		if sub.AcrossTenants {
+			// A resource that is not declared for it holds no set: it is dropped below.
+			if !o.declares(accesstypes.Resource(sub.Resource)) {
+				continue
+			}
+			set, err := resource.TenantsListed(ctx, perms, accesstypes.Resource(sub.Resource), sub.narrowed())
+			if err != nil {
+				return nil, nil, nil, errors.Wrap(err, "resource.TenantsListed()")
+			}
+			across[i] = set
+
+			continue
+		}
 		key := recheckKey{scope: accesstypes.GlobalScope(), perm: accesstypes.List}
 		if sub.Domain != "" {
 			key.scope = accesstypes.DomainScope(accesstypes.Domain(sub.Domain))
@@ -153,21 +246,33 @@ func recheck(ctx context.Context, perms resource.UserPermissions, subs []Subscri
 	for key, resources := range groups {
 		decisions, err := perms.Check(ctx, env, key.scope, key.perm, resources...)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+			return nil, nil, nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 		}
 		decided[key] = decisions
 	}
 
 	for i, sub := range subs {
+		if sub.AcrossTenants {
+			if len(across[i]) == 0 {
+				dropped = append(dropped, sub)
+
+				continue
+			}
+			kept = append(kept, sub)
+			sets = append(sets, across[i])
+
+			continue
+		}
 		if decided[keys[i]][accesstypes.Resource(sub.Resource)].IsDenied() {
 			dropped = append(dropped, sub)
 
 			continue
 		}
 		kept = append(kept, sub)
+		sets = append(sets, nil)
 	}
 
-	return kept, dropped, nil
+	return kept, dropped, sets, nil
 }
 
 // UnsubscribeHandler serves POST <prefix>/live/unsubscribe: the tab's subscriptions are

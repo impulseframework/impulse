@@ -39,6 +39,11 @@ const (
 	// a positional key whose cell is masked; resource columns must not begin
 	// with it.
 	reservedCursorColumnPrefix = "zzCursor"
+
+	// reservedTenantColumn is the reserved output column a list across tenants
+	// selects each row's tenant under, and the reserved per-row JSON property that
+	// carries it (resource.TenantProperty); resource columns must not collide with it.
+	reservedTenantColumn = "zzTenant"
 )
 
 // Generator provides methods for generating Go or Typescript for a resource-driven web application.
@@ -83,6 +88,11 @@ const (
 	// declared segment. It is derived from the declaration, never named by an author
 	// (no @suppress argument), so it stays out of handlerTypes.
 	fileHandler HandlerType = "fileHandler"
+	// acrossTenantsHandler is the handler of a tenant-scoped resource's list asked
+	// without the tenant's segment (@listAcrossTenants). It is derived from the
+	// declaration and follows the list handler, never named by an author (no @suppress
+	// argument), so it stays out of handlerTypes.
+	acrossTenantsHandler HandlerType = "acrossTenantsHandler"
 )
 
 // RouteType describes a route or set of routes for a resource-driven API.
@@ -171,7 +181,7 @@ func (h HandlerType) template() string {
 // method returns the proper http method type for a HandlerType
 func (h HandlerType) method() string {
 	switch h {
-	case ReadHandler, ListHandler, fileHandler:
+	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler:
 		return http.MethodGet
 	case PatchHandler:
 		return http.MethodPatch
@@ -460,7 +470,7 @@ func (g *generatedRoute) DeclaresWords() bool {
 // SharedHandler reports whether the route's handler is additionally registered
 // for POST requests at the same path (read and list handlers accept POST bodies).
 func (g *generatedRoute) SharedHandler() bool {
-	return g.HandlerType == ReadHandler || g.HandlerType == ListHandler
+	return g.HandlerType == ReadHandler || g.HandlerType == ListHandler || g.HandlerType == acrossTenantsHandler
 }
 
 // appendParamsToPaths appends each test parameter to the route's paths: the
@@ -1347,6 +1357,12 @@ type resourceInfo struct {
 	// record's declaration; nil on every other resource. The directories record's
 	// generated write paths name the record's directory rules by it.
 	directoryOf *resourceInfo
+
+	// ListsAcrossTenants marks a tenant-scoped resource whose list is also served
+	// without the tenant's segment (@listAcrossTenants): one request reads its rows in
+	// every tenant the session reaches in which the person may list it, each row
+	// checked in its own tenant and naming it.
+	ListsAcrossTenants bool
 }
 
 // IsDomainScoped reports whether the resource's @permissionScope resolves to the
@@ -2338,6 +2354,7 @@ const (
 	formerlyKeyword             string = "formerly"             // Declares a field's or a method's former name, answered beside the current one while older applications still send it: @formerly(Title)
 	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
 	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
+	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
@@ -2361,8 +2378,8 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		pageKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		attributeKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		domainKeyword:               {genlang.ScanField: genlang.Exclusive},
-		subjectSetKeyword:           {genlang.ScanField: genlang.ArgsRequired},
-		subjectValueKeyword:         {genlang.ScanField: genlang.ArgsRequired},
+		subjectSetKeyword:           {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
+		subjectValueKeyword:         {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
 		stateKeyword:                {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		stateRootKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		transitionKeyword:           {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
@@ -2384,6 +2401,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		formerlyKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
+		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 	}
 }
 

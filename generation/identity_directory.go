@@ -11,7 +11,6 @@ import (
 	"strconv"
 
 	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse/accesstypes"
 )
 
 // What a tenant's list of its people says of its directory-only switch. A tenant that
@@ -56,12 +55,6 @@ func (d *identitySourceData) TenantDirectory() *identityTenantDirectory {
 // directory.
 func (d *identitySourceData) HasIdentities() bool {
 	return d.has(identityIdentities)
-}
-
-// SuperAdministratorRole is the Super Administrator role as a SQL string literal: its
-// holder enters every tenant, whatever the tenant's switch says.
-func (d *identitySourceData) SuperAdministratorRole() string {
-	return sqlStringLiteral(string(accesstypes.SuperAdministrator))
 }
 
 // TenantWordLiteral is what the application calls one tenant in the middle of a

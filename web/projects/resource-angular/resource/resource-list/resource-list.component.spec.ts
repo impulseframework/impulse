@@ -4,7 +4,7 @@ import { ActivatedRoute } from '@angular/router';
 import { ApiDescriptor, ClientBase, createClient, Domain, FieldMeta, PermissionDigest, Resource, ResourceMeta, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { registerResourcePage } from '@impulseframework/resource-angular/resource-nav';
+import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   FieldName,
@@ -701,6 +701,263 @@ describe('ResourceListComponent', () => {
       expect(() => fixture.detectChanges()).toThrow(
         /^sectors\/:sectorID\/missions: the route names the tenant parameter :sectorID, and no tenant is known/,
       );
+    });
+  });
+
+  describe('lists a resource across tenants', () => {
+    // The page is outside every tenant and lists a resource declared for it
+    // (@listAcrossTenants) in every tenant the person reaches: one request without the
+    // tenant's segment, each row naming its tenant. The table names the tenant in a first
+    // column and a row's View link opens the row itself inside its own tenant: the
+    // record's row route there, drawn where that tenant's digest lets the person read it.
+    const missions = 'Missions' as Resource;
+    const refits = 'Refits' as Resource;
+    // Patrols are listed across tenants too, and the application mounts them no row route.
+    const patrols = 'Patrols' as Resource;
+    const anvil = 'a1111111-1111-4111-8111-111111111111';
+    const bastion = 'b2222222-2222-4222-8222-222222222222';
+    const acrossMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      [missions]: {
+        route: 'sectors/{sectorID}/missions',
+        live: true,
+        fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title', { isIndex: true, filterable: 'always' }), field('fee')],
+      } as ResourceMeta,
+      [refits]: { route: 'sectors/{sectorID}/refits', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')] } as ResourceMeta,
+      [patrols]: { route: 'sectors/{sectorID}/patrols', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title')] } as ResourceMeta,
+    };
+    const acrossDescriptor: ApiDescriptor = {
+      ...descriptor,
+      domainRoute: { segment: 'sectors', param: 'sectorID', word: { one: 'Sector', many: 'Sectors' } },
+      live: { renewRoute: 'live/renew', unsubscribeRoute: 'live/unsubscribe', tokenRoute: 'live/token' },
+      resources: {
+        ...descriptor.resources,
+        [missions]: { resource: missions, property: 'missions', route: 'missions', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25, max: 200 }, order: [{ field: 'deadline', direction: 'asc' }], acrossTenants: true },
+        [refits]: { resource: refits, property: 'refits', route: 'refits', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25 } },
+        [patrols]: { resource: patrols, property: 'patrols', route: 'patrols', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25 }, acrossTenants: true },
+      },
+    };
+    // Anvil shows the fee; Bastion's roles do not, so the server leaves it off the row.
+    const rows = [
+      { id: 'm-1', title: 'Hauler', fee: '8000', zzTenant: anvil },
+      { id: 'm-9', title: 'Beacon', zzTenant: bastion },
+    ];
+    let warnings: string[];
+    let domain: ReturnType<typeof signal<Domain | undefined>>;
+    /** The tenant whose digest the server fails to answer, when a spec names one. */
+    let digestFails: string | undefined;
+
+    const server = (request: TransportRequest): TransportResponse => {
+      const url = new URL(request.url, 'http://missions.test');
+      if (url.pathname === '/api/permission-digest' && digestFails !== undefined && url.searchParams.get('domain') === digestFails) {
+        return { status: 500, body: { message: 'the digest could not be read' } };
+      }
+      if (url.pathname === '/api/user-domains') {
+        return { status: 200, body: [{ domain: anvil, name: 'Anvil' }, { domain: bastion, name: 'Bastion' }] };
+      }
+      if (url.pathname === '/api/permission-digest') {
+        // One tenant's digest, when something asks it: the title alone, no fee. In Anvil
+        // the person may read a mission; in Bastion they may list missions and read none.
+        const reads = url.searchParams.get('domain') === anvil ? { Read: 'conditional' } : {};
+        return { status: 200, body: { [missions]: { List: 'granted', ...reads }, [`${missions}.title`]: { List: 'granted' }, [patrols]: { List: 'granted', Read: 'granted' } } };
+      }
+      if (url.pathname === '/api/missions' || url.pathname === '/api/patrols') {
+        return { status: 200, body: rows, headers: { 'total-count': '2' } };
+      }
+      return { status: 404, body: { message: `unscripted ${request.url}` } };
+    };
+
+    /** The page as mounted outside every tenant, over the given resource and options. */
+    const page = async (resource: Resource, options: Partial<ListViewConfigOptions> = {}): Promise<void> => {
+      // The sector's Missions page carries a row route; Patrols have a page and no row route.
+      registerResourcePage(missions, 'sectors/:sectorID/missions');
+      registerRowPage(missions, 'sectors/:sectorID/missions');
+      registerResourcePage(patrols, 'sectors/:sectorID/patrols');
+      const config = listViewConfig({
+        elements: [],
+        primaryResource: resource,
+        acrossTenants: true,
+        listColumns: [{ id: 'title' as FieldName }, { id: 'fee' as FieldName }],
+        ...options,
+      });
+      warnings = [];
+      digestFails = undefined;
+      domain = signal<Domain | undefined>(undefined);
+      transport = scriptedTransport(server);
+      await TestBed.configureTestingModule({
+        imports: [ResourceListComponent],
+        providers: [
+          provideResourceTesting({
+            transport,
+            client: (t) => createClient(acrossDescriptor, { baseUrl: '/api', transport: t, warn: (message) => warnings.push(message) }),
+          }),
+          { provide: RESOURCE_META, useValue: (name: Resource): ResourceMeta => acrossMetas[name] },
+          { provide: RESOURCE_DOMAIN, useValue: domain },
+          {
+            provide: ActivatedRoute,
+            useValue: { snapshot: { data: { config: rootConfig({ parentConfig: config, routeData: { route: 'missions' } }) }, params: {}, queryParams: {} } },
+          },
+        ],
+      }).compileComponents();
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+      fixture = TestBed.createComponent(ResourceListComponent);
+      fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+      fixture.componentRef.setInput('resourceConfig', config);
+    };
+
+    const listRequests = (): TransportRequest[] => transport.requests.filter((request) => request.url.split('?')[0] === '/api/missions');
+    const digestRequests = (): string[] => transport.requests.filter((request) => request.url.includes('permission-digest')).map((request) => request.url);
+    const rowLinks = (): (string | null)[] =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map(
+        (row) => row.querySelector('td.action-col a')?.getAttribute('href') ?? null,
+      );
+
+    it("asks one list without the tenant's segment, names each row's tenant, and opens a row inside its tenant", async () => {
+      await page(missions);
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // No tenant in the path, no column list, no capability answer, no subscription.
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
+      // The digest of each tenant on the page is asked once, for the rows' links alone:
+      // the server decides what each row shows.
+      expect(digestRequests()).toEqual([`/api/permission-digest?domain=${anvil}`, `/api/permission-digest?domain=${bastion}`]);
+
+      const cols = fixture.componentInstance.columns();
+      expect(cols.map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
+      expect(cols[0].header).toBe('Sector');
+
+      const cells = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map((row) =>
+        Array.from(row.querySelectorAll('td.data-col:not(.action-col)')).map((cell) => cell.textContent?.trim()),
+      );
+      expect(cells).toEqual([
+        ['Anvil', 'Hauler', '8000'],
+        ['Bastion', 'Beacon', ''],
+      ]);
+
+      // Anvil's row links to the mission itself inside Anvil, where the person may read
+      // a mission. Bastion's draws no link: they list missions there and may read none,
+      // so the mission's page would turn them away.
+      expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
+    });
+
+    it("draws no link on a guess: a tenant whose digest does not answer is asked once, and its rows stay without one", async () => {
+      await page(missions);
+      // Anvil's digest fails to load: nothing says the person may read a mission there.
+      digestFails = anvil;
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      expect(rowLinks()).toEqual([null, null]);
+      // A page asked for again asks no tenant's digest twice, answered or not.
+      fixture.componentInstance.onSortChange([{ field: 'title', direction: 'asc' }]);
+      fixture.detectChanges();
+      await settle();
+      await settle();
+      expect(digestRequests()).toEqual([`/api/permission-digest?domain=${anvil}`, `/api/permission-digest?domain=${bastion}`]);
+      expect(rowLinks()).toEqual([null, null]);
+    });
+
+    it('draws no link, and asks no digest, for a record the application mounts no row route', async () => {
+      await page(patrols, { listColumns: [{ id: 'title' as FieldName }] });
+      fixture.detectChanges();
+      await settle();
+      await settle();
+
+      // The person may read a patrol in both tenants: with no row route to open one on,
+      // the list still draws no View column and no link.
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title']);
+      expect(rowLinks()).toEqual([null, null]);
+      expect(digestRequests()).toEqual([]);
+    });
+
+    it('is bound to no tenant: selecting one asks for nothing again', async () => {
+      await page(missions);
+      fixture.detectChanges();
+      await settle();
+      domain.set(anvil as Domain);
+      fixture.detectChanges();
+      await settle();
+
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+    });
+
+    it("keeps a column the selected tenant's digest does not grant: no one tenant speaks for the rows", async () => {
+      await page(missions);
+      // A tenant is selected and its digest, which grants the title alone, is loaded.
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest(anvil as Domain);
+      domain.set(anvil as Domain);
+      fixture.detectChanges();
+      await settle();
+
+      expect(fixture.componentInstance.columns().map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+    });
+
+    it('sorts and filters as the page asks, and a click on the tenant column sorts nothing', async () => {
+      await page(missions, { sorts: [{ field: 'title' as FieldName, direction: 'desc' }], pageSize: 10 });
+      fixture.detectChanges();
+      await settle();
+      fixture.componentInstance.onSortChange([{ field: 'zzTenant', direction: 'asc' }]);
+      fixture.detectChanges();
+      await settle();
+
+      expect(listRequests().map((request) => decodeURIComponent(request.url))).toEqual([
+        '/api/missions?sort=title:desc&limit=10&count=true',
+        '/api/missions?limit=10&count=true',
+      ]);
+    });
+
+    it('reads alone: no create, no delete, no method, whatever the page configures', async () => {
+      await page(missions, { createTitle: 'Book a mission', listMethods: [{ method: 'BookMission' as never }], rowMethods: [{ method: 'ClaimMission' as never }] });
+      // The page's host would show the create button: the list still draws none.
+      fixture.componentRef.setInput('hideCreateButton', false);
+      fixture.detectChanges();
+      await settle();
+
+      expect(fixture.componentInstance.showCreateButton()).toBe(false);
+      expect(fixture.componentInstance.deletesFromList()).toBe(false);
+      expect(fixture.componentInstance.listMethods()).toEqual([]);
+      expect(fixture.componentInstance.rowMethodNames()).toEqual([]);
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+    });
+
+    it('is live when the page asks: one subscription over the tenants, held on the live session', async () => {
+      await page(missions, { live: true });
+      fixture.detectChanges();
+      await settle();
+
+      expect(warnings).toEqual([]);
+      expect(fixture.componentInstance.store.live()).toBe(true);
+      expect(TestBed.inject<ClientBase>(RESOURCE_CLIENT).live.subscriptions()).toEqual([{ resource: 'Missions', acrossTenants: true }]);
+      // No live session runs in this spec, so the request is plain, as a tenant's list is until one does.
+      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
+    });
+
+    it('is plain without a word from the page, though the resource publishes its changes, and says nothing', async () => {
+      await page(missions);
+      fixture.detectChanges();
+      await settle();
+
+      expect(fixture.componentInstance.store.live()).toBe(false);
+      expect(TestBed.inject<ClientBase>(RESOURCE_CLIENT).live.subscriptions()).toEqual([]);
+      expect(warnings).toEqual([]);
+    });
+
+    it('refuses a resource that is not declared for it, naming the resource, before anything is requested', async () => {
+      await page(refits, { listColumns: [{ id: 'name' as FieldName }] });
+      expect(() => fixture.detectChanges()).toThrow(
+        'Refits: acrossTenants is set, but the resource is not listed across tenants: declare @listAcrossTenants on its struct and regenerate, or remove acrossTenants and list it inside one tenant',
+      );
+      expect(transport.requests.filter((request) => request.url.includes('refits'))).toEqual([]);
+    });
+
+    it('refuses row expansion, naming the resource', async () => {
+      await page(missions, { enableRowExpansion: true });
+      expect(() => fixture.detectChanges()).toThrow(/^Missions: enableRowExpansion is set on a list across tenants/);
     });
   });
 });

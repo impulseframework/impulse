@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,6 +27,10 @@ const (
 
 	// announceTimeout bounds the best-effort change broadcast after a write.
 	announceTimeout = 5 * time.Second
+
+	// maxWindows bounds the snapshots kept for instants outside the current
+	// one's window (snapshotEngine.windows).
+	maxWindows = 4
 )
 
 // snapshotEngine answers permission checks from a compiled snapshot of the
@@ -35,6 +40,14 @@ const (
 // Failure semantics: the first load must succeed before checks are served
 // (errors are returned, never panicked); once a snapshot exists, a failed
 // reload serves the last good snapshot and reports through onError.
+//
+// An assignment counts inside its period alone, and a snapshot holds the ones
+// that count in a window of time (snapshot.holdsAt). A check is answered from
+// the snapshot of its instant: the current one while the instant is in its
+// window, and one compiled from the same records, with no store read, once
+// the instant has left it. So a role stops granting at its end and starts at
+// its start with nothing written and nothing run on a schedule: the first
+// check past the instant compiles the next window.
 type snapshotEngine struct {
 	store             Store
 	defaults          *defaultRoles        // may be nil: no default roles
@@ -57,6 +70,17 @@ type snapshotEngine struct {
 	syncFailedGen atomic.Int64
 
 	snap atomic.Pointer[snapshot]
+
+	// clock is the engine's present: the instant a snapshot is compiled for at
+	// a load, and the instant of a check whose Environment carries none.
+	clock func() time.Time
+
+	// windows are the snapshots compiled from the current records for instants
+	// outside the current snapshot's window, the newest last: the window the
+	// present moved into until the current snapshot is swapped for it, and the
+	// ones a check asked for with an instant of its own. windowMu guards them.
+	windowMu sync.Mutex
+	windows  []*snapshot
 
 	// ready is closed by the first successful load; WaitReady blocks on it.
 	ready     chan struct{}
@@ -87,6 +111,7 @@ func newSnapshotEngine(store Store, defaults *defaultRoles, opts *clientOptions)
 		heartbeatInterval: opts.heartbeatInterval,
 		signal:            opts.signal,
 		onError:           opts.onReloadError,
+		clock:             time.Now,
 		ready:             make(chan struct{}),
 		hintCh:            make(chan struct{}, 1),
 	}
@@ -238,8 +263,8 @@ func (s *snapshotEngine) tryReload(ctx context.Context) {
 	}
 }
 
-func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
-	snap, err := s.currentSnapshot(ctx)
+func (s *snapshotEngine) checkUser(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
+	snap, err := s.snapshotAt(ctx, s.instant(env))
 	if err != nil {
 		return resourceDecision{}, err
 	}
@@ -247,8 +272,10 @@ func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, s
 	return snap.checkUser(user, scope, perm), nil
 }
 
-func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]resourceDecision, error) {
-	snap, err := s.currentSnapshot(ctx)
+func (s *snapshotEngine) checkUserResources(
+	ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+) ([]resourceDecision, error) {
+	snap, err := s.snapshotAt(ctx, s.instant(env))
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +284,7 @@ func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstype
 }
 
 func (s *snapshotEngine) userDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
-	snap, err := s.currentSnapshot(ctx)
+	snap, err := s.snapshotAt(ctx, s.clock())
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +293,7 @@ func (s *snapshotEngine) userDigest(ctx context.Context, user accesstypes.User, 
 }
 
 func (s *snapshotEngine) userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
-	snap, err := s.currentSnapshot(ctx)
+	snap, err := s.snapshotAt(ctx, s.clock())
 	if err != nil {
 		return false, err
 	}
@@ -275,7 +302,7 @@ func (s *snapshotEngine) userHasGrants(ctx context.Context, user accesstypes.Use
 }
 
 func (s *snapshotEngine) userIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error) {
-	snap, err := s.currentSnapshot(ctx)
+	snap, err := s.snapshotAt(ctx, s.clock())
 	if err != nil {
 		return false, err
 	}
@@ -284,7 +311,7 @@ func (s *snapshotEngine) userIsSuperAdministrator(ctx context.Context, user acce
 }
 
 func (s *snapshotEngine) userPermissions(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.UserScopePermissions, error) {
-	snap, err := s.currentSnapshot(ctx)
+	snap, err := s.snapshotAt(ctx, s.clock())
 	if err != nil {
 		return accesstypes.UserScopePermissions{}, err
 	}
@@ -335,6 +362,78 @@ func (s *snapshotEngine) rolePermissions(ctx context.Context, role accesstypes.R
 	}
 
 	return snap.rolePermissions(scope, role), nil
+}
+
+// instant is the instant a check is made at: the Environment's now, the one a
+// grant's condition folds with, so an assignment's period and a condition's
+// window can never disagree about a boundary, and the engine's own clock where
+// the Environment carries none.
+func (s *snapshotEngine) instant(env accesstypes.Environment) time.Time {
+	if now, ok := env.Now(); ok {
+		return now
+	}
+
+	return s.clock()
+}
+
+// snapshotAt returns the snapshot that answers at the instant: the current one
+// while the instant is in its window, which is every instant where no
+// assignment carries a period, and otherwise the window compiled for it.
+func (s *snapshotEngine) snapshotAt(ctx context.Context, at time.Time) (*snapshot, error) {
+	current, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if current.holdsAt(at) {
+		return current, nil
+	}
+
+	return s.windowAt(current, at)
+}
+
+// windowAt returns the snapshot of current's records that answers at the
+// instant, compiling it where no window kept holds it. Where the engine's
+// present is in that window it becomes the current snapshot, so the checks
+// after it take no lock; a reload that swapped the current snapshot meanwhile
+// keeps its own, and the next check out of its window lands here again.
+func (s *snapshotEngine) windowAt(current *snapshot, at time.Time) (*snapshot, error) {
+	s.windowMu.Lock()
+	defer s.windowMu.Unlock()
+
+	if len(s.windows) > 0 && s.windows[0].recordsHash != current.recordsHash {
+		// The windows were compiled from records the engine has moved on from.
+		s.windows = nil
+	}
+	window := s.keptWindow(at)
+	if window == nil {
+		fresh, _, err := newSnapshotAt(current.timed, s.defaults, s.collection, current.loadedAt, at)
+		if err != nil {
+			return nil, errors.Wrap(err, "newSnapshotAt()")
+		}
+		fresh.writeGen = current.writeGen
+		if len(s.windows) == maxWindows {
+			s.windows = slices.Delete(s.windows, 0, 1)
+		}
+		s.windows = append(s.windows, fresh)
+		window = fresh
+	}
+	if window.holdsAt(s.clock()) {
+		s.snap.CompareAndSwap(current, window)
+	}
+
+	return window, nil
+}
+
+// keptWindow returns the window kept that answers at the instant, nil where
+// none does. The caller holds windowMu.
+func (s *snapshotEngine) keptWindow(at time.Time) *snapshot {
+	for _, window := range s.windows {
+		if window.holdsAt(at) {
+			return window
+		}
+	}
+
+	return nil
 }
 
 // peek returns the current snapshot without triggering loads. Nil until the
@@ -414,13 +513,13 @@ func (s *snapshotEngine) reload(ctx context.Context) (*snapshot, error) {
 		// A shallow copy suffices — compiled structures are immutable.
 		fresh := *cur
 		fresh.writeGen = gen
-		fresh.loadedAt = time.Now()
+		fresh.loadedAt = s.clock()
 		s.snap.Store(&fresh)
 
 		return &fresh, nil
 	}
 
-	snap, findings, err := newSnapshot(records, s.defaults, s.collection, time.Now())
+	snap, findings, err := newSnapshot(records, s.defaults, s.collection, s.clock())
 	if err != nil {
 		return nil, errors.Wrap(err, "newSnapshot()")
 	}

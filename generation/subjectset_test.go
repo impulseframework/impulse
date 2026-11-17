@@ -4,12 +4,14 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
+	"github.com/impulseframework/impulse/generation/parser/genlang"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -33,11 +35,12 @@ func subjectSetFixtureClient(t *testing.T, structs map[string]*parser.Struct) *c
 	}
 
 	keys := map[string][]string{
-		"TeamMember":       {"TeamId", "UserId"},
-		"Seat":             {"UserId"},
-		"ValueWithParts":   {"UserId"},
-		"KeyedByBoth":      {"ProjectId", "UserId"},
-		"SecondaryThenKey": {"ProjectId"},
+		"TeamMember":          {"TeamId", "UserId"},
+		"Seat":                {"UserId"},
+		"ValueWithParts":      {"UserId"},
+		"ValueWithStringPart": {"UserId"},
+		"KeyedByBoth":         {"ProjectId", "UserId"},
+		"SecondaryThenKey":    {"ProjectId"},
 	}
 	index := func(name string, nullFiltered bool, columns ...string) indexMeta {
 		meta := indexMeta{Name: name, NullFiltered: nullFiltered}
@@ -234,6 +237,49 @@ func TestResolveSubjectSetParts(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:       "a string that holds a closing parenthesis is kept whole",
+			structName: "WhereClosingParenthesis",
+			want: []resource.SubjectBindingData{
+				{
+					Name: "smiling", UserColumn: "UserId", Column: "ProjectId", Type: resource.AttributeTypeString,
+					Where: &resource.SubjectWhereData{
+						Condition: "Code = ':)'",
+						Columns:   []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: resource.AttributeTypeString}},
+					},
+				},
+			},
+		},
+		{
+			name:       "a string that holds an opening parenthesis is kept whole",
+			structName: "WhereOpeningParenthesis",
+			want: []resource.SubjectBindingData{
+				{
+					Name: "opened", UserColumn: "UserId", Column: "ProjectId", Type: resource.AttributeTypeString,
+					Where: &resource.SubjectWhereData{
+						Condition: "Code = '('",
+						Columns:   []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: resource.AttributeTypeString}},
+					},
+				},
+			},
+		},
+		{
+			name:       "strings that hold parentheses, a comma, a double quote and a quote written twice, in a definition continued over lines",
+			structName: "WhereStrings",
+			want: []resource.SubjectBindingData{
+				{
+					Name: "marked", UserColumn: "UserId", Column: "ProjectId", Type: resource.AttributeTypeString,
+					Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "TeamId", Set: "teams"}},
+					Where: &resource.SubjectWhereData{
+						Condition: `Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s ("so", then')`,
+						Columns: []resource.SubjectColumnData{
+							{Name: "Code", Column: "Code", Type: resource.AttributeTypeString},
+							{Name: "Note", Column: "Note", Type: resource.AttributeTypeString},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -387,6 +433,11 @@ func TestResolveSubjectSetParts_refusals(t *testing.T) {
 			name:       "a part written on a subject value",
 			structName: "ValueWithParts",
 			want:       []string{"@subjectValue(seatRank)", "@subjectValue takes the name and value: alone; who: and where: are the parts of a @subjectSet"},
+		},
+		{
+			name:       "a part written on a subject value, a parenthesis in its string",
+			structName: "ValueWithStringPart",
+			want:       []string{"@subjectValue(seatCode)", "@subjectValue takes the name and value: alone; who: and where: are the parts of a @subjectSet"},
 		},
 	}
 
@@ -589,17 +640,15 @@ func TestSubjectSetIndexWarning_String(t *testing.T) {
 	}
 }
 
-// Test_collectionTemplate_subjectSetParts renders the generated collection file
-// for sets that write a part and one that writes none. The set that writes none
-// renders the literal it rendered before the parts existed, character for
-// character, and a set's parts follow the fields it has always had.
-func Test_collectionTemplate_subjectSetParts(t *testing.T) {
-	t.Parallel()
+// renderSubjectSetCollection renders the generated collection file for the subject
+// sets the named fixture structs declare, in order, as gofmt leaves it.
+func renderSubjectSetCollection(t *testing.T, names ...string) string {
+	t.Helper()
 
 	structs := fixtureStructs(loadFixture(t, "subjectsetfixture"))
 	c := subjectSetFixtureClient(t, structs)
 	var sets []resource.SubjectBindingData
-	for _, name := range []string{"TeamMember", "Assignment", "Delegation", "Stake"} {
+	for _, name := range names {
 		res, err := resolveFixtureBindings(t, c, structs, name)
 		if err != nil {
 			t.Fatalf("resolveBindingAnnotations(%s) error = %v", name, err)
@@ -628,6 +677,18 @@ func Test_collectionTemplate_subjectSetParts(t *testing.T) {
 		t.Fatalf("rendered collection file is not valid Go: %v\n%s", err, output)
 	}
 
+	return string(formatted)
+}
+
+// Test_collectionTemplate_subjectSetParts renders the generated collection file
+// for sets that write a part and one that writes none. The set that writes none
+// renders the literal it rendered before the parts existed, character for
+// character, and a set's parts follow the fields it has always had.
+func Test_collectionTemplate_subjectSetParts(t *testing.T) {
+	t.Parallel()
+
+	formatted := renderSubjectSetCollection(t, "TeamMember", "Assignment", "Delegation", "Stake")
+
 	want := `				SubjectSets: []resource.SubjectBindingData{
 					{Name: "teams", UserColumn: "UserId", Column: "TeamId", Type: "string"},
 					{Name: "leads", UserColumn: "UserId", Column: "ProjectId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "TeamId", Set: "teams"}}, Where: &resource.SubjectWhereData{Condition: "Level = 'lead' AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: "timestamp"}, {Name: "Level", Column: "Level", Type: "string"}}}},
@@ -636,8 +697,49 @@ func Test_collectionTemplate_subjectSetParts(t *testing.T) {
 					{Name: "portfolios", UserColumn: "UserId", Column: "ProjectId", Type: "string", Path: []resource.BindingHop{{Table: "Projects", JoinColumn: "Id", Column: "PortfolioId"}}, Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "TeamId", Set: "teams"}}, Where: &resource.SubjectWhereData{Condition: "Active = true", Columns: []resource.SubjectColumnData{{Name: "Active", Column: "Active", Type: "bool"}}}},
 				},
 `
-	if !strings.Contains(string(formatted), want) {
+	if !strings.Contains(formatted, want) {
 		t.Errorf("rendered collection file does not hold the subject sets as\n%s\ngot:\n%s", want, formatted)
+	}
+}
+
+// Test_collectionTemplate_subjectSetStrings renders the generated collection file
+// for sets whose where: compares to a string that holds a parenthesis with no
+// partner, a quote written twice among them: the generated set carries each string
+// as its author wrote it.
+func Test_collectionTemplate_subjectSetStrings(t *testing.T) {
+	t.Parallel()
+
+	formatted := renderSubjectSetCollection(t, "WhereClosingParenthesis", "WhereOpeningParenthesis", "WhereStrings")
+
+	want := `				SubjectSets: []resource.SubjectBindingData{
+					{Name: "smiling", UserColumn: "UserId", Column: "ProjectId", Type: "string", Where: &resource.SubjectWhereData{Condition: "Code = ':)'", Columns: []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: "string"}}}},
+					{Name: "opened", UserColumn: "UserId", Column: "ProjectId", Type: "string", Where: &resource.SubjectWhereData{Condition: "Code = '('", Columns: []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: "string"}}}},
+					{Name: "marked", UserColumn: "UserId", Column: "ProjectId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "TeamId", Set: "teams"}}, Where: &resource.SubjectWhereData{Condition: "Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s (\"so\", then')", Columns: []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: "string"}, {Name: "Note", Column: "Note", Type: "string"}}}},
+				},
+`
+	if !strings.Contains(formatted, want) {
+		t.Errorf("rendered collection file does not hold the subject sets as\n%s\ngot:\n%s", want, formatted)
+	}
+}
+
+// Test_resourceKeywords_expressions pins which annotations are scanned as holding
+// expressions of the condition language: the two the subject binding spec parses,
+// and no other, so an apostrophe in any other annotation's arguments is a character
+// like the rest.
+func Test_resourceKeywords_expressions(t *testing.T) {
+	t.Parallel()
+
+	var got []string
+	for keyword, opts := range resourceKeywords() {
+		for _, flags := range opts {
+			if flags&genlang.Expressions != 0 {
+				got = append(got, keyword)
+			}
+		}
+	}
+	slices.Sort(got)
+	if diff := cmp.Diff([]string{subjectSetKeyword, subjectValueKeyword}, got); diff != "" {
+		t.Errorf("keywords scanned as holding expressions mismatch (-want +got):\n%s", diff)
 	}
 }
 

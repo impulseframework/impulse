@@ -6,16 +6,18 @@ package app
 import (
 	"net/http"
 
+	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource/live"
 )
 
 // LiveRenew serves a tab's live subscriptions renewed: each is re-checked against the
 // session user's grants (Read for a row, List for a list, in its domain), the kept ones
 // are written with a fresh expiry, and the answer says which were kept and which
-// dropped. The generated router registers it at POST /console/api/live/renew and,
+// dropped. A list across tenants is kept for a resource declared for it
+// (@listAcrossTenants) alone, over the set of tenants worked out again. The generated router registers it at POST /console/api/live/renew and,
 // for each additional session-serving outlet, under that outlet's prefix.
 func (a *App) LiveRenew() http.HandlerFunc {
-	return live.RenewHandler(a.LiveService(), a.UserPermissions)
+	return live.RenewHandler(a.LiveService(), a.UserPermissions, live.WithListsAcrossTenants(router.Collection()))
 }
 
 // LiveUnsubscribe serves a tab leaving, or with all a logout: the subscriptions are

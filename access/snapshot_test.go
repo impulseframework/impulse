@@ -1137,7 +1137,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Policy, "Editor", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Editor", "Read", "employees", "", ""),
-		store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor"),
+		store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", accesstypes.Period{}),
 	} {
 		if err != nil {
 			t.Fatalf("seeding fake store: %v", err)
@@ -1207,7 +1207,7 @@ func Test_snapshotEngine_checkUserResources(t *testing.T) {
 			}
 			e := testEngine(t, store, nil)
 
-			got, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
+			got, err := e.checkUserResources(context.Background(), accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("checkUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1269,20 +1269,20 @@ func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 	store := engineFakeStore(t)
 	e := testEngine(t, store, nil)
 
-	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the write", got, err)
 	}
 	settle(e)
 
 	grantWidgets(t, store)
 
-	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", got, err)
 	}
 
 	e.invalidate()
 
-	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || !got[0].granted {
+	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || !got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", got, err)
 	}
 }
@@ -1297,7 +1297,7 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	opts.onReloadError = func(error) { reloadErrs.Add(1) }
 	e := testEngine(t, store, opts)
 
-	if _, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil {
+	if _, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees"); err != nil {
 		t.Fatalf("checkUser() error = %v", err)
 	}
 	settle(e)
@@ -1306,7 +1306,7 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	store.setFail(errors.New("store down"))
 	e.invalidate()
 
-	got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees")
+	got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees")
 	if err != nil {
 		t.Fatalf("checkUser() error = %v, want stale snapshot served", err)
 	}
@@ -1321,7 +1321,7 @@ func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	e := testEngine(t, engineFakeStore(t), nil)
 
-	if _, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil {
+	if _, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees"); err != nil {
 		t.Fatalf("checkUser() error = %v", err)
 	}
 	if err := e.close(); err != nil {
@@ -1330,7 +1330,7 @@ func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
 	if err := e.close(); err != nil {
 		t.Fatalf("second close() error = %v", err)
 	}
-	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil || !got[0].granted {
+	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees"); err != nil || !got[0].granted {
 		t.Fatalf("checkUser() after close = (%v, %v), want served from last snapshot", got, err)
 	}
 }
@@ -1383,7 +1383,7 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 	opts.signal = sig
 	e := testEngine(t, store, opts)
 
-	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the change", got, err)
 	}
 	settle(e)
@@ -1400,7 +1400,7 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets")
+		got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
 		if err != nil {
 			t.Fatalf("checkUser() error = %v", err)
 		}
@@ -1512,7 +1512,7 @@ func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
 			var wg sync.WaitGroup
 			for range checks {
 				wg.Go(func() {
-					_, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
+					_, err := e.checkUserResources(context.Background(), accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees")
 					errs <- err
 				})
 			}
@@ -1843,7 +1843,7 @@ func Test_snapshotEngine_reportsSkippedGrants(t *testing.T) {
 	}
 	settle(e)
 
-	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees", "widgets"); err != nil || !got[0].granted || got[1].granted || len(got[1].conditions) != 0 {
+	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees", "widgets"); err != nil || !got[0].granted || got[1].granted || len(got[1].conditions) != 0 {
 		t.Fatalf("checkUserResources() = (%+v, %v), want employees granted and widgets denied", got, err)
 	}
 
@@ -1879,7 +1879,7 @@ func Test_snapshotEngine_reportsSkippedGrants(t *testing.T) {
 	// A changed store recompiles and reports the grant once more.
 	grantWidgets(t, store)
 	e.invalidate()
-	if _, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil {
+	if _, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "Read", "employees"); err != nil {
 		t.Fatalf("checkUserResources() error = %v", err)
 	}
 	if got := skippedReports(); len(got) != 2 {
