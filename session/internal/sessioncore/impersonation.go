@@ -255,8 +255,10 @@ func refuseShadowedActor(ctx context.Context, storage UserStore, actor string) e
 }
 
 // RefuseImpersonated guards the library's identity-mutating handlers. A self
-// operation (changing the session user's own username or password) is refused in
-// every impersonated session — it would alter the impersonated user's credentials.
+// operation (the session user's own password, name, address, tokens, approved devices
+// and accepted invitations: everything a person's own-account routes write) is refused
+// in every impersonated session — it would alter the impersonated user's account, and
+// what it changes there outlives the view.
 // Other user-management operations are refused only under a mask, which declares the
 // session read-only. Refusals are evidenced as IdentityOperationBlocked events.
 func RefuseImpersonated(ctx context.Context, base *basesession.BaseSession, operation string, selfOperation bool) error {

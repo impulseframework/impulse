@@ -592,20 +592,6 @@ func (mr *MockUserStoreMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockUserStore)(nil).DeleteUser), ctx, id)
 }
 
-// SetUserPasswordHash mocks base method.
-func (m *MockUserStore) SetUserPasswordHash(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUserPasswordHash", ctx, id, hash)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetUserPasswordHash indicates an expected call of SetUserPasswordHash.
-func (mr *MockUserStoreMockRecorder) SetUserPasswordHash(ctx, id, hash any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserPasswordHash", reflect.TypeOf((*MockUserStore)(nil).SetUserPasswordHash), ctx, id, hash)
-}
-
 // SetUserUsername mocks base method.
 func (m *MockUserStore) SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error {
 	m.ctrl.T.Helper()
@@ -632,6 +618,20 @@ func (m *MockUserStore) UpdateCustomUserData(ctx context.Context, userID impulse
 func (mr *MockUserStoreMockRecorder) UpdateCustomUserData(ctx, userID, mutate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomUserData", reflect.TypeOf((*MockUserStore)(nil).UpdateCustomUserData), ctx, userID, mutate)
+}
+
+// UpgradeUserPasswordHash mocks base method.
+func (m *MockUserStore) UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpgradeUserPasswordHash", ctx, id, proven, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpgradeUserPasswordHash indicates an expected call of UpgradeUserPasswordHash.
+func (mr *MockUserStoreMockRecorder) UpgradeUserPasswordHash(ctx, id, proven, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpgradeUserPasswordHash", reflect.TypeOf((*MockUserStore)(nil).UpgradeUserPasswordHash), ctx, id, proven, hash)
 }
 
 // User mocks base method.

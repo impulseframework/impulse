@@ -35,6 +35,11 @@ func IsExternal(identity *sessioninfo.Identity) bool {
 // a user that has no identity; see sessionstorage for its documentation.
 var ErrLastSignInMethod = errors.New("sessionstorage: the identity is the user's last means of sign-in")
 
+// ErrPasswordChanged is returned when a password write that follows a proof of the
+// password finds that the user no longer holds the hash that was proved; see
+// sessionstorage for its documentation.
+var ErrPasswordChanged = errors.New("sessionstorage: the user's password has changed since it was proved")
+
 // User is the part of a user row the sign-in flow decides on.
 type User struct {
 	ID          impulse.UUID

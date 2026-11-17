@@ -224,7 +224,7 @@ generated handler applies the rest.
 
 A field that holds a secret the application must use itself (an API key, a signing key) is
 declared `conditions:"secret"` and typed `resource.Secret`, on a `BYTES` column with room
-for the 41 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(105)` takes a key
+for the 42 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(106)` takes a key
 of up to 64 bytes. The field is never served, the form masks it, a change record names it
 without its values, and the database holds it encrypted: the resource client seals the
 value when it is written, and code that needs it opens it with the row's generated method

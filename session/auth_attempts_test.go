@@ -259,8 +259,8 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
+				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil)
 				f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil)
-				f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil)
 				createSession(f.store, sessionID, nil)
 				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "new"}); err != nil {
 					t.Fatalf("ChangeSessionUserPassword() error = %v", err)
@@ -673,7 +673,7 @@ func TestPasswordSignIn_AttemptLimitRefused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey)
+			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
 			if err != nil {
 				t.Fatal(err)
 			}

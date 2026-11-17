@@ -439,9 +439,9 @@ CREATE TABLE Ships (
   -- resource declares it conditions:"secret" and types it resource.Secret, so it is
   -- written and never served, the ship's log names a change of it without the value, and
   -- the column holds it encrypted: BYTES, with room for the 64 bytes a key may be and the
-  -- 41 sealing adds (the version of the application secret that sealed it, the random
+  -- 42 sealing adds (the version of the application secret that sealed it, the random
   -- number drawn for the write, and the check).
-  TransponderKey BYTES(105),
+  TransponderKey BYTES(106),
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX ShipsByRegistry ON Ships(Registry);

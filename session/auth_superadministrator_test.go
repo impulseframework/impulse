@@ -16,12 +16,13 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// TestAuth_SetSuperAdministrators pins the rule the storage is handed once the Auth
-// knows its super administrators: the application's rule with the second factor of a
-// super administrator after it, whichever of the two was set first, and with no rule of
-// the application's at all; without the super administrators the application's rule
-// alone, as before.
-func TestAuth_SetSuperAdministrators(t *testing.T) {
+// TestNewAuth_superAdministrators pins the rule the storage is handed by an Auth built
+// with its super administrators: the application's rule with the second factor of a
+// super administrator after it, and the second factor alone where the application set no
+// rule. An Auth built for an application with no permission engine
+// (NoSuperAdministrators) hands the application's rule alone, and none where none was
+// set.
+func TestNewAuth_superAdministrators(t *testing.T) {
 	t.Parallel()
 
 	userID := impulse.Must(impulse.NewUUID())
@@ -30,9 +31,11 @@ func TestAuth_SetSuperAdministrators(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		// set wires the Auth; super says whether pat holds the role.
-		set   func(a *Auth[NoCustomData, NoCustomData, mockTx], check signin.SuperAdministratorCheck)
+		// none builds the Auth with NoSuperAdministrators; super says whether pat holds
+		// the role; rule sets a sign-in rule that asks nobody for a factor.
+		none  bool
 		super bool
+		rule  bool
 		// wantPolicy is whether the storage is handed a rule at all, and wantOutcome
 		// what it decides for pat.
 		wantPolicy  bool
@@ -40,45 +43,29 @@ func TestAuth_SetSuperAdministrators(t *testing.T) {
 		wantFactors []sessioninfo.AuthMethod
 	}{
 		{
-			name: "no rule and the super administrators: a super administrator is held for the mailed code",
-			set: func(a *Auth[NoCustomData, NoCustomData, mockTx], check signin.SuperAdministratorCheck) {
-				a.SetSuperAdministrators(check)
-			},
+			name:  "no rule: a super administrator is held for the mailed code",
 			super: true, wantPolicy: true, wantOutcome: signin.HoldForMFA, wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
 		},
 		{
-			name: "no rule and the super administrators: anyone else is allowed",
-			set: func(a *Auth[NoCustomData, NoCustomData, mockTx], check signin.SuperAdministratorCheck) {
-				a.SetSuperAdministrators(check)
-			},
+			name:       "no rule: anyone else is allowed",
 			wantPolicy: true, wantOutcome: signin.AllowSignIn,
 		},
 		{
-			name: "a rule that asks nobody, set first",
-			set: func(a *Auth[NoCustomData, NoCustomData, mockTx], check signin.SuperAdministratorCheck) {
-				a.SetSignInPolicy(allow)
-				a.SetSuperAdministrators(check)
-			},
-			super: true, wantPolicy: true, wantOutcome: signin.HoldForMFA, wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+			name:  "a rule that asks nobody: a super administrator is held all the same",
+			super: true, rule: true, wantPolicy: true, wantOutcome: signin.HoldForMFA, wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
 		},
 		{
-			name: "a rule that asks nobody, set after",
-			set: func(a *Auth[NoCustomData, NoCustomData, mockTx], check signin.SuperAdministratorCheck) {
-				a.SetSuperAdministrators(check)
-				a.SetSignInPolicy(allow)
-			},
-			super: true, wantPolicy: true, wantOutcome: signin.HoldForMFA, wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+			name:       "a rule that asks nobody: anyone else is allowed",
+			rule:       true,
+			wantPolicy: true, wantOutcome: signin.AllowSignIn,
 		},
 		{
-			name: "a rule and no super administrators: the rule alone decides",
-			set: func(a *Auth[NoCustomData, NoCustomData, mockTx], _ signin.SuperAdministratorCheck) {
-				a.SetSignInPolicy(allow)
-			},
-			super: true, wantPolicy: true, wantOutcome: signin.AllowSignIn,
+			name: "an application with no permission engine: the rule alone decides",
+			none: true, super: true, rule: true, wantPolicy: true, wantOutcome: signin.AllowSignIn,
 		},
 		{
-			name: "neither: the library's own checks decide",
-			set:  func(*Auth[NoCustomData, NoCustomData, mockTx], signin.SuperAdministratorCheck) {},
+			name: "an application with no permission engine and no rule: the library's own checks decide",
+			none: true, super: true,
 		},
 	}
 	for _, tt := range tests {
@@ -86,13 +73,19 @@ func TestAuth_SetSuperAdministrators(t *testing.T) {
 			t.Parallel()
 
 			store := newAuthStoreMock(gomock.NewController(t))
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, WithMail(&mail.Recorder{}, testMail))
+			superAdministrators := SuperAdministratorsBy(func(_ context.Context, user accesstypes.User) (bool, error) {
+				return tt.super && user == accesstypes.User(userID.String()), nil
+			})
+			if tt.none {
+				superAdministrators = NoSuperAdministrators()
+			}
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, superAdministrators, WithMail(&mail.Recorder{}, testMail))
 			if err != nil {
 				t.Fatalf("NewAuth() error = %v", err)
 			}
-			tt.set(a, func(_ context.Context, user accesstypes.User) (bool, error) {
-				return tt.super && user == accesstypes.User(userID.String()), nil
-			})
+			if tt.rule {
+				a.SetSignInPolicy(allow)
+			}
 			var handed signin.Policy[mockTx]
 			store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
@@ -129,73 +122,67 @@ func TestAuth_SetSuperAdministrators(t *testing.T) {
 	}
 }
 
-// TestAuth_SetSuperAdministrators_refused pins the wiring mistakes: no check, a second
-// one, one set once the Auth is in use, and one set on an Auth that sends no mail, whose
-// super administrators would wait for a code nobody can send.
-func TestAuth_SetSuperAdministrators_refused(t *testing.T) {
+// TestNewAuth_superAdministrators_refused pins that no Auth is built without a word on
+// its super administrators: the zero value and a nil check are refused, and so are super
+// administrators on an Auth that sends no mail, who would wait for a code nobody can
+// send. Each refusal says what to pass. An Auth with no super administrators needs no
+// mail.
+func TestNewAuth_superAdministrators_refused(t *testing.T) {
 	t.Parallel()
 
 	check := func(context.Context, accesstypes.User) (bool, error) {
 		return false, nil
 	}
 	tests := []struct {
-		name string
-		// noMail builds the Auth without a mail sender.
-		noMail  bool
-		before  func(a *Auth[NoCustomData, NoCustomData, mockTx])
-		set     func(a *Auth[NoCustomData, NoCustomData, mockTx])
+		name                string
+		superAdministrators SuperAdministrators
+		// mail builds the Auth with a mail sender.
+		mail bool
+		// wantHas is a part of the refusal, "" for an Auth that is built.
 		wantHas string
 	}{
 		{
-			name:    "an Auth that sends no mail",
-			noMail:  true,
-			set:     func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSuperAdministrators(check) },
-			wantHas: "on an Auth without mail: a super administrator's second factor is the code the Auth mails, so pass WithMail to NewAuth",
+			name:                "nothing said: the zero value",
+			superAdministrators: SuperAdministrators{},
+			mail:                true,
+			wantHas:             "NewAuth was not told who the Auth's super administrators are: pass session.SuperAdministratorsBy(signin.SuperAdministrators(...)) over the access library's user manager",
 		},
 		{
-			name:    "no check",
-			set:     func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSuperAdministrators(nil) },
-			wantHas: "given nil",
+			name:                "no check",
+			superAdministrators: SuperAdministratorsBy(nil),
+			mail:                true,
+			wantHas:             "session.SuperAdministratorsBy was given no check: pass signin.SuperAdministrators over the access library's user manager",
 		},
 		{
-			name:    "set twice",
-			before:  func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSuperAdministrators(check) },
-			set:     func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSuperAdministrators(check) },
-			wantHas: "set twice",
+			name:                "super administrators on an Auth that sends no mail",
+			superAdministrators: SuperAdministratorsBy(check),
+			wantHas:             "the Auth has super administrators and sends no mail: a super administrator signs in with a second factor, the code the Auth mails, and an Auth without mail could not send it, so a holder would never sign in; pass session.WithMail",
 		},
 		{
-			name: "set after the Auth served a request",
-			before: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-				a.StartSession(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(httptest.NewRecorder(), r)
-			},
-			set:     func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSuperAdministrators(check) },
-			wantHas: "after the Auth served a request",
+			name:                "super administrators on an Auth that sends mail",
+			superAdministrators: SuperAdministratorsBy(check),
+			mail:                true,
+		},
+		{
+			name:                "no super administrators and no mail",
+			superAdministrators: NoSuperAdministrators(),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := newAuthStoreMock(gomock.NewController(t))
 			var options []AuthOption
-			if !tt.noMail {
+			if tt.mail {
 				options = append(options, WithMail(&mail.Recorder{}, testMail))
 			}
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, options...)
-			if err != nil {
-				t.Fatalf("NewAuth() error = %v", err)
+			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, tt.superAdministrators, options...)
+			switch {
+			case tt.wantHas == "" && err != nil:
+				t.Errorf("NewAuth() error = %v, want the Auth built", err)
+			case tt.wantHas != "" && (err == nil || !strings.Contains(err.Error(), tt.wantHas)):
+				t.Errorf("NewAuth() error = %v, want one containing %q", err, tt.wantHas)
 			}
-			if tt.before != nil {
-				tt.before(a)
-			}
-			defer func() {
-				got, _ := recover().(string)
-				if !strings.Contains(got, tt.wantHas) {
-					t.Errorf("panic = %q, want one containing %q", got, tt.wantHas)
-				}
-			}()
-			tt.set(a)
 		})
 	}
 }

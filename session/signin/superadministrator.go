@@ -11,8 +11,9 @@ import (
 // SuperAdministratorCheck reports whether user, a person as the permission store names
 // them (the id of their account), holds the Super Administrator role
 // (accesstypes.SuperAdministrator). An Auth asks it of every person a sign-in would
-// admit (session.Auth.SetSuperAdministrators), inside the sign-in's transaction and
-// with its context, so a check that reads a database reads outside that transaction.
+// admit (session.NewAuth is handed it, in session.SuperAdministratorsBy), inside the
+// sign-in's transaction and with its context, so a check that reads a database reads
+// outside that transaction.
 type SuperAdministratorCheck func(ctx context.Context, user accesstypes.User) (bool, error)
 
 // SuperAdministrators answers the check over the role store: the person's memberships

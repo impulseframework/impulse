@@ -17,7 +17,8 @@ import (
 // a sign-in through that identity no longer reaches the user. The sessions established
 // through it stand. A user who holds no password keeps at least one identity, since
 // with none they could not sign in at all; a user who holds a password may lose every
-// one.
+// one. A super administrator's identity is unlinked by a super administrator alone, since
+// it is a way they sign in (requireSuperAdministratorFor).
 //
 // The count that rule reads is the committed one: a second unlink of the same user's
 // identities in one transaction does not see the first, as no read sees a buffered
@@ -35,6 +36,9 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 	}
 	if !found {
 		return httpio.NewNotFoundMessagef("identity %q does not exist", identityID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "unlinks a super administrator's sign-in identity"); err != nil {
+		return err
 	}
 	hasPassword, found, err := m.store.UserHasPassword(ctx, txn, userID)
 	if err != nil {
@@ -65,7 +69,9 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 // identity keeps the password, since with neither they could not sign in at all. The
 // mark that the person must change the password goes with it, and the count of failed
 // sign-ins kept under their name is cleared. The sessions the person holds stand, the
-// ones the password established among them, as a removed identity's do.
+// ones the password established among them, as a removed identity's do. A super
+// administrator's password is removed by a super administrator alone, since it is a way
+// they sign in (requireSuperAdministratorFor).
 //
 // The identities that rule reads are the committed ones: an unlink of the user's last
 // identity in the same transaction is not seen, as no read sees a buffered write.
@@ -83,6 +89,9 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	}
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "removes a super administrator's password"); err != nil {
+		return err
 	}
 	hasPassword, found, err := m.store.UserHasPassword(ctx, txn, userID)
 	if err != nil {
