@@ -25,7 +25,9 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // The layout.
@@ -276,10 +278,41 @@ func (s *Service) changes(principal string) *cloudfirestore.CollectionRef {
 }
 
 // Register writes the subscriptions in one batch, each under its id with its expiry;
-// the same subscription handed twice is written once, with the later expiry.
+// the same subscription handed twice is written once, with the later expiry. The first
+// document the store did not take is the error.
 func (s *Service) Register(ctx context.Context, subs []live.Subscription) error {
+	refused, err := s.write(ctx, subs)
+	if err != nil {
+		return err
+	}
+	if len(refused) > 0 {
+		return refused[0].Err
+	}
+
+	return nil
+}
+
+// Renew writes the renewed subscriptions with their fresh expiry, as Register does, and
+// answers the ones the store refused: a document Firestore judged invalid, which a
+// renewal that keeps the others drops.
+func (s *Service) Renew(ctx context.Context, subs []live.Subscription) ([]live.Refusal, error) {
+	return s.write(ctx, subs)
+}
+
+// write writes the subscriptions in one batch, each under its id with its expiry; the
+// same subscription handed twice is written once, with the later expiry. A document the
+// store refuses as invalid (codes.InvalidArgument: a document over its size, or over
+// the index entries one document may have) is answered in refused and stops nothing
+// else. The batch travels in requests of several documents, and the store may answer a
+// request as invalid for one document's sake, writing none of it (the emulator does,
+// for a value over its size), so every document that came back invalid is written
+// again alone: the refusal that remains is that document's own, and a document that
+// was only sent beside it is written. A document that failed for any other reason says
+// nothing certain about the batch, the store out of reach among them, so it is the
+// error of the whole write.
+func (s *Service) write(ctx context.Context, subs []live.Subscription) (refused []live.Refusal, err error) {
 	if len(subs) == 0 {
-		return nil
+		return nil, nil
 	}
 	byID := make(map[string]live.Subscription, len(subs))
 	order := make([]string, 0, len(subs))
@@ -297,17 +330,36 @@ func (s *Service) Register(ctx context.Context, subs []live.Subscription) error 
 		sub := byID[id]
 		job, err := writer.Set(s.subscriptions().Doc(id), newSubscriptionDoc(&sub))
 		if err != nil {
-			return errors.Wrap(err, "firestore.BulkWriter.Set()")
+			return nil, errors.Wrap(err, "firestore.BulkWriter.Set()")
 		}
 		jobs = append(jobs, job)
 	}
+	writer.End()
 
-	return await(writer, jobs)
-}
+	alone := make([]string, 0)
+	for i, job := range jobs {
+		_, err := job.Results()
+		switch {
+		case err == nil:
+		case status.Code(err) == codes.InvalidArgument:
+			alone = append(alone, order[i])
+		default:
+			return nil, errors.Wrap(err, "firestore.BulkWriterJob.Results()")
+		}
+	}
+	for _, id := range alone {
+		sub := byID[id]
+		_, err := s.subscriptions().Doc(id).Set(ctx, newSubscriptionDoc(&sub))
+		switch {
+		case err == nil:
+		case status.Code(err) == codes.InvalidArgument:
+			refused = append(refused, live.Refusal{Subscription: sub, Err: errors.Wrap(err, "firestore.DocumentRef.Set()")})
+		default:
+			return nil, errors.Wrap(err, "firestore.DocumentRef.Set()")
+		}
+	}
 
-// Renew writes the renewed subscriptions with their fresh expiry, as Register does.
-func (s *Service) Renew(ctx context.Context, subs []live.Subscription) error {
-	return s.Register(ctx, subs)
+	return refused, nil
 }
 
 // Unsubscribe deletes the tab's subscriptions.

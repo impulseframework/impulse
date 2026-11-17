@@ -383,10 +383,13 @@ func Test_acrossTenantsHandlerContent(t *testing.T) {
 		"if err := page.Count(ctx, a.ResourceClient()); err != nil {",
 		"if err := page.WriteHeaders(w, r); err != nil {",
 		// Plain unless the page asks: the one subscription over the set of tenants,
-		// registered before the query, and the refetch's answer cacheable.
-		"live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)\n\n\t\tres := ",
-		"live.SetCacheControl(w, r)",
+		// registered before the query, and the refetch's answer cacheable through what
+		// the registration answered, which says when the list is served plain.
+		"liveness := live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)\n\n\t\tres := ",
+		"liveness.SetCacheControl(w, r)",
 	}, []string{
+		// Never marked cacheable whatever the registration answered.
+		"live.SetCacheControl(w, r)",
 		"router.Domain",
 		"accesstypes.DomainScope(",
 		// Never one tenant's subscription, and never the record in every tenant.

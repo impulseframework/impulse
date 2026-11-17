@@ -7,6 +7,13 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+// Refusal is a subscription the record did not take, and the record's reason: the
+// store judged that one document and wrote the others of its batch.
+type Refusal struct {
+	Subscription Subscription
+	Err          error
+}
+
 // SubscriptionRecord is the server-owned record of who is subscribed to what: one
 // flat collection no client reads, with a time-to-live on the expiry.
 type SubscriptionRecord interface {
@@ -14,9 +21,12 @@ type SubscriptionRecord interface {
 	// subscription written again is the same document with the new expiry.
 	Register(ctx context.Context, subs []Subscription) error
 	// Renew writes the subscriptions a renewal kept with their fresh expiry in one
-	// batch. The permission re-check is the caller's (RenewHandler); the record
-	// writes what it is handed.
-	Renew(ctx context.Context, subs []Subscription) error
+	// batch, each on its own: a subscription the record does not take is answered in
+	// refused with the record's reason and stops none of the others, which are written.
+	// err is a failure of the write as a whole, the record out of reach, say, when
+	// nothing is known of any of them. The permission re-check is the caller's
+	// (RenewHandler); the record writes what it is handed.
+	Renew(ctx context.Context, subs []Subscription) (refused []Refusal, err error)
 	// Unsubscribe deletes every subscription of the tab.
 	Unsubscribe(ctx context.Context, principal, tab string) error
 	// UnsubscribeAll deletes every subscription of the principal: the logout path.

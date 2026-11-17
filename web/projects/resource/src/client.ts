@@ -261,9 +261,12 @@ export type InTenant<Row> = Row & { readonly [TenantProperty]: Domain };
  * reach contributes nothing and is never an error. The list answers no capability
  * envelope: what a person may do with a row is asked on the row's page inside its
  * tenant. The list is plain unless the query says `live: true`: then the request
- * registers one subscription over the set of tenants the list reads, however many they
- * are, which the server works out again at each renewal, and a change to the resource's
- * list in any of them refetches the page (`subscription`, beside `client.live.watch`).
+ * registers one subscription over the set of tenants the list reads, which the server
+ * works out again at each renewal, and a change to the resource's list in any of them
+ * refetches the page (`subscription`, beside `client.live.watch`). One subscription
+ * holds at most 10,000 tenants: a list that reads more is answered as a plain one, not
+ * cached and not live, and a subscription whose set grew past that is dropped at its
+ * renewal; the list reads as before either way.
  */
 export type AcrossTenantsQuery<Row, Key extends readonly unknown[] = readonly unknown[]> = Omit<
   ListQueryBase<Row>,

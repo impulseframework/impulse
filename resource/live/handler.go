@@ -162,35 +162,65 @@ type AcrossTenantsList interface {
 	TenantsListed(ctx context.Context) (set, narrowed []accesstypes.Domain, err error)
 }
 
+// AcrossTenantsLiveness is what SubscribeAcrossTenants answers of a list across tenants:
+// whether it is served as a live one. A list whose set of tenants is larger than
+// MaxSubscriptionTenants is served plain though the page asked for live: no
+// subscription holds it, and its answer is not marked cacheable, so the browser asks
+// again each time, as it does for any list that is not live. The handler marks the
+// response through it (SetCacheControl).
+type AcrossTenantsLiveness struct {
+	plain bool
+}
+
+// Plain reports whether the list is served plain though the page asked for live.
+func (l AcrossTenantsLiveness) Plain() bool {
+	return l.plain
+}
+
+// SetCacheControl marks the response as SetCacheControl does, unless the list is served
+// plain: no change will ever tell the browser to ask a plain list again, so its answer
+// is not the browser's to keep.
+func (l AcrossTenantsLiveness) SetCacheControl(w http.ResponseWriter, r *http.Request) {
+	if l.plain {
+		return
+	}
+	SetCacheControl(w, r)
+}
+
 // SubscribeAcrossTenants registers the subscription of a list across tenants when the
 // request carries the subscribe header, before the handler runs the query: one
-// subscription over the set of tenants the list reads for the person, however many they
-// are, so a commit in any of them finds it and a commit in a tenant the person cannot
-// enter does not. A list across tenants is plain unless the page asks, so a request
-// without the header registers nothing; neither does a list that reads no tenant, which
-// nothing can change. As with Subscribe, a set that cannot be worked out or a record
-// that fails to take the subscription is logged and the request is still answered.
-func SubscribeAcrossTenants(ctx context.Context, r *http.Request, svc Service, list AcrossTenantsList) {
+// subscription over the set of tenants the list reads for the person, so a commit in
+// any of them finds it and a commit in a tenant the person cannot enter does not. A list
+// across tenants is plain unless the page asks, so a request without the header
+// registers nothing; neither does a list that reads no tenant, which nothing can change.
+// A set larger than MaxSubscriptionTenants registers nothing either, and the answer says
+// the list is served plain: that is the ceiling's decision and no failure, so nothing is
+// logged for it. As with Subscribe, a set that cannot be worked out or a record that
+// fails to take the subscription is logged and the request is still answered.
+func SubscribeAcrossTenants(ctx context.Context, r *http.Request, svc Service, list AcrossTenantsList) AcrossTenantsLiveness {
 	tab, err := Tab(r)
 	if err != nil || tab == "" {
 		// A malformed tab was refused by the outlet's middleware before the handler ran.
-		return
+		return AcrossTenantsLiveness{}
 	}
 	res := list.Resource()
 	set, narrowed, err := list.TenantsListed(ctx)
 	if err != nil {
 		logger.FromCtx(ctx).Errorf("live: working out the tenants of the %s subscription across tenants of tab %s failed; the subscription is not registered: %v", res, tab, err)
 
-		return
+		return AcrossTenantsLiveness{}
 	}
 	if len(set) == 0 {
-		return
+		return AcrossTenantsLiveness{}
+	}
+	if len(set) > MaxSubscriptionTenants {
+		return AcrossTenantsLiveness{plain: true}
 	}
 	principal, err := PrincipalID(ctx)
 	if err != nil {
 		logger.FromCtx(ctx).Errorf("live: the %s subscription across tenants of tab %s is not registered; the page is served without it: %v", res, tab, err)
 
-		return
+		return AcrossTenantsLiveness{}
 	}
 	registered := AcrossTenantsSubscription(res, set, narrowed).Normalized()
 	registered.Principal = principal
@@ -201,6 +231,8 @@ func SubscribeAcrossTenants(ctx context.Context, r *http.Request, svc Service, l
 	if err := svc.Register(ctx, []Subscription{registered}); err != nil {
 		logger.FromCtx(ctx).Errorf("live: registering the %s subscription across tenants of tab %s failed; the page is served without it: %v", res, tab, err)
 	}
+
+	return AcrossTenantsLiveness{}
 }
 
 // SetCacheControl marks a list or read response cacheable by the browser when its
