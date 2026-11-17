@@ -1568,7 +1568,8 @@ func Cast() (*cast.Cast, error) {
 // next deploy, and the seed never gives a role to an account it did not create.{{ if eq .Foothold "password" }} A
 // persona named as the first administrator is refused, since the two seeds would derive
 // one account.{{ end }} The persona sign-in links the provider's identity to the user of the same login at the
-// first sign-in (invited users only), so a persona the seed never made is refused there.
+// first sign-in (the method is invite only, as every sign-in method starts), so a persona
+// the seed never made is refused there.
 // It answers how many users it created.
 func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	cast, err := Cast()

@@ -306,7 +306,7 @@ const (
 	// account rule needs it as the username.
 	RefusedNoEmail LoginRefusalCode = "no_email"
 	// RefusedNotInvited is the code for an identity that is not linked yet and matches
-	// no pre-created user, under the invited-users-only account rule.
+	// no pre-created user, through a sign-in method that is invite only.
 	RefusedNotInvited LoginRefusalCode = "not_invited"
 	// RefusedInvitationOnly is the code for an identity that is not linked yet and
 	// matches no pre-created user, from a directory a tenant declares with no default
@@ -314,7 +314,7 @@ const (
 	// no account is created.
 	RefusedInvitationOnly LoginRefusalCode = "invitation_only"
 	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
-	// admitted, under the invited-users-only account rule, whose invitation had expired
+	// admitted, through a sign-in method that is invite only, whose invitation had expired
 	// or been used by the time the sign-in accepted it.
 	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
 	// RefusedInvitationAddress is the code for a sign-in or an acceptance that carried

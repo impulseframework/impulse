@@ -496,7 +496,7 @@ func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Accept: rec.hook})
 
-	// A stranger with an invitation is provisioned under the invited-users-only rule,
+	// A stranger with an invitation is provisioned through a method that is invite only,
 	// with the invitation's address verified, and the hook's grant is committed with the
 	// user and the consumption.
 	const name = "pat.lee@lakeside.edu"
