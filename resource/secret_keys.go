@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -33,8 +34,9 @@ const (
 	secretFieldUse = "secret-field"
 	// applicationSecretSize is the least an application secret's version holds.
 	applicationSecretSize = 32
-	// maxSecretVersion is the highest version one byte names.
-	maxSecretVersion = 255
+	// maxSecretVersion is the highest version the two leading bytes of a stored value
+	// name.
+	maxSecretVersion = math.MaxUint16
 )
 
 // ErrSecretNotOpened is the error of opening a stored secret that does not open: its
@@ -65,7 +67,7 @@ func (e *UnknownSecretVersionError) Error() string {
 // database client (WithSecretKeys), and it is the one thing in the process that holds
 // key material: the versions it was built from are not kept, only the working keys
 // derived from them. A value is sealed under the highest version given, the current
-// one, and opened under whichever version its first byte names.
+// one, and opened under whichever version its first two bytes name.
 type SecretKeys struct {
 	// current is the version new values are sealed under.
 	current int
@@ -78,7 +80,7 @@ type SecretKeys struct {
 }
 
 // NewSecretKeys builds the key holder from the versions of the application secret: each
-// version's number, 1 to 255, with its 32 random bytes. The highest version is the
+// version's number, 1 to 65535, with its 32 random bytes. The highest version is the
 // current one. A deployment hands the versions over in the environment
 // (SecretKeysFromEnv); a test builds the holder from fixed bytes.
 func NewSecretKeys(versions map[int][]byte) (*SecretKeys, error) {
@@ -133,9 +135,10 @@ func workingKey(secret []byte, use string, version int) ([]byte, error) {
 // refused at start by its generated router (RequireSecretKeys). A variable that is set
 // and does not hold a version is an error naming the variable, never its value. The
 // declared name with no version number is no version, and is not read. A stored value
-// names the version that sealed it in one byte, so versions run from 1 to 255: the
+// names the version that sealed it in two bytes, so versions run from 1 to 65535: the
 // variable of a version past the last is an error, since the service would otherwise go
-// on sealing under an older version than the deployment's newest.
+// on sealing under an older version than the deployment's newest, and so is the
+// variable of version 0, which no deployment hands over.
 func SecretKeysFromEnv(name string, environ []string) (*SecretKeys, error) {
 	versions := make(map[int][]byte)
 	for _, entry := range environ {
@@ -147,7 +150,7 @@ func SecretKeysFromEnv(name string, environ []string) (*SecretKeys, error) {
 		version, err := strconv.Atoi(number)
 		switch {
 		case err != nil || version > maxSecretVersion:
-			return nil, errors.Newf("%s is set: a stored secret names the version that sealed it in one byte, so the application secret's versions run from 1 to %d, and this one is past the last", variable, maxSecretVersion)
+			return nil, errors.Newf("%s is set: a stored secret names the version that sealed it in two bytes, so the application secret's versions run from 1 to %d, and this one is past the last", variable, maxSecretVersion)
 		case version < 1 || strconv.Itoa(version) != number:
 			return nil, errors.Newf("%s is set and names no version of the application secret: a version's variable ends in the version's number, 1 to %d, written plainly (%s_1)", variable, maxSecretVersion, name)
 		}
@@ -210,7 +213,7 @@ func (k *SecretKeys) Seal(key KeySet, plain string) (Secret, error) {
 
 	aead := k.fields[k.current]
 	sealed := make([]byte, secretVersionSize+secretNonceSize, SecretOverhead+len(plain))
-	sealed[0] = byte(k.current) //nolint:gosec // a version is 1 to 255, checked where the holder is built
+	copy(sealed, secretVersionPrefix(k.current))
 	if _, err := rand.Read(sealed[secretVersionSize:]); err != nil {
 		return Secret{}, errors.Wrap(err, "rand.Read()")
 	}
