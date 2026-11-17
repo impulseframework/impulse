@@ -128,7 +128,8 @@ type (
 	// WhereClosingParenthesis, WhereOpeningParenthesis and WhereStrings each filter
 	// on a string that holds a parenthesis with no partner: it is the string's, and
 	// the annotation ends where it would without it. WhereStrings is continued over
-	// the comment's next lines, and one of its strings writes a quote twice.
+	// the comment's next lines, and one of its strings writes a quote twice and
+	// holds a double quote and a comma.
 	//
 	// @resource
 	WhereClosingParenthesis struct {
@@ -153,7 +154,7 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @subjectSet(marked, value: ProjectID,
 		//     who:   UserID = subject OR TeamID IN subject.teams,
-		//     where: Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s (so'))
+		//     where: Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s ("so", then'))
 		UserID    *string          `spanner:"UserId"`
 		TeamID    impulse.NullUUID `spanner:"TeamId"`
 		ProjectID impulse.UUID     `spanner:"ProjectId"`

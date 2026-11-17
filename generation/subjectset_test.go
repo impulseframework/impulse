@@ -264,14 +264,14 @@ func TestResolveSubjectSetParts(t *testing.T) {
 			},
 		},
 		{
-			name:       "strings that hold parentheses and a quote written twice, in a definition continued over lines",
+			name:       "strings that hold parentheses, a comma, a double quote and a quote written twice, in a definition continued over lines",
 			structName: "WhereStrings",
 			want: []resource.SubjectBindingData{
 				{
 					Name: "marked", UserColumn: "UserId", Column: "ProjectId", Type: resource.AttributeTypeString,
 					Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "TeamId", Set: "teams"}},
 					Where: &resource.SubjectWhereData{
-						Condition: "Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s (so')",
+						Condition: `Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s ("so", then')`,
 						Columns: []resource.SubjectColumnData{
 							{Name: "Code", Column: "Code", Type: resource.AttributeTypeString},
 							{Name: "Note", Column: "Note", Type: resource.AttributeTypeString},
@@ -714,7 +714,7 @@ func Test_collectionTemplate_subjectSetStrings(t *testing.T) {
 	want := `				SubjectSets: []resource.SubjectBindingData{
 					{Name: "smiling", UserColumn: "UserId", Column: "ProjectId", Type: "string", Where: &resource.SubjectWhereData{Condition: "Code = ':)'", Columns: []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: "string"}}}},
 					{Name: "opened", UserColumn: "UserId", Column: "ProjectId", Type: "string", Where: &resource.SubjectWhereData{Condition: "Code = '('", Columns: []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: "string"}}}},
-					{Name: "marked", UserColumn: "UserId", Column: "ProjectId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "TeamId", Set: "teams"}}, Where: &resource.SubjectWhereData{Condition: "Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s (so')", Columns: []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: "string"}, {Name: "Note", Column: "Note", Type: "string"}}}},
+					{Name: "marked", UserColumn: "UserId", Column: "ProjectId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "TeamId", Set: "teams"}}, Where: &resource.SubjectWhereData{Condition: "Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s (\"so\", then')", Columns: []resource.SubjectColumnData{{Name: "Code", Column: "Code", Type: "string"}, {Name: "Note", Column: "Note", Type: "string"}}}},
 				},
 `
 	if !strings.Contains(formatted, want) {
