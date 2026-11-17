@@ -382,6 +382,19 @@ func (c *client) resolveDomain(anchor *resourceField, arg genlang.Arg, structsBy
 	return binding, nil
 }
 
+// subjectBindingArgSpec is the argument shape of @subjectSet and @subjectValue: the
+// name, the value: field, and the two parts a set may write, each an expression of
+// the condition language. The keyword table takes the two keywords' scan flags
+// from it, so their annotations end by the quotes their arguments are split by.
+func subjectBindingArgSpec() *genlang.ArgSpec {
+	return &genlang.ArgSpec{
+		Positional:  1,
+		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey},
+		Required:    []string{subjectValueArgKey},
+		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
+	}
+}
+
 // resolveSubjectBindings compiles the (repeatable) @subjectSet / @subjectValue
 // annotations on one user-id anchor. value: names the sibling Go field the
 // set or value yields, dotted to continue through remote hops; the yielded
@@ -397,12 +410,7 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 		return nil, errors.Newf("@%s requires its anchor column alone to identify a row, as a single-column primary key or a unique index on exactly that column, so the database enforces one row per user; a column of a composite key or composite unique index does not", subjectValueKeyword)
 	}
 
-	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{
-		Positional:  1,
-		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey},
-		Required:    []string{subjectValueArgKey},
-		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
-	})
+	invocations, err := arg.ParseInvocations(subjectBindingArgSpec())
 	if err != nil {
 		return nil, errors.Wrapf(err, "@%s", keyword)
 	}

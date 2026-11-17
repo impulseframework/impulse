@@ -208,6 +208,13 @@ func TestArg_ParseInvocations(t *testing.T) {
 			want: []NamedArgs{{Positional: []string{"WorkOrder"}, named: map[string][]string{"from": {"it's", "draft"}, "to": {"canceled"}}}},
 		},
 		{
+			// Nor does it count parentheses: a comma inside them splits as any other.
+			name: "a spec with no expression key splits on a comma inside parentheses too",
+			arg:  Arg("WorkOrder, from: draft(a, b), to: canceled"),
+			spec: transitionSpec,
+			want: []NamedArgs{{Positional: []string{"WorkOrder"}, named: map[string][]string{"from": {"draft(a", "b)"}, "to": {"canceled"}}}},
+		},
+		{
 			name:        "an unclosed quote is refused",
 			arg:         Arg(`Point, from: "geojson`),
 			spec:        typescriptSpec,
@@ -241,6 +248,31 @@ func TestArg_ParseInvocations(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(NamedArgs{})); diff != "" {
 				t.Errorf("ParseInvocations(%q) mismatch (-want +got):\n%s", tt.arg, diff)
+			}
+		})
+	}
+}
+
+// TestArgSpec_ScanFlags pins the flags a keyword takes from the spec its arguments are
+// parsed with: Expressions where the spec names an expression key, and nothing where it
+// names none, so the scanner reads a single quote as the spec's split does.
+func TestArgSpec_ScanFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		spec *ArgSpec
+		want keywordFlag
+	}{
+		{name: "a spec with expression keys", spec: &ArgSpec{Keys: []string{"value", "where"}, Expressions: []string{"where"}}, want: Expressions},
+		{name: "a spec with none", spec: &ArgSpec{Positional: 1, Keys: []string{"from"}}, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.spec.ScanFlags(); got != tt.want {
+				t.Errorf("ScanFlags() = %d, want %d", got, tt.want)
 			}
 		})
 	}

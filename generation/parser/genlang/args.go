@@ -41,6 +41,24 @@ type ArgSpec struct {
 	Expressions []string
 }
 
+// ScanFlags returns the flags a keyword whose arguments the spec parses is scanned
+// with, to be joined to the keyword's own: Expressions where the spec names an
+// expression key. A keyword table that takes them from the spec has the scanner
+// end the keyword's annotation by the quotes the spec splits its arguments by.
+func (s *ArgSpec) ScanFlags() keywordFlag {
+	if s.takesExpressions() {
+		return Expressions
+	}
+
+	return 0
+}
+
+// takesExpressions reports whether an argument of the spec may be an expression of
+// the condition language.
+func (s *ArgSpec) takesExpressions() bool {
+	return len(s.Expressions) > 0
+}
+
 // NamedArgs is one keyword invocation's parsed argument list: the leading
 // positional values in order, then the named arguments.
 type NamedArgs struct {
@@ -85,7 +103,7 @@ func (a Arg) ParseInvocations(spec *ArgSpec) ([]NamedArgs, error) {
 func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 	args := NamedArgs{named: make(map[string][]string)}
 
-	parts, err := splitArguments(invocation, len(spec.Expressions) > 0)
+	parts, err := splitArguments(invocation, spec.takesExpressions())
 	if err != nil {
 		return NamedArgs{}, err
 	}
@@ -160,39 +178,28 @@ func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 //
 // With expressions set, an argument may be an expression of the condition
 // language, and the commas inside its parentheses and its single-quoted strings
-// stay with it: `where: Level IN ('view', 'edit'), value: Team` is two arguments. A
-// string writes a quote inside it twice, which reads here as the string closing
-// and opening again, so it needs no case of its own.
+// stay with it: `where: Level IN ('view', 'edit'), value: Team` is two arguments.
+// What is quoted is decided by quotes, which the scanner ends an annotation by too.
 func splitArguments(invocation string, expressions bool) ([]string, error) {
 	var (
-		parts  []string
-		start  int
-		quoted bool
-		single bool
-		depth  int
+		parts []string
+		start int
+		depth int
 	)
+	quoted := newQuotes(expressions)
 	for i := range len(invocation) {
 		switch c := invocation[i]; {
-		case c == '"' && !single:
-			quoted = !quoted
-		case !expressions || quoted:
-			if c == ',' && !quoted {
-				parts = append(parts, invocation[start:i])
-				start = i + 1
-			}
-		case c == '\'':
-			single = !single
-		case single:
-		case c == '(':
+		case quoted.read(c):
+		case expressions && c == '(':
 			depth++
-		case c == ')':
+		case expressions && c == ')':
 			depth--
 		case c == ',' && depth == 0:
 			parts = append(parts, invocation[start:i])
 			start = i + 1
 		}
 	}
-	if quoted || single {
+	if _, _, open := quoted.unclosed(); open {
 		return nil, errors.Newf("unclosed quote in %q", invocation)
 	}
 

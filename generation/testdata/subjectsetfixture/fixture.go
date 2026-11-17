@@ -124,6 +124,43 @@ type (
 		ProjectID impulse.UUID `spanner:"ProjectId"`
 		ExpiresAt *time.Time   `spanner:"ExpiresAt"`
 	}
+
+	// WhereClosingParenthesis, WhereOpeningParenthesis and WhereStrings each filter
+	// on a string that holds a parenthesis with no partner: it is the string's, and
+	// the annotation ends where it would without it. WhereStrings is continued over
+	// the comment's next lines, and one of its strings writes a quote twice and
+	// holds a double quote and a comma.
+	//
+	// @resource
+	WhereClosingParenthesis struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @subjectSet(smiling, value: ProjectID, where: Code = ':)')
+		UserID    string       `spanner:"UserId"`
+		ProjectID impulse.UUID `spanner:"ProjectId"`
+		Code      string       `spanner:"Code"`
+	}
+
+	// @resource
+	WhereOpeningParenthesis struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @subjectSet(opened, value: ProjectID, where: Code = '(')
+		UserID    string       `spanner:"UserId"`
+		ProjectID impulse.UUID `spanner:"ProjectId"`
+		Code      string       `spanner:"Code"`
+	}
+
+	// @resource
+	WhereStrings struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @subjectSet(marked, value: ProjectID,
+		//     who:   UserID = subject OR TeamID IN subject.teams,
+		//     where: Code IN (':)', ';(') AND (Note IS NULL OR Note != 'it''s ("so", then'))
+		UserID    *string          `spanner:"UserId"`
+		TeamID    impulse.NullUUID `spanner:"TeamId"`
+		ProjectID impulse.UUID     `spanner:"ProjectId"`
+		Code      string           `spanner:"Code"`
+		Note      *string          `spanner:"Note"`
+	}
 )
 
 // The refusals, one struct each. Every one carries the columns a part may name.
@@ -430,6 +467,17 @@ type (
 		// @subjectValue(seatRank, value: Rank, where: Rank > 0)
 		UserID string `spanner:"UserId"`
 		Rank   int64  `spanner:"Rank"`
+	}
+
+	// ValueWithStringPart is ValueWithParts with a string that holds a parenthesis:
+	// the part is read whole and refused as a part.
+	//
+	// @resource
+	ValueWithStringPart struct {
+		// @subjectValue(seatCode, value: Rank, where: Code = ':)')
+		UserID string `spanner:"UserId"`
+		Rank   int64  `spanner:"Rank"`
+		Code   string `spanner:"Code"`
 	}
 )
 
