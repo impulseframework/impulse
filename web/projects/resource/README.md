@@ -175,6 +175,40 @@ always quotes the box's text; `quoteFilterValue` is the rule. `matchesSearch` is
 browser's copy of the rule the server applies in memory, every word found, folded, in one
 of the values, for a picker narrowing a list it holds whole.
 
+## Lists across tenants
+
+A tenant-scoped resource is listed inside one tenant, through `client.domain(tenant)`. A
+resource the application declares for it (`@listAcrossTenants`; its descriptor entry says
+`acrossTenants: true`) is also listed across tenants, through `client.acrossTenants`:
+
+```ts
+const page = await client.acrossTenants.missions.page({ sort: { field: 'deadline' }, limit: 25, count: true });
+for (const row of page.rows) {
+  const tenant = client.acrossTenants.missions.tenantOf(row); // row.zzTenant
+  const mission = await client.domain(tenant).missions.read(client.acrossTenants.missions.keyOf(row));
+}
+```
+
+One request reads the resource's rows in every tenant the session reaches in which the
+person holds its List grant, with one filter, one sort, one page and one count across
+them, at the resource's route without the tenant's segment. The server checks each row
+under the person's grants in the row's own tenant, so a field shows on the rows of the
+tenants whose grants cover it and is absent from the others, and every row carries the
+tenant it is in under the reserved `zzTenant` property (`TenantProperty`, the type
+`InTenant<Row>`). `domains` narrows the set to the tenants named, down to one; a tenant
+the session does not reach contributes nothing and is never an error, and an empty list
+of tenants is sent as written, which the server refuses. `page()` follows `next` and
+`prev` exactly as a tenant's list does, the narrowing in the links.
+
+The handle reads and does nothing else. It answers no capability envelope (the query type
+has no `capabilities`): what a person may do with a row is asked on the row's page inside
+its tenant, through `client.domain(tenantOf(row))`. It takes no live subscription: a query
+with `live: true` is told once, through the client's warning hook, that a list across
+tenants is plain, and is read as a plain one. `client.acrossTenants` is empty on an API
+that declares no such list, and `acrossTenantsHandle(client, 'Missions')` gives the
+handle by the resource's name to a page that learns its resources at run time, refusing
+a resource that is not declared for it.
+
 ## Permissions
 
 `api.permissions` is the session user's digest cache: one digest per scope (global,

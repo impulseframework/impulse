@@ -703,4 +703,186 @@ describe('ResourceListComponent', () => {
       );
     });
   });
+
+  describe('lists a resource across tenants', () => {
+    // The page is outside every tenant and lists a resource declared for it
+    // (@listAcrossTenants) in every tenant the person reaches: one request without the
+    // tenant's segment, each row naming its tenant. The table names the tenant in a first
+    // column and a row's View link opens the row inside its own tenant's routes.
+    const missions = 'Missions' as Resource;
+    const refits = 'Refits' as Resource;
+    const anvil = 'a1111111-1111-4111-8111-111111111111';
+    const bastion = 'b2222222-2222-4222-8222-222222222222';
+    const acrossMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      [missions]: {
+        route: 'sectors/{sectorID}/missions',
+        live: true,
+        fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title', { isIndex: true, filterable: 'always' }), field('fee')],
+      } as ResourceMeta,
+      [refits]: { route: 'sectors/{sectorID}/refits', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')] } as ResourceMeta,
+    };
+    const acrossDescriptor: ApiDescriptor = {
+      ...descriptor,
+      domainRoute: { segment: 'sectors', param: 'sectorID', word: { one: 'Sector', many: 'Sectors' } },
+      live: { renewRoute: 'live/renew', unsubscribeRoute: 'live/unsubscribe', tokenRoute: 'live/token' },
+      resources: {
+        ...descriptor.resources,
+        [missions]: { resource: missions, property: 'missions', route: 'missions', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25, max: 200 }, order: [{ field: 'deadline', direction: 'asc' }], acrossTenants: true },
+        [refits]: { resource: refits, property: 'refits', route: 'refits', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25 } },
+      },
+    };
+    // Anvil shows the fee; Bastion's roles do not, so the server leaves it off the row.
+    const rows = [
+      { id: 'm-1', title: 'Hauler', fee: '8000', zzTenant: anvil },
+      { id: 'm-9', title: 'Beacon', zzTenant: bastion },
+    ];
+    let warnings: string[];
+    let domain: ReturnType<typeof signal<Domain | undefined>>;
+
+    const server = (request: TransportRequest): TransportResponse => {
+      const url = new URL(request.url, 'http://missions.test');
+      if (url.pathname === '/api/user-domains') {
+        return { status: 200, body: [{ domain: anvil, name: 'Anvil' }, { domain: bastion, name: 'Bastion' }] };
+      }
+      if (url.pathname === '/api/missions') {
+        return { status: 200, body: rows, headers: { 'total-count': '2' } };
+      }
+      return { status: 404, body: { message: `unscripted ${request.url}` } };
+    };
+
+    /** The page as mounted outside every tenant, over the given resource and options. */
+    const page = async (resource: Resource, options: Partial<ListViewConfigOptions> = {}): Promise<void> => {
+      registerResourcePage(missions, 'sectors/:sectorID/missions');
+      const config = listViewConfig({
+        elements: [],
+        primaryResource: resource,
+        acrossTenants: true,
+        listColumns: [{ id: 'title' as FieldName }, { id: 'fee' as FieldName }],
+        ...options,
+      });
+      warnings = [];
+      domain = signal<Domain | undefined>(undefined);
+      transport = scriptedTransport(server);
+      await TestBed.configureTestingModule({
+        imports: [ResourceListComponent],
+        providers: [
+          provideResourceTesting({
+            transport,
+            client: (t) => createClient(acrossDescriptor, { baseUrl: '/api', transport: t, warn: (message) => warnings.push(message) }),
+          }),
+          { provide: RESOURCE_META, useValue: (name: Resource): ResourceMeta => acrossMetas[name] },
+          { provide: RESOURCE_DOMAIN, useValue: domain },
+          {
+            provide: ActivatedRoute,
+            useValue: { snapshot: { data: { config: rootConfig({ parentConfig: config, routeData: { route: 'missions' } }) }, params: {}, queryParams: {} } },
+          },
+        ],
+      }).compileComponents();
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDomains();
+      fixture = TestBed.createComponent(ResourceListComponent);
+      fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+      fixture.componentRef.setInput('resourceConfig', config);
+    };
+
+    const listRequests = (): TransportRequest[] => transport.requests.filter((request) => request.url.split('?')[0] === '/api/missions');
+
+    it("asks one list without the tenant's segment, names each row's tenant, and opens a row inside its tenant", async () => {
+      await page(missions);
+      fixture.detectChanges();
+      await settle();
+
+      // No tenant in the path, no column list, no capability answer, no subscription.
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
+      // Nothing asked a tenant's digest: the server decides what each row shows.
+      expect(transport.requests.some((request) => request.url.includes('permission-digest'))).toBe(false);
+
+      const cols = fixture.componentInstance.columns();
+      expect(cols.map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
+      expect(cols[0].header).toBe('Sector');
+
+      const cells = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map((row) =>
+        Array.from(row.querySelectorAll('td.data-col:not(.action-col)')).map((cell) => cell.textContent?.trim()),
+      );
+      expect(cells).toEqual([
+        ['Anvil', 'Hauler', '8000'],
+        ['Bastion', 'Beacon', ''],
+      ]);
+
+      const links = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('td.action-col a')).map((link) => link.getAttribute('href'));
+      expect(links).toEqual([`/sectors/${anvil}/missions/m-1`, `/sectors/${bastion}/missions/m-9`]);
+    });
+
+    it('is bound to no tenant: selecting one asks for nothing again', async () => {
+      await page(missions);
+      fixture.detectChanges();
+      await settle();
+      domain.set(anvil as Domain);
+      fixture.detectChanges();
+      await settle();
+
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+    });
+
+    it('sorts and filters as the page asks, and a click on the tenant column sorts nothing', async () => {
+      await page(missions, { sorts: [{ field: 'title' as FieldName, direction: 'desc' }], pageSize: 10 });
+      fixture.detectChanges();
+      await settle();
+      fixture.componentInstance.onSortChange([{ field: 'zzTenant', direction: 'asc' }]);
+      fixture.detectChanges();
+      await settle();
+
+      expect(listRequests().map((request) => decodeURIComponent(request.url))).toEqual([
+        '/api/missions?sort=title:desc&limit=10&count=true',
+        '/api/missions?limit=10&count=true',
+      ]);
+    });
+
+    it('reads alone: no create, no delete, no method, whatever the page configures', async () => {
+      await page(missions, { createTitle: 'Book a mission', listMethods: [{ method: 'BookMission' as never }], rowMethods: [{ method: 'ClaimMission' as never }] });
+      fixture.detectChanges();
+      await settle();
+
+      expect(fixture.componentInstance.showCreateButton()).toBe(false);
+      expect(fixture.componentInstance.deletesFromList()).toBe(false);
+      expect(fixture.componentInstance.listMethods()).toEqual([]);
+      expect(fixture.componentInstance.rowMethodNames()).toEqual([]);
+      expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
+    });
+
+    it('tells a page that asks for live that the list is plain, once, and subscribes to nothing', async () => {
+      await page(missions, { live: true });
+      fixture.detectChanges();
+      await settle();
+
+      expect(warnings).toEqual([
+        "Missions is listed across tenants, and a list across tenants is plain: the page asked for live and is read without a subscription. Remove live from the page's configuration",
+      ]);
+      expect(fixture.componentInstance.store.live()).toBe(false);
+      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
+    });
+
+    it('is plain without a word from the page, and says nothing', async () => {
+      await page(missions);
+      fixture.detectChanges();
+      await settle();
+
+      expect(fixture.componentInstance.store.live()).toBe(false);
+      expect(warnings).toEqual([]);
+    });
+
+    it('refuses a resource that is not declared for it, naming the resource, before anything is requested', async () => {
+      await page(refits, { listColumns: [{ id: 'name' as FieldName }] });
+      expect(() => fixture.detectChanges()).toThrow(
+        'Refits: acrossTenants is set, but the resource is not listed across tenants: declare @listAcrossTenants on its struct and regenerate, or remove acrossTenants and list it inside one tenant',
+      );
+      expect(transport.requests.filter((request) => request.url.includes('refits'))).toEqual([]);
+    });
+
+    it('refuses row expansion, naming the resource', async () => {
+      await page(missions, { enableRowExpansion: true });
+      expect(() => fixture.detectChanges()).toThrow(/^Missions: enableRowExpansion is set on a list across tenants/);
+    });
+  });
 });

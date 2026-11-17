@@ -375,6 +375,17 @@ func sameRoles() *acrossPermissions {
 	}
 }
 
+// noListInSouth is a person who holds every grant in north and east and no List
+// grant on the crates in south, a yard the session reaches.
+func noListInSouth() *acrossPermissions {
+	return &acrossPermissions{
+		reach: []accesstypes.Domain{"east", "north", "south"},
+		grants: map[accesstypes.Domain]accesstypes.Decisions{
+			"north": everyGrant(), "east": everyGrant(), "south": {acrossCrates: accesstypes.Denied()}, "west": everyGrant(),
+		},
+	}
+}
+
 // acrossAnswer is one row of a list across tenants as a page shows it: its key,
 // the tenant it says it is in, and its value cell ("masked" where the cell is
 // masked, "null" where it is shown and holds no value, "" where the request did
@@ -473,6 +484,26 @@ func acrossWalks() []acrossWalk {
 			perms:  differingRoles,
 			pages:  [][]acrossAnswer{{{"s1", south, ""}, {"s3", south, ""}}},
 			total:  2,
+		},
+		{
+			// west holds a crate of 15 and every grant, and the session does not
+			// reach it: named in the narrowing, it contributes nothing, and the
+			// list is north's own.
+			name:   "a tenant the session does not reach, named in the narrowing, contributes nothing",
+			target: "/crates?count=true&domains=north,west",
+			perms:  differingRoles,
+			pages:  [][]acrossAnswer{{{"n1", north, "100"}, {"n2", north, "300"}, {"n3", north, "null"}}},
+			total:  3,
+		},
+		{
+			name:   "a tenant in which the person may not list the record contributes nothing",
+			target: "/crates?count=true&limit=5",
+			perms:  noListInSouth,
+			pages: [][]acrossAnswer{
+				{{"n1", north, "100"}, {"e1", east, "250"}, {"n2", north, "300"}, {"e2", east, "350"}, {"e3", east, "450"}},
+				{{"n3", north, "null"}},
+			},
+			total: 6,
 		},
 		{
 			// apple and caper by their label; pear by its tag grapple; nut by its tag

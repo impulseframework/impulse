@@ -31,6 +31,7 @@ import { ColumnFilter, composeFilter, filterFields, isComplete, PageTurn } from 
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 import {
+  acrossTenantsHandle,
   AnyResourceHandle,
   BatchResult,
   Capability,
@@ -121,13 +122,19 @@ export class ResourceStore {
    * plain.
    */
   live = computed(() =>
-    pageIsLive(
-      this.resourceName() || this.resourceMeta().route,
-      this.liveChoice(),
-      this.resourceMeta(),
-      this.client.warn,
-    ),
+    // A list across tenants is plain: its page takes no subscription, whatever the
+    // resource's metadata says of its changes.
+    this.acrossTenants()
+      ? false
+      : pageIsLive(this.resourceName() || this.resourceMeta().route, this.liveChoice(), this.resourceMeta(), this.client.warn),
   );
+  /**
+   * Whether the store's list page reads the resource across tenants
+   * (ListViewConfigOptions.acrossTenants): the page is asked of the client's list across
+   * tenants, bound to no tenant, with no column list, no capability answer and no
+   * subscription, and each row carries the tenant it is in.
+   */
+  acrossTenants = signal(false);
   uuid = signal<string>('');
   error = signal<string>('');
 
@@ -227,9 +234,11 @@ export class ResourceStore {
       ),
       sorts: this.sorts(),
       limit: this.pageSize(),
-      domain: this.scopedDomain(this.descriptorFor(route)),
+      // A list across tenants is bound to no tenant: selecting another leaves it as it is.
+      domain: this.acrossTenants() ? undefined : this.scopedDomain(this.descriptorFor(route)),
       live: this.live(),
       capabilities: this.pageCapabilities(),
+      acrossTenants: this.acrossTenants(),
     };
   });
 
@@ -327,6 +336,25 @@ export class ResourceStore {
       this.position.set({ offset: 0 });
       this.pageError.set(undefined);
       this.pageStatus.set('idle');
+      return;
+    }
+    if (query.acrossTenants) {
+      // The server decides, tenant by tenant, what a row shows, so the page names no
+      // columns: a column the person may read in no tenant would refuse the whole list.
+      const across = acrossTenantsHandle<RecordData>(this.client, this.descriptorFor(query.route).resource);
+      const acrossSorts = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
+      void this.runPageRequest(
+        () =>
+          across.page({
+            filter: query.filter !== '' ? query.filter : undefined,
+            sensitiveFilter: query.sensitive || undefined,
+            sort: acrossSorts.length > 0 ? (acrossSorts as ListQuery<RecordData>['sort']) : undefined,
+            limit: query.limit,
+            count: true,
+          }) as Promise<Page<RecordData>>,
+        'first',
+        0,
+      );
       return;
     }
     const handle = this.handleFor(query.route);
