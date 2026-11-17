@@ -117,14 +117,13 @@ templates, this README, and the tool's source.
   same page under the chosen tenant; a URL naming a tenant the session cannot reach lands
   on a refusal page that shows the server's answer, never on another tenant.
 
-  Who may create a tenant is declared on the record, apart from who may enter one:
-  `@tenant` alone keeps it to an administrator (the record's create path under a Create
-  grant), `@tenant(creation: self-service)` lets a person who signed in holding no tenant
-  create their own through the generated create-your-tenant route and become its
-  administrator, and `@tenant(creation: both)` keeps both ways. The order is sign in
-  first, then name the tenant, so self-service needs a registration admitting open
-  sign-up on the outlet's auth (`.OpenSignUp()` on the method declaration), which the
-  generator holds it to.
+  Who may create a tenant is apart from who may enter one, and no declaration: an
+  administrator creates one under a Create grant on the record, and a person who signed
+  up holding no tenant creates their own through the generated create-your-tenant route
+  and becomes its administrator. The order is sign in first, then name the tenant, so
+  the route serves only while an administrator has a sign-in method of the outlet's auth
+  open to sign-up, which is chosen in the running application, on the auth's Sign-in
+  page.
 - **Levels**: the configuration chain in `pkg/config`, one level per kind of process, each
   embedding the one below it: **core** (every process), **data** (every process that opens
   the database), and **site** (one served site: its port and its built bundle). The site
@@ -1010,23 +1009,25 @@ impulse add tenancy --agent
 impulse add tenancy --tenant-table Organizations
 ```
 
-Who may create a tenant is the record's declaration, separate from who may enter one, and
-the application chooses it by annotating the record. `@tenant` is an administrator alone:
-the record's create path under the Create grant on it, and no route a stranger could reach.
-`@tenant(creation: self-service)` is the person who becomes the tenant's administrator: a
-stranger signs in first, through a registration admitting open sign-up (`add method
-<auth> google <name> --slot any --accounts open`, which declares `.OpenSignUp()` on the
-method), holds no tenant, and the application offers one page, create your tenant; the
-generated route (`POST <prefix>/create-<record>`, no grant needed) writes the row, seats the
+Who may create a tenant is separate from who may enter one, and it is no declaration. An
+administrator creates one in every application: the record's create path under the Create
+grant on it. A person who signs up creates their own while an administrator has a sign-in
+method open to sign-up: every method starts invite only, and an administrator opens one on
+the auth's Sign-in page in the running application (`Open sign-up`, behind a warning that
+says who will be admitted and is confirmed by typing a word) and makes it invite only again
+there. A stranger then signs in through the open method, holds no tenant, and the
+application offers one page, create your tenant; the generated route
+(`POST <prefix>/create-<record>`, no grant needed) reads the choice in the transaction that
+writes the row and refuses while every method is invite only, writes the row, seats the
 person with the domain roles the App names in `<Record>AdministratorRoles()` and hands the
 tenant to the roster, so their next request stands in it, and a person who already holds a
 tenant is refused, an administrator of one tenant never creating another. The generated
 client exports the route and the body's shape (`create<Record>Route`, `Create<Record>`) for
-the page, which the tenanted skeleton's console offers from its dashboard to a session
-without a tenant. `@tenant(creation: both)` keeps both ways. The generator refuses
-self-service on an outlet whose auth has no open sign-up registration, naming the record
-and the fix, and refuses a shape it does not know; the default stays an administrator
-alone, so no application ships self-service by omission.
+the page, which each tenanted skeleton's console offers from its dashboard to a session
+without a tenant. The route is generated wherever it can serve: the record is on session
+outlets of one auth whose management the program generates and whose roles no directory
+writes. `@tenant(creation: ...)`, which declared the choice in code, is refused at
+generation with what replaced it, so no application ships open sign-up by a line of code.
 
 `add auth` adds an auth: a population that holds roles in its own permission store and
 signs in through the methods on its Auth. An auth is a package, `pkg/auth/<name>`, and
@@ -1090,17 +1091,14 @@ when none is given), `azure:<registration>`, `google:<registration>`,
 registration name has no default) or `persona` (the persona sign-in of the test
 environments, section add method), the registration
 being the segment of the method's routes (`user/<registration>/login`). A directory method
-added here takes one organization, and `--accounts` its account rule for a first sign-in as
-`add method` takes it (`members`, the default, or `invited`; `open` is refused with one
-organization), written to the method file and, for `invited`, as `.InvitedUsers()` on the
-method's declaration, so the generated management creates their users, and for
-`open`, as `.OpenSignUp()`, the rule a self-service tenant record needs; `add method`
-composes the other slots. The password method takes `open` alone, and `--accounts open`
-reaches it too: a stranger gives their address on the login page, follows the link mailed
-to it and chooses a password (`session.OpenSignUp()` on the registration and
-`.OpenSignUp()` on the declaration, so the router serves the sign-up routes);
-`members` and `invited` describe a directory and are refused with the password method
-alone. `--username-is-email` makes the password method's sign-in name the person's email
+added here takes one organization; `add method` composes the other slots. No method is
+given an account rule: every method starts invite only, a person signs in once they are
+invited or created, and an administrator opens a method to sign-up, or makes it invite
+only again, on the auth's Sign-in page in the running application. A password method's
+sign-up routes are always on the router and answer not found while the method is invite
+only; once it is open a stranger gives their address on the login page, follows the link
+mailed to it and chooses a password. `--accounts`, which wrote the rule into code, is
+refused with these words. `--username-is-email` makes the password method's sign-in name the person's email
 address (`session.UsernameIsEmail()` and `.UsernameIsEmail()`): the generated management
 derives the address from the username, and a verified change of address renames the user,
 whose roles stay where they are (the permission store names a person by the id of their
@@ -1131,17 +1129,18 @@ Under a hand-written router the program declares no Auth to point, and the brief
 mount the auth's session group in the router. In a tenanted application the new auth's
 `New` sets the sign-in rule over the tenant record's declaration, as the staff auth's does
 (`signin.TenantPolicy` through the reader its settings carry, `TenantDeclarations`, which
-the settings copied from the source auth pass in); a record created by its own people
-(`@tenant(creation: self-service)` or `both`) has the rule admit a person who holds no
-tenant yet (`signin.AdmitWithoutTenant`).
+the settings copied from the source auth pass in); the auth whose session outlets serve
+the tenant record, and whose roles the application assigns, has the rule admit a person
+who holds no tenant yet (`signin.AdmitWithoutTenant`), since a person who signs up through
+it creates a tenant of their own.
 
 ```sh
 impulse add outlet partners --prefix partners/api --auth staff
 impulse add auth partners --outlet partners --agent
 impulse add auth members --method azure:directory --authority application --outlet portal --agent
 impulse add auth members --method google:workspace --authority directory --outlet portal
-impulse add auth members --method google:google --authority application --accounts invited --outlet portal
-impulse add auth clients --method password --accounts open --username-is-email --outlet portal
+impulse add auth members --method google:google --authority application --outlet portal
+impulse add auth clients --method password --username-is-email --outlet portal
 impulse add auth employees --method oidc:company-sso --authority directory --outlet portal
 ```
 
@@ -1174,9 +1173,9 @@ environment struct, which grows by the registration while `NewDataConfiguration`
 one call per auth; in an application composed before the function, the `Settings`
 literal in `NewDataConfiguration`, which the did line says); every outlet bound to the
 auth declares it (`generation.AzureMethod("directory")` on the outlet's `Auth` option,
-with `.InvitedUsers()`, `.SyncsRoles()` or `.OpenSignUp()` chained as the method file's
-account rule and authority say, so the generated management reads the same rule the
-registration enforces), so the generated router mounts its routes and the login
+with `.SyncsRoles()` chained where the method file's authority is the directory, so the
+generated management reads the same authority the registration enforces), so the
+generated router mounts its routes and the login
 page, which renders from the methods route, offers it; and for a directory method the
 Procfile builds with the session library's `skipAuth` tag, which simulates the directory
 until the application is registered with it (every sign-in through the registration is
@@ -1197,16 +1196,15 @@ administers are declared attesting; for a Microsoft registration that function i
 place bedrock reads the tenant shape from, for the app registration's supported account
 type in the stack's hand steps, and a registration that builds its tenants any other way is
 refused by `bedrock check`.
-`--accounts` is the account rule for a first sign-in: `members` (members of the directory,
-the default: the person becomes a user under the name the directory presents), `invited`
-(a user created beforehand is linked, anyone else refused) or `open` (open sign-up: anyone
-the directory verifies becomes a user holding nothing, declared `.OpenSignUp()` on the
-method, the registration a self-service tenant record needs). The
-session library allows `open` only with any organization or personal accounts, and refuses
-`members` there, since every organization in the world is "the directory". The password
-method takes `open` alone: a stranger gives their address on the login page, follows the
-link mailed to it and chooses a password (`session.OpenSignUp()` on the registration,
-`.OpenSignUp()` on the declaration, and the sign-up routes on the router).
+Who a method admits at a first sign-in is not written into code. Under the application
+authority every method is invite only: a user created beforehand or an invitation is
+linked, anyone else is refused and nothing is written. An administrator opens a method to
+sign-up on the auth's Sign-in page in the running application, where the server says how
+wide the method is (the slot: one organization's accounts, any Google account, an email
+address for the password method) and what a new person gets, and makes it invite only
+again there. Under the directory authority the directory decides: a person it gives a role
+signs in, and nobody else. `--accounts`, which declared the rule, is refused with where the
+choice is made now.
 `--username-is-email` makes the password method's sign-in name the person's email address
 (`session.UsernameIsEmail()`, `.UsernameIsEmail()` on the declaration): the generated
 management derives the address from the username, and a verified change of address renames
@@ -1227,10 +1225,10 @@ is required: it is the application's word for the provider (`okta`, `company-sso
 segment of the method's routes, the connection every identity link carries and, with each
 word capitalized, the label of its button on the login page (`.Labeled(text)` on the
 declaration says another). The method takes no `--slot`, since the issuer names the one
-organization. `--accounts` is `members` (the default: whoever the provider signs in
-becomes a user under the name it presents, the token's `preferred_username` or else its
-`email`) or `invited`; `open` is refused, since everyone the provider signs in is a member
-of its organization, whom the method admits without it. `--authority` is as for a
+organization. A person signs in under the name the provider presents, the token's
+`preferred_username` or else its `email`; under the application authority the method is
+invite only until an administrator opens it to the provider's organization.
+`--authority` is as for a
 directory: under `directory` every sign-in reconciles the person's roles to the ID
 token's `roles` claim, a list of role names at the top level of the token, and removes any
 role the claim does not name, and a sign-in whose claim names no role the role file
@@ -1249,8 +1247,8 @@ column's check, and what the console's Sign-in page calls the method's directory
 (`directoryKinds`), which a person signed in through it is offered to make the tenant's. A sign-in whose
 token names `mfa` in its `amr` claim carries the second factor; any other is asked for the
 sign-in code the Auth mails, where the sign-in policy requires a second factor. The
-declaration is `generation.OIDCMethod("<registration>")`, with `.InvitedUsers()` or
-`.SyncsRoles()` chained as the method file says. `check` tells this method from the
+declaration is `generation.OIDCMethod("<registration>")`, with `.SyncsRoles()` chained
+where the method file's authority is the directory. `check` tells this method from the
 persona method, which registers with the same call, by the configuration: one that sets
 `ClientSecret` is an identity provider, one that sets none is the persona method. Under
 `skipAuth` the provider is simulated like a directory; the registration validates its
@@ -1266,8 +1264,8 @@ application's test environments), and is signed in as that persona with its role
 application's own methods stay on the page. The method is the session library's generic
 OpenID Connect method (`oidc.SignIn`), the application a public client (no secret, PKCE),
 the application the authority for role membership (`--authority` defaults to
-`application` and takes nothing else) and the account rule invited users only
-(`--accounts` defaults to `invited` and takes nothing else): the provider says which
+`application` and takes nothing else) and the method invite only, as every method starts:
+the provider says which
 persona signed in, and the persona's identity (its login as the subject) is linked to the
 account seeded under that login. The method takes no `--slot`. Its settings are
 `APP_<AUTH>_<REGISTRATION>_ISSUER`, `_CLIENT_ID` and `_REDIRECT_URL`, and
@@ -1279,7 +1277,7 @@ the pull request or the environment appended) and the callback, and registers ea
 deployment, its callbacks and its cast with the provider after traffic; a later
 environment carries no issuer, so it never offers the method and nothing in the build
 differs. The generated router mounts the method's routes and the methods route offers it
-only where the handlers are non-nil (`generation.PersonaMethod("<registration>").InvitedUsers()`
+only where the handlers are non-nil (`generation.PersonaMethod("<registration>")`
 on the declaration). Beside the method file the command writes the cast,
 `pkg/auth/<auth>/cast.json` (the personas: `login`, `name`, `email`, `roles` from the
 auth's role file or the framework's `SuperAdministrator`), empty to fill in, and `cast.go`, which embeds it (`Cast()`) and seeds
@@ -1300,10 +1298,10 @@ is in the groups the roles variable names.
 
 ```sh
 impulse add method members azure directory --authority application --agent
-impulse add method members google workspace --slot listed --accounts invited --authority application
+impulse add method members google workspace --slot listed --authority application
 impulse add method partners password
-impulse add method clients password --accounts open --username-is-email
-impulse add method staff oidc okta --authority application --accounts invited
+impulse add method clients password --username-is-email
+impulse add method staff oidc okta --authority application
 impulse add method staff persona
 ```
 
