@@ -73,11 +73,17 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 // DirectoryRole asks of the grant of the method that gives a role (RoleGrants.MayGive,
 // for no person in particular), and no other. A page offers what the caller may do: a
 // role the list leaves out is one DirectoryRole refuses, and one it offers is one
-// DirectoryRole takes. The grant of a tenant's method may read a row, so the questions
-// are asked in the caller's transaction. A call outside any request is the
-// application's own and lists every role of the tenant; a manager a request reaches
-// without the role grants cannot judge it, which is an error and never a list.
-func (m *Manager) DirectoryRoles(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]access.RoleInfo, error) {
+// DirectoryRole takes. A call outside any request is the application's own and lists
+// every role of the tenant; a manager a request reaches without the role grants cannot
+// judge it, which is an error and never a list.
+//
+// It is a list's read and is called outside any transaction, with the database to ask
+// in (db). The tenant's roles are read first, as TenantRoles reads them: the permission
+// engine reads the custom ones on a client of its own, and the database refuses such a
+// read under a transaction's context. The grant of a tenant's method may read a row, so
+// the questions are then asked in one transaction of the list's own, which writes
+// nothing.
+func (m *Manager) DirectoryRoles(ctx context.Context, db resource.Executor, tenant accesstypes.Domain) ([]access.RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -93,15 +99,23 @@ func (m *Manager) DirectoryRoles(ctx context.Context, txn resource.ReadWriteTran
 		return roles, nil
 	}
 	scope := accesstypes.DomainPolicyScope(tenant)
-	offered := make([]access.RoleInfo, 0, len(roles))
-	for _, role := range roles {
-		may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role.Name)
-		if err != nil {
-			return nil, errors.Wrap(err, "identity.RoleGrants.MayGive()")
+	var offered []access.RoleInfo
+	if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		// The database may run the function again, so each run starts its own list.
+		offered = make([]access.RoleInfo, 0, len(roles))
+		for _, role := range roles {
+			may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role.Name)
+			if err != nil {
+				return errors.Wrap(err, "identity.RoleGrants.MayGive()")
+			}
+			if may {
+				offered = append(offered, role)
+			}
 		}
-		if may {
-			offered = append(offered, role)
-		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "resource.Executor.ExecuteFunc()")
 	}
 
 	return offered, nil

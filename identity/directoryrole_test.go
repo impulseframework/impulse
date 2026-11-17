@@ -130,6 +130,11 @@ func TestManager_DirectoryRole(t *testing.T) {
 // A call outside any request is the application's own and lists every role of the
 // tenant; a manager that cannot ask refuses the request, never lists; and no tenant
 // named is an error.
+//
+// The list is read outside any transaction: the tenant's roles come from the permission
+// engine, whose listing the database refuses under a transaction's context (the fake
+// engine refuses it there as well), and the grants are asked in a transaction of the
+// list's own, since the grant of a tenant's method may read a row.
 func TestManager_DirectoryRoles(t *testing.T) {
 	t.Parallel()
 
@@ -167,16 +172,11 @@ func TestManager_DirectoryRoles(t *testing.T) {
 			grants := &fakeGrants{noGive: tt.noGive}
 			m, _ := newManager(t, store, wardenRoles, WithRoleGrants(grants))
 
-			var got []access.RoleInfo
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				if !tt.outside {
-					ctx = asCallerThrough(ctx, managedAuth, erin)
-				}
-				var err error
-				got, err = m.DirectoryRoles(ctx, txn, "alpha")
-
-				return err
-			})
+			ctx := t.Context()
+			if !tt.outside {
+				ctx = asCallerThrough(ctx, managedAuth, erin)
+			}
+			got, err := m.DirectoryRoles(ctx, fakeDatabase{}, "alpha")
 			if err != nil {
 				t.Fatalf("DirectoryRoles() error = %v", err)
 			}
@@ -185,6 +185,9 @@ func TestManager_DirectoryRoles(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
 				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
+			}
+			if len(grants.askedOutside) != 0 {
+				t.Errorf("grants asked outside a transaction = %v, want none: the grant of a tenant's method may read a row", grants.askedOutside)
 			}
 			// Each role the list offers is one the method takes, and each it leaves out
 			// is one the method refuses.
@@ -214,11 +217,7 @@ func TestManager_DirectoryRoles(t *testing.T) {
 		t.Parallel()
 
 		m, _ := newManager(t, groupStore(), wardenRoles)
-		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := m.DirectoryRoles(asCallerThrough(ctx, managedAuth, erin), txn, "alpha")
-
-			return err
-		})
+		_, err := m.DirectoryRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, "alpha")
 		if err == nil || !strings.Contains(err.Error(), "identity.WithRoleGrants") {
 			t.Errorf("DirectoryRoles() error = %v, want an error naming identity.WithRoleGrants", err)
 		}
@@ -228,11 +227,7 @@ func TestManager_DirectoryRoles(t *testing.T) {
 		t.Parallel()
 
 		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{err: errStore}))
-		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := m.DirectoryRoles(asCallerThrough(ctx, managedAuth, erin), txn, "alpha")
-
-			return err
-		})
+		_, err := m.DirectoryRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, "alpha")
 		if !errors.Is(err, errStore) {
 			t.Errorf("DirectoryRoles() error = %v, want the grants' own error", err)
 		}
@@ -242,11 +237,7 @@ func TestManager_DirectoryRoles(t *testing.T) {
 		t.Parallel()
 
 		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{}))
-		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := m.DirectoryRoles(ctx, txn, "")
-
-			return err
-		})
+		_, err := m.DirectoryRoles(t.Context(), fakeDatabase{}, "")
 		if err == nil || !strings.Contains(err.Error(), "no tenant was named") {
 			t.Errorf("DirectoryRoles() error = %v, want one that says no tenant was named", err)
 		}

@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"go/format"
 	"slices"
 	"testing"
 
@@ -152,6 +153,37 @@ func Test_tenantComputedSources(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_identityDirectoryRoleChoicesTemplate pins how the list of the roles a tenant may be
+// opened with reads them: it hands the rule the database and opens no transaction
+// around it. The rule reads the tenant's roles from the permission engine, whose own
+// read the database refuses under a transaction's context, so a list that asked the
+// rule inside one answered every request with a server error.
+func Test_identityDirectoryRoleChoicesTemplate(t *testing.T) {
+	t.Parallel()
+
+	inst := crewInstance()
+	inst.tenant = &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector"}
+	data := &identitySourceData{Source: "Auth", Package: "crewidentity", identityInstance: inst, Outlets: "default"}
+
+	c := &client{}
+	out, err := c.generateTemplateOutput("identityDirectoryRoleChoicesTemplate", identityDirectoryRoleChoicesTemplate, data)
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	if _, err := format.Source(out); err != nil {
+		t.Fatalf("the rendered list does not parse: %v\n%s", err, out)
+	}
+	assertContains(t, "the list of the roles a tenant may be opened with", string(out),
+		[]string{
+			"type CrewSectorDirectoryRole struct {",
+			"func ListCrewSectorDirectoryRole(ctx context.Context, qSet *resource.QuerySet[CrewSectorDirectoryRole], db resource.Client, client *Client) iter.Seq2[*CrewSectorDirectoryRole, error] {",
+			"roles, err := client.manager.DirectoryRoles(ctx, db, domain)",
+		},
+		// No transaction is opened here, and nothing of the permission engine is named.
+		[]string{"ExecuteFunc", "resource.ReadWriteTransaction", "impulse/access\""},
+	)
 }
 
 // Test_signInWaySources pins where the list of how a person signs in is declared: beside
