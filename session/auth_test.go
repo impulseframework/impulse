@@ -3255,7 +3255,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		identityID := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
+		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Any()).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
 
 		if err := f.auth.API().UnlinkIdentity(context.Background(), identityID); !errors.Is(err, sessionstorage.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 			t.Errorf("UnlinkIdentity() error = %v, want ErrLastSignInMethod (Conflict)", err)

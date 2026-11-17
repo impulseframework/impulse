@@ -3389,7 +3389,11 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   person with none would be shut out with no way back in. Whether a user has one is
   asked of the database, never read into a row.
 - An identity link is removed unless it is the last way in of a user with no password
-  (409).
+  (409): another identity linked to them must be one that can sign them in, by the
+  judgment the removal of a password is held to (below). The last identity that counts
+  stays while only ones left from a sign-in the Auth no longer has would remain, and
+  one of those goes from beside an identity that counts. A user who holds a password
+  may lose every identity. The last super administrator is held to the same rule.
 - A password is removed only from a user an identity that can sign them in is linked to
   (409 otherwise, 400 for a user with no password). An identity counts when the session
   library says a sign-in through it is possible (`AuthAPI.SignsInThrough`): its method

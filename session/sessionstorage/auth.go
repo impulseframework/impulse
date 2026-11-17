@@ -18,10 +18,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
-// a user that has no password, and when RemoveUserPassword would remove the password of
-// a user none of whose identities can sign them in: either would leave the user no
-// means of sign-in. It is a Conflict client message.
+// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity
+// that can sign in a user that has no password, and when RemoveUserPassword would
+// remove the password of a user none of whose identities can sign them in: either would
+// leave the user no means of sign-in. It is a Conflict client message.
 var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 
 // ErrPasswordChanged is returned by the password writes that follow a proof of the
@@ -162,9 +162,17 @@ type AuthStore[Tx any] interface {
 		ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
 		directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx], proven PasswordProof,
 	) error
-	// UnlinkIdentity removes a link. It refuses to remove the last means of sign-in of
-	// a user that has no password.
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	// UnlinkIdentity removes a link. A user that has no password keeps a means of
+	// sign-in: the link goes only while another identity linked to the user is one
+	// signsIn judges a means of sign-in, by its method and connection (the caller's
+	// judgment of the links a sign-in is still possible through), and the unlink is
+	// refused otherwise (ErrLastSignInMethod), however many identities that sign nobody
+	// in the user would keep. The user's other identities are read and judged in the
+	// transaction that unlinks, so two unlinks, or an unlink and a removal of the
+	// password, that race cannot leave the user with no means of sign-in between them.
+	// signsIn is asked about no identity of a user that has a password, who may lose
+	// every one; a nil signsIn judges no identity a means of sign-in.
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
 	// RemoveUserPassword removes a user's password, and with it the mark that the user
 	// must change it. standing names the identities linked to the user that the caller
 	// judged a means of sign-in (the links a sign-in is still possible through): the
@@ -971,11 +979,11 @@ func (a *Auth[Tx]) LinkConfirmedIdentity(
 }
 
 // UnlinkIdentity implements AuthStore.
-func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
+func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.UnlinkIdentity(ctx, identityID); err != nil {
+	if err := a.db.UnlinkIdentity(ctx, identityID, signsIn); err != nil {
 		return errors.Wrap(err, "db.UnlinkIdentity()")
 	}
 

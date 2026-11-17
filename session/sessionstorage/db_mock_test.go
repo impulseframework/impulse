@@ -1329,17 +1329,17 @@ func (mr *MockdbMockRecorder) TrustedDeviceByToken(ctx, tokenHash, now any) *gom
 }
 
 // UnlinkIdentity mocks base method.
-func (m *Mockdb) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
+func (m *Mockdb) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(sessioninfo.AuthMethod, string) bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UnlinkIdentity", ctx, identityID)
+	ret := m.ctrl.Call(m, "UnlinkIdentity", ctx, identityID, signsIn)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UnlinkIdentity indicates an expected call of UnlinkIdentity.
-func (mr *MockdbMockRecorder) UnlinkIdentity(ctx, identityID any) *gomock.Call {
+func (mr *MockdbMockRecorder) UnlinkIdentity(ctx, identityID, signsIn any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnlinkIdentity", reflect.TypeOf((*Mockdb)(nil).UnlinkIdentity), ctx, identityID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnlinkIdentity", reflect.TypeOf((*Mockdb)(nil).UnlinkIdentity), ctx, identityID, signsIn)
 }
 
 // UpdateCustomSessionData mocks base method.
