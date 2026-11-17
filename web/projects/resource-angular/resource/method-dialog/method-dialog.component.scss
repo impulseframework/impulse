@@ -32,9 +32,22 @@
   color: var(--impulse-alert-warn-border);
 }
 
+.warning-words {
+  min-width: 0;
+}
+
 .warning-consequence {
   margin: 0;
   white-space: pre-line;
+}
+
+// The names the consequence speaks of, where the server lists them: a list of their
+// own under the sentences, which scrolls where it is long.
+.warning-names {
+  max-height: 12em;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  overflow-y: auto;
 }
 
 .typed-word {

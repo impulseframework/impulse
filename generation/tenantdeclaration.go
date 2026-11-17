@@ -65,7 +65,12 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 			if res.DirectoryOnlyField != nil {
 				return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant has one directory-only flag", res.Name(), field.Name(), directoryOnlyKeyword, res.DirectoryOnlyField.Name())
 			}
-			res.DirectoryOnlyField = res.fieldNamed(field.Name())
+			flag := res.fieldNamed(field.Name())
+			if flag == nil {
+				return errors.Newf("struct %s field %s: @%s on a field the resource does not carry as a column; the directory-only flag is the tenant record's BOOL column", res.Name(), field.Name(), directoryOnlyKeyword)
+			}
+			flag.IsDirectoryOnly = true
+			res.DirectoryOnlyField = flag
 		case fieldAnnotations.Has(tenantNameKeyword):
 			if err := res.setTenantNameColumn(field); err != nil {
 				return err
@@ -124,6 +129,7 @@ func (r *resourceInfo) setDirectorySeatColumn(field *parser.Field) error {
 	if r.DirectoryDefaultSeatField == nil {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), directoryDefaultSeatKeyword)
 	}
+	r.DirectoryDefaultSeatField.IsDirectoryDefaultSeat = true
 
 	return nil
 }
@@ -403,12 +409,13 @@ func (r *resourceInfo) DirectoryTenantWord() string {
 // resource.NewTenantDirectoryReader: the column names behind the record's annotated
 // fields, the default seat's empty where the record carries none.
 type tenantDeclarationColumns struct {
-	DirectoryOnly     string
-	DirectoriesTable  string
-	TenantColumn      string
-	MethodColumn      string
-	ConnectionColumn  string
-	DefaultSeatColumn string
+	DirectoryOnly        string
+	DirectoriesTable     string
+	TenantColumn         string
+	MethodColumn         string
+	ConnectionColumn     string
+	DirectoriesKeyColumn string
+	DefaultSeatColumn    string
 }
 
 // declarationColumns reads the declaration's columns off the record, nil when the
@@ -428,6 +435,7 @@ func (r *resourceGenerator) declarationColumns(record *resourceInfo) *tenantDecl
 		columns.DirectoryOnly = spannerColumn(record.DirectoryOnlyField)
 	}
 	if directories.DirectoryDefaultSeatField != nil {
+		columns.DirectoriesKeyColumn = spannerColumn(directories.PrimaryKey())
 		columns.DefaultSeatColumn = spannerColumn(directories.DirectoryDefaultSeatField)
 	}
 

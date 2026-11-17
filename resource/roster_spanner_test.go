@@ -496,12 +496,13 @@ func TestTenantRoster_stopsWithContext(t *testing.T) {
 // directory-only flag on Stations and the StationDirectories rows with their default
 // seat.
 var stationColumns = &TenantDeclarationColumns{
-	DirectoryOnly:     "DirectoryOnly",
-	DirectoriesTable:  "StationDirectories",
-	TenantColumn:      "StationId",
-	MethodColumn:      "Method",
-	ConnectionColumn:  "Connection",
-	DefaultSeatColumn: "DefaultSeat",
+	DirectoryOnly:        "DirectoryOnly",
+	DirectoriesTable:     "StationDirectories",
+	TenantColumn:         "StationId",
+	MethodColumn:         "Method",
+	ConnectionColumn:     "Connection",
+	DirectoriesKeyColumn: "Id",
+	DefaultSeatColumn:    "DefaultSeat",
 }
 
 // seatStationDirectory sets the default seat of a station's directory, the row

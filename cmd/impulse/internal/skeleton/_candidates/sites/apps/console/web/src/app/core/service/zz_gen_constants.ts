@@ -106,6 +106,10 @@ export const Methods = {
   UnlockStaffSignIn: 'UnlockStaffSignIn' as Method,
   WithdrawStaffInvitation: 'WithdrawStaffInvitation' as Method,
   WithdrawStaffTenantInvitation: 'WithdrawStaffTenantInvitation' as Method,
+  EndTenantDirectoryOnly: 'EndTenantDirectoryOnly' as Method,
+  MakeTenantDirectoryOnly: 'MakeTenantDirectoryOnly' as Method,
+  MakeTenantInviteOnly: 'MakeTenantInviteOnly' as Method,
+  OpenTenantToDirectory: 'OpenTenantToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
 };
 

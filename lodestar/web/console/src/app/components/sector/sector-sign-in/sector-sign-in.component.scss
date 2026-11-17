@@ -8,17 +8,16 @@
   font-weight: 500;
 }
 
-.default-role {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  align-items: center;
+.seat {
   margin: 8px 0;
 }
 
-.seat-picker {
-  min-width: 160px;
-  max-width: 280px;
+.admission {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
 }
 
 .signed-in-through {

@@ -2,13 +2,13 @@ package resource
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
@@ -22,23 +22,39 @@ import (
 // directory-only field.
 type namedFlag bool
 
-// switchPermissions scripts the grant the directory-only switch is written under:
-// Update on the tenant record and on its directory-only field, in the global scope.
+// makeMethod and endMethod are the methods that turn a station's directory-only switch
+// on and off, as grants name them, and stationPeople the station's list of its people
+// with the fields that name a person.
+const (
+	makeMethod    accesstypes.Resource = "MakeStationDirectoryOnly"
+	endMethod     accesstypes.Resource = "EndStationDirectoryOnly"
+	stationPeople accesstypes.Resource = "StationUsers"
+)
+
+// switchPermissions scripts the grants the directory-only switch asks: Execute on the
+// methods that turn it, and List on the station's list of its people, each in the
+// station's own scope.
 type switchPermissions struct {
 	stubPermissions
 	denied []accesstypes.Resource
-	// conditional are the resources the grant holds on a condition.
+	// conditional are the resources the grant holds on a condition, and omitted the
+	// ones the answer does not hold at all.
 	conditional []accesstypes.Resource
-	asked       []accesstypes.Resource
+	omitted     []accesstypes.Resource
+	asked       []string
 }
 
 func (s *switchPermissions) Check(_ context.Context, _ accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
-	if !scope.IsGlobal() || perm != accesstypes.Update {
-		return nil, errors.Newf("the read asked %s in %s, want Update in the global scope", perm, scope)
+	if scope.IsGlobal() {
+		return nil, errors.Newf("the read asked %s in the global scope, want the station's own", perm)
 	}
-	s.asked = append(s.asked, resources...)
+	domain, _ := scope.Domain()
 	decisions := accesstypes.Decisions{}
 	for _, res := range resources {
+		s.asked = append(s.asked, string(perm)+" "+string(res)+" in "+string(domain))
+		if slices.Contains(s.omitted, res) {
+			continue
+		}
 		decisions[res] = accesstypes.Granted()
 		if slices.Contains(s.conditional, res) {
 			decisions[res] = accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{res}})
@@ -55,9 +71,9 @@ func (s *switchPermissions) Check(_ context.Context, _ accesstypes.Environment, 
 // switch over the emulator: turning it on is refused until the tenant has its
 // directory and unless the caller is signed in through that directory, each with a
 // sentence the person can act on; turning it off and leaving it on are plain; one
-// request cannot turn it on and remove the directory it is only of; and the read a page
-// calls first answers the consequence in words, with the people it names, or the same
-// refusal.
+// request cannot turn it on and remove the directory it is only of; and the warning the
+// method that turns it on answers first says the consequence in words, with the people
+// it names for a caller who may list them, or the same refusal.
 func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 	t.Parallel()
 
@@ -151,85 +167,137 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 			return people, nil
 		}
 	}
-	consequenceTests := []struct {
-		name      string
-		ctx       context.Context
-		station   accesstypes.Domain
-		outsiders []DirectoryOutsiders
-		want      *DirectoryOnlyConsequence
+	// asks is the request's context with its caller stamped, as the generated frame
+	// stamps it once the method's grant has answered.
+	asks := func(ctx context.Context, perms *switchPermissions) context.Context {
+		return WithCaller(ctx, &Caller{Permissions: perms, Scope: accesstypes.DomainScope("beta"), Env: RequestEnvironment()})
+	}
+	people := func(readers ...DirectoryOutsiders) []DirectoryPeople {
+		out := make([]DirectoryPeople, 0, len(readers))
+		for _, read := range readers {
+			out = append(out, DirectoryPeople{List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: read})
+		}
+
+		return out
+	}
+	const (
+		entraOnly    = "Only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station."
+		entraConfirm = "Admit only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001"
+		deltaOnly    = "Only people who sign in through id.delta.example will be able to enter this station."
+		deltaConfirm = "Admit only people who sign in through id.delta.example"
+	)
+	warningTests := []struct {
+		name    string
+		ctx     context.Context
+		station accesstypes.Domain
+		people  []DirectoryPeople
+		want    *Warning
 		// wantRefusal is the Conflict's sentence, wantNotFound a station that is not one.
 		wantRefusal  string
 		wantNotFound bool
 	}{
 		{
-			name: "the sentence counts the people of every auth, and names them by username", ctx: through(entra), station: "beta",
-			outsiders: []DirectoryOutsiders{reader(zed, amy), nil, reader(bo)},
-			want: &DirectoryOnlyConsequence{
-				Directory: "Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001", Connection: "6f2c1b7e-0000-4000-8000-000000000001",
-				Sentence: "Only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station. 3 people seated here sign in another way and will lose access.",
-				People:   []DirectoryOutsider{amy, bo, zed},
-				Confirm:  "Admit only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001",
+			name: "the sentence counts the people of every auth, and lists them by name and username", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: people(reader(zed, amy), nil, reader(bo)),
+			want: &Warning{
+				Consequence: entraOnly + " 3 people seated here sign in another way and will lose access.",
+				Names:       []string{"Amy Okafor (Amy)", "bo", "zed"},
+				Confirm:     entraConfirm,
 			},
 		},
 		{
-			name: "one person is one person", ctx: through(provider), station: "delta", outsiders: []DirectoryOutsiders{reader(bo)},
-			want: &DirectoryOnlyConsequence{
-				Directory: "OpenID Connect provider id.delta.example", Connection: "id.delta.example",
-				Sentence: "Only people who sign in through id.delta.example will be able to enter this station. 1 person seated here signs in another way and will lose access.",
-				People:   []DirectoryOutsider{bo},
-				Confirm:  "Admit only people who sign in through id.delta.example",
+			name: "one person is one person", ctx: asks(through(provider), &switchPermissions{}), station: "delta", people: people(reader(bo)),
+			want: &Warning{Consequence: deltaOnly + " 1 person seated here signs in another way and will lose access.", Names: []string{"bo"}, Confirm: deltaConfirm},
+		},
+		{
+			name: "nobody outside the directory is said so, and no list is drawn", ctx: asks(through(provider), &switchPermissions{}), station: "delta", people: people(reader()),
+			want: &Warning{Consequence: deltaOnly + " Everyone seated here has signed in through it.", Confirm: deltaConfirm},
+		},
+		{
+			name: "people nobody reads are not counted, and the sentence does not say that nobody loses access", ctx: asks(through(provider), &switchPermissions{}), station: "delta",
+			want: &Warning{Consequence: deltaOnly + " Anyone seated here who signs in another way will lose access.", Confirm: deltaConfirm},
+		},
+		{
+			name: "nor where the one entry has no reader", ctx: asks(through(provider), &switchPermissions{}), station: "delta", people: people(nil),
+			want: &Warning{Consequence: deltaOnly + " Anyone seated here who signs in another way will lose access.", Confirm: deltaConfirm},
+		},
+		{
+			name: "a caller who may not list the people is told how many and nobody's name", ctx: asks(through(entra), &switchPermissions{denied: []accesstypes.Resource{stationPeople}}), station: "beta",
+			people: people(reader(zed, amy), reader(bo)),
+			want:   &Warning{Consequence: entraOnly + " 3 people seated here sign in another way and will lose access.", Confirm: entraConfirm},
+		},
+		{
+			name: "a call outside a request names nobody", ctx: through(entra), station: "beta", people: people(reader(zed, amy)),
+			want: &Warning{Consequence: entraOnly + " 2 people seated here sign in another way and will lose access.", Confirm: entraConfirm},
+		},
+		{
+			name: "a list that names fewer people than it counts says the list is the ones the caller may list", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{
+				{List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(zed, amy)},
+				{List: "", Fields: nil, Outsiders: reader(bo)},
+			},
+			want: &Warning{
+				Consequence: entraOnly + " 3 people seated here sign in another way and will lose access. The 2 of them you may list are named here.",
+				Names:       []string{"Amy Okafor (Amy)", "zed"},
+				Confirm:     entraConfirm,
 			},
 		},
 		{
-			name: "nobody outside the directory is said so, and the people are an empty list", ctx: through(provider), station: "delta",
-			want: &DirectoryOnlyConsequence{
-				Directory: "OpenID Connect provider id.delta.example", Connection: "id.delta.example",
-				Sentence: "Only people who sign in through id.delta.example will be able to enter this station. Everyone seated here has signed in through it.",
-				People:   []DirectoryOutsider{},
-				Confirm:  "Admit only people who sign in through id.delta.example",
+			name: "and says so of one", ctx: asks(through(entra), &switchPermissions{}), station: "beta",
+			people: []DirectoryPeople{
+				{List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(zed)},
+				{List: "", Fields: nil, Outsiders: reader(bo)},
+			},
+			want: &Warning{
+				Consequence: entraOnly + " 2 people seated here sign in another way and will lose access. The one of them you may list is named here.",
+				Names:       []string{"zed"},
+				Confirm:     entraConfirm,
 			},
 		},
 		{
-			name: "a station that is directory only already has nothing to turn on, and the refusal names neither its directory nor its people", ctx: password, station: "alpha", outsiders: []DirectoryOutsiders{reader(zed, bo)},
+			name: "a station that is directory only already has nothing to turn on, and the refusal names neither its directory nor its people", ctx: asks(password, &switchPermissions{}), station: "alpha", people: people(reader(zed, bo)),
 			wantRefusal: onAlready,
 		},
 		{
-			name: "nor to a caller who is signed in through its directory", ctx: through(workspace), station: "alpha", outsiders: []DirectoryOutsiders{reader(zed, bo)},
+			name: "nor to a caller who is signed in through its directory", ctx: asks(through(workspace), &switchPermissions{}), station: "alpha", people: people(reader(zed, bo)),
 			wantRefusal: onAlready,
 		},
-		{name: "a station with no directory is refused as the write is", ctx: through(entra), station: "gamma", wantRefusal: noDirectory},
+		{name: "a station with no directory is refused as the write is", ctx: asks(through(entra), &switchPermissions{}), station: "gamma", wantRefusal: noDirectory},
 		{
-			name: "a caller who is not signed in through the directory is refused as the write is", ctx: password, station: "beta",
+			name: "a caller who is not signed in through the directory is refused as the write is, and reads nobody's name", ctx: asks(password, &switchPermissions{}), station: "beta", people: people(reader(zed)),
 			wantRefusal: strings.Replace(notThrough, "%s", "You signed in with a password.", 1),
 		},
-		{name: "a station the record does not hold is not found", ctx: through(entra), station: "nowhere", wantNotFound: true},
+		{name: "a station the record does not hold is not found", ctx: asks(through(entra), &switchPermissions{}), station: "nowhere", wantNotFound: true},
 	}
-	for _, tt := range consequenceTests {
-		t.Run("the read: "+tt.name, func(t *testing.T) {
+	for _, tt := range warningTests {
+		t.Run("the warning: "+tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var got *DirectoryOnlyConsequence
+			var got *Warning
 			err := client.ExecuteFunc(tt.ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 				var err error
-				got, err = rules.Consequence(ctx, txn, tt.station, tt.outsiders...)
+				got, err = rules.DirectoryOnlyWarning(ctx, txn, tt.station, tt.people...)
 
 				return err
 			})
 			switch {
 			case tt.wantNotFound:
 				if !httpio.HasNotFound(err) {
-					t.Fatalf("Consequence() error = %v, want NotFound", err)
+					t.Fatalf("DirectoryOnlyWarning() error = %v, want NotFound", err)
 				}
 			case tt.wantRefusal != "":
 				if !httpio.HasConflict(err) || httpio.Message(err) != tt.wantRefusal {
-					t.Fatalf("Consequence() error = %v, want the Conflict %q", err, tt.wantRefusal)
+					t.Fatalf("DirectoryOnlyWarning() error = %v, want the Conflict %q", err, tt.wantRefusal)
 				}
 			default:
 				if err != nil {
-					t.Fatalf("Consequence() error = %v", err)
+					t.Fatalf("DirectoryOnlyWarning() error = %v", err)
 				}
 				if diff := cmp.Diff(tt.want, got); diff != "" {
-					t.Errorf("Consequence() mismatch (-want +got):\n%s", diff)
+					t.Errorf("DirectoryOnlyWarning() mismatch (-want +got):\n%s", diff)
+				}
+				if err := CheckWarning("MakeStationDirectoryOnly", got); err != nil {
+					t.Errorf("CheckWarning() error = %v, want a warning a dialog can show", err)
 				}
 			}
 		})
@@ -312,63 +380,194 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		})
 	}
 
-	t.Run("the served read is asked under the grant the write is, and answers the consequence or the refusal", func(t *testing.T) {
+	t.Run("the warning names people only to someone who may list them", func(t *testing.T) {
 		t.Parallel()
 
-		serve := func(ctx context.Context, perms *switchPermissions, query string) *httptest.ResponseRecorder {
-			handler := DirectoryOnlyHandler(client, rules, func(*http.Request) UserPermissions { return perms }, "Stations", "directoryOnly", reader(zed))
+		declared := DirectoryPeople{List: stationPeople, Fields: []accesstypes.Tag{"username", "name"}, Outsiders: reader(zed)}
+		warn := func(perms *switchPermissions, declared DirectoryPeople) *Warning {
+			var got *Warning
+			if err := client.ExecuteFunc(asks(through(entra), perms), func(ctx context.Context, txn ReadWriteTransaction) error {
+				// The emulator aborts a transaction that meets another and the client runs
+				// it again, so the grants asked are those of the attempt that answered.
+				perms.asked = nil
+				var err error
+				got, err = rules.DirectoryOnlyWarning(ctx, txn, "beta", declared)
+
+				return err
+			}); err != nil {
+				t.Fatalf("DirectoryOnlyWarning() error = %v", err)
+			}
+
+			return got
+		}
+		counted := &Warning{Consequence: entraOnly + " 1 person seated here signs in another way and will lose access.", Confirm: entraConfirm}
+		named := &Warning{Consequence: counted.Consequence, Names: []string{"zed"}, Confirm: entraConfirm}
+
+		granted := &switchPermissions{}
+		if diff := cmp.Diff(named, warn(granted, declared)); diff != "" {
+			t.Errorf("with the list of people: the warning mismatch (-want +got):\n%s", diff)
+		}
+		wantAsked := []string{"List StationUsers in beta", "List StationUsers.username in beta", "List StationUsers.name in beta"}
+		if diff := cmp.Diff(wantAsked, granted.asked); diff != "" {
+			t.Errorf("the grants the warning asked (-want +got):\n%s", diff)
+		}
+
+		// The list held on a condition beside the fields that name a person held outright
+		// is the list's own to judge row by row, and names them.
+		if diff := cmp.Diff(named, warn(&switchPermissions{conditional: []accesstypes.Resource{stationPeople}}, declared)); diff != "" {
+			t.Errorf("with the list on a condition and its naming fields outright: the warning mismatch (-want +got):\n%s", diff)
+		}
+
+		// The people are named only to someone who may list them: a caller without the
+		// station's list of its people, or without a field of it that names a person, or
+		// who holds such a field on a condition, is told how many and nobody's name, and
+		// so is one whose answer does not hold what was asked.
+		for _, without := range []*switchPermissions{
+			{denied: []accesstypes.Resource{stationPeople}},
+			{omitted: []accesstypes.Resource{stationPeople}},
+			{denied: []accesstypes.Resource{stationPeople.ResourceWithTag("username")}},
+			{denied: []accesstypes.Resource{stationPeople.ResourceWithTag("name")}},
+			{conditional: []accesstypes.Resource{stationPeople.ResourceWithTag("username")}},
+			{conditional: []accesstypes.Resource{stationPeople.ResourceWithTag("name")}},
+			{omitted: []accesstypes.Resource{stationPeople.ResourceWithTag("name")}},
+		} {
+			if diff := cmp.Diff(counted, warn(without, declared)); diff != "" {
+				t.Errorf("without the list of people (denied %v, on a condition %v, omitted %v): the warning mismatch (-want +got):\n%s", without.denied, without.conditional, without.omitted, diff)
+			}
+		}
+		// A declaration that names no list, or no field of it, names nobody, whatever
+		// the caller holds.
+		for _, people := range []DirectoryPeople{{List: stationPeople, Outsiders: reader(zed)}, {Fields: []accesstypes.Tag{"username"}, Outsiders: reader(zed)}} {
+			if diff := cmp.Diff(counted, warn(&switchPermissions{}, people)); diff != "" {
+				t.Errorf("with the people declared as %+v: the warning mismatch (-want +got):\n%s", people, diff)
+			}
+		}
+	})
+
+	t.Run("the switch as it stands is the station's own, read under the grant of either method that turns it", func(t *testing.T) {
+		t.Parallel()
+
+		serve := func(ctx context.Context, perms *switchPermissions, path string) *httptest.ResponseRecorder {
+			r := chi.NewRouter()
+			r.Use(httpio.WithParams)
+			r.Get("/api/stations/{stationID}/"+DirectoryOnlyRoute, DirectoryOnlyStateHandler(client, rules, func(*http.Request) UserPermissions { return perms }, "stationID", makeMethod, endMethod))
 			rr := httptest.NewRecorder()
-			handler.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/"+DirectoryOnlyRoute+query, http.NoBody))
+			r.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/stations/"+path, http.NoBody))
 
 			return rr
 		}
 
 		granted := &switchPermissions{}
-		rr := serve(through(entra), granted, "?domain=beta")
-		if rr.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200 (body %q)", rr.Code, rr.Body.String())
+		for station, want := range map[string]string{"alpha": `{"directoryOnly":true}`, "beta": `{"directoryOnly":false}`, "gamma": `{"directoryOnly":false}`} {
+			if rr := serve(password, granted, station+"/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != want {
+				t.Errorf("the switch of %s: status = %d, body %q, want 200 %s", station, rr.Code, rr.Body.String(), want)
+			}
 		}
-		var got DirectoryOnlyConsequence
-		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-			t.Fatalf("json.Unmarshal() error = %v (body %q)", err, rr.Body.String())
-		}
-		want := DirectoryOnlyConsequence{
-			Directory: "Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001", Connection: "6f2c1b7e-0000-4000-8000-000000000001",
-			Sentence: "Only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station. 1 person seated here signs in another way and will lose access.",
-			People:   []DirectoryOutsider{zed},
-			Confirm:  "Admit only people who sign in through 6f2c1b7e-0000-4000-8000-000000000001",
-		}
-		if diff := cmp.Diff(want, got); diff != "" {
-			t.Errorf("the served consequence mismatch (-want +got):\n%s", diff)
-		}
-		if diff := cmp.Diff([]accesstypes.Resource{"Stations", "Stations.directoryOnly"}, granted.asked); diff != "" {
-			t.Errorf("the grants the read asked (-want +got):\n%s", diff)
+		if want := "Execute MakeStationDirectoryOnly in alpha"; !slices.Contains(granted.asked, want) {
+			t.Errorf("the grants the read asked = %v, want %q among them: the read is asked in the station's own scope", granted.asked, want)
 		}
 
-		// A caller without the field's grant is Forbidden and learns nothing of the station.
-		for _, denied := range []accesstypes.Resource{"Stations", "Stations.directoryOnly"} {
-			rr := serve(through(entra), &switchPermissions{denied: []accesstypes.Resource{denied}}, "?domain=beta")
-			if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "6f2c1b7e") {
-				t.Errorf("without Update on %s: status = %d, body %q, want 403 that names no directory", denied, rr.Code, rr.Body.String())
+		// Either method's grant reads the switch: the person who may only turn it off
+		// sees that it is on, and the person who may only turn it on sees that it is off.
+		for name, perms := range map[string]*switchPermissions{
+			"the method that turns it off alone": {denied: []accesstypes.Resource{makeMethod}},
+			"the method that turns it on alone":  {denied: []accesstypes.Resource{endMethod}},
+			"one on a condition, the other held": {conditional: []accesstypes.Resource{makeMethod}},
+		} {
+			if rr := serve(password, perms, "alpha/"+DirectoryOnlyRoute); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"directoryOnly":true}` {
+				t.Errorf("%s: status = %d, body %q, want 200 with the switch", name, rr.Code, rr.Body.String())
 			}
 		}
-		// A grant that holds on a condition is no grant to the read: the condition is
-		// judged against the row a write changes.
-		for _, conditional := range []accesstypes.Resource{"Stations", "Stations.directoryOnly"} {
-			rr := serve(through(entra), &switchPermissions{conditional: []accesstypes.Resource{conditional}}, "?domain=beta")
-			if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "6f2c1b7e") {
-				t.Errorf("with Update on %s held on a condition: status = %d, body %q, want 403 that names no directory", conditional, rr.Code, rr.Body.String())
+
+		// A caller with neither grant is Forbidden and learns nothing of the station,
+		// and a grant that holds on a condition is no grant to a read: it has no
+		// request for the condition to judge.
+		for name, perms := range map[string]*switchPermissions{
+			"without either method":         {denied: []accesstypes.Resource{makeMethod, endMethod}},
+			"both methods on a condition":   {conditional: []accesstypes.Resource{makeMethod, endMethod}},
+			"an answer that holds no grant": {omitted: []accesstypes.Resource{makeMethod, endMethod}},
+		} {
+			rr := serve(through(entra), perms, "alpha/"+DirectoryOnlyRoute)
+			if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "directoryOnly\"") {
+				t.Errorf("%s: status = %d, body %q, want 403 that says nothing of the station", name, rr.Code, rr.Body.String())
 			}
 		}
-		// The refusal is the write's, in the same words.
-		if rr := serve(password, &switchPermissions{}, "?domain=beta"); rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "You signed in with a password.") {
-			t.Errorf("with a password: status = %d, body %q, want the 409 that says how the caller signed in", rr.Code, rr.Body.String())
-		}
-		if rr := serve(through(entra), &switchPermissions{}, ""); rr.Code != http.StatusBadRequest {
-			t.Errorf("with no domain: status = %d, want 400 (body %q)", rr.Code, rr.Body.String())
-		}
-		if rr := serve(through(entra), &switchPermissions{}, "?domain=nowhere"); rr.Code != http.StatusNotFound {
+		if rr := serve(through(entra), &switchPermissions{}, "nowhere/"+DirectoryOnlyRoute); rr.Code != http.StatusNotFound {
 			t.Errorf("for a station that is not one: status = %d, want 404 (body %q)", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("how a station admits its directory's people: the row the two methods write, and the warning's words", func(t *testing.T) {
+		t.Parallel()
+
+		read := func(station accesstypes.Domain) (*TenantDirectory, error) {
+			var got *TenantDirectory
+			err := client.ExecuteFunc(password, func(ctx context.Context, txn ReadWriteTransaction) error {
+				var err error
+				got, err = rules.Directory(ctx, txn, station)
+
+				return err
+			})
+			if err != nil {
+				return nil, errors.Wrap(err, "resource.Client.ExecuteFunc()")
+			}
+
+			return got, nil
+		}
+
+		// beta has its directory and no default role: it is invite only.
+		beta, err := read("beta")
+		if err != nil {
+			t.Fatalf("Directory() error = %v", err)
+		}
+		if diff := cmp.Diff(&TenantDirectory{Key: "beta-0", Directory: entra, DefaultRole: ""}, beta); diff != "" {
+			t.Errorf("Directory() of a station that is invite only mismatch (-want +got):\n%s", diff)
+		}
+		// delta's directory gives a role: the row says which.
+		seatStationDirectory(t, db, "delta", 0, "Dockhand")
+		delta, err := read("delta")
+		if err != nil {
+			t.Fatalf("Directory() error = %v", err)
+		}
+		if diff := cmp.Diff(&TenantDirectory{Key: "delta-0", Directory: provider, DefaultRole: "Dockhand"}, delta); diff != "" {
+			t.Errorf("Directory() of a station that is open to its directory mismatch (-want +got):\n%s", diff)
+		}
+		// gamma has no directory: there is nobody to open it to.
+		const nobody = "This station has no directory, so there is nobody to open it to. Set its directory first: sign in through your organization's directory and make it this station's directory."
+		if _, err := read("gamma"); !httpio.HasConflict(err) || httpio.Message(err) != nobody {
+			t.Errorf("Directory() of a station with no directory error = %v, want the Conflict %q", err, nobody)
+		}
+		// A record that carries no default seat has no role to set.
+		noSeat := *stationColumns
+		noSeat.DefaultSeatColumn = ""
+		err = client.ExecuteFunc(password, func(ctx context.Context, txn ReadWriteTransaction) error {
+			_, err := NewTenantDirectoryRules(stationsTable, stationsKey, &noSeat, "station").Directory(ctx, txn, "beta")
+
+			return err
+		})
+		if err == nil || httpio.HasConflict(err) {
+			t.Errorf("Directory() over a record with no default seat column error = %v, want an error that is no refusal", err)
+		}
+
+		wantOpen := &Warning{
+			Consequence: "Anyone who signs in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station without an invitation and gets the role Dockhand.",
+			Confirm:     "Open to people who sign in through 6f2c1b7e-0000-4000-8000-000000000001",
+		}
+		if diff := cmp.Diff(wantOpen, rules.OpenToDirectoryWarning(beta, "Dockhand")); diff != "" {
+			t.Errorf("OpenToDirectoryWarning() mismatch (-want +got):\n%s", diff)
+		}
+		// While no role is picked yet the warning says one is to be chosen.
+		wantChoose := &Warning{
+			Consequence: "Anyone who signs in through 6f2c1b7e-0000-4000-8000-000000000001 will be able to enter this station without an invitation. Choose the role each of them gets.",
+			Confirm:     wantOpen.Confirm,
+		}
+		if diff := cmp.Diff(wantChoose, rules.OpenToDirectoryWarning(beta, "")); diff != "" {
+			t.Errorf("OpenToDirectoryWarning() with no role mismatch (-want +got):\n%s", diff)
+		}
+		for _, warning := range []*Warning{rules.OpenToDirectoryWarning(beta, "Dockhand"), rules.OpenToDirectoryWarning(beta, "")} {
+			if err := CheckWarning("OpenStationToDirectory", warning); err != nil {
+				t.Errorf("CheckWarning() error = %v, want a warning a dialog can show", err)
+			}
 		}
 	})
 }

@@ -63,6 +63,7 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "GiveCrewSectorGroupRole", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "TakeCrewSectorGroupRole", "role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorCrew", "List", "CrewSectorGroups", "group IN subject.groups")
+	provesGrant(t, crew.Roles(), "SectorCrew", "Read", "CrewSectorGroups", "group IN subject.groups")
 	provesGrant(t, crew.Roles(), "SectorCrew", "List", "CrewSectorGroupUsers", "group IN subject.groups")
 
 	post := func(user accesstypes.User, sector, method, body string) (int, []byte) {
@@ -170,6 +171,30 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	if got := list("cadet", anvil, sectorGroupsPath); len(got) != 0 {
 		t.Errorf("the cadet, who is in no group, sees the groups %v, want none", got)
 	}
+	// Reading one group is held to the same set: ada reads the group she is in, by its
+	// id, and neither she nor the cadet reads a group they are not in, which answers as
+	// a group that is not there.
+	var deckCrew string
+	for _, row := range list("marshal", anvil, sectorGroupsPath) {
+		if cell[string](t, row, "name") == "Deck crew" {
+			deckCrew = cell[string](t, row, "id")
+		}
+	}
+	if deckCrew == "" {
+		t.Fatal("Anvil's groups do not list the Deck crew")
+	}
+	readGroup := func(user accesstypes.User, id string) (int, []byte) {
+		return doRequestAs(t, w.h, user, http.MethodGet, sectorPath(anvil, sectorGroupsPath+"/"+id), "")
+	}
+	status, body = readGroup("ada", group)
+	assertStatus(t, status, http.StatusOK, body)
+	if got := cell[string](t, decodeRow(t, body), "name"); got != "Hangar hands" {
+		t.Errorf("the group ada reads by its id is named %q, want Hangar hands", got)
+	}
+	status, body = readGroup("ada", deckCrew)
+	assertStatus(t, status, http.StatusNotFound, body)
+	status, body = readGroup("cadet", group)
+	assertStatus(t, status, http.StatusNotFound, body)
 
 	// A group of Anvil is not found under Bastion's address, whoever asks.
 	status, body = post("governor", bastion, "describe-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"description":"Described from another sector."}`, group))

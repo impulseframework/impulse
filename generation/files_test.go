@@ -892,6 +892,121 @@ func Test_computedResourceHandlerTemplate_files(t *testing.T) {
 	}
 }
 
+// Test_computedResourceHandlerTemplate_caller pins what every frame of a computed
+// resource hands the application's function: a context that carries the caller the
+// request was checked as (resource.QuerySet.Caller), stamped once the decode has
+// checked the request and before the function runs, the way a method's frame stamps the
+// caller for its body. A function that asks what the caller may do elsewhere is then
+// answered for that person, and never as a call the application makes outside any
+// request, which nothing judges. The frames are the list, the read, the route of a file
+// the application renders (whose content function runs, and whose read function runs
+// first where a grant's condition reads the row) and the route of a stored file (which
+// reads the row through the read function).
+func Test_computedResourceHandlerTemplate_caller(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "filefixture"))
+	const (
+		decode = "querySet, err := decoder.Decode(r, a.UserPermissions(r), accesstypes.GlobalScope())"
+		stamp  = "ctx = resource.WithCaller(ctx, querySet.Caller())"
+	)
+
+	tests := []struct {
+		name    string
+		fixture string
+		// frames are the handlers the fixture generates, each with the calls of the
+		// application's functions its frame makes, in order.
+		frames map[string][]string
+	}{
+		{
+			name:    "the list, the read and the route of a rendered file",
+			fixture: "Statement",
+			frames: map[string][]string{
+				"Statements":     {"computed.ListStatement(ctx, querySet,"},
+				"Statement":      {"computed.ReadStatement(ctx, clientID, period, querySet,"},
+				"StatementSheet": {"computed.ReadStatement(ctx, clientID, period, querySet,", "computed.StatementSheet(ctx, clientID, period, querySet,"},
+			},
+		},
+		{
+			name:    "the list, the read and the route of a stored file",
+			fixture: "StoredComputed",
+			frames: map[string][]string{
+				"StoredComputeds":       {"computed.ListStoredComputed(ctx, querySet,"},
+				"StoredComputed":        {"computed.ReadStoredComputed(ctx, id, querySet,"},
+				"StoredComputedContent": {"computed.ReadStoredComputed(ctx, id, querySet,"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := fileFixtureComputed(t, structs, tt.fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			shape, err := walkFixture(t, structs, tt.fixture)
+			if err != nil {
+				t.Fatalf("walk(%s) error = %v", tt.fixture, err)
+			}
+			res.Shape = shape
+			for i, field := range res.Fields {
+				field.wire = shape.Fields[i]
+				field.namespace = tt.fixture + "s"
+			}
+			c := &client{}
+			out, err := c.generateTemplateOutput("computedResourceHandlerTemplate", computedResourceHandlerTemplate, &computedHandlerData{
+				Source: "pkg/computedresources", Resource: res, Package: "app", ComputedPackage: "computed", ApplicationName: "App", ReceiverName: "a",
+			})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			formatted, err := format.Source(out)
+			if err != nil {
+				t.Fatalf("format.Source() error = %v on:\n%s", err, out)
+			}
+
+			// Each handler is a function of the application's type: its text runs to the
+			// next one, or to the end of the file.
+			const opens = "\nfunc (a *App) "
+			handlers := strings.Split(string(formatted), opens)[1:]
+			if len(handlers) != len(tt.frames) {
+				t.Fatalf("the template wrote %d handlers, want the %d frames of %s:\n%s", len(handlers), len(tt.frames), tt.fixture, formatted)
+			}
+			for _, body := range handlers {
+				name, _, _ := strings.Cut(body, "()")
+				calls, known := tt.frames[name]
+				if !known {
+					t.Errorf("the template wrote the handler %s, which the test does not know", name)
+
+					continue
+				}
+				decoded, stamped := strings.Index(body, decode), strings.Index(body, stamp)
+				if decoded < 0 || stamped < decoded || strings.Count(body, stamp) != 1 {
+					t.Errorf("%s stamps the caller %d time(s), at %d against the decode at %d, want once after the decode:\n%s", name, strings.Count(body, stamp), stamped, decoded, body)
+
+					continue
+				}
+				// Every call of the application's functions comes after the stamp, in the
+				// frame's order, and none before it.
+				at := stamped
+				for _, call := range calls {
+					if strings.Contains(body[:stamped], call) {
+						t.Errorf("%s calls %q before the caller is stamped:\n%s", name, call, body[:stamped])
+					}
+					next := strings.Index(body[at:], call)
+					if next < 0 {
+						t.Errorf("%s does not call %q after the caller is stamped:\n%s", name, call, body)
+
+						break
+					}
+					at += next + len(call)
+				}
+			}
+		})
+	}
+}
+
 // Test_typescriptTemplates_files pins the client's view: the descriptor lists the
 // segments, and the key column is absent from the interface and the metadata.
 func Test_typescriptTemplates_files(t *testing.T) {

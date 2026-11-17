@@ -63,6 +63,11 @@ type identityTenant struct {
 	// directory is where the record keeps its directory-only switch and its directory
 	// (identity_directory.go), nil where it declares no switch.
 	directory *identityTenantDirectory
+	// directorySeat is the directories record's default seat column
+	// (@directoryDefaultSeat), "" where the application declares none: the role a
+	// tenant is opened to its directory's people with, which the generated methods
+	// judge by the role file's grants (seatsDirectory).
+	directorySeat string
 }
 
 // identityList is one of a tenant's lists as the generated management declares it: the
@@ -303,12 +308,12 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	directory, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	directory, seat, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
 
-	return &identityTenant{name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label), directory: directory}, nil
+	return &identityTenant{name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label), directory: directory, directorySeat: seat}, nil
 }
 
 // holdIdentityTenant holds the tenant record the sources were written for to the one the

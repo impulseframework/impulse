@@ -152,6 +152,20 @@ func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWrit
 	return c.manager.DirectorySeated("Crew")
 }
 
+// DirectoryRole holds the role a tenant is opened to its directory's people with to its
+// rules over the Crew auth's tables, in the caller's transaction, and writes
+// nothing: the role exists in the tenant, and the request's caller could give it there
+// directly, by the grant of the method that gives a role in a tenant
+// (identity.Manager.DirectoryRole). The generated method that opens a tenant to its
+// directory asks it before it writes the role.
+func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, role accesstypes.Role) error {
+	if err := c.manager.DirectoryRole(ctx, txn, tenant, role); err != nil {
+		return errors.Wrap(err, "identity.Manager.DirectoryRole()")
+	}
+
+	return nil
+}
+
 // SignedIn answers the session library's hook for a sign-in that stands
 // (session.Auth.SetSignedInHook) over the Crew auth's tables: the person's roles
 // and places in groups whose period has ended are removed (identity.Manager.SignedIn),

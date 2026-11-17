@@ -442,7 +442,9 @@ func TestDeclaration(t *testing.T) {
 // TestDeclarationMatchesMethodFile holds the declaration and the method file to the same
 // rule for every method of the smoke specs: the declaration chains .SyncsRoles() exactly
 // where the file registers the method with RoleSync. No method file names an account
-// rule: the registration takes none, and every method starts invite only.
+// rule: the registration takes none, and every method starts invite only. The persona
+// method's file alone declares seeded users (SeededUsers), which takes the provider's
+// names for the application's own.
 func TestDeclarationMatchesMethodFile(t *testing.T) {
 	t.Parallel()
 	for _, spec := range smokeSpecs() {
@@ -461,6 +463,9 @@ func TestDeclarationMatchesMethodFile(t *testing.T) {
 				if strings.Contains(file, retired) {
 					t.Errorf("%s/%s.go names %s: whether a method admits a person with no invitation is chosen in the running application, never in the method file", spec.Name, m.Name, retired)
 				}
+			}
+			if got, want := strings.Contains(file, "SeededUsers: true"), m.Kind == app.MethodPersona; got != want {
+				t.Errorf("%s/%s.go takes the provider's names for the application's own (SeededUsers) = %v, want %v: the persona method alone does", spec.Name, m.Name, got, want)
 			}
 		}
 	}

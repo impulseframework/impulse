@@ -3,9 +3,10 @@
   A tenant's <strong>directory</strong> is the organization its people sign in through, outside this application: a
   Google Workspace or a Microsoft Entra tenant. A tenant has one directory, and a directory belongs to one tenant.
   Nobody types a directory in: an administrator of this tenant who is signed in through the organization's directory
-  makes it this tenant's, here. A person who signs in through the directory is given the
-  <strong>default role</strong> at their first sign-in, so they enter at once; with no default role they are told this
-  tenant admits people by invitation only, and an invited person enters with the roles the invitation names.
+  makes it this tenant's, here. A tenant that is <strong>open to its directory's people</strong> gives each of them a
+  role at their first sign-in through the directory, so they enter at once; a tenant that is
+  <strong>invite only</strong> tells them it admits people by invitation, and an invited person enters with the roles
+  the invitation names.
 </p>
 <p>
   A person seated in this tenant enters it however they signed in: with a password, with a personal account, or through
@@ -29,26 +30,21 @@
       <p class="empty">Your role in this tenant does not cover its directory.</p>
     } @else if (directory(); as row) {
       <p class="directory">{{ nameOf(row) }}</p>
-      <div class="default-role">
-        <span class="default-role-label">Default role</span>
-        @if (canSeat()) {
-          <mat-select
-            class="seat-picker"
-            aria-label="Default role"
-            [value]="row.defaultSeat || invitationOnly"
-            [disabled]="busy()"
-            (selectionChange)="seat(row, $event.value)">
-            <mat-option [value]="invitationOnly">Invitation only</mat-option>
-            @for (role of roles.value(); track role.name) {
-              <mat-option [value]="role.name">{{ role.name }}</mat-option>
-            }
-          </mat-select>
-        } @else {
-          <span class="seat">{{ seatOf(row) }}</span>
+      <p class="seat">{{ seatOf(row) }}</p>
+      <div class="admission">
+        @if (canOpen()) {
+          <button mat-flat-button type="button" class="open-to-directory" [disabled]="busy()" (click)="open()">
+            {{ row.defaultSeat ? 'Change the role' : "Open to the directory's people" }}
+          </button>
+        }
+        @if (row.defaultSeat && canInviteOnly()) {
+          <button mat-button type="button" class="make-invite-only" [disabled]="busy()" (click)="inviteOnly()">
+            Make invite only
+          </button>
         }
       </div>
       <p class="empty">
-        A person is given the default role at their first sign-in through the directory. Someone whose role you remove
+        A person is given the role at their first sign-in through the directory. Someone whose role you remove
         afterwards is not given it back by signing in.
       </p>
       @if (canRemove()) {
@@ -85,21 +81,26 @@
     <mat-card-subtitle>Whether this tenant admits its own directory's people and nobody else.</mat-card-subtitle>
   </mat-card-header>
   <mat-card-content>
-    @if (tenant.value(); as row) {
-      <mat-slide-toggle
-        class="directory-only"
-        [checked]="row.directoryOnly"
-        [disabled]="!canClose() || busy()"
-        (change)="$event.source.checked = !!row.directoryOnly; close($event.checked)">
-        @if (row.directoryOnly) {
+    @if (directoryOnly() !== undefined) {
+      <p class="directory-only">
+        @if (directoryOnly()) {
           Directory only: only people who sign in through this tenant's directory enter this tenant.
         } @else {
           Every sign-in admitted: a person seated in this tenant enters it however they signed in.
         }
-      </mat-slide-toggle>
-      @if (!canClose()) {
-        <p class="empty">The application's administrator sets this, on the tenant record.</p>
-      } @else if (row.directoryOnly) {
+      </p>
+      @if (directoryOnly() && canEndOnly()) {
+        <button mat-button type="button" class="end-directory-only" [disabled]="busy()" (click)="endOnly()">
+          Turn directory only off
+        </button>
+      } @else if (!directoryOnly() && canMakeOnly()) {
+        <button mat-flat-button type="button" class="make-directory-only" [disabled]="busy()" (click)="makeOnly()">
+          Make this tenant directory only
+        </button>
+      }
+      @if (!canMakeOnly() && !canEndOnly()) {
+        <p class="empty">An administrator of this tenant sets this, in the tenant.</p>
+      } @else if (directoryOnly()) {
         <p class="empty kept-out">
           Everyone else seated in this tenant is kept out while this is on, and keeps their roles. The People page says
           who they are.
@@ -115,7 +116,7 @@
         </p>
       }
     } @else {
-      <p class="empty">Your role does not cover the tenant record, which carries this setting.</p>
+      <p class="empty">Your role does not cover this setting: an administrator of this tenant sets it.</p>
     }
   </mat-card-content>
 </mat-card>

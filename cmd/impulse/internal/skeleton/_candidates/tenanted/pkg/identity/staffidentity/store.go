@@ -702,10 +702,11 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 // people the tenant's directory-only switch keeps out while it is on, and who turning
 // it on would shut out. A super administrator is never one of them. It reads the
 // tenant's own list of its people (StaffTenantUser, whose OutsideDirectory column is the
-// fact), in the caller's transaction, by username. The application's generated read of
-// what the switch would do asks every auth's client (resource.DirectoryOnlyHandler,
-// through resource.DirectoryOutsiders), and it sits beside the store because it reads
-// the auth's tables as the store does, through the declarations' own query types.
+// fact), in the caller's transaction, by username. The warning of the generated method
+// that turns the switch on asks every auth's client
+// (resource.TenantDirectoryRules.DirectoryOnlyWarning, through resource.DirectoryPeople),
+// and it sits beside the store because it reads the auth's tables as the store does,
+// through the declarations' own query types.
 func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {
 	query := staffresources.NewStaffTenantUserQuery().
 		AddColumns(staffresources.NewStaffTenantUserColumns().ID().Username().Name()).

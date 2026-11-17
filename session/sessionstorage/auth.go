@@ -553,12 +553,20 @@ type SignInRules[Tx any] struct {
 	Method  string
 	// Audience is whom the method's registration admits now (signin.Audience.Key): the
 	// method's row opens it only for the audience it was opened for.
-	Audience    string
+	Audience string
+	// SeededUsers says the registration declared its provider's names the
+	// application's own (signin.Registration.SeededUsers): a user created ahead is
+	// then linked on the name alone.
+	SeededUsers bool
 	Policy      signin.Policy[Tx]
 	Accept      signinflow.InvitationAcceptor[Tx]
 	SignUp      signinflow.SignUpSeater[Tx]
 	Directories signin.DirectoryReader[Tx]
 	Seat        signinflow.DirectorySeater[Tx]
+	// OnlyIn reports whether a tenant is the only place a person holds anything (nil
+	// for none): with Directories it decides a first link made on a name alone to an
+	// account that has never signed in.
+	OnlyIn signinflow.OnlyInTenant[Tx]
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
@@ -580,8 +588,8 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 	session := &dbtype.InsertSession{Username: req.Username}
 
 	flowRules := signinflow.Rules[Tx]{
-		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
-		Directories: rules.Directories, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
+		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

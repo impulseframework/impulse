@@ -271,6 +271,10 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// none. Set by SetDirectoryAdmission before the Auth is in use.
 	directories     signin.DirectoryReader[Tx]
 	directorySeated signinflow.DirectorySeater[Tx]
+	// directoryOnlyIn reports whether a tenant is the only place a person holds
+	// anything: with directories it decides a first link made on a name alone. Set
+	// with them.
+	directoryOnlyIn signinflow.OnlyInTenant[Tx]
 	// signUpSeated gives a person who signed up through an open method the method's
 	// default role, nil for none.
 	signUpSeated signinflow.SignUpSeater[Tx]
@@ -731,29 +735,43 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 	}))
 }
 
-// DirectorySeatedHook is the application's half of a directory's default seat: it
-// seats the user at their first sign-in through a tenant's directory, named by id (the
-// key an application's memberships are held under) and by username (what a log line
-// reads), with seats, the default seat of the tenant whose directory the identity came
-// through, inside the transaction that links the identity to the user, which it is
+// DirectorySeatedHook is the application's half of a tenant directory's admission: what
+// it alone can read and write of a person's roles, in two functions.
+//
+// Seat seats the user at their first sign-in through a tenant's directory, named by id
+// (the key an application's memberships are held under) and by username (what a log
+// line reads), with seats, the default seat of the tenant whose directory the identity
+// came through, inside the transaction that links the identity to the user, which it is
 // handed: the link is made and the person seated together, or neither. The first
 // sign-in through a directory is the one that makes the link, whether it makes the
-// account too or the account stood before (a person another tenant invited, or one
-// created ahead), and whether the link is made at once or once the user's password has
-// confirmed it. The library calls the hook once for a link: a later sign-in finds the
-// link and gives nothing, so a seat an administrator removed is not given back, and a
-// link that was deleted and is made again is a first sign-in again. The hook gives a
-// seat only where the person holds no role in the tenant, which it alone can read: a
-// person who holds one keeps what they hold. A seat the invitation this sign-in
-// consumes names too (the same role in the same tenant) is not among seats:
-// InvitationAcceptedHook gives it, in the same transaction, and the two hooks never
-// write one membership twice. The hook is not called for no seats. It is held to what
-// InvitationAcceptedHook is: tx alone for its reads and writes, a user the transaction
-// made not readable in it, a committed function (nil for none) the library runs once
-// the transaction has committed and before the sign-in policy decides, and an error
-// that fails the transaction and ends the sign-in, so no account is left holding
-// nothing and no link is left that gave nothing.
-type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
+// account too or the account stood before, and whether the link is made at once or once
+// the user's password has confirmed it. The library calls it once for a link: a later
+// sign-in finds the link and gives nothing, so a seat an administrator removed is not
+// given back, and a link that was deleted and is made again is a first sign-in again.
+// It gives a seat only where the person holds no role in the tenant: a person who holds
+// one keeps what they hold. A seat the invitation this sign-in consumes names too (the
+// same role in the same tenant) is not among seats: InvitationAcceptedHook gives it, in
+// the same transaction, and the two hooks never write one membership twice. It is not
+// called for no seats. It is held to what InvitationAcceptedHook is: tx alone for its
+// reads and writes, a user the transaction made not readable in it, a committed function
+// (nil for none) the library runs once the transaction has committed and before the
+// sign-in policy decides, and an error that fails the transaction and ends the sign-in,
+// so no account is left holding nothing and no link is left that gave nothing.
+//
+// OnlyIn reports whether tenant is the only place the user holds anything, read through
+// tx: the user holds a role, or a place in a group, in tenant itself, and nothing in
+// another tenant, in every tenant or outside the tenants. The library asks it before it
+// links an identity, on its sign-in name alone, to an account that has no password and
+// has never signed in. A directory asserts the names it likes, and the link hands
+// whoever it signs in everything the account holds, so such a link is made only through
+// the directory of the one tenant the person belongs to, which is given nothing the
+// tenant's own administrators could not give, or by a sign-in that carries the person's
+// own invitation; any other sign-in under the name is refused as a person no account
+// was created for is.
+type DirectorySeatedHook[Tx any] struct {
+	Seat   func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
+	OnlyIn func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
+}
 
 // SetDirectoryAdmission sets what a tenanted application gives a person's first
 // sign-in through a tenant's directory: reader, which reads the declaration of the
@@ -763,21 +781,26 @@ type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impul
 // the tenant first: its declaration decides before the sign-in method's own choice,
 // open or invite only. A default seat admits a stranger with it, and a declaration naming none
 // refuses a stranger by invitation only (invitation_only, unless the sign-in carries
-// an invitation), with no account created. A person who has an account (one another
-// tenant invited, or one the application created ahead) is no stranger: the sign-in
-// links the identity to the account under its sign-in name, and the default seat is
-// given with the link when they hold no role in the tenant. A directory no tenant
-// declares, and a personal account, which is no organization's directory
-// (signin.Directory.PersonalAccounts), fall to the
-// sign-in method's choice as without them. Set the two after NewAuth and before serving
-// the first request; a nil reader or hook, a second call, or a call once the Auth is
-// in use is a wiring mistake and panics, as SetSignInPolicy does.
+// an invitation), with no account created. A person who has an account is no stranger.
+// One with a password confirms the link with it, and the default seat is given with the
+// link when they hold no role in the tenant. One with no password who has never signed
+// in (an account an administrator created ahead) is tied to the sign-in by nothing but
+// the name the directory asserts, so the identity is linked only when the directory is
+// that of the one tenant the person belongs to, holding a role there and nothing
+// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation; any
+// other sign-in under the name is refused as a stranger is, and says nothing of the
+// account. A directory no tenant declares, and a personal
+// account, which is no organization's directory (signin.Directory.PersonalAccounts),
+// fall to the sign-in method's choice as without them. Set the two after
+// NewAuth and before serving the first request; a nil reader, a hook missing either
+// function, a second call, or a call once the Auth is in use is a wiring mistake and
+// panics, as SetSignInPolicy does.
 func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], hook DirectorySeatedHook[Tx]) {
 	if reader == nil {
 		panic("session: SetDirectoryAdmission was given no reader: pass the application's reader of the tenants' directory declarations")
 	}
-	if hook == nil {
-		panic("session: SetDirectoryAdmission was given no hook: pass the application's hook that seats the person")
+	if hook.Seat == nil || hook.OnlyIn == nil {
+		panic("session: SetDirectoryAdmission was given a hook without its two functions: pass the application's hook that seats the person and reads whether a tenant is the only place they hold anything")
 	}
 	a.methods.mu.Lock()
 	defer a.methods.mu.Unlock()
@@ -788,7 +811,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.Di
 	if a.directories != nil {
 		panic("session: the directory admission was set twice: one Auth has one")
 	}
-	a.directories, a.directorySeated = reader, hook
+	a.directories, a.directorySeated, a.directoryOnlyIn = reader, hook.Seat, hook.OnlyIn
 }
 
 // SignUpSeatedHook is the application's half of a sign-up through a method an

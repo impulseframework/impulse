@@ -395,7 +395,6 @@
             {
               "resource": "Tenants",
               "fields": [
-                "directoryOnly",
                 "name"
               ]
             }
@@ -443,10 +442,7 @@
         "permissions": {
           "Create": [
             {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
-              ]
+              "resource": "TenantDirectories"
             },
             {
               "resource": "Announcements",
@@ -551,6 +547,18 @@
             },
             {
               "resource": "TakeStaffTenantGroupRole"
+            },
+            {
+              "resource": "MakeTenantDirectoryOnly"
+            },
+            {
+              "resource": "EndTenantDirectoryOnly"
+            },
+            {
+              "resource": "OpenTenantToDirectory"
+            },
+            {
+              "resource": "MakeTenantInviteOnly"
             }
           ],
           "List": [
@@ -799,12 +807,6 @@
                 "body",
                 "kindId",
                 "title"
-              ]
-            },
-            {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
               ]
             }
           ]
