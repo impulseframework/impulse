@@ -157,6 +157,11 @@ type Store interface {
 	// TenantInvitations lists the invitations into one tenant that are not consumed:
 	// neither accepted nor withdrawn. An auth that mails no links answers none.
 	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
+	// InvitedTenants lists the invitations that make a tenant and are not consumed,
+	// neither accepted nor withdrawn, oldest first, each with the document its
+	// NewTenant column holds. reader is the caller's transaction or the application's
+	// client. An auth that mails no links answers none.
+	InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransaction) ([]InvitedTenantRow, error)
 
 	// SignInMethodRows lists the rows of the sign-in methods table: what an
 	// administrator chose for each method that has a row. reader is the caller's
@@ -308,6 +313,9 @@ type Manager struct {
 	// rules of a group ask (WithRoleGrants); nil where the manager was built without
 	// them.
 	grants RoleGrants
+	// tenants makes a tenant from an accepted invitation (WithTenantMaker); nil where
+	// the auth's people create none that way.
+	tenants TenantMaker
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -386,7 +394,7 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	}
 	m := &Manager{
 		auth: auth, store: store, access: controller, sessions: sessions,
-		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, now: time.Now,
+		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(m)

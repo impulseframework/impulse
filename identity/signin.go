@@ -58,11 +58,16 @@ import (
 // kind and every tenant for one of the domain kind, as Invite checked when it wrote the
 // invitation. A role that can no longer be given (the role file changed since) fails
 // the transaction: the invitation stands, and a person the sign-in would have created
-// is not created.
+// is not created. An invitation that makes a tenant carries no role: its acceptance
+// makes the tenant and seats the person as its first administrator
+// (acceptTenantInvitation).
 //
 // auth names the Auth in the log line a given role leaves.
 func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+		if inv.NewTenant != nil {
+			return m.tenantInvitationAccepted(ctx, auth, tx, userID, username, inv)
+		}
 		txn := resource.NewSpannerReadWriteTransaction(tx)
 		if err := m.giveInvitedRoles(m.oneTenant.within(ctx, tx), txn, userID, username, inv); err != nil {
 			return nil, err
