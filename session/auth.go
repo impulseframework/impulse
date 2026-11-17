@@ -414,9 +414,14 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[T
 // signin.SuperAdministrators over the access library's user manager. Set it after
 // NewAuth and before serving the first request; a nil check, a second check, or a check
 // set once the Auth is in use is a wiring mistake and panics, as SetSignInPolicy does.
+// So is an Auth that sends no mail: the code could not be sent, and a super
+// administrator held for it would never sign in.
 func (a *Auth[SessionData, UserData, Tx]) SetSuperAdministrators(check signin.SuperAdministratorCheck) {
 	if check == nil {
 		panic("session: SetSuperAdministrators was given nil: pass signin.SuperAdministrators over the access library's user manager")
+	}
+	if a.settings.mail == nil {
+		panic("session: SetSuperAdministrators was called on an Auth without mail: a super administrator's second factor is the code the Auth mails, so pass WithMail to NewAuth")
 	}
 	a.methods.mu.Lock()
 	defer a.methods.mu.Unlock()

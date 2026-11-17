@@ -64,6 +64,12 @@ func New(store Store, opts ...Option) (*Client, error) {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
 	}
+	// The methods a super administrator always runs are the application's wiring, not
+	// the role file's content: one the release does not declare is refused as that,
+	// before the file's grants are compiled.
+	if _, err := superAdministratorRole(options.collection, options.superMethods); err != nil {
+		return nil, errors.Wrap(err, "access.New()")
+	}
 	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods)
 	if err != nil {
 		if !options.roleFileSet {

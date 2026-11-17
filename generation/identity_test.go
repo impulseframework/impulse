@@ -487,7 +487,9 @@ func Test_prepareIdentity(t *testing.T) {
 // Test_prepareIdentity_noMemberships pins the store of an auth whose schema holds no
 // memberships table. The store still stands for identity.Store, so what would read the
 // table is a stub with the interface's own signature: a person's memberships are asked
-// for by the id of their account there too, as in the store that reads the table.
+// for by the id of their account there too, as in the store that reads the table. A
+// read of who holds a membership answers nobody, since the methods that disable and
+// delete an account are generated for such an auth and ask it.
 func Test_prepareIdentity_noMemberships(t *testing.T) {
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
@@ -509,6 +511,10 @@ func Test_prepareIdentity_noMemberships(t *testing.T) {
 				"var _ identity.Store = store{}",
 				"the schema holds no table MembersUserRoles: the Members auth's memberships are not managed here",
 				"func (store) Memberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.MembershipKey, error) {",
+				// Disabling or deleting an account asks whether the person is the last
+				// super administrator: with no memberships table nobody is, and the
+				// read answers so rather than failing the method.
+				"func (store) HasMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) (bool, error) {\n\treturn false, nil\n}",
 			},
 			wantNot: []string{
 				"func (store) Memberships(context.Context, resource.ReadWriteTransaction, string)",

@@ -1277,20 +1277,22 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 	return len(rolePatches), nil
 }
 {{ else }}
-// errNoMemberships answers a membership call on an auth whose schema holds no
-// memberships table ({{ .Policy.UserRoles }}): the generator wrote no method that
-// reaches one.
+// errNoMemberships answers a call that gives, takes or looks up a role on an auth whose
+// schema holds no memberships table ({{ .Policy.UserRoles }}): the generator wrote no
+// method that reaches one.
 var errNoMemberships = errors.New("the schema holds no table {{ .Policy.UserRoles }}: the {{ .Auth }} auth's memberships are not managed here")
 
 func (store) HasRole(context.Context, resource.ReadWriteTransaction, *access.RoleKey) (bool, error) {
 	return false, errNoMemberships
 }
 
-func (store) HasMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) (bool, error) {
-	return false, errNoMemberships
-}
+// Nobody holds a membership in a table the schema does not have. The rules every auth
+// keeps ask who holds one, whatever its tables: disabling or deleting an account asks
+// whether the person is the last super administrator, and here nobody is one.
 
-// Nobody holds a membership in a table the schema does not have.
+func (store) HasMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) (bool, error) {
+	return false, nil
+}
 
 func (store) Memberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.MembershipKey, error) {
 	return nil, nil

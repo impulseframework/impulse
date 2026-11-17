@@ -196,8 +196,10 @@ DML what a later rule must read.
   is held for the code the library mails (`sessioninfo.MethodEmailCode`) when the person
   holds the role, with or without a policy of the application's. The directory's
   attestation and a remembered browser satisfy it as for any account, and a refusal, or
-  a hold for a factor the policy names itself, stands as the policy decided it. The auth
-  packages `impulse` writes set it; an Auth that is never told holds nobody to it.
+  a hold for a factor the policy names itself, stands as the policy decided it. The Auth
+  must send mail (`WithMail`): on one that sends none the call panics, since the code
+  could not be sent. The auth packages `impulse` writes set it; an Auth that is never
+  told holds nobody to it.
 - The **account rules** decide an identity's first sign-in: an identity that is not
   linked to any user yet. A linked identity signs in by its link and never consults
   them. Each Entra and Google registration declares a **standard rule** in

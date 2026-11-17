@@ -91,15 +91,17 @@ func writeScopes() []accesstypes.PolicyScope {
 // tenant domain is held there (a name may be both), and a membership the
 // directory does not name is removed wherever it is held, a membership in one
 // tenant domain included, since the directory is the authority and a membership
-// it does not name does not survive a login. It returns true if the user holds
-// at least one recognized role once the operation is complete.
+// it does not name does not survive a login. It returns true if the directory
+// named at least one recognized role, which the user then holds.
 // A ResolveRole error aborts the sync: flattening it to "not found" would land an existing
 // valid role in removeRoles and delete the user's membership on a transient store blip.
 //
 // The Super Administrator role is no directory's to give or take: only a super
 // administrator makes or removes another. A name the directory asserts for it is
 // ignored (wantedRoles), and a membership of it the person holds stays through every
-// login, whatever the directory names.
+// login, whatever the directory names. It does not count as a role the directory
+// named: a holder for whom the directory names no recognized role is refused
+// (no_roles) as anyone is, since the method's rule is that the directory admits.
 func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.User, roleNames []string) (hasRole bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

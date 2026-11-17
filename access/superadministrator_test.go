@@ -239,6 +239,10 @@ func TestSuperAdministrator_methods(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "WithSuperAdministratorMethods names") {
 				t.Errorf("New(WithSuperAdministratorMethods(%q)) error = %v, want the method refused", method, err)
 			}
+			// The refusal is the option's: the role file is sound, and is not blamed.
+			if err != nil && strings.Contains(err.Error(), "the role file does not validate") {
+				t.Errorf("New(WithSuperAdministratorMethods(%q)) error = %v, want no word of the role file, which validates", method, err)
+			}
 		}
 	})
 }

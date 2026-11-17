@@ -9,6 +9,7 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
@@ -85,7 +86,7 @@ func TestAuth_SetSuperAdministrators(t *testing.T) {
 			t.Parallel()
 
 			store := newAuthStoreMock(gomock.NewController(t))
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, WithMail(&mail.Recorder{}, testMail))
 			if err != nil {
 				t.Fatalf("NewAuth() error = %v", err)
 			}
@@ -129,7 +130,8 @@ func TestAuth_SetSuperAdministrators(t *testing.T) {
 }
 
 // TestAuth_SetSuperAdministrators_refused pins the wiring mistakes: no check, a second
-// one, and one set once the Auth is in use.
+// one, one set once the Auth is in use, and one set on an Auth that sends no mail, whose
+// super administrators would wait for a code nobody can send.
 func TestAuth_SetSuperAdministrators_refused(t *testing.T) {
 	t.Parallel()
 
@@ -137,11 +139,19 @@ func TestAuth_SetSuperAdministrators_refused(t *testing.T) {
 		return false, nil
 	}
 	tests := []struct {
-		name    string
+		name string
+		// noMail builds the Auth without a mail sender.
+		noMail  bool
 		before  func(a *Auth[NoCustomData, NoCustomData, mockTx])
 		set     func(a *Auth[NoCustomData, NoCustomData, mockTx])
 		wantHas string
 	}{
+		{
+			name:    "an Auth that sends no mail",
+			noMail:  true,
+			set:     func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSuperAdministrators(check) },
+			wantHas: "on an Auth without mail: a super administrator's second factor is the code the Auth mails, so pass WithMail to NewAuth",
+		},
 		{
 			name:    "no check",
 			set:     func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSuperAdministrators(nil) },
@@ -168,7 +178,11 @@ func TestAuth_SetSuperAdministrators_refused(t *testing.T) {
 			t.Parallel()
 
 			store := newAuthStoreMock(gomock.NewController(t))
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+			var options []AuthOption
+			if !tt.noMail {
+				options = append(options, WithMail(&mail.Recorder{}, testMail))
+			}
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, options...)
 			if err != nil {
 				t.Fatalf("NewAuth() error = %v", err)
 			}
