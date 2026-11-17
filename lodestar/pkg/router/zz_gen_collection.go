@@ -352,6 +352,28 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "Ships",
 			},
 			{
+				Name:        "HangarPasses",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
+				Tags: []resource.TagData{
+					{Name: "expiresAt", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "hangarId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "id"},
+					{Name: "levelId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "sectorId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "squadronId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "userId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+				},
+				Domain: &resource.DomainBindingData{Column: "SectorId"},
+				SubjectSets: []resource.SubjectBindingData{
+					{Name: "hangarsOpen", UserColumn: "UserId", Column: "HangarId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "SquadronId", Set: "squadrons"}}, Where: &resource.SubjectWhereData{Condition: "LevelID IN ('visit', 'run') AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: "timestamp"}, {Name: "LevelID", Column: "LevelId", Type: "string"}}}},
+					{Name: "hangarsRun", UserColumn: "UserId", Column: "HangarId", Type: "string", Who: []resource.SubjectWhoData{{Column: "UserId"}, {Column: "SquadronId", Set: "squadrons"}}, Where: &resource.SubjectWhereData{Condition: "LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: []resource.SubjectColumnData{{Name: "ExpiresAt", Column: "ExpiresAt", Type: "timestamp"}, {Name: "LevelID", Column: "LevelId", Type: "string"}}}},
+				},
+				Order:        []accesstypes.Tag{"hangarId"},
+				QueryKeys:    []accesstypes.Tag{"sectorId", "hangarId", "userId", "squadronId", "levelId"},
+				RequiredTags: []accesstypes.Tag{"hangarId", "levelId"},
+			},
+			{
 				Name:        "Hangars",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
@@ -360,6 +382,9 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "sectorId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "zone", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "hangar", Column: "Id", Type: "string"},
 				},
 				Domain:       &resource.DomainBindingData{Column: "SectorId"},
 				Order:        []accesstypes.Tag{"name"},

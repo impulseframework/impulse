@@ -36,4 +36,11 @@ type (
 	//
 	// @enumerate(FailReasons)
 	FailReason string
+
+	// PassLevel enumerates what a hangar pass allows: a visit, or the run of the hangar.
+	// The two pass sets filter on it (HangarPass), and a where: that names a level the
+	// table does not hold is refused at generation.
+	//
+	// @enumerate(PassLevels)
+	PassLevel string
 )

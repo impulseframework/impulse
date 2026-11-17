@@ -10,6 +10,7 @@ package resource
 import (
 	"math/big"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -152,12 +153,20 @@ var semanticColumnAttributes = []semanticAttribute{
 
 // semanticCollection declares the fixture's vocabulary: every column attribute
 // typed, the two join paths, the domain binding, the partitioned anchor's
-// subject sets (one dotted), and the global anchor's typed subject values (one
-// dotted).
+// subject sets (one dotted), the global anchor's typed subject values (one
+// dotted), and the subject sets that write a who: or a where: part
+// (semanticPartSets).
 func semanticCollection(t *testing.T) *GeneratedCollection {
 	t.Helper()
 
-	g, err := NewGeneratedCollection(CollectionData{Resources: semanticResources()})
+	return semanticCollectionOf(t, semanticResources())
+}
+
+// semanticCollectionOf builds a collection over the fixture's resources as given.
+func semanticCollectionOf(t *testing.T, resources []CollectionResource) *GeneratedCollection {
+	t.Helper()
+
+	g, err := NewGeneratedCollection(CollectionData{Resources: resources})
 	if err != nil {
 		t.Fatalf("NewGeneratedCollection() error = %v", err)
 	}
@@ -165,8 +174,117 @@ func semanticCollection(t *testing.T) *GeneratedCollection {
 	return g
 }
 
+// semanticDrawnWhere is the where: of the fixture's drawnTeams set where no case
+// has drawn one: the semantic differential draws a new one for each case.
+const semanticDrawnWhere = "Tier >= 0"
+
 // semanticResources is the fixture's collection, resource by resource.
 func semanticResources() []CollectionResource {
+	return semanticResourcesWith(semanticDrawnWhere)
+}
+
+// semanticPassColumns are the columns of the fixture's Passes table a where:
+// may read, one of every comparison type and of each storage type a number has.
+var semanticPassColumns = []SubjectColumnData{
+	{Name: "Team", Column: "Team", Type: AttributeTypeString},
+	{Name: "Level", Column: "Level", Type: AttributeTypeString},
+	{Name: "Tier", Column: "Tier", Type: AttributeTypeNumber},
+	{Name: "Mass", Column: "Mass", Type: AttributeTypeNumber},
+	{Name: "Stake", Column: "Stake", Type: AttributeTypeNumber},
+	{Name: "Sealed", Column: "Sealed", Type: AttributeTypeBool},
+	{Name: "IssuedOn", Column: "IssuedOn", Type: AttributeTypeDate},
+	{Name: "ExpiresAt", Column: "ExpiresAt", Type: AttributeTypeTimestamp},
+}
+
+// semanticPartSets are the anchors of the subject sets that write a who: or a
+// where: part, each shape the two parts take:
+//
+//   - circles, on a table outside every partition: the default who:, and a
+//     where: that drops a row past its ValidUntil;
+//   - widerCircles, on the same table: a set that follows another set and names
+//     the requester nowhere itself;
+//   - editTeams and viewTeams, two sets one partitioned table yields by a
+//     column, each a person's own rows or their circles' (a partitioned set
+//     building on one outside every partition);
+//   - farTeams: two sets deep, through widerCircles to circles;
+//   - drawnTeams: a where: drawn for each case of the differential;
+//   - passTiers: a set of numbers under a where: over a bool and a double;
+//   - badges, outside every partition: a set building on the partitioned teams.
+func semanticPartSets(drawnWhere string) []CollectionResource {
+	ownOrCircle := []SubjectWhoData{{Column: "UserId"}, {Column: "Circle", Set: "circles"}}
+	passColumns := func(names ...string) []SubjectColumnData {
+		columns := make([]SubjectColumnData, 0, len(names))
+		for _, column := range semanticPassColumns {
+			if slices.Contains(names, column.Name) {
+				columns = append(columns, column)
+			}
+		}
+
+		return columns
+	}
+
+	return []CollectionResource{
+		{
+			Name:  "Circles",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{
+				{
+					Name: "circles", UserColumn: "UserId", Column: "Circle", Type: AttributeTypeString,
+					Where: &SubjectWhereData{
+						Condition: "ValidUntil IS NULL OR ValidUntil > now",
+						Columns:   []SubjectColumnData{{Name: "ValidUntil", Column: "ValidUntil", Type: AttributeTypeTimestamp}},
+					},
+				},
+				{
+					Name: "widerCircles", UserColumn: "InnerCircle", Column: "Circle", Type: AttributeTypeString,
+					Who: []SubjectWhoData{{Column: "InnerCircle", Set: "circles"}},
+				},
+			},
+		},
+		{
+			Name:   "Passes",
+			Scope:  accesstypes.DomainPermissionScope,
+			Domain: &DomainBindingData{Column: "Depot"},
+			SubjectSets: []SubjectBindingData{
+				{
+					Name: "editTeams", UserColumn: "UserId", Column: "Team", Type: AttributeTypeString,
+					Who:   ownOrCircle,
+					Where: &SubjectWhereData{Condition: "Level = 'edit' AND (ExpiresAt IS NULL OR ExpiresAt > now)", Columns: passColumns("Level", "ExpiresAt")},
+				},
+				{
+					Name: "viewTeams", UserColumn: "UserId", Column: "Team", Type: AttributeTypeString,
+					Who:   ownOrCircle,
+					Where: &SubjectWhereData{Condition: "Level IN ('view', 'edit')", Columns: passColumns("Level")},
+				},
+				{
+					Name: "farTeams", UserColumn: "Circle", Column: "Team", Type: AttributeTypeString,
+					Who: []SubjectWhoData{{Column: "Circle", Set: "widerCircles"}},
+				},
+				{
+					Name: "drawnTeams", UserColumn: "UserId", Column: "Team", Type: AttributeTypeString,
+					Who:   ownOrCircle,
+					Where: &SubjectWhereData{Condition: drawnWhere, Columns: semanticPassColumns},
+				},
+				{
+					Name: "passTiers", UserColumn: "UserId", Column: "Tier", Type: AttributeTypeNumber,
+					Where: &SubjectWhereData{Condition: "Sealed = false OR Mass >= 10.5", Columns: passColumns("Sealed", "Mass")},
+				},
+			},
+		},
+		{
+			Name:  "Badges",
+			Scope: accesstypes.GlobalPermissionScope,
+			SubjectSets: []SubjectBindingData{{
+				Name: "badges", UserColumn: "Team", Column: "Badge", Type: AttributeTypeString,
+				Who: []SubjectWhoData{{Column: "Team", Set: "teams"}},
+			}},
+		},
+	}
+}
+
+// semanticResourcesWith is the fixture's collection with the drawnTeams set's
+// where: as given.
+func semanticResourcesWith(drawnWhere string) []CollectionResource {
 	attributes := make([]AttributeData, 0, len(semanticColumnAttributes)+2)
 	for _, attr := range semanticColumnAttributes {
 		attributes = append(attributes, AttributeData{Name: attr.name, Column: string(attr.field), Type: attr.typ})
@@ -189,7 +307,7 @@ func semanticResources() []CollectionResource {
 		tags = append(tags, TagData{Name: accesstypes.Tag(f.json), Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}})
 	}
 
-	return []CollectionResource{
+	return append([]CollectionResource{
 		{
 			Name:        semanticResource,
 			Scope:       accesstypes.DomainPermissionScope,
@@ -222,7 +340,7 @@ func semanticResources() []CollectionResource {
 				{Name: "homeRegion", UserColumn: "UserId", Column: "HomeHubId", Type: AttributeTypeString, Path: []BindingHop{{Table: "Hubs", JoinColumn: "Id", Column: "Region"}}},
 			},
 		},
-	}
+	}, semanticPartSets(drawnWhere)...)
 }
 
 // semanticVocabulary is the fixture's vocabulary as the condition generator
@@ -280,6 +398,36 @@ type semanticMembership struct {
 	Team   *string `spanner:"Team"`
 	Tier   *int64  `spanner:"Tier"`
 	HubID  *string `spanner:"HubId"`
+}
+
+// The anchors of the subject sets that write a who: or a where: part.
+type semanticCircle struct {
+	ID          string     `spanner:"Id"`
+	Circle      *string    `spanner:"Circle"`
+	UserID      *string    `spanner:"UserId"`
+	InnerCircle *string    `spanner:"InnerCircle"`
+	ValidUntil  *time.Time `spanner:"ValidUntil"`
+}
+
+type semanticPass struct {
+	ID        string              `spanner:"Id"`
+	Depot     string              `spanner:"Depot"`
+	UserID    *string             `spanner:"UserId"`
+	Circle    *string             `spanner:"Circle"`
+	Team      *string             `spanner:"Team"`
+	Level     *string             `spanner:"Level"`
+	Tier      *int64              `spanner:"Tier"`
+	Mass      *float64            `spanner:"Mass"`
+	Stake     decimal.NullDecimal `spanner:"Stake"`
+	Sealed    *bool               `spanner:"Sealed"`
+	IssuedOn  *civil.Date         `spanner:"IssuedOn"`
+	ExpiresAt *time.Time          `spanner:"ExpiresAt"`
+}
+
+type semanticBadge struct {
+	ID    string  `spanner:"Id"`
+	Team  *string `spanner:"Team"`
+	Badge *string `spanner:"Badge"`
 }
 
 type semanticProfile struct {

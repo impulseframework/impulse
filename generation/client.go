@@ -567,6 +567,7 @@ func (c *client) templateFuncs() map[string]any {
 		"ScopeConstant":           scopeConstant,
 		"MaskingConstant":         maskingConstant,
 		"BindingHops":             bindingHopsLiteral,
+		"SubjectParts":            subjectPartsLiteral,
 		// The feature flag routes under an outlet's prefix and the read route's
 		// parameter, from the resource package's constants, so the routes, the router
 		// tests and the TypeScript descriptor spell them once.
@@ -620,6 +621,39 @@ func bindingHopsLiteral(path []resource.BindingHop) string {
 		fmt.Fprintf(&b, "{Table: %q, JoinColumn: %q, Column: %q}", hop.Table, hop.JoinColumn, hop.Column)
 	}
 	b.WriteString("}")
+
+	return b.String()
+}
+
+// subjectPartsLiteral renders the two parts a subject set's definition may write,
+// who: and where:, as the trailing fields of its SubjectBindingData literal. A set
+// that writes neither renders nothing, so its literal is the one it has always had.
+func subjectPartsLiteral(who []resource.SubjectWhoData, where *resource.SubjectWhereData) string {
+	var b strings.Builder
+	if len(who) > 0 {
+		b.WriteString(", Who: []resource.SubjectWhoData{")
+		for i, test := range who {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "{Column: %q", test.Column)
+			if test.Set != "" {
+				fmt.Fprintf(&b, ", Set: %q", test.Set)
+			}
+			b.WriteString("}")
+		}
+		b.WriteString("}")
+	}
+	if where != nil {
+		fmt.Fprintf(&b, ", Where: &resource.SubjectWhereData{Condition: %q, Columns: []resource.SubjectColumnData{", where.Condition)
+		for i, column := range where.Columns {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "{Name: %q, Column: %q, Type: %q}", column.Name, column.Column, column.Type)
+		}
+		b.WriteString("}}")
+	}
 
 	return b.String()
 }

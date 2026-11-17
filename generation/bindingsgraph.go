@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 )
 
 // The bindings graph: every binding a resources package declares, drawn. A
@@ -23,8 +24,10 @@ import (
 // keys point at; the requester where every subject binding starts; one edge
 // per hop however many paths share it; and a thin grey edge from a bare
 // binding on a foreign key to its table, so the two names a condition pairs
-// (assignedSquadron IN subject.squadrons) visibly meet. Facts only: no grant
-// or condition is drawn.
+// (assignedSquadron IN subject.squadrons) visibly meet. A subject set that
+// writes a who: or a where: part lists each under the set, in the columns'
+// names, and a set that builds on another is an edge from the resource
+// declaring that other set. Facts only: no grant or condition is drawn.
 
 // bindingsGraphKind is a binding kind, which sets its edge style.
 type bindingsGraphKind int
@@ -71,7 +74,9 @@ type bindingsGraphEdge struct {
 
 // bindingsGraphNode is a resource declaring a binding: its name and the bare
 // bindings it lists, one `name: column` line each, subject ones prefixed
-// `subject.`. A resource whose bindings are all paths lists nothing.
+// `subject.`. A subject set that writes a who: or a where: part is one entry
+// of several lines, the parts under the set. A resource whose bindings are all
+// paths, none of them a set with parts, lists nothing.
 type bindingsGraphNode struct {
 	Name     string
 	Bindings []string
@@ -79,12 +84,14 @@ type bindingsGraphNode struct {
 
 // bindingsGraph is one package's assembled graph: the resources declaring a
 // binding, the tables a path lands on or a foreign key points at, whether the
-// requester is drawn, and the deduplicated edges, every list sorted so the
-// rendered file is byte-stable across runs.
+// requester is drawn, whether a subject set writes a who: or a where: part,
+// and the deduplicated edges, every list sorted so the rendered file is
+// byte-stable across runs.
 type bindingsGraph struct {
 	Declaring []bindingsGraphNode
 	Landed    []string
 	Subject   bool
+	Parts     bool
 	Edges     []bindingsGraphEdge
 }
 
@@ -100,17 +107,27 @@ type bindingsGraphBuilder struct {
 	landed    map[string]bool
 	edges     map[bindingsGraphEdge]bool
 	subject   bool
+	// setOwners names the resource declaring each subject set, where a set
+	// that builds on it starts its edge; parts says some set writes a who: or
+	// a where: part.
+	setOwners map[string]string
+	parts     bool
 }
 
 // newBindingsGraphBuilder prepares the table-to-struct resolution over the
 // parsed resources.
 func newBindingsGraphBuilder(c *client) *bindingsGraphBuilder {
 	byTable := make(map[string]*resourceInfo, len(c.resources))
+	setOwners := make(map[string]string)
 	for _, res := range c.resources {
 		byTable[c.pluralize(res.Name())] = res
+		for _, set := range res.SubjectSets {
+			setOwners[set.Name] = res.Name()
+		}
 	}
 
 	return &bindingsGraphBuilder{
+		setOwners: setOwners,
 		structName: func(table string) string {
 			if res, ok := byTable[table]; ok {
 				return res.Name()
@@ -186,21 +203,47 @@ func (b *bindingsGraphBuilder) addResource(res *resourceInfo) {
 
 // addSubjects draws one resource's subject sets and values: a dotted value as
 // a path, a bare one listed as subject.name and pointed at its table when on
-// a foreign key, and the requester entering each anchor column once, naming
-// every set and value it yields there.
+// a foreign key, and the requester entering each column that ties a row to it
+// once, naming every set and value it yields there. A set that writes no who:
+// has one such column, the one its annotation sits on. A written who: enters
+// at each column it compares to the requester, and each column it tests
+// against another set is an edge from the resource declaring that set, labeled
+// with the test; the set's parts are listed under it in its box.
 func (b *bindingsGraphBuilder) addSubjects(res *resourceInfo) {
 	namesByAnchor := make(map[string][]string)
 	for _, subject := range slices.Concat(res.SubjectSets, res.SubjectValues) {
 		b.subject = true
-		anchor := fieldColumn(subject.Anchor)
-		namesByAnchor[anchor] = append(namesByAnchor[anchor], subject.Name)
+		for _, test := range subject.whoTests() {
+			column := fieldColumn(test.Field)
+			if test.Set == "" {
+				namesByAnchor[column] = append(namesByAnchor[column], subject.Name)
+
+				continue
+			}
+			if owner, ok := b.setOwners[test.Set]; ok {
+				b.edges[bindingsGraphEdge{
+					Source: owner,
+					Target: res.Name(),
+					Kind:   bindingsGraphSubject,
+					Label:  subject.Name + ": " + column + " IN " + bindingsGraphSubjectNode + "." + test.Set,
+				}] = true
+			}
+		}
+
+		qualified := bindingsGraphSubjectNode + "." + subject.Name
+		parts := subjectPartLines(qualified, subject)
+		if len(parts) > 0 {
+			b.parts = true
+		}
 		if len(subject.Path) > 0 {
 			b.walk(res.Name(), fieldColumn(subject.ValueField), subject.Path, bindingsGraphSubject, subject.Name)
+			if len(parts) > 0 {
+				b.declare(res.Name(), strings.Join(parts, "\n"))
+			}
 
 			continue
 		}
-		qualified := bindingsGraphSubjectNode + "." + subject.Name
-		b.declare(res.Name(), qualified+": "+fieldColumn(subject.ValueField))
+		b.declare(res.Name(), strings.Join(append([]string{qualified + ": " + fieldColumn(subject.ValueField)}, parts...), "\n"))
 		b.refer(res.Name(), subject.ValueField, qualified)
 	}
 	for anchor, names := range namesByAnchor {
@@ -214,11 +257,37 @@ func (b *bindingsGraphBuilder) addSubjects(res *resourceInfo) {
 	}
 }
 
+// subjectPartLines renders the parts a subject set writes as the lines its box
+// lists under it, each in the names of the columns it reads: `subject.name
+// who: …` and `subject.name where: …`. A set that writes neither has none.
+func subjectPartLines(qualified string, subject *subjectBinding) []string {
+	var lines []string
+	if len(subject.Who) > 0 {
+		tests := make([]condition.WhoTest, 0, len(subject.Who))
+		for _, test := range subject.Who {
+			tests = append(tests, condition.WhoTest{Column: fieldColumn(test.Field), Set: test.Set})
+		}
+		lines = append(lines, qualified+" "+subjectWhoArgKey+": "+condition.WhoExpr(tests).String())
+	}
+	if subject.Where != nil {
+		columns := make(map[string]string, len(subject.Where.Fields))
+		for _, read := range subject.Where.Fields {
+			columns[read.Field.Name()] = fieldColumn(read.Field)
+		}
+		inColumns := condition.RenameBindings(subject.Where.Expr, func(name string) string {
+			return columns[name]
+		})
+		lines = append(lines, qualified+" "+subjectWhereArgKey+": "+inColumns.String())
+	}
+
+	return lines
+}
+
 // graph takes the assembled facts as the sorted graph: declaring resources by
 // name with their lines sorted, landed tables minus the declaring ones, and
 // edges by kind, source, target, label.
 func (b *bindingsGraphBuilder) graph() *bindingsGraph {
-	graph := &bindingsGraph{Subject: b.subject}
+	graph := &bindingsGraph{Subject: b.subject, Parts: b.parts}
 	for name, lines := range b.declaring {
 		slices.Sort(lines)
 		graph.Declaring = append(graph.Declaring, bindingsGraphNode{Name: name, Bindings: lines})
@@ -259,13 +328,16 @@ func (c *client) assembleBindingsGraph() *bindingsGraph {
 }
 
 // bindingsGraphLabel renders a declaring resource's box as an HTML-like
-// Graphviz label: the name in bold over one left-aligned line per bare binding.
+// Graphviz label: the name in bold over one left-aligned line per bare binding,
+// and one more for each part a subject set writes.
 func bindingsGraphLabel(node bindingsGraphNode) string {
 	var b strings.Builder
 	b.WriteString(`<table border="0" cellborder="0" cellspacing="0" cellpadding="1">`)
 	fmt.Fprintf(&b, `<tr><td align="left"><b>%s</b></td></tr>`, html.EscapeString(node.Name))
-	for _, line := range node.Bindings {
-		fmt.Fprintf(&b, `<tr><td align="left">%s</td></tr>`, html.EscapeString(line))
+	for _, entry := range node.Bindings {
+		for line := range strings.SplitSeq(entry, "\n") {
+			fmt.Fprintf(&b, `<tr><td align="left">%s</td></tr>`, html.EscapeString(line))
+		}
 	}
 	b.WriteString(`</table>`)
 
@@ -288,6 +360,14 @@ func renderBindingsDOT(graph *bindingsGraph) string {
 	fmt.Fprintf(&b, "// continuing hop and `name: column ⇒ column` where the path terminates; a thin\n")
 	fmt.Fprintf(&b, "// grey edge points a bare binding on a foreign key at its table. Facts only: no\n")
 	fmt.Fprintf(&b, "// grant or condition is drawn.\n")
+	if graph.Parts {
+		// Said only where a set writes a part, so a package whose sets write none
+		// keeps the file it has always had.
+		fmt.Fprintf(&b, "// A subject set that writes a who: or a where: part lists each under the set, in\n")
+		fmt.Fprintf(&b, "// the columns' names: who: says which rows are the requester's, where: which of\n")
+		fmt.Fprintf(&b, "// those rows count. A set that builds on another is a dashed edge from the\n")
+		fmt.Fprintf(&b, "// resource declaring that other set, labeled `name: column IN subject.other`.\n")
+	}
 	fmt.Fprintf(&b, "digraph Bindings {\n")
 	fmt.Fprintf(&b, "\trankdir=LR;\n")
 	fmt.Fprintf(&b, "\tnode [shape=box];\n")

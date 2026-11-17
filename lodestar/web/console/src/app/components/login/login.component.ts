@@ -166,6 +166,13 @@ export const CREW_MANIFEST: Persona[] = [
       'Watches the fleet board live: a refit or a hail shows up without a reload, and a board reopened within minutes needs no request.',
   },
   {
+    login: 'armorer',
+    name: 'Armorer Arlo',
+    deck: 'Hangar deck',
+    proves:
+      'Sees the hangars a pass opens to his squadron and re-zones the one it runs: a subject set with a who: that follows the squadron set and a where: on the level and the expiry.',
+  },
+  {
     login: 'adjutant',
     name: 'Adjutant Alba',
     deck: 'Headquarters',

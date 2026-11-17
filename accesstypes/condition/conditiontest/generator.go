@@ -15,6 +15,9 @@
 // column attributes only — and it covers every node type, operand type,
 // comparison operator, temporal function, and IN form the grammar has.
 //
+// A vocabulary marked Where is a subject set's where: part: the columns of
+// the set's own row, and the forms condition.ParseWhere admits over them.
+//
 // Callers own the random source, so a failing case reproduces from its seed.
 package conditiontest
 
@@ -49,6 +52,14 @@ type Vocabulary struct {
 	// PostImage reports whether new. is legal: a create or update context
 	// proposes values; a read context does not.
 	PostImage bool
+
+	// Where marks the vocabulary of a subject set's where: part
+	// (condition.ParseWhere): the attributes are the columns of the set's own
+	// row, compared to literals and to now. The forms a where: refuses are
+	// left out: the requester (subject, a subject value, a subject set), now
+	// on the left, and the temporal functions. It declares no subject entry,
+	// no post-image and no join path or list, which a where: has none of.
+	Where bool
 }
 
 // SubjectBinding is one subject-side name (a set or a value) with the
@@ -128,6 +139,9 @@ func New(rng *rand.Rand, vocab *Vocabulary) *Generator {
 	if lists > 1 {
 		panic(fmt.Sprintf("conditiontest.New: the vocabulary declares %d list attributes; a condition reads one list, so a vocabulary declares one", lists))
 	}
+	if vocab.Where && (vocab.PostImage || len(vocab.SubjectSets)+len(vocab.SubjectValues) > 0 || len(g.columns) != len(vocab.Attributes)) {
+		panic("conditiontest.New: a where: vocabulary is the columns of the set's own row; it declares no subject entry, no post-image, no join path and no list")
+	}
 	for _, set := range vocab.SubjectSets {
 		checkSubject(set, "subject set")
 		if len(g.byType[set.Type]) > 0 {
@@ -153,6 +167,17 @@ func New(rng *rand.Rand, vocab *Vocabulary) *Generator {
 // operands the vocabulary cannot supply are left out rather than emitted
 // ill-typed.
 func (g *Generator) leafProductions() []func() condition.Expr {
+	if g.vocab.Where {
+		// A where: reads the row's columns against literals and now, and nothing
+		// of the requester or the request's clock but the instant itself.
+		leaves := []func() condition.Expr{g.literalComparison, g.literalIn, g.nullTest}
+		if len(g.byType[accesstypes.AttributeTypeTimestamp]) > 0 {
+			leaves = append(leaves, g.nowOperandComparison)
+		}
+
+		return leaves
+	}
+
 	leaves := []func() condition.Expr{
 		g.literalComparison,
 		g.literalIn,

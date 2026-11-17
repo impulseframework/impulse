@@ -103,6 +103,12 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 		return nil, err
 	}
 
+	// A subject set's who: may name another resource's set, so the sets it
+	// names are checked once every resource is extracted.
+	if err := resolveSubjectSetReferences(resources); err != nil {
+		return nil, err
+	}
+
 	// Workflow chains cross resources, so they resolve — and the uniform
 	// state bindings synthesize — only once every resource is extracted.
 	if err := c.resolveWorkflows(resources); err != nil {

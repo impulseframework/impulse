@@ -54,6 +54,7 @@ const (
 	DistressCallID                    httpio.ParamType = "distressCallID"
 	FeeByKindKindID                   httpio.ParamType = "feeByKindKindID"
 	HangarID                          httpio.ParamType = "hangarID"
+	HangarPassID                      httpio.ParamType = "hangarPassID"
 	MembersSectorIdentityID           httpio.ParamType = "membersSectorIdentityID"
 	MembersSectorInvitationID         httpio.ParamType = "membersSectorInvitationID"
 	MembersSectorUserID               httpio.ParamType = "membersSectorUserID"
@@ -267,6 +268,9 @@ type GeneratedHandlers interface {
 	Hangars() http.HandlerFunc
 	Hangar() http.HandlerFunc
 	PatchHangars() http.HandlerFunc
+
+	HangarPasses() http.HandlerFunc
+	HangarPass() http.HandlerFunc
 
 	HoldMission() http.HandlerFunc
 
@@ -760,6 +764,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/console/api/sectors/{sectorID}/hangars/{hangarID}", hangarHandler)
 
 	bounded.Patch("/console/api/sectors/{sectorID}/hangars", domainGuard(h.PatchHangars()))
+
+	hangarPassesHandler := domainGuard(h.HangarPasses())
+	bounded.Get("/console/api/sectors/{sectorID}/hangar-passes", hangarPassesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/hangar-passes", hangarPassesHandler)
+
+	hangarPassHandler := domainGuard(h.HangarPass())
+	bounded.Get("/console/api/sectors/{sectorID}/hangar-passes/{hangarPassID}", hangarPassHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/hangar-passes/{hangarPassID}", hangarPassHandler)
 
 	r.Post("/console/api/sectors/{sectorID}/hold-mission", domainGuard(h.HoldMission()))
 

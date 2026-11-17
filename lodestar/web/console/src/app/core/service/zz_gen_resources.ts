@@ -263,6 +263,16 @@ export interface Hangars {
   zone?: string;
 }
 
+export interface HangarPasses {
+  id: string;
+  sectorId?: string;
+  hangarId?: string;
+  userId?: string;
+  squadronId?: string;
+  levelId?: string;
+  expiresAt?: Date;
+}
+
 export interface MembersRoles {
   kind: string;
   axis: string;
@@ -1076,6 +1086,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'zone', displayType: 'string', required: true, isIndex: false },
     ],
   },
+  [Resources.HangarPasses]: {
+    route: 'sectors/{sectorID}/hangar-passes',
+    consolidatedRoute: 'resources',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
+      { fieldName: 'hangarId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Hangars },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', maxLength: 36, enumeratedResource: Resources.CrewSectorUsers },
+      { fieldName: 'squadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
+      { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
+      { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
   [Resources.MembersRoles]: {
     route: 'members-roles',
     readDisabled: true,
@@ -1740,6 +1764,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.DistressCalls]: PermissionScopes.domain,
   [Resources.FeeByKinds]: PermissionScopes.global,
   [Resources.Hangars]: PermissionScopes.domain,
+  [Resources.HangarPasses]: PermissionScopes.domain,
   [Resources.MembersRoles]: PermissionScopes.global,
   [Resources.MembersRoleGrants]: PermissionScopes.global,
   [Resources.MembersSectorIdentities]: PermissionScopes.domain,

@@ -124,7 +124,10 @@ the next package.
   substitutes.
 - **`@subjectSet` anchors:** the anchor's key must lead with the compared column and the
   user column, which generation's requirement that the anchor be keyed or indexed by user
-  already gives; the list still costs the partition per page.
+  already gives; the list still costs the partition per page. Generation warns for a set
+  whose lookup no index of its table serves, one warning for each column its `who:` names,
+  naming the index it wants (the tenant column where the row carries one, the column, the
+  value).
 - **`@subjectValue` anchors:** the unique index generation requires is all the scalar
   subquery needs; one row.
 - **Conditionally visible sort columns:** every page sorts the partition; no index helps.
