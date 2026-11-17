@@ -32,6 +32,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	databaseadmin "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -110,6 +111,21 @@ type devUser struct {
 	User     string       `json:"user"`
 	Password string       `json:"password"`
 	Roles    devRoles     `json:"roles"`
+	// Tours are the roles the persona holds for a time: the relief officer is on a tour
+	// of Anvil, and holds nothing there once it is over.
+	Tours []devTour `json:"tours"`
+}
+
+// devTour is a tour of duty: the roles a persona holds in one sector, named by its name,
+// for a number of days from the bootstrap. Each is a role given for a period that ends
+// (accesstypes.Period): it counts until its end and for nothing after, whether or not
+// its row still stands, and the row goes when the persona next signs in.
+//
+// Demonstrates: auth.periods.
+type devTour struct {
+	Domain string             `json:"domain"`
+	Roles  []accesstypes.Role `json:"roles"`
+	Days   int                `json:"days"`
 }
 
 // devGroup is one group of the crew: its name and description, the sector it is kept in
@@ -347,6 +363,9 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 		if err := assignRoles(ctx, data.UserManager(), data.TenantRoster(), user.User, accesstypes.User(id.String()), user.Roles); err != nil {
 			return err
 		}
+		if err := assignTours(ctx, data.UserManager(), data.TenantRoster(), user.User, accesstypes.User(id.String()), user.Tours); err != nil {
+			return err
+		}
 	}
 
 	for i := range identities.Groups {
@@ -374,6 +393,31 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 		if err := assignRoles(ctx, data.UserManager(), data.TenantRoster(), account.User, accesstypes.User(id.String()), account.Roles); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// assignTours gives a persona the roles of each of their tours, in the tour's sector, for
+// the tour's days from now: a role given for a period, which nobody has to remember to
+// take away.
+func assignTours(ctx context.Context, manager access.UserManager, sectors *resource.TenantRoster, login string, user accesstypes.User, tours []devTour) error {
+	for i := range tours {
+		tour := &tours[i]
+		domain, err := sectors.Named(tour.Domain)
+		if err != nil {
+			return errors.Wrapf(err, "resource.TenantRoster.Named(): user %s", login)
+		}
+		if tour.Days <= 0 {
+			return errors.Newf("%s: the tour of %s in %s lasts %d days: a tour lasts at least one", usersPath, login, tour.Domain, tour.Days)
+		}
+		ends := time.Now().UTC().AddDate(0, 0, tour.Days)
+		for _, role := range tour.Roles {
+			if err := manager.AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, accesstypes.Period{End: ends}); err != nil {
+				return errors.Wrapf(err, "access.UserManager.AssignUserRole(): user %s in the sector %s (%s)", login, tour.Domain, domain)
+			}
+		}
+		fmt.Printf("Assigned %v to %s in the sector %s (%s) until %s\n", tour.Roles, login, tour.Domain, domain, ends.Format(time.RFC3339))
 	}
 
 	return nil

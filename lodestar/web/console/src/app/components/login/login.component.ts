@@ -180,6 +180,13 @@ export const CREW_MANIFEST: Persona[] = [
       "Holds no role in a sector of their own: Anvil's deck crew, a group kept in the sector, holds Cadet and Sector Crew there, and the deckhand is in it.",
   },
   {
+    login: 'relief',
+    name: 'Relief Rae',
+    deck: 'Hangar deck',
+    proves:
+      "On a tour of Anvil: holds Cadet and Sector Crew there for thirty days from the bootstrap, and nothing once the tour is over. Nobody has to take the roles away.",
+  },
+  {
     login: 'adjutant',
     name: 'Adjutant Alba',
     deck: 'Headquarters',

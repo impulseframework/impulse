@@ -58,6 +58,16 @@ type demoUser struct {
 	User     accesstypes.User `json:"user"`
 	Password string           `json:"password"`
 	Roles    demoRoles        `json:"roles"`
+	Tours    []demoTour       `json:"tours"`
+}
+
+// demoTour is a tour of duty as cmd/bootstrap/users.json declares it: the roles a persona
+// holds in one sector, named by its name, for a number of days from the day the world is
+// made. Each is a role given for a period that ends.
+type demoTour struct {
+	Domain string             `json:"domain"`
+	Roles  []accesstypes.Role `json:"roles"`
+	Days   int                `json:"days"`
 }
 
 // demoAccount is an identity of the file that has no password: a member of the portal,
@@ -248,6 +258,9 @@ func provisionDemoAccess(ctx context.Context, crewEngine, membersEngine *access.
 		if err := assignDemoRoles(ctx, crewEngine, accesstypes.User(user.ID.String()), user.Roles); err != nil {
 			return err
 		}
+		if err := assignDemoTours(ctx, crewEngine, accesstypes.User(user.ID.String()), user.Tours); err != nil {
+			return err
+		}
 	}
 	for i := range identities.Groups {
 		if err := seedDemoGroup(ctx, crewEngine, &identities.Groups[i]); err != nil {
@@ -336,6 +349,25 @@ func assignDemoRoles(ctx context.Context, client *access.Client, user accesstype
 		}
 		if err := client.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
 			return fmt.Errorf("AddUserRoles(%s, %s): %w", user, name, err)
+		}
+	}
+
+	return nil
+}
+
+// assignDemoTours gives a persona the roles of each of their tours as the bootstrap gives
+// them: in the tour's sector, for the tour's days from now.
+func assignDemoTours(ctx context.Context, client *access.Client, user accesstypes.User, tours []demoTour) error {
+	for _, tour := range tours {
+		domain, ok := sectorsByName[tour.Domain]
+		if !ok {
+			return fmt.Errorf("AssignUserRole(%s): no seeded sector is named %q", user, tour.Domain)
+		}
+		period := accesstypes.Period{End: time.Now().UTC().AddDate(0, 0, tour.Days)}
+		for _, role := range tour.Roles {
+			if err := client.UserManager().AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, period); err != nil {
+				return fmt.Errorf("AssignUserRole(%s, %s, %s): %w", user, tour.Domain, role, err)
+			}
 		}
 	}
 

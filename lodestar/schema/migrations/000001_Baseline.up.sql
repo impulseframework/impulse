@@ -694,6 +694,8 @@ CREATE TABLE CrewUserRoles (
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -734,6 +736,8 @@ CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
 CREATE TABLE CrewGroupMembers (
   GroupId STRING(36) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
 ) PRIMARY KEY (GroupId, UserId);
@@ -746,6 +750,8 @@ CREATE TABLE CrewGroupRoles (
   Axis STRING(128) NOT NULL,
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
   CONSTRAINT CrewGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
@@ -769,6 +775,8 @@ CREATE TABLE MembersUserRoles (
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -807,6 +815,8 @@ CREATE UNIQUE INDEX MembersGroupsByName ON MembersGroups (Kind, Axis, DomainId, 
 CREATE TABLE MembersGroupMembers (
   GroupId STRING(36) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
 ) PRIMARY KEY (GroupId, UserId);
@@ -819,6 +829,8 @@ CREATE TABLE MembersGroupRoles (
   Axis STRING(128) NOT NULL,
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
   CONSTRAINT MembersGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),

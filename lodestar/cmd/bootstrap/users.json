@@ -494,6 +494,27 @@
           "ClientBrowser"
         ]
       }
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000032",
+      "user": "relief",
+      "password": "lodestar",
+      "roles": {
+        "global": [
+          "CrewCommon",
+          "ClientBrowser"
+        ]
+      },
+      "tours": [
+        {
+          "domain": "Anvil",
+          "roles": [
+            "Cadet",
+            "SectorCrew"
+          ],
+          "days": 30
+        }
+      ]
     }
   ],
   "groups": [
