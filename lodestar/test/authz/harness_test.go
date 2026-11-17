@@ -203,9 +203,11 @@ func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
 
 // CrewIdentity and MembersIdentity are the two auths' identity clients over the scripted
 // engine: the matrix drives the generated methods' routes as it drives every other, and
-// a denied case is answered before any of them runs.
+// a denied case is answered before any of them runs. The crew's client takes what makes
+// a sector from an accepted invitation, as production's does, though no case here
+// accepts one.
 func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
-	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{})
+	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()))
 	if err != nil {
 		panic(err)
 	}

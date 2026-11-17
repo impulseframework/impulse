@@ -38,7 +38,9 @@ import (
 // enters Bastion, and no row says anything. Turning it on is refused unless the person
 // is signed in through the sector's directory themselves, and until the sector has a
 // directory, each with a sentence the person can act on, on the write and on the read a
-// page asks first; a sector is not charted directory only from the start; and a
+// page asks first; nobody charts a sector directly, directory only or not (a sector is
+// directory only from the start where its invitation says so and is accepted through
+// the directory it will be only of: TestInvitedSector); and a
 // caller without the grant is refused by the grants, before any rule answers. Headquarters signed in through the persona provider is told what it would
 // do, the sentence and the people it names, and turns it on; once it is on the read has
 // nothing to say. One request that turns it on and removes the directory is refused. The persona sign-in sets a process variable, so it holds the lock the
@@ -159,13 +161,13 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 		t.Fatalf("the rigger's chart after the refusals = %v, want %v: Anvil stays as it was", got, want)
 	}
 
-	// Nor is a sector charted directory only from the start. No role of the fleet holds
-	// Create on the switch, so the grants refuse the chart; where a role does hold it,
-	// the generated create asks the switch's rules as the update does, and they refuse a
-	// sector that has no directory (the generator's test pins the create's splice).
+	// Nor is a sector charted directory only from the start, or charted at all: nobody
+	// creates a sector directly, so the create is refused with how a sector is made,
+	// whatever it carries. A sector that is directory only from the start is made by an
+	// invitation that says so, accepted through the directory it will be only of.
 	chartClosed := jsonBody(t, []map[string]any{{"op": "add", "path": "/sectors", "value": map[string]any{"name": "Flint", "region": "Near frontier", "established": "2226-11-02", "directoryOnly": true}}})
-	if status, body := hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", chartClosed); status != http.StatusForbidden {
-		t.Errorf("charting a sector that is directory only from the start: status %d, want 403: %s", status, body)
+	if status, body := hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", chartClosed); status != http.StatusBadRequest || !strings.Contains(string(body), "a sector is not created directly") {
+		t.Errorf("charting a sector that is directory only from the start: status %d, want 400 saying how a sector is made: %s", status, body)
 	}
 	if status, body := governor.do(ctx, http.MethodGet, consoleAPI+"/sectors", nil); status != http.StatusOK || strings.Contains(string(body), "Flint") {
 		t.Errorf("the sectors after the refused chart: status %d, want 200 and no Flint: %s", status, body)
