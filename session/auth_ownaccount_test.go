@@ -17,12 +17,14 @@ import (
 )
 
 // TestAuth_ownAccountRoutes_refuseAViewOfThePerson pins that the routes a signed-in
-// person changes their own account through are theirs alone: a session that views as
-// the person, whatever its mask, is refused each one before it reads its body, and the
-// store is asked for nothing but the session and its user. The address a person adds and
-// verifies is where the code of their second factor is mailed, a token and an approved
-// device act as them for as long as they live, and an accepted invitation gives them
-// roles, so none of them is for whoever is looking at the account.
+// person changes their own account through are theirs alone: an impersonated session,
+// whatever its mask and whether it views as a person or acts as a role, is refused each
+// one before it reads its body, and the store is asked for nothing but the session and
+// its user. Every request carries a body that does not parse, so a handler that read it
+// first would answer 400. The address a person adds and verifies is where the code of
+// their second factor is mailed, a token and an approved device act as them for as long
+// as they live, and an accepted invitation gives them roles, so none of them is for
+// whoever is looking at the account.
 func TestAuth_ownAccountRoutes_refuseAViewOfThePerson(t *testing.T) {
 	t.Parallel()
 
@@ -30,33 +32,40 @@ func TestAuth_ownAccountRoutes_refuseAViewOfThePerson(t *testing.T) {
 	routes := []struct {
 		operation string
 		handler   func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler
-		body      string
 	}{
-		{"Email().Add()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Email().Add() }, `{"email":"mine@example.com"}`},
-		{"Email().Verify()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Email().Verify() }, `{"token":"t"}`},
-		{"ApplicationTokens().Create()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.ApplicationTokens().Create() }, `{"name":"script","outlet":"droids"}`},
-		{"ApplicationTokens().Revoke()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.ApplicationTokens().Revoke() }, `{"id":"` + userID.String() + `"}`},
-		{"Device().Approve()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Device().Approve() }, `{"userCode":"ABCD-EFGH"}`},
-		{"Device().Deny()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Device().Deny() }, `{"userCode":"ABCD-EFGH"}`},
-		{"Invitation().Accept()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Invitation().Accept() }, ``},
+		{"Email().Add()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Email().Add() }},
+		{"Email().Verify()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Email().Verify() }},
+		{"ApplicationTokens().Create()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.ApplicationTokens().Create() }},
+		{"ApplicationTokens().Revoke()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.ApplicationTokens().Revoke() }},
+		{"Device().Approve()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Device().Approve() }},
+		{"Device().Deny()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Device().Deny() }},
+		{"Invitation().Accept()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Invitation().Accept() }},
 	}
-	masks := map[string]accesstypes.PermissionMask{
-		"a view with no mask": {},
-		"a read-only view":    accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
+	readOnly := accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
+	sessions := map[string]sessioninfo.Impersonation{
+		"a view of the person with no mask": {Principal: accesstypes.UserPrincipal(accesstypes.User(userID.String()))},
+		"a read-only view of the person":    {Principal: accesstypes.UserPrincipal(accesstypes.User(userID.String())), Mask: readOnly},
+		"a session that acts as a role":     {Principal: accesstypes.RolePrincipal("Auditor")},
 	}
 	for _, route := range routes {
-		for name, mask := range masks {
+		for name, impersonation := range sessions {
 			t.Run(route.operation+": "+name, func(t *testing.T) {
 				t.Parallel()
 				f := newAuthFixture(t, gomock.NewController(t), WithMail(&mail.Recorder{}, testMail))
+				impersonation.SessionID, impersonation.Actor, impersonation.ExpiresAt = sessionID, "admin", time.Now().Add(time.Hour)
 				viewed := &sessioninfo.SessionData{
 					SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(userID),
-					Impersonation: &sessioninfo.Impersonation{SessionID: sessionID, Actor: "admin", Mask: mask, ExpiresAt: time.Now().Add(time.Hour)},
+					Impersonation: &impersonation,
 				}
 				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(viewed, nil)
-				f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+				// A session that acts as a role belongs to the actor, read by name.
+				if impersonation.Principal.IsRole() {
+					f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+				} else {
+					f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+				}
 
-				r := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID), http.MethodPost, "/", strings.NewReader(route.body))
+				r := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID), http.MethodPost, "/", strings.NewReader(`{"this does not parse`))
 				r.Header.Set("Content-Type", "application/json")
 				rr := httptest.NewRecorder()
 				route.handler(f.auth).ServeHTTP(rr, r)
