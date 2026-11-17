@@ -46,11 +46,12 @@ import (
 // an auth that registers the password method passes where its seed gives the account a
 // password (the Password of the session.CreateUserRequest it creates the user with),
 // and is otherwise held to the registration its seed names, as an auth without the
-// method is. A SeedUserIDThrough the author wrote is the author's word that the
+// method is. That registration is a directory's: the password method's own name is
+// none a first sign-in links a seed through. A SeedUserIDThrough the author wrote is the author's word that the
 // registration it names is the deployment's own directory, and is taken as that; the
 // check holds it only to what it can read, that the registration is one of the auth's
-// and, for a Microsoft registration, that it admits one tenant and no personal
-// accounts. The width of any other registration is the author's word.
+// directory methods and, for a Microsoft registration, that it admits one tenant and no
+// personal accounts. The width of any other registration is the author's word.
 type firstAdministrator struct{}
 
 // firstAdministratorName is the check's name.
@@ -229,7 +230,9 @@ func readStringConstants(decl *ast.GenDecl, constants map[string]string) {
 
 // readSeed reads one of the seed's two functions: the registration a
 // session.SeedUserIDThrough call in it names (its second argument, nil where there is
-// no such call), and whether a session.CreateUserRequest it builds sets a password.
+// no such call), and whether the session.CreateUserRequest it creates the user with is
+// given a password: by the Password field of the literal it is built from, or by an
+// assignment to the field of a request built before. A nil is no password.
 func readSeed(fn *ast.FuncDecl) (through ast.Expr, password bool) {
 	if fn.Body == nil {
 		return nil, false
@@ -245,10 +248,14 @@ func readSeed(fn *ast.FuncDecl) (through ast.Expr, password bool) {
 				return true
 			}
 			for _, element := range node.Elts {
-				if field, ok := element.(*ast.KeyValueExpr); ok {
-					if key, ok := field.Key.(*ast.Ident); ok && key.Name == passwordField {
-						password = true
-					}
+				if field, ok := element.(*ast.KeyValueExpr); ok && isIdent(field.Key, passwordField) && !isIdent(field.Value, "nil") {
+					password = true
+				}
+			}
+		case *ast.AssignStmt:
+			for i, target := range node.Lhs {
+				if sel, ok := target.(*ast.SelectorExpr); ok && sel.Sel.Name == passwordField && i < len(node.Rhs) && !isIdent(node.Rhs[i], "nil") {
+					password = true
 				}
 			}
 		}
@@ -257,6 +264,13 @@ func readSeed(fn *ast.FuncDecl) (through ast.Expr, password bool) {
 	})
 
 	return through, password
+}
+
+// isIdent reports an expression that is the bare identifier of the name.
+func isIdent(expr ast.Expr, name string) bool {
+	ident, ok := expr.(*ast.Ident)
+
+	return ok && ident.Name == name
 }
 
 // namesType reports a composite literal's type written as the named type, qualified by
@@ -292,21 +306,23 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 func judgeFoothold(p *app.AuthPackage, auth *app.Auth, f *foothold) (finding, through string) {
 	const remedy = "name the registration that is the deployment's own directory in seedFoothold: derive the id with session.SeedUserIDThrough(Name, the registration's constant, req.Username), which the sign-in rule links at that person's first sign-in through the registration while it admits one organization alone"
 	if !f.named {
-		lacks, password := "the auth registers no password method", fmt.Sprintf("give the auth a password method for its first administrator (impulse add method %s password) and seed the administrator with a password, as impulse add auth writes SeedAdministrator for an auth that starts with the method (session.CreateUserRequest with Password and PasswordChangeRequired, the migrate command handing it the secret the deployment generates)", p.Name)
+		lacks, seeded := "the auth registers no password method", fmt.Sprintf("give the auth a password method for its first administrator (impulse add method %s password) and seed the administrator with a password, as impulse add auth writes SeedAdministrator for an auth that starts with the method (session.CreateUserRequest with Password and PasswordChangeRequired, the migrate command handing it the secret the deployment generates)", p.Name)
 		if f.passwordMethod {
-			lacks, password = "the auth registers the password method but its seed creates the account with no password (the session.CreateUserRequest in SeedAdministrator sets none), which nobody is there yet to give it", "seed the administrator with a password, as impulse add auth writes SeedAdministrator for an auth that starts with the method (session.CreateUserRequest with Password and PasswordChangeRequired, the migrate command handing it the secret the deployment generates)"
+			lacks, seeded = "the auth registers the password method but its seed creates the account with no password (the session.CreateUserRequest in SeedAdministrator sets none), which nobody is there yet to give it", "seed the administrator with a password, as impulse add auth writes SeedAdministrator for an auth that starts with the method (session.CreateUserRequest with Password and PasswordChangeRequired, the migrate command handing it the secret the deployment generates)"
 		}
 
-		return fmt.Sprintf("%s: the first administrator the migrate command seeds for the %s auth cannot sign in: the application's tenants have directories, where a name alone links no account that has never signed in, %s, and the seed names no registration (session.%s); %s, or %s", f.seeds, p.Name, lacks, seedPlainFunc, password, remedy), ""
+		return fmt.Sprintf("%s: the first administrator the migrate command seeds for the %s auth cannot sign in: the application's tenants have directories, where a name alone links no account that has never signed in, %s, and the seed names no registration (session.%s); %s, or %s", f.seeds, p.Name, lacks, seedPlainFunc, seeded, remedy), ""
 	}
 	if f.through == "" {
 		// The argument is not a string or a constant of the package: the author's word,
 		// which the check cannot read further.
 		return "", "the registration its foothold names"
 	}
-	i := slices.IndexFunc(auth.Methods, func(m app.Method) bool { return m.Name == f.through })
+	// The registration is a directory's: the password method's name is no registration
+	// a first sign-in links a seed through.
+	i := slices.IndexFunc(auth.Methods, func(m app.Method) bool { return m.Directory() && m.Name == f.through })
 	if i < 0 {
-		return fmt.Sprintf("%s: the first administrator the migrate command seeds for the %s auth cannot sign in: it is seeded for the registration %q (session.%s), and the auth registers no method under that name, so no sign-in comes through it; name one of the auth's own registrations (%s), the one that is the deployment's own directory", f.seeds, p.Name, f.through, seedThroughFunc, registrationNames(auth)), ""
+		return fmt.Sprintf("%s: the first administrator the migrate command seeds for the %s auth cannot sign in: it is seeded for the registration %q (session.%s), and the auth registers no directory method under that name, so no sign-in links the account through it; name one of the auth's own directory registrations (%s), the one that is the deployment's own directory", f.seeds, p.Name, f.through, seedThroughFunc, registrationNames(auth)), ""
 	}
 	if m := &auth.Methods[i]; m.Kind == app.MethodAzure && m.Tenants != "" && (m.Tenants != app.TenantsOne || m.PersonalAccounts) {
 		return fmt.Sprintf("%s: the first administrator the migrate command seeds for the %s auth cannot sign in: it is seeded for the %s registration (session.%s), which admits more than one organization (%s), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own directory as one tenant (azure.Tenant) and seed for that registration, or give the auth a password method and seed the administrator with a password", f.seeds, p.Name, f.through, seedThroughFunc, microsoftWidth(m)), ""
@@ -352,5 +368,5 @@ func microsoftWidth(m *app.Method) string {
 
 // Meaning explains the invariant for the brief.
 func (firstAdministrator) Meaning() string {
-	return "An auth whose people sign in through a directory and whose roles the application gives starts from a first administrator the migrate command seeds with no password (`SeedAdministrator` in `pkg/auth/<name>/foothold.go`), under the sign-in name the placement names, and that person's first sign-in through the directory links to the account. Where the application's tenants have directories (a struct annotated `@tenantDirectory`), a name alone links no account that has never signed in, since a directory asserts the names it likes; the sign-in rule links the seed only when its id says which registration the name is believed from (`session.SeedUserIDThrough(Name, <Registration>, req.Username)` in `seedFoothold`), and only through that registration while it admits one organization and nobody else. `impulse add auth` writes that id for an auth whose one directory method is of one Microsoft Entra tenant or one Google Workspace. For any other auth (several directory methods, a method open to more than one organization, an organization's identity provider) it seeds for no registration, and the administrator the deployment seeds can never sign in. Either give the auth a password method (`impulse add method <name> password`) and seed the administrator with a password, as `impulse add auth` writes `SeedAdministrator` for an auth that starts with the method (the `session.CreateUserRequest` it creates the user with carries `Password` and `PasswordChangeRequired`, and the migrate command hands it the secret the deployment generates), or, where one registration is the deployment's own directory and only its administrators give its sign-in names, say so in `seedFoothold` by deriving the id with `session.SeedUserIDThrough` over that registration's constant. Naming a registration is the deployment's word that whoever its directory presents under the name is the administrator; the check takes it as that, and holds it to naming one of the auth's own registrations and, for a Microsoft registration, one that admits one tenant and no personal accounts. The password method alone does not pass: `impulse add method` leaves the seed as it was, an account with no password, so the check reads the seed (`SeedAdministrator` and `seedFoothold`) and passes on a password only where the seed gives one."
+	return "An auth whose people sign in through a directory and whose roles the application gives starts from a first administrator the migrate command seeds with no password (`SeedAdministrator` in `pkg/auth/<name>/foothold.go`), under the sign-in name the placement names, and that person's first sign-in through the directory links to the account. Where the application's tenants have directories (a struct annotated `@tenantDirectory`), a name alone links no account that has never signed in, since a directory asserts the names it likes; the sign-in rule links the seed only when its id says which registration the name is believed from (`session.SeedUserIDThrough(Name, <Registration>, req.Username)` in `seedFoothold`), and only through that registration while it admits one organization and nobody else. `impulse add auth` writes that id for an auth whose one directory method is of one Microsoft Entra tenant or one Google Workspace. For any other auth (several directory methods, a method open to more than one organization, an organization's identity provider) it seeds for no registration, and the administrator the deployment seeds can never sign in. Either give the auth a password method (`impulse add method <name> password`) and seed the administrator with a password, as `impulse add auth` writes `SeedAdministrator` for an auth that starts with the method (the `session.CreateUserRequest` it creates the user with carries `Password` and `PasswordChangeRequired`, and the migrate command hands it the secret the deployment generates), or, where one registration is the deployment's own directory and only its administrators give its sign-in names, say so in `seedFoothold` by deriving the id with `session.SeedUserIDThrough` over that registration's constant. Naming a registration is the deployment's word that whoever its directory presents under the name is the administrator; the check takes it as that, and holds it to naming one of the auth's own directory registrations and, for a Microsoft registration, one that admits one tenant and no personal accounts. The password method alone does not pass: `impulse add method` leaves the seed as it was, an account with no password, so the check reads the seed (`SeedAdministrator` and `seedFoothold`) and passes on a password only where the seed gives one."
 }

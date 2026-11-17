@@ -146,6 +146,34 @@ func TestFirstAdministrator(t *testing.T) {
 			wantDetails: []string{noPasswordSeeded},
 		},
 		{
+			name: "a seed that gives the password to a request built before",
+			edit: func(files map[string]string) {
+				files["pkg/auth/staff/foothold.go"] = strings.Replace(passwordFoothold,
+					"return true, a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password, PasswordChangeRequired: true})",
+					"req := &session.CreateUserRequest{Username: Administrator, PasswordChangeRequired: true}\n\treq.Password = &password\n\n\treturn true, a.seedFoothold(ctx, req)", 1)
+			},
+			wantStatus:  Pass,
+			wantSummary: "the first administrator can sign in: staff (seeded with a password)",
+		},
+		{
+			name: "a seed whose request names a nil password gives none",
+			edit: func(files map[string]string) {
+				files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, "&session.CreateUserRequest{Username: signInName}", "&session.CreateUserRequest{Username: signInName, Password: nil}", 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{noPasswordSeeded},
+		},
+		{
+			name: "a seed that names the password method as its registration: no first sign-in links through it",
+			edit: func(files map[string]string) {
+				files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, seedPlain, `id := session.SeedUserIDThrough(Name, "password", req.Username)`, 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{`pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the registration "password" (session.SeedUserIDThrough), and the auth registers no directory method under that name, so no sign-in links the account through it; name one of the auth's own directory registrations (google), the one that is the deployment's own directory`},
+		},
+		{
 			name: "the password method beside a seed the author names the registration of",
 			edit: func(files map[string]string) {
 				files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, seedPlain, `id := session.SeedUserIDThrough(Name, "google", req.Username)`, 1)
@@ -196,7 +224,7 @@ func TestFirstAdministrator(t *testing.T) {
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{`pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the registration "workspace" (session.SeedUserIDThrough), and the auth registers no method under that name, so no sign-in comes through it; name one of the auth's own registrations (google), the one that is the deployment's own directory`},
+			wantDetails: []string{`pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the registration "workspace" (session.SeedUserIDThrough), and the auth registers no directory method under that name, so no sign-in links the account through it; name one of the auth's own directory registrations (google), the one that is the deployment's own directory`},
 		},
 		{
 			name: "a seed for a Microsoft registration open to any tenant",
