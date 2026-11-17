@@ -797,6 +797,22 @@ naming the header, the value it takes and what was sent, and does not run the ca
 `false`, an empty value, and the header sent twice. A client that sends `X-Dry-Run: 1`
 to rehearse a write is told so, and writes nothing.
 
+Either header asks that the call be held back, so a call that has no dry run and no
+warning refuses a request that carries one: 400, naming the header and saying the call
+has none, and the call is not run. Only a method has either (an `@rpc` struct's, an
+upload's, a tenant's own that the generator writes, and `SetFeature`), and its frame
+answers both headers itself. Every other generated route (a list, a read, a
+collection's patch, the consolidated patch with its creates, patches and deletes, the
+creation of a tenant, a scheduled call, the live routes) is mounted behind one
+middleware in the generated router, `resource.NoDryRunOrWarning`, which refuses either
+header with the value `true` and any other value as the frames do. The router knows
+which routes read the headers, so the refusal is said once there and no frame repeats
+it; the generated router test (`TestGeneratedDryRunAndWarning`) sends both headers to
+every route of the application and holds each to one side or the other. The browser
+client sends the two headers only from a method's handle (`dryRun`, `warning`), to the
+method's own route. A route an application mounts beside the generated ones is its
+own, and takes the middleware by naming it.
+
 The warning is no permission check and no second gate on the route: a script that
 holds the grant calls the method without asking. It is what stands between a person
 and a click, which is why the generator makes it the method's own and no page's: every
@@ -2408,10 +2424,11 @@ delegated to from the generated `zz_gen_features.go` in the handler package, and
 struct or a manual registration that would take the name `FeatureFlags` is refused.
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
-one transaction, honors `X-Dry-Run`, signals the other instances through the live
-service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
-logged), reloads this instance's copy, and answers the flag as written. An `@rpc`
-struct named `SetFeature` is refused.
+one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
+signals the other instances through the live service (`Signal(ctx,
+resource.KindFeatures)`, bounded by two seconds, a failure logged), reloads this
+instance's copy, and answers the flag as written. An `@rpc` struct named `SetFeature`
+is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and
 Read on `FeatureFlags` with its four non-key fields, in the global scope:

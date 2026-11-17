@@ -4599,9 +4599,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers{{ if .AuthParam }}, auth 
 	// request carrying X-Subscribe is refused naming the header.
 	r = r.With(live.Refusing())
 {{- end }}
+{{- template "heldBackRoutes" . }}
 {{- if or .ServesSessions .HasConsolidatedHandler .HasBoundedRoutes }}
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 {{- end }}
 {{- if .HasDomainScopedRoutes }}
@@ -4619,7 +4620,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers{{ if .AuthParam }}, auth 
 {{ end }}
 {{- range $Struct, $Routes := .RoutesMap }}
 	{{- range $route := $Routes }}
-	{{- $reg := "bounded" }}{{ if $route.SelfBounded }}{{ $reg = "r" }}{{ end }}
+	{{- $reg := $route.Registrar }}
 	{{- if $route.RequestLog.Declared }}
 	// {{ $route.HandlerFunc }} writes its request log {{ $route.RequestLog }}: the route's own word, set ahead of the handler.
 	{{- $reg = printf "%s.With(logger.WithPolicy(%s))" $reg $route.RequestLog.Expr }}
@@ -4655,9 +4656,10 @@ type GeneratedScheduledHandlers interface {
 // ` + scheduled.Prefix + `/<method in kebab case>. The generated router mounts them behind the
 // scheduler's token check (SchedulerAuth) and no outlet's guards: a scheduled call
 // carries no session, so it serves no live pages, and a request carrying X-Subscribe is
-// refused naming the header.
+// refused naming the header. A scheduled call has no dry run and no warning, so a
+// request that asks for either is refused naming the header, and the method is not run.
 func generatedScheduledRoutes(r chi.Router, h GeneratedScheduledHandlers) {
-	r = r.With(live.Refusing(), resource.BodyLimit(BodyLimit))
+	r = r.With(live.Refusing(), resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 	{{- range .ScheduledRoutes }}
 	{{- if .RequestLog.Declared }}
 	// {{ .HandlerFunc }} writes its request log {{ .RequestLog }}: the method's own word (@schedule), set ahead of the handler.
@@ -4718,9 +4720,10 @@ func generated{{ $outlet.Suffix }}Routes(r chi.Router, h Generated{{ $outlet.Suf
 	// carrying X-Subscribe is refused naming the header.
 	r = r.With(live.Refusing())
 {{- end }}
+{{- template "heldBackRoutes" $outlet }}
 {{- if or $outlet.ServesSessions $outlet.HasConsolidatedHandler $outlet.HasBoundedRoutes }}
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 {{- end }}
 {{- if $outlet.HasDomainScopedRoutes }}
@@ -4738,7 +4741,7 @@ func generated{{ $outlet.Suffix }}Routes(r chi.Router, h Generated{{ $outlet.Suf
 {{ end -}}
 {{- range $Struct, $Routes := $outlet.RoutesMap }}
 	{{- range $route := $Routes }}
-	{{- $reg := "bounded" }}{{ if $route.SelfBounded }}{{ $reg = "r" }}{{ end }}
+	{{- $reg := $route.Registrar }}
 	{{- if $route.RequestLog.Declared }}
 	// {{ $route.HandlerFunc }} writes its request log {{ $route.RequestLog }}: the route's own word, set ahead of the handler.
 	{{- $reg = printf "%s.With(logger.WithPolicy(%s))" $reg $route.RequestLog.Expr }}
@@ -4801,6 +4804,23 @@ func NewTestRouter(h GeneratedHandlers{{ template "testRouterAuthParams" . }}) *
 
 	return r
 }
+{{- end }}
+{{- /* heldBackRoutes follows the subscribe middleware in a routes function: the
+refusal of a request that asks for a dry run or a warning, on every route whose frame
+reads neither header, with the router before it kept for the routes whose frames
+answer the two headers themselves. */ -}}
+{{- define "heldBackRoutes" }}
+	// A request that asks a call for a dry run (X-Dry-Run) or for its warning
+	// (X-Warning) asks that the call be held back, and a frame that never reads the
+	// header would run it for real. So every route registered on r from here on, and
+	// on the bounded group drawn from it, refuses such a request naming the header,
+	// and nothing runs.
+{{- if .HasAskedRoutes }} The routes whose frames answer the two headers
+	// themselves (a method's, an upload's, SetFeature's) register on asked, the router
+	// before the refusal.
+	asked := r
+{{- end }}
+	r = r.With(resource.NoDryRunOrWarning())
 {{- end }}
 {{- /* subscribingComment opens a session outlet's routes function: what the subscribe middleware binds and does. */ -}}
 {{- define "subscribingComment" }}
@@ -4883,6 +4903,38 @@ func TestGeneratedRoutes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGeneratedDryRunAndWarning proves the refusal of a dry run and of a warning lands
+// on exactly the routes whose frames read neither header. A request that asks a call
+// for a dry run (X-Dry-Run: true) or for its warning (X-Warning: true) reaches the
+// handler of a method, an upload or SetFeature, whose frame answers the header itself,
+// and is refused (400) ahead of every other handler, which never runs: a frame that
+// does not read the header would run for real the call the request asked be held back.
+func TestGeneratedDryRunAndWarning(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range generatedRouterTests() {
+		for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {
+			t.Run(tt.method+"-url"+strings.ReplaceAll(tt.url, "/", "-")+"-"+header, func(t *testing.T) {
+				t.Parallel()
+
+				rec := newGeneratedCallRecorder()
+				router := NewTestRouter(newGeneratedHandlersStub(rec.RecordHandlerCall){{ range .TestRouterAuthArgs }}, {{ . }}{{ end }})
+				req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.url, http.NoBody)
+				req.Header.Set(header, "true")
+				rr := httptest.NewRecorder()
+				router.ServeHTTP(rr, req)
+
+				if got, want := rec.handlers[tt.handlerFunc] == 1, tt.readsDryRunAndWarning; got != want {
+					t.Errorf("handler %s reached under %s = %v, want %v", tt.handlerFunc, header, got, want)
+				}
+				if !tt.readsDryRunAndWarning && rr.Code != http.StatusBadRequest {
+					t.Errorf("response.Code = %v under %s, want %v: the route's frame does not read the header", rr.Code, header, http.StatusBadRequest)
+				}
+			})
+		}
 	}
 }
 {{ if .NegativeRouterTests }}
@@ -5036,6 +5088,10 @@ type generatedRouterTest struct {
 	// selfBounded marks a route whose handler bounds its own body (live, RPC), which
 	// the router leaves off its bounded group.
 	selfBounded bool
+	// readsDryRunAndWarning marks a route whose frame answers a request that asks for a
+	// dry run or a warning itself (a method's, an upload's, SetFeature's), which the
+	// router leaves off its refusal of the two headers.
+	readsDryRunAndWarning bool
 }
 
 func generatedRouteParameters() []string {
@@ -5098,14 +5154,14 @@ func generatedRouterTests() []*generatedRouterTest {
 		{{- range $method := $route.TestMethods }}
 		{
 			url: "{{ $route.TestURL }}", method: {{ $method }},
-			handlerFunc: "{{ $route.HandlerFunc }}",{{ if $route.SelfBounded }} selfBounded: true,{{ end }}
+			handlerFunc: "{{ $route.HandlerFunc }}",{{ if $route.SelfBounded }} selfBounded: true,{{ end }}{{ if $route.ReadsDryRunAndWarning }} readsDryRunAndWarning: true,{{ end }}
 			parameters: map[string]string{ {{- range $param := $route.TestParams }}"{{ $param.Key }}": "{{ $param.Value }}", {{ end -}} },
 		},
 		{{- end }}
 		{{- if $route.FormerTestURL }}
 		{
 			url: "{{ $route.FormerTestURL }}", method: {{ index $route.TestMethods 0 }},
-			handlerFunc: "{{ $route.HandlerFunc }}",{{ if $route.SelfBounded }} selfBounded: true,{{ end }}
+			handlerFunc: "{{ $route.HandlerFunc }}",{{ if $route.SelfBounded }} selfBounded: true,{{ end }}{{ if $route.ReadsDryRunAndWarning }} readsDryRunAndWarning: true,{{ end }}
 			parameters: map[string]string{ {{- range $param := $route.TestParams }}"{{ $param.Key }}": "{{ $param.Value }}", {{ end -}} },
 		},
 		{{- end }}

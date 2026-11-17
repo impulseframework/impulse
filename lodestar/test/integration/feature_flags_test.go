@@ -87,12 +87,14 @@ func commendationBody(citation string) string {
 
 // flagStep is one request of the scenario and what it must answer.
 type flagStep struct {
-	name       string
-	on         *flagInstance
-	user       accesstypes.User
-	method     string
-	target     string
-	body       string
+	name   string
+	on     *flagInstance
+	user   accesstypes.User
+	method string
+	target string
+	body   string
+	// header is a header the request carries with the value true, where it carries one.
+	header     string
 	wantStatus int
 	// settle polls until the status matches, for an instance that learns of a flip on
 	// its own goroutine.
@@ -192,6 +194,34 @@ func TestFeatureFlags_commendationsDesk(t *testing.T) {
 		{name: "the cadet holds no Execute on SetFeature: refused at the method's own gate", on: first, user: featureCadet, method: http.MethodPost, target: setFeatureRoute, body: `{"name":"commendations","enabled":true}`, wantStatus: http.StatusForbidden},
 		{name: "the cadet holds no List on the flags either", on: first, user: featureCadet, method: http.MethodGet, target: featureFlagsRoute, wantStatus: http.StatusForbidden},
 		{name: "a flag the package does not declare is not found", on: first, user: featureAdjutant, method: http.MethodPost, target: setFeatureRoute, body: `{"name":"nonesuch","enabled":true}`, wantStatus: http.StatusNotFound},
+		{
+			name: "a request that asks SetFeature for a warning is refused: the method declares none", on: first, user: featureAdjutant, method: http.MethodPost, target: setFeatureRoute, body: `{"name":"commendations","enabled":true}`, header: resource.WarningHeader, wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, step string, body []byte) {
+				t.Helper()
+				if want := "SetFeature declares no warning: send the call without the " + resource.WarningHeader + " header"; !strings.Contains(string(body), want) {
+					t.Errorf("%s: body = %s, want it to say %q", step, body, want)
+				}
+				if got := fake.Signals(); len(got) != 0 {
+					t.Errorf("%s: signals = %v, want none: the refused call was not run", step, got)
+				}
+			},
+		},
+		{
+			name: "the flag is still off after the refused call", on: first, user: featureAdjutant, method: http.MethodGet, target: featuresRoute, wantStatus: http.StatusOK,
+			check: func(t *testing.T, step string, body []byte) {
+				t.Helper()
+				assertEnabled(t, step, body, []string{})
+			},
+		},
+		{
+			name: "the flags list has no dry run: a request that asks for one is refused naming the header", on: first, user: featureAdjutant, method: http.MethodGet, target: featureFlagsRoute, header: resource.DryRunHeader, wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, step string, body []byte) {
+				t.Helper()
+				if want := "the " + resource.DryRunHeader + " header asks for a dry run, and this call has none"; !strings.Contains(string(body), want) {
+					t.Errorf("%s: body = %s, want it to say %q", step, body, want)
+				}
+			},
+		},
 		{
 			name: "the adjutant turns the desk on: the flag as written, and one signal of the features kind", on: first, user: featureAdjutant, method: http.MethodPost, target: setFeatureRoute, body: `{"name":"commendations","enabled":true}`, wantStatus: http.StatusOK,
 			check: func(t *testing.T, step string, body []byte) {
@@ -298,7 +328,12 @@ func TestFeatureFlags_commendationsDesk(t *testing.T) {
 func runFlagStep(t *testing.T, step *flagStep) {
 	t.Helper()
 
-	status, body := doRequestAs(t, step.on.h, step.user, step.method, step.target, step.body)
+	var headers map[string]string
+	if step.header != "" {
+		headers = map[string]string{step.header: "true"}
+	}
+	rr := doRequestRecordedWithHeaders(t, step.on.h, step.user, step.method, step.target, step.body, headers)
+	status, body := rr.Code, rr.Body.Bytes()
 	if step.settle {
 		status, body = settleOn(t, step.on, step.user, step.method, step.target, step.wantStatus)
 	}

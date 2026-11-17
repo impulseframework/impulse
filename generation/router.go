@@ -92,6 +92,9 @@ func (r *resourceGenerator) runRouteGeneration() error {
 				if !route.SelfBounded {
 					outlet.HasBoundedRoutes = true
 				}
+				if route.ReadsDryRunAndWarning {
+					outlet.HasAskedRoutes = true
+				}
 				if route.RequestLog.Declared() {
 					routeRequestLogs = true
 					routeMinSeverities = routeMinSeverities || route.RequestLog.HasMinSeverity()
@@ -141,6 +144,7 @@ func (r *resourceGenerator) runRouteGeneration() error {
 		NegativeRouterTests:    negativeTests,
 		ScheduledRoutes:        scheduledRoutes,
 		HasGatedRoutes:         defaultOutlet.HasGatedRoutes,
+		HasAskedRoutes:         defaultOutlet.HasAskedRoutes,
 		RouteRequestLogs:       routeRequestLogs,
 		RouteMinSeverities:     routeMinSeverities,
 		StubFeatureGuard:       stubFeatureGuard,
@@ -442,6 +446,9 @@ func (r *resourceGenerator) rpcRoute(rpcStruct *rpcMethodInfo, routePrefix strin
 		SelfBounded:  true,
 		RequestLog:   rpcStruct.RequestLog,
 		Traces:       rpcStruct.Traces,
+		// A method's frame reads both headers: it runs a dry run or refuses it, and
+		// answers its warning or refuses one it does not declare.
+		ReadsDryRunAndWarning: true,
 	}
 	if former := rpcStruct.FormerRouteName(); former != "" {
 		route.FormerPath, route.FormerTestURL = r.rpcPaths(rpcStruct, routePrefix, former)
