@@ -33,7 +33,10 @@ const menus: Menu[] = [
 describe('PlaceSwitcherComponent', () => {
   let fixture: ComponentFixture<PlaceSwitcherComponent>;
 
-  const open = async (digest: PermissionDigest, domains: { domain: string; name: string }[]): Promise<void> => {
+  const open = async (
+    digest: PermissionDigest,
+    domains: { domain: string; name: string; closed?: string }[],
+  ): Promise<void> => {
     const transport = specTransport({ digests: { '': digest }, domains });
     await TestBed.configureTestingModule({
       imports: [PlaceSwitcherComponent],
@@ -80,6 +83,55 @@ describe('PlaceSwitcherComponent', () => {
     expect(
       fixture.componentInstance.groups().map((group) => group.entries.map((entry) => [entry.label, entry.checked])),
     ).toEqual([[['Acme', false]]]);
+  });
+
+  it('lists a tenant that is closed to this sign-in under the places, with the reason, and never as a place to open', async () => {
+    const reason = 'Bastion admits only people who sign in through its own directory. You signed in with a password.';
+    await open({}, [
+      { domain: 'anvil', name: 'Anvil' },
+      { domain: 'bastion', name: 'Bastion', closed: reason },
+      { domain: 'cinder', name: 'Cinder' },
+    ]);
+    expect(fixture.componentInstance.groups().flatMap((group) => group.entries.map((entry) => entry.label))).toEqual([
+      'Anvil',
+      'Cinder',
+    ]);
+    expect(fixture.componentInstance.closed()).toEqual([{ id: 'bastion', label: 'Bastion', reason }]);
+
+    // The list draws it apart: named, with the reason, and no button to choose.
+    (element().querySelector('button.switcher') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await TestBed.inject(ApplicationRef).whenStable();
+    const closed = document.querySelector('.closed');
+    expect(closed?.querySelector('.closed-heading')?.textContent).toBe('Closed to this sign-in');
+    expect(closed?.querySelector('.closed-name')?.textContent).toBe('Bastion');
+    expect(closed?.querySelector('.closed-reason')?.textContent).toBe(reason);
+    expect(closed?.querySelector('button')).toBeNull();
+    expect([...document.querySelectorAll('.menu-list button.item .label')].map((item) => item.textContent?.trim())).toEqual([
+      'Anvil',
+      'Cinder',
+    ]);
+  });
+
+  it('opens the list for a person with one place and a tenant that is closed to this sign-in', async () => {
+    await open({ FeatureFlags: { List: 'granted' } }, [
+      { domain: 'bastion', name: 'Bastion', closed: 'Bastion admits only people who sign in through its own directory.' },
+    ]);
+    expect(fixture.componentInstance.listed()).toBe(true);
+    expect(element().querySelector('button.switcher .name')?.textContent).toBe('Configuration');
+    expect(element().querySelector('.switcher.alone')).toBeNull();
+  });
+
+  it('narrows the closed tenants with the places as the person types', async () => {
+    await open({}, [
+      { domain: 'anvil', name: 'Anvil' },
+      { domain: 'bastion', name: 'Bastion', closed: 'Bastion admits only people who sign in through its own directory.' },
+    ]);
+    fixture.componentInstance.filter.set('anv');
+    expect(fixture.componentInstance.closed()).toEqual([]);
+    fixture.componentInstance.filter.set('bas');
+    expect(fixture.componentInstance.closed().map((place) => place.label)).toEqual(['Bastion']);
+    expect(fixture.componentInstance.groups()).toEqual([]);
   });
 
   it(`opens with a box to find a place from ${findFrom} places`, async () => {

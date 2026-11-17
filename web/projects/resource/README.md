@@ -200,6 +200,18 @@ or one per domain), loaded on demand and cached for the session.
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
   picker to show, the domain itself where none is held; `subscribe` notifies a UI framework.
+  A tenant the person holds a seat in and this session cannot enter (a tenant that admits
+  only people who sign in through its own directory, when the person signed in another
+  way) is listed with `closed`, the reason in a sentence the server writes. `domains()`
+  holds the tenants the session reaches and never a closed one; `closedDomains()` answers
+  the closed ones with their reasons, for a picker to show marked and not as places to
+  open.
+- `directoryOnlyConsequence(api.request, tenant)` asks the server what turning a tenant's
+  directory-only switch on would do, before a page saves it (`GET directory-only`): the
+  sentence a confirmation shows, the people seated in the tenant who would lose access,
+  and the words for the confirming button. The server's refusal (a tenant with no
+  directory, a person who is not signed in through the tenant's directory, a tenant
+  that is directory only already) throws with its sentence as the error's message.
 - Every answer here reads a `Store`, and a UI framework can make each read a
   dependency of its reactive code by setting the store read hook once
   (`setStoreReadHook`). The Angular client does (`provideResourceClient`), so a
