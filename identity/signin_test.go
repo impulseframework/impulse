@@ -79,6 +79,17 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			},
 		},
 		{
+			name: "a role whose period has ended is nothing the person holds: the invitation gives it afresh, with no period",
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}},
+			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Reader")},
+			periods: map[access.MembershipKey]accesstypes.Period{
+				access.NewMembershipKey(alphaScope, dana, "Reader"): {End: time.Now().Add(-time.Hour)},
+			},
+			// The row stands, so the write of the membership finds it and the period is what changes.
+			wantWrites:  []string{"period of membership domain/alpha " + id + " Reader: none"},
+			wantChanged: 1,
+		},
+		{
 			name:    "a role that exists nowhere any more fails the transaction, so the role given before it is not committed",
 			inv:     &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Retired"}},
 			wantErr: httpio.HasNotFound,

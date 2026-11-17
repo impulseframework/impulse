@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -150,10 +151,12 @@ func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTra
 }
 
 // giveUnlessHeld buffers the membership an accepted invitation gives, with no period,
-// unless the person holds the role in the scope already: a membership that stands in
-// the table is left exactly as it is, its period included. An invitation gives a person
+// unless the person holds the role in the scope already: a membership whose period has
+// not ended is left exactly as it is, its period included. An invitation gives a person
 // what they do not hold; it does not turn a role an administrator gave until Friday
-// into one that stands for good. The membership is read as committed.
+// into one that stands for good, nor one given from next month into one held today. A
+// role whose period has ended is nothing the person holds, whether or not its row still
+// stands, and is given afresh. The membership is read as committed.
 func (m *Manager) giveUnlessHeld(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	key := access.NewMembershipKey(scope, User(userID), role)
 	held, err := m.store.HasMembership(ctx, txn, &key)
@@ -161,7 +164,13 @@ func (m *Manager) giveUnlessHeld(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.HasMembership()")
 	}
 	if held {
-		return nil
+		periods, err := m.store.UserPeriods(ctx, txn, userID)
+		if err != nil {
+			return errors.Wrap(err, "identity.Store.UserPeriods()")
+		}
+		if !periods.Memberships[key].Ended(time.Now()) {
+			return nil
+		}
 	}
 
 	return m.AssignRole(ctx, txn, scope, userID, role)
