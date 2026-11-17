@@ -170,20 +170,20 @@ type Identity struct {
 	IDPAMR []string
 	// SignInName is the name the person signs in with at the directory the identity
 	// came from: the user principal name on Entra, the verified email on Google; ""
-	// when the method has none. The standard account rules (signin.StandardAccountRule)
-	// use it as the username of the account they provision or match. It is an
+	// when the method has none. The standard account rule (signin.AccountRule)
+	// uses it as the username of the account it provisions or matches. It is an
 	// attribute, never a key.
 	SignInName string
 	// Organization is the organization the identity came from as the registration
 	// names it: the tenant's name when the application gave one and its id otherwise
 	// on Entra, the connection the Workspaces slot selected on Google; "" when the
-	// method has none. The standard account rules store it as the tenant key of the
-	// link they make, unless a custom rule names another. It is an attribute, never a
+	// method has none. The standard account rule stores it as the tenant key of the
+	// link it makes, unless a custom rule names another. It is an attribute, never a
 	// key: the key stays Connection.
 	Organization string
 	// Guest reports that the account is a guest of its directory, not a member: an
 	// Entra B2B guest, whose preferred username is an address the directory did not
-	// verify. The standard account rules refuse a guest; a custom rule decides for
+	// verify. The standard account rule refuses a guest; a custom rule decides for
 	// itself.
 	Guest bool
 	// Attestation is what the connection says about a second factor: evidence in the
@@ -306,7 +306,7 @@ const (
 	// account rule needs it as the username.
 	RefusedNoEmail LoginRefusalCode = "no_email"
 	// RefusedNotInvited is the code for an identity that is not linked yet and matches
-	// no pre-created user, under the invited-users-only account rule.
+	// no pre-created user, through a sign-in method that is invite only.
 	RefusedNotInvited LoginRefusalCode = "not_invited"
 	// RefusedInvitationOnly is the code for an identity that is not linked yet and
 	// matches no pre-created user, from a directory a tenant declares with no default
@@ -314,7 +314,7 @@ const (
 	// no account is created.
 	RefusedInvitationOnly LoginRefusalCode = "invitation_only"
 	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
-	// admitted, under the invited-users-only account rule, whose invitation had expired
+	// admitted, through a sign-in method that is invite only, whose invitation had expired
 	// or been used by the time the sign-in accepted it.
 	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
 	// RefusedInvitationAddress is the code for a sign-in or an acceptance that carried
@@ -327,7 +327,7 @@ const (
 	// account.
 	RefusedInvitationAddress LoginRefusalCode = "invitation_address"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
-	// (Identity.Guest), which the standard account rules refuse.
+	// (Identity.Guest), which the standard account rule refuses.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"
 	// RefusedUnlistedTenant is the code for an Entra token from a tenant the
 	// registration's Tenants slot does not admit.

@@ -16,7 +16,7 @@ Azure and Google sign-in against `oidctest.FakeIDP` (`TestAuthSeams_AzureAndGoog
 production verifiers only, so not under `skipAuth`), and the sign-in rules shape by rule
 (`TestAuthSeams_SignInRules`: each scenario registers the two methods in the shape it
 needs, a `rulesShape`, against a fake Microsoft identity platform and a fake Google, and
-runs the standard account rules, a custom rule beside them, the organization slots, the
+runs the standard account rule under each choice made for a method (open to sign-up, or invite only), a custom rule beside it, the organization slots, the
 policy at every start and the provider-initiated logout across tenants), and the machine
 outlets (`TestAuthSeams_MachineTokens`: a program's bearer calls on two outlets beside
 the browser's session, the token page, the device flow through the person's approval,

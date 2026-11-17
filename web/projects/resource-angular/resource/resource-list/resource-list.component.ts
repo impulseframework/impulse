@@ -212,6 +212,12 @@ export class ResourceListComponent implements OnInit {
     return total !== undefined && total > 0 ? `${title} (${total})` : title;
   });
 
+  /**
+   * The page's standing notice, said from the rows the page holds; empty where the
+   * page gives none, or where its rows give it nothing to say.
+   */
+  notice = computed(() => this.config()?.notice?.(this.store.page().rows) ?? '');
+
   indentTitle = computed(() => {
     if (this.config() === undefined) {
       return false;

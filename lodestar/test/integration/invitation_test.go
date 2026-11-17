@@ -295,9 +295,10 @@ func TestEmailAddress_addedAndVerified(t *testing.T) {
 }
 
 // TestPasswordSignUp_fromMailedLink creates a crew login with a password from a sign-up
-// link: a stranger gives an address, follows the link, opens it for the address, and
-// completes with a username and a password; the login holds the address verified and
-// no role, and an address an account already holds answers the same to the screen.
+// link, once the governor has opened the password method to sign-up: a stranger gives an
+// address, follows the link, opens it for the address, and completes with a username and
+// a password; the login holds the address verified and no role, and an address an
+// account already holds answers the same to the screen.
 //
 // Demonstrates: auth.password-sign-up, auth.email-address.
 func TestPasswordSignUp_fromMailedLink(t *testing.T) {
@@ -306,6 +307,9 @@ func TestPasswordSignUp_fromMailedLink(t *testing.T) {
 	ctx := t.Context()
 	s := newServed(ctx, t)
 	const email, username = "rookie@example.com", "rookie"
+	hq := newBrowser(t, s, consoleAPI)
+	hq.signIn(ctx, "governor")
+	openCrewSignUp(ctx, t, hq, "password")
 
 	stranger := newBrowser(t, s, consoleAPI)
 	if status, body := stranger.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {

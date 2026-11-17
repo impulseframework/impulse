@@ -122,6 +122,7 @@ const (
 	eventsTable         = "CrewSessionAuthEvents"
 	pendingTable        = "CrewSessionPendingSignIns"
 	attemptsTable       = "CrewSessionSignInAttempts"
+	methodsTable        = "CrewSessionSignInMethods"
 	mailLinksTable      = "CrewSessionMailLinks"
 	factorCodesTable    = "CrewSessionFactorCodes"
 	trustedDevicesTable = "CrewSessionTrustedDevices"
@@ -249,6 +250,23 @@ type Settings struct {
 	// (app.NewSectorDirectoryReader), which the directory admission decides a stranger's
 	// first sign-in with. Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
+}
+
+// required refuses settings that lack what the auth is not built without, each refusal
+// saying what the missing piece is for.
+func (s *Settings) required() error {
+	switch {
+	case s.ChangeSignal == nil:
+		return errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
+	case s.TenantDeclarations == nil:
+		return errors.New("crew.Settings.TenantDeclarations is required: the sign-in rule reads what each sector declares about who may enter it through the generated reader (app.NewSectorDeclarationReader)")
+	case s.TenantDirectories == nil:
+		return errors.New("crew.Settings.TenantDirectories is required: the directory admission reads what each sector declares about one directory, its default seat included, through the generated reader (app.NewSectorDirectoryReader)")
+	case s.Mail.Sender == nil:
+		return errors.New("crew.Settings.Mail.Sender is required: the auth mails its invitations, address verifications and sign-up links through it (the configuration's driver, or mail.Log in development)")
+	}
+
+	return nil
 }
 
 // Session is the auth's session manager: one Auth session over the Spanner store, whose
@@ -568,17 +586,8 @@ func (h *Handlers) PendingEnrollEmail() http.HandlerFunc {
 // blocks until its first policy snapshot is loaded. It announces its policy writes and
 // watches the other instances' through the change signal, which is required.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
-	if settings.ChangeSignal == nil {
-		return nil, errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
-	}
-	if settings.TenantDeclarations == nil {
-		return nil, errors.New("crew.Settings.TenantDeclarations is required: the sign-in rule reads what each sector declares about who may enter it through the generated reader (app.NewSectorDeclarationReader)")
-	}
-	if settings.TenantDirectories == nil {
-		return nil, errors.New("crew.Settings.TenantDirectories is required: the directory admission reads what each sector declares about one directory, its default seat included, through the generated reader (app.NewSectorDirectoryReader)")
-	}
-	if settings.Mail.Sender == nil {
-		return nil, errors.New("crew.Settings.Mail.Sender is required: the auth mails its invitations, address verifications and sign-up links through it (the configuration's driver, or mail.Log in development)")
+	if err := settings.required(); err != nil {
+		return nil, err
 	}
 	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
 	if err != nil {
@@ -635,6 +644,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -670,13 +680,17 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// alone is not enough), so the development login APP_GOOGLE_USERNAME names is one
 	// that is not on the manifest.
 	//
-	// The password method is registered with open sign-up (session.OpenSignUp): a
-	// stranger gives an address, follows the mailed link and chooses a username and a
-	// password, and the login holds no role and no sector until they chart their own or
-	// an operator seats them, exactly as the Google sign-up registration's does. The
-	// generator program declares the same (PasswordMethod().OpenSignUp()), so the router
-	// mounts the sign-up routes and the login page is told of them.
-	password := session.PasswordSignIn(crewSession, session.OpenSignUp())
+	// Whether a method admits a person with no account and no invitation is no part of
+	// its registration: every method here starts invite only, and a fleet administrator
+	// opens one to sign-up, or makes it invite only again, on the console's Sign-in page
+	// (the row of the method in CrewSessionSignInMethods, which every sign-in reads in
+	// its own transaction). While the password method is open a stranger gives an
+	// address, follows the mailed link and chooses a username and a password, and the
+	// login holds no role and no sector until they chart their own or an operator
+	// seats them, exactly as a person who signs up through the sign-up registration
+	// does. The router mounts the sign-up routes whatever was chosen, and they answer
+	// 404 while the method is invite only.
+	password := session.PasswordSignIn(crewSession)
 	googleMethod := google.SignIn(crewSession, GoogleRegistration, nil, &google.Config{
 		ClientID:     settings.Directory.ClientID,
 		ClientSecret: settings.Directory.ClientSecret,
@@ -686,19 +700,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		LoginURL:     settings.LoginURL,
 	})
 	// The sign-up registration, under SignUpRegistration: any Google account
-	// (google.AnyGoogleAccount), the open sign-up rule (signin.OpenSignUp: a person the
-	// auth has never seen becomes a crew login under the verified email), and the
-	// application as the authority for roles (google.DisableRoleSync: the sign-in neither
-	// reads nor writes roles, so the person holds nothing until they chart a sector of
-	// their own or an operator seats them). It shares the directory's client; only the
-	// callback is its own.
+	// (google.AnyGoogleAccount), which is how wide the method is, and the application as
+	// the authority for roles (google.DisableRoleSync: the sign-in neither reads nor
+	// writes roles). Once an administrator opens it to sign-up, a person the auth has
+	// never seen becomes a crew login under the verified email and holds nothing until
+	// they chart a sector of their own or an operator seats them; until then they are
+	// refused (not_invited). It shares the directory's client; only the callback is its
+	// own.
 	signUpMethod := google.SignIn(crewSession, SignUpRegistration, nil, &google.Config{
 		ClientID:     settings.Directory.ClientID,
 		ClientSecret: settings.Directory.ClientSecret,
 		RedirectURL:  settings.SignUpRedirectURL,
 		Workspaces:   google.AnyGoogleAccount(),
 		RoleSync:     google.DisableRoleSync(),
-		Accounts:     signin.OpenSignUp,
 		LoginURL:     settings.LoginURL,
 	})
 
@@ -784,9 +798,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// roles given together or neither is, and the sign-in rule sees the new seat: a
 	// stranger invited into Bastion signs in admitted.
 	//
-	// Demonstrates: tenancy.default-seat, auth.invitation.
+	// The sign-up: a person who signs up through a method an administrator opened is
+	// handed to the identity client in the transaction that makes their account
+	// (SignedUp). The fleet has sectors, so an open method names no default role and
+	// the person holds nothing until they chart a sector of their own.
+	//
+	// Demonstrates: tenancy.default-seat, auth.invitation, auth.open-sign-up.
 	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+	crewSession.SetSignUpSeated(identityClient.SignedUp())
 	// What a sign-in clears. A role, a place in a group and a group's role given for a
 	// period count inside it alone, and nothing is written when one ends: the row goes
 	// when its person next signs in. The session library calls this hook once the
@@ -818,8 +838,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 // it). The provider attests (Attesting): the person signed in to the provider's host to
 // pick a persona, which is the whole proof in a test environment, so a persona sign-in is
 // never asked for the code. The application is the authority for roles
-// (signin.DisableRoleSync), and the account rule is invited users only: the persona's
-// identity (its login as the subject) is linked to the crew login seeded under that login
+// (signin.DisableRoleSync), and the method is left invite only: the persona's identity
+// (its login as the subject) is linked to the crew login seeded under that login
 // (cast.json, SeedCast), and a persona the seed never made is refused. An empty issuer
 // registers nothing, so a later environment never offers the method and nothing in the
 // build differs.
@@ -837,7 +857,6 @@ func registerPersona(crewSession *Session, settings *Settings) *oidc.Method {
 		Connection:  PersonaRegistration,
 		Attesting:   true,
 		RoleSync:    signin.DisableRoleSync(),
-		Accounts:    signin.InvitedUsersOnly,
 		LoginURL:    settings.LoginURL,
 	})
 }

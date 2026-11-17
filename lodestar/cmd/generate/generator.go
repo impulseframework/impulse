@@ -54,13 +54,16 @@ func NewGenerator(ctx context.Context) (generation.Generator, error) {
 			// management the generator writes for the crew gives every role by hand.
 			//
 			// The third method is the sign-up registration (crew.SignUpRegistration):
-			// any Google account under the open sign-up rule, declared OpenSignUp, which
-			// the Sector record's self-service creation shape needs, since a stranger
-			// signs in before charting a sector of their own; the router mounts it at
+			// any Google account, the wide method a fleet administrator opens to sign-up
+			// on the console's Sign-in page, after which a stranger signs in and charts a
+			// sector of their own; the router mounts it at
 			// /console/api/user/sign-up/login and the login page offers it under its label.
+			// No declaration says whether a method admits a person with no invitation:
+			// every method starts invite only, and the choice is made in the running
+			// application.
 			//
 			// Demonstrates: auth.multi-method, auth.open-sign-up, auth.password-sign-up.
-			generation.Auth("github.com/impulseframework/impulse/lodestar/pkg/auth/crew", generation.PasswordMethod().OpenSignUp(), generation.GoogleMethod("google").Labeled("Lodestar"), generation.GoogleMethod("sign-up").OpenSignUp(), generation.PersonaMethod("persona").InvitedUsers()),
+			generation.Auth("github.com/impulseframework/impulse/lodestar/pkg/auth/crew", generation.PasswordMethod(), generation.GoogleMethod("google").Labeled("Lodestar"), generation.GoogleMethod("sign-up"), generation.PersonaMethod("persona")),
 			generation.WebApp("/console"),
 			// The console also manages the members: the lists and methods of the members
 			// auth's generated management are served under /console/api beside the crew's,

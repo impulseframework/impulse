@@ -17,13 +17,12 @@ import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
 import { tenantsConfig } from '../../../configs/tenants.config';
 
-/** Which of the record's two creation paths the dialog takes. */
+/** Which of the two ways a tenant is created the dialog takes. */
 export interface NewTenantData {
   /**
-   * The person names their own tenant and becomes its administrator: the self-service half
-   * of the Tenant record's creation shape, for a session holding no tenant. Otherwise an
-   * administrator holding Create on Tenants creates the record and is its first
-   * administrator.
+   * The person names their own tenant and becomes its administrator: the way of a person
+   * who signed up, for a session holding no tenant. Otherwise an administrator holding
+   * Create on Tenants creates the record and is its first administrator.
    */
   readonly selfService: boolean;
 }
@@ -41,16 +40,17 @@ export function openNewTenantDialog(
 }
 
 /**
- * The new-tenant dialog creates a Tenant record by either of the two paths its creation
- * shape (`@tenant(creation: both)`) keeps. It asks for the tenant's name alone: the
- * tenant's key is an id the server generates and answers, which nobody types, and the
- * name is a field its administrators change later. The home page's card opens it for a person who
- * signed in and holds no tenant: the generated create-your-tenant route (`POST
- * create-tenant`, the `createTenantRoute` constant the generated client exports) writes the
- * row, seats them as its administrator and hands the tenant to the roster, so their next
- * request stands in it, and the dialog opens the dashboard under the new tenant's URL,
- * where the guard on the tenant segment enters it. A person who already holds a tenant is
- * refused by the server, which the dialog reports in place. Tenants › New tenant… opens it
+ * The new-tenant dialog creates a Tenant record by either of the two ways one is created.
+ * It asks for the tenant's name alone: the tenant's key is an id the server generates and
+ * answers, which nobody types, and the name is a field its administrators change later.
+ * The home page's card opens it for a person who signed in and holds no tenant: the
+ * generated create-your-tenant route (`POST create-tenant`, the `createTenantRoute`
+ * constant the generated client exports) writes the row, seats them as its administrator
+ * and hands the tenant to the roster, so their next request stands in it, and the dialog
+ * opens the dashboard under the new tenant's URL, where the guard on the tenant segment
+ * enters it. The route serves while an administrator has a sign-in method open to sign-up
+ * (the Sign-in page); while every method is invite only, and for a person who already
+ * holds a tenant, the server refuses, which the dialog reports in place. Tenants › New tenant… opens it
  * for an administrator holding Create on Tenants: the client's create on the record writes
  * the row and makes them its first administrator, the roster serves it at once, and the
  * dialog opens the record's page. The route

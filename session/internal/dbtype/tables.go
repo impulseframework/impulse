@@ -32,6 +32,7 @@ const (
 	PendingSignInsTable = "SessionPendingSignIns"
 	SignInAttemptsTable = "SessionSignInAttempts"
 	MailLinksTable      = "SessionMailLinks"
+	SignInMethodsTable  = "SessionSignInMethods"
 	FactorCodesTable    = "SessionFactorCodes"
 	TrustedDevicesTable = "SessionTrustedDevices"
 	TokensTable         = "SessionTokens"

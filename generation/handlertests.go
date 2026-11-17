@@ -435,6 +435,18 @@ func (r *resourceGenerator) rpcAuthzCases() (cases []authzCase) {
 					DeniedOnly: true,
 				})
 			}
+			// A method's warning is refused exactly as the call is: a caller who may
+			// not run the method reads nothing of what it would do.
+			if rpcStruct.Warning != nil {
+				cases = append(cases, authzCase{
+					Name:       authzCaseName(route.HandlerFunc, outlet) + " warning",
+					Method:     httpMethodConst(route.Method),
+					URL:        route.TestURL,
+					Body:       body,
+					Headers:    append(slices.Clone(headers), authzHeader{Name: resource.WarningHeader, Value: jsonTrueLiteral}),
+					DeniedOnly: true,
+				})
+			}
 		}
 	}
 

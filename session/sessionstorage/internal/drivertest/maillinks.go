@@ -494,9 +494,9 @@ func testMailLinkCascade(ctx context.Context, t *testing.T, h *AuthHarness) {
 
 func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newAcceptances()
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Accept: rec.hook})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Accept: rec.hook})
 
-	// A stranger with an invitation is provisioned under the invited-users-only rule,
+	// A stranger with an invitation is provisioned through a method that is invite only,
 	// with the invitation's address verified, and the hook's grant is committed with the
 	// user and the consumption.
 	const name = "pat.lee@lakeside.edu"
@@ -554,10 +554,10 @@ func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 func testInvitationDead(ctx context.Context, t *testing.T, h *AuthHarness) {
 	const name = "pat.lee@lakeside.edu"
 
-	// A member of the directory signs in whatever became of the invitation: nothing
-	// is granted and no address written.
+	// Through an open method a person signs in whatever became of the invitation:
+	// nothing is granted and no address written.
 	rec := newAcceptances()
-	member := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory, Accept: rec.hook})
+	member := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, Accept: rec.hook})
 	link := insertInvitation(ctx, t, member.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(1))
 	if err := member.Driver.ConsumeMailLink(ctx, link.TokenHash, time.Now()); err != nil {
 		t.Fatalf("ConsumeMailLink() error = %v", err)
@@ -574,9 +574,9 @@ func testInvitationDead(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Error("the hook ran for a dead invitation, want nothing granted")
 	}
 
-	// Under the invited-users-only rule the invitation was the admission: a dead one
+	// Through an invite-only method the invitation was the admission: a dead one
 	// refuses the sign-in and provisions nothing.
-	invited := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Accept: rec.hook})
+	invited := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Accept: rec.hook})
 	deadLink := insertInvitation(ctx, t, invited.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(2))
 	if err := invited.Driver.ConsumeMailLink(ctx, deadLink.TokenHash, time.Now()); err != nil {
 		t.Fatalf("ConsumeMailLink() error = %v", err)
@@ -615,7 +615,7 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 	// A sign-in held for the user's password (the standard rule's confirmation of a
 	// pre-created user with a password) has accepted nothing yet.
 	rec := newAcceptances()
-	held := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory, Accept: rec.hook})
+	held := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, Accept: rec.hook})
 	passwordUser(ctx, t, held.Driver, name)
 	link := insertInvitation(ctx, t, held.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(1))
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: identity, Invitation: invitationOf(link)}
@@ -655,7 +655,7 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 
 	// A disabled user whose identity is linked is refused, and keeps the invitation:
 	// nothing is consumed and nothing granted for a sign-in that ends in no session.
-	disabled := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory, Accept: rec.hook})
+	disabled := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, Accept: rec.hook})
 	gone := createUser(ctx, t, disabled.Driver, "gone@lakeside.edu")
 	goneIdentity := entra("oid-gone", "gone@lakeside.edu")
 	mustLink(ctx, t, disabled.Driver, gone.ID, goneIdentity)
@@ -670,7 +670,7 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 	// A directory sign-in as another address than the invited one is refused before
 	// anything is resolved, and keeps the invitation: it is accepted only as the invited
 	// address, by whoever the directory says holds it, so nothing is provisioned.
-	other := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Accept: rec.hook})
+	other := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Accept: rec.hook})
 	link = insertInvitation(ctx, t, other.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(5))
 	kim := entra("oid-kim", "kim@lakeside.edu")
 	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "kim@lakeside.edu", Identity: kim, Invitation: invitationOf(link)}
@@ -760,7 +760,7 @@ func testInvitationHookFails(ctx context.Context, t *testing.T, h *AuthHarness) 
 	// not be taken for the invitation's own NotFound, a link that died.
 	failure := httpio.NewNotFoundMessage("the role the invitation names no longer exists")
 	acceptor := &failingAcceptor{fail: failure}
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Accept: acceptor.hook})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Accept: acceptor.hook})
 
 	// A stranger the invitation alone admits. The acceptor runs inside the
 	// resolution's transaction and fails it: the sign-in ends with its error, and
@@ -865,7 +865,7 @@ func testInvitationHookCommitted(ctx context.Context, t *testing.T, h *AuthHarne
 		link  *dbtype.MailLink
 	)
 	in = h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.InvitedUsersOnly,
+		Auth: true, Accounts: InviteOnly,
 		Accept: func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
 			order.note("hook")
 			if err := tx.Record(ctx, "granted:"+username, strings.Join(inv.RoleNames, ",")); err != nil {

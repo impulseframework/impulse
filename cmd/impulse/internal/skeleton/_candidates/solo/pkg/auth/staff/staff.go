@@ -17,7 +17,9 @@
 //
 // The auth mails: an administrator invites a person by address, with the roles the
 // invitation seats, and the invitee follows the link to accept it; a signed-in person
-// adds an address and proves it by following the link sent to it.
+// adds an address and proves it by following the link sent to it; and, while an
+// administrator has the password method open to sign-up, a stranger signs up from a link
+// mailed to the address they give.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -72,21 +74,24 @@ const (
 	// Auth session (a person is one user whichever way they sign in; an identity the
 	// directory verifies links to its user through the identities table), the auth events
 	// each session records, the pending sign-ins that wait for a confirmation, the
-	// sign-in attempts the password method's attempt limiter counts per sign-in name, and
-	// the mail links: the invitations, address verifications and sign-ups the auth mails,
-	// each a single-use token its follower proves; the tokens: the bearer credentials of
-	// the machine outlets whose tokens this auth issues (the application tokens its people
-	// issue and the access and refresh tokens of the device grants they approve); the
-	// device codes: the device authorizations command-line clients wait on; and the second
-	// factor's tables: the sign-in codes mailed to people and the browsers they asked to
-	// be remembered. The names are spelled out in full so the tool's session-tables
-	// check, which reads the literals, finds their migrations.
+	// sign-in attempts the password method's attempt limiter counts per sign-in name, the
+	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
+	// only, which a method with no row is), and the mail links: the invitations, address
+	// verifications and sign-ups the auth mails, each a single-use token its follower
+	// proves; the tokens: the bearer credentials of the machine outlets whose tokens this
+	// auth issues (the application tokens its people issue and the access and refresh
+	// tokens of the device grants they approve); the device codes: the device
+	// authorizations command-line clients wait on; and the second factor's tables: the
+	// sign-in codes mailed to people and the browsers they asked to be remembered. The
+	// names are spelled out in full so the tool's session-tables check, which reads the
+	// literals, finds their migrations.
 	sessionsTable       = "StaffSessions"
 	usersTable          = "StaffSessionUsers"
 	identitiesTable     = "StaffSessionIdentities"
 	eventsTable         = "StaffSessionAuthEvents"
 	pendingTable        = "StaffSessionPendingSignIns"
 	attemptsTable       = "StaffSessionSignInAttempts"
+	methodsTable        = "StaffSessionSignInMethods"
 	mailLinksTable      = "StaffSessionMailLinks"
 	tokensTable         = "StaffSessionTokens"
 	deviceCodesTable    = "StaffSessionDeviceCodes"
@@ -130,8 +135,8 @@ type Settings struct {
 	CookieKey string
 	// SessionTimeout is the idle timeout of a browser session.
 	SessionTimeout time.Duration
-	// Mail sends the auth's mail: the invitation an administrator sends to an address
-	// and the link that verifies an address a person adds.
+	// Mail sends the auth's mail: the invitation an administrator sends to an address,
+	// the link that verifies an address a person adds, and the link a sign-up starts from.
 	// The application's one sender, which the data level opens: the Workspace relay
 	// (session/mail/workspace) where the deployment names a mailbox, and the log (mail.Log)
 	// in development, where nothing is sent and a developer follows the link from the log.
@@ -299,7 +304,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		return nil, errors.New("staff.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
 	}
 	if settings.Mail == nil {
-		return nil, errors.New("staff.Settings.Mail is nil: the auth mails its invitations and address verifications through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
+		return nil, errors.New("staff.Settings.Mail is nil: the auth mails its invitations and address verifications and its sign-up links through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
 	}
 	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
 	if err != nil {
@@ -340,6 +345,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -389,6 +395,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// invitation is spent and its roles given together or neither is, and the sign-in
 	// rule that follows finds the memberships.
 	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+
+	// A person who signs up through a sign-in method an administrator opened is given
+	// the method's default role in the transaction that makes their account (the
+	// identity client's SignedUp, which the session library runs inside it), so no
+	// account is left holding nothing.
+	authSession.SetSignUpSeated(identityClient.SignedUp())
 
 	return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil
 }

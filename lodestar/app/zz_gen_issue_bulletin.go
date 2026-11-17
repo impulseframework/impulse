@@ -42,6 +42,12 @@ func (a *App) IssueBulletin() http.HandlerFunc {
 
 		p := (*rpc.IssueBulletin)(params)
 
+		if resource.AsksWarning(r) {
+			// The method declares no warning (@warning): a request that asks for one
+			// is refused, and never runs the call.
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("IssueBulletin declares no warning: send the call without the X-Warning header"))
+		}
+
 		// The rows the method writes are collected for the live pages, published once
 		// the commit lands and before the answer; a transaction that rolls back wrote
 		// nothing to publish.

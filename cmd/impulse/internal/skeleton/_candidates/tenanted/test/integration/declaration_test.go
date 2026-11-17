@@ -59,8 +59,10 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// A person who signed in through Google, seated in south. South has no directory
 	// and is not directory only, so it admits them however they signed in: a tenant's
-	// sign-in settings restrict its own door, and south sets none.
+	// sign-in settings restrict its own door, and south sets none. The registration is
+	// invite only, so their account stands before the sign-in, which links it.
 	t.Setenv("APP_GOOGLE_USERNAME", "traveler")
+	createAccount(ctx, t, s, "traveler")
 	traveler := signedInThroughGoogle(ctx, t, s)
 	seat(ctx, t, s, "traveler", south)
 	if domains := userDomains(ctx, t, traveler); !slices.Equal(domains, []string{south}) {
@@ -101,6 +103,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// tenants, which admit them as they admit anyone they seat: neither is directory
 	// only. They set south's directory under the tenant's own Create grant.
 	t.Setenv("APP_GOOGLE_USERNAME", "organizer")
+	createAccount(ctx, t, s, "organizer")
 	organizer := signedInThroughGoogle(ctx, t, s)
 	seat(ctx, t, s, "organizer", north, south)
 	if domains := userDomains(ctx, t, organizer); !slices.Equal(domains, []string{north, south}) {
@@ -523,6 +526,17 @@ func signedInThroughGoogle(ctx context.Context, t *testing.T, s *served) *browse
 	b.secondFactor(ctx, os.Getenv("APP_GOOGLE_USERNAME"), false)
 
 	return b
+}
+
+// createAccount creates an account under the name the directory presents, holding no
+// password and no role: the person an administrator created ahead of their first sign-in
+// through a registration that is invite only, which links the account.
+func createAccount(ctx context.Context, t *testing.T, s *served, username string) {
+	t.Helper()
+
+	if _, err := s.auth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username}); err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
 }
 
 // seat gives the person the tenant's administrator role in each tenant named, held by

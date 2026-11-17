@@ -39,6 +39,11 @@ type typescriptGenerator struct {
 	// domainWord mirrors the resourceGenerator's word for a tenant, which the client's
 	// descriptor carries beside the route pair (domainRoute.word).
 	domainWord tenantWordData
+	// tenantCreation mirrors the resourceGenerator's decision whether the create-your-tenant
+	// route is generated (validateTenantCreation). The target's own parse of the tenant
+	// record cannot make it: the decision reads the outlets' auths, which this generator
+	// does not know.
+	tenantCreation tenantCreation
 	// outletName is the router outlet this target serves (ForOutlet): every emitted
 	// file is filtered to the outlet's members. Empty means the default outlet
 	// (resolveOptions fills the name in; targetOutlet covers directly constructed

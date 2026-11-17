@@ -6,7 +6,6 @@ import (
 
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/session/google"
-	"github.com/impulseframework/impulse/session/signin"
 )
 
 // GoogleRegistration is the name the google registration goes under on the Auth: the
@@ -48,9 +47,12 @@ func (h *Handlers) GoogleCallback() http.HandlerFunc {
 // The application is the authority for role membership (google.DisableRoleSync): Google
 // proves who someone is and the application decides what they may do, so a sign-in
 // neither reads nor changes the person's roles.
-// The account rule for an identity Google verifies for the first time is the library's
-// standard one, open sign-up: anyone the slot admits becomes a user under their
-// verified email.
+// A person Google verifies for the first time, who has no account, needs an invitation:
+// the method is invite only until an administrator opens it to sign-up on the
+// application's Sign-in page, and anyone else is refused (not_invited). A person
+// admitted becomes a user under their verified email, with no password, linked by
+// Google's immutable subject so a renamed account stays the same person; a user created
+// beforehand under that email is linked and signed in.
 // The slot admits any Google account, with any Workspace named beside it: a Workspace
 // account's identity then carries its Workspace's domain as its connection, which is
 // what a tenant's declaration names a Google directory by, and an account outside a
@@ -65,7 +67,6 @@ func registerGoogle(authSession *Session, accessClient *access.Client, settings 
 		RedirectURL:  settings.Google.RedirectURL,
 		Workspaces:   workspaces,
 		RoleSync:     google.DisableRoleSync(),
-		Accounts:     signin.OpenSignUp,
 		LoginURL:     settings.LoginURL,
 	})
 }

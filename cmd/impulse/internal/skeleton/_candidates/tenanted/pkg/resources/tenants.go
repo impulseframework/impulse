@@ -31,16 +31,18 @@ type (
 	// Tenant itself is a GLOBAL resource — administering the tenant list is a global
 	// concern. Its list comes in name order (@order) when the request names no sort.
 	//
-	// Who may create a tenant is declared here, apart from who may enter one
-	// (@tenant(creation: ...)): an administrator alone (@tenant, the default: the create
-	// path above under the Administrator role's Create grant), the person who
-	// becomes its administrator (self-service), or both, as here. Self-service is one
-	// generated route, POST /api/create-tenant: a stranger signs in first, through the
-	// staff auth's google registration (any Google account, open sign-up), holds no
-	// tenant, and names theirs; the route writes the row, seats the person with the
-	// roles TenantAdministratorRoles names (app) and hands the tenant to the roster, so
-	// their next request stands in it. A person who already holds a tenant is refused:
-	// one tenant per person, and an administrator of one never creates another.
+	// Who may create a tenant is decided in the running application, apart from who may
+	// enter one. An administrator creates one through the create path above, under the
+	// Administrator role's Create grant. A person who signed up creates their own
+	// through one generated route, POST /api/create-tenant, while an administrator has a
+	// sign-in method of the staff auth open to sign-up (the console's Sign-in page): a
+	// stranger signs in first, through the staff auth's google registration (any Google
+	// account) once it is open, holds no tenant, and names theirs; the route reads
+	// whether sign-up is open in the transaction that writes the row, refuses while
+	// every method is invite only, writes the row, seats the person with the roles
+	// TenantAdministratorRoles names (app) and hands the tenant to the roster, so their
+	// next request stands in it. A person who already holds a tenant is refused: one
+	// tenant per person, and an administrator of one never creates another.
 	//
 	// Who may enter a tenant is the record's declaration, data of the application
 	// rather than deploy configuration: the directory its people sign in through
@@ -54,7 +56,7 @@ type (
 	// change events (DataChangeEvents, Config) are the audit of every edit.
 	//
 	// @resource
-	// @tenant(creation: both)
+	// @tenant
 	// @order(Name asc)
 	Tenant struct {
 		ID impulse.UUID `spanner:"Id"`

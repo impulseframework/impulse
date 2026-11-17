@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -63,9 +64,6 @@ func (au Auth) Command() string {
 	if authority := au.authority(); authority != "" {
 		cmd += " --authority " + authority
 	}
-	if accounts := au.accounts(); accounts != "" {
-		cmd += " --accounts " + accounts
-	}
 	if au.usernameIsEmail() {
 		cmd += " --username-is-email"
 	}
@@ -98,24 +96,6 @@ func (au Auth) authority() string {
 	return ""
 }
 
-// accounts is the account rule add auth takes once for every method given: the directory
-// methods' rule, or the password method's (open, or nothing) when there is no directory
-// method; empty under the default rule.
-func (au Auth) accounts() string {
-	for i := range au.Methods {
-		if au.Methods[i].Directory() {
-			return au.Methods[i].Accounts
-		}
-	}
-	for i := range au.Methods {
-		if au.Methods[i].Accounts != "" {
-			return au.Methods[i].Accounts
-		}
-	}
-
-	return ""
-}
-
 // usernameIsEmail reports a password method whose sign-in name is the address.
 func (au Auth) usernameIsEmail() bool {
 	for i := range au.Methods {
@@ -127,39 +107,17 @@ func (au Auth) usernameIsEmail() bool {
 	return false
 }
 
-// passwordSignUp reports a password method whose strangers sign up from a mailed link.
-func (au Auth) passwordSignUp() bool {
+// rolesSynced reports an auth with a method whose directory writes the roles: the
+// directory decides who its people are and what they hold, so nobody is invited, and no
+// method of the auth is opened to sign-up.
+func (au Auth) rolesSynced() bool {
 	for _, m := range au.methods() {
-		if !m.Directory() && m.OpenSignUp() {
+		if m.SyncsRoles() {
 			return true
 		}
 	}
 
 	return false
-}
-
-// invited lists the directory methods admitting invited users only.
-func (au Auth) invited() []string {
-	var registrations []string
-	for _, m := range au.methods() {
-		if m.Directory() && m.Accounts == authpkg.AccountsInvited {
-			registrations = append(registrations, m.Name)
-		}
-	}
-
-	return registrations
-}
-
-// openSignUp lists the registrations admitting anyone the directory verifies.
-func (au Auth) openSignUp() []string {
-	var registrations []string
-	for _, m := range au.methods() {
-		if m.Directory() && m.Accounts == authpkg.AccountsOpen {
-			registrations = append(registrations, m.Name)
-		}
-	}
-
-	return registrations
 }
 
 // Pascal is the auth's table prefix and accessor name.
@@ -373,7 +331,7 @@ func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chang
 	if identityDir == "" && module != "" {
 		identityDir = ownTree(outlet)
 	}
-	spec := &authpkg.Spec{Module: module, AuthDir: src.AuthDir, Name: au.Name, Methods: au.methods(), TenantPolicy: tenantPolicy(a, &outlet.Site), Application: applicationName(a, src), IdentityDir: identityDir}
+	spec := &authpkg.Spec{Module: module, AuthDir: src.AuthDir, Name: au.Name, Methods: au.methods(), TenantPolicy: tenantPolicy(a, &outlet.Site, !au.rolesSynced() && servesTenantRecord(a, &outlet.Site, &outlet.Outlet)), Application: applicationName(a, src), IdentityDir: identityDir}
 	if err := au.writePackage(a, src, spec, ch); err != nil {
 		return nil, err
 	}
@@ -540,9 +498,10 @@ func modulePath(a *app.App) string {
 // tenantPolicy is the sign-in rule of an auth serving a tenanted site: the library's
 // tenant policy over the site's tenant record's declaration, read through the generated
 // reader the data level hands in (the settings copied from the source auth carry it),
-// admitting a person who holds no tenant where the record is created by its own people.
-// Nil for a site without tenants.
-func tenantPolicy(a *app.App, site *app.Site) *authpkg.TenantPolicy {
+// admitting a person who holds no tenant where the auth's people create a tenant of
+// their own (admitWithoutTenant): a person who signs up through a method an
+// administrator opened signs in first and creates one. Nil for a site without tenants.
+func tenantPolicy(a *app.App, site *app.Site, admitWithoutTenant bool) *authpkg.TenantPolicy {
 	if !site.Tenanted() {
 		return nil
 	}
@@ -551,8 +510,27 @@ func tenantPolicy(a *app.App, site *app.Site) *authpkg.TenantPolicy {
 	return &authpkg.TenantPolicy{
 		Record:             record,
 		Reader:             packageNameOf(a, site.Generator.HandlersDir()) + ".New" + record + "DeclarationReader",
-		AdmitWithoutTenant: site.TenantRecord.SelfService(),
+		AdmitWithoutTenant: admitWithoutTenant,
 	}
+}
+
+// servesTenantRecord reports whether the site's tenant record is served on the outlet:
+// the record's @outlet names it, or names none and the outlet is the default one. The
+// auth bound to such an outlet is the one whose people create a tenant of their own,
+// through the create-your-tenant route the generator writes for the record.
+func servesTenantRecord(a *app.App, site *app.Site, outlet *app.Outlet) bool {
+	if !site.Tenanted() {
+		return false
+	}
+	record := site.TenantRecord
+	for i := range a.OutletMembers {
+		member := &a.OutletMembers[i]
+		if member.File == record.File && member.Name == record.Name {
+			return slices.Contains(member.Outlets, outlet.Name)
+		}
+	}
+
+	return outlet.Name == app.DefaultOutletName
 }
 
 func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch *Change) error {
@@ -574,7 +552,7 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 		m := &spec.Methods[i]
 		desc := m.Name
 		if m.Directory() {
-			desc += " (" + m.Kind + ", " + accountsSentence(m) + ", role membership the " + m.Authority + "'s)"
+			desc += " (" + m.Kind + ", role membership the " + m.Authority + "'s)"
 		} else if shape := passwordShape(m); shape != "" {
 			desc += " (" + shape + ")"
 		}
@@ -584,7 +562,7 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 	if spec.TenantPolicy != nil {
 		rule = fmt.Sprintf(", and the sign-in rule over the %s record's declaration (signin.TenantPolicy through the reader its settings carry, %s)", spec.TenantPolicy.Record, spec.TenantPolicy.Reader)
 		if spec.TenantPolicy.AdmitWithoutTenant {
-			rule += ", admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since the record is created by its own people"
+			rule += ", admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since a person who signs up through a method an administrator opened creates their own"
 		}
 		if spec.DirectoryAdmission() {
 			rule += fmt.Sprintf(", and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, %s: a stranger from a declared directory gets the row's default seat or is refused by invitation only)", spec.TenantPolicy.DirectoryReader())
@@ -661,7 +639,7 @@ func (au Auth) writeMigrations(a *app.App, src *authSource, ch *Change) error {
 		}
 		written = append(written, base)
 	}
-	ch.didf("%s: %s, the %s auth's tables: the access tables copied from the %s auth's under the %s prefix, and the Auth session tables (sessions, users with their addresses, identities, auth events, pending sign-ins, sign-in attempts, mail links)", dir, strings.Join(written, ", "), au.Name, src.Name, au.Pascal())
+	ch.didf("%s: %s, the %s auth's tables: the access tables copied from the %s auth's under the %s prefix, and the Auth session tables (sessions, users with their addresses, identities, auth events, pending sign-ins, sign-in attempts, sign-in methods, mail links)", dir, strings.Join(written, ", "), au.Name, src.Name, au.Pascal())
 
 	return nil
 }
@@ -938,21 +916,15 @@ func (au Auth) Meaning() string {
 		listed = append(listed, methodSentence(m))
 		declarations = append(declarations, m.Declaration())
 	}
-	fmt.Fprintf(&b, "An auth is a population that holds roles in its own permission store and signs in through the methods registered on its Auth session, and it is a package: `pkg/auth/%[1]s` owns the %[1]s session manager (one `session.Auth` over the tables `%[2]sSessions`, `%[2]sSessionUsers`, `%[2]sSessionIdentities`, `%[2]sSessionAuthEvents`, `%[2]sSessionPendingSignIns`, `%[2]sSessionSignInAttempts` and `%[2]sSessionMailLinks`; cookie `%[1]s`), the %[1]s permission store (tables prefixed `%[2]s`), and the role file `pkg/auth/%[1]s/roles.json`, embedded in the package and handed to the permission engine as the release's default roles (`access.WithDefaultRoles`). The engine signals its policy writes to the application's other instances through the live service (`access.WithChangeSignal` over `resource.KindPolicy`, built by the package's `announcePolicy` and `watchPolicy` from the `Settings.Signals` the data level passes), which the `change-signal` check holds every engine to. Its methods, each in its own file named for the registration: %[3]s. A person in two auths is two unrelated principals. The data level now constructs it beside the other auths%[4]s.\n\n", au.Name, au.Pascal(), strings.Join(listed, "; "), au.registrationNote())
+	fmt.Fprintf(&b, "An auth is a population that holds roles in its own permission store and signs in through the methods registered on its Auth session, and it is a package: `pkg/auth/%[1]s` owns the %[1]s session manager (one `session.Auth` over the tables `%[2]sSessions`, `%[2]sSessionUsers`, `%[2]sSessionIdentities`, `%[2]sSessionAuthEvents`, `%[2]sSessionPendingSignIns`, `%[2]sSessionSignInAttempts`, `%[2]sSessionSignInMethods` and `%[2]sSessionMailLinks`; cookie `%[1]s`), the %[1]s permission store (tables prefixed `%[2]s`), and the role file `pkg/auth/%[1]s/roles.json`, embedded in the package and handed to the permission engine as the release's default roles (`access.WithDefaultRoles`). The engine signals its policy writes to the application's other instances through the live service (`access.WithChangeSignal` over `resource.KindPolicy`, built by the package's `announcePolicy` and `watchPolicy` from the `Settings.Signals` the data level passes), which the `change-signal` check holds every engine to. Its methods, each in its own file named for the registration: %[3]s. A person in two auths is two unrelated principals. The data level now constructs it beside the other auths%[4]s.\n\n", au.Name, au.Pascal(), strings.Join(listed, "; "), au.registrationNote())
 	b.WriteString("Left to wire:\n\n")
 	items := []string{
 		fmt.Sprintf("Serve it from the %[3]s outlet. The outlet's declaration now names the auth with its methods (`generation.Auth(\"<module>/pkg/auth/%[1]s\", %[2]s)` on its `WithRouterOutlet`, or on `GenerateRoutes` for the default outlet), so the regenerated router mounts the %[1]s auth's session group under the outlet's prefix with one login route per method (`user/<registration>/login`, the callback and front-channel logout of a directory method, the password method's `user/password/login`), the methods route the login page renders from (`user/methods`), the pending sign-in routes, the invitation routes (`user/invitation`, which the login page opens a mailed invitation through) and the address routes (`user/email`), and with two auths declared binds the group's requests to the auth (`BindAuth(%[1]s.Name)`, which the App implements over `pkg/auth.Bind` as the reference's does) so permission checks and tenant visibility answer from the %[1]s store. Give the App what the generated `Handlers` now requires: for an additional outlet a `<Outlet>()` method returning the %[1]s auth's `*%[1]s.Handlers`, in place of the one returning the auth the outlet served before; the default outlet's session surface is the App's embedded `*<auth>.Handlers`. The outlet's web app names the auth's XSRF cookie, `%[1]s.XSRFCookie` (`%[1]s-xsrf`), in its HttpClient configuration (`withXsrfConfiguration`), since the browser echoes that cookie in the X-XSRF-TOKEN header, and its login page renders from the methods route. %[4]s Under a hand-written router the declaration carries no Auth to point, and the skipped list above says to mount the group in the router.", au.Name, strings.Join(declarations, ", "), au.Outlet, webPlan(au.Outlet)),
 		fmt.Sprintf("Check its roles. The package hands its role file to the engine when the data level constructs it; call `deploy.CheckRoles` for the %[1]s auth in the bootstrap and the deployment's migrate step, so a deploy prints what the store holds that the release cannot use as written.%[2]s Add the %[1]s auth's row to the roles validation test in `pkg/deploy` (`access.ValidateRoles` over the collection, parsing `%[1]s.Roles()`), its expected warnings empty, so a warning the deploy would print is accepted in code or fixed in the role; `impulse check` warns while the row is missing.", au.Name, au.identitiesNote()),
 		mailItem(au.Name, au.Outlet),
 	}
-	if invited := au.invited(); len(invited) > 0 {
-		items = append(items, invitationsItem(au.Name, invited))
-	}
-	if open := au.openSignUp(); len(open) > 0 {
-		items = append(items, openSignUpItem(open))
-	}
-	if au.passwordSignUp() {
-		items = append(items, passwordSignUpItem(au.Name))
+	if !au.rolesSynced() {
+		items = append(items, signUpItem(au.Name))
 	}
 	if au.directory() {
 		items = append(items, fmt.Sprintf("Register it. The environment template now carries each directory method's variables (`APP_%s_<REGISTRATION>_*`): set the redirect URL to the browser-facing callback under the %s outlet's prefix (through the dev proxy in development), and fill the rest in when the application is registered with its directory. Until then the Procfile builds with the session library's `skipAuth` tag, which simulates the directory: every sign-in through a registration is `APP_<REGISTRATION>_USERNAME`, or `APP_USERNAME` when that is unset.", strings.ToUpper(au.Name), au.Outlet))
@@ -980,13 +952,13 @@ func methodSentence(m *authpkg.Method) string {
 
 		return sentence
 	case app.MethodAzure:
-		return fmt.Sprintf("`%s`, Microsoft Entra over OpenID Connect (`azure.SignIn`), %s, role membership the %s's", m.Name, accountsSentence(m), m.Authority)
+		return fmt.Sprintf("`%s`, Microsoft Entra over OpenID Connect (`azure.SignIn`), role membership the %s's", m.Name, m.Authority)
 	case app.MethodGoogle:
-		return fmt.Sprintf("`%s`, Google Workspace over OpenID Connect (`google.SignIn`), %s, role membership the %s's", m.Name, accountsSentence(m), m.Authority)
+		return fmt.Sprintf("`%s`, Google Workspace over OpenID Connect (`google.SignIn`), role membership the %s's", m.Name, m.Authority)
 	case app.MethodOIDC:
-		return fmt.Sprintf("`%s`, an organization's identity provider over OpenID Connect (`oidc.SignIn`, the generic method: a provider known by its issuer alone, such as Okta or Keycloak), %s, role membership the %s's", m.Name, accountsSentence(m), m.Authority)
+		return fmt.Sprintf("`%s`, an organization's identity provider over OpenID Connect (`oidc.SignIn`, the generic method: a provider known by its issuer alone, such as Okta or Keycloak), role membership the %s's", m.Name, m.Authority)
 	case app.MethodPersona:
-		return fmt.Sprintf("`%s`, the persona sign-in of the test environments over OpenID Connect (`oidc.SignIn` against the persona provider, registered only where the provider is configured), invited users only, role membership the application's", m.Name)
+		return fmt.Sprintf("`%s`, the persona sign-in of the test environments over OpenID Connect (`oidc.SignIn` against the persona provider, registered only where the provider is configured), role membership the application's", m.Name)
 	default:
 		return "`" + m.Name + "`"
 	}

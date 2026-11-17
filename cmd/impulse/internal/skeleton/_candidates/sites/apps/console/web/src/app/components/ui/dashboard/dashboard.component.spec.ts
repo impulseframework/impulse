@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { createApi } from '@app/service/zz_gen_api';
 import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { provideFrame, TenantService } from '@impulseframework/resource-angular/auth-frame';
@@ -8,6 +9,7 @@ import { provideResourceTesting } from '@impulseframework/resource-angular/testi
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
+import { NewTenantDialogComponent } from '../new-tenant/new-tenant-dialog.component';
 import { DashboardComponent } from './dashboard.component';
 
 /** The tenant the session holds: its key is an id, and the page shows its name. */
@@ -127,12 +129,27 @@ describe('DashboardComponent', () => {
     ]);
   });
 
-  it('says so when the session holds nothing', async () => {
+  it('says so when the session holds nothing, and offers to create their own tenant', async () => {
     const fixture = await render(stranger);
     const element: HTMLElement = fixture.nativeElement;
+    // The dialog itself is the new-tenant spec's; here only that the card opens it.
+    const opened = vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue({} as MatDialogRef<unknown>);
 
     expect(element.querySelector('p strong')?.textContent).toBe('no tenant');
     expect(element.querySelectorAll('tbody tr')).toHaveLength(1);
     expect(element.querySelector('td.empty')?.textContent).toContain('You hold nothing here');
+    const offer = element.querySelector<HTMLButtonElement>('.create-tenant-card button');
+    expect(offer?.textContent).toContain('Create your tenant');
+    offer?.click();
+    // The new-tenant dialog on its self-service path: the person becomes the administrator.
+    expect(opened).toHaveBeenCalledWith(
+      NewTenantDialogComponent,
+      expect.objectContaining({ data: { selfService: true } }),
+    );
+  });
+
+  it('offers no tenant of their own to a session holding a tenant', async () => {
+    const fixture = await render(member);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.create-tenant-card')).toBeNull();
   });
 });

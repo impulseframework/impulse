@@ -168,7 +168,8 @@ type recordRename struct {
 // recordRenames are the renames from the reference's record to the application's, in
 // order: the quoted words the screen shows, then the names the generator derives from
 // the record (its resources, the types of their bodies, the client's properties, the
-// routes, the route parameter and the directories record's tenant field).
+// routes, the create-your-tenant route with its body and answer, the route parameter
+// and the directories record's tenant field).
 func (tn Tenancy) recordRenames() []recordRename {
 	rec, table := tn.Record(), tn.Table
 	r, t := lowerFirst(rec), lowerFirst(table)
@@ -190,6 +191,10 @@ func (tn Tenancy) recordRenames() []recordRename {
 		{regexp.MustCompile(`\btenantDirectories\b`), r + "Directories"},
 		{regexp.MustCompile(`\btenant-directories\b`), kr + "-directories"},
 		{regexp.MustCompile(`\bTenantsCreate\b`), table + "Create"},
+		{regexp.MustCompile(`\bCreateTenantAnswer\b`), "Create" + rec + "Answer"},
+		{regexp.MustCompile(`\bCreateTenant\b`), "Create" + rec},
+		{regexp.MustCompile(`\bcreateTenantRoute\b`), "create" + rec + "Route"},
+		{regexp.MustCompile(`\bcreate-tenant\b`), "create-" + kr},
 		{regexp.MustCompile(`\bTenants\b`), table},
 		{regexp.MustCompile(`\.tenants\b`), "." + t},
 		{regexp.MustCompile(`\{ tenants: `), "{ " + t + ": "},

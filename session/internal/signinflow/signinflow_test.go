@@ -61,13 +61,18 @@ type memStore struct {
 	links       map[string]impulse.UUID
 	invitations map[impulse.UUID]bool
 	granted     map[string][]string
-	sessions    int
-	steps       []string
-	next        []commitOutcome
+	// methods are the rows of the sign-in methods table, by registration name.
+	methods  map[string]*dbtype.SignInMethod
+	sessions int
+	steps    []string
+	next     []commitOutcome
 }
 
 func newMemStore() *memStore {
-	return &memStore{users: map[impulse.UUID]*memUser{}, links: map[string]impulse.UUID{}, invitations: map[impulse.UUID]bool{}, granted: map[string][]string{}}
+	return &memStore{
+		users: map[impulse.UUID]*memUser{}, links: map[string]impulse.UUID{}, invitations: map[impulse.UUID]bool{},
+		granted: map[string][]string{}, methods: map[string]*dbtype.SignInMethod{},
+	}
 }
 
 // notef records a step.
@@ -268,6 +273,12 @@ func (d *memDriver) UsernameIsEmail() bool {
 	return false
 }
 
+func (d *memDriver) SignInMethodIn(_ context.Context, tx *memTx, name string) (*dbtype.SignInMethod, error) {
+	d.store.notef("method %s read in run %d", name, tx.run)
+
+	return d.store.methods[name], nil
+}
+
 // roleHooks are the two hooks as an application writes them: each buffers what it
 // gives in the transaction it is handed (the store's granted rows, under the username)
 // and answers a committed function that notes its run. fail, when set, is what the
@@ -277,6 +288,7 @@ type roleHooks struct {
 	store      *memStore
 	acceptFail error
 	seatFail   error
+	signUpFail error
 	// committed counts the committed functions' runs.
 	committed int
 }
@@ -303,6 +315,16 @@ func (h *roleHooks) seat(_ context.Context, tx *memTx, _ impulse.UUID, username 
 		h.committed++
 		h.store.notef("seat of run %d committed: user=%t", tx.run, h.userCommitted(username))
 	}, h.seatFail
+}
+
+func (h *roleHooks) signUp(_ context.Context, tx *memTx, _ impulse.UUID, username, method, role string) (func(ctx context.Context), error) {
+	h.store.notef("sign-up in run %d", tx.run)
+	tx.buffer(func() { h.store.granted[username] = append(h.store.granted[username], method+":"+role) })
+
+	return func(context.Context) {
+		h.committed++
+		h.store.notef("sign-up of run %d committed: user=%t", tx.run, h.userCommitted(username))
+	}, h.signUpFail
 }
 
 func (h *roleHooks) userCommitted(username string) bool {
@@ -410,7 +432,7 @@ func TestSignIn_aHookThatFailsLeavesNothing(t *testing.T) {
 			store := newMemStore()
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store, acceptFail: tt.acceptFail, seatFail: tt.seatFail}
-			rules := Rules[*memTx]{Standard: signin.InvitedUsersOnly, Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat}
+			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat}
 			if tt.seated {
 				rules.Directories = declaredWithSeat
 			}
@@ -492,7 +514,7 @@ func TestSignIn_aCommittedFunctionRunsOnceAfterTheCommitBeforeThePolicy(t *testi
 			store.next = tt.next
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
-			rules := Rules[*memTx]{Standard: signin.InvitedUsersOnly, Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
+			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
 			inv := store.invite(stranger, "lakeside", "Teacher")
 			req := strangerRequest(inv)
 
@@ -589,7 +611,7 @@ func TestSignIn_aRoleTheInvitationNamesIsGivenOnce(t *testing.T) {
 			store := newMemStore()
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
-			rules := Rules[*memTx]{Standard: signin.InvitedUsersOnly, Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
+			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
 			inv := store.invite(stranger, tt.tenant, tt.roles...)
 
 			if err := signInWith(t, d, strangerRequest(inv), rules); err != nil {
@@ -657,7 +679,7 @@ func TestSignIn_aCommitThatFailsRunsNoCommittedFunction(t *testing.T) {
 	store.next = []commitOutcome{fails}
 	d := &memDriver{store: store}
 	hooks := &roleHooks{store: store}
-	rules := Rules[*memTx]{Standard: signin.InvitedUsersOnly, Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
+	rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
 	inv := store.invite(stranger, "lakeside", "Teacher")
 
 	err := signInWith(t, d, strangerRequest(inv), rules)
@@ -838,7 +860,7 @@ func TestSignIn_theNameOfANewAccount(t *testing.T) {
 			store := newMemStore()
 			d := &memDriver{store: store}
 			hooks := &roleHooks{store: store}
-			rules := Rules[*memTx]{Standard: signin.InvitedUsersOnly, Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
+			rules := Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
 			inv := store.invite(stranger, "lakeside", "Member")
 			inv.Name = tt.invited
 			req := strangerRequest(inv)
@@ -917,6 +939,239 @@ func TestAcceptInvitation_theInvitedName(t *testing.T) {
 			}
 			if got := store.users[id].name; got != tt.want {
 				t.Errorf("the account's name = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// openMethod is the row of a method an administrator opened to sign-up with role as its
+// default role, "" for none.
+func openMethod(name, role string) *dbtype.SignInMethod {
+	m := &dbtype.SignInMethod{Name: name, OpenSignUp: true}
+	if role != "" {
+		m.DefaultRole = &role
+	}
+
+	return m
+}
+
+func TestSignIn_theMethodsRowDecidesAStranger(t *testing.T) {
+	t.Parallel()
+
+	signUpRefused := errors.New("the default role could not be given")
+
+	tests := []struct {
+		name string
+		// rows are the sign-in methods table; the sign-in comes through "google".
+		rows []*dbtype.SignInMethod
+		// method is the name the rules carry; "google" when empty.
+		method     string
+		noMethod   bool
+		noHook     bool
+		invited    bool
+		signUpFail error
+		next       []commitOutcome
+		// wantCode is the refusal expected, "" for a sign-in that works; wantErr is a
+		// failure that is no refusal.
+		wantCode    sessioninfo.LoginRefusalCode
+		wantErr     error
+		wantFailure bool
+		wantGranted map[string][]string
+		wantSteps   []string
+	}{
+		{
+			name:     "no row: the method is invite only, the stranger is refused and nothing is written",
+			wantCode: sessioninfo.RefusedNotInvited,
+			// A refusal ends the transaction with nothing written in it.
+			wantSteps: []string{"method google read in run 1", "commit"},
+		},
+		{
+			name:     "a row that says not open: refused, nothing written",
+			rows:     []*dbtype.SignInMethod{{Name: "google"}},
+			wantCode: sessioninfo.RefusedNotInvited,
+			// A refusal ends the transaction with nothing written in it.
+			wantSteps: []string{"method google read in run 1", "commit"},
+		},
+		{
+			name:     "another method's row opens nothing: refused, nothing written",
+			rows:     []*dbtype.SignInMethod{openMethod("azure", "Member")},
+			wantCode: sessioninfo.RefusedNotInvited,
+			// A refusal ends the transaction with nothing written in it.
+			wantSteps: []string{"method google read in run 1", "commit"},
+		},
+		{
+			name:      "rules that name no method read no row and are invite only",
+			rows:      []*dbtype.SignInMethod{openMethod("", "Member")},
+			noMethod:  true,
+			wantCode:  sessioninfo.RefusedNotInvited,
+			wantSteps: []string{"commit"},
+		},
+		{
+			name:        "open with a default role: the account is made and the role given in its transaction, the committed function once after the commit, before the policy",
+			rows:        []*dbtype.SignInMethod{openMethod("google", "Member")},
+			wantGranted: map[string][]string{stranger: {"google:Member"}},
+			wantSteps: []string{
+				"method google read in run 1", "sign-up in run 1", "commit", "sign-up of run 1 committed: user=true",
+				"policy: pat@lakeside.edu holds [google:Member] after 1 committed", "commit",
+			},
+		},
+		{
+			name:        "open, and the database aborts the first run: the row is read again, and only the second run's committed function runs",
+			rows:        []*dbtype.SignInMethod{openMethod("google", "Member")},
+			next:        []commitOutcome{aborts},
+			wantGranted: map[string][]string{stranger: {"google:Member"}},
+			wantSteps: []string{
+				"method google read in run 1", "sign-up in run 1", "aborted",
+				"method google read in run 2", "sign-up in run 2", "commit", "sign-up of run 2 committed: user=true",
+				"policy: pat@lakeside.edu holds [google:Member] after 1 committed", "commit",
+			},
+		},
+		{
+			name: "open with no default role: the account is made and the hook is not asked",
+			rows: []*dbtype.SignInMethod{openMethod("google", "")},
+			wantSteps: []string{
+				"method google read in run 1", "commit",
+				"policy: pat@lakeside.edu holds [] after 0 committed", "commit",
+			},
+		},
+		{
+			name:        "open, and the person carries a live invitation: the invitation's roles, and not the default role beside them",
+			rows:        []*dbtype.SignInMethod{openMethod("google", "Member")},
+			invited:     true,
+			wantGranted: map[string][]string{stranger: {"Teacher"}},
+			wantSteps: []string{
+				"method google read in run 1", "accept in run 1", "commit", "accept of run 1 committed: user=true invitation live=false",
+				"policy: pat@lakeside.edu holds [Teacher] after 1 committed", "commit",
+			},
+		},
+		{
+			name:        "invite only, and the person carries a live invitation: the same account with the invitation's roles",
+			invited:     true,
+			wantGranted: map[string][]string{stranger: {"Teacher"}},
+			wantSteps: []string{
+				"method google read in run 1", "accept in run 1", "commit", "accept of run 1 committed: user=true invitation live=false",
+				"policy: pat@lakeside.edu holds [Teacher] after 1 committed", "commit",
+			},
+		},
+		{
+			name:        "open with a default role and no hook to give it: the transaction fails and no account is made",
+			rows:        []*dbtype.SignInMethod{openMethod("google", "Member")},
+			noHook:      true,
+			wantFailure: true,
+			wantSteps:   []string{"method google read in run 1", "rolled back"},
+		},
+		{
+			name:       "open, and the hook fails: the transaction fails, the role it buffered goes with the account, and its committed function never runs",
+			rows:       []*dbtype.SignInMethod{openMethod("google", "Member")},
+			signUpFail: signUpRefused,
+			wantErr:    signUpRefused,
+			wantSteps:  []string{"method google read in run 1", "sign-up in run 1", "rolled back"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			store.next = tt.next
+			for _, row := range tt.rows {
+				store.methods[row.Name] = row
+			}
+			d := &memDriver{store: store}
+			hooks := &roleHooks{store: store, signUpFail: tt.signUpFail}
+			rules := Rules[*memTx]{Method: "google", Policy: hooks.policy, Accept: hooks.accept, SignUp: hooks.signUp}
+			if tt.noMethod {
+				rules.Method = ""
+			}
+			if tt.noHook {
+				rules.SignUp = nil
+			}
+			var inv *sessioninfo.Invitation
+			if tt.invited {
+				inv = store.invite(stranger, "", "Teacher")
+			}
+			req := strangerRequest(inv)
+
+			err := signInWith(t, d, req, rules)
+
+			if diff := cmp.Diff(tt.wantSteps, store.steps); diff != "" {
+				t.Errorf("steps (-want +got):\n%s", diff)
+			}
+			refused := tt.wantCode != "" || tt.wantErr != nil || tt.wantFailure
+			switch {
+			case tt.wantCode != "":
+				if got := sessioninfo.LoginRefusalCodeOf(err); got != tt.wantCode || !errors.Is(err, signin.ErrNotInvited) {
+					t.Errorf("SignIn() error = %v (code %q), want the refusal %q caused by ErrNotInvited", err, got, tt.wantCode)
+				}
+			case tt.wantErr != nil:
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("SignIn() error = %v, want %v", err, tt.wantErr)
+				}
+			case tt.wantFailure:
+				var refusal *sessioninfo.LoginRefusal
+				if err == nil || errors.As(err, &refusal) {
+					t.Errorf("SignIn() error = %v, want a failure that is not a refusal", err)
+				}
+			case err != nil:
+				t.Fatalf("SignIn() error = %v", err)
+			}
+			if refused {
+				assertNothingCommitted(t, store, hooks, nil)
+
+				return
+			}
+			if _, user := store.userNamed(stranger); user == nil || store.sessions != 1 {
+				t.Errorf("the store holds user %v and %d session(s), want the account made and signed in", user, store.sessions)
+			}
+			want := tt.wantGranted
+			if want == nil {
+				want = map[string][]string{}
+			}
+			if diff := cmp.Diff(want, store.granted); diff != "" {
+				t.Errorf("granted (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSignIn_aPersonWithAnAccountSignsInTheSameUnderEitherChoice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		rows []*dbtype.SignInMethod
+	}{
+		{name: "invite only"},
+		{name: "open with a default role", rows: []*dbtype.SignInMethod{openMethod("google", "Member")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			for _, row := range tt.rows {
+				store.methods[row.Name] = row
+			}
+			id := impulse.Must(impulse.NewUUID())
+			store.users[id] = &memUser{username: stranger}
+			store.links[linkKey(sessioninfo.MethodAzure, "tenant-1", "oid-pat")] = id
+			d := &memDriver{store: store}
+			hooks := &roleHooks{store: store}
+			rules := Rules[*memTx]{Method: "google", Policy: hooks.policy, Accept: hooks.accept, SignUp: hooks.signUp}
+			req := strangerRequest(nil)
+
+			if err := signInWith(t, d, req, rules); err != nil {
+				t.Fatalf("SignIn() error = %v", err)
+			}
+
+			// The link finds the account: the method's row is never read, and nothing
+			// is given.
+			want := []string{"commit", "policy: pat@lakeside.edu holds [] after 0 committed", "commit"}
+			if diff := cmp.Diff(want, store.steps); diff != "" {
+				t.Errorf("steps (-want +got):\n%s", diff)
+			}
+			if req.UserID != id || req.User == nil || req.User.Source != sessioninfo.UserExistingLink {
+				t.Errorf("req = user %v (%+v), want the linked user %v", req.UserID, req.User, id)
 			}
 		})
 	}

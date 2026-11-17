@@ -142,8 +142,8 @@ type servedEmail struct {
 	Verify string
 }
 
-// servedSignUp are the sign-up routes of a session outlet whose password method
-// declares open sign-up: start from an address, open the mailed link, complete with a
+// servedSignUp are the sign-up routes of a session outlet whose auth declares the
+// password method: start from an address, open the mailed link, complete with a
 // password.
 type servedSignUp struct {
 	Start    string
@@ -625,8 +625,7 @@ type servedOutlet struct {
 	ChangeLook string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
-	// password method, SignUp when the password method declares open sign-up (nil
-	// otherwise).
+	// password method, SignUp with a password method too (nil otherwise).
 	Invitation servedInvitation
 	Email      servedEmail
 	SignUp     *servedSignUp
@@ -1237,8 +1236,8 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 // (session.Auth.Invitation, Email and SignUp) to the outlet: the login page opens an
 // invitation and, with a password method, an invited stranger signs up at it, behind
 // the XSRF guard alone; a signed-in person accepts it and adds or verifies an address
-// inside the validated group; open sign-up, when the password method declares it,
-// starts, opens and completes behind the XSRF guard alone. It answers the guarded
+// inside the validated group; a sign-up, with a password method, starts, opens and
+// completes behind the XSRF guard alone. It answers the guarded
 // routes with the mail ones appended, and the validated routes.
 func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute, route func(method, suffix, handler string, xsrf bool) servedRoute) (guardedRoutes, validatedRoutes []servedRoute) {
 	prefix := "/" + o.prefix
@@ -1248,12 +1247,10 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 
 		return r
 	}
-	hasPassword, openSignUp := false, false
-	for _, m := range o.auth.methods {
-		if m.kind == methodPassword {
-			hasPassword, openSignUp = true, m.openSignUp
-		}
-	}
+	// Every auth with the password method mounts the sign-up routes: whether anyone
+	// may sign up is an administrator's choice in the running application, and the
+	// handlers answer 404 while the method is invite only.
+	hasPassword := slices.ContainsFunc(o.auth.methods, func(m AuthMethod) bool { return m.kind == methodPassword })
 	so.Invitation = servedInvitation{Open: prefix + userInvitationSuffix, Accept: prefix + userInvitationSuffix + "/accept"}
 	so.Email = servedEmail{Add: prefix + userEmailSuffix, Verify: prefix + userEmailSuffix + "/verify"}
 	guarded = append(guarded, route(http.MethodPost, userInvitationSuffix, invitationOpenHandler, true))
@@ -1275,7 +1272,7 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 		validated(userEmailSuffix, emailAddHandler),
 		validated(userEmailSuffix+"/verify", emailVerifyHandler),
 	}
-	if openSignUp {
+	if hasPassword {
 		so.SignUp = &servedSignUp{Start: prefix + userSignUpSuffix, Open: prefix + userSignUpSuffix + "/open", Complete: prefix + userSignUpSuffix + "/complete"}
 		guarded = append(guarded,
 			route(http.MethodPost, userSignUpSuffix, signUpStartHandler, true),

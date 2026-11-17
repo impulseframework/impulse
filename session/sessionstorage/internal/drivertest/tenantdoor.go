@@ -181,15 +181,15 @@ func (w *doorWorld) reached(userID impulse.UUID, identity *sessioninfo.Identity)
 	return reached
 }
 
-// start builds the case's Auth over a fresh database: members of a directory are
-// provisioned by the registration's rule, the tenants' declarations decide a stranger
-// first, an invitation's roles and a directory's default seat are held once they
-// commit, and the tenant policy decides the sign-in.
+// start builds the case's Auth over a fresh database: the sign-in method is open to
+// sign-up, so its row gives a person with no account one, the tenants' declarations
+// decide a stranger first, an invitation's roles and a directory's default seat are
+// held once they commit, and the tenant policy decides the sign-in.
 func (w *doorWorld) start(ctx context.Context, t *testing.T, h *AuthHarness) *AuthInstance {
 	t.Helper()
 
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Accept: w.seats.accept,
+		Auth: true, Accounts: Open, Accept: w.seats.accept,
 		Policy:    signin.TenantPolicy(w.seats, w.declaration),
 		Admission: &DirectoryAdmission{Directories: w.directories, Seat: w.seats.seat},
 	})

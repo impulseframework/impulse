@@ -189,6 +189,12 @@ type db interface {
 	ClearSignInAttempts(ctx context.Context, name string) error
 	// SetMailLinksTableName sets the name of the mail links table.
 	SetMailLinksTableName(name string) error
+	// SetSignInMethodsTableName sets the name of the sign-in methods table.
+	SetSignInMethodsTableName(name string) error
+	// SignInMethods lists every row of the sign-in methods table, by name.
+	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
+	// SetSignInMethod writes the row of the sign-in method m names, replacing the one it had.
+	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
 	// InsertMailLink inserts a mail link.
 	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
 	// MailLinkByToken returns the mail link holding tokenHash that is live at now, or NotFound.

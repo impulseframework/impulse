@@ -709,6 +709,9 @@ func (r *resourceGenerator) buildUnifiedTypescriptGenerator(gc *resource.Generat
 	t.domainRouteSegment = r.domainRouteSegment
 	t.domainRouteParam = r.domainRouteParam
 	t.domainWord = r.domainWord
+	if record := r.tenantRecord(); record != nil {
+		t.tenantCreation = record.TenantCreation
+	}
 
 	return t, nil
 }

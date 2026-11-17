@@ -17,7 +17,8 @@ The Session repository is designed to handle the management of user sessions, in
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO (`session/internal/workos`): built and tested, in an internal package, so an application cannot import it
 - `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
-- `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to (an account with no address, by the link); a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password when the application opens it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
+- `Open to sign-up, or invite only`: whether a person with no account and no invitation may sign in is one choice an administrator makes in the running application, for each sign-in method, kept in a table of the auth; every method is invite only until it is opened, and an open method gives a new person its default role. See "Open to sign-up, or invite only" under the Auth session.
+- `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to (an account with no address, by the link); a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password while an administrator has the password method open to it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
 - `Mail`: one interface the invitation, verification, sign-up and sign-in code flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
@@ -111,14 +112,15 @@ may be registered several times under different names, so one `Auth` offers two 
 tenants as two registrations, each with its own configuration and rules. The password
 registration is named `password`. `rule` is the application's own **account rule** for
 an identity that is not linked to any user yet, and `nil` is the usual value: the
-Entra and Google methods apply a **standard account rule** (`Config.Accounts`) to a
-first sign-in (see "Storage and schema").
+library applies its **standard account rule** to a first sign-in, which reads what an
+administrator chose for the registration in the running application, open to sign-up
+or invite only (see "Storage and schema" and "Open to sign-up, or invite only").
 
 ### Storage and schema
 
-Each auth group owns ten tables: sessions and users (the base migrations,
+Each auth group owns eleven tables: sessions and users (the base migrations,
 `schema/*/migrations`), identities, auth events, pending sign-ins, sign-in attempts,
-mail links, factor codes and trusted devices (the auth migrations,
+mail links, factor codes, trusted devices and sign-in methods (the auth migrations,
 `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
 `ProviderSessionId` and `ProviderSessionIssuer` to the sessions table and the email
 address columns and the person's name to the users table), and impersonations
@@ -194,29 +196,33 @@ DML what a later rule must read.
   second, or that builds its check over another auth's engine.
 - The **account rules** decide an identity's first sign-in: an identity that is not
   linked to any user yet. A linked identity signs in by its link and never consults
-  them. Each Entra and Google registration declares a **standard rule** in
-  `Config.Accounts`, which the library applies inside the sign-in's first transaction:
-  - `signin.MembersOfDirectory` (the default): every member of the directory gets an
-    account under their **sign-in name**, the user principal name on Entra and the
-    verified email on Google. A user the application pre-created is linked instead,
-    found by the username first and then by the address: the user under that name,
+  them. The library applies its **standard rule** inside the sign-in's first
+  transaction:
+  - **A person who has an account is linked to it.** A user the application created is
+    found by the username first and then by the address: the user under the identity's
+    **sign-in name** (the user principal name on Entra, the verified email on Google),
     matched without regard to case, or else the user who holds the identity's address
     verified, when the method verified the address (Google does, Entra does not), since
     a person is one user whichever way they sign in. The link is made after a password
     confirmation when the user has a password, outright when the user has none and
     signs in through no other connection yet. An address a user holds unverified is a
-    reservation, not a match: the person is provisioned as a stranger, and the new
-    account holds no address until they verify one, the reserved address staying with
-    the account it was entered for. A registration's own rule that provisions a new
-    user for an identity whose verified address another user holds verified is refused
-    (`identity_rejected`): never a second user for one person.
-  - `signin.InvitedUsersOnly`: the same matching, and no provisioning; a person no user
-    was created for is refused (`not_invited`), unless the sign-in carries an
-    invitation, which is then the account the rule asks for. The application creates the users
-    under their sign-in names, with or without a password, before they sign in.
-  - `signin.OpenSignUp`: anyone who signs in gets an account under their sign-in name.
-    It is for public applications and refused on a registration that serves one
-    organization.
+    reservation, not a match.
+  - **A person who has none is decided by what an administrator chose for the method**,
+    the registration's row of the sign-in methods table, read in the same transaction
+    (see "Open to sign-up, or invite only"). A method with no row is **invite only**:
+    the person is refused (`not_invited`) and nothing is written, unless the sign-in
+    carries an invitation, which is then the account, with the invitation's roles. A
+    method an administrator **opened to sign-up** gives the person an account under
+    their sign-in name and the default role the row names, through the application's
+    hook, in the transaction that makes the account. Nothing in code opens a method.
+  - **A method whose directory writes the roles** (role synchronization) has no such
+    choice: the directory says who holds a role, so a person whose token asserts one is
+    given an account, and a person whose token asserts none is refused (`no_roles`).
+
+  A new account holds no address until the person verifies one, a reserved address
+  staying with the account it was entered for. A registration's own rule that
+  provisions a new user for an identity whose verified address another user holds
+  verified is refused (`identity_rejected`): never a second user for one person.
 
   In a tenanted application the **tenant's declaration decides a stranger first**.
   With `auth.SetDirectoryAdmission(directoryLookup, seatHook)` (see "The
@@ -238,12 +244,12 @@ DML what a later rule must read.
   is deleted and made again gives it again. A seat the invitation the sign-in consumes names too (the
   same role in the same tenant) is given once, by the invitation, and is left out of
   what the hook is handed. A declaration naming none admits strangers by invitation only, the
-  invitation the sign-in carries being the account as under
-  `signin.InvitedUsersOnly`, and without one the sign-in is refused
-  (`invitation_only`) and nothing is written. A directory no tenant declares falls to
-  the registration's rule as above.
+  invitation the sign-in carries being the account as through a method that is invite
+  only, and without one the sign-in is refused
+  (`invitation_only`) and nothing is written, whether the method is open or not. A
+  directory no tenant declares falls to what was chosen for the method, as above.
 
-  Every standard rule writes nothing for a guest of the directory (an Entra B2B guest,
+  The standard rule writes nothing for a guest of the directory (an Entra B2B guest,
   refused with `guest_account`: a guest's preferred username is an address the
   directory did not verify), for a token asserting no application role when the method
   synchronizes roles (`no_roles`), or for an identity without a sign-in name
@@ -251,8 +257,8 @@ DML what a later rule must read.
   for the account (`Identity.Organization`): on Entra the tenant id, or the name
   `azure.NamedTenant` gives it; on Google the Workspace's name, the account's domain
   under any Workspace, `google.AnyAccountConnection` under any Google account.
-- A registration's own **rule** (`azure.AccountRule`, `google.AccountRule`; required
-  on WorkOS, which has no standard rule) is given to its `SignIn` function and runs
+- A registration's own **rule** (`azure.AccountRule`, `google.AccountRule`,
+  `oidc.AccountRule`) is given to its `SignIn` function and runs
   first, for what the standard rule cannot know: it receives the method's own identity
   type (`*azure.Identity`, `*google.Identity`), decoded from the verified claims with
   the raw claims on it, and answers `signin.Reject(code)`, `signin.Link(userID,
@@ -309,8 +315,8 @@ func signInPolicy(ctx context.Context, tx *spanner.ReadWriteTransaction, req *se
 }
 
 // Optional: the application's own rule for an Entra identity's first sign-in. The
-// standard rule in Config.Accounts handles the usual case; this one refuses what the
-// standard rule cannot know and leaves the rest to it.
+// library's standard rule handles the usual case; this one refuses what the standard
+// rule cannot know and leaves the rest to it.
 func entraAccountRule(ctx context.Context, tx *spanner.ReadWriteTransaction, identity *azure.Identity) (*signin.Resolution, error) {
     partner, ok, err := partnerOfTenant(ctx, tx, identity.TenantID) // the application's own rows
     if err != nil {
@@ -338,15 +344,72 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, sup
     session.WithPendingCookieName("auth-pending"),
 )
 auth.SetSignInPolicy(signInPolicy) // optional: without it the library's checks decide
+auth.SetSignUpSeated(giveDefaultRole) // gives a person who signs up through an open method its default role
 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
-sso := azure.SignIn(auth, "entra", entraAccountRule, &azure.Config{ // *azure.Method; nil leaves first sign-ins to Accounts alone
+sso := azure.SignIn(auth, "entra", entraAccountRule, &azure.Config{ // *azure.Method; nil leaves first sign-ins to the standard rule alone
     Tenants: azure.Tenant(cfg.EntraTenantID), ClientID: cfg.EntraClientID, ClientSecret: cfg.EntraClientSecret,
     RedirectURL: cfg.SSORedirectURL, RoleSync: signin.DisableRoleSync(), LoginURL: "/login",
-    Accounts: signin.InvitedUsersOnly, // the standard rule: pre-created users only
 })
 ```
+
+### Open to sign-up, or invite only
+
+Whether a person with no account and no invitation may sign in is not written in code.
+It is one choice an administrator makes in the running application, for each sign-in
+method: **invite only**, or **open to sign-up**. The choice is a row of the sign-in
+methods table (`SessionSignInMethods`, under the group's prefix), keyed by the name the
+method is registered under:
+
+| Column | What it holds |
+|---|---|
+| `Name` | The registration's name (`password`, `google`, `entra`, ...). |
+| `OpenSignUp` | Whether the method is open to sign-up. |
+| `DefaultRole` | The role a person who signs up through the method is given, or null. An application without tenants names one for every open method; an application with tenants names none, since a person who signs up there creates a tenant of their own. |
+| `UpdatedAt` | When the row was written, by the database's clock. |
+
+**A method with no row is invite only**, so a new application, and a method added to
+one, admits nobody an administrator did not invite or create. The sign-in reads the row
+in the transaction that would make the account, so the choice and the account are never
+out of step: a method made invite only refuses the next person, and a link mailed to a
+person who started a password sign-up while the method was open makes nothing once it
+is not.
+
+What open admits is how wide the registration is, which stays in code: a method limited
+to the organizations it names (`azure.Tenant`, `google.Workspace`, an `oidc` provider)
+admits anyone with an account there; `azure.AnyTenant`, `azure.PersonalAccounts`,
+`google.AnyWorkspace`, `google.AnyGoogleAccount` and the password method admit anyone
+who has such an account. `auth.API().SignInMethods()` lists the registrations with
+that width in words (`signin.Audience.Words()`: "anyone with an account at
+lakeside.edu", "anyone with a Google account"), for the page where an administrator
+makes the choice and the warning they confirm. A method that synchronizes roles from
+its directory has no choice to make (`RegisteredMethod.SyncsRoles`).
+
+| The person | The method is invite only | The method is open |
+|---|---|---|
+| has an account | signs in | signs in |
+| carries a live invitation | gets an account with the invitation's roles | the same |
+| has neither | refused (`not_invited`), nothing written | gets an account, and the default role the row names |
+
+The default role is given by the application, through the hook it sets once at
+startup, inside the transaction that makes the account, so the account and the role are
+written together or not at all:
+
+```go
+auth.SetSignUpSeated(func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username, method, role string) (func(ctx context.Context), error) {
+    // Write the role for userID through tx. What must happen once the transaction has
+    // committed (telling a permission engine that keeps roles in memory) is returned.
+    return nil, giveRole(ctx, tx, userID, role)
+})
+```
+
+An open method whose row names a role on an Auth with no hook fails the sign-in in its
+transaction, and no account is made holding nothing. The auth packages `impulse` writes
+set the hook, write the table with the group's other tables, and give every application
+the page where the choice is made; an application that wires its Auth by hand writes
+the row with `sessionstorage.AuthStore.SetSignInMethod` and lists them with
+`SignInMethods`. `session.WithSignInMethodsTableName` renames the table.
 
 ### The tenant policy
 
@@ -413,9 +476,9 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   invitation does not name, and is not called for none. A declaration naming
   none refuses a stranger by invitation only (`invitation_only`), with no account
   created, unless the sign-in carries an invitation. A directory no tenant declares
-  falls to the registration's account rule. Without the three, a stranger is the
-  registration's rule's alone, and an open-sign-up registration gives them an account
-  holding nothing.
+  falls to what an administrator chose for the method. Without the three, a stranger
+  is that choice's alone, and a method opened to sign-up gives them an account holding
+  what its row names: the default role, or nothing.
 
 The rules, in order, once the user is known:
 
@@ -517,9 +580,6 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
   HashAlgorithm(...))` would have hashed with the default). Register every method, then
   build the router and serve.
-- **A registration without an account rule**: a WorkOS registration with a nil `rule`
-  (WorkOS has no standard rule), or a registration naming a standard rule that does not
-  exist.
 - **A registration that synchronizes roles beside any other method**, in either order
   of registration. Role authority is the `Auth`'s, not a registration's: the `Auth` is
   one users table, one role file and one administration surface, so when a directory
@@ -537,10 +597,7 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   `Authority` that is not a base URL; a Google registration without its `Workspaces`, a
   Workspace without a name or a domain, a value that is not a domain name, a name used
   twice or a domain in two Workspaces; role synchronization with other than one tenant
-  or one Workspace; open sign-up (`signin.OpenSignUp`) on a registration that serves
-  one or several named organizations; members of the directory with any tenant,
-  personal accounts, any Workspace or any Google account and no rule of the
-  application's own; a generic OpenID Connect registration without an `Issuer`, with
+  or one Workspace; a generic OpenID Connect registration without an `Issuer`, with
   one that is not an absolute URL, or without its role sync slot; cookie or session
   options passed to `PasswordSignIn` instead of `NewAuth`.
 
@@ -592,7 +649,7 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/look", auth.ChangeLook())                 // {"scheme", "palette"}: the look the person chose; validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
     r.Post("/api/user/invitation/sign-up", auth.Invitation().SignUp()) // {"password", "username"}: the invited person's account
-    r.Post("/api/user/sign-up", auth.SignUp().Start())                 // {"email"}: mails the sign-up link (OpenSignUp)
+    r.Post("/api/user/sign-up", auth.SignUp().Start())                 // {"email"}: mails the sign-up link; 404 while the password method is invite only
     r.Post("/api/user/sign-up/open", auth.SignUp().Open())             // {"token"}
     r.Post("/api/user/sign-up/complete", auth.SignUp().Complete())     // {"token", "password", "username"}
     r.Group(func(r chi.Router) {
@@ -701,8 +758,9 @@ the password method is listed.
 - `invitation`, `email` and `signUp` are the paths of the invitation, email address and
   sign-up handlers, each block present when the list names it (`MethodList.Invitation`,
   `Email`, `SignUp`). The invitation block's `signUp` is named exactly when the
-  password method is listed; the sign-up block needs the password method listed and
-  registered with `OpenSignUp`. The page opens a link it was sent to with
+  password method is listed; the sign-up block needs the password method listed, and
+  is in the answer only while an administrator has the password method open to sign-up,
+  read as each request arrives. The page opens a link it was sent to with
   `?invitation=`, `?verify=` or `?signUp=` by posting the token to the block's `open`
   (or `verify`) path; see "Invitations", "Users and their email address" and "Sign-up".
 - `invitation.standing` is the live invitation the browser carries, present when the
@@ -726,8 +784,8 @@ as a registration does: an empty list, a method that is not registered on the `A
 a name listed twice, a method without a label or with a path that is not a canonical
 path in the application, a pending block with some of its paths, the password method
 without its change route or that route without the method, an invitation, email or
-sign-up block with some of its paths, or a sign-up block for a password method that
-does not offer sign-up. Route it beside the login routes: behind `StartSession`,
+sign-up block with some of its paths, or a sign-up block with no password method
+listed. Route it beside the login routes: behind `StartSession`,
 before `ValidateSession`, no XSRF token.
 
 ### The redirect and response contract
@@ -1209,7 +1267,7 @@ How an address gets onto a user:
   `Identity.EmailVerified` does the same; Entra does not, so an Entra user's address
   stays a prefill until the person verifies it). The other way round, a first Google
   sign-in by a person whose address a user already holds verified is that user's: the
-  standard account rules match the user by the address once no user is under the
+  standard account rule matches the user by the address once no user is under the
   sign-in name (see "Storage and schema" above).
 - **An invitation or a sign-up proves it**: the account an invited person creates, or
   an existing account that accepts an invitation while holding no verified address,
@@ -1399,8 +1457,8 @@ read the mailbox, and the account takes the address.
   committed. A hook that fails fails the transaction and ends the sign-in with its
   error: the invitation stands, and a user the sign-in would have provisioned is not
   created. An account `Invitation().SignUp()` created stays, since it is created
-  before the sign-in that accepts the invitation. Under the
-  invited-users-only account rule the invitation is the account the rule asks for: a
+  before the sign-in that accepts the invitation. Through a method that is invite only
+  the invitation is the account: a
   stranger who carries one is provisioned under their sign-in name, and so is a
   stranger from a directory a tenant declares with no default seat
   (`SetDirectoryAdmission`). A person already
@@ -1433,17 +1491,26 @@ although Google would admit the sign-in: name the secondary domain on the Worksp
 
 ### Sign-up
 
-When the password method is registered with `session.OpenSignUp()`, anyone may create
+While an administrator has the password method open to sign-up (its row of the sign-in
+methods table; see "Open to sign-up, or invite only"), anyone may create
 an account: the person gives their address to `SignUp().Start()` (`{"email"}`), which
 mails a link standing `MailSettings.LinkTimeout` (a day); the login page, sent to with
 `?signUp=<token>`, posts the token to `SignUp().Open()` for `{"email",
 "usernameIsEmail"}` and then, with the password the person chose (at least eight
 characters) and the username when the two are apart, to `SignUp().Complete()`, which
-creates the account with the address verified and signs the person in, answering as
-the password login does. `Start` answers `{}` whatever the address's state: an address
-an account already holds is pointed at that account by mail, and the screen says
-nothing. `OpenSignUp` needs mail (`WithMail`), and the sign-up routes are offered only
-with it; without `OpenSignUp` the handlers answer 404 and `Methods` refuses the block.
+creates the account with the address verified and the method's default role, and signs
+the person in, answering as the password login does. `Start` answers `{}` whatever the
+address's state: an address an account already holds is pointed at that account by
+mail, and the screen says nothing.
+
+Every application with the password method and mail (`WithMail`) routes the three
+handlers; nothing in code offers or withholds sign-up. While the method is invite only,
+which it is until an administrator opens it, the handlers answer 404 and `Methods`
+leaves the block out of its answer, so the login page offers nothing. `Complete` makes
+the account in one transaction that reads the method's row, spends the link, writes the
+user and gives the default role through the application's hook (`SetSignUpSeated`): a
+link mailed while the method was open creates nothing once it is invite only again, and
+is not spent by the refusal.
 
 ### Attempt limiting and the after-sign-in hook
 
@@ -1825,7 +1892,6 @@ gateway := oidc.SignIn(auth, "gateway", nil, &oidc.Config{
     RedirectURL:  "https://lanterns.example.com/api/user/gateway/callback",
     Connection:   "gateway",                // the connection every link carries; the issuer URL when empty
     RoleSync:     signin.DisableRoleSync(), // or signin.RoleSync(manager), reconciled to the token's roles claim
-    Accounts:     signin.InvitedUsersOnly,  // members of the directory by default
 })
 r.Get("/api/user/gateway/login", gateway.Login())
 r.Get("/api/user/gateway/callback", gateway.Callback())
@@ -1833,10 +1899,10 @@ r.Get("/api/user/gateway/callback", gateway.Callback())
 
 The identity is keyed by the registration's `Connection` and the token's `sub`. Its
 sign-in name is the `preferred_username` claim, or the `email` claim when the provider
-sends none, so the standard account rules provision and match users under it. The
-provider is the directory: whoever it authenticates is a member of it, so a first
-sign-in takes `signin.MembersOfDirectory` by default, and a registration that admits
-only pre-created users says `signin.InvitedUsersOnly`. The login route forwards
+sends none, so the standard account rule provisions and matches users under it. The
+provider is the one organization the registration is limited to: until an administrator
+opens the registration to sign-up it is invite only, and opening it admits anyone the
+provider authenticates (see "Open to sign-up, or invite only"). The login route forwards
 `?login_hint=` to the provider as its `login_hint`, which a gateway reads as the
 account to sign in, and `?prompt=select_account` as its `prompt`. A provider that
 enforces a second factor at every sign-in is declared so with `Attesting: true`, and a
@@ -1854,10 +1920,10 @@ Microsoft Entra ID sign-in is a method of the `Auth` session, registered with
 (see "Registering sign-in methods" above). The identity is linked to its user by the
 tenant and the object id, the `tid` and `oid` claims, under every shape below. Its
 sign-in name is `preferred_username`, the user principal name, so the standard account
-rules (`Config.Accounts`) provision and match users under it. A guest of the tenant (a
+rule provisions and matches users under it. A guest of the tenant (a
 B2B guest, whose `idp` claim names another provider than the issuer or whose name
 carries `#EXT#`) is marked on the identity (`Identity.Guest`) and refused by the
-standard rules (`guest_account`); a rule of the application's own decides for itself.
+standard rule (`guest_account`); a rule of the application's own decides for itself.
 
 `Login` accepts `?returnUrl=` (a path in the application) and `?prompt=select_account`,
 passed to Microsoft as its `prompt` so it shows its account chooser even when it holds
@@ -1872,7 +1938,7 @@ registration admits. The verified ID token's `tid` claim selects the entry at th
 callback, before the account rules run, so an account the slot does not admit never
 reaches a row (`unlisted_tenant`, or `personal_account` for a Microsoft personal
 account under a work or school shape). The entry also decides the organization the
-standard rules store as the tenant key of the links they make
+standard rule stores as the tenant key of the links it makes
 (`Identity.Organization`); the link's connection is the tenant id under every shape.
 
 - **One tenant**, `azure.Tenant("<tenant id>")`: the application that belongs to one
@@ -1907,10 +1973,11 @@ the token's issuer against the token's tenant itself, `<Authority>/<tid>/v2.0`, 
 the tenant against the slot, in the verifier and again in the method, before any user
 is resolved; the signature, audience and expiry are checked as always.
 
-A first sign-in through an open entry (any tenant, personal accounts) cannot take
-members of the directory, which would sign up the world: the registration takes
-`signin.InvitedUsersOnly`, `signin.OpenSignUp` or a rule of the application's own.
-Open sign-up, in turn, is refused on a registration that lists its tenants only.
+The entry is also how wide the registration is, which is whom an administrator admits
+by opening it to sign-up (see "Open to sign-up, or invite only"): the people of the
+tenants it lists, each by the name `azure.NamedTenant` gives it; anyone with a
+Microsoft work or school account under any tenant; anyone with a personal Microsoft
+account under personal accounts. Every registration is invite only until it is opened.
 
 `Config.Authority` is the Microsoft identity platform the tenants live on,
 `https://login.microsoftonline.com` when empty; Azure Government tenants live at
@@ -1950,7 +2017,7 @@ Workspaces apart by connection and, within one, domains apart by the identity's
 `HostedDomain`.
 
 The identity's sign-in name is the verified `email` claim (`email_verified` is
-enforced), so the standard account rules (`Config.Accounts`) provision and match users
+enforced), so the standard account rule provisions and matches users
 under it. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
 Google-initiated logout: `Logout` destroys the local session only. The `RoleSync` slot
 is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
@@ -1992,10 +2059,11 @@ connection written on the identity link:
   only way a Google sign-in attests; it is for named Workspaces, and the one to name
   beside an open entry. See "The second factor".
 
-A first sign-in through an open entry (any Workspace, any Google account) cannot take
-members of the directory, which would sign up the world: the registration takes
-`signin.InvitedUsersOnly`, `signin.OpenSignUp` or a rule of the application's own.
-Open sign-up, in turn, is refused on a registration that names its Workspaces only.
+The entry is also how wide the registration is, which is whom an administrator admits
+by opening it to sign-up (see "Open to sign-up, or invite only"): anyone with an
+account at the domains of the Workspaces it names; anyone with a Google Workspace
+account under any Workspace; anyone with a Google account under any Google account.
+Every registration is invite only until it is opened.
 
 **The connection is a key.** Renaming a Workspace, or moving from any Workspace (where
 the domain is the connection) to a named one, makes every sign-in from it arrive as an
@@ -2141,15 +2209,15 @@ table is the wire contract:
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
-| `not_invited` | `RefusedNotInvited` | Auth: under the invited-users-only account rule, no user was created for the identity's sign-in name. |
+| `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
-| `invitation_expired` | `RefusedInvitationExpired` | Auth: under the invited-users-only account rule, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
+| `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
 | `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it asserts (the directory's, or the account's own); refused before anything is read or written, the invitation left standing. An account that holds no address accepts by the link. The login page names the invited address and asks for a sign-in with that account. |
-| `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rules refuse. |
+| `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rule refuses. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
 | `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
-| `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or a standard account rule found no sign-in name to use as the username. |
+| `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or the standard account rule found no sign-in name to use as the username. |
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |

@@ -591,6 +591,24 @@ export interface LaunchMission {
   pilotUserId: string;
 }
 
+export interface MakeCrewInviteOnlyConfig {
+  name: string | FieldPointer;
+}
+export interface MakeCrewInviteOnly {
+  name: string;
+}
+/** The statuses MakeCrewInviteOnly declares; the method chooses one per response. */
+export type MakeCrewInviteOnlyStatus = 204;
+
+export interface OpenCrewSignUpConfig {
+  name: string | FieldPointer;
+}
+export interface OpenCrewSignUp {
+  name: string;
+}
+/** The statuses OpenCrewSignUp declares; the method chooses one per response. */
+export type OpenCrewSignUpStatus = 204;
+
 export interface PassFlightTestConfig {
   refitId: string | FieldPointer;
 }
@@ -1118,6 +1136,12 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
+  /**
+   * Set on a method that warns before it runs (@warning): the server writes what the
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
+   * warning style and holds its confirm button until the person has typed the word.
+   */
+  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 
@@ -1597,6 +1621,23 @@ const methodMap: MethodMap = {
       { fieldName: 'missionId', displayType: 'uuid' },
       { fieldName: 'shipId', displayType: 'enumerated', enumeratedResource: Resources.Ships },
       { fieldName: 'pilotUserId', displayType: 'string' },
+    ],
+  },
+  [Methods.MakeCrewInviteOnly]: {
+    route: 'make-crew-invite-only',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.OpenCrewSignUp]: {
+    route: 'open-crew-sign-up',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'open' },
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
     ],
   },
   [Methods.PassFlightTest]: {

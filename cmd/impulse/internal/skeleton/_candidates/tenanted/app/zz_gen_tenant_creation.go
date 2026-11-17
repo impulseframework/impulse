@@ -29,10 +29,13 @@ var _ interface {
 } = (*App)(nil)
 
 // CreateTenant serves the create-your-tenant route, POST /api/create-tenant: a signed-in person
-// who holds no tenant creates one and becomes its administrator (@tenant(creation: both)).
-// No grant admits the call. The session must be established, which the router's session
-// group holds it to, and must hold a grant in no tenant: a person creates one tenant,
-// and the member or administrator of one is refused (403). The row is written first, in
+// who holds no tenant creates one and becomes its administrator, while an administrator has
+// a sign-in method of the Staff auth open to sign-up. No grant admits the call. The session
+// must be established, which the router's session group holds it to, and must hold a
+// grant in no tenant: a person creates one tenant, and the member or administrator of
+// one is refused (403). Whether sign-up is open is read in the transaction that writes
+// the row, from the auth's sign-in methods table: while every method is invite only the
+// call is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // Staff auth's generated identity client, so the tenant and its administrator are
@@ -92,6 +95,17 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		var id impulse.UUID
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// Who is admitted: a person who signed up, which is a person with no tenant
+			// while an administrator has a sign-in method open to sign-up. A person who
+			// holds an invitation to create a tenant is the next admission, and is
+			// decided here, before the refusal, when that invitation exists.
+			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			if err != nil {
+				return errors.Wrap(err, "StaffIdentity().AnySignInMethodOpen()")
+			}
+			if !open {
+				return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a tenant of your own: ask an administrator of the application to create one for you, or to invite you to one")
+			}
 			patch, err := resources.NewTenantCreatePatch()
 			if err != nil {
 				return errors.Wrap(err, "resources.NewTenantCreatePatch()")

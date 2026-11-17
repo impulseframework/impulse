@@ -20,8 +20,8 @@ func TestMethodCommand(t *testing.T) {
 		want   string
 	}{
 		{name: "password", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPassword}}, want: "impulse add method staff password"},
-		{name: "a directory method with its shape", method: Method{Auth: "members", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Slot: authpkg.SlotListed, Accounts: authpkg.AccountsInvited}}, want: "impulse add method members google workspace --authority application --slot listed --accounts invited"},
-		{name: "an organization's identity provider under its name", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, want: "impulse add method staff oidc okta --authority application --accounts invited"},
+		{name: "a directory method with its shape", method: Method{Auth: "members", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Slot: authpkg.SlotListed}}, want: "impulse add method members google workspace --authority application --slot listed"},
+		{name: "an organization's identity provider under its name", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication}}, want: "impulse add method staff oidc okta --authority application"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -46,11 +46,10 @@ func TestMethodValidate(t *testing.T) {
 		{name: "the registration exists", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPassword}}, wantErr: "the staff auth registers password already"},
 		{name: "a directory method without an authority", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "directory"}}, wantErr: "the directory method needs --authority"},
 		{name: "a slot the kind lacks", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityApplication, Slot: "galaxy"}}, wantErr: "galaxy"},
-		{name: "the directory authority with any organization", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityDirectory, Slot: authpkg.SlotAny}}, wantErr: "directory"},
+		{name: "the directory authority with any organization", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityDirectory, Slot: authpkg.SlotAny}}, wantErr: "role synchronization follows one tenant's roles"},
 		{name: "the directory authority beside the password method", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityDirectory}}, wantErr: "a registration whose directory writes the roles stands alone on its auth"},
 		{name: "an identity provider on the staff auth", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication}}},
 		{name: "an identity provider without an authority", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta"}}, wantErr: "the okta method needs --authority"},
-		{name: "an identity provider admitting open sign-up", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsOpen}}, wantErr: "open sign-up is for a method anyone can use"},
 		{name: "an identity provider whose token names the roles, beside the password method", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityDirectory}}, wantErr: "a registration whose directory writes the roles stands alone on its auth"},
 	}
 	for _, tt := range tests {
@@ -99,7 +98,7 @@ func TestMethodApply(t *testing.T) {
 			name:   "a Google method under the application authority",
 			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}},
 			wantDid: []string{
-				"pkg/auth/staff/workspace.go: the workspace method (google, one Workspace, members of the directory, role membership the application's): its registration constant, its settings, its handlers (WorkspaceLogin and the rest), and registerWorkspace, which registers it on the Auth",
+				"pkg/auth/staff/workspace.go: the workspace method (google, one Workspace, role membership the application's): its registration constant, its settings, its handlers (WorkspaceLogin and the rest), and registerWorkspace, which registers it on the Auth",
 				"pkg/auth/staff/staff.go: Handlers holds the workspace method (workspace *google.Method), New registers it (registerWorkspace), and Settings carries its WorkspaceSettings and the LoginURL, and the package doc lists it",
 				`cmd/generate/resourcegenerator/main.go: generation.GoogleMethod("workspace") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/workspace/login and the callback and the methods route offers it`,
 				"Procfile: 2 go run command(s) build with -tags skipAuth, so the staff auth's directory is simulated in development",
@@ -114,13 +113,13 @@ func TestMethodApply(t *testing.T) {
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				file := read(t, a, "pkg/auth/staff/workspace.go")
-				for _, want := range []string{"package staff", `const WorkspaceRegistration = "workspace"`, "type WorkspaceSettings struct", "func (h *Handlers) WorkspaceLogin() http.HandlerFunc", "func (h *Handlers) WorkspaceCallback() http.HandlerFunc", "func registerWorkspace(authSession *Session, accessClient *access.Client, settings *Settings) (*google.Method, error)", "google.Workspace(WorkspaceRegistration, settings.Workspace.HostedDomain)", "signin.MembersOfDirectory", "google.DisableRoleSync()"} {
+				for _, want := range []string{"package staff", `const WorkspaceRegistration = "workspace"`, "type WorkspaceSettings struct", "func (h *Handlers) WorkspaceLogin() http.HandlerFunc", "func (h *Handlers) WorkspaceCallback() http.HandlerFunc", "func registerWorkspace(authSession *Session, accessClient *access.Client, settings *Settings) (*google.Method, error)", "google.Workspace(WorkspaceRegistration, settings.Workspace.HostedDomain)", "the method is invite only until an administrator opens it to sign-up", "google.DisableRoleSync()"} {
 					if !strings.Contains(file, want) {
 						t.Errorf("workspace.go lacks %q:\n%s", want, file)
 					}
 				}
 				main := read(t, a, "pkg/auth/staff/staff.go")
-				for _, want := range []string{"\tpassword  *session.PasswordMethod\n\tworkspace *google.Method\n", "\thandlers.password = registerPassword(authSession)\n", "\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n\thandlers.workspace, err = registerWorkspace(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil", "\tWorkspace WorkspaceSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/google\"\n"} {
+				for _, want := range []string{"\tpassword  *session.PasswordMethod\n\tworkspace *google.Method\n", "\thandlers.password = registerPassword(authSession)\n", "\tauthSession.SetSignUpSeated(identityClient.SignedUp())\n\thandlers.workspace, err = registerWorkspace(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil", "\tWorkspace WorkspaceSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/google\"\n"} {
 					if !strings.Contains(main, want) {
 						t.Errorf("staff.go lacks %q:\n%s", want, main)
 					}
@@ -131,47 +130,60 @@ func TestMethodApply(t *testing.T) {
 			},
 		},
 		{
-			name:   "a Google method admitting invited users only declares .InvitedUsers() and writes the rule to its file",
-			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}},
+			name:   "a Google method whose roles the application assigns starts invite only, and the brief names the grants",
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}},
 			wantDid: []string{
-				"pkg/auth/staff/workspace.go: the workspace method (google, one Workspace, invited users only, role membership the application's): its registration constant, its settings, its handlers (WorkspaceLogin and the rest), and registerWorkspace, which registers it on the Auth",
-				`cmd/generate/resourcegenerator/main.go: generation.GoogleMethod("workspace").InvitedUsers() declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/workspace/login and the callback and the methods route offers it`,
+				"pkg/auth/staff/workspace.go: the workspace method (google, one Workspace, role membership the application's): its registration constant, its settings, its handlers (WorkspaceLogin and the rest), and registerWorkspace, which registers it on the Auth",
+				`cmd/generate/resourcegenerator/main.go: generation.GoogleMethod("workspace") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/workspace/login and the callback and the methods route offers it`,
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				file := read(t, a, "pkg/auth/staff/workspace.go")
-				if !strings.Contains(file, "signin.InvitedUsersOnly") || strings.Contains(file, "signin.MembersOfDirectory") {
-					t.Errorf("workspace.go's account rule:\n%s", file)
+				for _, retired := range []string{"Accounts:", "signin.InvitedUsersOnly", "signin.MembersOfDirectory", "signin.OpenSignUp"} {
+					if strings.Contains(file, retired) {
+						t.Errorf("workspace.go names an account rule (%s), which no registration takes:\n%s", retired, file)
+					}
 				}
-				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.GoogleMethod("workspace").InvitedUsers())`) {
+				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.GoogleMethod("workspace"))`) {
 					t.Errorf("program = %s", program)
 				}
-				meaning := (&Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}).Meaning()
-				if !strings.Contains(meaning, "the generated management of the staff auth creates them (the `CreateStaffUser` method), so grant Execute on it to the role that invites in the role file") {
-					t.Errorf("Meaning() lacks the grant on the create method:\n%s", meaning)
+				meaning := (&Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}).Meaning()
+				if !strings.Contains(meaning, "the generated management of the staff auth makes both (the `InviteStaffUser` and `CreateStaffUser` methods), so grant Execute on them to the role that invites in the role file") {
+					t.Errorf("Meaning() lacks the grants on the methods that invite and create:\n%s", meaning)
 				}
 			},
 		},
 		{
-			name:   "a Google method admitting open sign-up declares .OpenSignUp() and briefs the tenant record's creation shape",
-			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: authpkg.SlotAny, Authority: AuthorityApplication, Accounts: authpkg.AccountsOpen}},
+			name:   "a Google method admitting any Google account is as wide as the slot says and no wider in code: it starts invite only too",
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: authpkg.SlotAny, Authority: AuthorityApplication}},
 			wantDid: []string{
-				"pkg/auth/staff/sign-up.go: the sign-up method (google, any Google account, open sign-up, role membership the application's): its registration constant, its settings, its handlers (SignUpLogin and the rest), and registerSignUp, which registers it on the Auth",
-				`cmd/generate/resourcegenerator/main.go: generation.GoogleMethod("sign-up").OpenSignUp() declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/sign-up/login and the callback and the methods route offers it`,
+				"pkg/auth/staff/sign-up.go: the sign-up method (google, any Google account, role membership the application's): its registration constant, its settings, its handlers (SignUpLogin and the rest), and registerSignUp, which registers it on the Auth",
+				`cmd/generate/resourcegenerator/main.go: generation.GoogleMethod("sign-up") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/sign-up/login and the callback and the methods route offers it`,
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				file := read(t, a, "pkg/auth/staff/sign-up.go")
-				if !strings.Contains(file, "signin.OpenSignUp") || strings.Contains(file, "signin.MembersOfDirectory") {
-					t.Errorf("sign-up.go's account rule:\n%s", file)
+				for _, retired := range []string{"Accounts:", "signin.OpenSignUp", "signin.MembersOfDirectory"} {
+					if strings.Contains(file, retired) {
+						t.Errorf("sign-up.go names an account rule (%s), which no registration takes:\n%s", retired, file)
+					}
 				}
-				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.GoogleMethod("sign-up").OpenSignUp())`) {
+				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.GoogleMethod("sign-up"))`) {
 					t.Errorf("program = %s", program)
 				}
-				meaning := (&Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: authpkg.SlotAny, Authority: AuthorityApplication, Accounts: authpkg.AccountsOpen}}).Meaning()
-				for _, want := range []string{"Decide who may create a tenant. The sign-up registration(s) admit anyone the directory verifies (`signin.OpenSignUp`, and `.OpenSignUp()` on the declaration)", "`@tenant(creation: self-service)`", "`@tenant(creation: both)`", "`<Record>AdministratorRoles()`"} {
+				meaning := (&Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: authpkg.SlotAny, Authority: AuthorityApplication}}).Meaning()
+				for _, want := range []string{
+					"Its organization slot is any Google account, which is how wide the method is.",
+					"`OpenStaffSignUp` opens one, after a warning that says who that admits for a method this wide",
+					"with tenants they hold no role and create a tenant of their own through the generated create-your-tenant route, which refuses while no method is open",
+				} {
 					if !strings.Contains(meaning, want) {
 						t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
+					}
+				}
+				for _, retired := range []string{"@tenant(creation", ".OpenSignUp()", "signin.OpenSignUp"} {
+					if strings.Contains(meaning, retired) {
+						t.Errorf("Meaning() names %s, which is no longer declared:\n%s", retired, meaning)
 					}
 				}
 			},
@@ -181,7 +193,7 @@ func TestMethodApply(t *testing.T) {
 			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityApplication}},
 			extra:  map[string]string{"pkg/config/data.go": authConfigEnv},
 			wantDid: []string{
-				"pkg/auth/staff/directory.go: the directory method (azure, one tenant, members of the directory, role membership the application's): its registration constant, its settings, its handlers (DirectoryLogin and the rest), and registerDirectory, which registers it on the Auth",
+				"pkg/auth/staff/directory.go: the directory method (azure, one tenant, role membership the application's): its registration constant, its settings, its handlers (DirectoryLogin and the rest), and registerDirectory, which registers it on the Auth",
 				"pkg/config/data.go: dataConfig reads the staff auth's directory registration from APP_STAFF_DIRECTORY_TENANT_ID, APP_STAFF_DIRECTORY_ADMINISTERED_TENANTS, APP_STAFF_DIRECTORY_CLIENT_ID, APP_STAFF_DIRECTORY_CLIENT_SECRET, APP_STAFF_DIRECTORY_REDIRECT_URL, and the staff.Settings literal in NewDataConfiguration (an application composed before the staffSettings method) passes them",
 				`cmd/generate/resourcegenerator/main.go: generation.AzureMethod("directory") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/directory/login, the callback and the front-channel logout and the methods route offers it`,
 			},
@@ -249,13 +261,13 @@ func TestMethodApply(t *testing.T) {
 		},
 		{
 			name:   "an organization's identity provider, registered in every environment, with a secret and an issuer to give the harness",
-			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}},
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication}},
 			extra:  map[string]string{"pkg/config/data.go": authConfigSettings},
 			wantDid: []string{
-				"pkg/auth/staff/okta.go: the okta method (oidc, one organization's identity provider, invited users only, role membership the application's): its registration constant, its settings, its handlers (OktaLogin and the rest), and registerOkta, which registers it on the Auth",
+				"pkg/auth/staff/okta.go: the okta method (oidc, one organization's identity provider, role membership the application's): its registration constant, its settings, its handlers (OktaLogin and the rest), and registerOkta, which registers it on the Auth",
 				"pkg/auth/staff/staff.go: Handlers holds the okta method (okta *oidc.Method), New registers it (registerOkta), and Settings carries its OktaSettings and the LoginURL, and the package doc lists it",
 				"pkg/config/data.go: dataConfig reads the staff auth's okta registration from APP_STAFF_OKTA_ISSUER, APP_STAFF_OKTA_CLIENT_ID, APP_STAFF_OKTA_CLIENT_SECRET, APP_STAFF_OKTA_REDIRECT_URL, and dataConfig.staffSettings passes them",
-				`cmd/generate/resourcegenerator/main.go: generation.OIDCMethod("okta").InvitedUsers() declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/okta/login and the callback and the methods route offers it`,
+				`cmd/generate/resourcegenerator/main.go: generation.OIDCMethod("okta") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/okta/login and the callback and the methods route offers it`,
 				"Procfile: 2 go run command(s) build with -tags skipAuth, so the staff auth's directory is simulated in development",
 				"ran go generate ./..., so the router mounts the method's routes and the login page offers it",
 			},
@@ -270,7 +282,7 @@ func TestMethodApply(t *testing.T) {
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				file := read(t, a, "pkg/auth/staff/okta.go")
-				for _, want := range []string{"package staff", `const OktaRegistration = "okta"`, "type OktaSettings struct", "func (h *Handlers) OktaLogin() http.HandlerFunc {\n\treturn h.okta.Login()\n}", "func (h *Handlers) OktaCallback() http.HandlerFunc", "func registerOkta(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method", "oidc.SignIn(authSession, OktaRegistration", "\t\tIssuer:       settings.Okta.Issuer,\n", "\t\tClientSecret: settings.Okta.ClientSecret,\n", "\t\tConnection:   OktaRegistration,\n", "\t\tRoleSync:     signin.DisableRoleSync(),\n", "\t\tAccounts:     signin.InvitedUsersOnly,\n"} {
+				for _, want := range []string{"package staff", `const OktaRegistration = "okta"`, "type OktaSettings struct", "func (h *Handlers) OktaLogin() http.HandlerFunc {\n\treturn h.okta.Login()\n}", "func (h *Handlers) OktaCallback() http.HandlerFunc", "func registerOkta(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method", "oidc.SignIn(authSession, OktaRegistration", "\t\tIssuer:       settings.Okta.Issuer,\n", "\t\tClientSecret: settings.Okta.ClientSecret,\n", "\t\tConnection:   OktaRegistration,\n", "\t\tRoleSync:     signin.DisableRoleSync(),\n\t\tLoginURL:     settings.LoginURL,\n", "the method is invite only until an administrator opens it to sign-up"} {
 					if !strings.Contains(file, want) {
 						t.Errorf("okta.go lacks %q:\n%s", want, file)
 					}
@@ -296,7 +308,7 @@ func TestMethodApply(t *testing.T) {
 						t.Errorf("data.go lacks %q:\n%s", want, data)
 					}
 				}
-				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("okta").InvitedUsers())`) {
+				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("okta"))`) {
 					t.Errorf("program = %s", program)
 				}
 			},
@@ -305,10 +317,10 @@ func TestMethodApply(t *testing.T) {
 			name:   "a persona method, registered where the provider is configured, with its cast",
 			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPersona, Name: "persona"}},
 			wantDid: []string{
-				"pkg/auth/staff/persona.go: the persona method (persona, the persona provider, invited users only, role membership the application's): its registration constant, its settings, its handlers (PersonaLogin and the rest), and registerPersona, which registers it on the Auth",
+				"pkg/auth/staff/persona.go: the persona method (persona, the persona provider, role membership the application's): its registration constant, its settings, its handlers (PersonaLogin and the rest), and registerPersona, which registers it on the Auth",
 				"pkg/auth/staff/cast.json and pkg/auth/staff/cast.go: the cast of the persona sign-in, empty, and the file that embeds it, reads it (Cast) and seeds its accounts (SeedCast)",
 				"pkg/auth/staff/staff.go: Handlers holds the persona method (persona *oidc.Method), New registers it (registerPersona), and Settings carries its PersonaSettings and the LoginURL, and the package doc lists it",
-				`cmd/generate/resourcegenerator/main.go: generation.PersonaMethod("persona").InvitedUsers() declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/persona/login and the callback and the methods route offers it, where the provider is configured`,
+				`cmd/generate/resourcegenerator/main.go: generation.PersonaMethod("persona") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/persona/login and the callback and the methods route offers it, where the provider is configured`,
 				"ran go generate ./..., so the router mounts the method's routes and the login page offers it",
 			},
 			wantSkipped: []string{
@@ -322,7 +334,7 @@ func TestMethodApply(t *testing.T) {
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				file := read(t, a, "pkg/auth/staff/persona.go")
-				for _, want := range []string{"package staff", `const PersonaRegistration = "persona"`, "type PersonaSettings struct", "func (h *Handlers) PersonaLogin() http.HandlerFunc", "func (h *Handlers) PersonaCallback() http.HandlerFunc", "func registerPersona(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method", "if settings.Persona.Issuer == \"\" {\n\t\treturn nil\n\t}", "oidc.SignIn(authSession, PersonaRegistration", "signin.DisableRoleSync()", "\t\tAccounts:    signin.", "LoginURL:    settings.LoginURL"} {
+				for _, want := range []string{"package staff", `const PersonaRegistration = "persona"`, "type PersonaSettings struct", "func (h *Handlers) PersonaLogin() http.HandlerFunc", "func (h *Handlers) PersonaCallback() http.HandlerFunc", "func registerPersona(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method", "if settings.Persona.Issuer == \"\" {\n\t\treturn nil\n\t}", "oidc.SignIn(authSession, PersonaRegistration", "signin.DisableRoleSync()", "The method is left invite only", "LoginURL:    settings.LoginURL"} {
 					if !strings.Contains(file, want) {
 						t.Errorf("persona.go lacks %q:\n%s", want, file)
 					}
@@ -342,7 +354,7 @@ func TestMethodApply(t *testing.T) {
 						t.Errorf("staff.go lacks %q:\n%s", want, main)
 					}
 				}
-				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.PersonaMethod("persona").InvitedUsers())`) {
+				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.PersonaMethod("persona"))`) {
 					t.Errorf("program = %s", program)
 				}
 			},
@@ -415,7 +427,7 @@ func TestMethodApply(t *testing.T) {
 		},
 		{
 			name:   "a directory method's callback is the bound console's development address",
-			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Slot: authpkg.SlotAny, Accounts: authpkg.AccountsInvited}},
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Slot: authpkg.SlotAny}},
 			extra:  map[string]string{".envrc.template": "export PORT=8090\n"},
 			wantDid: []string{
 				".envrc.template: the google method's variables (APP_STAFF_GOOGLE_ADMINISTERED_WORKSPACES, APP_STAFF_GOOGLE_CLIENT_ID, APP_STAFF_GOOGLE_CLIENT_SECRET, APP_STAFF_GOOGLE_REDIRECT_URL), to fill in; APP_STAFF_GOOGLE_REDIRECT_URL is set to the console project's development callback, http://127.0.0.1:4300/api/user/google/callback",
@@ -435,7 +447,7 @@ func TestMethodApply(t *testing.T) {
 		},
 		{
 			name:   "a directory method's callback is left to fill in where the console has no development port",
-			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Slot: authpkg.SlotAny, Accounts: authpkg.AccountsInvited}},
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Slot: authpkg.SlotAny}},
 			extra:  map[string]string{".envrc.template": "export PORT=8090\n", "web/angular.json": strings.Replace(beaconAngular, "              \"port\": 4300,\n", "", 1)},
 			wantDid: []string{
 				".envrc.template: the google method's variables (APP_STAFF_GOOGLE_ADMINISTERED_WORKSPACES, APP_STAFF_GOOGLE_CLIENT_ID, APP_STAFF_GOOGLE_CLIENT_SECRET, APP_STAFF_GOOGLE_REDIRECT_URL), to fill in",
@@ -551,15 +563,15 @@ func TestMethodMeaningIdentityProvider(t *testing.T) {
 	}{
 		{
 			name: "the application gives the roles",
-			spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited},
+			spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication},
 			want: []string{
 				"the staff auth now offers `okta`, an organization's identity provider over OpenID Connect (`oidc.SignIn`",
 				"It signs in through one organization's identity provider, a provider known by its issuer alone, such as Okta or Keycloak",
-				"Its account rule is invited users only.",
 				"Role membership stays the application's",
 				"APP_STAFF_OKTA_ISSUER, APP_STAFF_OKTA_CLIENT_ID, APP_STAFF_OKTA_CLIENT_SECRET, APP_STAFF_OKTA_REDIRECT_URL",
 				"Register it with the identity provider",
-				"Invite its people.",
+				"Decide who may open a sign-in method to sign-up. Every method of the staff auth starts invite only",
+				"A newcomer needs an invitation until an administrator opens the method to sign-up",
 			},
 			unwanted: []string{"organization slot", "cast", "placement.json", "Have the provider send the roles"},
 		},
@@ -567,11 +579,11 @@ func TestMethodMeaningIdentityProvider(t *testing.T) {
 			name: "the provider's token names the roles",
 			spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityDirectory},
 			want: []string{
-				"Its account rule is members of the directory.",
 				"Role membership is the directory's",
 				"Have the provider send the roles. The method reads a person's roles from the ID token's `roles` claim",
 			},
-			unwanted: []string{"organization slot", "Invite its people."},
+			// The provider decides who its people are: nobody opens the method.
+			unwanted: []string{"organization slot", "Decide who may open a sign-in method to sign-up"},
 		},
 	}
 	for _, tt := range tests {

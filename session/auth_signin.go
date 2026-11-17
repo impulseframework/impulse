@@ -124,18 +124,20 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	}
 	req.Invitation = inv
 
-	// An external identity is decided by its registration's account rules; a password
-	// identity, or the application's own, names its user and needs none.
+	// An external identity is decided by its registration's own account rule where it
+	// has one, and otherwise by what an administrator chose for the method, which the
+	// store reads by the registration's name; a password identity, or the
+	// application's own, names its user and needs neither.
 	var (
-		rule     signin.AccountRule[Tx]
-		standard signin.StandardAccountRule
+		rule   signin.AccountRule[Tx]
+		method string
 	)
 	if m, ok := a.registered().external[at.registration]; ok {
-		rule, standard = m.rule, m.standard
+		rule, method = m.rule, m.name
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
-			Account: rule, Standard: standard, Policy: a.policy, Accept: a.acceptInvitation,
+			Account: rule, Method: method, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
 			Directories: a.directories, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 		})
 		if err != nil {

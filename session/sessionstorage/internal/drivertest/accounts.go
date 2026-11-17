@@ -155,7 +155,7 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 
 	tests := []struct {
 		name     string
-		accounts signin.StandardAccountRule
+		accounts Accounts
 		// seed prepares the users before the sign-in and returns the one the identity
 		// should reach, nil for none.
 		seed func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser
@@ -166,23 +166,23 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 		check     func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser)
 	}{
 		{
-			name:     "members of the directory: a stranger is provisioned under the sign-in name, with the connection as the tenant key",
-			accounts: signin.MembersOfDirectory,
+			name:     "open: a stranger is provisioned under the sign-in name, with the connection as the tenant key",
+			accounts: Open,
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				assertProvisioned(ctx, t, d, err, req, entra("oid-pat", name), "tenant-1")
 			},
 		},
 		{
-			name:     "members of the directory: the organization the method names is the tenant key when it names one",
-			accounts: signin.MembersOfDirectory,
+			name:     "open: the organization the method names is the tenant key when it names one",
+			accounts: Open,
 			identity: organizationOf(entra("oid-pat", name), "lakeside"),
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				assertProvisioned(ctx, t, d, err, req, organizationOf(entra("oid-pat", name), "lakeside"), "lakeside")
 			},
 		},
 		{
-			name:     "members of the directory: a pre-created user with a password must confirm with it",
-			accounts: signin.MembersOfDirectory,
+			name:     "open: a pre-created user with a password must confirm with it",
+			accounts: Open,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return passwordUser(ctx, t, d, name)
 			},
@@ -191,8 +191,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "members of the directory: a pre-created user without a password and no identity is linked outright",
-			accounts: signin.MembersOfDirectory,
+			name:     "open: a pre-created user without a password and no identity is linked outright",
+			accounts: Open,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return createUser(ctx, t, d, name)
 			},
@@ -201,8 +201,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "members of the directory: the pre-created user is matched without regard to case, and keeps its spelling",
-			accounts: signin.MembersOfDirectory,
+			name:     "open: the pre-created user is matched without regard to case, and keeps its spelling",
+			accounts: Open,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return createUser(ctx, t, d, "Pat.Lee@Lakeside.edu")
 			},
@@ -211,8 +211,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "members of the directory: a pre-created password-less user who signs in through another connection is refused, as any untrusted link is",
-			accounts: signin.MembersOfDirectory,
+			name:     "open: a pre-created password-less user who signs in through another connection is refused, as any untrusted link is",
+			accounts: Open,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				user := createUser(ctx, t, d, name)
 				mustLink(ctx, t, d, user.ID, lakeside("idp_pat"))
@@ -226,8 +226,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "every standard rule: a guest of the directory is refused and nothing is written",
-			accounts: signin.MembersOfDirectory,
+			name:     "either choice: a guest of the directory is refused and nothing is written",
+			accounts: Open,
 			identity: func() *sessioninfo.Identity {
 				guest := entra("oid-guest", "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com")
 				guest.Guest = true
@@ -241,8 +241,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:      "every standard rule: a token asserting no application role is refused before any row is written",
-			accounts:  signin.MembersOfDirectory,
+			name:      "either choice: a token asserting no application role is refused before any row is written",
+			accounts:  Open,
 			roleNames: []string{},
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				t.Helper()
@@ -252,16 +252,16 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:      "every standard rule: a token asserting a role goes on to the rule",
-			accounts:  signin.MembersOfDirectory,
+			name:      "either choice: a method whose directory writes the roles provisions a stranger whose token asserts one, with no row read",
+			accounts:  InviteOnly,
 			roleNames: []string{"Editor"},
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				assertProvisioned(ctx, t, d, err, req, entra("oid-pat", name), "tenant-1")
 			},
 		},
 		{
-			name:     "every standard rule: an identity without a sign-in name is refused",
-			accounts: signin.MembersOfDirectory,
+			name:     "either choice: an identity without a sign-in name is refused",
+			accounts: Open,
 			identity: entra("oid-nameless", ""),
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				t.Helper()
@@ -270,8 +270,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "invited users only: a pre-created user is linked",
-			accounts: signin.InvitedUsersOnly,
+			name:     "invite only: a pre-created user is linked",
+			accounts: InviteOnly,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return createUser(ctx, t, d, name)
 			},
@@ -280,8 +280,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "invited users only: a pre-created user with a password must confirm with it",
-			accounts: signin.InvitedUsersOnly,
+			name:     "invite only: a pre-created user with a password must confirm with it",
+			accounts: InviteOnly,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return passwordUser(ctx, t, d, name)
 			},
@@ -290,8 +290,8 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "invited users only: a stranger is refused and nothing is written",
-			accounts: signin.InvitedUsersOnly,
+			name:     "invite only: a stranger is refused and nothing is written",
+			accounts: InviteOnly,
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				t.Helper()
 				assertRefused(t, err, sessioninfo.RefusedNotInvited, signin.ErrNotInvited)
@@ -300,10 +300,41 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "open sign-up: a stranger is provisioned",
-			accounts: signin.OpenSignUp,
-			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
-				assertProvisioned(ctx, t, d, err, req, entra("oid-pat", name), "tenant-1")
+			name:     "invite only: a method opened and made invite only again refuses a stranger and nothing is written",
+			accounts: InviteOnly,
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				t.Helper()
+				for _, open := range []bool{true, false} {
+					if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: open}); err != nil {
+						t.Fatalf("SetSignInMethod() error = %v", err)
+					}
+				}
+
+				return nil
+			},
+			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
+				t.Helper()
+				assertRefused(t, err, sessioninfo.RefusedNotInvited, signin.ErrNotInvited)
+				assertNoUser(ctx, t, d, name)
+				assertNoLink(ctx, t, d, entra("oid-pat", name))
+			},
+		},
+		{
+			name:     "invite only: another method's row opens nothing here",
+			accounts: InviteOnly,
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				t.Helper()
+				if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "another", OpenSignUp: true}); err != nil {
+					t.Fatalf("SetSignInMethod() error = %v", err)
+				}
+
+				return nil
+			},
+			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
+				t.Helper()
+				assertRefused(t, err, sessioninfo.RefusedNotInvited, signin.ErrNotInvited)
+				assertNoUser(ctx, t, d, name)
+				assertNoLink(ctx, t, d, entra("oid-pat", name))
 			},
 		},
 	}
@@ -449,7 +480,7 @@ func testResolveByVerifiedAddress(_ context.Context, t *testing.T, h *AuthHarnes
 			t.Parallel()
 			ctx := t.Context()
 
-			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory})
+			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: Open})
 			seeded := tt.seed(ctx, t, in.Driver)
 			id := tt.identity
 			if id == nil {
@@ -507,7 +538,7 @@ func testCustomRuleBeforeStandardRule(_ context.Context, t *testing.T, h *AuthHa
 
 	tests := []struct {
 		name string
-		// resolve is the custom rule; the standard rule is members of the directory.
+		// resolve is the custom rule; the method is open to sign-up.
 		resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
 		check   func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest)
 	}{
@@ -562,7 +593,7 @@ func testCustomRuleBeforeStandardRule(_ context.Context, t *testing.T, h *AuthHa
 			t.Parallel()
 			ctx := t.Context()
 
-			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory, Resolve: tt.resolve})
+			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: Open, Resolve: tt.resolve})
 			identity := entra("oid-pat", name)
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
 
@@ -572,27 +603,26 @@ func testCustomRuleBeforeStandardRule(_ context.Context, t *testing.T, h *AuthHa
 		})
 	}
 
-	t.Run("a custom rule answering Standard on a method without a standard rule fails the sign-in, writing nothing", func(t *testing.T) {
+	t.Run("a custom rule answering Standard on a method nobody opened leaves a stranger to the invite-only rule: refused, nothing written", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
 		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 			return signin.Standard(), nil
 		}})
+		identity := entra("oid-pat", name)
 
-		_, _, err := signIn(ctx, in, lakeside("idp_pat"), sessioninfo.ReasonLogin)
+		err := signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity})
 
-		var refusal *sessioninfo.LoginRefusal
-		if err == nil || errors.As(err, &refusal) {
-			t.Errorf("sign-in error = %v, want a failure that is not a refusal", err)
-		}
-		assertNoLink(ctx, t, in.Driver, lakeside("idp_pat"))
+		assertRefused(t, err, sessioninfo.RefusedNotInvited, signin.ErrNotInvited)
+		assertNoUser(ctx, t, in.Driver, name)
+		assertNoLink(ctx, t, in.Driver, identity)
 	})
 }
 
 func testStandardRuleRunsOnce(ctx context.Context, t *testing.T, h *AuthHarness) {
 	const name = "pat.lee@lakeside.edu"
-	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly})
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: InviteOnly})
 	user := createUser(ctx, t, in.Driver, name)
 
 	first := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}

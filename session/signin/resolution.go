@@ -13,10 +13,8 @@ import (
 // AccountRule is an application's own rule for an external identity's first sign-in:
 // an identity that is not linked to any user yet is given to it, and it answers who
 // the person is with Reject, Link, Provision or Confirm, or leaves the decision to the
-// registration's standard rule with Standard, after checks of its own. It is optional
-// on the Entra and Google methods, which have a standard rule (StandardAccountRule),
-// and required on a method that has none (WorkOS, under internal). Every
-// external method takes one at its registration, typed to the method's identity
+// library's standard rule with Standard, after checks of its own. It is optional:
+// every external method takes one at its registration, typed to the method's identity
 // (azure.AccountRule, google.AccountRule), and hands the core this form over the
 // sign-in request. It runs in the first of a sign-in's two transactions, which commits
 // unless an error is returned, so a rejection keeps the rule's own writes; see
@@ -24,13 +22,10 @@ import (
 // PostgreSQL, *spanner.ReadWriteTransaction on Spanner. Spanner may retry the
 // transaction, so the rule must not have side effects outside it. A linked identity
 // never reaches it.
-type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
-
-// StandardAccountRule is the library's rule for an external identity's first sign-in,
-// declared on a registration (azure.Config.Accounts, google.Config.Accounts) and
-// applied by the core inside the sign-in's first transaction, when the registration
-// has no AccountRule or its AccountRule answers Standard. Every standard rule refuses
-// a guest of the directory (guest_account) and, when the method synchronizes roles, a
+//
+// The standard rule is the library's, applied inside the same transaction when the
+// registration has no AccountRule or its AccountRule answers Standard. It refuses a
+// guest of the directory (guest_account) and, when the method synchronizes roles, a
 // token asserting no application role (no_roles), both before any row is written; the
 // identity's sign-in name (Identity.SignInName: the user principal name on Entra, the
 // verified email on Google) is the username, and an identity without one is refused
@@ -38,35 +33,16 @@ type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSe
 // one who holds the identity's address verified when the method verified it
 // (Identity.EmailVerified), is linked: after a password confirmation when the user has
 // a password, outright when the user has none and signs in through no other connection
-// yet. The rules differ in what happens to a person no user was created for.
-type StandardAccountRule string
-
-const (
-	// MembersOfDirectory provisions an account for every member of the directory, under
-	// the sign-in name. It is the default for a registration that serves one
-	// organization.
-	MembersOfDirectory StandardAccountRule = "members-of-directory"
-	// InvitedUsersOnly provisions nothing: a person no user was created for is refused
-	// (not_invited). The application creates the users under their sign-in names, with
-	// or without a password, before they sign in.
-	InvitedUsersOnly StandardAccountRule = "invited-users-only"
-	// OpenSignUp provisions an account for anyone who signs in, under the sign-in name.
-	// It is for public applications, with any organization or personal accounts; a
-	// registration serving one organization refuses it at startup.
-	OpenSignUp StandardAccountRule = "open-sign-up"
-)
-
-// Validate refuses a value that is not one of the standard rules. The empty value is
-// refused too: a registration that applies no standard rule leaves it empty and
-// requires an AccountRule, which the core checks itself.
-func (r StandardAccountRule) Validate() error {
-	switch r {
-	case MembersOfDirectory, InvitedUsersOnly, OpenSignUp:
-		return nil
-	default:
-		return errors.Newf("%q is not a standard account rule: use signin.MembersOfDirectory, signin.InvitedUsersOnly or signin.OpenSignUp", string(r))
-	}
-}
+// yet. A person no user was created for is decided by what an administrator chose for
+// the method in the running application, its row of the sign-in methods table, read in
+// this transaction: a method opened to sign-up admits them and makes their account,
+// with the role the row names; a method with no row is invite only, where the
+// invitation the sign-in carries is the account, and without one the person is refused
+// (not_invited) and nothing is written. A method whose directory writes the roles has
+// no such choice: the directory says who holds a role, and a person it gives one is
+// admitted. In an application with tenants, the tenant whose directory the identity
+// came through decides before the method does (signin.DirectoryReader).
+type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
 // Policy is the application's sign-in rule, asked once a sign-in's user is known and
 // before any session exists, for every sign-in method and for a session the application
@@ -126,8 +102,7 @@ const (
 	// RequireConfirmation holds the identity as pending until the person enters the
 	// password of the existing user it names; the identity is then linked (Confirm).
 	RequireConfirmation
-	// ApplyStandardRule leaves the identity to the registration's standard account rule
-	// (Standard).
+	// ApplyStandardRule leaves the identity to the library's standard rule (Standard).
 	ApplyStandardRule
 )
 
@@ -148,9 +123,9 @@ type Resolution struct {
 // ResolutionOption refines a Link, Provision, Confirm or Standard resolution.
 type ResolutionOption func(r *Resolution)
 
-// Tenant stores tenant, the application's tenant key, on the identity link. A standard
-// rule stores the identity's connection (the Entra tenant id, the application's name
-// for the Google Workspace) unless Standard is given another.
+// Tenant stores tenant, the application's tenant key, on the identity link. The
+// standard rule stores the identity's connection (the Entra tenant id, the
+// application's name for the Google Workspace) unless Standard is given another.
 func Tenant(tenant string) ResolutionOption {
 	return func(r *Resolution) { r.tenant = tenant }
 }
@@ -158,7 +133,7 @@ func Tenant(tenant string) ResolutionOption {
 // Seats grants seats to the user a Provision resolution creates, once the resolution
 // has committed, through the Auth's directory seat hook
 // (session.Auth.SetDirectoryAdmission): the default seats of the directories the
-// tenants declared, which the standard rules add themselves, or a custom rule's own.
+// tenants declared, which the standard rule adds itself, or a custom rule's own.
 // A resolution that carries seats on an Auth with no hook fails the sign-in.
 func Seats(seats ...DirectorySeat) ResolutionOption {
 	return func(r *Resolution) {
@@ -173,11 +148,10 @@ func Reject(code sessioninfo.LoginRefusalCode) *Resolution {
 	return &Resolution{outcome: RejectIdentity, refusal: code}
 }
 
-// Standard leaves the identity to the registration's standard account rule
-// (StandardAccountRule), once the custom rule's own checks have passed: the usual case
-// stays the library's, and the rule only refuses or decides what the standard rule
-// cannot know. Tenant replaces the tenant key the standard rule would store. A method
-// without a standard rule fails the sign-in.
+// Standard leaves the identity to the library's standard rule (see AccountRule), once
+// the custom rule's own checks have passed: the usual case stays the library's, and the
+// rule only refuses or decides what the standard rule cannot know. Tenant replaces the
+// tenant key the standard rule would store.
 func Standard(opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: ApplyStandardRule}
 	for _, opt := range opts {
@@ -362,7 +336,7 @@ var (
 	ErrLinkRequiresConfirmation = errors.New(
 		"signin: an identity can't be linked to a user that has a password without confirmation (or a trusted link)")
 	// ErrLinkCrossConnection is the cause when the account rule returned LinkIdentity
-	// (Link) without trusted, or a standard rule matched a pre-created user, for a user
+	// (Link) without trusted, or the standard rule matched a pre-created user, for a user
 	// that has no password and already signs in through another connection. No
 	// confirmation can be asked of such a user, so the rule's evidence is the only
 	// check, and a custom rule must say so with trusted, or reject. The code is
@@ -371,30 +345,32 @@ var (
 		"signin: an identity from another connection can't be linked to a user without a password unless the link is trusted")
 	// ErrEmailHeld is the cause when an account rule provisioned a new user for an
 	// identity whose verified address another user already holds verified: that user
-	// is the person, and the standard rules match the person by the address before
-	// they provision, so the sign-in is refused rather than a second user made for one
+	// is the person, and the standard rule matches the person by the address before
+	// it provisions, so the sign-in is refused rather than a second user made for one
 	// person. The code is sessioninfo.RefusedIdentityRejected.
 	ErrEmailHeld = errors.New("signin: the identity's verified email address belongs to another user")
-	// ErrGuestAccount is the cause when a standard account rule refused a guest of the
+	// ErrGuestAccount is the cause when the standard rule refused a guest of the
 	// directory (Identity.Guest). The code is sessioninfo.RefusedGuestAccount.
 	ErrGuestAccount = errors.New("signin: the identity is a guest of its directory, not a member")
-	// ErrNoRoles is the cause when a standard account rule refused a token that asserts
+	// ErrNoRoles is the cause when the standard rule refused a token that asserts
 	// no application role for a method that synchronizes roles, before any row was
 	// written. The code is sessioninfo.RefusedNoRoles.
 	ErrNoRoles = errors.New("signin: the token asserts no application role")
-	// ErrNoSignInName is the cause when a standard account rule found no sign-in name
+	// ErrNoSignInName is the cause when the standard rule found no sign-in name
 	// on the identity to use as the username. The code is sessioninfo.RefusedNoEmail.
 	ErrNoSignInName = errors.New("signin: the identity carries no sign-in name to use as the username")
-	// ErrNotInvited is the cause when the invited-users-only rule matched no
-	// pre-created user. The code is sessioninfo.RefusedNotInvited.
-	ErrNotInvited = errors.New("signin: no user was created for the identity's sign-in name")
-	// ErrInvitationOnly is the cause when a standard account rule refused a stranger
+	// ErrNotInvited is the cause when a sign-in method that is invite only met a
+	// person who holds no account and carried no invitation: nothing is written. A
+	// method is invite only until an administrator opens it to sign-up. The code is
+	// sessioninfo.RefusedNotInvited.
+	ErrNotInvited = errors.New("signin: the sign-in method is invite only, and the person holds no account and no invitation")
+	// ErrInvitationOnly is the cause when the standard rule refused a stranger
 	// from a directory a tenant declares with no default seat: the tenant admits its
 	// people by invitation, the sign-in carried none, and nothing is provisioned. The
 	// code is sessioninfo.RefusedInvitationOnly.
 	ErrInvitationOnly = errors.New("signin: the tenant that declares the directory admits its people by invitation only")
 	// ErrInvitationExpired is the cause when the invitation a sign-in carried, which
-	// alone admitted the person under the invited-users-only rule, had expired or been
+	// alone admitted the person through a method that is invite only, had expired or been
 	// used by the time the sign-in accepted it; nothing is provisioned. The code is
 	// sessioninfo.RefusedInvitationExpired.
 	ErrInvitationExpired = errors.New("signin: the invitation has expired or was already used")

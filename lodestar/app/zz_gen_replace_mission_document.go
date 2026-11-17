@@ -51,6 +51,12 @@ func (a *App) ReplaceMissionDocument() http.HandlerFunc {
 
 		p := (*rpc.ReplaceMissionDocument)(params)
 
+		if resource.AsksWarning(r) {
+			// The method declares no warning (@warning): a request that asks for one
+			// is refused, and never runs the call.
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("ReplaceMissionDocument declares no warning: send the call without the X-Warning header"))
+		}
+
 		// The files stream to the store the method names, wired on the resource client,
 		// under keys the frame minted; the body records the keys, and the transaction's
 		// commit is what claims them. A dry run (X-Dry-Run: true) streams nothing: the

@@ -32,7 +32,7 @@ var candidateAuths = map[string][]authpkg.Spec{
 		// the one role that counts as an administrator's, and what the first one is seeded with.
 		AdministratorRoles: authpkg.AdministratorRoles{EveryDomain: []string{"TenantAdministrator"}},
 		IdentityDir:        identityDir("outlets"),
-		TenantPolicy:       tenantPolicy("outlets"),
+		TenantPolicy:       membersTenantPolicy(),
 	}},
 }
 
@@ -82,30 +82,36 @@ func identityDir(candidate string) string {
 // tenantPolicy is the sign-in rule of a tenanted candidate's auths: the library's
 // tenant policy over the Tenant record's declaration, read through the generated reader
 // the data level hands in (the console site's, in the sites candidate, where the data
-// level imports its handlers package as consoleapp). The tenanted candidate's record is
-// created by its own people (@tenant(creation: both)), so its rule admits a person who
-// holds no tenant yet; nil for the base, which has no tenants.
+// level imports its handlers package as consoleapp). The staff auth's outlets serve the
+// Tenant record in every tenanted candidate, so a person who signs up to it creates a
+// tenant of their own and its rule admits a person who holds no tenant yet; nil for the
+// base, which has no tenants.
 func tenantPolicy(candidate string) *authpkg.TenantPolicy {
 	switch candidate {
 	case Base:
 		return nil
-	case "tenanted":
-		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}
 	case "sites":
-		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "consoleapp.NewTenantDeclarationReader"}
+		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "consoleapp.NewTenantDeclarationReader", AdmitWithoutTenant: true}
 	default:
-		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader"}
+		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}
 	}
 }
 
+// membersTenantPolicy is the sign-in rule of the outlets candidate's members auth: the
+// portal's people, whose outlet does not serve the Tenant record, so nobody signs up to
+// it and a person who holds no tenant is refused.
+func membersTenantPolicy() *authpkg.TenantPolicy {
+	return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader"}
+}
+
 // tenantedStaffSpec is the tenanted candidate's staff auth: the password auth with a
-// Google registration admitting anyone (open sign-up), the registration the tenant
-// record's self-service creation shape needs: a stranger signs in through it, holds no
-// tenant, and creates one through the generated route.
+// Google registration admitting any Google account, the wide method an administrator
+// opens to sign-up in the running application: a stranger then signs in through it,
+// holds no tenant, and creates one through the generated route.
 func tenantedStaffSpec() authpkg.Spec {
 	spec := staffSpec("tenanted")
-	spec.Doc = "the people who sign in to the console with a password, or with any Google account to create their own tenant"
-	spec.Methods = append(spec.Methods, authpkg.Method{Kind: app.MethodGoogle, Name: "google", Slot: authpkg.SlotAny, Accounts: authpkg.AccountsOpen, Authority: app.AuthorityApplication})
+	spec.Doc = "the people who sign in to the console with a password, or with any Google account"
+	spec.Methods = append(spec.Methods, authpkg.Method{Kind: app.MethodGoogle, Name: "google", Slot: authpkg.SlotAny, Authority: app.AuthorityApplication})
 
 	return spec
 }

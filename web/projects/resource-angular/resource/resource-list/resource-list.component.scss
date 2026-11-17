@@ -19,6 +19,30 @@
   flex-shrink: 0;
 }
 
+// A page's standing notice: what must not be overlooked while it holds, in the
+// library's warning colors (the notice tokens an application's theme sets), under a
+// warning icon, above the table.
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 8px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--impulse-alert-warn-border);
+  border-radius: 5px;
+  background-color: var(--impulse-alert-warn-bg);
+}
+
+.notice-icon {
+  flex: none;
+  color: var(--impulse-alert-warn-border);
+}
+
+.notice-words {
+  margin: 0;
+  white-space: pre-line;
+}
+
 .create-button {
   margin-top: auto;
   margin-bottom: auto;

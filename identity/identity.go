@@ -158,6 +158,16 @@ type Store interface {
 	// neither accepted nor withdrawn. An auth that mails no links answers none.
 	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
 
+	// SignInMethodRows lists the rows of the sign-in methods table: what an
+	// administrator chose for each method that has a row. reader is the caller's
+	// transaction or the application's client. A schema that holds no such table
+	// answers none, which is every method invite only.
+	SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]SignInMethodRow, error)
+	// SetSignInMethod buffers the row of the method it names, written whole: created
+	// where the method has none, replaced where it has one. The write keeps who made
+	// it and when (the table's change events).
+	SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *SignInMethodRow) error
+
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.
 	TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
@@ -184,6 +194,9 @@ type SessionAPI interface {
 	// the row to store, and the step that mails its link once the row is committed.
 	// The token, the message and the sender stay in the session library.
 	PrepareInvitation(ctx context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error)
+	// SignInMethods lists the sign-in methods the Auth registers, in the login page's
+	// order: each with how wide it is and whether its directory gives the roles.
+	SignInMethods() []session.RegisteredMethod
 	// SignsInThrough names the sign-in registrations of the Auth's login page that an
 	// identity of this method and connection can sign its person in through, and none
 	// for an identity that signs nobody in: its method is no registration the page

@@ -52,9 +52,6 @@ type PasswordSettings struct {
 	// derives the address from the username, a rename is refused, and a verified
 	// address is written as the username.
 	UsernameIsEmail bool
-	// OpenSignUp says anyone may create an account by giving an address and following
-	// the link mailed to it.
-	OpenSignUp bool
 }
 
 // DefaultAttemptLimit is the attempt limit before any option: five failed attempts on
@@ -111,14 +108,5 @@ func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
 func UsernameIsEmail() PasswordOption {
 	return passwordOption(func(s *PasswordSettings) {
 		s.UsernameIsEmail = true
-	})
-}
-
-// OpenSignUp declares that anyone may create an account by giving an address and
-// following the link mailed to it. (default: accounts are created by an operator or
-// through an invitation)
-func OpenSignUp() PasswordOption {
-	return passwordOption(func(s *PasswordSettings) {
-		s.OpenSignUp = true
 	})
 }

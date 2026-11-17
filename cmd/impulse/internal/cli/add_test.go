@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/cobra"
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
@@ -68,5 +69,51 @@ func Test_addMethod_identityProviderName(t *testing.T) {
 	err := cmd.Execute()
 	if want := "the oidc method needs a registration name"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Execute() error = %v, want one containing %q", err, want)
+	}
+}
+
+// Test_add_accountsRetired refuses --accounts on add auth and add method before anything
+// is asked, read or written, whatever value it carries, and says where the choice is made
+// now: in the running application, for each method, on its Sign-in page. The flag stays
+// out of the help.
+func Test_add_accountsRetired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cmd  func() *cobra.Command
+		args []string
+	}{
+		{name: "add auth with the rule that was the default", cmd: newAddAuth, args: []string{"partners", "--method", "google:workspace", "--authority", "application", "--outlet", "portal", "--accounts", "members"}},
+		{name: "add auth opening the password method", cmd: newAddAuth, args: []string{"partners", "--outlet", "portal", "--accounts", "open"}},
+		{name: "add method inviting", cmd: newAddMethod, args: []string{"staff", "google", "--authority", "application", "--accounts", "invited"}},
+		{name: "add method with a value nobody defined", cmd: newAddMethod, args: []string{"staff", "password", "--accounts=anyone"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := tt.cmd()
+			cmd.SetArgs(tt.args)
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("Execute() error = nil, want --accounts refused")
+			}
+			for _, want := range []string{
+				"--accounts is no longer an option",
+				"chosen in the running application, for each method",
+				"Every method starts invite only",
+				"on the application's Sign-in page",
+				"Remove --accounts and run the command again",
+			} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Execute() error = %q, want it to contain %q", err, want)
+				}
+			}
+			if usage := cmd.UsageString(); strings.Contains(usage, "--accounts") {
+				t.Errorf("the usage offers --accounts:\n%s", usage)
+			}
+		})
 	}
 }

@@ -23,7 +23,7 @@ func (h *Handlers) CreateStaffUser() http.HandlerFunc {
 		Username    string   `json:"username"`
 		Name        *string  `json:"name"`
 		Email       *string  `json:"email"`
-		Password    string   `json:"password"`
+		Password    *string  `json:"password"`
 		Roles       []string `json:"roles"`
 		Domain      *string  `json:"domain"`
 		EveryDomain bool     `json:"everyDomain"`
@@ -55,6 +55,12 @@ func (h *Handlers) CreateStaffUser() http.HandlerFunc {
 		ctx = resource.WithCaller(ctx, caller)
 
 		p := (*staffidentity.CreateStaffUser)(params)
+
+		if resource.AsksWarning(r) {
+			// The method declares no warning (@warning): a request that asks for one
+			// is refused, and never runs the call.
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("CreateStaffUser declares no warning: send the call without the X-Warning header"))
+		}
 
 		// The rows the method writes are collected for the live pages, published once
 		// the commit lands and before the answer; a transaction that rolls back wrote

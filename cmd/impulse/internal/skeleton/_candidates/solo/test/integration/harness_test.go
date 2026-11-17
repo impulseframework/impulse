@@ -96,6 +96,8 @@ func (c *servedConfigurer) LiveOrigins() []string {
 type served struct {
 	server *httptest.Server
 	access *access.Client
+	// db is the suite's database, where a suite reads what a request left behind.
+	db *initiator.SpannerDB
 	// auth is the staff auth the instance binds to, for a suite that creates a login of
 	// its own beside the development one.
 	auth *staff.Auth
@@ -163,7 +165,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	return &served{server: server, access: accessClient, auth: auth, adminID: adminID.String(), mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, auth: auth, db: db, adminID: adminID.String(), mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // testCookieKey signs session cookies in the suites; any 32 bytes will do.
