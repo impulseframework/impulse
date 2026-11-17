@@ -44,11 +44,34 @@ func (m *Manager) callerIs(ctx context.Context, userID impulse.UUID) bool {
 	return caller.Permissions.User() == User(userID)
 }
 
-// refuseOwnAccount refuses an act on the caller's own account: nobody disables or
-// deletes themselves, since the one who did could not undo it. act names what was
-// asked ("disable", "delete").
+// actorIs reports whether the person acting in the request is the person of the account
+// in this auth. The person acting is the real person behind the session (callerActor):
+// the caller, or, in a session that views as someone else, whoever started it, and never
+// the person viewed as. As for callerIs, a request bound to another auth is another
+// auth's person, and an actor who has no account here, a person of another application,
+// is nobody of this auth.
+func (m *Manager) actorIs(ctx context.Context, userID impulse.UUID) bool {
+	caller := resource.CallerFrom(ctx)
+	if caller.IsZero() {
+		return false
+	}
+	if auth, bound := resource.AuthFrom(ctx); bound && auth != m.auth {
+		return false
+	}
+	actor, local := callerActor(ctx, caller)
+
+	return local && actor == User(userID)
+}
+
+// refuseOwnAccount refuses an act on the account of the person acting: nobody disables or
+// deletes themselves, since the one who did could not undo it. The person acting is the
+// real person behind the session (actorIs), so "your own account" is the account of
+// whoever is at the keyboard in every case: a person who views as someone else is refused
+// their own account, which they could not get back, and is not refused the account they
+// view as by this rule, since it is not theirs and they keep their own way in. act names
+// what was asked ("disable", "delete").
 func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
-	if m.callerIs(ctx, userID) {
+	if m.actorIs(ctx, userID) {
 		return httpio.NewForbiddenMessagef("you cannot %s your own account", act)
 	}
 
