@@ -241,7 +241,8 @@ func tenantDirectoryStatements(dbType DBType, table, keyColumn string, columns *
 }
 
 // DirectoryName is a directory as a sentence names it: the kind of directory its
-// method reaches and its connection, "Google Workspace acme.example".
+// method reaches and its connection, "Google Workspace acme.example", "OpenID Connect
+// provider id.acme.example".
 func DirectoryName(directory signin.Directory) string {
 	var kind string
 	switch directory.Method {
@@ -251,6 +252,8 @@ func DirectoryName(directory signin.Directory) string {
 		kind = "Microsoft Entra tenant"
 	case sessioninfo.MethodWorkOS:
 		kind = "WorkOS connection"
+	case sessioninfo.MethodOIDC:
+		kind = "OpenID Connect provider"
 	default:
 		kind = "Directory"
 	}

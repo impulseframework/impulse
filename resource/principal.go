@@ -44,10 +44,13 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // the roster and the declarations.
 //
 // The declarations are the application's too: what each tenant declares about
-// who may enter it (signin.TenantDeclaration), read by domain. A tenant is
-// offered only when the session may enter it, and the tenant's declaration
-// decides: it admits the session's establishment, the sign-in's method and
-// connection the session's first auth event records
+// who may enter it (signin.TenantDeclaration), read by domain. A tenant's
+// declaration restricts that tenant's own door and nobody else's: the session
+// reaches every tenant that seats the person, except a tenant that is directory
+// only and whose directory is not the one the person signed in through. A
+// tenant is offered only when the session may enter it, and the tenant's
+// declaration decides: it admits the session's establishment, the sign-in's
+// method and connection the session's first auth event records
 // (sessioninfo.SessionData.EstablishedBy; signin.TenantDeclaration.Admits is
 // the decision), or the session's actor is a super administrator, a holder of
 // the Super Administrator role (SessionUserChecker.SuperAdministrator), who
@@ -59,10 +62,13 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // actor, the real person behind it, is a super administrator; whom the session
 // is viewed as changes nothing. In a tenant the session does not
 // reach it holds nothing: every check Denied, an empty digest, no foothold, and
-// the tenant is not listed, so the picker never offers it and the generated
-// domain guard refuses a direct request for it as it refuses a domain that is
-// not a tenant (UserPermissions.Reaches). An application that keeps no
-// declarations passes nil, and every tenant admits every session.
+// the tenant is not among its domains, so the picker never offers it as a place
+// to open and the generated domain guard refuses a direct request for it as it
+// refuses a domain that is not a tenant (UserPermissions.Reaches). The person
+// holds a seat there all the same, so the session's tenant list carries the
+// tenant closed, with the reason (ClosedDomains, UserDomainsHandler). An
+// application that keeps no declarations passes nil, and every tenant admits
+// every session.
 //
 // A person is named as the permission store names them: by the id of their
 // account (sessioninfo.SessionData.User), never by the username, which can
@@ -221,8 +227,8 @@ type admittedPermissions struct {
 	UserPermissionChecker
 	declarations TenantDeclarations
 	// establishment is the session's first auth event, the sign-in's method and
-	// connection; the zero event for a session that records none, which no directory
-	// admits and a tenant that is not directory only does.
+	// connection; the zero event for a session that records none, which a tenant that
+	// is directory only refuses and any other tenant admits.
 	establishment sessioninfo.AuthEvent
 	// actor builds the checker the super administrator question is asked of: the
 	// session's actor, the real person behind an impersonated or role-principal

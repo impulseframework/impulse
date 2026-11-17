@@ -1,10 +1,13 @@
 package resource
 
 import (
+	"cmp"
 	"net/http"
+	"slices"
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -12,9 +15,17 @@ import (
 // tenant-scoped URL, and its name as the tenant record holds it, for the tenant
 // picker to show. Name is the domain itself where the application's roster reads no
 // names (WithDomainNames) or the record holds none for the tenant.
+//
+// Closed marks a tenant the person holds a seat in and this session cannot enter
+// (ClosedDomains), with the reason in a sentence for the person: what the tenant
+// admits and how they signed in ("Acme admits only people who sign in through its own
+// directory. You signed in with a password."). It is empty, and absent from the JSON,
+// for a tenant the session reaches. A picker shows a closed tenant marked, with the
+// reason, and never as a place to open.
 type UserDomain struct {
 	Domain accesstypes.Domain `json:"domain"`
 	Name   string             `json:"name"`
+	Closed string             `json:"closed,omitempty"`
 }
 
 // DomainNamer answers a tenant's name, "" for one it holds none for: the tenant roster
@@ -41,8 +52,9 @@ func WithDomainNames(names DomainNamer) UserDomainsOption {
 }
 
 // UserDomainsHandler serves the session's tenant list: the domains where the user
-// holds at least one grant and that the session reaches, sorted, each with its name
-// (UserDomain). It is the tenant picker's question, answered by the library so
+// holds at least one grant, sorted, each with its name (UserDomain), and each that
+// the session does not reach marked closed, with the reason. It is the tenant
+// picker's question, answered by the library so
 // applications wire nothing — the generated router registers it on the default
 // outlet beside the digest. The picker shows a tenant's name: the people of a tenant
 // cannot read the tenant record, a global resource, so the list carries the name for
@@ -55,7 +67,9 @@ func WithDomainNames(names DomainNamer) UserDomainsOption {
 // disagree. A tenant is offered only when the session may enter it, and the
 // application's tenant declaration decides (TenantDeclarations): a tenant
 // whose declaration does not admit the way the session was established is
-// not listed. The global scope is never a domain. The answer reports grants,
+// listed closed (UserDomain.Closed), since the person holds a seat there and is
+// owed the reason, and its routes answer the session with the concealing 404 all
+// the same. The global scope is never a domain. The answer reports grants,
 // not tenants: a domain the application has since removed still lists while
 // grants in it remain, and existence is the tenant roster's
 // (TenantRoster.Has). Structural and non-folding, so it caches cleanly per
@@ -71,12 +85,30 @@ func UserDomainsHandler(userPermissions func(r *http.Request) UserPermissions, o
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		domains, err := userPermissions(r).Domains(ctx)
+		perms := userPermissions(r)
+		domains, err := perms.Domains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		closed, err := ClosedDomains(ctx, perms)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		out := userDomains(domains, settings.names)
+		if len(closed) > 0 {
+			// Only a session's permissions list a closed tenant, so the session is there
+			// to say how it was established.
+			session := sessioninfo.DataFromCtx(ctx)
+			for _, tenant := range userDomains(closed, settings.names) {
+				tenant.Closed = closedReason(tenant.Name, session)
+				out = append(out, tenant)
+			}
+			slices.SortFunc(out, func(a, b UserDomain) int {
+				return cmp.Compare(a.Domain, b.Domain)
+			})
+		}
 
-		return httpio.NewEncoder(w).Ok(userDomains(domains, settings.names))
+		return httpio.NewEncoder(w).Ok(out)
 	})
 }
 
