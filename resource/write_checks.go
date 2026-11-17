@@ -284,7 +284,9 @@ func (p *PatchSet[Resource]) writeCheckStatement(dbType DBType, groups []writeCh
 // proposedValues assembles the mutation's proposed image — the touched
 // columns' values, plus the keys for an insert, where the whole image is
 // proposed. Deletes touch nothing. Values bind as parameters lazily, on first
-// reference by a condition.
+// reference by a condition. A secret field is left out of the image: the patch
+// holds its value as it was given, which is sealed only on its way into its
+// column and is never bound into a statement.
 func (p *PatchSet[Resource]) proposedValues(dbType DBType, insert bool) (*proposedOverlay, error) {
 	if p.patchType == DeletePatchType {
 		return nil, nil
@@ -304,6 +306,9 @@ func (p *PatchSet[Resource]) proposedValues(dbType DBType, insert bool) (*propos
 	}
 
 	for _, field := range p.Fields() {
+		if p.querySet.rMeta.secret(field) {
+			continue
+		}
 		if err := add(field, p.Get(field)); err != nil {
 			return nil, err
 		}

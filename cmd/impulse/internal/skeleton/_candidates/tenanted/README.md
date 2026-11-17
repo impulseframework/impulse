@@ -165,6 +165,10 @@ the connection a tenant declares) beside any Google account.
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
+  every stored secret field that names the version again under the current one, confirms
+  none is left and exits 0 only then, so the deployment disables the version only when no
+  stored value needs it (see "Secret fields").
 - `test/authz` is the generated authorization matrix over the generated test router;
   `test/integration` drives the served stack (real router, session, engine) end to end.
 - `web/` is the Angular workspace, one project per browser application (`console`).
@@ -226,6 +230,28 @@ through `CursorKey()`. In the browser, `@impulseframework/resource` follows the 
 `page()` and reads every row with `all()`. Computed resources answer the same query
 surface; their List function may take the conditions, sort, or page it pushes down and the
 generated handler applies the rest.
+
+## Secret fields
+
+A field that holds a secret the application must use itself (an API key, a signing key) is
+declared `conditions:"secret"` and typed `resource.Secret`, on a `BYTES` column with room
+for the 41 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(105)` takes a key
+of up to 64 bytes. The field is never served, the form masks it, a change record names it
+without its values, and the database holds it encrypted: the resource client seals the
+value when it is written, and code that needs it opens it with the row's generated method
+(`row.OpenAPIKey(conf.SecretKeys())`, or `row.OpenAPIKeyIn(ctx, txn)` inside a
+transaction). The generator refuses a `secret` field typed a plain `string`.
+
+The key is the application secret, which `pkg/config` declares
+(`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
+keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
+`APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
+the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
+current one. An application with a secret field refuses to start without a version. A
+version is retired, before the deployment disables it, by the migrate command
+(`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
+under the current version. The framework's `resource/README.md`, "Secrets at rest", has
+the whole of it.
 
 ## Running it
 

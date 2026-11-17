@@ -24,9 +24,9 @@ CREATE TABLE DataChangeEvents (
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
 
 -- The secret-field tests' fixture: a table that keeps change records and has a column
--- its resource declares a secret.
+-- its resource declares a secret, which holds the value sealed.
 CREATE TABLE SealedRows (
   Id STRING(36) NOT NULL,
   Title STRING(MAX) NOT NULL,
-  AccessCode STRING(MAX),
+  AccessCode BYTES(MAX),
 ) PRIMARY KEY (Id);

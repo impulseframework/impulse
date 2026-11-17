@@ -59,7 +59,9 @@ type Handlers interface {
 	GeneratedScheduledHandlers
 	// ResourceClient is the client the generated handlers run against. The file
 	// stores the generated code reads and writes are wired on it, and New refuses to
-	// start without them (resource.RequireFileStores).
+	// start without them (resource.RequireFileStores). The application's
+	// secret keys are wired on it, which seal every stored secret, and New refuses to
+	// start without them (resource.RequireSecretKeys).
 	ResourceClient() resource.Client
 	// The default outlet's session surface: the crew auth's.
 	DefaultSession
@@ -273,6 +275,12 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	// client, or the server does not start: an unwired store would otherwise surface
 	// on the first upload, file request or releasing delete.
 	if err := resource.RequireFileStores(h.ResourceClient(), resource.DefaultStore, resource.StoreNameFor[resources.Documents]()); err != nil {
+		panic(fmt.Sprintf("router.New: %v", err))
+	}
+	// The application stores secrets, which the resource client seals with the
+	// application's secret keys, or the server does not start: a client built without
+	// them would otherwise surface on the first write of a secret.
+	if err := resource.RequireSecretKeys(h.ResourceClient(), "Ship.TransponderKey"); err != nil {
 		panic(fmt.Sprintf("router.New: %v", err))
 	}
 	r := chi.NewRouter()

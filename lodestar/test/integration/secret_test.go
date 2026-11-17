@@ -1,13 +1,19 @@
-// Demonstrates: secret.
+// Demonstrates: secret, secret.rotation.
 package integration
 
-// A ship's transponder key is a secret (conditions:"secret" on Ship.TransponderKey): a
-// client sets it and nothing serves it back. This suite holds the declaration to each
-// place the value could come out of: a read and a list, a columns, a filter and a sort
-// that name it, and the ship's log, which serves every change of a ship to the browser
-// and so is where a secret that the change record kept would be handed out.
+// A ship's transponder key is a secret (conditions:"secret" on Ship.TransponderKey,
+// typed resource.Secret): a client sets it, the column holds it encrypted, and nothing
+// serves it back. This suite holds the declaration to each place the value could come
+// out of: the column itself, a read and a list, a columns, a filter and a sort that name
+// it, and the ship's log, which serves every change of a ship to the browser and so is
+// where a secret that the change record kept would be handed out. And it uses the key
+// the way application code does, through the ship's generated Open methods, on its own
+// row and across a rotation of the application secret.
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,9 +21,11 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
+	"github.com/impulseframework/impulse/resource"
 )
 
 func TestSecretField(t *testing.T) {
@@ -44,28 +52,123 @@ func TestSecretField(t *testing.T) {
 		return doRequestAs(t, h, "keymaster", http.MethodPatch, "/console/api/resources",
 			fmt.Sprintf(`[{"op":"patch","path":%q,"value":%s}]`, opPath(anvil, "ships/"+shipKingfisherID), value))
 	}
-	stored := func() string {
+	// stored is what the column holds, read past the resource layer.
+	stored := func(shipID string) []byte {
 		t.Helper()
 
-		return readColumn[spanner.NullString](ctx, t, db, "Ships", spanner.Key{shipKingfisherID}, "TransponderKey").StringVal
+		return readColumn[[]byte](ctx, t, db, "Ships", spanner.Key{shipID}, "TransponderKey")
+	}
+	// opened reads a ship through the resource layer and opens its key the way application
+	// code does, with the keys the data level holds: the ship's generated method takes the
+	// row's own primary key, which the query reads with the secret.
+	opened := func(shipID string, keys *resource.SecretKeys) (string, error) {
+		t.Helper()
+
+		ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().TransponderKey()).
+			SetID(impulse.Must(impulse.UUIDFromString(shipID))).Read(ctx, resource.NewSpannerClient(db.Client))
+		if err != nil {
+			t.Fatalf("ShipQuery.Read() error = %v", err)
+		}
+		key, err := ship.Data.OpenTransponderKey(keys)
+		if err != nil {
+			return "", fmt.Errorf("Ship.OpenTransponderKey(): %w", err)
+		}
+		if key == nil {
+			t.Fatalf("ship %s holds no key", shipID)
+		}
+
+		return *key, nil
+	}
+	holds := func(shipID, want string, keys *resource.SecretKeys) {
+		t.Helper()
+
+		sealed := stored(shipID)
+		if bytes.Contains(sealed, []byte(want)) {
+			t.Fatalf("the column holds the key as it was given")
+		}
+		if len(sealed) != resource.SecretOverhead+len(want) {
+			t.Fatalf("the column holds %d bytes, want the key's %d and the %d sealing adds", len(sealed), len(want), resource.SecretOverhead)
+		}
+		if got, err := opened(shipID, keys); err != nil || got != want {
+			t.Fatalf("the ship's key opens to %q, error %v; want %q", got, err, want)
+		}
 	}
 
-	// The key is written as it was given.
+	// The key is written sealed: the column holds none of it as it was given, and the
+	// ship's generated method opens it.
 	status, body := set(fmt.Sprintf(`{"transponderKey":%q}`, first))
 	assertStatus(t, status, http.StatusOK, body)
-	if got := stored(); got != first {
-		t.Fatalf("the stored key = %q, want it as it was given", got)
-	}
+	holds(shipKingfisherID, first, testSecretKeys)
 	// A second write with a name beside it, so one change record carries a field that
 	// is no secret next to the one that is.
 	status, body = set(fmt.Sprintf(`{"name":"Kingfisher II","transponderKey":%q}`, second))
 	assertStatus(t, status, http.StatusOK, body)
-	if got := stored(); got != second {
-		t.Fatalf("the stored key after the second write = %q, want the new one", got)
-	}
+	holds(shipKingfisherID, second, testSecretKeys)
 	// The same key again changes nothing: no error.
 	status, body = set(fmt.Sprintf(`{"transponderKey":%q}`, second))
 	assertStatus(t, status, http.StatusOK, body)
+	holds(shipKingfisherID, second, testSecretKeys)
+	// A key longer than the column takes (64 bytes, the column's 105 less the 41 sealing
+	// adds) is refused before anything is sealed.
+	status, body = set(fmt.Sprintf(`{"transponderKey":%q}`, strings.Repeat("k", 65)))
+	assertStatus(t, status, http.StatusBadRequest, body)
+
+	// The stored bytes are bound to their ship: moved onto another ship's row, past the
+	// resource layer, they do not open there.
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.Update("Ships", []string{"Id", "TransponderKey"}, []any{shipStubbornMuleID, stored(shipKingfisherID)}),
+	}); err != nil {
+		t.Fatalf("moving the stored bytes onto another ship: %v", err)
+	}
+	if _, err := opened(shipStubbornMuleID, testSecretKeys); !errors.Is(err, resource.ErrSecretNotOpened) {
+		t.Errorf("the key's bytes on another ship: error = %v, want resource.ErrSecretNotOpened", err)
+	}
+
+	// A rotation of the application secret hands the service version 2 beside version 1.
+	// The key, sealed under version 1, still opens, and opening it outside a transaction
+	// writes nothing.
+	rotated := newTestSecretKeys(1, 2)
+	holds(shipKingfisherID, second, rotated)
+	if version := stored(shipKingfisherID)[0]; version != 1 {
+		t.Fatalf("the stored key names version %d before it is used in a transaction, want 1", version)
+	}
+	// Opened inside a transaction of a client that holds both versions, it is written
+	// again under the current one: the value is the same, so the ship's update stamp does
+	// not move and the ship's log gains no change (asserted on the log below).
+	stamp := readColumn[spanner.NullTime](ctx, t, db, "Ships", spanner.Key{shipKingfisherID}, "UpdatedAt")
+	err = resource.NewSpannerClient(db.Client, resource.WithSecretKeys(rotated)).ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().TransponderKey()).
+			SetID(impulse.Must(impulse.UUIDFromString(shipKingfisherID))).Read(ctx, txn)
+		if err != nil {
+			return fmt.Errorf("ShipQuery.Read(): %w", err)
+		}
+		key, err := ship.Data.OpenTransponderKeyIn(ctx, txn)
+		if err != nil {
+			return fmt.Errorf("Ship.OpenTransponderKeyIn(): %w", err)
+		}
+		if key == nil || *key != second {
+			t.Errorf("the key opened in the transaction is not the one that was set")
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("opening the key in a transaction: %v", err)
+	}
+	if version := stored(shipKingfisherID)[0]; version != 2 {
+		t.Errorf("the stored key names version %d after it was used in a transaction, want the current one, 2", version)
+	}
+	holds(shipKingfisherID, second, rotated)
+	if after := readColumn[spanner.NullTime](ctx, t, db, "Ships", spanner.Key{shipKingfisherID}, "UpdatedAt"); after != stamp {
+		t.Errorf("the rewrite moved the ship's update stamp from %v to %v; the ship did not change", stamp, after)
+	}
+	// Version 1 retired: a service handed version 2 alone opens the key, and one that
+	// was never handed version 2 says which version it lacks.
+	holds(shipKingfisherID, second, newTestSecretKeys(2))
+	var unknown *resource.UnknownSecretVersionError
+	if _, err := opened(shipKingfisherID, testSecretKeys); !errors.As(err, &unknown) || unknown.Version != 2 {
+		t.Errorf("a service without version 2: error = %v, want a resource.UnknownSecretVersionError naming version 2", err)
+	}
 
 	leaks := func(where string, answer []byte) {
 		t.Helper()

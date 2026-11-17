@@ -44,12 +44,20 @@ type (
 	// carries no allow_filter: a filter compares single values and Spanner cannot index an
 	// array, so the generator would refuse the tag; a sort naming it answers 400.
 	//
-	// TransponderKey is a secret (conditions:"secret"): the marshal sets it, on the
-	// create or later, and nothing serves it back. It is write-only as an input_only field
-	// is (absent from every list and read, refused as a column, a filter or a sort), the
-	// console types it into a masked box whose toggle shows what is being typed, and the
-	// ship's log, which serves every change of a ship, names a change of the key without
-	// the old value or the new one (test/integration/secret_test.go).
+	// TransponderKey is a secret (conditions:"secret", typed resource.Secret): the marshal
+	// sets it, on the create or later, and nothing serves it back. Its column holds the
+	// value encrypted, never as it was typed: a request and a patch give the key as text
+	// (patch.SetTransponderKey), and the write path seals it with the application's secret
+	// keys (pkg/config) and the ship's primary key where it turns the patch into columns,
+	// so the stored bytes open on this ship and on no other row. The field holds those
+	// bytes and nothing else: it prints as [secret], and code that needs the key opens it
+	// with the generated ship.OpenTransponderKey(keys), or ship.OpenTransponderKeyIn(ctx,
+	// txn) inside a transaction, which also writes a value sealed under an older version
+	// of the application secret again under the current one. It is write-only as an
+	// input_only field is (absent from every list and read, refused as a column, a filter
+	// or a sort), the console types it into a masked box whose toggle shows what is being
+	// typed, and the ship's log, which serves every change of a ship, names a change of
+	// the key without the old value or the new one (test/integration/secret_test.go).
 	//
 	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.referential-refusal, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column, secret.
 	//
@@ -70,7 +78,7 @@ type (
 		UpdatedAt   *time.Time   `spanner:"UpdatedAt"   output_only_update_fn:"resource.CommitTimestampPtr"`
 		CargoBays   []int64      `spanner:"CargoBays"`
 		// TransponderKey is the key the ship's transponder signs its answers with.
-		TransponderKey *string `spanner:"TransponderKey" conditions:"secret"`
+		TransponderKey *resource.Secret `spanner:"TransponderKey" conditions:"secret"`
 	}
 )
 
