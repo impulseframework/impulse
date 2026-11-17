@@ -98,6 +98,7 @@ type (
 	// @resource
 	// @permissionScope(domain)
 	// @tenantDirectory
+	// @order(Method asc, Connection asc)
 	%[2]s struct {
 		ID impulse.UUID `+"`spanner:\"Id\"`"+`
 		// @domain
