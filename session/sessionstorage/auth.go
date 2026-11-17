@@ -104,13 +104,16 @@ type AuthStore[Tx any] interface {
 	UserStore
 	// Users lists every user, by username.
 	Users(ctx context.Context) ([]*SessionUser, error)
-	// SetUserPassword sets a user's password hash and whether the user must change the
-	// password before anything else is served (SessionUser.PasswordChangeRequired), in
-	// one write: true for a password an operator set, false for one the user chose.
-	// It follows no proof of the password it replaces and overwrites whatever the row
-	// holds: it is an operator's write, or the end of a flow that proved who the person
-	// is by other means. A user's own change is ChangeUserPassword.
-	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ReplaceUserPassword sets a user's password hash and whether the user must change
+	// the password before anything else is served (SessionUser.PasswordChangeRequired:
+	// true for a password an operator set, false for one the user chose), and expires
+	// every session of the user, as DestroyUserSessions does, in one transaction: the
+	// password is replaced and the sessions ended together, or neither is, so no
+	// failure leaves the new password in place and a session alive. It follows no proof
+	// of the password it replaces and overwrites whatever the row holds: it is an
+	// operator's write, or the end of a flow that proved who the person is by other
+	// means. A user's own change is ChangeUserPassword.
+	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ChangeUserPassword replaces the password a user proved with one the user chose,
 	// clears the password change mark and expires every session of the user, as
 	// DestroyUserSessions does, in one transaction: the password is changed and the
@@ -892,13 +895,13 @@ func (a *Auth[Tx]) Users(ctx context.Context) ([]*SessionUser, error) {
 	return users, nil
 }
 
-// SetUserPassword implements AuthStore.
-func (a *Auth[Tx]) SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
+// ReplaceUserPassword implements AuthStore.
+func (a *Auth[Tx]) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetUserPassword(ctx, id, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "db.SetUserPassword()")
+	if err := a.db.ReplaceUserPassword(ctx, id, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "db.ReplaceUserPassword()")
 	}
 
 	return nil

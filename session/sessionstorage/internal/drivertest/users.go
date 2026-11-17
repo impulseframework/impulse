@@ -3,6 +3,8 @@ package drivertest
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse"
@@ -74,46 +76,88 @@ func testUserAccounts(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 }
 
-// testUserPasswordSet pins SetUserPassword: the hash and the mark land in one write,
-// cleared for a password the user chose, set for one an operator reset; an unknown
-// user is NotFound.
-func testUserPasswordSet(ctx context.Context, t *testing.T, h *AuthHarness) {
-	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
-	hasher := securehash.New(securehash.Argon2())
-	temporary, err := hasher.Hash("temporary")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "pat@lakeside.edu", PasswordHash: temporary, PasswordChangeRequired: true}, nil)
-	if err != nil {
-		t.Fatalf("CreateUser() error = %v", err)
-	}
+// testPasswordReplaced pins ReplaceUserPassword, the write of an operator's reset and
+// of a password set at the end of a flow of the application's own: the hash and the
+// mark land, cleared for a password the user chose and set for one an operator reset,
+// whatever the row held, and every session of the user ends in the same transaction,
+// no other user's; an unknown user is NotFound; and a replacement whose ending of the
+// sessions fails writes no password, so no failure leaves the new password in place and
+// a session alive. It runs with the impersonation table attached and without it, the
+// two ways the sessions are ended.
+func testPasswordReplaced(ctx context.Context, t *testing.T, h *AuthHarness) {
+	hashes := passwordHashes(t, "temporary", "chosen", "another")
+	temporary, chosen, another := hashes[0], hashes[1], hashes[2]
 
-	// The user changes the password: the new hash and the cleared mark land in one write.
-	chosen, err := hasher.Hash("chosen")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := in.Driver.SetUserPassword(ctx, pat.ID, chosen, false); err != nil {
-		t.Fatalf("SetUserPassword() error = %v", err)
-	}
-	changed, err := in.Driver.User(ctx, pat.ID)
-	if err != nil {
-		t.Fatalf("User() error = %v", err)
-	}
-	if changed.PasswordChangeRequired || !sameHash(changed.PasswordHash, chosen) || !changed.CreatedAt.Equal(pat.CreatedAt) {
-		t.Errorf("User() after the change = %+v, want the chosen hash, no mark and the creation time kept", changed)
-	}
+	for _, impersonation := range []bool{false, true} {
+		t.Run(fmt.Sprintf("impersonation attached: %t", impersonation), func(t *testing.T) {
+			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: impersonation})
+			start := func(user *dbtype.SessionUser) impulse.UUID {
+				t.Helper()
+				id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID})
+				if err != nil {
+					t.Fatalf("InsertSession() error = %v", err)
+				}
 
-	// An operator resets it: the mark is set again with the temporary hash.
-	if err := in.Driver.SetUserPassword(ctx, pat.ID, temporary, true); err != nil {
-		t.Fatalf("SetUserPassword() error = %v", err)
-	}
-	if reset, err := in.Driver.User(ctx, pat.ID); err != nil || !reset.PasswordChangeRequired || !sameHash(reset.PasswordHash, temporary) {
-		t.Errorf("User() after the reset = %+v, %v; want the temporary hash and the mark", reset, err)
-	}
-	if err := in.Driver.SetUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen, false); !httpio.HasNotFound(err) {
-		t.Errorf("SetUserPassword() of an unknown user error = %v, want NotFound", err)
+				return id
+			}
+			pat, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "pat@lakeside.edu", PasswordHash: temporary, PasswordChangeRequired: true}, nil)
+			if err != nil {
+				t.Fatalf("CreateUser() error = %v", err)
+			}
+			other := passwordUser(ctx, t, in.Driver, "other@lakeside.edu")
+			first, second, others := start(pat), start(pat), start(other)
+
+			// A password the user chose: the new hash and the cleared mark land, and the
+			// user's sessions end with them.
+			if err := in.Driver.ReplaceUserPassword(ctx, pat.ID, chosen, false); err != nil {
+				t.Fatalf("ReplaceUserPassword() error = %v", err)
+			}
+			if changed := mustUser(ctx, t, in.Driver, pat.ID); changed.PasswordChangeRequired || !sameHash(changed.PasswordHash, chosen) || !changed.CreatedAt.Equal(pat.CreatedAt) {
+				t.Errorf("User() after the replacement = %+v, want the chosen hash, no mark and the creation time kept", changed)
+			}
+			for name, id := range map[string]impulse.UUID{"the user's first session": first, "the user's second session": second} {
+				if !mustSession(ctx, t, in.Driver, id).Expired {
+					t.Errorf("%s stands after the replacement, want it ended in the transaction that wrote the password", name)
+				}
+			}
+			if mustSession(ctx, t, in.Driver, others).Expired {
+				t.Error("another user's session was ended by the replacement")
+			}
+
+			// An operator resets it: the mark is set again with the temporary hash, and a
+			// session started since ends.
+			later := start(pat)
+			if err := in.Driver.ReplaceUserPassword(ctx, pat.ID, temporary, true); err != nil {
+				t.Fatalf("ReplaceUserPassword() error = %v", err)
+			}
+			if reset := mustUser(ctx, t, in.Driver, pat.ID); !reset.PasswordChangeRequired || !sameHash(reset.PasswordHash, temporary) {
+				t.Errorf("User() after the reset = %+v, want the temporary hash and the mark", reset)
+			}
+			if !mustSession(ctx, t, in.Driver, later).Expired {
+				t.Error("the user's session stands after the reset, want it ended in the transaction that wrote the password")
+			}
+
+			// An unknown user is told so, and nobody's session ends for it.
+			if err := in.Driver.ReplaceUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen, false); !httpio.HasNotFound(err) {
+				t.Errorf("ReplaceUserPassword() of an unknown user error = %v, want NotFound", err)
+			}
+			if mustSession(ctx, t, in.Driver, others).Expired {
+				t.Error("another user's session was ended by the replacement of an unknown user's password")
+			}
+
+			// The sessions cannot be ended: the password is not written either.
+			const table = "NoSuchTable"
+			if err := in.Driver.SetSessionTableName(table); err != nil {
+				t.Fatalf("SetSessionTableName() error = %v", err)
+			}
+			err = in.Driver.ReplaceUserPassword(ctx, pat.ID, another, false)
+			if err == nil || !strings.Contains(err.Error(), table) {
+				t.Fatalf("ReplaceUserPassword() where the sessions cannot be ended error = %v, want the failure of the sessions table, naming %s", err, table)
+			}
+			if got := mustUser(ctx, t, in.Driver, pat.ID); !sameHash(got.PasswordHash, temporary) || !got.PasswordChangeRequired {
+				t.Errorf("User() after the failed replacement holds another password or mark than before it, want both as they were: the replacement is one transaction")
+			}
+		})
 	}
 }
 

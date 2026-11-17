@@ -919,6 +919,20 @@ func (mr *MockdbMockRecorder) RemoveUserPassword(ctx, userID, standing any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*Mockdb)(nil).RemoveUserPassword), ctx, userID, standing)
 }
 
+// ReplaceUserPassword mocks base method.
+func (m *Mockdb) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceUserPassword", ctx, id, hash, changeRequired)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReplaceUserPassword indicates an expected call of ReplaceUserPassword.
+func (mr *MockdbMockRecorder) ReplaceUserPassword(ctx, id, hash, changeRequired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceUserPassword", reflect.TypeOf((*Mockdb)(nil).ReplaceUserPassword), ctx, id, hash, changeRequired)
+}
+
 // RevokeMailLink mocks base method.
 func (m *Mockdb) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
 	m.ctrl.T.Helper()
@@ -1170,20 +1184,6 @@ func (m *Mockdb) SetUserName(ctx context.Context, id impulse.UUID, name *string)
 func (mr *MockdbMockRecorder) SetUserName(ctx, id, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserName", reflect.TypeOf((*Mockdb)(nil).SetUserName), ctx, id, name)
-}
-
-// SetUserPassword mocks base method.
-func (m *Mockdb) SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUserPassword", ctx, id, hash, changeRequired)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetUserPassword indicates an expected call of SetUserPassword.
-func (mr *MockdbMockRecorder) SetUserPassword(ctx, id, hash, changeRequired any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserPassword", reflect.TypeOf((*Mockdb)(nil).SetUserPassword), ctx, id, hash, changeRequired)
 }
 
 // SetUserTableName mocks base method.

@@ -857,22 +857,47 @@ func errPasswordChanged() error {
 	return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
 }
 
-// SetUserPassword sets a user's password hash and whether the user must change the
-// password before anything else is served, in one write: true for a password an
-// operator set, false for one the user chose. It follows no proof of the password it
-// replaces and overwrites whatever the row holds.
-func (s *SessionStorageDriver) SetUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
+// ReplaceUserPassword sets a user's password hash and whether the user must change the
+// password before anything else is served (true for a password an operator set, false
+// for one the user chose), and expires every session of the user, in one transaction:
+// the password is replaced and the sessions ended together, or neither is. It follows
+// no proof of the password it replaces and overwrites whatever the row holds. The
+// password is written first: the write waits for a sign-in that is inserting a session
+// on proof of the password being replaced (the flow shares the user row's lock while it
+// decides), so the expiry that follows finds that session and ends it.
+func (s *SessionStorageDriver) ReplaceUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if !s.users {
+		return errors.New("ReplaceUserPassword needs the auth schema: use Auth storage")
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
 
 	query := fmt.Sprintf(`
 		UPDATE %s SET "PasswordHash" = $2, "PasswordChangeRequired" = $3
 		WHERE "Id" = $1`, s.userTable())
 
-	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
-	} else if cmdTag.RowsAffected() == 0 {
+	cmdTag, err := txn.Exec(ctx, query, userID, hash, changeRequired)
+	if err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if cmdTag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := s.destroyUserSessionsIn(ctx, txn, userID); err != nil {
+		return err
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil

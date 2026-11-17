@@ -19,6 +19,7 @@ func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 		t.Fatalf("prepareDatabase() error = %v", err)
 	}
 	driver := NewSessionStorageDriver(db.Client)
+	driver.EnableAuth()
 
 	user, err := driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "sso-only@example.com"}, nil)
 	if err != nil {
@@ -41,13 +42,13 @@ func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.SetUserPassword(ctx, user.ID, hash, false); err != nil {
-		t.Fatalf("SetUserPassword() error = %v", err)
+	if err := driver.ReplaceUserPassword(ctx, user.ID, hash, false); err != nil {
+		t.Fatalf("ReplaceUserPassword() error = %v", err)
 	}
 	assertHash(true)
 
-	if err := driver.SetUserPassword(ctx, user.ID, nil, false); err != nil {
-		t.Fatalf("SetUserPassword(nil) error = %v", err)
+	if err := driver.ReplaceUserPassword(ctx, user.ID, nil, false); err != nil {
+		t.Fatalf("ReplaceUserPassword(nil) error = %v", err)
 	}
 	assertHash(false)
 }

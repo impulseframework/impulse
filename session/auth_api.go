@@ -371,21 +371,26 @@ func (p *AuthAPI[S, U, Tx]) HashPassword(password string) (string, error) {
 	return string(text), nil
 }
 
-// replacePassword sets a new password for userID with its change mark, destroys the
-// user's sessions and resets the name's sign-in attempts. It follows no proof of the
-// password it replaces, so it overwrites whatever the user holds, on purpose: the
-// caller is an operator, or a flow that proved who the person is by other means, and
-// its password is to stand whatever was changed a moment before.
+// replacePassword sets a new password for userID with its change mark (true for a
+// password an operator set, false for one the user chose), destroys the user's sessions
+// and resets the name's sign-in attempts. It follows no proof of the password it
+// replaces, so it overwrites whatever the user holds, on purpose: the caller is an
+// operator, or a flow that proved who the person is by other means, and its password is
+// to stand whatever was changed a moment before.
 func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if err := a.setPassword(ctx, userID, password, changeRequired); err != nil {
-		return err
+	hash, err := a.registered().hasher.Hash(password)
+	if err != nil {
+		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
-	if err := a.storage.DestroyUserSessions(ctx, userID); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
+	// One store call writes the password and ends the user's sessions, in one
+	// transaction: no failure leaves the new password in place and a session alive, on
+	// the act meant to end them.
+	if err := a.storage.ReplaceUserPassword(ctx, userID, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.ReplaceUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
 
