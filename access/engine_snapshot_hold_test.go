@@ -245,7 +245,7 @@ func TestUserManager_callAnnouncesOnce(t *testing.T) {
 				return func() error {
 					for _, role := range threeRoles {
 						if err := manager.AssignUserRole(ctx, tenant1Policy, "frank", role, period); err != nil {
-							return err
+							return fmt.Errorf("AssignUserRole(%s): %w", role, err)
 						}
 					}
 

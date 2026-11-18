@@ -626,7 +626,7 @@ func (r *commitRefuser) unary(ctx context.Context, method string, req, reply any
 		return status.Error(codes.PermissionDenied, errCommitRefused) //nolint:wrapcheck // the status is the answer the client is to see, as the store would give it
 	}
 
-	return invoker(ctx, method, req, reply, conn, opts...) //nolint:wrapcheck // the call's own answer, passed on as it is
+	return invoker(ctx, method, req, reply, conn, opts...)
 }
 
 // TestService_Signal_coalesces pins the publisher's coalescing: a burst of signals of
