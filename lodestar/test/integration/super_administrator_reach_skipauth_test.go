@@ -123,20 +123,20 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 	}
 }
 
-// TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain proves on the served stack that
-// giving the Super Administrator role ends what the person held before it, in the
-// transaction that gives it. The marshal holds a session of her own and one she started
-// as the rigger, whose reach is hers, a token she issued for the droids outlet, and a
-// browser she asked to be remembered, which signs her in on her password alone. The
-// governor gives her the role: both sessions and the token are refused from then on, so
-// nothing issued before the role acts with it, and the remembered browser is asked for
-// the code, so she meets the second factor afresh. The governor's own session, the
-// giver's, stands. The marshal signs in again, and the role asked for her a second
-// time, which she holds already, ends nothing: the token she issues as a super
-// administrator stands.
+// TestSuperAdministrator_givingTheRoleEndsNothing proves on the served stack that giving
+// the Super Administrator role ends nothing the person held before it. The marshal
+// holds a session of her own and one she started as the rigger, a token she issued for
+// the droids outlet, and a browser she asked to be remembered, which signs her in on
+// her password alone. The governor gives her the role: the three sessions answer as
+// before, the token acts as before, and the remembered browser still signs her in on
+// her password alone. The role is in force on the sessions she holds, with no new
+// sign-in: her own session charts every sector, Bastion among them, which admits only
+// its directory's people and a super administrator, and the session she started as the
+// rigger enters Bastion, since the exemption follows the person behind a session. A
+// browser she never asked to be remembered is asked for the code at her next sign-in.
 //
 // Demonstrates: auth.super-administrator.
-func TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain(t *testing.T) {
+func TestSuperAdministrator_givingTheRoleEndsNothing(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -152,7 +152,7 @@ func TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain(t *testing.T) {
 	if status, body := viewing.impersonate(ctx, viewAs(t, "rigger", "walkthrough")); status != http.StatusOK {
 		t.Fatalf("the marshal viewing as the rigger: status %d: %s", status, body)
 	}
-	// answers fails the test unless each of the marshal's sessions answers want.
+	// answers fails the test unless each of the sessions answers want.
 	answers := func(when string, sessions map[string]*browser, want int) {
 		t.Helper()
 		for name, b := range sessions {
@@ -161,26 +161,6 @@ func TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain(t *testing.T) {
 			}
 		}
 	}
-	before := map[string]*browser{"the marshal's own session": own, "the marshal's session as the rigger": viewing}
-	answers("before the role", before, http.StatusOK)
-	// issue has the marshal issue herself a token for the droids outlet; the answer is
-	// never printed, since it carries the secret.
-	issue := func(b *browser) string {
-		t.Helper()
-		status, body := b.do(ctx, http.MethodPost, consoleAPI+"/user/tokens", []byte(`{"name":"patrol script","outlet":"droids"}`))
-		var issued struct {
-			Token string `json:"token"`
-		}
-		if err := json.Unmarshal(body, &issued); err != nil || status != http.StatusOK || issued.Token == "" {
-			t.Fatalf("the marshal issuing a token: status %d, want 200 with the token", status)
-		}
-
-		return issued.Token
-	}
-	token := issue(own)
-	if status, body := droid(ctx, t, s, token, http.MethodGet, "/droids/features", nil); status != http.StatusOK {
-		t.Fatalf("the marshal's token before the role: status %d, want 200: %s", status, body)
-	}
 	// The browser she asked to be remembered signs in on the password alone.
 	remembered := newBrowser(t, s, consoleAPI)
 	remembered.signIn(ctx, "marshal")
@@ -188,40 +168,57 @@ func TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain(t *testing.T) {
 	if status, body := remembered.login(ctx, "marshal", personaPassword); status != http.StatusOK || heldForFactor(t, body) {
 		t.Fatalf("the remembered browser's sign-in before the role: status %d: %s, want 200 with no second factor asked", status, body)
 	}
+	held := map[string]*browser{
+		"the marshal's own session":                       own,
+		"the marshal's session as the rigger":             viewing,
+		"the marshal's session in the remembered browser": remembered,
+	}
+	answers("before the role", held, http.StatusOK)
+	for name, b := range map[string]*browser{"the marshal's own session": own, "the marshal's session as the rigger": viewing} {
+		if got := b.domains(ctx); slices.Contains(got, bastion) {
+			t.Fatalf("%s charts %v before the role, want Bastion outside it", name, got)
+		}
+	}
+	// The marshal issues herself a token for the droids outlet; the answer is never
+	// printed, since it carries the secret.
+	status, body := own.do(ctx, http.MethodPost, consoleAPI+"/user/tokens", []byte(`{"name":"patrol script","outlet":"droids"}`))
+	var issued struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &issued); err != nil || status != http.StatusOK || issued.Token == "" {
+		t.Fatalf("the marshal issuing a token: status %d, want 200 with the token", status)
+	}
+	if status, body := droid(ctx, t, s, issued.Token, http.MethodGet, "/droids/features", nil); status != http.StatusOK {
+		t.Fatalf("the marshal's token before the role: status %d, want 200: %s", status, body)
+	}
 
 	toMarshal := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "marshal"))
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
 		t.Fatalf("the governor making the marshal a super administrator: status %d, want 204: %s", status, body)
 	}
-	before["the marshal's session in the remembered browser"] = remembered
-	answers("after the marshal was given the role", before, http.StatusUnauthorized)
+	answers("after the marshal was given the role", held, http.StatusOK)
 	answers("after giving the role", map[string]*browser{"the governor's session, the giver's": governor}, http.StatusOK)
-	if status, body := droid(ctx, t, s, token, http.MethodGet, "/droids/features", nil); status != http.StatusUnauthorized {
-		t.Errorf("the token the marshal issued before the role, after it: status %d, want 401: %s", status, body)
+	if status, body := droid(ctx, t, s, issued.Token, http.MethodGet, "/droids/features", nil); status != http.StatusOK {
+		t.Errorf("the token the marshal issued before the role, after it: status %d, want 200: %s", status, body)
 	}
-	// The browser is remembered no longer: her password is followed by the code.
-	if status, body := remembered.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
-		t.Fatalf("GET session before the once-remembered browser's sign-in: status %d: %s", status, body)
+	// The sessions she held act with the role from then on.
+	if got, want := own.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
+		t.Errorf("the chart of the session the marshal held before the role = %v, want %v", got, want)
 	}
-	if status, body := remembered.login(ctx, "marshal", personaPassword); status != http.StatusOK || !heldForFactor(t, body) {
-		t.Fatalf("the once-remembered browser's sign-in after the role: status %d: %s, want 200 holding the sign-in for the second factor", status, body)
+	if got, want := viewing.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
+		t.Errorf("the chart of the session the marshal started as the rigger before the role = %v, want %v", got, want)
 	}
-	remembered.secondFactor(ctx, "marshal")
-	if sess := remembered.session(ctx); sess["authenticated"] != true {
-		t.Fatalf("session after the role and the code = %v, want the marshal signed in", sess)
+	// The browser is remembered still: her password is followed by no code.
+	remembered.logout(ctx)
+	if status, body := remembered.login(ctx, "marshal", personaPassword); status != http.StatusOK || heldForFactor(t, body) {
+		t.Errorf("the remembered browser's sign-in after the role: status %d: %s, want 200 with no second factor asked", status, body)
 	}
-
-	again := newBrowser(t, s, consoleAPI)
-	again.signIn(ctx, "marshal")
-	held := issue(again)
-	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
-		t.Fatalf("the governor giving the marshal the role she holds: status %d, want 204: %s", status, body)
+	// A browser she never asked to be remembered is asked for the code.
+	fresh := newBrowser(t, s, consoleAPI)
+	if status, body := fresh.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the marshal's sign-in from another browser: status %d: %s", status, body)
 	}
-	answers("after the role was asked for her again", map[string]*browser{
-		"the session the marshal signed in to as a super administrator": again,
-		"the session she met the code for":                              remembered,
-	}, http.StatusOK)
-	if status, body := droid(ctx, t, s, held, http.MethodGet, "/droids/features", nil); status != http.StatusOK {
-		t.Errorf("the token the marshal issued as a super administrator, after the role was asked for her again: status %d, want 200: %s", status, body)
+	if status, body := fresh.login(ctx, "marshal", personaPassword); status != http.StatusOK || !heldForFactor(t, body) {
+		t.Errorf("the marshal's sign-in from a browser she never asked to be remembered: status %d: %s, want 200 holding the sign-in for the second factor", status, body)
 	}
 }
