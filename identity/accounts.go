@@ -204,7 +204,16 @@ func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWri
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
 	}
 
-	return nil
+	return m.resetLinksEndAtCommit(txn, userID)
+}
+
+// resetLinksEndAtCommit registers the withdrawal of the user's standing password reset
+// links for after the commit of a transaction that writes or removes their password: a
+// link mailed for the password before does not reset the one after.
+func (m *Manager) resetLinksEndAtCommit(txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	return m.noticeAfterCommit(txn, "the withdrawal of the password reset links of user "+userID.String(), func(ctx context.Context) error {
+		return m.sessions.EndPasswordResetLinks(ctx, userID)
+	})
 }
 
 // SendPasswordResetLink has a link that resets a user's password mailed to the address

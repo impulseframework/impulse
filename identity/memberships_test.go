@@ -332,6 +332,14 @@ func TestManager_RemoveRole_notice(t *testing.T) {
 		{name: "a person who leaves a tenant themselves is told nothing", scope: alphaScope, caller: dana, held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Steward")}},
 		{name: "a role held for the whole application is no tenant's", scope: globalScope, caller: erin, held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Steward")}},
 		{name: "a person with no confirmed address is mailed nothing", scope: alphaScope, caller: erin, unknown: true},
+		{
+			name: "a role held in every tenant at once is no one tenant's", scope: accesstypes.EveryDomainPolicyScope(), caller: erin,
+			held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Steward")},
+		},
+		{
+			name: "a role taken in a tenant the person still reaches through a role held in every tenant is no removal from it", scope: alphaScope, caller: erin,
+			held: []access.MembershipKey{access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), dana, "Clerk")},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

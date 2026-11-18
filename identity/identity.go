@@ -238,6 +238,11 @@ type SessionAPI interface {
 	// they confirmed, and changes nothing until the link is used
 	// (session.AuthAPI.SendPasswordReset). The message says who asked (by).
 	SendPasswordReset(ctx context.Context, userID impulse.UUID, by session.AskedBy) error
+	// EndPasswordResetLinks withdraws the user's standing password reset links, once a
+	// write or a removal of their password here has committed: a link mailed for the
+	// password before does not reset the one after
+	// (session.AuthAPI.EndPasswordResetLinks).
+	EndPasswordResetLinks(ctx context.Context, userID impulse.UUID) error
 	// NoticeFactorReset tells the user, at the address they confirmed, that an
 	// administrator reset their second factor (session.AuthAPI.NoticeFactorReset).
 	NoticeFactorReset(ctx context.Context, userID impulse.UUID) error

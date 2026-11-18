@@ -89,12 +89,13 @@ func (a *resetApp[Tx]) seedConfirmed(ctx context.Context, t *testing.T, username
 }
 
 // setOwnReset turns self-service reset on or off, as an administrator does in the
-// running application: the password method's row of the sign-in methods table.
+// running application: the one field of the password method's row of the sign-in
+// methods table.
 func (a *resetApp[Tx]) setOwnReset(ctx context.Context, t *testing.T, on bool) {
 	t.Helper()
 
-	if err := a.store.SetSignInMethod(ctx, &sessionstorage.SignInMethod{Name: "password", SelfServiceReset: on}); err != nil {
-		t.Fatalf("SetSignInMethod(password) error = %v", err)
+	if err := a.api.SetSelfServiceReset(ctx, on); err != nil {
+		t.Fatalf("SetSelfServiceReset(%v) error = %v", on, err)
 	}
 }
 
@@ -371,7 +372,7 @@ func seamAddressChange[Tx any](ctx context.Context, t *testing.T, be backend[Tx]
 		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 requiring MFA", status, mfa)
 	}
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
-	a.lastCode(t, "pat@lakeside.edu")
+	overtaken := a.lastCode(t, "pat@lakeside.edu")
 
 	// The reader of the new address confirms, in a browser that is signed in to nothing.
 	reader := a.browser(t).primed(ctx)
@@ -392,13 +393,52 @@ func seamAddressChange[Tx any](ctx context.Context, t *testing.T, be backend[Tx]
 	}
 	reader.expect(ctx, http.StatusNotFound, http.MethodPost, "/email/confirm", map[string]string{"token": token})
 
+	// The code mailed to the address the account held before is dead with it: whoever
+	// reads the old mailbox does not finish the sign-in, and the code does not put the
+	// old address back.
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": overtaken}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+		t.Errorf("a code mailed to the address the account has replaced = %d %s, want 401 code_expired", status, body)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if user, err = a.api.User(ctx, pat); err != nil {
+		t.Fatalf("User() error = %v", err)
+	}
+	if user.Email == nil || *user.Email != "pat.lee@lakeside.edu" || !user.EmailVerified() {
+		t.Errorf("the account's address after the old code was tried = %v (confirmed %v), want pat.lee@lakeside.edu still, confirmed", user.Email, user.EmailVerified())
+	}
+
+	// An address mistyped and asked for again: the first link is withdrawn, so the
+	// reader of the mistyped mailbox confirms nothing, and the second link confirms.
+	if err := a.api.RequestAddressChange(ctx, pat, "p.le@lakeside.edu", session.AskedByApplication()); err != nil {
+		t.Fatalf("RequestAddressChange() error = %v", err)
+	}
+	_, mistyped := a.lastLink(t, "p.le@lakeside.edu", "address")
+	if err := a.api.RequestAddressChange(ctx, pat, "p.lee@lakeside.edu", session.AskedByApplication()); err != nil {
+		t.Fatalf("RequestAddressChange() error = %v", err)
+	}
+	_, right := a.lastLink(t, "p.lee@lakeside.edu", "address")
+	reader.expect(ctx, http.StatusNotFound, http.MethodPost, "/email/confirm", map[string]string{"token": mistyped})
+	reader.expect(ctx, http.StatusOK, http.MethodPost, "/email/confirm", map[string]string{"token": right})
+
+	// A reset link mailed for one password does not reset the next: an operator sets
+	// another, and the link is dead.
+	if err := a.api.SendPasswordReset(ctx, pat, session.AskedByApplication()); err != nil {
+		t.Fatalf("SendPasswordReset() error = %v", err)
+	}
+	_, reset := a.lastLink(t, "p.lee@lakeside.edu", "reset")
+	reader.expect(ctx, http.StatusOK, http.MethodPost, "/reset/open", map[string]string{"token": reset})
+	if err := a.api.SetSessionUserPassword(ctx, pat, seedPassword); err != nil {
+		t.Fatalf("SetSessionUserPassword() error = %v", err)
+	}
+	reader.expect(ctx, http.StatusNotFound, http.MethodPost, "/reset/open", map[string]string{"token": reset})
+
 	// From now on the code goes to the new address.
 	c := a.browser(t).primed(ctx)
 	if status, mfa := c.loginAs(ctx, "pat"); status != http.StatusOK || !mfa {
 		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 requiring MFA", status, mfa)
 	}
 	c.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
-	a.lastCode(t, "pat.lee@lakeside.edu")
+	a.lastCode(t, "p.lee@lakeside.edu")
 }
 
 func seamOwnAddressChange[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {

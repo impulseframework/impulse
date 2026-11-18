@@ -1548,7 +1548,9 @@ you a link". There is no second mail.
   their sessions stand, until the link is used.
 - **The link works once**, for `MailSettings.LinkTimeout`, and for the account whose
   confirmed address it was mailed to: it is dead once that address or the password
-  changed. `PasswordReset().Open()` answers the username of a live link and
+  changed. Every write and removal of a password in the library withdraws the
+  account's standing reset links, and an application that writes one in rows of its
+  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
   `PasswordReset().Complete()` takes the new password; the login page reaches both with
   `?reset=<token>`. The new password is held to the same rule as any other, the old one
   is refused from then on, every session of the person ends, the other reset links of
@@ -1566,6 +1568,8 @@ you a link". There is no second mail.
   served only while the password method's row of the sign-in methods table says so
   (`SelfServiceReset`, false until an administrator turns it on, and false with no
   row): turning it on or off takes effect in the running application with no restart.
+  `AuthAPI.SetSelfServiceReset(ctx, on)` writes that one field and leaves what else
+  the row says as it is.
   While it is off the request is NotFound, in words that say to ask an administrator,
   and the methods listing leaves the request route out, so the page draws no "Forgot
   your password?".
@@ -1614,8 +1618,12 @@ How an address gets onto a user:
   their sign-in code went to. Nothing is mailed to the old address to confirm the
   change; once it is made, the old address is told (a notice with the new address
   masked, and no link). An address another account holds is told so by mail and gets
-  no link, and the answer is the same. Nothing writes an address onto an account
-  unconfirmed after its creation.
+  no link, and the answer is the same. One change stands at a time: asking again
+  withdraws the links asked for before, and a link is dead once the account confirmed
+  any address after it was mailed. A sign-in code never replaces a confirmed address,
+  and a code mailed to an address the account has replaced since is dead
+  (`code_expired`). Nothing writes an address onto an account unconfirmed after its
+  creation.
 - **A directory keeps its people's**: the address of a person with an identity linked
   through an organization's directory (`signin.Directory.Organization()`) is changed in
   the directory. Their own add and verify, an administrator's request and the

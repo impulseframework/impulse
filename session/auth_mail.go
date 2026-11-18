@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -65,9 +66,11 @@ const (
 // never used.
 var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
-// mailLimitKey is the address's key in the sign-in attempts table.
+// mailLimitKey is the address's key in the sign-in attempts table: the address folded
+// as the users table folds one (attempts.Normalize), so every spelling that finds the
+// same account's address is counted under the one key.
 func mailLimitKey(email string) string {
-	return "mail:" + strings.ToLower(email)
+	return "mail:" + attempts.Normalize(email)
 }
 
 // mailSettings are the Auth's mail settings once validated.

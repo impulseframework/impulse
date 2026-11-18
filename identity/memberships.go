@@ -240,11 +240,20 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 func (m *Manager) noticeRemoval(
 	ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, held, kept []access.MembershipKey, removed *access.MembershipKey,
 ) error {
-	if scope.IsGlobal() || m.callerIs(ctx, userID) {
+	// A tenant is one domain: a role held for the whole application, or in every
+	// tenant at once, is no tenant's.
+	if _, tenant := scope.Domain(); scope.IsGlobal() || !tenant || m.callerIs(ctx, userID) {
 		return nil
 	}
+	// What still holds the person in the tenant: another holding in the tenant itself,
+	// or one held in every tenant at once, which reaches this one.
+	everywhere := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), removed.User, "")
 	stays := func(key access.MembershipKey) bool {
-		return key != *removed && key.Kind == removed.Kind && key.Axis == removed.Axis && key.Domain == removed.Domain
+		if key == *removed || key.Axis != removed.Axis {
+			return false
+		}
+
+		return (key.Kind == removed.Kind && key.Domain == removed.Domain) || (key.Kind == everywhere.Kind && key.Domain == everywhere.Domain)
 	}
 	if !slices.Contains(held, *removed) || slices.ContainsFunc(held, stays) {
 		return nil

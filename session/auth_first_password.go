@@ -351,6 +351,8 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetFirstUserPassword()")
 	}
+	// A reset link mailed for a password the account held before does not reset this one.
+	a.endResetLinks(ctx, user.ID)
 	// The code reached the person and the password is theirs: what was counted against
 	// the mailbox and the name's passwords counts against nothing, as the account's
 	// codes do since the code was proven.

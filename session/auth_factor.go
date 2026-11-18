@@ -386,10 +386,12 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 	}
 	// The code reached the person: the address's mail count is reset.
 	a.clearMailLimit(ctx, email)
+	if err := a.claimCodeAddress(ctx, p.UserID.UUID, email); err != nil {
+		return nil, err
+	}
 	if err := a.consumePending(ctx, p); err != nil {
 		return nil, err
 	}
-	a.claimCodeAddress(ctx, p.UserID.UUID, email)
 
 	outcome, err := a.completePending(ctx, w, p, sessioninfo.ReasonStepUp, sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
 	if err != nil {
@@ -407,22 +409,31 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 }
 
 // claimCodeAddress writes the address a code proved onto the user, verified, when the
-// user does not hold it verified already. It is bookkeeping after the proof: a failure
-// is logged, and the sign-in goes on.
-func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, userID impulse.UUID, email string) {
+// user holds no confirmed address: the first code confirms the address the account was
+// made with or the person gave. An account that holds a confirmed address keeps it: a
+// code proves the person, and a confirmed address is replaced only by the link that
+// confirms a new one. A code mailed to an address the account has replaced since is
+// dead, as one that expired is (the person asks for another, which goes to the address
+// the account holds now). The write is bookkeeping after the proof: a failure of it is
+// logged, and the sign-in goes on.
+func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, userID impulse.UUID, email string) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.User()"))
 
-		return
+		return nil
 	}
-	if user.EmailVerified() && strings.EqualFold(*user.Email, email) {
-		return
+	if user.EmailVerified() {
+		if !strings.EqualFold(*user.Email, email) {
+			return errCodeExpired()
+		}
+
+		return nil
 	}
 	if err := a.storage.VerifyUserEmail(ctx, userID, email); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.VerifyUserEmail()"))
 
-		return
+		return nil
 	}
 	logger.FromCtx(ctx).Infof("user %s verified the email address %s by the sign-in code", userID, email)
 	if a.registered().usernameIsEmail() && !strings.EqualFold(user.Username, email) && a.userRenamed != nil {
@@ -430,6 +441,8 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, userID impulse.UU
 			logger.FromCtx(ctx).Errorf("user %s was renamed from %q to %q by the sign-in code, and the rename hook failed; run the hook's work by hand: %v", userID, user.Username, email, err)
 		}
 	}
+
+	return nil
 }
 
 // The trusted device cookie's value: one entry per user the browser was remembered

@@ -347,6 +347,9 @@ func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID imp
 	if err := a.limitMail(ctx, bare); err != nil {
 		return err
 	}
+	// One change stands at a time: asking again, for a mistyped address put right,
+	// withdraws the links asked for before.
+	a.endLinks(ctx, sessionstorage.MailLinkAddressChange, user.ID)
 	holder, err := a.storage.UserByEmail(ctx, bare)
 	if err != nil && !httpio.HasNotFound(err) {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
@@ -424,6 +427,12 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 	if err := a.refuseDirectoryAddress(ctx, user.ID, confirmed); err != nil {
 		return "", errLinkDead()
 	}
+	// The link changes the address the account held when it was mailed: once the
+	// account confirmed an address after that, by another link, by the person's own
+	// change or by a sign-in code, the link is of a change that was overtaken.
+	if confirmed && user.EmailVerifiedAt.After(link.CreatedAt) {
+		return "", errLinkDead()
+	}
 	if err := a.storage.ConsumeMailLink(ctx, link.TokenHash); err != nil {
 		if httpio.HasNotFound(err) {
 			return "", errLinkDead()
@@ -436,6 +445,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 	}
 	// The link reached its reader: the address's mail count is reset.
 	a.clearMailLimit(ctx, link.Email)
+	a.endLinks(ctx, sessionstorage.MailLinkAddressChange, user.ID)
 	logger.FromCtx(ctx).Infof("the email address of user %s was changed to %s, confirmed from the link an administrator's request mailed", user.ID, link.Email)
 	a.noticeAddressChanged(ctx, user.Email, confirmed, link.Email)
 	// Where the username is the address, the confirmation renamed the user: the

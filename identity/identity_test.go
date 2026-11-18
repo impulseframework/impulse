@@ -770,6 +770,10 @@ func (s fakeSessions) SendPasswordReset(_ context.Context, userID impulse.UUID, 
 	return s.asked("password reset of " + userID.String() + " asked by " + askerText(by))
 }
 
+func (s fakeSessions) EndPasswordResetLinks(_ context.Context, userID impulse.UUID) error {
+	return s.asked("end the password reset links of " + userID.String())
+}
+
 func (s fakeSessions) NoticeFactorReset(_ context.Context, userID impulse.UUID) error {
 	return s.asked("factor reset notice to " + userID.String())
 }

@@ -772,6 +772,7 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 
 		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveProvenUserPassword()")
 	}
+	a.endResetLinks(ctx, user.ID)
 	a.clearAttempts(ctx, user.Username)
 
 	return nil

@@ -565,3 +565,63 @@ func TestManager_SendPasswordResetLink(t *testing.T) {
 		})
 	}
 }
+
+// TestManager_passwordWritesEndResetLinks pins what a write of a person's password owes
+// the reset links mailed before it: once the write has committed, and not when it did
+// not, the session library is asked to withdraw them, so a link mailed for the password
+// before does not reset the one after.
+func TestManager_passwordWritesEndResetLinks(t *testing.T) {
+	t.Parallel()
+
+	acts := map[string]func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error{
+		"an administrator sets a temporary password": func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+			return m.SetTemporaryPassword(ctx, txn, userID, "a temporary one")
+		},
+		"an administrator removes the password of a person who signs in through a directory": func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+			return m.RemovePassword(ctx, txn, userID)
+		},
+	}
+	for name, act := range acts {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{
+				usernames:  map[impulse.UUID]string{userID: "dana"},
+				passwords:  map[impulse.UUID]bool{userID: true},
+				identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			}
+			mail := &fakeMail{}
+			m, err := New(managedAuth, store, &fakeEngine{}, fakeSessions{mail: mail})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				err := act(ctx, txn, m)
+				if len(mail.asked) != 0 {
+					t.Errorf("before the commit the session library was asked %v, want nothing", mail.asked)
+				}
+
+				return err
+			}); err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if diff := cmp.Diff([]string{"end the password reset links of " + userID.String()}, mail.asked); diff != "" {
+				t.Errorf("asked of the session library after the commit (-want +got):\n%s", diff)
+			}
+
+			mail.asked = nil
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				if err := act(ctx, txn, m); err != nil {
+					return err
+				}
+
+				return errStore
+			}); !errors.Is(err, errStore) {
+				t.Fatalf("a transaction that fails after the write: error = %v, want its failure", err)
+			}
+			if len(mail.asked) != 0 {
+				t.Errorf("asked of the session library for a write that did not commit = %v, want nothing", mail.asked)
+			}
+		})
+	}
+}

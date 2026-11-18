@@ -390,7 +390,19 @@ func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password stri
 // the password is written: a failure is logged, and the links that stay die with their
 // time.
 func (a *Auth[S, U, Tx]) endResetLinks(ctx context.Context, userID impulse.UUID) {
-	links, err := a.storage.LiveMailLinks(ctx, sessionstorage.MailLinkPasswordReset)
+	a.endLinks(ctx, sessionstorage.MailLinkPasswordReset, userID)
+}
+
+// endLinks withdraws the standing links of one kind that name the user: the reset
+// links of an account whose password was written, however it was, and the
+// confirmations of a new address an administrator asked for before asking again. It is
+// work after the change that made them stale: a failure is logged, and the change
+// stands. An Auth that sends no mail mailed none.
+func (a *Auth[S, U, Tx]) endLinks(ctx context.Context, kind sessionstorage.MailLinkKind, userID impulse.UUID) {
+	if a.settings.mail == nil {
+		return
+	}
+	links, err := a.storage.LiveMailLinks(ctx, kind)
 	if err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.LiveMailLinks()"))
 
@@ -424,4 +436,48 @@ func (a *Auth[S, U, Tx]) later(ctx context.Context, work func(ctx context.Contex
 // reads what was mailed.
 func (p *AuthAPI[S, U, Tx]) WaitForMail() {
 	p.auth.background.Wait()
+}
+
+// EndPasswordResetLinks withdraws the user's standing password reset links: an
+// application that writes or removes a person's password in rows of its own calls it
+// once the write has committed, as every password write of the library does, so a link
+// mailed for the password before does not reset the one after.
+func (p *AuthAPI[S, U, Tx]) EndPasswordResetLinks(ctx context.Context, userID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	p.auth.endResetLinks(ctx, userID)
+
+	return nil
+}
+
+// SetSelfServiceReset turns a person's own request for a password reset link on or off,
+// in the running application: it writes the one field of the password method's row of
+// the sign-in methods table and leaves what else the row says as it is (whether the
+// method is open to sign-up, for whom, and with which role). It needs the password
+// method.
+func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	a := p.auth
+	if !a.registered().passwordRegistered() {
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
+	}
+	rows, err := a.storage.SignInMethods(ctx)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SignInMethods()")
+	}
+	row := &sessionstorage.SignInMethod{Name: string(sessioninfo.MethodPassword)}
+	for _, standing := range rows {
+		if standing.Name == row.Name {
+			row = standing
+		}
+	}
+	row.SelfServiceReset = on
+	if err := a.storage.SetSignInMethod(ctx, row); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SetSignInMethod()")
+	}
+
+	return nil
 }
