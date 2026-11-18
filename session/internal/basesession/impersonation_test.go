@@ -285,13 +285,42 @@ func TestNewImpersonationResponse(t *testing.T) {
 			},
 			want: &ImpersonationResponse{
 				Actor: "alice", ActorRealm: "admin-portal", PrincipalKind: "User", Principal: "bob",
-				Mask: []string{"List", "Read"}, Reason: "ticket", ExpiresAt: expires,
+				Mask: []string{"List", "Read"}, MaskWords: "reading only", Reason: "ticket", ExpiresAt: expires,
 			},
 		},
 		{
 			name: "unrestricted role impersonation omits the mask",
 			imp:  &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: expires},
-			want: &ImpersonationResponse{Actor: "alice", PrincipalKind: "Role", Principal: "Editor", ExpiresAt: expires},
+			want: &ImpersonationResponse{Actor: "alice", PrincipalKind: "Role", Principal: "Editor", MaskWords: "everything", ExpiresAt: expires},
+		},
+		{
+			name: "every kind kept and a class refused: the refusal and the words say so",
+			imp: &sessioninfo.Impersonation{
+				Actor:     "alice",
+				Principal: accesstypes.UserPrincipal("bob"),
+				Mask:      accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential)),
+				ExpiresAt: expires,
+			},
+			want: &ImpersonationResponse{
+				Actor: "alice", PrincipalKind: "User", Principal: "bob",
+				RefusedClasses: []string{"credential"}, MaskWords: "everything except credential actions", ExpiresAt: expires,
+			},
+		},
+		{
+			name: "kinds, a class and named refusals",
+			imp: &sessioninfo.Impersonation{
+				Actor:     "alice",
+				Principal: accesstypes.UserPrincipal("bob"),
+				Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Execute).
+					Refusing(accesstypes.RefuseAction("LaunchMission"), accesstypes.RefuseClass("sensitive")),
+				ExpiresAt: expires,
+			},
+			want: &ImpersonationResponse{
+				Actor: "alice", PrincipalKind: "User", Principal: "bob",
+				Mask: []string{"Execute", "List", "Read"}, RefusedClasses: []string{"sensitive"},
+				Refused:   []ImpersonationNamed{{Permission: "Execute", Resource: "LaunchMission"}},
+				MaskWords: "Execute, List and Read only, except sensitive actions and the action LaunchMission", ExpiresAt: expires,
+			},
 		},
 	}
 	for _, tt := range tests {

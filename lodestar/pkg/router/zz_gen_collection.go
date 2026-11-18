@@ -8,6 +8,17 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+// The classes the application's actions carry (@class), each under the name a
+// permission mask refuses it by: accesstypes.RefuseClass(ClassCredential). A mask
+// written against a class no action carries any more does not compile, since its
+// constant is gone from this file.
+const (
+	// ClassCredential is the class credential.
+	ClassCredential accesstypes.ActionClass = "credential"
+	// ClassIrreversible is the class irreversible.
+	ClassIrreversible accesstypes.ActionClass = "irreversible"
+)
+
 // Collection returns the application's permission collection, computed by the Resource
 // Generator from the resource definitions and generated routes, for deployment tooling
 // such as role migration and bootstrap.
@@ -884,6 +895,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RemoveCrewSectorPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSectorUsers",
 			},
 			{
@@ -896,12 +908,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RenameCrewSectorUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSectorUsers",
 			},
 			{
 				Name:        "RenameMembersSectorUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "MembersSectorUsers",
 			},
 			{
@@ -914,6 +928,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RequireCrewSectorPasswordChange",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSectorUsers",
 			},
 			{
@@ -939,6 +954,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "ScrapShip",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassIrreversible},
 				Transition:  &resource.TransitionData{Target: "Refits", From: []string{"inspected", "in_refit", "flight_test"}, To: "scrapped"},
 				Target:      "Refits",
 			},
@@ -995,12 +1011,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetCrewSectorTemporaryPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSectorUsers",
 			},
 			{
 				Name:        "SetCrewSectorUserEmail",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSectorUsers",
 			},
 			{
@@ -1013,6 +1031,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetMembersSectorUserEmail",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "MembersSectorUsers",
 			},
 			{
@@ -1176,12 +1195,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "UnlinkCrewSectorSessionIdentity",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSectorIdentities",
 			},
 			{
 				Name:        "UnlinkMembersSectorSessionIdentity",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "MembersSectorIdentities",
 			},
 			{
@@ -1203,6 +1224,11 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "CrewSectorInvitations",
+			},
+			{
+				Name:        "ActAsUser",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "AddCrewGroupMember",
@@ -2020,6 +2046,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RemoveCrewPassword",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSessionUsers",
 			},
 			{
@@ -2031,18 +2058,21 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RenameCrewUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSessionUsers",
 			},
 			{
 				Name:        "RenameMembersUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "MembersSessionUsers",
 			},
 			{
 				Name:        "RequireCrewPasswordChange",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSessionUsers",
 			},
 			{
@@ -2096,12 +2126,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetCrewTemporaryPassword",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSessionUsers",
 			},
 			{
 				Name:        "SetCrewUserEmail",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSessionUsers",
 			},
 			{
@@ -2119,6 +2151,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetMembersUserEmail",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "MembersSessionUsers",
 			},
 			{
@@ -2161,12 +2194,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "UnlinkCrewSessionIdentity",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "CrewSessionIdentities",
 			},
 			{
 				Name:        "UnlinkMembersSessionIdentity",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "MembersSessionIdentities",
 			},
 			{

@@ -2,7 +2,8 @@
 <p>
   The sector's wings, squadrons, and who flies with whom — the anchors behind <code>subject.squadrons</code> and
   <code>subject.wings</code>. Headquarters and the Marshal may also view the console as another crew member, read-only,
-  or act as a role: the role lends its grants, never anyone's identity.
+  or act as a role: the role lends its grants, never anyone's identity. Whoever holds the stand-in role may act as a
+  crew member too: everything that person may do, except change how anyone signs in.
 </p>
 
 @if (sectors.refusalOf(squadrons); as refusal) {
@@ -37,7 +38,7 @@
   </mat-card>
 }
 
-@if ((canViewAs() || canAssumeRole()) && !alreadyImpersonating()) {
+@if ((canViewAs() || canActAs() || canAssumeRole()) && !alreadyImpersonating()) {
   <mat-card appearance="outlined" class="create-card">
     <mat-card-header>
       <mat-card-title>Viewing as, acting as</mat-card-title>
@@ -58,6 +59,19 @@
             </mat-select>
           </mat-form-field>
           <button mat-flat-button type="submit">View as</button>
+        </form>
+      }
+      @if (canActAs() && people.value().length) {
+        <form class="inline-form" (ngSubmit)="actAs()">
+          <mat-form-field appearance="outline">
+            <mat-label>Act as (no sign-in changes)</mat-label>
+            <mat-select name="actAs" [(ngModel)]="actAsUserId">
+              @for (person of people.value(); track person.id) {
+                <mat-option [value]="person.id">{{ personLabel(person.username) }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+          <button mat-flat-button type="submit">Act as</button>
         </form>
       }
       @if (canAssumeRole()) {

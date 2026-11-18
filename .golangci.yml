@@ -389,6 +389,15 @@ linters:
       path: generation/identity_invitedtenant_test\.go
       text: Test_prepareIdentity
     - linters:
+      - paralleltest
+      path: generation/identity_credential_test\.go
+      text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      - tparallel
+      path: session/internal/e2e/impersonation_mask_test\.go
+      text: TestImpersonationMask_storedAndEnforced
+    - linters:
       - funlen
       path: resource/(.*/)?resourceset\.go
       text: permissionsFromTags

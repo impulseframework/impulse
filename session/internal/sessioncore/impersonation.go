@@ -39,10 +39,18 @@ type ImpersonationRequest struct {
 	// (Auth), by the username for one that keeps none. How it becomes the session's
 	// identity depends on the session type — see StartImpersonatedSession on each API.
 	Principal accesstypes.Principal
-	// Mask attenuates the session to the listed permissions; the zero mask
-	// (accesstypes.AllowAll()) leaves it unrestricted, and
+	// Mask attenuates the session: the permission kinds it keeps and what it refuses
+	// inside them, a class of actions or a named action or record
+	// (accesstypes.PermissionMask). The mask is the control over what the session
+	// may do: the zero mask (accesstypes.AllowAll()) leaves it unrestricted, which
+	// gives the actor everything the principal holds.
 	// accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
-	// is a read-only session.
+	// is a read-only session, and
+	// accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential))
+	// keeps everything except the credential actions. An application that declares
+	// the kinds of impersonation it offers takes the whole request from the
+	// declaration (Impersonations.Request), which checks the grant and computes the
+	// mask from the grant's widest and the one the actor asked for.
 	Mask accesstypes.PermissionMask
 	// Reason is a free-text justification (a ticket reference, a support note)
 	// recorded on the impersonation record. Optional; an application's guard may

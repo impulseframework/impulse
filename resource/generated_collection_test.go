@@ -978,3 +978,126 @@ func TestGeneratedCollection_listsAcrossTenants(t *testing.T) {
 		t.Errorf("NewGeneratedCollection() error = %v, want it to end %q", err, want)
 	}
 }
+
+// TestGeneratedCollection_actionClasses pins the classes an action carries: what the
+// builder records reaches the data sorted and once each, the data builds a collection
+// that answers them in the action's own scope, and the collection names the classes in
+// use and the actions of each.
+func TestGeneratedCollection_actionClasses(t *testing.T) {
+	t.Parallel()
+
+	b := NewCollectionBuilder()
+	for _, method := range []struct {
+		scope   accesstypes.PermissionScope
+		name    accesstypes.Resource
+		classes []accesstypes.ActionClass
+	}{
+		{scope: accesstypes.GlobalPermissionScope, name: "SetPassword", classes: []accesstypes.ActionClass{"sensitive", accesstypes.ClassCredential, "sensitive"}},
+		{scope: accesstypes.GlobalPermissionScope, name: "Launch"},
+		{scope: accesstypes.DomainPermissionScope, name: "RenameUser", classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+		{scope: accesstypes.DomainPermissionScope, name: "WireFunds", classes: []accesstypes.ActionClass{"money_movement"}},
+	} {
+		if err := b.AddMethodResource(method.scope, accesstypes.Execute, method.name); err != nil {
+			t.Fatalf("AddMethodResource(%s) error = %v", method.name, err)
+		}
+		b.SetActionClasses(method.scope, method.name, method.classes)
+	}
+
+	data := b.Data()
+	wantData := map[accesstypes.Resource][]accesstypes.ActionClass{
+		"SetPassword": {accesstypes.ClassCredential, "sensitive"},
+		"Launch":      nil,
+		"RenameUser":  {accesstypes.ClassCredential},
+		"WireFunds":   {"money_movement"},
+	}
+	gotData := make(map[accesstypes.Resource][]accesstypes.ActionClass, len(data.Resources))
+	for _, res := range data.Resources {
+		gotData[res.Name] = res.Classes
+	}
+	if diff := cmp.Diff(wantData, gotData, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("CollectionData classes mismatch (-want +got):\n%s", diff)
+	}
+
+	g, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+	for _, tt := range []struct {
+		scope  accesstypes.PermissionScope
+		action accesstypes.Resource
+		want   []accesstypes.ActionClass
+	}{
+		{scope: accesstypes.GlobalPermissionScope, action: "SetPassword", want: []accesstypes.ActionClass{accesstypes.ClassCredential, "sensitive"}},
+		{scope: accesstypes.DomainPermissionScope, action: "SetPassword"},
+		{scope: accesstypes.GlobalPermissionScope, action: "Launch"},
+		{scope: accesstypes.DomainPermissionScope, action: "RenameUser", want: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+		{scope: accesstypes.GlobalPermissionScope, action: "RenameUser"},
+		{scope: accesstypes.GlobalPermissionScope, action: "NoSuchAction"},
+	} {
+		if diff := cmp.Diff(tt.want, g.ActionClasses(tt.scope, tt.action), cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("ActionClasses(%s, %s) mismatch (-want +got):\n%s", tt.scope, tt.action, diff)
+		}
+	}
+	if diff := cmp.Diff([]accesstypes.ActionClass{accesstypes.ClassCredential, "money_movement", "sensitive"}, g.ClassesInUse()); diff != "" {
+		t.Errorf("ClassesInUse() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]accesstypes.Resource{"RenameUser", "SetPassword"}, g.ActionsOfClass(accesstypes.ClassCredential)); diff != "" {
+		t.Errorf("ActionsOfClass(credential) mismatch (-want +got):\n%s", diff)
+	}
+	if got := g.ActionsOfClass("unused"); len(got) != 0 {
+		t.Errorf("ActionsOfClass(unused) = %v, want none", got)
+	}
+	if diff := cmp.Diff(data, g.Data()); diff != "" {
+		t.Errorf("the data does not survive the round trip (-want +got):\n%s", diff)
+	}
+}
+
+// TestNewGeneratedCollection_actionClassValidation pins what the collection refuses of
+// an action's classes at start-up.
+func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		res     CollectionResource
+		wantErr string
+	}{
+		{
+			name: "a class on an action",
+			res:  CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+		},
+		{
+			name:    "a class named as no class is",
+			res:     CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{"Credential Actions"}},
+			wantErr: `carries the class "Credential Actions", which is not a class's name`,
+		},
+		{
+			name:    "a class carried twice",
+			res:     CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential, accesstypes.ClassCredential}},
+			wantErr: `carries the class "credential" twice`,
+		},
+		{
+			name:    "a class on something no permission is checked on",
+			res:     CollectionResource{Name: "SetPassword", Scope: accesstypes.GlobalPermissionScope, Classes: []accesstypes.ActionClass{accesstypes.ClassCredential}},
+			wantErr: "registers no permission",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{tt.res}})
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("NewGeneratedCollection() error = %v", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("NewGeneratedCollection() error = %v, want one carrying %q", err, tt.wantErr)
+			}
+		})
+	}
+}

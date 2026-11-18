@@ -566,6 +566,7 @@ func (c *client) templateFuncs() map[string]any {
 		"PermissionConstant":      permissionConstant,
 		"ScopeConstant":           scopeConstant,
 		"MaskingConstant":         maskingConstant,
+		"ClassConstant":           classConstantName,
 		"BindingHops":             bindingHopsLiteral,
 		"SubjectParts":            subjectPartsLiteral,
 		// The feature flag routes under an outlet's prefix and the read route's

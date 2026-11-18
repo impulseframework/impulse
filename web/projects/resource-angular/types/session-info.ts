@@ -84,8 +84,24 @@ export interface SessionImpersonation {
   /** What the session acts as: a user or a role, and which. */
   principalKind: string;
   principal: string;
-  /** What the session is limited to; absent on an unrestricted one. */
+  /** The permission kinds the session keeps; absent on a session that keeps every kind. */
   mask?: string[];
+  /** The classes of action the session is refused inside the kinds it keeps; absent when it is refused none. */
+  refusedClasses?: string[];
+  /** The permissions the session is refused on a named action or record; absent when it is refused none. */
+  refused?: SessionMaskRefusal[];
+  /**
+   * The whole mask as a person would say it: "everything", "reading only", "everything
+   * except credential actions". The session endpoint sends it for every impersonated
+   * session, and a banner shows it as it is.
+   */
+  maskWords?: string;
   reason?: string;
   expiresAt: string;
+}
+
+/** One permission an impersonated session is refused on one named action or record. */
+export interface SessionMaskRefusal {
+  permission: string;
+  resource: string;
 }

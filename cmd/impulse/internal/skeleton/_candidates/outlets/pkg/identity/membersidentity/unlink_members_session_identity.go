@@ -21,6 +21,7 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(credential)
 type UnlinkMembersSessionIdentity struct {
 	// @target(MembersSessionIdentity)
 	IdentityID impulse.UUID

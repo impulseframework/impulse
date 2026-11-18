@@ -238,7 +238,7 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			}
 			reader := &declarationReader{declarations: declarations}
 			handler := UserDomainsHandler(func(r *http.Request) UserPermissions {
-				return SessionPermissions(r.Context(), forUser, RolePrincipalsUnsupported, roster, reader.read)
+				return SessionPermissions(r.Context(), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 			}, WithDomainNames(stubNames{anvil: "Anvil Works"}), WithDirectoryNames(tt.namers...))
 
 			req := httptest.NewRequestWithContext(tt.ctx, http.MethodGet, "/api/user-domains", http.NoBody)

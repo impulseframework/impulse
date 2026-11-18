@@ -3062,7 +3062,7 @@ id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationReq
     Actor:      "alice@example.com",
     ActorRealm: "admin-portal",
     Principal:  accesstypes.UserPrincipal(accesstypes.User(bob.ID.String())),
-    Mask:       accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+    Mask:       accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
     Reason:     "ticket JRN-123",
 })
 
@@ -3098,7 +3098,136 @@ session as another user by naming them and one of their session IDs, which appea
 logs, spans and `ActiveImpersonations`. A call with no session in its context (a
 server-to-server handoff) is taken at its word, so its handler must authenticate the
 caller. *Who may impersonate whom* is the application's guard — the library records what
-happened.
+happened. The guard has a ready-made form, the declaration of the next section, and an
+application that offers impersonation to its own people uses it instead of writing the
+check and the mask by hand. `ImpersonationRequest.Mask` is the mask the session gets,
+taken as given: a call that builds the request itself, with no declaration, gives the
+session whatever mask it names, and the zero mask is no mask at all.
+
+### Impersonation is granted with a mask
+
+The rule, in the words it was given in: **"If you allow them to impersonate without a
+mask, then you're giving them those privileges."** To let someone impersonate a person
+with no mask is to give them everything that person holds, their ways of changing how
+other people sign in among it. Nothing else stands in the way: no action refuses an
+impersonated session by a rule of its own because of what the action does. **The mask is
+the control.**
+
+So the grant to impersonate carries a mask, and an application says both in one place.
+It declares each *kind* of impersonation it offers with the grant that allows it and the
+widest mask that grant gives:
+
+```go
+// Built once, where the application is constructed. The generated collection
+// (router.Collection()) is what the declaration is held to.
+impersonations, err := session.NewImpersonations(collection,
+    // View as a person: reading only.
+    session.ImpersonatesUser("view", resources.ViewAsUser,
+        accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+    // Act as a person: everything they may do, except the credential actions.
+    session.ImpersonatesUser("act", resources.ActAsUser,
+        accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(router.ClassCredential))),
+    // Act as a role: what the role holds. The kind says in so many words that it is unmasked.
+    session.ImpersonatesRole("role", resources.AssumeRole, accesstypes.AllowAll()),
+)
+```
+
+- **The grant** is an action the application registers by hand
+  (`@manualAddResource(Execute)` on a constant), which its role file gives on purpose.
+  Each kind has a grant of its own, since a grant carries one widest mask: the grant to
+  view as a person is not the grant to act as them.
+- **The widest mask is not optional.** A kind that gives everything the person holds
+  says so, `accesstypes.AllowAll()`, where the application is read.
+- **The declaration is checked when the application starts.** `NewImpersonations`
+  refuses a kind with no name, a name or a grant two kinds share, a grant that is no
+  Execute action of the application, and a mask that refuses a class no action carries
+  or a permission the application registers on no resource of the name: a refusal that
+  names nothing would refuse nothing, and whoever wrote it would believe otherwise. A
+  mask written with the collection file's own constant (`router.ClassCredential`, one
+  per class in use) does not compile once no action carries the class.
+
+A request names the kind and may name a narrower mask. `Request` turns it into the
+`ImpersonationRequest` the library establishes, or refuses it with nothing started:
+
+```go
+req, err := impersonations.Request(ctx, &session.ImpersonationAsk{
+    Kind:      body.Kind,      // "view", "act" or "role"
+    Principal: body.Principal, // the id of the person's account, or the role's name
+    Mask:      asked,          // the zero mask asks for none: the session takes what the kind gives
+    Reason:    body.Reason,
+}, resource.HoldsAction(a.UserPermissions(r), accesstypes.GlobalScope()))
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err) // 400 or 403, a sentence the person can act on
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req)
+```
+
+The session's mask is the grant's, narrowed by the request and never widened
+(`accesstypes.PermissionMask.Narrow`):
+
+| The request | The session's mask |
+| --- | --- |
+| Names no mask | The kind's widest |
+| Names permission kinds, each of which the kind gives | Those kinds, and everything the kind refuses inside them |
+| Refuses a class, an action or a record's permission beside what the kind refuses | The kind's kinds (or the ones it named), with both sets of refusals: refusals are joined |
+| Names a kind of permission the grant does not give | **Refused (403), never trimmed**: nobody is left believing they hold what they do not |
+| Refuses a class no action carries, or a permission the application registers on no such resource | Refused (400) |
+
+Letting the person choose a narrower mask is a safety precaution, theirs to take, and
+not a permission: a support engineer who means only to look asks for reading only under
+a grant that would let them act. `Request` also refuses a kind the application does not
+offer (400), a request with no principal (400), and a person who does not hold the
+kind's grant (403). When the call arrives on a validated session it names that
+session's user as the actor and the session as the source; a server-to-server caller
+sets `Actor` and `ActorRealm` on the result.
+
+#### What a mask says
+
+A mask (`accesstypes.PermissionMask`) says which permission kinds the session keeps
+(List, Read, Create, Update, Delete, Execute) and, inside a kind it keeps, what it
+refuses:
+
+| Built with | Refuses |
+| --- | --- |
+| `MaskPermissions(DenyAll(), List, Read)` | Every kind but the ones named |
+| `.Refusing(RefuseClass(class))` | Every action that carries the class, the ones declared after the mask was written among them |
+| `.Refusing(RefuseAction(action))` | One action by name (Execute on it), and nothing else |
+| `.Refusing(RefusePermission(perm, record))`, `.Refusing(RefuseWrites(record)...)` | One permission on one record and its fields (or on one field, named `Record.field`, and nothing else); the three writes of a record |
+
+An action carries its **classes** where it is declared: `@class(name)` on a generated
+method's struct or on the constant of a registration made by hand, or
+`ManualRegistration.Classes` (the resource package's "Annotation reference"). The library
+names one class and marks its own actions with it: `accesstypes.ClassCredential`,
+`credential`, on every generated identity method that changes how a person signs in (a
+temporary password set, a new password required, a password removed, a sign-in identity
+unlinked, a username or an address changed). An application marks its own actions with
+that class or with one it names. The generated permission collection carries each
+action's classes, which is where a check reads them.
+
+A masked check is refused when the mask does not keep its kind, refuses one of its
+resource's classes, or refuses the permission on the resource by name. The refusal comes
+before any policy is read and is logged as the mask's, naming the mask, the person the
+session acts as, the resource and the reason:
+
+```
+impersonation: Execute denied by mask (*;-class:credential) for f0000000-0000-4000-8000-000000000002 on SetStaffTemporaryPassword: the mask refuses the class credential
+```
+
+The permission digest leaves the same things out, so no page offers them
+(`resource.Masked`, which `resource.SessionPermissions` applies for every request).
+
+The mask is kept on the impersonation record in its text form, in the table's one
+`Mask` column on both databases: the kinds it keeps, sorted and joined with commas (`*`
+for every kind), then each refusal after a semicolon, `-class:<class>` or
+`-on:<Permission>:<Resource>`. A read-only mask is `List,Read`; everything except the
+credential actions is `*;-class:credential`; an unrestricted session's column is NULL.
+A column that does not read as a mask holds the session to nothing: a mask is never
+read wider than it was written. For people the mask is said in words
+(`PermissionMask.Words()`): "reading only", "everything except credential actions",
+"everything except the action ScrapShip". The session endpoint carries them
+(`impersonation.maskWords`, beside `mask`, `refusedClasses` and `refused`), and a list
+of impersonated sessions shows them for each (`ActiveImpersonations` returns each
+record with its mask).
 
 #### Identity by session type
 
@@ -3161,11 +3290,15 @@ mask      := sessioninfo.MaskFromCtx(ctx)      // unrestricted unless impersonat
 imp, ok   := sessioninfo.ImpersonationFromCtx(ctx)
 ```
 
-A permission check honors the mask by asking it before asking policy —
-`sessioninfo.MaskFromCtx(ctx).Allows(perm)` — and picks the check by the principal's
-kind (`Role()` → `CheckRoleResources`, otherwise `CheckUserResources`). Forgetting the
-mask fails *open*, so prefer a shared implementation over hand-rolling it per
-application.
+A permission check honors the mask by asking it before asking policy, and picks the
+check by the principal's kind (`Role()` → `CheckRoleResources`, otherwise
+`CheckUserResources`). The shared implementation is `resource.SessionPermissions`, which
+the generated handlers go through: it asks the mask of each resource
+(`PermissionMask.Refuses(perm, resource, classes...)`, with the classes the generated
+collection gives the action), so a class or a named action refused inside a kept kind is
+refused. `PermissionMask.Allows(perm)` answers for the kind alone. Forgetting the mask
+fails *open*, so a check written by hand goes through the shared implementation, never
+around it.
 
 ### Choosing the principal
 
@@ -3252,7 +3385,7 @@ Everything an impersonated session touches names the actor and the principal:
 | `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, span events (`impersonation.Started`, …) on the current trace span, plus the `WithImpersonationAudit` hook |
 | `enduser.id` (the session's username), the same `impersonation.*` attributes, and `principal.*` when a resolver changed the subject | The request's server span from the `ValidateSession` middleware (the caller's current span from `ValidateSessionAPI`), impersonation attributes set before any refusal so a refused request's trace still names the actor; the establishing call's own span on the source side |
 | The establishing call's own log entry | The source application's request log |
-| `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |
+| `impersonation` object in the `Authenticated()` response: the actor, the principal, the mask (`mask`, the kinds it keeps; `refusedClasses` and `refused`, what it refuses inside them; `maskWords`, the whole of it as a person would say it), the reason and the hard cap | For the frontend to banner the session, say what it may do, and render read-only affordances |
 
 ### Lifecycle and guards
 
@@ -3351,8 +3484,9 @@ Everything an impersonated session touches names the actor and the principal:
   ```
 - **Read-only middleware.** `EnforceReadOnlyMask` (on every session type, after
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
-  TRACE — from a session whose mask is *read-only*: restricted, and allowing nothing
-  beyond `List` and `Read`. The refusal is 403 with a `WriteBlocked` event naming the
+  TRACE — from a session whose mask is *read-only*: it names the kinds it keeps, and
+  keeps nothing beyond `List` and `Read` (`PermissionMask.ReadOnly()`; a mask that keeps
+  every kind is not read-only, whatever it refuses inside them). The refusal is 403 with a `WriteBlocked` event naming the
   method and path. It is a backstop that keeps a read-only session away from
   every mutating handler whether or not that handler consults the mask; it does not
   replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and

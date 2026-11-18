@@ -10,109 +10,134 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
+	"github.com/impulseframework/impulse/lodestar/pkg/router"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// The principal kinds the mint route accepts and the watch desk reports.
+// The kinds of impersonation the console offers, as a request names them.
 const (
-	kindUser = "user"
+	// kindView views the console as another person: reading only.
+	kindView = "view"
+	// kindAct acts as another person: everything they may do, except the credential
+	// actions.
+	kindAct = "act"
+	// kindRole acts as a role.
 	kindRole = "role"
 )
 
-// impersonateRequest is the mint route's body: view as a user (read-only by
-// default) or act as a role.
+// impersonationKinds declares the impersonation the console offers. Impersonation is
+// granted with a mask: each kind names the grant that allows it and the widest mask
+// that grant gives, and the person who starts a session may ask for a narrower mask,
+// never a wider one. To let someone act as a person with no mask is to give them
+// everything that person holds, so the three kinds are three grants, each given by the
+// role file on purpose:
+//
+//   - view: Execute on ViewAsUser. The session reads what the person reads and writes
+//     nothing.
+//   - act: Execute on ActAsUser. The session does what the person may do, except the
+//     actions classed credential (router.ClassCredential): it cannot set, require or
+//     remove a password, unlink a sign-in identity, or change a username or an address.
+//     The constant is the generated collection's, so the mask names a class the
+//     application's actions carry, or this file does not compile.
+//   - role: Execute on AssumeRole. The session holds what the role holds; the kind says
+//     in so many words that it is unmasked.
+//
+// Demonstrates: impersonation.grant-mask, impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, @class.
+func impersonationKinds() []session.ImpersonationKind {
+	return []session.ImpersonationKind{
+		session.ImpersonatesUser(kindView, resources.ViewAsUser, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+		session.ImpersonatesUser(kindAct, resources.ActAsUser, accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(router.ClassCredential))),
+		session.ImpersonatesRole(kindRole, resources.AssumeRole, accesstypes.AllowAll()),
+	}
+}
+
+// impersonateRequest is the mint route's body: the kind of impersonation, whom or what
+// to act as, and optionally a narrower mask than the kind gives.
 type impersonateRequest struct {
-	// Kind is "user" or "role".
+	// Kind is "view", "act" or "role".
 	Kind string `json:"kind"`
-	// Principal is who or what the session operates as. For kind "user" it is the id of
-	// the account of the person to view as, which is how the permission store names a
-	// person; a username is not accepted, and the session library refuses a principal
-	// that is not an id (400). For kind "role" it is the role's name.
+	// Principal is who or what the session operates as. For the kinds "view" and "act"
+	// it is the id of the account of the person, which is how the permission store names
+	// a person; a username is not accepted, and the session library refuses a principal
+	// that is not an id (400). For the kind "role" it is the role's name.
 	Principal string `json:"principal"`
-	// Mask lists the permissions the session keeps; empty means the kind's default —
-	// List and Read for a user, unrestricted for a role.
+	// Mask lists the permission kinds the session keeps; empty asks for none, and the
+	// session takes what the kind gives. A kind the grant does not give is refused,
+	// never trimmed.
 	Mask []accesstypes.Permission `json:"mask"`
+	// RefuseClasses and RefuseActions are what the session refuses beside what the kind
+	// refuses: classes of action (irreversible), and actions by name (ScrapShip).
+	RefuseClasses []accesstypes.ActionClass `json:"refuseClasses"`
+	RefuseActions []accesstypes.Resource    `json:"refuseActions"`
 	// Reason is free text recorded on the impersonation record.
 	Reason string `json:"reason"`
+}
+
+// mask is the mask the body asks for: no kinds named and nothing refused is the zero
+// mask, which asks for none.
+func (r *impersonateRequest) mask() accesstypes.PermissionMask {
+	mask := accesstypes.MaskPermissions(accesstypes.AllowAll(), r.Mask...)
+	for _, class := range r.RefuseClasses {
+		mask = mask.Refusing(accesstypes.RefuseClass(class))
+	}
+	for _, action := range r.RefuseActions {
+		mask = mask.Refusing(accesstypes.RefuseAction(action))
+	}
+
+	return mask
 }
 
 // viewAsMaxDuration is the hard cap on every minted session: two hours, however long the
 // idle timeout would otherwise let it live.
 const viewAsMaxDuration = 2 * time.Hour
 
-// impersonateResponse names the session that was minted.
+// impersonateResponse names the session that was minted and says what it may do.
 type impersonateResponse struct {
 	SessionID impulse.UUID `json:"sessionId"`
+	// Mask is the session's mask in words: the kind's, narrowed by what was asked for.
+	Mask string `json:"mask"`
 }
 
-// Impersonate mints an impersonated session on behalf of the authenticated actor: a
-// "view as" session that operates as another user, named by the id of their account,
-// under a List, Read mask, or an "act as" session that operates as a role. Authorization
-// stays with the app — the two manual Execute registrations (resources.ViewAsUser,
-// resources.AssumeRole), checked in the global scope and held by the Governor and the
-// Marshal only; the library refuses chaining (an impersonated session cannot mint
-// another) and writes the record atomically with the session, the actor by username and
-// by the id of their account, which it reads from the actor's own session. The response
-// cookie replaces the actor's session; the actor's own session is linked as the source.
-// A view-as session carries a two-hour hard cap (MaxDuration), which the banner counts
-// down.
+// Impersonate mints an impersonated session on behalf of the authenticated actor, of one
+// of the kinds the console declares (impersonationKinds): a session that views as
+// another person, one that acts as another person, or one that acts as a role. The
+// declaration does the deciding (session.Impersonations.Request): it asks whether the
+// actor holds the kind's grant, checked here in the global scope, and computes the
+// session's mask, the kind's widest when the body names none and the narrower one when
+// it names one. A request for more than the kind gives is refused with nothing started.
+// The library refuses chaining (an impersonated session cannot mint another) and writes
+// the record atomically with the session, the actor by username and by the id of their
+// account, which it reads from the actor's own session. The response cookie replaces the
+// actor's session; the actor's own session is linked as the source. Every minted session
+// carries a two-hour hard cap (MaxDuration), which the banner counts down.
 //
-// Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.max-duration, @manualAddResource.execute, impersonation.identity-proof, impersonation.session-permissions.
+// Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, impersonation.mask, impersonation.grant-mask, impersonation.max-duration, @manualAddResource.execute, impersonation.identity-proof, impersonation.session-permissions.
 func (a *App) Impersonate() http.HandlerFunc {
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx := r.Context()
 
-		var req impersonateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var body impersonateRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("decoding request: %s", err))
 		}
-		if req.Principal == "" {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("principal is required"))
-		}
 
-		// An empty request list falls back to the kind's default mask: view-as is
-		// read-only, act-as-role is unrestricted (the role's grants are the limit).
-		var gate accesstypes.Resource
-		var principal accesstypes.Principal
-		var mask accesstypes.PermissionMask
-		switch req.Kind {
-		case kindUser:
-			gate = resources.ViewAsUser
-			principal = accesstypes.UserPrincipal(accesstypes.User(req.Principal))
-			readOnly := accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
-			mask = accesstypes.MaskPermissions(readOnly, req.Mask...)
-		case kindRole:
-			gate = resources.AssumeRole
-			principal = accesstypes.RolePrincipal(accesstypes.Role(req.Principal))
-			mask = accesstypes.MaskPermissions(accesstypes.AllowAll(), req.Mask...)
-		default:
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("kind %q must be user or role", req.Kind))
-		}
-
-		perms := a.UserPermissions(r)
-		env := accesstypes.NewEnvironment().WithNow(time.Now())
-		decisions, err := perms.Check(ctx, env, accesstypes.GlobalScope(), accesstypes.Execute, gate)
+		req, err := a.impersonations.Request(ctx, &session.ImpersonationAsk{
+			Kind:        body.Kind,
+			Principal:   body.Principal,
+			Mask:        body.mask(),
+			Reason:      body.Reason,
+			MaxDuration: viewAsMaxDuration,
+		}, resource.HoldsAction(a.UserPermissions(r), accesstypes.GlobalScope()))
 		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.UserPermissions.Check()"))
-		}
-		if !decisions[gate].IsGranted() {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessagef("user %s does not have Execute on %s", perms.User(), gate))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "session.Impersonations.Request()"))
 		}
 
-		info := sessioninfo.FromCtx(ctx)
-		id, err := a.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-			Actor:           info.Username,
-			SourceSessionID: impulse.NullUUID{UUID: info.ID, Valid: !info.ID.IsNil()},
-			Principal:       principal,
-			Mask:            mask,
-			Reason:          req.Reason,
-			MaxDuration:     viewAsMaxDuration,
-		})
+		id, err := a.API().StartImpersonatedSession(ctx, w, req)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "session.AuthAPI.StartImpersonatedSession()"))
 		}
 
-		return httpio.NewEncoder(w).Ok(impersonateResponse{SessionID: id})
+		return httpio.NewEncoder(w).Ok(impersonateResponse{SessionID: id, Mask: req.Mask.Words()})
 	})
 }

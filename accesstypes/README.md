@@ -10,12 +10,50 @@ constructors set an unexported discriminator, so no username can read as a role
 and no role name as a user. Whether a session is impersonated is a property of
 the session's impersonation record, never of the `Principal` value.
 
-`PermissionMask` is the allowlist intersection an impersonated session carries
-over the permission axis. The zero mask is unrestricted; `MaskPermissions(List,
-Read)` allows exactly those permissions. A mask only narrows — a masked check
-asks the mask before it asks policy, so nothing a mask does can grant what
-policy denies. `Permissions()` is the persistence form: `nil` for unrestricted,
-a sorted allowlist otherwise.
+`PermissionMask` is the attenuation an impersonated session carries, and the
+control over what the session may do: a session that impersonates a person with
+no mask holds everything that person holds. A mask says which permission kinds
+the session keeps (List, Read, Create, Update, Delete, Execute) and, inside a
+kind it keeps, what it refuses: a class of actions, or one permission on one
+named action, record or field (a record's refusal covers its fields). A mask only narrows: a masked check asks the mask
+before it asks policy, so nothing a mask does can grant what policy denies.
+
+```go
+accesstypes.AllowAll()                                                   // the zero mask: unrestricted
+accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read) // reading only
+accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential))  // everything except the credential actions
+accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("ScrapShip"))   // everything except one action
+accesstypes.AllowAll().Refusing(accesstypes.RefuseWrites("Invoices")...) // everything except one record's writes
+```
+
+`MaskPermissions(fallback, perms...)` keeps exactly the kinds listed, and the
+fallback is what an empty list means, stated where the list is built. `Refusing`
+adds refusals and leaves its receiver as it was. `Refuses(perm, resource,
+classes...)` is the whole question a check asks, with the reason for the log;
+`Allows(perm)` answers for the kind alone.
+
+`ActionClass` names a class of actions, a marking an action carries where it is
+declared (`@class` on a generated method or on the constant of a registration
+made by hand). A mask that refuses a class refuses every action that carries
+it, the ones declared after the mask was written among them, so nobody keeps a
+list of actions in step with the application. `ClassCredential` (`credential`)
+is the library's: the actions that change how a person signs in. An application
+names its own beside it.
+
+`ceiling.Narrow(request)` is the arithmetic of a grant that carries a mask: the
+mask a request gets under the widest mask its grant gives. A request that names
+no kinds keeps the ceiling's; one that names kinds keeps those, each of which
+the ceiling must keep; the refusals of both are joined. A request for a kind
+the ceiling does not keep is refused with a `*WiderMaskError`, never trimmed.
+
+`Text()` is the persistence form and `ParseMask` reads it back: the kinds,
+sorted and joined with commas (`*` for every kind), then each refusal after a
+semicolon, `-class:<class>` or `-on:<Permission>:<Resource>`. `List,Read` is a
+read-only mask and `*;-class:credential` keeps everything except the credential
+actions. `Words()` says the mask as a person would ("reading only", "everything
+except credential actions"), for a banner and a list of impersonated sessions.
+`ReadOnly()` is what the session library's read-only guard asks: the mask names
+its kinds and keeps nothing beyond List and Read.
 
 ## Scopes: where a request is, and where policy is held
 

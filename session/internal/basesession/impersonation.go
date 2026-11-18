@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
@@ -268,17 +267,35 @@ func (s *BaseSession) DestroyImpersonatedSessions(ctx context.Context, actor str
 // present only for an impersonated session so a frontend can banner it and render
 // read-only affordances.
 type ImpersonationResponse struct {
-	Actor         string    `json:"actor"`
-	ActorRealm    string    `json:"actorRealm,omitempty"`
-	PrincipalKind string    `json:"principalKind"`
-	Principal     string    `json:"principal"`
-	Mask          []string  `json:"mask,omitempty"`
-	Reason        string    `json:"reason,omitempty"`
-	ExpiresAt     time.Time `json:"expiresAt"`
+	Actor         string `json:"actor"`
+	ActorRealm    string `json:"actorRealm,omitempty"`
+	PrincipalKind string `json:"principalKind"`
+	Principal     string `json:"principal"`
+	// Mask lists the permission kinds the session keeps; omitted for a session that
+	// keeps every kind.
+	Mask []string `json:"mask,omitempty"`
+	// RefusedClasses are the classes of action the mask refuses inside the kinds it
+	// keeps, and Refused the permissions it refuses on a named action or record;
+	// each omitted when the mask refuses none.
+	RefusedClasses []string             `json:"refusedClasses,omitempty"`
+	Refused        []ImpersonationNamed `json:"refused,omitempty"`
+	// MaskWords says the whole mask as a person would (accesstypes.PermissionMask.Words):
+	// "everything", "reading only", "everything except credential actions". A banner
+	// shows it as it is.
+	MaskWords string    `json:"maskWords"`
+	Reason    string    `json:"reason,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// ImpersonationNamed is one permission a mask refuses on one named action or record.
+type ImpersonationNamed struct {
+	Permission string `json:"permission"`
+	Resource   string `json:"resource"`
 }
 
 // NewImpersonationResponse renders the record for the Authenticated response; nil in,
-// nil out. Mask is omitted for an unrestricted session.
+// nil out. Mask is omitted for a session that keeps every kind, and the refusals for a
+// mask that refuses nothing inside the kinds it keeps.
 func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResponse {
 	if imp == nil {
 		return nil
@@ -289,6 +306,7 @@ func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResp
 		ActorRealm:    imp.ActorRealm,
 		PrincipalKind: imp.PrincipalKind(),
 		Principal:     imp.PrincipalName(),
+		MaskWords:     imp.Mask.Words(),
 		Reason:        imp.Reason,
 		ExpiresAt:     imp.ExpiresAt,
 	}
@@ -297,6 +315,15 @@ func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResp
 		for i, perm := range perms {
 			res.Mask[i] = string(perm)
 		}
+	}
+	for _, refusal := range imp.Mask.Refusals() {
+		if class, ok := refusal.Class(); ok {
+			res.RefusedClasses = append(res.RefusedClasses, string(class))
+
+			continue
+		}
+		perm, resource, _ := refusal.Named()
+		res.Refused = append(res.Refused, ImpersonationNamed{Permission: string(perm), Resource: string(resource)})
 	}
 
 	return res
@@ -384,10 +411,13 @@ func (s *BaseSession) ActiveImpersonations(ctx context.Context, q *sessioninfo.I
 }
 
 // EnforceReadOnlyMask refuses non-safe requests (anything but GET, HEAD, OPTIONS and
-// TRACE) from an impersonated session whose mask is read-only — a mask allowing nothing
-// beyond List and Read — with 403 Forbidden, evidenced as a WriteBlocked event. Every
-// other request, including every request of a session that is not impersonated or not
-// masked, passes through. It runs after ValidateSession; without a validated session in
+// TRACE) from an impersonated session whose mask is read-only — a mask that names the
+// kinds it keeps and keeps nothing beyond List and Read
+// (accesstypes.PermissionMask.ReadOnly) — with 403 Forbidden, evidenced as a
+// WriteBlocked event. Every other request, including every request of a session that
+// is not impersonated or not masked, passes through: a mask that keeps every kind and
+// refuses a class or a named action inside them is not read-only, and its refusals are
+// the permission check's. It runs after ValidateSession; without a validated session in
 // the context it passes the request through.
 //
 // The middleware is a coarse, opt-in backstop: it stops a read-only session from
@@ -399,7 +429,7 @@ func (s *BaseSession) EnforceReadOnlyMask(next http.Handler) http.Handler {
 		ctx := r.Context()
 
 		if !internalcookie.SafeMethods.Contain(r.Method) {
-			if sessData, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && sessData.Impersonation != nil && readOnlyMask(sessData.Impersonation.Mask) {
+			if sessData, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && sessData.Impersonation != nil && sessData.Impersonation.Mask.ReadOnly() {
 				operation := r.Method + " " + r.URL.Path
 				if err := s.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationWriteBlocked, sessData.Impersonation, operation); err != nil {
 					logger.FromCtx(ctx).Error(err)
@@ -413,22 +443,6 @@ func (s *BaseSession) EnforceReadOnlyMask(next http.Handler) http.Handler {
 
 		return nil
 	})
-}
-
-// readOnlyMask reports whether mask is read-only: restricted, and allowing nothing
-// beyond List and Read. The unrestricted mask is not read-only; the mask that allows
-// nothing is.
-func readOnlyMask(mask accesstypes.PermissionMask) bool {
-	if mask.IsZero() {
-		return false
-	}
-	for _, perm := range mask.Permissions() {
-		if perm != accesstypes.List && perm != accesstypes.Read {
-			return false
-		}
-	}
-
-	return true
 }
 
 // endImpersonation records an observed end of an impersonated session — an expiry

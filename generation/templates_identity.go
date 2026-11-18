@@ -1924,7 +1924,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Require{{ .Subject }}PasswordChange struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
@@ -1964,7 +1964,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type {{ .UnlinkIdentity }} struct {
 	// @target({{ .SubjectIdentity }})
 	IdentityID impulse.UUID
@@ -2004,7 +2004,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Remove{{ .Subject }}Password struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
@@ -2238,7 +2238,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Rename{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID   impulse.UUID
@@ -2312,7 +2312,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Set{{ .Subject }}TemporaryPassword struct {
 	// @target({{ .SubjectUser }})
 	UserID   impulse.UUID

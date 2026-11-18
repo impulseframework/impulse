@@ -103,20 +103,20 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 	}
 	enters("a super administrator's session started by the marshal, who is none", asGovernor, []string{anvil, cinder}, false)
 
-	// Nor does viewing as a super administrator make one: the marshal starts a session
-	// as the governor that keeps Execute, whose entry check runs with the governor's
-	// grants, and is refused the role for herself, since the real person behind the
-	// session holds none. The governor's own session gives it.
+	// Nor does acting as a super administrator make one: the marshal, given the grant
+	// to act as a person, starts a session that acts as the governor, whose entry check
+	// runs with the governor's grants, and is refused the role for herself, since the
+	// real person behind the session holds none. The governor's own session gives it.
+	giveStandIn(ctx, t, s, "marshal")
 	acting := newBrowser(t, s, consoleAPI)
 	acting.signIn(ctx, "marshal")
-	withExecute := fmt.Sprintf(`{"kind":"user","principal":%q,"reason":"walkthrough","mask":["List","Read","Execute"]}`, account(t, "governor"))
-	if status, body := acting.impersonate(ctx, withExecute); status != http.StatusOK {
-		t.Fatalf("the marshal viewing as the governor with Execute kept: status %d: %s", status, body)
+	if status, body := acting.impersonate(ctx, actAs(t, "governor", "walkthrough", `,"mask":["List","Read","Execute"]`)); status != http.StatusOK {
+		t.Fatalf("the marshal acting as the governor with List, Read and Execute kept: status %d: %s", status, body)
 	}
 	toMarshal := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "marshal"))
 	status, body := acting.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal))
 	if status != http.StatusForbidden || !strings.Contains(string(body), "only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role") {
-		t.Errorf("the marshal, viewing as the governor, giving herself the role: status %d, want 403 naming the rule: %s", status, body)
+		t.Errorf("the marshal, acting as the governor, giving herself the role: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
 		t.Errorf("the governor making the marshal a super administrator: status %d, want 204: %s", status, body)

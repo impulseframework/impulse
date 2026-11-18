@@ -201,6 +201,18 @@ type collectionFileData struct {
 	Data    resource.CollectionData
 }
 
+// Classes lists the classes the collection's actions carry, each with the constant the
+// collection file declares for it. The names were checked when the data was computed
+// (computeCollectionData), so a clash, which would fail there, leaves none here.
+func (d *collectionFileData) Classes() []actionClassConstant {
+	constants, err := actionClassConstants(d.Data)
+	if err != nil {
+		return nil
+	}
+
+	return constants
+}
+
 type routerFileData struct {
 	Source                 string
 	Package                string

@@ -1052,15 +1052,37 @@ over the auth's people (`@enumerate(CrewSessionUsers)` on a pilot's account, the
 accounts; `@enumerate(CrewSectorUsers)` on a squadron member, the sector's people), which
 whoever may add the record may list. The marshal views the console as the cadet with
 `POST /console/api/impersonate` and
-`{"kind":"user","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
+`{"kind":"view","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
 cadet's account (a username there is refused, 400); the session route and the governor's
 watch desk then name the cadet by username; and
 `{"kind":"role","principal":"Dispatcher"}` operates the session as a role.
 
+Impersonation is granted with a mask: to let someone impersonate a person with no mask
+is to give them what that person holds, and the mask is the control. The console
+declares three kinds (`app/impersonate.go`, `session.NewImpersonations`), each with the
+grant that allows it and the widest mask that grant gives, and the role file gives each
+grant on purpose:
+
+| Kind | Grant | Role | The widest mask |
+| --- | --- | --- | --- |
+| `view`: view as a person | Execute on `ViewAsUser` | `CommandStaff` (the governor, the marshal) | Reading only |
+| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`: the session cannot set, require or remove a password, unlink a sign-in identity, or change a username or an address |
+| `role`: act as a role | Execute on `AssumeRole` | `CommandStaff` | Everything the role holds |
+
+A request may ask for less than its kind gives: permission kinds to keep
+(`"mask":["List","Read","Execute"]`), classes to refuse beside the kind's
+(`"refuseClasses":["irreversible"]`, the class Lodestar marks `ScrapShip` with) and
+actions to refuse by name (`"refuseActions":["ScrapShip"]`). A request for more than its
+kind gives (`"kind":"view"` with `Execute` in its mask) is refused, 403, with nothing
+started, and so is `"kind":"act"` from a holder of `CommandStaff` alone: the grant to
+view is not the grant to act. The answer, the session route's `impersonation.maskWords`,
+the banner and the watch desk say the session's mask in words ("reading only",
+"everything except credential actions").
+
 | Login | Who | What their view proves |
 | --- | --- | --- |
-| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown. |
-| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
+| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session, which says what each may do, and can revoke one. Holds each grant to impersonate on purpose: `CommandStaff` (view as a person, reading only; act as a role) and `StandIn` (act as a person: everything they may do, except change how anyone signs in). Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, impersonation.act-as-user, impersonation.grant-mask, computed.pushdown. |
+| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant); views the console as another crew member, reading only (`CommandStaff`), and is refused acting as one, which is a grant of its own. Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |
 | `veteran` | Veteran Vela | `NOT (hazard IN (1, 2) OR fee < 5000)`. Demonstrates: condition.prefix-not. |
@@ -1255,7 +1277,7 @@ watch desk then name the cadet by username; and
   (`LODESTAR_LOG` names the file the server's output goes to, where the walkthrough reads the
   sign-in code each password sign-in waits for: `overmind start 2>&1 | tee stack.log`), including the
   droid channel, the portal through the simulated directory, the dry runs, the watch desk,
-  both impersonation moments, the feature flag's flip with a second server process built
+  the three kinds of impersonation and their masks, the feature flag's flip with a second server process built
   from the tree on `LODESTAR_SECOND_PORT` (default 8091), and the three-minute wait for
   the overdue flip (`LODESTAR_SKIP_FLIP=1` to skip). Export the `.envrc` variables before
   running it.

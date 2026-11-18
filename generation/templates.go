@@ -4501,6 +4501,19 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+{{ with .Classes -}}
+// The classes the application's actions carry (@class), each under the name a
+// permission mask refuses it by: accesstypes.RefuseClass({{ (index . 0).Name }}). A mask
+// written against a class no action carries any more does not compile, since its
+// constant is gone from this file.
+const (
+	{{- range . }}
+	// {{ .Name }} is the class {{ .Class }}.
+	{{ .Name }} accesstypes.ActionClass = "{{ .Class }}"
+	{{- end }}
+)
+
+{{ end -}}
 // Collection returns the application's permission collection, computed by the Resource
 // Generator from the resource definitions and generated routes, for deployment tooling
 // such as role migration and bootstrap.
@@ -4522,6 +4535,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- end }}
 				{{- with .Permissions }}
 				Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+				{{- end }}
+				{{- with .Classes }}
+				Classes: []accesstypes.ActionClass{ {{- range $i, $c := . }}{{ if $i }}, {{ end }}{{ ClassConstant $c }}{{ end -}} },
 				{{- end }}
 				{{- with .Tags }}
 				Tags: []resource.TagData{

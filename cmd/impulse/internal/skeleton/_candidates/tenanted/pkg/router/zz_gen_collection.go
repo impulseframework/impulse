@@ -8,6 +8,15 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+// The classes the application's actions carry (@class), each under the name a
+// permission mask refuses it by: accesstypes.RefuseClass(ClassCredential). A mask
+// written against a class no action carries any more does not compile, since its
+// constant is gone from this file.
+const (
+	// ClassCredential is the class credential.
+	ClassCredential accesstypes.ActionClass = "credential"
+)
+
 // Collection returns the application's permission collection, computed by the Resource
 // Generator from the resource definitions and generated routes, for deployment tooling
 // such as role migration and bootstrap.
@@ -140,6 +149,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RemoveStaffTenantPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -152,12 +162,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RenameStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
 				Name:        "RequireStaffTenantPasswordChange",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -170,12 +182,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetStaffTenantTemporaryPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
 				Name:        "SetStaffTenantUserEmail",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantUsers",
 			},
 			{
@@ -441,6 +455,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "UnlinkStaffTenantSessionIdentity",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffTenantIdentities",
 			},
 			{
@@ -577,6 +592,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RemoveStaffPassword",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -588,12 +604,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "RenameStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "RequireStaffPasswordChange",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -617,12 +635,14 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetStaffTemporaryPassword",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "SetStaffUserEmail",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionUsers",
 			},
 			{
@@ -981,6 +1001,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "UnlinkStaffSessionIdentity",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassCredential},
 				Target:      "StaffSessionIdentities",
 			},
 			{

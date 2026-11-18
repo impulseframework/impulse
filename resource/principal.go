@@ -2,7 +2,9 @@ package resource
 
 import (
 	"context"
+	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-playground/errors/v5"
@@ -36,7 +38,7 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // permission mask. It is the per-request accessor for an application with
 // impersonated sessions:
 //
-//	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)
+//	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations, a.collection)
 //
 // The roster is the application's: access holds no tenant list, so the tenant
 // picker's question — which tenants may this session see — is the roster
@@ -99,8 +101,15 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // every check Denied, an empty digest, no footholds, no domains — with the
 // same User(), so a deployment that mints role principals without a checker
 // is loud rather than permissive.
+//
+// The classes are the application's generated collection (router.Collection()),
+// built once and kept: what each action carries (@class). The mask of an
+// impersonated session may refuse a class of actions, the credential actions
+// for one, and the masked check asks the collection which actions those are
+// (Masked). The argument is not optional because the refusal must not be: with
+// nil, a mask that refuses a class refuses every check.
 func SessionPermissions[U SessionUserChecker, R RolePermissions](
-	ctx context.Context, forUser func(accesstypes.User) U, forRole func(accesstypes.Role) R, roster DomainRoster, declarations TenantDeclarations,
+	ctx context.Context, forUser func(accesstypes.User) U, forRole func(accesstypes.Role) R, roster DomainRoster, declarations TenantDeclarations, classes ActionClasses,
 ) UserPermissions {
 	principal := sessioninfo.PrincipalFromCtx(ctx)
 	mask := sessioninfo.MaskFromCtx(ctx)
@@ -116,7 +125,7 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 		}
 		effective := roleSessionUser(ctx)
 		if rolePerms == nil {
-			return Masked(unsupportedRolePermissions{user: effective, role: role}, mask)
+			return Masked(unsupportedRolePermissions{user: effective, role: role}, mask, classes)
 		}
 		checker = rolePrincipalPermissions{RolePermissions: rolePerms, user: effective}
 	} else {
@@ -158,7 +167,7 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 		perms.ownSignIn = isUser && !impersonated
 	}
 
-	return Masked(perms, mask)
+	return Masked(perms, mask, classes)
 }
 
 // RolePrincipalsUnsupported is the forRole argument for SessionPermissions in
@@ -444,27 +453,76 @@ func (a *admittedPermissions) HasGrants(ctx context.Context, scope accesstypes.S
 	return a.Reaches(ctx, domain)
 }
 
-// Masked returns perms attenuated by mask: a permission the mask does not allow
-// is Denied for every resource before policy is consulted — and evidenced as a
-// mask denial — and the permission digest omits it. A foothold is answered
-// through the masked digest, so a session masked to nothing has none and
-// lists no domain. User and Reaches pass through. The unrestricted mask returns
-// perms itself.
-func Masked(perms UserPermissions, mask accesstypes.PermissionMask) UserPermissions {
+// ActionClasses answers the classes an action carries within a permission scope, as
+// the generated collection does (GeneratedCollection.ActionClasses). The masked check
+// of an impersonated session asks it, since a mask may refuse a class of actions.
+type ActionClasses interface {
+	ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass
+}
+
+// Masked returns perms attenuated by mask. A check is Denied before policy is
+// consulted, and evidenced as a mask denial, when the mask does not keep the
+// permission's kind, when it refuses a class the resource carries, or when it refuses
+// the permission on the resource by name; the permission digest leaves the same
+// entries out, so no page offers what the check would refuse. A foothold is answered
+// through the masked digest, so a session masked to nothing has none and lists no
+// domain. User and Reaches pass through. The unrestricted mask returns perms itself.
+//
+// classes answers the classes each action carries: the application's generated
+// collection. A mask that refuses a class cannot be judged without them, so with nil
+// classes such a mask refuses every check: nothing is allowed on a guess.
+func Masked(perms UserPermissions, mask accesstypes.PermissionMask, classes ActionClasses) UserPermissions {
 	if mask.IsZero() {
 		return perms
 	}
 
-	return &maskedPermissions{UserPermissions: perms, mask: mask}
+	masked := &maskedPermissions{UserPermissions: perms, mask: mask, classes: classes}
+	for _, refusal := range mask.Refusals() {
+		if _, ok := refusal.Class(); ok {
+			masked.refusesClasses = true
+		}
+	}
+
+	return masked
 }
 
 type maskedPermissions struct {
 	UserPermissions
 	mask accesstypes.PermissionMask
+	// classes answers the classes an action carries; nil when the application handed
+	// none.
+	classes ActionClasses
+	// refusesClasses says the mask refuses at least one class, so a check needs the
+	// classes of what it is asked about.
+	refusesClasses bool
 }
 
-// Check answers Denied for every resource when the mask does not allow perm,
-// without consulting policy; otherwise it delegates.
+// refuses reports whether the mask refuses perm on res, and why. The classes asked
+// about are the action's or the record's own: a field is judged by its record. A class
+// is carried by the action whichever scope registers it, so the classes of both scopes
+// are asked: a check made in one scope of an action classed in the other is refused
+// with it, never let through for want of a class.
+func (m *maskedPermissions) refuses(perm accesstypes.Permission, res accesstypes.Resource) (why string, refused bool) {
+	if !m.refusesClasses {
+		return m.mask.Refuses(perm, res)
+	}
+	if m.classes == nil {
+		return "the mask refuses a class of actions and the application handed the check no classes (resource.SessionPermissions takes the generated collection)", true
+	}
+	base, _, _ := strings.Cut(string(res), ".")
+	action := accesstypes.Resource(base)
+	classes := slices.Concat(
+		m.classes.ActionClasses(accesstypes.GlobalPermissionScope, action),
+		m.classes.ActionClasses(accesstypes.DomainPermissionScope, action),
+	)
+
+	return m.mask.Refuses(perm, res, classes...)
+}
+
+// Check answers Denied, without consulting policy, for every resource the mask
+// refuses perm on: all of them when the mask does not keep the kind, and otherwise
+// each one whose class or whose name the mask refuses. The others are delegated, and
+// answered as policy answers them.
 func (m *maskedPermissions) Check(
 	ctx context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
@@ -474,17 +532,42 @@ func (m *maskedPermissions) Check(
 		return deniedDecisions(resources), nil
 	}
 
-	decisions, err := m.UserPermissions.Check(ctx, env, scope, perm, resources...)
+	var refused []accesstypes.Resource
+	passed := make([]accesstypes.Resource, 0, len(resources))
+	for _, res := range resources {
+		why, refuses := m.refuses(perm, res)
+		if !refuses {
+			passed = append(passed, res)
+
+			continue
+		}
+		logger.FromCtx(ctx).Warnf("impersonation: %s denied by mask (%s) for %s on %s: %s", perm, m.mask, m.User(), res, why)
+		refused = append(refused, res)
+	}
+	if len(refused) > 0 && len(passed) == 0 {
+		return deniedDecisions(refused), nil
+	}
+
+	decisions, err := m.UserPermissions.Check(ctx, env, scope, perm, passed...)
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
+	if len(refused) == 0 {
+		return decisions, nil
+	}
 
-	return decisions, nil
+	// What policy answered is its own: the refusals are added to a copy.
+	merged := make(accesstypes.Decisions, len(resources))
+	maps.Copy(merged, decisions)
+	maps.Copy(merged, deniedDecisions(refused))
+
+	return merged, nil
 }
 
-// PermissionDigest delegates and then drops every permission the mask does not
-// allow, so the frontend's digest agrees with what Check will enforce; a
-// resource left with no permissions is dropped (absence means denied).
+// PermissionDigest delegates and then drops every entry the mask refuses, by its
+// kind, its resource's class or its resource's name, so the frontend's digest agrees
+// with what Check will enforce; a resource left with no permissions is dropped
+// (absence means denied).
 func (m *maskedPermissions) PermissionDigest(ctx context.Context, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
 	digest, err := m.UserPermissions.PermissionDigest(ctx, scope)
 	if err != nil {
@@ -495,7 +578,7 @@ func (m *maskedPermissions) PermissionDigest(ctx context.Context, scope accessty
 	for res, perms := range digest {
 		kept := make(map[accesstypes.Permission]accesstypes.DigestState, len(perms))
 		for perm, state := range perms {
-			if m.mask.Allows(perm) {
+			if _, refuses := m.refuses(perm, res); !refuses {
 				kept[perm] = state
 			}
 		}
@@ -594,4 +677,21 @@ func deniedDecisions(resources []accesstypes.Resource) accesstypes.Decisions {
 	}
 
 	return decisions
+}
+
+// HoldsAction returns the check of one person's hold on an action: whether the
+// request's permissions answer Granted for Execute on it in scope. A Conditional
+// answer is not a hold: an action checked by name has no row to judge a condition
+// against. It is the check a route written by hand makes of its own gate, and the
+// GrantCheck an application hands session.Impersonations.Request, which asks it about
+// the grant of the kind of impersonation a person asked for.
+func HoldsAction(perms UserPermissions, scope accesstypes.Scope) func(ctx context.Context, action accesstypes.Resource) (bool, error) {
+	return func(ctx context.Context, action accesstypes.Resource) (bool, error) {
+		decisions, err := perms.Check(ctx, RequestEnvironment(), scope, accesstypes.Execute, action)
+		if err != nil {
+			return false, errors.Wrap(err, "resource.UserPermissions.Check()")
+		}
+
+		return decisions[action].IsGranted(), nil
+	}
 }

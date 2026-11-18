@@ -4,7 +4,6 @@ package integration
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -12,11 +11,12 @@ import (
 
 // TestImpersonatedSessions_ownAccountRoutes proves on the served stack that a person's
 // own account is written by the person alone. The rigger adds an address, issues a
-// token and is shown two device authorizations. The marshal, viewing as the rigger, asks
+// token and is shown two device authorizations. The marshal, viewing as the rigger and
+// acting as her (the governor gives her the grant to act as a person), asks
 // every account route that writes for the same things, with the rigger's own
-// verification link, token and codes in hand, and is refused each one: a view that
-// keeps Execute by the route itself, which names the impersonated session, and the
-// default view, which is read-only, by the read-only mask, which the generated router
+// verification link, token and codes in hand, and is refused each one: a session that
+// acts as the rigger by the route itself, which names the impersonated session, and the
+// view, which is read-only, by the read-only mask, which the generated router
 // mounts in front of the routes itself (they stand in front of the console's hook,
 // which mounts the mask for the console's own routes alone). Nothing is written: the
 // rigger's address, token and codes stand, and the rigger then does each thing herself.
@@ -39,11 +39,11 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 	if status, body := readOnly.impersonate(ctx, viewAs(t, "rigger", "walkthrough")); status != http.StatusOK {
 		t.Fatalf("the marshal viewing as the rigger: status %d: %s", status, body)
 	}
+	giveStandIn(ctx, t, s, "marshal")
 	writing := newBrowser(t, s, consoleAPI)
 	writing.signIn(ctx, "marshal")
-	keepsExecute := fmt.Sprintf(`{"kind":"user","principal":%q,"reason":"walkthrough","mask":["List","Read","Execute"]}`, account(t, "rigger"))
-	if status, body := writing.impersonate(ctx, keepsExecute); status != http.StatusOK {
-		t.Fatalf("the marshal viewing as the rigger with Execute kept: status %d: %s", status, body)
+	if status, body := writing.impersonate(ctx, actAs(t, "rigger", "walkthrough", `,"mask":["List","Read","Execute"]`)); status != http.StatusOK {
+		t.Fatalf("the marshal acting as the rigger with List, Read and Execute kept: status %d: %s", status, body)
 	}
 
 	// What the rigger holds before anyone looks: a verification link she asked for, a
@@ -88,7 +88,7 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 	for _, route := range routes {
 		want := route.operation + " is not permitted in an impersonated session"
 		if status, body := post(writing, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, want) {
-			t.Errorf("%s in a view that keeps Execute: status %d, want 403 saying %q", route.operation, status, want)
+			t.Errorf("%s in a session that acts as the rigger: status %d, want 403 saying %q", route.operation, status, want)
 		}
 		if status, body := post(readOnly, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, "this session is read-only") {
 			t.Errorf("%s in a read-only view: status %d, want 403 from the read-only mask", route.operation, status)

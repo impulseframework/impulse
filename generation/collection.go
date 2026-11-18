@@ -30,7 +30,9 @@ const accesstypesResourceType = "github.com/impulseframework/impulse/accesstypes
 // scope: @manualAddResource(Execute) or @manualAddResource(Read, domain). An @outlet
 // annotation beside it names the outlets the hand-written route is mounted under, with
 // the same meaning it has on a struct; every registration the constant declares
-// shares it.
+// shares it. A @class annotation beside it names the classes the registered action
+// carries, as it does on a method; a @class on a constant that registers nothing is
+// refused, since it would mark no action.
 func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualRegistration, error) {
 	var registrations []ManualRegistration
 	for _, c := range constants {
@@ -44,12 +46,20 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 		}
 
 		if !annotations.Const.Has(manualAddResourceKeyword) {
+			if annotations.Const.Has(classKeyword) {
+				return nil, errors.Newf("constant %q: @%s marks a registration made by hand, and the constant registers nothing; add @%s(<permission>) beside it or remove it", c.Name(), classKeyword, manualAddResourceKeyword)
+			}
+
 			continue
 		}
 
 		var outlets outletMembership
 		if err := resolveOutlets(annotations.Const, &outlets); err != nil {
 			return nil, errors.Wrapf(err, "constant %q", c.Name())
+		}
+		classes, err := resolveClasses(annotations.Const, "constant "+c.Name())
+		if err != nil {
+			return nil, err
 		}
 
 		for arg := range annotations.Const.Get(manualAddResourceKeyword).Seq() {
@@ -58,6 +68,7 @@ func manualRegistrationsFromConstants(constants []*parser.Constant) ([]ManualReg
 				return nil, err
 			}
 			registration.Outlets = outlets.OutletNames
+			registration.Classes = classes
 
 			registrations = append(registrations, registration)
 		}
@@ -224,6 +235,10 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 
 	data := b.Data()
 	if err := r.validateStateEnumTables(data); err != nil {
+		return resource.CollectionData{}, err
+	}
+	// Each class in use is declared as a constant of the collection file.
+	if _, err := actionClassConstants(data); err != nil {
 		return resource.CollectionData{}, err
 	}
 
@@ -494,6 +509,7 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 		if method.Formerly != "" {
 			b.SetMethodFormerName(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), accesstypes.Resource(method.Formerly))
 		}
+		b.SetActionClasses(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), method.Classes)
 
 		if t := method.Transition; t != nil {
 			b.SetMethodTransition(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), resource.TransitionData{
@@ -524,6 +540,12 @@ func (r *resourceGenerator) collectManualRegistrations(b *resource.CollectionBui
 		if err := b.AddResource(scope, reg.Permission, reg.Resource); err != nil {
 			return errors.Wrapf(err, "manual registration for resource %q", reg.Resource)
 		}
+		for _, class := range reg.Classes {
+			if !class.Valid() {
+				return errors.Newf("manual registration for resource %q: the class %q is not a class's name; a class is named by a lowercase letter, then lowercase letters, digits and underscores", reg.Resource, string(class))
+			}
+		}
+		b.SetActionClasses(scope, reg.Resource, reg.Classes)
 	}
 
 	return nil

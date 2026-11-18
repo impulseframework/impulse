@@ -200,6 +200,7 @@ export const Methods = {
   WithdrawCrewInvitation: 'WithdrawCrewInvitation' as Method,
   WithdrawCrewInvitedSector: 'WithdrawCrewInvitedSector' as Method,
   WithdrawCrewSectorInvitation: 'WithdrawCrewSectorInvitation' as Method,
+  ActAsUser: 'ActAsUser' as Method,
   AssumeRole: 'AssumeRole' as Method,
   EndSectorDirectoryOnly: 'EndSectorDirectoryOnly' as Method,
   MakeSectorDirectoryOnly: 'MakeSectorDirectoryOnly' as Method,

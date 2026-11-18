@@ -82,7 +82,7 @@ import (
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityCredentialClass + `
 type Set{{ .Subject }}UserEmail struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID

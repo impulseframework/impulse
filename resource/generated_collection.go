@@ -131,6 +131,9 @@ type ManualRegistration struct {
 	// TypeScript target filtered to an outlet (ForOutlet) emits the registration's
 	// constants only when the target's outlet is named here.
 	Outlets []string
+	// Classes are the classes the registered action carries (@class beside the
+	// annotation), which a permission mask refers to. Empty for an action of no class.
+	Classes []accesstypes.ActionClass
 }
 
 // CollectionData is the stable, serializable description of a permission collection. It
@@ -165,6 +168,13 @@ type CollectionResource struct {
 	// router answers at the former route and the permission digest mirrors beside the
 	// current name. Empty for a method never renamed and for every other resource.
 	Formerly accesstypes.Resource
+
+	// Classes are the classes an action carries (@class on a generated method, or on
+	// the constant of a registration made by hand), sorted: what a permission mask
+	// refers to when it refuses a class (accesstypes.RefuseClass). The masked check
+	// of an impersonated session reads them here (ActionClasses). Empty for an
+	// action of no class and for every resource that is not an action.
+	Classes []accesstypes.ActionClass
 
 	// The resource's binding vocabulary (ABAC design plan §04), compiled from
 	// the field-level binding annotations: attributes conditions reference,
@@ -278,6 +288,12 @@ func (b *CollectionBuilder) AddResourceSet(scope accesstypes.PermissionScope, re
 // name older browser applications still execute it under.
 func (b *CollectionBuilder) SetMethodFormerName(scope accesstypes.PermissionScope, method, former accesstypes.Resource) {
 	b.g.setFormerName(scope, method, former)
+}
+
+// SetActionClasses records the classes an action carries within scope (@class): an RPC
+// method resource, or a resource registered by hand. Classes named twice are kept once.
+func (b *CollectionBuilder) SetActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource, classes []accesstypes.ActionClass) {
+	b.g.setActionClasses(scope, action, classes)
 }
 
 // SetResourceQueryKeys records how a list of res is ordered and narrowed within
@@ -399,6 +415,8 @@ type GeneratedCollection struct {
 	setWheres map[string]condition.Expr
 	// acrossTenants are the tenants' resources declared for listing across tenants.
 	acrossTenants map[accesstypes.Resource]struct{}
+	// classes are the classes each action carries, sorted, within scope.
+	classes map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass
 }
 
 // newGeneratedCollection creates an empty, populatable GeneratedCollection.
@@ -417,6 +435,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		requiredTags:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Tag, 2),
 		formerTags:      make(map[accesstypes.PermissionScope]formerTagMap, 2),
 		formerNames:     make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
+		classes:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass, 2),
 	}
 }
 
@@ -534,6 +553,21 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 		g.setFormerName(res.Scope, res.Name, res.Formerly)
 	}
 
+	if len(res.Classes) > 0 {
+		if len(res.Permissions) == 0 {
+			return errors.Newf("resource %q carries the classes %v and registers no permission: a class is carried by an action, which a permission is checked on", res.Name, res.Classes)
+		}
+		for i, class := range res.Classes {
+			if !class.Valid() {
+				return errors.Newf("resource %q carries the class %q, which is not a class's name: a lowercase letter, then lowercase letters, digits and underscores", res.Name, class)
+			}
+			if slices.Contains(res.Classes[:i], class) {
+				return errors.Newf("resource %q carries the class %q twice", res.Name, class)
+			}
+		}
+		g.setActionClasses(res.Scope, res.Name, res.Classes)
+	}
+
 	if len(res.Order) > 0 || len(res.QueryKeys) > 0 {
 		for _, tag := range slices.Concat(res.Order, res.QueryKeys) {
 			if _, ok := g.tagStore[res.Scope][res.Name][tag]; !ok {
@@ -647,6 +681,59 @@ func (g *GeneratedCollection) FormerName(scope accesstypes.PermissionScope, res 
 	former, ok := g.formerNames[scope][res]
 
 	return former, ok
+}
+
+// setActionClasses stores the classes an action carries within scope, sorted, each
+// once. An action given no class keeps none.
+func (g *GeneratedCollection) setActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource, classes []accesstypes.ActionClass) {
+	if len(classes) == 0 {
+		return
+	}
+	if g.classes[scope] == nil {
+		g.classes[scope] = make(map[accesstypes.Resource][]accesstypes.ActionClass)
+	}
+	sorted := slices.Clone(classes)
+	slices.Sort(sorted)
+	g.classes[scope][action] = slices.Compact(sorted)
+}
+
+// ActionClasses reports the classes the action carries within scope (@class), sorted;
+// none for an action of no class and for a name the collection does not hold. It is
+// what the masked check of an impersonated session asks before it reads the policy
+// (Masked): a mask that refuses a class refuses every action that carries it.
+func (g *GeneratedCollection) ActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource) []accesstypes.ActionClass {
+	return g.classes[scope][action]
+}
+
+// ClassesInUse reports every class some action of the collection carries, sorted. A
+// mask may refuse only one of these: a class no action carries refuses nothing, which
+// a declaration of the impersonation an application offers is refused for at start-up
+// (session.NewImpersonations).
+func (g *GeneratedCollection) ClassesInUse() []accesstypes.ActionClass {
+	var classes []accesstypes.ActionClass
+	for _, byAction := range g.classes {
+		for _, carried := range byAction {
+			classes = append(classes, carried...)
+		}
+	}
+	slices.Sort(classes)
+
+	return slices.Compact(classes)
+}
+
+// ActionsOfClass reports the actions that carry class, in either scope, sorted.
+func (g *GeneratedCollection) ActionsOfClass(class accesstypes.ActionClass) []accesstypes.Resource {
+	var actions []accesstypes.Resource
+	for _, byAction := range g.classes {
+		for action, carried := range byAction {
+			if slices.Contains(carried, class) {
+				actions = append(actions, action)
+			}
+		}
+	}
+	slices.Sort(actions)
+
+	return slices.Compact(actions)
 }
 
 // setTagMasking records a field's masking behavior within scope; only the
@@ -1320,6 +1407,7 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 		if former, ok := g.formerNames[key.scope][key.name]; ok {
 			res.Formerly = former
 		}
+		res.Classes = slices.Clone(g.classes[key.scope][key.name])
 
 		if qk, ok := g.queryKeys[key.scope][key.name]; ok {
 			res.Order = slices.Clone(qk.order)

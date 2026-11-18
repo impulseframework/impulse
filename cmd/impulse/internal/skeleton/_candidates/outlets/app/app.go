@@ -135,6 +135,10 @@ type App struct {
 	validate        *validator.Validate
 	logExporter     logger.Exporter
 	version         string
+	// collection is the generated permission collection, built once: the session
+	// permissions read each action's classes off it, so the mask of an impersonated
+	// session can refuse a class of actions (resource.Masked).
+	collection *resource.GeneratedCollection
 	// consoleApp and portalApp serve the two built bundles under /console and /portal: the
 	// resource package's served browser app holds the deep-link rewrite, the prefix strip,
 	// and the two cache classes a service worker needs (hashed files immutable, everything
@@ -164,6 +168,7 @@ func New(cfg Configurer) *App {
 		validate:        cfg.Validator(),
 		logExporter:     cfg.LogExporter(),
 		version:         cfg.AppVersion(),
+		collection:      router.Collection(),
 		consoleApp:      resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
 		portalApp:       resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
 		live:            cfg.Live(),
@@ -320,10 +325,12 @@ func (a *App) Devices() router.DevicesTokens {
 // directory where it is), and a super administrator of the engine reaches every
 // tenant. A tenant that seats the person and is closed to the session stays in its
 // tenant list marked closed, with the reason.
+// The mask reads each action's classes off the generated collection, so a session whose
+// mask refuses a class of actions is refused every action that carries it.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
 	engine := a.engine(r.Context())
 
-	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations)
+	return resource.SessionPermissions(r.Context(), engine.ForUser, engine.ForRole, a.tenants.Domains, a.declarations, a.collection)
 }
 
 // TenantRoster returns the application's tenant roster, the generated contract's

@@ -12,13 +12,14 @@ import { SectorService } from '../sector.service';
 
 /**
  * The squadron roster: the sector's wings and squadrons (the Wing Commander sees only
- * Forge Wing's, through subject.wings), the crew, and the two impersonation moments.
- * "View as" mints a read-only session as another crew member; "Act as role" mints a
- * session under a role with subject still bound to you. Both controls render only
- * when the digest carries the manual Execute registrations — checked by the generated
- * Methods constants, never a hand-typed string.
+ * Forge Wing's, through subject.wings), the crew, and the three kinds of impersonation.
+ * "View as" mints a read-only session as another crew member; "Act as" mints one that
+ * does what they may do, except change how they sign in; "Act as role" mints a session
+ * under a role with subject still bound to you. Each control renders only when the
+ * digest carries its own manual Execute registration, checked by the generated Methods
+ * constants, never a hand-typed string: the grant to view is not the grant to act.
  *
- * Demonstrates: impersonation.view-as, impersonation.act-as-role, @manualAddResource.execute, paging.limit-all, @subjectSet.dotted-value.
+ * Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, @manualAddResource.execute, paging.limit-all, @subjectSet.dotted-value.
  */
 @Component({
   selector: 'app-roster',
@@ -50,13 +51,19 @@ export class RosterComponent {
       this.sectors.can(Permissions.Execute, Methods.ViewAsUser) &&
       this.sectors.can(Permissions.List, Resources.CrewSectorUsers),
   );
+  canActAs = computed(
+    () =>
+      this.sectors.can(Permissions.Execute, Methods.ActAsUser) &&
+      this.sectors.can(Permissions.List, Resources.CrewSectorUsers),
+  );
   canAssumeRole = computed(() => this.sectors.can(Permissions.Execute, Methods.AssumeRole));
   alreadyImpersonating = computed(() => this.impersonation.record() !== undefined);
 
   readonly roles = ['Dispatcher', 'Cadet', 'Pilot', 'Engineer', 'Archivist', 'BookingAgent', 'SectorMarshal'];
 
-  /** The id of the account of the person to view as. */
+  /** The id of the account of the person to view as, and of the person to act as. */
   viewAsUserId = '';
+  actAsUserId = '';
   assumeRoleName = '';
 
   /** A person of the sector as the picker names them: the persona's name where the login is one of the cast's. */
@@ -85,6 +92,11 @@ export class RosterComponent {
   async viewAs(): Promise<void> {
     if (!this.viewAsUserId) return;
     await this.impersonation.viewAs(this.viewAsUserId);
+  }
+
+  async actAs(): Promise<void> {
+    if (!this.actAsUserId) return;
+    await this.impersonation.actAs(this.actAsUserId);
   }
 
   async assumeRole(): Promise<void> {

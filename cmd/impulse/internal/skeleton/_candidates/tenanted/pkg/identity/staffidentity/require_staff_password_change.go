@@ -19,6 +19,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type RequireStaffPasswordChange struct {
 	// @target(StaffSessionUser)
 	UserID impulse.UUID

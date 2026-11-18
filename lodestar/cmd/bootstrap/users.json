@@ -12,6 +12,7 @@
           "BulletinOfficer",
           "ClientBrowser",
           "CommandStaff",
+          "StandIn",
           "BriefingClerk"
         ],
         "everyDomain": [

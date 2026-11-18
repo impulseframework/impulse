@@ -615,6 +615,10 @@ type rpcMethodInfo struct {
 	// method never renamed. The router answers the former route beside the current
 	// one, and the collection carries the name for the role migration.
 	Formerly string
+	// Classes are the classes the method carries (@class on the struct), sorted: what
+	// a permission mask refers to when it refuses a class of actions. The collection
+	// carries them for the masked check. Empty for a method of no class.
+	Classes []accesstypes.ActionClass
 	// Schedule is the method's @schedule: when Cloud Scheduler calls it. A scheduled
 	// method is served under the scheduled prefix alone, behind the scheduler's token
 	// check, and never on an outlet; nil for a method a person calls.
@@ -2438,6 +2442,7 @@ const (
 	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
 	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
 	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
+	classKeyword                string = "class"                // Marks an action, an RPC method or a manual registration, with the classes a permission mask refers to: @class(credential)
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
@@ -2486,6 +2491,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
 		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
+		classKeyword:                {genlang.ScanStruct: genlang.ArgsRequired, genlang.ScanConstant: genlang.ArgsRequired},
 	}
 }
 

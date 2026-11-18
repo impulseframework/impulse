@@ -27,6 +27,7 @@ import (
 // @permissionScope(domain)
 // @outlet(portal)
 // @answers(204)
+// @class(credential)
 type SetMembersTenantUserEmail struct {
 	// @target(MembersTenantUser)
 	UserID impulse.UUID

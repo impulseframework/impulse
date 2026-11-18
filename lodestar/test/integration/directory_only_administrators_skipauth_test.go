@@ -277,15 +277,16 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	// Nor does viewing the application as Bastion's marshal make her way in the viewer's.
 	// The governor makes the rigger Headquarters too, so the whole fleet's method that
 	// gives a role is hers to run, and in her own session, a password and the code, she
-	// gives the bosun Bastion's marshal's role. The fleet's marshal views the application
-	// as her with the right to run methods kept: that session is established by the
-	// impersonation, so Bastion does not admit it, and the same call is refused it.
+	// gives the bosun Bastion's marshal's role. The fleet's marshal, given the grant to
+	// act as a person, acts as her with the right to run methods kept: that session is
+	// established by the impersonation, so Bastion does not admit it, and the same call
+	// is refused it.
 	give("making the rigger Headquarters", "assign-crew-role", map[string]any{"userId": riggerID, "role": "Headquarters"})
+	give("giving the fleet's marshal the grant to act as a person", "assign-crew-role", map[string]any{"userId": string(account(t, "marshal")), "role": "StandIn"})
 	viewing := newBrowser(t, s, consoleAPI)
 	viewing.signIn(ctx, "marshal")
-	asRigger := fmt.Sprintf(`{"kind":"user","principal":%q,"reason":"walkthrough","mask":["List","Read","Execute"]}`, riggerID)
-	if status, body := viewing.impersonate(ctx, asRigger); status != http.StatusOK {
-		t.Fatalf("the fleet's marshal viewing as the rigger with Execute kept: status %d: %s", status, body)
+	if status, body := viewing.impersonate(ctx, actAs(t, "rigger", "walkthrough", `,"mask":["List","Read","Execute"]`)); status != http.StatusOK {
+		t.Fatalf("the fleet's marshal acting as the rigger with List, Read and Execute kept: status %d: %s", status, body)
 	}
 	if info := viewing.session(ctx); info["username"] != "rigger" || info["impersonation"] == nil {
 		t.Fatalf("the session after the fleet's marshal views as the rigger = %v, want the rigger's, impersonated", info)

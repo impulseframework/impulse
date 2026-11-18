@@ -15,15 +15,18 @@ interface ActiveImpersonation {
   actor: string;
   principal: string;
   kind: 'user' | 'role';
+  /** What the session may do, in the server's words: "reading only", "everything except credential actions". */
+  mask: string;
   reason: string;
   startedAt: string;
   expiresAt: string;
 }
 
 /**
- * The Governor's watch desk: every live view-as and act-as-role session in the service
- * (ActiveImpersonations), who established it, as whom, why, and when its two-hour cap
- * ends it, with a Revoke control (DestroyImpersonatedSession). The revoked console's
+ * The Governor's watch desk: every live impersonated session in the service
+ * (ActiveImpersonations), who established it, as whom, what it may do (its mask, in
+ * the server's words), why, and when its two-hour cap ends it, with a Revoke control
+ * (DestroyImpersonatedSession). The revoked console's
  * next request is refused and its banner explains. The desk is gated by the same manual
  * Execute registration the mint route checks, ViewAsUser.
  *
@@ -41,7 +44,7 @@ export class WatchDeskComponent {
   sectors = inject(SectorService);
 
   canOperate = computed(() => this.sectors.can(Permissions.Execute, Methods.ViewAsUser));
-  columns = ['actor', 'principal', 'reason', 'startedAt', 'expiresAt', 'actions'];
+  columns = ['actor', 'principal', 'mask', 'reason', 'startedAt', 'expiresAt', 'actions'];
   refusal = signal<string | undefined>(undefined);
 
   sessions = resource({

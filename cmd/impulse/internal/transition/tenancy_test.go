@@ -121,6 +121,7 @@ type Configurer interface {
 type App struct {
 	access      access.Controller
 	consoleDist string
+	collection  *resource.GeneratedCollection
 }
 
 // New constructs an App.
@@ -133,7 +134,7 @@ func New(cfg Configurer) *App {
 
 // UserPermissions returns the permission checker for a request.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
-	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil)
+	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil, a.collection)
 }
 `
 
@@ -342,7 +343,7 @@ func TestTenancyApply(t *testing.T) {
 					}
 				}
 				application := read(t, a, "app/app.go")
-				for _, want := range []string{"\tTenancyConfigurer\n}", "\ttenants      *resource.TenantRoster\n", "\tdeclarations resource.TenantDeclarations\n", "\t\ttenants:      cfg.TenantRoster(),\n", "\t\tdeclarations: cfg.TenantDeclarations(),\n", "resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)"} {
+				for _, want := range []string{"\tTenancyConfigurer\n}", "\ttenants      *resource.TenantRoster\n", "\tdeclarations resource.TenantDeclarations\n", "\t\ttenants:      cfg.TenantRoster(),\n", "\t\tdeclarations: cfg.TenantDeclarations(),\n", "resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations, a.collection)"} {
 					if !strings.Contains(application, want) {
 						t.Errorf("app.go lacks %q:\n%s", want, application)
 					}

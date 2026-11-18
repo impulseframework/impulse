@@ -42,8 +42,9 @@ type Impersonation struct {
 	// principal names the impersonated person as the permission store does: by the id
 	// of their account, for a session type whose users are accounts.
 	Principal accesstypes.Principal
-	// Mask is the permission allowlist the session is attenuated by; the zero
-	// mask is unrestricted.
+	// Mask is what the session is attenuated by: the permission kinds it keeps and
+	// what it refuses inside them, a class of actions or a named action or record.
+	// The zero mask is unrestricted.
 	Mask accesstypes.PermissionMask
 	// Reason is the free-text justification supplied when the session was
 	// established (a ticket reference, a support note); empty when none was.
@@ -113,7 +114,8 @@ const (
 	AttrImpersonationPrincipalKind = "impersonation.principal_kind"
 	// AttrImpersonationPrincipal is the impersonated user or role name.
 	AttrImpersonationPrincipal = "impersonation.principal"
-	// AttrImpersonationMask is the permission allowlist, "unrestricted" when none.
+	// AttrImpersonationMask is the session's mask as its record keeps it
+	// (accesstypes.PermissionMask.Text), "unrestricted" when it has none.
 	AttrImpersonationMask = "impersonation.mask"
 	// AttrImpersonationSessionID is the impersonated session's ID — the record's key.
 	AttrImpersonationSessionID = "impersonation.session_id"

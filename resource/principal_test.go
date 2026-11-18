@@ -22,6 +22,8 @@ type stubPermissions struct {
 	domains    []accesstypes.Domain
 	err        error
 	checkPerms []accesstypes.Permission
+	// checkResources are the resources each delegated check asked about, in order.
+	checkResources []accesstypes.Resource
 	// global makes the checker hold a grant in the global partition, which exempts
 	// nobody from a tenant's sign-in settings.
 	global bool
@@ -56,6 +58,7 @@ func (s *stubPermissions) SuperAdministrator(context.Context) (bool, error) {
 
 func (s *stubPermissions) Check(_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
 	s.checkPerms = append(s.checkPerms, perm)
+	s.checkResources = append(s.checkResources, resources...)
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -220,7 +223,7 @@ func TestMasked(t *testing.T) {
 			t.Parallel()
 
 			stub := &stubPermissions{user: "bob", digest: fullDigest, domains: []accesstypes.Domain{"tenant"}}
-			perms := Masked(stub, tt.mask)
+			perms := Masked(stub, tt.mask, nil)
 			if tt.mask.IsZero() && perms != UserPermissions(stub) {
 				t.Fatal("Masked() with the unrestricted mask did not return the checker itself")
 			}
@@ -271,7 +274,7 @@ func TestMasked_WrapsDelegateErrors(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubPermissions{user: "bob", err: errors.New("snapshot unavailable")}
-	perms := Masked(stub, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read))
+	perms := Masked(stub, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read), nil)
 
 	if _, err := perms.Check(context.Background(), accesstypes.NewEnvironment(), accesstypes.GlobalScope(), accesstypes.Read, "documents"); err == nil {
 		t.Error("Check() error = nil, want the delegate's error")
@@ -490,9 +493,9 @@ func TestSessionPermissions(t *testing.T) {
 			rec := &checkerRecorder{}
 			var perms UserPermissions
 			if tt.unsupported {
-				perms = SessionPermissions(tt.ctx, rec.forUser, RolePrincipalsUnsupported, roster, nil)
+				perms = SessionPermissions(tt.ctx, rec.forUser, RolePrincipalsUnsupported, roster, nil, nil)
 			} else {
-				perms = SessionPermissions(tt.ctx, rec.forUser, rec.forRole, roster, nil)
+				perms = SessionPermissions(tt.ctx, rec.forUser, rec.forRole, roster, nil, nil)
 			}
 
 			if diff := cmp.Diff(tt.wantUsers, rec.users); diff != "" {
@@ -655,7 +658,7 @@ func TestSessionPermissions_roster(t *testing.T) {
 			forUser := func(user accesstypes.User) *stubPermissions {
 				return &stubPermissions{user: user, domains: tt.holds}
 			}
-			perms := SessionPermissions(sessionCtx("alice", nil), forUser, RolePrincipalsUnsupported, tt.roster, nil)
+			perms := SessionPermissions(sessionCtx("alice", nil), forUser, RolePrincipalsUnsupported, tt.roster, nil, nil)
 			got, err := perms.Domains(context.Background())
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Domains() error = %v, wantErr %v", err, tt.wantErr)
@@ -1033,7 +1036,7 @@ func TestSessionPermissions_admission(t *testing.T) {
 			if tt.reader != nil {
 				declarations = tt.reader.read
 			}
-			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, declarations)
+			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, declarations, nil)
 
 			domains, err := perms.Domains(context.Background())
 			if (err != nil) != tt.wantErr {
@@ -1130,7 +1133,7 @@ func TestSessionPermissions_admissionReadsOnce(t *testing.T) {
 	roster := func(context.Context) ([]accesstypes.Domain, error) {
 		return []accesstypes.Domain{anvil}, nil
 	}
-	perms := SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, reader.read)
+	perms := SessionPermissions(sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 
 	for range 3 {
 		if reaches, err := perms.Reaches(context.Background(), anvil); err != nil || reaches {
@@ -1191,7 +1194,7 @@ func TestSessionPermissions_administratorAskedWhereItCouldAdmit(t *testing.T) {
 			roster := func(context.Context) ([]accesstypes.Domain, error) {
 				return []accesstypes.Domain{anvil, bastion}, nil
 			}
-			perms := SessionPermissions(tt.ctx, forUser, RolePrincipalsUnsupported, roster, reader.read)
+			perms := SessionPermissions(tt.ctx, forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 
 			for range 3 {
 				for _, domain := range []accesstypes.Domain{anvil, bastion} {
@@ -1316,7 +1319,7 @@ func TestSessionPermissions_actorByAccount(t *testing.T) {
 				return &stubRolePermissions{}
 			}
 			reader := &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: {DirectoryOnly: true}}}
-			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, reader.read)
+			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, reader.read, nil)
 
 			if perms.User() != tt.wantUser {
 				t.Errorf("User() = %q, want %q", perms.User(), tt.wantUser)

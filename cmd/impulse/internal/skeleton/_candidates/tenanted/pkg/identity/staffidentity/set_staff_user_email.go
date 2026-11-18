@@ -20,6 +20,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(credential)
 type SetStaffUserEmail struct {
 	// @target(StaffSessionUser)
 	UserID impulse.UUID

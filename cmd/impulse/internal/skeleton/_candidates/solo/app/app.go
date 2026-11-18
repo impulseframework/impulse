@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/identity/staffidentity"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/router"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -92,6 +93,10 @@ type App struct {
 	validate       *validator.Validate
 	logExporter    logger.Exporter
 	version        string
+	// collection is the generated permission collection, built once: the session
+	// permissions read each action's classes off it, so the mask of an impersonated
+	// session can refuse a class of actions (resource.Masked).
+	collection *resource.GeneratedCollection
 	// console serves the console's built bundle at /: the resource package's served
 	// browser app holds the deep-link rewrite, the prefix strip, and the two cache classes a
 	// service worker needs (hashed files immutable, everything else revalidated).
@@ -115,6 +120,7 @@ func New(cfg Configurer) *App {
 		validate:       cfg.Validator(),
 		logExporter:    cfg.LogExporter(),
 		version:        cfg.AppVersion(),
+		collection:     router.Collection(),
 		console:        resource.NewBrowserApp(cfg.ConsoleDist(), "/"),
 		live:           cfg.Live(),
 		csp:            cspPolicy(cfg.LiveOrigins()),
@@ -195,10 +201,11 @@ func (a *App) Assets() http.HandlerFunc {
 // UserPermissions returns the permission checker for a request, composed from the
 // session's principal: the access engine bound to the user for an ordinary or
 // impersonated-user session, bound to the role for a session established as a role,
-// and attenuated by the session's permission mask. The application has no tenants, so
-// it passes no roster and no tenant declarations, and a session lists no domain.
+// and attenuated by the session's permission mask, which reads each action's classes off
+// the generated collection. The application has no tenants, so it passes no roster and
+// no tenant declarations, and a session lists no domain.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
-	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil)
+	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, nil, nil, a.collection)
 }
 
 // Validator returns the request validator the generated decoder constructors draw on.
