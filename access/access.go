@@ -25,6 +25,9 @@ type Client struct {
 	// superMethods are the methods the client was built to let a super
 	// administrator execute (WithSuperAdministratorMethods).
 	superMethods []accesstypes.Resource
+	// tenantAdministrators are the roles the client was told administer a
+	// tenant (WithTenantAdministratorRoles).
+	tenantAdministrators []accesstypes.Role
 }
 
 // New creates a new Client over a policy store built by one of the store
@@ -84,13 +87,14 @@ func New(store Store, opts ...Option) (*Client, error) {
 	manager.onPolicyChange = snapEngine.policyChanged
 
 	return &Client{
-		evaluator:    snapEngine,
-		snapEngine:   snapEngine,
-		userManager:  newUserManager(manager, defaults, snapEngine),
-		store:        store,
-		defaults:     defaults,
-		collection:   options.collection,
-		superMethods: slices.Clone(options.superMethods),
+		evaluator:            snapEngine,
+		snapEngine:           snapEngine,
+		userManager:          newUserManager(manager, defaults, snapEngine, options.tenantAdministrators),
+		store:                store,
+		defaults:             defaults,
+		collection:           options.collection,
+		superMethods:         slices.Clone(options.superMethods),
+		tenantAdministrators: slices.Clone(options.tenantAdministrators),
 	}, nil
 }
 

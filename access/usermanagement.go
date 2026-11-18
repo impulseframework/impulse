@@ -24,16 +24,22 @@ type userManager struct {
 	store     policyStore
 	defaults  *defaultRoles
 	evaluator evaluator
+	// tenantAdministrators are the roles whose holders administer a tenant
+	// (WithTenantAdministratorRoles), which TenantsAdministered reads the
+	// store by.
+	tenantAdministrators []accesstypes.Role
 }
 
 // newUserManager creates a userManager over the policy store, the release's
-// default roles (nil for none) and the evaluator the effective-permission
-// listings answer from.
-func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluator) *userManager {
+// default roles (nil for none), the evaluator the effective-permission
+// listings answer from and the roles whose holders administer a tenant (none
+// where the application named none).
+func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role) *userManager {
 	return &userManager{
-		store:     store,
-		defaults:  defaults,
-		evaluator: evaluator,
+		store:                store,
+		defaults:             defaults,
+		evaluator:            evaluator,
+		tenantAdministrators: slices.Clone(tenantAdministrators),
 	}
 }
 

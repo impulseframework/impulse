@@ -18,6 +18,9 @@ type clientOptions struct {
 	roleFile          RoleFile
 	roleFileSet       bool
 	superMethods      []accesstypes.Resource
+	// tenantAdministrators are the roles whose holders administer a tenant
+	// (WithTenantAdministratorRoles).
+	tenantAdministrators []accesstypes.Role
 }
 
 func defaultClientOptions() *clientOptions {
@@ -123,5 +126,26 @@ func WithDefaultRoles(collection PermissionCollection, file RoleFile) Option {
 func WithSuperAdministratorMethods(methods ...accesstypes.Resource) Option {
 	return func(o *clientOptions) {
 		o.superMethods = methods
+	}
+}
+
+// WithTenantAdministratorRoles names the roles whose holders administer a
+// tenant: the domain roles the auth's package names as an administrator's
+// (the every-tenant list of its AdministratorRoles). A person who holds one
+// of them in a tenant itself, by a membership of their own in the tenant's
+// domain or through a group kept in that tenant, administers the tenant
+// (Client.UserAdministersTenant, UserManager.TenantsAdministered), and a
+// tenant that admits its people through its directory only still admits its
+// own administrators with a password and a second factor: the sign-in rule
+// and the session's reach into the tenant both ask this Client. A role held
+// in every tenant, or through a group kept for the whole application,
+// administers no tenant in this sense, so the application's own people are
+// kept out of a directory-only tenant with everyone else. The names are not
+// checked against the role file: a name no role carries administers nothing.
+// Without the option nobody administers a tenant, and a directory-only
+// tenant admits nobody by a password.
+func WithTenantAdministratorRoles(roles ...accesstypes.Role) Option {
+	return func(o *clientOptions) {
+		o.tenantAdministrators = roles
 	}
 }

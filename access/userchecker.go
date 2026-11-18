@@ -9,10 +9,11 @@ import (
 
 // UserResourceChecker is the engine surface a UserChecker delegates to: the
 // check call that answers enforcement, the digest and foothold calls that
-// answer the frontend's advisory questions, and the question of who is a
-// super administrator. *Client satisfies it; test doubles that script
-// permission checks satisfy it with the same check method they already fake
-// plus digest, foothold and super administrator stubs.
+// answer the frontend's advisory questions, and the questions of who is a
+// super administrator and who administers a tenant. *Client satisfies it; test
+// doubles that script permission checks satisfy it with the same check method
+// they already fake plus digest, foothold, super administrator and tenant
+// administrator stubs.
 type UserResourceChecker interface {
 	CheckUserResources(
 		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
@@ -23,6 +24,8 @@ type UserResourceChecker interface {
 	UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 
 	UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
+
+	UserAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error)
 }
 
 // UserChecker is the request-bound permission checker for one user: the
@@ -97,6 +100,19 @@ func (u *UserChecker) SuperAdministrator(ctx context.Context) (bool, error) {
 	}
 
 	return is, nil
+}
+
+// AdministersTenant reports whether the bound user administers the tenant:
+// the question the resource package asks of a session's actor before a
+// directory-only tenant keeps a password session out. It is a pure delegate
+// to UserAdministersTenant.
+func (u *UserChecker) AdministersTenant(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	administers, err := u.checker.UserAdministersTenant(ctx, u.user, domain)
+	if err != nil {
+		return false, errors.Wrap(err, "access.UserResourceChecker.UserAdministersTenant()")
+	}
+
+	return administers, nil
 }
 
 // User returns the bound user.

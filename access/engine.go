@@ -47,6 +47,12 @@ type evaluator interface {
 	// from the policy snapshot the checks are answered from.
 	userIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
 
+	// userAdministersTenant reports whether user administers the tenant: they
+	// hold one of the application's tenant administrator roles in the tenant
+	// itself, inside its period (administersTenant), answered from the policy
+	// snapshot the checks are answered from, at the engine's own clock.
+	userAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error)
+
 	// userPermissions returns user's effective permissions within scope by
 	// name — the management listing, answered from the same snapshot the
 	// checks are.
