@@ -93,7 +93,7 @@ const (
 	migrateCommand = "package main\n\nimport \"context\"\n\nfunc migrate(ctx context.Context, data *config.DataConfiguration, seed bool) error {\n%s\n\treturn nil\n}\n"
 	invitesStep    = "\tif err := deploy.InviteAdministrators(ctx, data, os.Stdout); err != nil {\n\t\treturn err\n\t}\n"
 	ownInvitation  = "\tif _, err := data.Staff().InviteAdministrator(ctx, data.StaffAdministrator()); err != nil {\n\t\treturn err\n\t}\n"
-	seedsStep      = "\tif seed {\n\t\tif _, err := data.Staff().SeedCast(ctx); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n"
+	seedsStep      = "\tif seed {\n\t\tif _, err := data.Staff().SeedCast(ctx, os.Stdout); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n"
 	seededLate     = ": the cast is seeded (SeedCast) after the first administrator is invited (line 6): a release invites while nobody of the auth holds the Super Administrator role, and a persona of the cast may hold it, so an environment whose cast holds the role is asked for an address and a mailbox it has no use for, or mails an invitation nobody wants. Seed the cast first: move the SeedCast call above the invitation, so the invitation is decided with the personas in place"
 )
 
@@ -437,6 +437,16 @@ func TestFirstAdministrator(t *testing.T) {
 			wantDetails: []string{migrateFile + ":10" + seededLate},
 		},
 		{
+			name: "a migrate command that seeds a cast file it hands the seed itself after it invites is refused the same",
+			edit: func(_ *testing.T, files map[string]string) {
+				files[foothold] = invitingFoothold
+				files[migrateFile] = fmt.Sprintf(migrateCommand, invitesStep+strings.Replace(seedsStep, "SeedCast(ctx, os.Stdout)", "SeedCastFile(ctx, os.Stdout, file)", 1))
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s) on how a first administrator is brought in",
+			wantDetails: []string{migrateFile + ":10" + strings.ReplaceAll(seededLate, "SeedCast", "SeedCastFile")},
+		},
+		{
 			name: "a migrate command that seeds the cast before it invites",
 			edit: func(_ *testing.T, files map[string]string) {
 				files[foothold] = invitingFoothold
@@ -449,7 +459,7 @@ func TestFirstAdministrator(t *testing.T) {
 			name: "a cast seeded in one function and an invitation asked in another are not put in an order",
 			edit: func(_ *testing.T, files map[string]string) {
 				files[foothold] = invitingFoothold
-				files[migrateFile] = fmt.Sprintf(migrateCommand, invitesStep) + "\nfunc seedCasts(ctx context.Context, data *config.DataConfiguration) error {\n\t_, err := data.Staff().SeedCast(ctx)\n\n\treturn err\n}\n"
+				files[migrateFile] = fmt.Sprintf(migrateCommand, invitesStep) + "\nfunc seedCasts(ctx context.Context, data *config.DataConfiguration) error {\n\t_, err := data.Staff().SeedCast(ctx, os.Stdout)\n\n\treturn err\n}\n"
 			},
 			wantStatus:  Pass,
 			wantSummary: "the first administrator is invited: staff",

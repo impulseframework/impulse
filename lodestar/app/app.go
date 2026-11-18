@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -510,11 +511,12 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	// The persona cast: where the persona method is registered (the test environments),
 	// the cast's logins exist for the persona sign-in to link to, seated in their roles;
-	// a login seeded already is left as it is.
+	// a login seeded already is given the roles its entry names that it does not hold,
+	// each said on the standard output, and keeps what it holds.
 	//
 	// Demonstrates: auth.persona.
 	if a.crew != nil && a.crew.PersonaRegistered() {
-		if _, err := a.crew.SeedCast(ctx); err != nil {
+		if _, err := a.crew.SeedCast(ctx, os.Stdout); err != nil {
 			return errors.Wrap(err, "crew.Auth.SeedCast()")
 		}
 	}

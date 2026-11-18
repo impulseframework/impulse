@@ -432,6 +432,49 @@ func TestFiles_superAdministrator(t *testing.T) {
 	}
 }
 
+// TestFiles_castSeed holds the cast's seed to how it treats a persona seeded earlier. It
+// takes the writer it says each role on and refuses to run with none; it seeds a cast
+// file read and checked as cast.json is, the package's own or one handed to it; it looks
+// for the persona's account under the id the seed chose, and passes over a user of
+// another id under the persona's login before any role is written; it reads what the
+// account holds in each place and writes a role only where the account does not hold it,
+// so an unchanged cast writes nothing; it says each role it gives on a line; and it takes
+// nothing, a role that left the cast included.
+func TestFiles_castSeed(t *testing.T) {
+	t.Parallel()
+	files, err := Files(&Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "crew", IdentityDir: "pkg/identity", Methods: []Method{
+		{Kind: app.MethodPassword},
+		{Kind: app.MethodPersona},
+	}})
+	if err != nil {
+		t.Fatalf("Files(crew) error = %v", err)
+	}
+	seed := string(files[CastGoFile])
+	for _, tt := range []struct {
+		name, want string
+	}{
+		{name: "the seed takes the writer it says each role on", want: "func (a *Auth) SeedCast(ctx context.Context, out io.Writer) (int, error)"},
+		{name: "the seed of the package's own cast is the seed of a cast file", want: "return a.SeedCastFile(ctx, out, castFile)"},
+		{name: "a seed with no writer is refused before anything is read or written", want: "func (a *Auth) SeedCastFile(ctx context.Context, out io.Writer, file []byte) (int, error) {\n\tif out == nil {\n\t\treturn 0, errors.New(\"the cast's seed was handed no writer to say the roles it gives on: hand it the command's output, or io.Discard to say nothing\")\n\t}"},
+		{name: "a cast file handed to the seed is read and checked as cast.json is", want: "declared, err := cast.ReadCast(file)"},
+		{name: "the persona's account is the one under the id the seed chose", want: "\tif _, err := api.User(ctx, id); err == nil {\n\t\treturn true, false, nil\n\t}"},
+		{name: "a user of another id under the login is passed over before any role is written", want: "\t\tif taken {\n\t\t\tcontinue\n\t\t}\n\t\tif err := a.seatPersona(ctx, out, roles, p, id); err != nil {"},
+		{name: "an account seeded earlier is given its roles and is not created again", want: "\t\tif err := a.seatPersona(ctx, out, roles, p, id); err != nil {\n\t\t\treturn created, err\n\t\t}\n\t\tif seeded {\n\t\t\tcontinue\n\t\t}"},
+		{name: "what the account holds in a place is read", want: "held, err := manager.UserRoles(ctx, user, scope)"},
+		{name: "a role the account holds is not written again", want: "\t\tif slices.Contains(holds, role) {\n\t\t\tcontinue\n\t\t}\n\t\tif err := manager.AddUserRoles(ctx, scope, user, role); err != nil {"},
+		{name: "each role given is said on a line", want: `fmt.Fprintf(out, "Gave the %s auth's persona %s the role %s%s\n", Name, login, role, where)`},
+	} {
+		if !strings.Contains(seed, tt.want) {
+			t.Errorf("%s: %s lacks %q", tt.name, CastGoFile, tt.want)
+		}
+	}
+	for _, takes := range []string{"DeleteUserRoles", "DeleteRoleUsers"} {
+		if strings.Contains(seed, takes) {
+			t.Errorf("%s calls %s: the seed takes no role, one that left the cast included", CastGoFile, takes)
+		}
+	}
+}
+
 // TestFiles_signedInHook holds what an auth package sets for the roles given for a
 // period: the generated identity client's hook for a sign-in that stands, which removes
 // a person's ended roles, over the application's database. An auth whose roles the

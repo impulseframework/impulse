@@ -49,15 +49,16 @@ import (
 // Both are read in the auth's package, where impulse add auth builds the client and sets
 // the hook.
 //
-// And it refuses a function that seeds a cast of personas (SeedCast) after it invites:
-// after InviteAdministrators, the step that invites for every auth, or after the same
-// auth's own InviteAdministrator. The invitation is decided by who holds the Super
-// Administrator role, and a persona may hold it, so an auth's cast goes before its
-// invitation. An environment whose cast holds the role then invites nobody and needs no
-// mailbox; seeded after, the same environment is asked for an address and a mailbox it
-// has no use for. The order is read inside one function, where the migrate command runs
-// its steps: a cast seeded in a function of its own, or when the application starts, is
-// not put in an order with an invitation asked elsewhere.
+// And it refuses a function that seeds a cast of personas (SeedCast, or SeedCastFile,
+// the same seed over a cast file handed to it) after it invites: after InviteAdministrators,
+// the step that invites for every auth, or after the same auth's own
+// InviteAdministrator. The invitation is decided by who holds the Super Administrator
+// role, and a persona may hold it, so an auth's cast goes before its invitation. An
+// environment whose cast holds the role then invites nobody and needs no mailbox; seeded
+// after, the same environment is asked for an address and a mailbox it has no use for.
+// The order is read inside one function, where the migrate command runs its steps: a
+// cast seeded in a function of its own, or when the application starts, is not put in an
+// order with an invitation asked elsewhere.
 type firstAdministrator struct{}
 
 // firstAdministratorName is the check's name.
@@ -83,9 +84,11 @@ const (
 	createSessionUserFunc     = "CreateSessionUser"
 	createUserRequestType     = "CreateUserRequest"
 	// The step of a release that invites every auth's first administrator, as the
-	// skeletons' deploy package names it, and the call that seeds an auth's cast.
+	// skeletons' deploy package names it, and the two calls that seed an auth's cast:
+	// the package's own cast file, and a cast file the caller hands.
 	inviteAdministratorsFunc = "InviteAdministrators"
 	seedCastFunc             = "SeedCast"
+	seedCastFileFunc         = "SeedCastFile"
 	// The call that sets what an accepted invitation gives, on the session Auth.
 	invitationAcceptedFunc = "SetInvitationAccepted"
 )
@@ -137,10 +140,10 @@ func (c firstAdministrator) Run(_ context.Context, env *Env) Result {
 
 // castSeededLate reads the application's hand-written Go for a function that seeds a
 // cast of personas after it invites that auth's first administrator: a call to SeedCast
-// that follows, in the same function, a call to InviteAdministrators, which invites for
-// every auth, or a call to InviteAdministrator on the receiver the cast is seeded on
-// (data.Staff().InviteAdministrator before data.Staff().SeedCast). Each is a finding
-// that says where both are and to seed the cast first.
+// or to SeedCastFile that follows, in the same function, a call to InviteAdministrators,
+// which invites for every auth, or a call to InviteAdministrator on the receiver the cast
+// is seeded on (data.Staff().InviteAdministrator before data.Staff().SeedCast). Each is a
+// finding that says where both are and to seed the cast first.
 func castSeededLate(a *app.App) ([]string, error) {
 	var findings []string
 	for _, rel := range a.GoFiles() {
@@ -164,12 +167,12 @@ func castSeededLate(a *app.App) ([]string, error) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			invited, seeded := stepsOf(fn)
+			invited, seeded, by := stepsOf(fn)
 			if !seeded.IsValid() {
 				continue
 			}
 			findings = append(findings, fmt.Sprintf("%[1]s:%[2]d: the cast is seeded (%[3]s) after the first administrator is invited (line %[4]d): a release invites while nobody of the auth holds the Super Administrator role, and a persona of the cast may hold it, so an environment whose cast holds the role is asked for an address and a mailbox it has no use for, or mails an invitation nobody wants. Seed the cast first: move the %[3]s call above the invitation, so the invitation is decided with the personas in place",
-				rel, fset.Position(seeded).Line, seedCastFunc, fset.Position(invited).Line))
+				rel, fset.Position(seeded).Line, by, fset.Position(invited).Line))
 		}
 	}
 
@@ -177,12 +180,13 @@ func castSeededLate(a *app.App) ([]string, error) {
 }
 
 // stepsOf reads one function for the two steps whose order matters: seeded is where it
-// first seeds a cast after the invitation of that cast's auth, and invited where that
-// invitation is asked; both token.NoPos for a function that seeds none late. The step
-// that invites for every auth (InviteAdministrators) comes before any cast seeded after
-// it; an auth's own InviteAdministrator comes before the cast seeded on the same
-// receiver, as the source writes it, and says nothing of another auth's cast.
-func stepsOf(fn *ast.FuncDecl) (invited, seeded token.Pos) {
+// first seeds a cast after the invitation of that cast's auth, by the call it seeds
+// with, and invited where that invitation is asked; both token.NoPos for a function that
+// seeds none late. The step that invites for every auth (InviteAdministrators) comes
+// before any cast seeded after it; an auth's own InviteAdministrator comes before the
+// cast seeded on the same receiver, as the source writes it, and says nothing of another
+// auth's cast.
+func stepsOf(fn *ast.FuncDecl) (invited, seeded token.Pos, by string) {
 	var everyAuth token.Pos
 	byAuth := map[string]token.Pos{}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -206,20 +210,20 @@ func stepsOf(fn *ast.FuncDecl) (invited, seeded token.Pos) {
 			if _, asked := byAuth[receiver]; !asked {
 				byAuth[receiver] = call.Pos()
 			}
-		case seedCastFunc:
+		case seedCastFunc, seedCastFileFunc:
 			before, asked := byAuth[receiver]
 			switch {
 			case everyAuth.IsValid() && (!asked || everyAuth < before):
-				invited, seeded = everyAuth, call.Pos()
+				invited, seeded, by = everyAuth, call.Pos(), name
 			case asked:
-				invited, seeded = before, call.Pos()
+				invited, seeded, by = before, call.Pos(), name
 			}
 		}
 
 		return true
 	})
 
-	return invited, seeded
+	return invited, seeded, by
 }
 
 // foothold is what an auth package shows of the first administrator it brings in.
@@ -436,5 +440,5 @@ func (f *foothold) findings(auth string) []string {
 
 // Meaning explains the invariant for the brief.
 func (firstAdministrator) Meaning() string {
-	return "The first administrator of a deployed application comes in by an invitation mailed to the address the placement names, for each environment, in `APP_<AUTH>_ADMINISTRATOR`: while nobody of the auth holds the Super Administrator role, the migrate command asks for it (`InviteAdministrator` in `pkg/auth/<name>/foothold.go`, over `session.AuthAPI.InviteFirstAdministrator`), and the person opens the link and signs in by a method of the auth, with a password they choose there or through a directory, however many organizations the directory method admits. The invitation gives the Super Administrator role and the roles `FirstAdministratorRoles` names. No account is created ahead of the person and no password is generated: nobody can read a generated password, and an account that has never signed in is tied to whoever signs in first by its name alone. A release leaves an invitation that stands as it is, replaces one that ran out, and withdraws one for an address the placement no longer names, which it does even once somebody holds the Super Administrator role, when nobody is invited any more; an account that holds no such role stops no invitation; `ReinviteAdministrator` (the migrate command's `-reinvite-administrator <auth>`) withdraws the standing one and mails a fresh one while nobody holds the role; and both refuse while nobody holds it and the application has no mailbox to send as, since an invitation's link is never written to a log. The check refuses an auth package that still seeds an account (`SeedAdministrator`), one that creates a user where it invites, and one whose `InviteAdministrator` or `ReinviteAdministrator` does not go through the session library. It refuses, too, an auth whose roles the application gives whose package imports no generated identity client (`<name>identity`, from the tree `generation.GenerateIdentity` names): the client's acceptance hook gives an accepted invitation its roles, so without it nobody can be invited as the auth's first administrator, and the auth has no way in until the application generates the management of its people; and an auth that invites from a package that never sets the hook (`SetInvitationAccepted`), which the session library refuses to invite without. And it refuses a function that seeds a cast of personas (`SeedCast`) after it invites, for every auth (`InviteAdministrators`) or for the cast's own auth (`InviteAdministrator` on the same receiver): a persona may hold the Super Administrator role, so an auth's cast is seeded before its invitation, and an environment whose cast holds the role invites nobody and needs no mailbox. An auth whose directory writes the roles brings in nobody: the directory decides who its administrators are."
+	return "The first administrator of a deployed application comes in by an invitation mailed to the address the placement names, for each environment, in `APP_<AUTH>_ADMINISTRATOR`: while nobody of the auth holds the Super Administrator role, the migrate command asks for it (`InviteAdministrator` in `pkg/auth/<name>/foothold.go`, over `session.AuthAPI.InviteFirstAdministrator`), and the person opens the link and signs in by a method of the auth, with a password they choose there or through a directory, however many organizations the directory method admits. The invitation gives the Super Administrator role and the roles `FirstAdministratorRoles` names. No account is created ahead of the person and no password is generated: nobody can read a generated password, and an account that has never signed in is tied to whoever signs in first by its name alone. A release leaves an invitation that stands as it is, replaces one that ran out, and withdraws one for an address the placement no longer names, which it does even once somebody holds the Super Administrator role, when nobody is invited any more; an account that holds no such role stops no invitation; `ReinviteAdministrator` (the migrate command's `-reinvite-administrator <auth>`) withdraws the standing one and mails a fresh one while nobody holds the role; and both refuse while nobody holds it and the application has no mailbox to send as, since an invitation's link is never written to a log. The check refuses an auth package that still seeds an account (`SeedAdministrator`), one that creates a user where it invites, and one whose `InviteAdministrator` or `ReinviteAdministrator` does not go through the session library. It refuses, too, an auth whose roles the application gives whose package imports no generated identity client (`<name>identity`, from the tree `generation.GenerateIdentity` names): the client's acceptance hook gives an accepted invitation its roles, so without it nobody can be invited as the auth's first administrator, and the auth has no way in until the application generates the management of its people; and an auth that invites from a package that never sets the hook (`SetInvitationAccepted`), which the session library refuses to invite without. And it refuses a function that seeds a cast of personas (`SeedCast`, or `SeedCastFile`, the same seed over a cast file handed to it) after it invites, for every auth (`InviteAdministrators`) or for the cast's own auth (`InviteAdministrator` on the same receiver): a persona may hold the Super Administrator role, so an auth's cast is seeded before its invitation, and an environment whose cast holds the role invites nobody and needs no mailbox. An auth whose directory writes the roles brings in nobody: the directory decides who its administrators are."
 }
