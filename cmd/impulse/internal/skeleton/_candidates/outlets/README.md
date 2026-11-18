@@ -46,7 +46,7 @@ the whole application's accounts. The library draws them from the API descriptio
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
 (`app.menus.ts`) shows Tenants (All tenants) and System (the staff's accounts, the
-Invited tenants page and Feature flags…) in Configuration, and People and Tenant (Sign-in settings)
+Invited tenants page and Feature flags) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
 person's own menu holds Your account (the console's: the email address, Change your
 password, Forget this browser), Your API keys on the console, Appearance and Sign out; a
@@ -318,7 +318,7 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. Every outlet serves `features` under its prefix (`/console/api`, `/portal/api`, `/devices`), and the two session outlets serve `feature-flags` and `set-feature`. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds, so a member of the portal sees the flags' effect and flips nothing; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+login holds, so a member of the portal sees the flags' effect and flips nothing; the library's Feature flags page runs it: the list of the flags, each in words with who last turned it on or off, a row's menu that turns the flag on or off after asking, and a History button that opens the flag's flips in a pop-up. The menu file places the page (`featureFlagsPage`) in
 the console's System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test

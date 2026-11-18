@@ -9,6 +9,7 @@ import {
   outsideGuard,
   refusedRoute,
 } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
 import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
 import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import { sectorRoute, watchDeskRoute } from '@components/sector/sector.routes';
@@ -136,7 +137,13 @@ export const routes: Routes = [
           // The watch desk lists every live impersonation in the service: a page of
           // Headquarters.
           watchDeskRoute(),
-          // The person's account, API keys and About pages: the library's, in every place.
+          // The feature flags: the library's list page over the flags Lodestar declares,
+          // each with who last turned it on or off, a History button and, for the adjutant,
+          // the menu that turns it on or off. A page of Headquarters.
+          //
+          // Demonstrates: feature.history.
+          featureFlagsRoute(resourceMeta),
+          // The person's account and API keys pages: the library's, in every place.
           ...frameRoutes(),
         ],
       },

@@ -659,6 +659,7 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/feature-flags", method: http.MethodPost},
 		foreign{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		foreign{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		foreign{url: "/devices/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		foreign{url: "/devices/set-feature", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodGet},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodPost},

@@ -162,13 +162,18 @@ export function pageLabel(offset: number, rows: number, total: number | undefine
   return total === undefined ? range : `${range} of ${total}`;
 }
 
+/** What an empty table says where nothing else is to be said. */
+export const noRecordsFound = 'No records found';
+
 /**
  * What the empty table says: the refusal when the digest leaves no column, the server's
  * own message when it refused the request (a 403 on the list, a 400 on a filter or page
- * size it will not serve) or the request failed, otherwise the plain empty-list text. A
- * refusal must never read as an empty list.
+ * size it will not serve) or the request failed, otherwise the page's own sentence for a
+ * list that holds nothing (`empty`, the config's `emptyMessage`, which the list hands
+ * over only while nothing narrows it), else the plain empty-list text. A refusal must
+ * never read as an empty list.
  */
-export function listEmptyMessage(error: unknown, noListableColumns: boolean): string {
+export function listEmptyMessage(error: unknown, noListableColumns: boolean, empty?: string): string {
   if (noListableColumns) {
     return 'Your permissions cover none of the columns on this page.';
   }
@@ -181,5 +186,5 @@ export function listEmptyMessage(error: unknown, noListableColumns: boolean): st
   if (error) {
     return `This list could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
   }
-  return 'No records found';
+  return empty || noRecordsFound;
 }

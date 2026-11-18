@@ -2,10 +2,9 @@ import { computed, inject, Injectable } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 import { Method, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { openFeatureFlagsDialog } from '@impulseframework/resource-angular/feature-flags';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { openAboutDialog } from './about-dialog.component';
-import { Frame, FrameActions } from './frame';
+import { Frame } from './frame';
 import {
   fillRoute,
   Menu,
@@ -55,9 +54,6 @@ export class MenuService {
     link: (route) => fillRoute(route, '', this.frame.segment, this.frame.param),
   };
 
-  /** What the frame does for an entry of the menu file rather than going somewhere. */
-  readonly actions: FrameActions = { featureFlags: () => void openFeatureFlagsDialog(this.dialog) };
-
   /**
    * About the application, the last entry of Help: it opens a pop-up with the
    * application's name, the release and, where the server names one, the environment.
@@ -93,7 +89,7 @@ export class MenuService {
   /** The menu file; a function is called here, in the service's injection context. */
   private applicationMenus(): readonly Menu[] {
     const menus = this.frame.config.menus;
-    return typeof menus === 'function' ? menus(this.actions) : menus;
+    return typeof menus === 'function' ? menus() : menus;
   }
 
   /** Help: the application's own help entries, then About. */

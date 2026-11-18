@@ -1,0 +1,12 @@
+.feature-flag-history-error {
+  color: var(--mat-sys-error, #b3261e);
+}
+
+.feature-flag-history-note {
+  margin: 12px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.feature-flag-history-unseen {
+  margin: 0;
+}

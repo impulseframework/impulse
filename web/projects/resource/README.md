@@ -442,11 +442,21 @@ route guard. `flags()` reads every declared flag with its description and state 
 framework's `FeatureFlags` resource through the client's own handle, and `setFeature(name,
 enabled)` flips one through the generated `SetFeature` method, then reloads the set, the domains,
 and every cached digest; a refused flip rejects with the server's `ApiError` and refreshes
-nothing. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
+nothing. The generated method's own handle (`api.methods.SetFeature.execute(body)`, which a page
+that runs methods by name uses) is followed by the same reload, so a flip made from a list's row
+leaves the set and the digest current too. `changes(name)` reads one flag's history from the
+flag's own route (`<feature flags route>/<name>/changes`): `{ changes, more }`, each change with
+`changedAt`, `enabled` (what the flag was turned to) and `changedBy` (the name the person signs in
+under, or what the server recorded of a flip no person made), newest first, with `more` true where
+the flag was flipped more often than one answer lists. A fact the caller's grant leaves out of
+the flag (who last flipped it, under `updatedBy`) is absent from every flip, so the three are
+optional. Whoever may list the flags may read it; the
+server refuses anyone else (403) and a flag the application does not declare (404) with its
+`ApiError`. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
 logout, and `subscribe` notifies a UI framework. `descriptor.features` is optional: a descriptor
 from a generator that predates feature flags carries none, and the API then serves no flags.
 `served` is false, the set stays empty and unloaded, `refresh()` resolves to nothing without a
-request, every flag answers off, and `flags()` and `setFeature()` refuse before any request,
+request, every flag answers off, and `flags()`, `changes()` and `setFeature()` refuse before any request,
 saying the API serves no feature flags. The absence is announced rather than silent: `enabled(name)`
 and `ensure(name)` reach `ClientOptions.warn` once per flag (the console by default) saying the
 flag was asked of an API that serves no feature flags and answers off, `refresh()` says it once
@@ -461,6 +471,7 @@ if (api.features.enabled('debriefs')) {
 
 const flags = await api.features.flags(); // every declared flag: name, description, enabled, updatedAt, updatedBy
 await api.features.setFeature('debriefs', true); // the set and the digest are current when this resolves
+const history = await api.features.changes('debriefs'); // each flip, newest first: changedAt, enabled, changedBy
 ```
 
 ## Sign-in

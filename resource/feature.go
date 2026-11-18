@@ -30,8 +30,9 @@ import (
 // underscores, opening with a letter, at most 64 characters.
 type Feature string
 
-// FeatureDeclaration is one declared flag: its name, the description the dialog
-// shows, and the constant that declared it.
+// FeatureDeclaration is one declared flag: its name, its description, the comment above
+// the constant, which the Feature flags page shows in a person's words (Words), and the
+// constant that declared it.
 type FeatureDeclaration struct {
 	Name        Feature
 	Description string
@@ -116,7 +117,8 @@ func ValidateFeatureDeclarations(declared []FeatureDeclaration) error {
 // UpdatedAt (the commit timestamp of the last write) and UpdatedBy (who wrote it: the
 // migration process, or the principal that flipped it). FeatureFlagChanges holds one row
 // per flip: Name, ChangedAt (the commit timestamp), Enabled (the value written) and
-// ChangedBy. The audit rows are never deleted, so a flag's history outlives the flag.
+// ChangedBy. The audit rows are never deleted, so a flag's history outlives the flag;
+// FeatureFlagChangesHandler serves a declared flag's.
 func FeatureFlagsDDL(dbType DBType) []string {
 	switch dbType {
 	case SpannerDBType:
@@ -232,8 +234,10 @@ func readFeatureFlags(ctx context.Context, txn ReadOnlyTransaction, dbType DBTyp
 // MigrateFeatures brings the FeatureFlags table to the declared flags, in one
 // transaction: a declared flag the table lacks is inserted disabled, a flag the table
 // holds keeps its Enabled and takes the declared description, and a flag no longer
-// declared is deleted. The audit rows are untouched. It runs in the deploy step beside
-// the role check, before the release takes traffic.
+// declared is deleted. The description is written as a person reads it
+// (FeatureDeclaration.Words): where it opens with the declaring constant, the flag's
+// name in words stands in its place. The audit rows are untouched. It runs in the deploy
+// step beside the role check, before the release takes traffic.
 func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclaration) error {
 	if err := ValidateFeatureDeclarations(declared); err != nil {
 		return err
@@ -255,21 +259,22 @@ func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclarati
 
 		for _, d := range declared {
 			row, ok := byName[d.Name]
+			description := d.Words()
 			switch {
 			case !ok:
 				if err := bufferFeatureFlag(txn, CreatePatchType, d.Name, map[string]any{
 					flagNameColumn:        string(d.Name),
-					flagDescriptionColumn: d.Description,
+					flagDescriptionColumn: description,
 					flagEnabledColumn:     false,
 					flagUpdatedAtColumn:   spanner.CommitTimestamp,
 					flagUpdatedByColumn:   eventSource,
 				}); err != nil {
 					return err
 				}
-			case row.Description != d.Description:
+			case row.Description != description:
 				if err := bufferFeatureFlag(txn, UpdatePatchType, d.Name, map[string]any{
 					flagNameColumn:        string(d.Name),
-					flagDescriptionColumn: d.Description,
+					flagDescriptionColumn: description,
 				}); err != nil {
 					return err
 				}
@@ -638,7 +643,7 @@ func FeatureFlagsQueryKeys() (order, keys []accesstypes.Tag) {
 var featureFlagsOrder = Paging{Order: []SortField{{Field: flagNameColumn, Direction: SortAscending}}}
 
 // FeatureFlagsHandler serves the flags as a list, to a List grant on FeatureFlags: the
-// FeatureAdministrator's dialog reads it. The generated router registers it at
+// Feature flags page reads it. The generated router registers it at
 // GET <prefix>/feature-flags on every session-serving outlet.
 func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.HandlerFunc {
 	decoder := MustNewQueryDecoder[FeatureFlag, featureFlagRequest](collection, accesstypes.List).
@@ -659,7 +664,7 @@ func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.Han
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		resp := make([]map[string]any, 0)
+		rows := make([]*Row[FeatureFlag], 0)
 		for row, err := range querySet.List(ctx, a.ResourceClient()) {
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -667,7 +672,17 @@ func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.Han
 			if !page.Add(row) {
 				break
 			}
-			resp = append(resp, featureFlagMap(querySet.Fields(), row))
+			rows = append(rows, row)
+		}
+		// Who flipped a flag is read once the list has run: a request that names no
+		// columns learns the fields the caller may list as the list is read.
+		flipped, err := flippedFlags(ctx, a.ResourceClient(), querySet.Fields())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		resp := make([]map[string]any, 0, len(rows))
+		for _, row := range rows {
+			resp = append(resp, featureFlagMap(querySet.Fields(), row, flipped))
 		}
 		if page.Reversed() {
 			slices.Reverse(resp)
@@ -701,15 +716,66 @@ func FeatureFlagHandler(a FeatureApp, collection *GeneratedCollection) http.Hand
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		flipped, err := flippedFlags(ctx, a.ResourceClient(), querySet.Fields())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
-		return httpio.NewEncoder(w).Ok(featureFlagMap(querySet.Fields(), row))
+		return httpio.NewEncoder(w).Ok(featureFlagMap(querySet.Fields(), row, flipped))
 	})
+}
+
+// flippedFlags reads which flags have been flipped at least once: the names the audit
+// table, FeatureFlagChanges, holds a row for. A flag's row alone cannot say: the deploy
+// step that declares a flag and a process that flips one both write the row under a
+// process's name. Nothing is read, and nothing answered, for a request that does not ask
+// for who last flipped a flag (updatedBy).
+func flippedFlags(ctx context.Context, client Client, fields []accesstypes.Field) (map[string]bool, error) {
+	if !slices.Contains(fields, flagUpdatedByColumn) {
+		return nil, nil
+	}
+	if client.DBType() != SpannerDBType {
+		return nil, errFeaturesUnsupportedDatabase
+	}
+	txn := client.ReadOnlyTransaction()
+	defer txn.Close()
+
+	var rows []struct {
+		Name string `spanner:"Name"`
+	}
+	stmt := spanner.Statement{SQL: "SELECT DISTINCT Name FROM FeatureFlagChanges"}
+	if err := spxscan.Select(ctx, txn.SpannerReadOnlyTransaction(), &rows, stmt); err != nil {
+		return nil, errors.Wrap(err, "spxscan.Select()")
+	}
+	flipped := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		flipped[row.Name] = true
+	}
+
+	return flipped, nil
+}
+
+// flippedBy is who last flipped a flag, as the routes serve the row's UpdatedBy: for a
+// flag that has been flipped, the name the person signs in under (EventActor), read out
+// of the event source the flip recorded, or the source as it was recorded where a
+// process flipped it; and nothing for a flag nobody has flipped, whose row the deploy
+// step wrote when it declared the flag. The session and the account's id the column
+// keeps as evidence stay in the table.
+func flippedBy(eventSource string, flipped bool) string {
+	if !flipped {
+		return ""
+	}
+	name, _ := EventActor(eventSource)
+
+	return name
 }
 
 // featureFlagMap renders a flag's row the way the generated handlers render theirs: the
 // requested fields by wire name, a masked cell left out, the capability envelope when
-// the request asked for one.
-func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag]) map[string]any {
+// the request asked for one. updatedBy is served as who last flipped the flag
+// (flippedBy), not as the event source the column holds; flipped names the flags that
+// have been flipped at all (flippedFlags).
+func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag], flipped map[string]bool) map[string]any {
 	rmap := make(map[string]any, len(fields))
 	for _, field := range fields {
 		switch field {
@@ -731,7 +797,7 @@ func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag]) map[strin
 			}
 		case flagUpdatedByColumn:
 			if !row.Masked("updatedBy") {
-				rmap["updatedBy"] = row.Data.UpdatedBy
+				rmap["updatedBy"] = flippedBy(row.Data.UpdatedBy, flipped[row.Data.Name])
 			}
 		}
 	}

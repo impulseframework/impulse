@@ -17,11 +17,48 @@ export const featureFlagsResource = 'FeatureFlags' as Resource;
 /** One row of the feature flags resource: a declared flag and its state in this environment. */
 export interface FeatureFlag {
   name: string;
+  /** What the flag is for, as a person reads it: it opens with the flag's name in words. */
   description: string;
   enabled: boolean;
   /** When the flag was last flipped (or first written), as the server wrote it. */
   updatedAt: string;
+  /**
+   * Who last flipped the flag, by the name they sign in under; empty for a flag nobody has
+   * flipped, whose row the deploy step wrote.
+   */
   updatedBy: string;
+}
+
+/**
+ * The segment under one flag's route that its history is read at:
+ * `feature-flags/<name>/changes`, as the generated router registers it.
+ */
+export const featureFlagChangesRoute = 'changes';
+
+/**
+ * One time a flag was turned on or off, as its history lists it. The server serves each
+ * fact of a flip under the caller's grant on the field of the flag that holds the same
+ * fact today (when under `updatedAt`, the value under `enabled`, who under `updatedBy`),
+ * so a fact the caller may not see of the flag is absent from every flip.
+ */
+export interface FeatureFlagChange {
+  /** When the flip was written, as the server wrote it. */
+  changedAt?: string;
+  /** What the flag was turned to: true for on, false for off. */
+  enabled?: boolean;
+  /**
+   * Who turned it, by the name they sign in under; for a flip no person made, a process's,
+   * what the server recorded of it.
+   */
+  changedBy?: string;
+}
+
+/** A flag's history: its flips, newest first. */
+export interface FeatureFlagHistory {
+  /** The newest flips, as many as the server answers in one read. */
+  changes: FeatureFlagChange[];
+  /** Whether the flag was flipped more often than the answer lists, so older flips are left out. */
+  more: boolean;
 }
 
 /** What the server answers a flip with: the flag's new state and when it took effect. */
@@ -59,6 +96,12 @@ export interface FeatureStateOptions {
   route?: string;
   /** The generated flip method's descriptor entry; absent on an API that declares none, where a flip is refused before any request. */
   setFeature?: MethodDescriptor;
+  /**
+   * The route of the feature flags resource, which a flag's history is read under: the
+   * descriptor's. Absent on an API that declares no such resource, where a history is
+   * refused before any request.
+   */
+  flagsRoute?: string;
   /** The digest cache a flip refreshes afterwards, since a flip changes what the digest carries. */
   permissions: PermissionStore;
   /** Reads every row of the feature flags resource through the client's own handle. */
@@ -95,8 +138,8 @@ export function noFeaturesRouteWarning(feature?: string): string {
  * fetches: a flag the set does not hold is off, and so is every flag before the set has
  * loaded, so consumers fail closed. Nothing polls and nothing is pushed: a flip by
  * someone else is seen at the next sign-in, by design. The one exception is the person
- * flipping, whose `setFeature` refreshes this set and the digest once the write succeeds,
- * so their own pages follow at once.
+ * flipping, whose flip (`setFeature`, or the generated flip method's handle) refreshes this
+ * set and the digest once the write succeeds, so their own pages follow at once.
  *
  * An API that serves no feature flags (its descriptor carries no `features` route, since
  * its generator predates them) keeps the set empty and unloaded: `refresh` resolves to
@@ -232,8 +275,42 @@ export class FeatureState {
     }
     const body: SetFeatureRequest = { name, enabled };
     const flip = await this.options.request<FeatureFlip>('POST', method.route, { body });
-    await Promise.all([this.refresh(), this.options.permissions.refresh()]);
+    await this.flipped();
     return flip;
+  }
+
+  /**
+   * What follows a flip the person made: the enabled set, every cached digest and the
+   * domains are read again, so their own pages follow at once. `setFeature` runs it, and so
+   * does the generated flip method's handle, so a flip made through a page that runs
+   * methods by name (a list's row action) is followed the same way.
+   */
+  async flipped(): Promise<void> {
+    await Promise.all([this.refresh(), this.options.permissions.refresh()]);
+  }
+
+  /**
+   * One flag's history: each time it was turned on or off and by whom, newest first, read
+   * from the flag's own route. Whoever may list the flags may read it; the server refuses
+   * anyone else (403) and a flag the application does not declare (404) with its ApiError.
+   * An API that serves no feature flags, or declares no feature flags resource, refuses
+   * before any request.
+   */
+  async changes(name: string): Promise<FeatureFlagHistory> {
+    if (!this.served) {
+      throw new Error(notServed);
+    }
+    const route = this.options.flagsRoute;
+    if (route === undefined) {
+      throw new Error(
+        `this API declares no ${featureFlagsResource} resource; a feature flag's history cannot be read from here`,
+      );
+    }
+    const answer = await this.options.request<Partial<FeatureFlagHistory> | null>(
+      'GET',
+      `${route}/${encodeURIComponent(name)}/${featureFlagChangesRoute}`,
+    );
+    return { changes: answer?.changes ?? [], more: answer?.more === true };
   }
 
   /** Forgets the set — on logout. */

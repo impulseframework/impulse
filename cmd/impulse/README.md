@@ -1594,9 +1594,9 @@ nowhere, and the brief hands the agent what is left: what to gate (`@feature(<Co
 on a resource, a field or a method, or a read in Go or in the browser), the description to
 write in place of the stub, how a flag is flipped (the generated `SetFeature` method
 under the `FeatureAdministrator` role, which the development login holds), and that the
-menu file's Feature flags… entry opens the library's `FeatureFlagsDialog`
-(`actions.featureFlags`, which the frame hands the menu file, shown under List on
-`FeatureFlags`).
+menu file places the library's Feature flags page (`featureFlagsPage(resourceMeta)`,
+shown under List on `FeatureFlags`), which lists each flag with who last turned it on or
+off, flips one after asking, and opens a flag's history in a pop-up.
 
 ```sh
 impulse add feature cargo_manifest --agent

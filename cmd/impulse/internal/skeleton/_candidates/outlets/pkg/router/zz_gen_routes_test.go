@@ -429,6 +429,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/feature-flags", method: http.MethodPost},
 		{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		{url: "/devices/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		{url: "/devices/set-feature", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodPost},
@@ -1941,6 +1942,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
+			url: "/console/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
 			url: "/console/api/set-feature", method: http.MethodPost,
 			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -1968,6 +1974,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/feature-flags/testFeatureFlagName", method: http.MethodPost,
 			handlerFunc: "FeatureFlag",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
+			url: "/portal/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
@@ -2218,6 +2229,10 @@ func (s *generatedHandlersStub) FeatureFlags() http.HandlerFunc {
 
 func (s *generatedHandlersStub) FeatureFlag() http.HandlerFunc {
 	return s.record("FeatureFlag")
+}
+
+func (s *generatedHandlersStub) FeatureFlagChanges() http.HandlerFunc {
+	return s.record("FeatureFlagChanges")
 }
 
 func (s *generatedHandlersStub) Features() http.HandlerFunc {

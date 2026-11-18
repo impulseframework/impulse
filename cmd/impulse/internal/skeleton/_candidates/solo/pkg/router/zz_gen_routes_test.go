@@ -526,6 +526,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
+			url: "/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
 			url: "/api/set-feature", method: http.MethodPost,
 			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -616,6 +621,10 @@ func (s *generatedHandlersStub) FeatureFlags() http.HandlerFunc {
 
 func (s *generatedHandlersStub) FeatureFlag() http.HandlerFunc {
 	return s.record("FeatureFlag")
+}
+
+func (s *generatedHandlersStub) FeatureFlagChanges() http.HandlerFunc {
+	return s.record("FeatureFlagChanges")
 }
 
 func (s *generatedHandlersStub) Features() http.HandlerFunc {

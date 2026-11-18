@@ -622,13 +622,14 @@ fi
 # desk's routes answer the router's own 404, its arm of the consolidated patch answers as an
 # unknown resource, the digest leaves the desk and the card's field out, and the field named in
 # a request is unknown. The adjutant, who holds FeatureAdministrator, reads the flags as the
-# dialog does (name, description, state, when it last changed and by whom), turns the flag on
-# through SetFeature, and the desk answers, the digest carries it, and Pax's card counts his
-# citations. A second server process on another port against the same emulators, built from
+# Feature flags page does (name, description, state, and who last turned the flag on or off
+# and when: nobody, for a flag only the deploy step has written), turns the flag on through
+# SetFeature, and the desk answers, the digest carries it, Pax's card counts his citations,
+# and the flag's history, which the page opens in a pop-up, lists the flip by her name. A second server process on another port against the same emulators, built from
 # this tree and started before the flip, serves the desk at its next request with no restart:
 # the flip is signaled on the features kind of the live service's signals document. Off again,
 # both refuse. The second process is skipped when the stack runs without the Firestore emulator
-# (the five-minute backstop alone would carry the flip then). Demonstrates: @feature, @feature.field.
+# (the five-minute backstop alone would carry the flip then). Demonstrates: @feature, @feature.field, feature.history.
 SECOND_PORT=${LODESTAR_SECOND_PORT:-8091}
 B2=http://127.0.0.1:$SECOND_PORT
 API2=$B2/console/api
@@ -652,8 +653,10 @@ login adjutant
 r=$(req adjutant GET "$API/features"); check "the features route answers anyone signed in: nothing is on" 200 "$r"
 assert_py "the enabled set is empty" "$r" "rows=={'enabled':[]}"
 r=$(req cadet GET "$API/features"); assert_py "the cadet reads the same set with no grant on the flags" "$r" "rows=={'enabled':[]}"
-r=$(req adjutant GET "$API/feature-flags"); check "the adjutant lists the flags (List on FeatureFlags): the dialog's rows" 200 "$r"
-assert_py "one flag, commendations, off, with its description, stamped by the migration within the last day" "$r" "len(rows)==1 and rows[0]['name']=='commendations' and rows[0]['enabled'] is False and rows[0]['description'].startswith('Commendations lets headquarters cite a pilot') and 'MigrateFeatures' in rows[0]['updatedBy'] and $RECENT(rows[0]['updatedAt'])"
+r=$(req adjutant GET "$API/feature-flags"); check "the adjutant lists the flags (List on FeatureFlags): the Feature flags page's rows" 200 "$r"
+assert_py "one flag, commendations, off, with its description, flipped by nobody (the deploy step declared it within the last day)" "$r" "len(rows)==1 and rows[0]['name']=='commendations' and rows[0]['enabled'] is False and rows[0]['description'].startswith('Commendations lets headquarters cite a pilot') and rows[0]['updatedBy']=='' and $RECENT(rows[0]['updatedAt'])"
+r=$(req adjutant GET "$API/feature-flags/commendations/changes"); check "the flag's history, under the grant that lists the flags" 200 "$r"
+assert_py "nobody has flipped it: an empty list" "$r" "rows=={'changes':[],'more':False}"
 r=$(req adjutant GET "$API/commendations"); check "the desk is dark while the flag is off: the router's own 404" 404 "$r"
 r=$(req adjutant GET "$API/commendations/e0000000-0000-4000-8000-000000000001"); check "a seeded citation's read is not found either" 404 "$r"
 r=$(req adjutant PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/commendations\",\"value\":{\"pilotId\":\"$PAX\",\"citation\":\"Filed while the desk is dark\"}}]"); check "the desk's arm of the consolidated patch answers as an unknown resource" 400 "$r"
@@ -664,6 +667,8 @@ assert_py "Pax's card carries no commendations field" "$r" "len(rows)==1 and 'co
 assert_py "the one card is his own, keyed by the id of his account, and named by the pilot's record" "$r" "rows[0]['userId']=='$PILOT_ID' and rows[0]['displayName']=='Pilot Pax'"
 r=$(req cadet POST "$API/set-feature" '{"name":"commendations","enabled":true}'); check "the cadet holds no Execute on SetFeature" 403 "$r"
 r=$(req cadet GET "$API/feature-flags"); check "nor List on the flags" 403 "$r"
+r=$(req cadet GET "$API/feature-flags/commendations/changes"); check "so a flag's history is refused too" 403 "$r"
+r=$(req adjutant GET "$API/feature-flags/nonesuch/changes"); check "the history of a flag the package does not declare is not found" 404 "$r"
 r=$(req adjutant POST "$API/set-feature" '{"name":"nonesuch","enabled":true}'); check "a flag the package does not declare is not found" 404 "$r"
 r=$(dryrun adjutant POST "$API/set-feature" '{"name":"commendations","enabled":true}'); check "a dry run of the flip runs the frame and rolls back" 200 "$r"
 r=$(req adjutant GET "$API/features"); assert_py "the dry run changed nothing" "$r" "rows=={'enabled':[]}"
@@ -678,7 +683,8 @@ r=$(req adjutant POST "$API/set-feature" '{"name":"commendations","enabled":true
 assert_py "the answer is the flag as written, stamped now" "$r" "rows['name']=='commendations' and rows['enabled'] is True and $RECENT(rows['updatedAt'])"
 r=$(req adjutant GET "$API/features"); assert_py "the features route lists it" "$r" "rows=={'enabled':['commendations']}"
 r=$(req adjutant GET "$API/feature-flags/commendations"); check "the flag read by name (Read on FeatureFlags)" 200 "$r"
-assert_py "on, stamped by the adjutant within the last day: what the dialog shows as on-since" "$r" "rows['enabled'] is True and rows['updatedBy'].startswith('adjutant ($ADJUTANT_ID), session ') and $RECENT(rows['updatedAt'])"
+assert_py "on, last flipped by the adjutant, by the name she signs in under, within the last day: what the page lists" "$r" "rows['enabled'] is True and rows['updatedBy']=='adjutant' and $RECENT(rows['updatedAt'])"
+r=$(req adjutant GET "$API/feature-flags/commendations/changes"); assert_py "the flag's history holds the one flip: turned on, by the adjutant, within the last day" "$r" "rows['more'] is False and [(c['enabled'],c['changedBy']) for c in rows['changes']]==[(True,'adjutant')] and $RECENT(rows['changes'][0]['changedAt'])"
 r=$(req adjutant GET "$API/commendations"); check "the desk answers at once on the instance that flipped" 200 "$r"
 assert_py "the seeded citations, newest first" "$r" "[c['citation'] for c in rows]==['Talked a drifting hauler crew through a cold restart','Brought the Kingfisher home on one engine','Held formation through the debris belt with a cracked canopy']"
 r=$(req adjutant GET "$API/commendations?filter=pilotId:eq:$PAX"); assert_py "Pax's two, off the index" "$r" "len(rows)==2 and all(c['pilotId']=='$PAX' for c in rows)"
@@ -696,6 +702,7 @@ if [ -n "$SECOND_PID" ]; then
   r=$(req adjutant.2 GET "$API2/features"); assert_py "its features route lists the flag" "$r" "rows=={'enabled':['commendations']}"
 fi
 r=$(req adjutant POST "$API/set-feature" '{"name":"commendations","enabled":false}'); check "the adjutant turns the desk off again" 200 "$r"
+r=$(req adjutant GET "$API/feature-flags/commendations/changes"); assert_py "the flag's history holds both flips, the newest first" "$r" "[(c['enabled'],c['changedBy']) for c in rows['changes']]==[(False,'adjutant'),(True,'adjutant')] and rows['changes'][0]['changedAt']>=rows['changes'][1]['changedAt']"
 r=$(req adjutant GET "$API/commendations"); check "the desk is dark again on the first instance" 404 "$r"
 r=$(req pilot GET "$API/pilot-cards?columns=userId,commendations"); check "and the card's field is unknown again" 400 "$r"
 if [ -n "$SECOND_PID" ]; then

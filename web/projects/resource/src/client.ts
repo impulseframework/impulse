@@ -624,6 +624,7 @@ export function createClient<G, D, A = Record<never, never>>(
     request,
     route: descriptor.features?.route,
     setFeature: descriptor.methods[setFeatureMethod],
+    flagsRoute: descriptor.resources[featureFlagsResource]?.route,
     permissions,
     flags: () => listFlags(base),
     warn,
@@ -1322,12 +1323,21 @@ function createMethodHandle<Body, Result = void>(
     const answer = await client.request<Result | null | undefined>('POST', route, { body, headers });
     return (answer ?? undefined) as Result;
   };
+  // The method that flips a feature flag changes what the person's own pages may show: once
+  // the write succeeds the enabled set and the digests are read again before the call
+  // resolves, whichever page made it (FeatureState.flipped).
+  const flipsFlag = descriptor.method === setFeatureMethod;
+  const flip = async (body: Body): Promise<Result> => {
+    const answer = await post(body);
+    await client.features.flipped();
+    return answer;
+  };
   const handle: MethodHandle<Body, Result> = {
     method: descriptor.method,
     descriptor,
     domain: scope.domain,
     url: () => `${client.baseUrl}/${route}`,
-    execute: (body) => post(body),
+    execute: flipsFlag ? flip : (body) => post(body),
     dryRun: async (body) => {
       await client.request<unknown>('POST', route, { body, headers: { [dryRunHeader]: 'true' } });
     },

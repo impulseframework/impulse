@@ -201,7 +201,7 @@ export interface StaffSignUpRoles {
   description?: string;
 }
 
-/** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
+/** A feature flag: one declared flag's row, as the Feature flags page lists it. */
 export interface FeatureFlags {
   name: string;
   description?: string;

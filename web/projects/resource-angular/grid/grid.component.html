@@ -23,23 +23,31 @@
             <th class="data-col" [style.width.px]="widthFor(col)">
               <div class="header-cell">
                 @if (!col.buttonConfig) {
-                  <button
-                    type="button"
-                    class="header-label"
-                    title="Click to sort, shift-click to add a secondary sort"
-                    (click)="toggleSort(col, $event)">
-                    @if (!col.hideHeader) {
-                      <span class="col-header">{{ col.header || col.id | camelCaseToTitle }}</span>
-                    }
-                    @if (sortInfo(col); as sort) {
-                      <mat-icon class="sort-icon">{{
-                        sort.direction === 'asc' ? 'arrow_upward' : 'arrow_downward'
-                      }}</mat-icon>
-                      @if (hasMultipleSorts()) {
-                        <span class="sort-priority">{{ sort.priority }}</span>
+                  @if (sortable()) {
+                    <button
+                      type="button"
+                      class="header-label"
+                      title="Click to sort, shift-click to add a secondary sort"
+                      (click)="toggleSort(col, $event)">
+                      @if (!col.hideHeader) {
+                        <span class="col-header">{{ col.header || col.id | camelCaseToTitle }}</span>
                       }
-                    }
-                  </button>
+                      @if (sortInfo(col); as sort) {
+                        <mat-icon class="sort-icon">{{
+                          sort.direction === 'asc' ? 'arrow_upward' : 'arrow_downward'
+                        }}</mat-icon>
+                        @if (hasMultipleSorts()) {
+                          <span class="sort-priority">{{ sort.priority }}</span>
+                        }
+                      }
+                    </button>
+                  } @else {
+                    <span class="header-label header-words">
+                      @if (!col.hideHeader) {
+                        <span class="col-header">{{ col.header || col.id | camelCaseToTitle }}</span>
+                      }
+                    </span>
+                  }
                   @switch (filterControl(col)) {
                     @case ('enabled') {
                       <button

@@ -375,6 +375,7 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/feature-flags", method: http.MethodPost},
 		foreign{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		foreign{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		foreign{url: "/droids/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		foreign{url: "/droids/set-feature", method: http.MethodPost},
 		foreign{url: "/droids/clients", method: http.MethodGet},
 		foreign{url: "/droids/clients", method: http.MethodPost},

@@ -13,27 +13,27 @@ import { ShownMenu } from './menu';
 import { MenuService } from './menu.service';
 
 // The bar draws the application's name, the place, the menus and the person's corner. The
-// menus hold what the digest grants: an entry of the menu file that opens the feature flags
-// dialog shows under List on FeatureFlags and opens the dialog; a person with no grant there
-// has no System menu at all. Help comes last on every bar and ends with About.
+// menus hold what the digest grants: the Feature flags page the menu file places shows
+// under List on FeatureFlags, as a link to the page; a person with no grant there has no
+// System menu at all. Help comes last on every bar and ends with About, which opens a
+// pop-up and goes nowhere.
 
 /** The flags' reader: List on FeatureFlags. */
 const flagsReader: PermissionDigest = { FeatureFlags: { List: 'granted', Read: 'granted' } };
 /** Someone with no grant at all. */
 const nobody: PermissionDigest = {};
 
-/** A menu file with one System menu: Feature flags, behind List on FeatureFlags. */
-const menuFile: FrameConfig['menus'] = (actions) => [
+/** A menu file with one System menu: the Feature flags page, behind List on FeatureFlags. */
+const menuFile: FrameConfig['menus'] = [
   {
     label: 'System',
     groups: [
       {
         entries: [
           {
-            label: 'Feature flags…',
+            label: 'Feature flags',
             icon: 'flag',
-            run: actions.featureFlags,
-            place: 'outside',
+            route: ['feature-flags'],
             permission: { resource: 'FeatureFlags' as Resource, permission: ListPermission },
           },
         ],
@@ -85,16 +85,15 @@ describe('FrameBarComponent', () => {
     ).toEqual(['About']);
   });
 
-  it('puts Feature flags in the System menu under List on FeatureFlags, and it opens the dialog', async () => {
+  it('puts the Feature flags page in the System menu under List on FeatureFlags, as a link to the page', async () => {
     await signIn(flagsReader);
     const entry = menu('System')
       ?.groups.flatMap((group) => group.entries)
-      .find((e) => e.label === 'Feature flags…');
+      .find((e) => e.label === 'Feature flags');
     expect(entry).toBeDefined();
-    entry?.run?.();
-    fixture.detectChanges();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(document.querySelector('mat-dialog-container')).not.toBeNull();
+    // A page: it has an address and nothing to run, so it opens no dialog.
+    expect(entry?.link).toEqual(['feature-flags']);
+    expect(entry?.run).toBeUndefined();
   });
 
   it('draws no System menu for a person with no grant outside the tenants', async () => {

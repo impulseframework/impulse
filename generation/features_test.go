@@ -429,7 +429,7 @@ func Test_featuresTemplate(t *testing.T) {
 			name:            "no routes, nothing gated: the features route alone",
 			data:            base,
 			wantContains:    []string{"func (a *App) Features() http.HandlerFunc {\n\treturn resource.FeaturesHandler(a.FeatureSet())\n}"},
-			wantNotContains: []string{"FeatureFlags()", "SetFeature()", "FeatureGuard()"},
+			wantNotContains: []string{"FeatureFlags()", "FeatureFlagChanges()", "SetFeature()", "FeatureGuard()"},
 		},
 		{
 			name: "routes: the flags' handlers over the generated collection and the live service",
@@ -437,8 +437,10 @@ func Test_featuresTemplate(t *testing.T) {
 			wantContains: []string{
 				"return resource.FeatureFlagsHandler(a, router.Collection())",
 				"return resource.FeatureFlagHandler(a, router.Collection())",
+				"func (a *App) FeatureFlagChanges() http.HandlerFunc {\n\treturn resource.FeatureFlagChangesHandler(a, router.Collection())\n}",
 				"return resource.SetFeatureHandler(a, router.Collection(), a.LiveService())",
 				"GET /api/feature-flags/{featureFlagName}",
+				"// GET /api/feature-flags/{featureFlagName}/changes.",
 			},
 			wantNotContains: []string{"FeatureGuard()"},
 		},
@@ -572,8 +574,8 @@ func Test_routerTestTemplate_featureGuard(t *testing.T) {
 }
 
 // Test_accumulateFeatureRoutes pins the routes every outlet gains: the features route
-// on each, the FeatureFlags list and read and SetFeature on the session-serving ones,
-// all of them in the dispatch test.
+// on each, the FeatureFlags list and read, a flag's history (a GET alone) and SetFeature
+// on the session-serving ones, all of them in the dispatch test.
 func Test_accumulateFeatureRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -594,6 +596,7 @@ func Test_accumulateFeatureRoutes(t *testing.T) {
 		"http.MethodPost /api/feature-flags -> FeatureFlags",
 		"http.MethodGet /api/feature-flags/testFeatureFlagName -> FeatureFlag",
 		"http.MethodPost /api/feature-flags/testFeatureFlagName -> FeatureFlag",
+		"http.MethodGet /api/feature-flags/testFeatureFlagName/changes -> FeatureFlagChanges",
 		"http.MethodPost /api/set-feature -> SetFeature",
 		"http.MethodGet /droids/features -> Features",
 	}
@@ -610,11 +613,19 @@ func Test_accumulateFeatureRoutes(t *testing.T) {
 	if read.Path != "/api/feature-flags/{featureFlagName}" {
 		t.Errorf("read route path = %q", read.Path)
 	}
+	changes := outletRoutes[0].RoutesMap[featureFlagRoutesKey][2]
+	if changes.Path != "/api/feature-flags/{featureFlagName}/changes" {
+		t.Errorf("history route path = %q", changes.Path)
+	}
+	if diff := cmp.Diff(read.TestParams, changes.TestParams); diff != "" {
+		t.Errorf("history route parameters differ from the read's (-read +history):\n%s", diff)
+	}
 }
 
 // Test_featureAuthzCases pins the matrix's feature cases: the features route open on
-// every outlet; FeatureFlags list and read as query pairs and SetFeature denied-only,
-// with its dry run, on the session-serving outlets alone.
+// every outlet; FeatureFlags list and read as query pairs, a flag's history as a pair
+// under List (the grant that lists the flags, and no grant of its own) and SetFeature
+// denied-only, with its dry run, on the session-serving outlets alone.
 func Test_featureAuthzCases(t *testing.T) {
 	t.Parallel()
 
@@ -623,6 +634,7 @@ func Test_featureAuthzCases(t *testing.T) {
 		{Name: "Features", Method: "http.MethodGet", URL: "/api/features", Open: true},
 		{Name: "FeatureFlags", Method: "http.MethodGet", URL: "/api/feature-flags", Permission: "List"},
 		{Name: "FeatureFlag", Method: "http.MethodGet", URL: "/api/feature-flags/authz-test-key", Permission: "Read"},
+		{Name: "FeatureFlagChanges", Method: "http.MethodGet", URL: "/api/feature-flags/authz-test-key/changes", Permission: "List"},
 		{Name: "SetFeature", Method: "http.MethodPost", URL: "/api/set-feature", Body: "{}", DeniedOnly: true},
 		{Name: "SetFeature dry run", Method: "http.MethodPost", URL: "/api/set-feature", Body: "{}", Headers: []authzHeader{{Name: "X-Dry-Run", Value: "true"}}, DeniedOnly: true},
 		{Name: "Features (droids)", Method: "http.MethodGet", URL: "/droids/features", Open: true},
