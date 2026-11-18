@@ -106,6 +106,8 @@ type fakeStore struct {
 	// each tenant.
 	links       map[impulse.UUID]*MailLink
 	invitations map[accesstypes.Domain][]impulse.UUID
+	// invited are the unconsumed invitations that make a tenant.
+	invited []InvitedTenantRow
 	// passwords are the users that exist for the password rule, true where one holds a
 	// password; identities the user each identity links to; tokens the tokens by id,
 	// and families the unrevoked tokens of each family.
@@ -432,6 +434,9 @@ func (f *fakeStore) InsertInvitation(_ context.Context, _ resource.ReadWriteTran
 	if row.Name != "" {
 		line += " name=" + row.Name
 	}
+	if row.NewTenant != nil {
+		line += " new-tenant=" + row.NewTenant.Name + " directory-only=" + boolText(row.NewTenant.DirectoryOnly) + " details=" + string(row.NewTenant.Details)
+	}
 	f.writes = append(f.writes, line)
 
 	return nil
@@ -621,6 +626,14 @@ func (f *fakeStore) TenantInvitations(_ context.Context, _ resource.ReadWriteTra
 	return f.invitations[domain], nil
 }
 
+func (f *fakeStore) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]InvitedTenantRow, error) {
+	if err := f.fail("InvitedTenants"); err != nil {
+		return nil, err
+	}
+
+	return f.invited, nil
+}
+
 func boolText(b bool) string {
 	if b {
 		return "true"
@@ -752,7 +765,7 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 		mail: s.mail,
 		row: session.InvitationRow{
 			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID,
-			ExpiresAt: time.Time{},
+			ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
 		},
 	}, nil
 }

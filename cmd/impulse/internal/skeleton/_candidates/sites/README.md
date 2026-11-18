@@ -7,8 +7,8 @@ in a flat application: the `Tenant` record (`@tenant`) over the `Tenants` table 
 domain universe, declared in both sites' resource packages (the console serves it, the
 portal's declaration has its handlers and routes suppressed), tenant-scoped routes live
 under `/api/tenants/{tenantID}/`, the shared data level's tenant roster keeps the tenants
-current on every instance of both sites (a tenant created through the console's API is
-usable at once, without a restart), and tenant existence is concealed from logins that
+current on every instance of both sites (a tenant is usable the moment it is made,
+without a restart), and tenant existence is concealed from logins that
 hold nothing there. Each site's browser application sits in the library's frame
 (`provideFrame` in `app.config.ts`) and mirrors the API's shape: every tenant-scoped page
 lives under the tenant segment, `/tenants/{tenantID}/...` (the generated
@@ -33,11 +33,27 @@ the whole application's accounts. The library
 draws them from the API description (`identityRoutes` in the console's `app.routes.ts`,
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
-shows Tenants (All tenants and New tenant…) and System (the staff's accounts and Feature
-flags…) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
+shows Tenants (All tenants) and System (the staff's accounts, the Invited tenants page and
+Feature flags…) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
 portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
 menu holds Your account, Appearance and Sign out, and Help ends with About, which carries
 the release.
+
+How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
+directly: the record's create is refused, with a sentence that says so. An administrator
+brings an organization in by inviting one person, on the console's Invited tenants page
+(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+`StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
+`Administrator` role's Create grant on the record, and a name a tenant holds is refused
+there. No tenant exists while the invitation waits; the invited person's first sign-in
+makes it under an id the server generates, gives them the roles the App names in
+`TenantAdministratorRoles` (`TenantAdministrator`) and hands the tenant to the roster, so
+their next request stands in it. An invitation that still waits is withdrawn on the same
+page. The staff auth is handed what makes the tenant by the data level
+(`staff.Settings.TenantMaker`, the generated `consoleapp.NewTenantMaker` over the roster, built before the
+auth), and refuses to start without it. A person who signed up and holds no tenant
+creates their own through the generated create-your-tenant route, which the dashboard
+offers while an administrator has a sign-in method open to sign-up.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -186,7 +202,11 @@ turned on, since that takes a person who is signed in through the tenant's direc
   grant is proven by a test case that names it through `provesGrant`, and
   `impulse check` fails on one no case names.
 - `test/integration` serves both sites over one database and drives each the way its
-  browser application does.
+  browser application does. How a tenant comes to exist is held there and beside the
+  console's matrix: `test/integration/invited_tenant_test.go` plays the invitation that
+  makes a tenant from the sending to the first sign-in, and
+  `apps/console/test/authz/invited_tenant_test.go` holds the sending to the Create grant
+  on the record.
 
 ## RPC methods
 

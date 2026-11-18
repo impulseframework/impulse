@@ -411,6 +411,12 @@ var (
 	// or acceptance is refused and the invitation left standing. The code is
 	// sessioninfo.RefusedInvitationAddress.
 	ErrInvitationAddress = errors.New("signin: the directory's address is not the one the invitation was mailed to")
+	// ErrOrganizationAccountRequired is the cause when a sign-in or an acceptance
+	// carried an invitation that makes a tenant entered through its directory only, and
+	// the person did not come through an organization's directory (a password, a
+	// personal account): nothing is written and the invitation stands. The code is
+	// sessioninfo.RefusedOrganizationAccountRequired.
+	ErrOrganizationAccountRequired = errors.New("signin: the invitation makes a tenant entered through its directory only, and the sign-in came through no organization's directory")
 	// ErrSignInDenied is the cause when the sign-in policy returned DenySignIn or no
 	// decision. The code is the decision's, or sessioninfo.RefusedByPolicy. A refusal
 	// of the tenant policy carries its own cause beside it.

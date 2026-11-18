@@ -77,7 +77,7 @@ func TestSelfService_signInFirstThroughOpenSignUp(t *testing.T) {
 	if status != http.StatusFound || location != "/login?pending=mfa&returnUrl="+url.QueryEscape("/dashboard") {
 		t.Fatalf("the callback answered %d to %q, want %d to the login page's code step, returning to /dashboard", status, location, http.StatusFound)
 	}
-	b.secondFactor(ctx, "wanderer", false)
+	b.secondFactor(ctx, "wanderer")
 	status, body = b.do(ctx, http.MethodGet, "/api/user/session", nil)
 	if status != http.StatusOK || !strings.Contains(string(body), `"wanderer"`) {
 		t.Fatalf("GET /api/user/session after the sign-in: status %d: %s", status, body)

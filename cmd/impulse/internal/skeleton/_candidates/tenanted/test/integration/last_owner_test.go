@@ -16,12 +16,13 @@ import (
 // in the rule's words, and still refused while another person holds Administrator alone,
 // the role file's own role, which makes nobody a super administrator; a role of the
 // whole application that is not that one goes freely, since a super administrator gives
-// it back, as does TenantAdministrator held in every tenant; in a tenant they
-// created, where the create path made them its administrator, they are refused giving
-// the role up as its last holder and give it up once they hold it in every tenant again;
-// and once the member is a super administrator beside them, they give that up too. So an
-// operator creates a customer's tenant, makes its first administrator and leaves, and
-// neither the application nor a tenant is left with nobody to give the next role. Every
+// it back, as does TenantAdministrator held in every tenant; in a tenant an invitation
+// made, whose first sign-in made the invited person its administrator, that person is
+// refused giving the role up as its last holder and gives it up once the administrator
+// holds it in every tenant again; and once the member is a super administrator beside
+// them, the administrator gives that up too. So an operator brings a customer's tenant in
+// by inviting its first administrator and leaves, and neither the application nor a
+// tenant is left with nobody to give the next role. Every
 // method names its person by the id of their account, and the rule knows the caller by
 // theirs.
 func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
@@ -71,23 +72,22 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 		t.Fatalf("the administrator giving up TenantAdministrator held in every tenant: status %d, want 204: %s", status, body)
 	}
 
-	// In a tenant: the create path made the creator west's administrator, and with no
-	// holder in every tenant left, they are its last one, refused in the tenant's words;
-	// holding the role in every tenant again, they give up west's own.
-	west := createTenant(ctx, t, admin, "West")
-	if roles := tenantRolesOf(ctx, t, admin, west, adminUser); !slices.Contains(roles, "TenantAdministrator") {
-		t.Fatalf("the administrator's roles in West = %v, want TenantAdministrator: the create path gives the creator the role", roles)
-	}
+	// In a tenant: the invitation's first sign-in made the invited person west's
+	// administrator, and with no holder in every tenant left, they are its last one,
+	// refused in the tenant's words; once the administrator holds the role in every
+	// tenant again, they give up west's own.
+	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
+	founderID := staffUserID(ctx, t, admin, "founder")
 	westRole := "/api/tenants/" + west + "/remove-staff-tenant-role"
-	status, body = admin.do(ctx, http.MethodPost, westRole, tenantRoleOf(adminID, "TenantAdministrator"))
+	status, body = founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator"))
 	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this tenant: give another person the role before you remove your own") {
-		t.Fatalf("the administrator giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
+		t.Fatalf("the founder giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(adminID, "TenantAdministrator", true)); status != http.StatusNoContent {
 		t.Fatalf("the administrator taking TenantAdministrator in every tenant again: status %d: %s", status, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPost, westRole, tenantRoleOf(adminID, "TenantAdministrator")); status != http.StatusNoContent {
-		t.Fatalf("the administrator giving up West's role while holding it in every tenant: status %d, want 204: %s", status, body)
+	if status, body := founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator")); status != http.StatusNoContent {
+		t.Fatalf("the founder giving up West's role while the administrator holds it in every tenant: status %d, want 204: %s", status, body)
 	}
 
 	// Another holder given the role, the administrator gives it up.

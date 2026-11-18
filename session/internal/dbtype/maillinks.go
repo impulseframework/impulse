@@ -1,10 +1,12 @@
 package dbtype
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // MailLinkKind is what a mailed link does when it is followed.
@@ -57,8 +59,42 @@ type MailLink struct {
 	InvitedByUserID impulse.NullUUID
 	// Name is the invited person's name as the inviter typed it; "" for none and for
 	// the other kinds.
-	Name       string
+	Name string
+	// NewTenant is the tenant an invitation makes when it is accepted; nil for an
+	// invitation into a tenant that exists or into the application's global surface,
+	// and for the other kinds. The table holds it as a JSON document (NewTenantColumn).
+	NewTenant  *sessioninfo.NewTenant
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	ConsumedAt *time.Time
+}
+
+// NewTenantColumn renders the tenant an invitation makes as the mail links table's
+// NewTenant column holds it: its JSON document, or nil, which is NULL, for a link that
+// makes none.
+func NewTenantColumn(tenant *sessioninfo.NewTenant) (*string, error) {
+	if tenant == nil {
+		return nil, nil
+	}
+	document, err := json.Marshal(tenant)
+	if err != nil {
+		return nil, errors.Wrap(err, "json.Marshal()")
+	}
+	column := string(document)
+
+	return &column, nil
+}
+
+// NewTenantFromColumn reads the mail links table's NewTenant column back: the tenant
+// the invitation makes, or nil for a NULL.
+func NewTenantFromColumn(column *string) (*sessioninfo.NewTenant, error) {
+	if column == nil {
+		return nil, nil
+	}
+	tenant := &sessioninfo.NewTenant{}
+	if err := json.Unmarshal([]byte(*column), tenant); err != nil {
+		return nil, errors.Wrap(err, "json.Unmarshal()")
+	}
+
+	return tenant, nil
 }

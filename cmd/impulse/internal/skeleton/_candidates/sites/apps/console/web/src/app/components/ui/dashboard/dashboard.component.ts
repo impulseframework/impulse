@@ -99,9 +99,9 @@ export class DashboardComponent {
     });
   }
 
-  /** Opens the new-tenant dialog on its self-service path: the person becomes the tenant's administrator. */
+  /** Opens the new-tenant dialog: the person names their tenant and becomes its administrator. */
   createYourTenant(): void {
-    openNewTenantDialog(this.dialog, { selfService: true });
+    openNewTenantDialog(this.dialog);
   }
 
   private scopeOf(resource: Resource): string {

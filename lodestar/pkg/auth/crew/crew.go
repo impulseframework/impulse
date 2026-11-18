@@ -164,11 +164,12 @@ const (
 // in every sector). The auth's generated management judges a person who takes a
 // sector's role from themselves by the sector's (identity.WithAdministratorRoles, the
 // last-owner rule): a marshal leaves a sector once another marshal holds it, and the
-// last one is refused; and the Sector record's create gives the creator the sector's
-// (app.SectorAdministratorRoles). The whole service is kept by the role the framework
-// defines in every auth instead, Super Administrator (accesstypes.SuperAdministrator),
-// which the governor holds: its last holder keeps the role and the account, whoever
-// asks.
+// last one is refused; and the first person into a sector is given the sector's, the
+// person invited to found it at their first sign-in and the pioneer on the
+// create-sector route (app.SectorAdministratorRoles). The whole service is kept by the
+// role the framework defines in every auth instead, Super Administrator
+// (accesstypes.SuperAdministrator), which the governor holds: its last holder keeps the
+// role and the account, whoever asks.
 //
 // Demonstrates: tenancy.creator-seat.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
@@ -177,7 +178,8 @@ func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
 
 // sectorAdministratorRoles are the roles that administer a sector, the ones
 // AdministratorRoles names as held in every sector: what the identity client judges a
-// person who takes a sector's role from themselves by.
+// person who takes a sector's role from themselves by, and what it gives the person
+// whose first sign-in makes a sector from an invitation.
 func sectorAdministratorRoles() []accesstypes.Role {
 	_, everyDomain := AdministratorRoles()
 
@@ -250,6 +252,11 @@ type Settings struct {
 	// (app.NewSectorDirectoryReader), which the directory admission decides a stranger's
 	// first sign-in with. Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
+	// TenantMaker makes a sector from an accepted invitation: the generated maker over
+	// the Sector record's create patch (app.NewSectorMaker), which the crew's identity
+	// client checks an invitation's details with when Headquarters sends one and makes
+	// the sector with at the invited person's first sign-in. Required; New refuses nil.
+	TenantMaker identity.TenantMaker
 }
 
 // required refuses settings that lack what the auth is not built without, each refusal
@@ -262,6 +269,8 @@ func (s *Settings) required() error {
 		return errors.New("crew.Settings.TenantDeclarations is required: the sign-in rule reads what each sector declares about who may enter it through the generated reader (app.NewSectorDeclarationReader)")
 	case s.TenantDirectories == nil:
 		return errors.New("crew.Settings.TenantDirectories is required: the directory admission reads what each sector declares about one directory, its default seat included, through the generated reader (app.NewSectorDirectoryReader)")
+	case s.TenantMaker == nil:
+		return errors.New("crew.Settings.TenantMaker is required: a sector is made by an invitation's first sign-in, through the generated maker over the Sector record (app.NewSectorMaker)")
 	case s.Mail.Sender == nil:
 		return errors.New("crew.Settings.Mail.Sender is required: the auth mails its invitations, address verifications and sign-up links through it (the configuration's driver, or mail.Log in development)")
 	}
@@ -764,8 +773,16 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// patch's OrSkip), so a role given twice is written once and keeps the time it was
 	// first given.
 	//
-	// Demonstrates: auth.generated-identity, OrSkip.
-	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), identity.WithAdministratorRoles(sectorAdministratorRoles()))
+	// The client makes the sectors too. Nobody charts a sector directly: Headquarters
+	// invites one person with the sector's details, which the client checks against the
+	// Sector record's own create under the sender's grants, and that person's first
+	// sign-in makes the sector through the generated maker (settings.TenantMaker), seats
+	// them with the roles that administer it and, where they came through an
+	// organization's directory, makes that directory the sector's own, all in the
+	// transaction that consumes the invitation.
+	//
+	// Demonstrates: auth.generated-identity, OrSkip, tenancy.invited-tenant.
+	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(sectorAdministratorRoles()))
 	if err != nil {
 		return nil, errors.Wrap(err, "crewidentity.NewClient()")
 	}

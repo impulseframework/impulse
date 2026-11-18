@@ -87,6 +87,9 @@ export interface StandingInvitation {
   readonly tenantId: string;
   /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
   readonly tenantName: string;
+  /** The invitation makes a tenant, and whether that tenant is entered through its directory only, as `OpenedInvitation.newTenant` and `directoryOnly`; both absent for every other invitation. */
+  readonly newTenant?: boolean;
+  readonly directoryOnly?: boolean;
   /** When the invitation stops being accepted, as the server wrote it. */
   readonly expiresAt: string;
   /** An account created from the invitation has the address as its username; the person chooses one otherwise. */
@@ -181,6 +184,20 @@ export interface OpenedInvitation {
   readonly tenantId: string;
   /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
   readonly tenantName: string;
+  /**
+   * The invitation makes a tenant: none exists yet, `tenantId` is empty, and `tenantName`
+   * is what the new tenant will be called. The first sign-in that accepts the invitation
+   * makes the tenant and seats the person as its first administrator. Absent for an
+   * invitation into a tenant that exists, or into the application's global surface.
+   */
+  readonly newTenant?: boolean;
+  /**
+   * The tenant the invitation makes is entered through its directory only, so the
+   * invitation is accepted through an organization's directory alone: the server refuses
+   * a password and a personal account (`organization_account_required`), and `signUp` is
+   * false. Absent unless `newTenant`.
+   */
+  readonly directoryOnly?: boolean;
   /** When the invitation stops being accepted, as the server wrote it. */
   readonly expiresAt: string;
   /** The person may create an account with a password here (`signUpFromInvitation`); the server offers a password method. */
@@ -988,7 +1005,8 @@ export class AuthClient {
   /**
    * Opens the invitation a mailed link carried: reads the methods list again, then posts
    * the token to the invitation's open route. The answer describes the invitation (the
-   * address, the tenant, when it expires, whether an account with a password may be
+   * address, the tenant, or the tenant it makes and whether that tenant is entered
+   * through its directory only, when it expires, whether an account with a password may be
    * created here and whether its username is the address), and the browser now carries
    * the invitation, so the sign-in that follows, by any method, or the sign-up, accepts
    * it. A link that has expired or was already used resolves `refused` with 404 and the
@@ -1012,6 +1030,7 @@ export class AuthClient {
       email: stringOf(body.email),
       tenantId: stringOf(body.tenantId),
       tenantName: stringOf(body.tenantName),
+      ...newTenantOf(body),
       expiresAt: stringOf(body.expiresAt),
       signUp: body.signUp === true,
       usernameIsEmail: body.usernameIsEmail === true,
@@ -1348,11 +1367,27 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
     email: stringOf(value.email),
     tenantId: stringOf(value.tenantId),
     tenantName: stringOf(value.tenantName),
+    ...newTenantOf(value),
     expiresAt: stringOf(value.expiresAt),
     usernameIsEmail: value.usernameIsEmail === true,
     ...(methods === undefined ? {} : { methods }),
     ...accountFactsOf(value),
   };
+}
+
+/**
+ * What an invitation answer says of the tenant it makes, when it makes one: that it does,
+ * and whether the tenant is entered through its directory only. Both are absent for every
+ * other invitation, and under a server that says neither.
+ */
+function newTenantOf(value: { newTenant?: unknown; directoryOnly?: unknown }): {
+  newTenant?: boolean;
+  directoryOnly?: boolean;
+} {
+  if (value.newTenant !== true) {
+    return {};
+  }
+  return { newTenant: true, directoryOnly: value.directoryOnly === true };
 }
 
 /**

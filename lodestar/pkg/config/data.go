@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -189,11 +190,6 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		return nil, err
 	}
 
-	crewAuth, err := openCrewAuth(ctx, db, env, cookieKey, policySignal, sender)
-	if err != nil {
-		return nil, err
-	}
-
 	// The tenant roster: every instance's copy of the Sectors table's keys, built by the
 	// generated constructor (Sector is the @tenant record) over the driver's resource
 	// client and started here beside the engines, so the start fails when the first read
@@ -208,6 +204,18 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	tenants := app.NewSectorRoster(db.ResourceClient, resource.WithTenantSignals(liveService))
 	if err := tenants.Start(ctx); err != nil {
 		return nil, errors.Wrap(err, "resource.TenantRoster.Start()")
+	}
+
+	// The crew's auth takes what makes a sector: nobody charts one directly, and the
+	// invited person's first sign-in makes it, through the generated maker over the
+	// Sector record, the roster above and the live service, so the instance that took
+	// the sign-in serves the new sector at the person's next request and the others on
+	// the tenants signal.
+	//
+	// Demonstrates: tenancy.invited-tenant.
+	crewAuth, err := openCrewAuth(ctx, db, env, cookieKey, policySignal, sender, app.NewSectorMaker(tenants, liveService))
+	if err != nil {
+		return nil, err
 	}
 
 	conf := &DataConfiguration{
@@ -341,7 +349,7 @@ func (c *DataConfiguration) MembersIdentity() *membersidentity.Client {
 // page for a crew member's approval.
 // The auth opens its stores on the driver's Spanner client: the one vendor-specific
 // seam left in the level, pending the PostgreSQL client.
-func openCrewAuth(ctx context.Context, db *database.Driver, env *dataConfig, cookieKey string, policySignal access.ChangeSignal, sender mail.Sender) (*crew.Auth, error) {
+func openCrewAuth(ctx context.Context, db *database.Driver, env *dataConfig, cookieKey string, policySignal access.ChangeSignal, sender mail.Sender, sectors identity.TenantMaker) (*crew.Auth, error) {
 	crewAuth, err := crew.New(ctx, db.SpannerClient, &crew.Settings{
 		CookieKey:      cookieKey,
 		SessionTimeout: env.SessionTimeout,
@@ -369,6 +377,7 @@ func openCrewAuth(ctx context.Context, db *database.Driver, env *dataConfig, coo
 		// default seat, through the other.
 		TenantDeclarations: app.NewSectorDeclarationReader(),
 		TenantDirectories:  app.NewSectorDirectoryReader(),
+		TenantMaker:        sectors,
 		Mail:               auth.Mail{Sender: sender, LoginURL: env.PublicURL + "/console/login"},
 	})
 	if err != nil {

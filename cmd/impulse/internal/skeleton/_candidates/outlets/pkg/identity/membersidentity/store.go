@@ -548,6 +548,15 @@ func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransacti
 	if row.InvitedByUserID.Valid {
 		columns["InvitedByUserId"] = row.InvitedByUserID.UUID
 	}
+	// The tenant an invitation makes, as the session library reads it back at the
+	// sign-in that accepts it; null on every other invitation.
+	newTenant, err := row.NewTenantColumn()
+	if err != nil {
+		return errors.Wrap(err, "session.InvitationRow.NewTenantColumn()")
+	}
+	if newTenant != nil {
+		columns["NewTenant"] = *newTenant
+	}
 	if err := txn.BufferMap(invitationWrite{id: row.ID}, columns); err != nil {
 		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
 	}
@@ -597,6 +606,35 @@ func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransa
 	}
 
 	return ids, nil
+}
+
+func (store) InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
+	// A read that goes past the declarations, as UserID's does: the document an
+	// invitation that makes a tenant keeps (NewTenant) is no field of the declaration,
+	// so no list of the auth's mailed links serves it. The table's index by kind leads
+	// with the kind, then the consumption.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Id, Email, Name, NewTenant, InvitedByUserId, CreatedAt, ExpiresAt FROM MembersSessionMailLinks WHERE Kind = @kind AND ConsumedAt IS NULL AND NewTenant IS NOT NULL ORDER BY CreatedAt, Id",
+		Params: map[string]any{"kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	var rows []identity.InvitedTenantRow
+	if err := reader.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			invited identity.InvitedTenantRow
+			name    spanner.NullString
+		)
+		if err := row.Columns(&invited.ID, &invited.Email, &name, &invited.NewTenant, &invited.InvitedByUserID, &invited.CreatedAt, &invited.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		invited.Name = name.StringVal
+		rows = append(rows, invited)
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
 }
 
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {

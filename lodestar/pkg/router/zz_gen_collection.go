@@ -1383,6 +1383,25 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"kind", "axis", "domainId", "name"},
 			},
 			{
+				Name:        "CrewInvitedSectors",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "email", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "expiresAt", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "id"},
+					{Name: "invitedByUserId", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "sectorDirectoryOnly", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "sectorEstablished", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "sectorName", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "sectorRegion", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
 				Name:        "CrewRoleGrants",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -1750,6 +1769,15 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "role", Column: "Role", Type: "string"},
 				},
 				Target: "CrewGroups",
+			},
+			{
+				Name:        "InviteCrewSector",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Attributes: []resource.AttributeData{
+					{Name: "directoryOnly", Column: "SectorDirectoryOnly", Type: "bool"},
+					{Name: "role", Column: "DefaultRole", Type: "string"},
+				},
 			},
 			{
 				Name:        "InviteCrewUser",
@@ -2163,6 +2191,11 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "CrewSessionMailLinks",
+			},
+			{
+				Name:        "WithdrawCrewInvitedSector",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 		},
 	})

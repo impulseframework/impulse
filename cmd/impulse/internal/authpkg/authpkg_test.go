@@ -567,6 +567,75 @@ func TestFiles_signedInHook(t *testing.T) {
 	}
 }
 
+// TestFiles_tenantMaker pins which auth is handed what makes a tenant. Nobody creates a
+// tenant directly: staff invite one person, and that person's first sign-in makes the
+// tenant through the generated maker, which the generated identity client of one auth is
+// constructed over. That auth is the one whose people may hold no tenant yet (its
+// outlets serve the tenant record), where the application assigns the roles and
+// generates the auth's management. Its Settings carry the maker, New refuses a nil one
+// with a sentence, and the client is built over it; every other auth carries none of it,
+// since its generated client takes no maker.
+func TestFiles_tenantMaker(t *testing.T) {
+	t.Parallel()
+	carries := []string{
+		"\tTenantMaker identity.TenantMaker\n",
+		"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n",
+		"staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))",
+	}
+	policy := func(admitWithoutTenant bool) *TenantPolicy {
+		return &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: admitWithoutTenant}
+	}
+	tests := []struct {
+		name string
+		spec *Spec
+		want bool
+	}{
+		{
+			name: "the auth whose people may hold no tenant yet, with its generated management", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}, TenantPolicy: policy(true)},
+		},
+		{
+			name: "an auth whose people always hold a tenant: another auth's outlets serve the record",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}, TenantPolicy: policy(false)},
+		},
+		{
+			name: "an auth with no generated management",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}, TenantPolicy: policy(true)},
+		},
+		{
+			name: "an auth whose roles a directory gives",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+			}, TenantPolicy: policy(true)},
+		},
+		{
+			name: "an auth of an application without tenants",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.spec.MakesTenants(); got != tt.want {
+				t.Errorf("MakesTenants() = %v, want %v", got, tt.want)
+			}
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			rendered := string(files[tt.spec.Name+".go"])
+			for _, text := range carries {
+				if got := strings.Contains(rendered, text); got != tt.want {
+					t.Errorf("%s.go holds %q = %v, want %v", tt.spec.Name, text, got, tt.want)
+				}
+			}
+			if !tt.want && strings.Contains(rendered, "TenantMaker") {
+				t.Errorf("%s.go names TenantMaker for an auth a tenant is not made through", tt.spec.Name)
+			}
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

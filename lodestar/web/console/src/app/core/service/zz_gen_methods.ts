@@ -539,6 +539,30 @@ export namespace InspectShip {
   }
 }
 
+export interface InviteCrewSectorConfig {
+  email: string | FieldPointer;
+  name?: string | FieldPointer;
+  sectorName: string | FieldPointer;
+  sectorRegion: string | FieldPointer;
+  sectorEstablished: Date | FieldPointer;
+  sectorDirectoryOnly: boolean | FieldPointer;
+  defaultRole?: string | FieldPointer;
+}
+export interface InviteCrewSector {
+  email: string;
+  name?: string;
+  sectorName: string;
+  sectorRegion: string;
+  sectorEstablished: Date;
+  sectorDirectoryOnly: boolean;
+  defaultRole?: string;
+}
+/** The result InviteCrewSector answers with. */
+export interface InviteCrewSectorResult {
+  id: string;
+  sent: boolean;
+}
+
 export interface InviteCrewSectorUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
@@ -1046,6 +1070,15 @@ export interface WithdrawCrewInvitation {
 }
 /** The statuses WithdrawCrewInvitation declares; the method chooses one per response. */
 export type WithdrawCrewInvitationStatus = 204;
+
+export interface WithdrawCrewInvitedSectorConfig {
+  invitationId: string | FieldPointer;
+}
+export interface WithdrawCrewInvitedSector {
+  invitationId: string;
+}
+/** The statuses WithdrawCrewInvitedSector declares; the method chooses one per response. */
+export type WithdrawCrewInvitedSectorStatus = 204;
 
 export interface WithdrawCrewSectorInvitationConfig {
   invitationId: string | FieldPointer;
@@ -1604,6 +1637,19 @@ const methodMap: MethodMap = {
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
   },
+  [Methods.InviteCrewSector]: {
+    route: 'invite-crew-sector',
+    answers: true,
+    fields: [
+      { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
+      { fieldName: 'sectorName', displayType: 'string', required: true },
+      { fieldName: 'sectorRegion', displayType: 'string', required: true },
+      { fieldName: 'sectorEstablished', displayType: 'civildate', required: true },
+      { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', attribute: 'directoryOnly' },
+      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
+    ],
+  },
   [Methods.InviteCrewSectorUser]: {
     route: 'invite-crew-sector-user',
     answers: true,
@@ -2073,6 +2119,14 @@ const methodMap: MethodMap = {
   [Methods.WithdrawCrewInvitation]: {
     route: 'withdraw-crew-invitation',
     target: { resource: Resources.CrewSessionMailLinks, key: { invitationId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.WithdrawCrewInvitedSector]: {
+    route: 'withdraw-crew-invited-sector',
     statuses: [204],
     dryRun: true,
     fields: [

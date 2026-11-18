@@ -45,16 +45,19 @@ const sampleRow = (resource: Resource): RecordData =>
   Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
 
 describe("the library's pages over an auth's generated management", () => {
-  it('are the accounts, groups, mailed links, sessions, failed sign-ins and sign-in methods of the whole service, and the people, groups and invitations of a sector', () => {
+  it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins and sign-in methods of the whole service, and the people, groups and invitations of a sector', () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
     // The crew's auth carries the choice of who may sign up, so it has the Sign-in page;
-    // the members' auth, whose roles a directory writes, has none.
+    // the members' auth, whose roles a directory writes, has none. The crew's people
+    // make the sectors, so its pages hold the invitations that make one; the members'
+    // do not.
     expect(routes('Crew', 'global')).toEqual([
       'crew-accounts',
       'crew-groups',
       'crew-mailed-links',
+      'crew-invited-sectors',
       'crew-sessions',
       'crew-failed-sign-ins',
       'crew-sign-in',
@@ -235,6 +238,71 @@ describe("the library's pages over an auth's generated management", () => {
       });
     });
   }
+
+  it("brings a sector in from the crew's Invited sectors page: the list is the generated one, the form is the invitation's own fields, and Withdraw is filled from the row", () => {
+    // Nobody creates a sector directly: the record's metadata says so, so no page of the
+    // library draws a Create button for it.
+    expect(resourceMeta(Resources.Sectors as Resource).createDisabled).toBe(true);
+    const page = identityPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }).find(
+      (candidate) => candidate.routeData.route === 'crew-invited-sectors',
+    );
+    const list = page?.parentConfig as ListViewConfig;
+    expect([page?.page?.label, list.title, list.primaryResource]).toEqual([
+      'Invited sectors',
+      'Invited sectors',
+      Resources.CrewInvitedSectors,
+    ]);
+    // The columns are the Sector record's fields as an invitation carries them, each
+    // under the record's name, then the switch, the starting role and who was invited.
+    const shown = list.listColumns.filter((column) => !column.hidden).map((column) => [column.id, column.header]);
+    expect(shown).toEqual([
+      ['sectorName', 'Sector name'],
+      ['sectorRegion', 'Sector region'],
+      ['sectorEstablished', 'Sector established'],
+      ['sectorDirectoryOnly', 'Directory only'],
+      ['defaultRole', 'Starting role'],
+      ['email', 'Invited'],
+      ['name', 'Name'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+    ]);
+    // The method above the list is the generated invitation: it names no row, the method
+    // dialog draws its form from its fields, and the page words only fields it takes.
+    const invite = list.listMethods?.[0];
+    expect([invite?.method, invite?.label]).toEqual([Methods.InviteCrewSector, 'Invite a sector']);
+    const sends = methodMeta(Methods.InviteCrewSector as Method);
+    const takes = sends.fields.map((field) => field.fieldName);
+    expect(sends.target).toBeUndefined();
+    expect(takes).toEqual([
+      'email',
+      'name',
+      'sectorName',
+      'sectorRegion',
+      'sectorEstablished',
+      'sectorDirectoryOnly',
+      'defaultRole',
+    ]);
+    for (const name of Object.keys(invite?.labels ?? {})) {
+      expect(takes, `${Methods.InviteCrewSector}.${name}`).toContain(name);
+    }
+    // Every detail the list shows of the sector is one the form asks for, under the same name.
+    for (const [id] of shown.slice(0, 5)) {
+      expect(takes, `${Methods.InviteCrewSector}.${String(id)}`).toContain(id);
+    }
+    // Withdraw takes the invitation's id, which the page fills from the row.
+    const withdraw = ((list.rowMethods || []) as MethodPresentation[])[0];
+    expect([withdraw?.method, withdraw?.label]).toEqual([Methods.WithdrawCrewInvitedSector, 'Withdraw']);
+    expect(methodMeta(Methods.WithdrawCrewInvitedSector as Method).fields.map((field) => field.fieldName)).toEqual([
+      'invitationId',
+    ]);
+    expect(withdraw?.fill?.({ id: 'i-1', email: 'founder@dawn.example' })).toEqual({ invitationId: 'i-1' });
+    // The members' people make no sector: their pages hold no such list.
+    expect(
+      identityPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }).map(
+        (candidate) => candidate.routeData.route,
+      ),
+    ).not.toContain('members-invited-sectors');
+  });
 
   it('says of the method that gives a sector role what the dialog needs to rehearse it', () => {
     // The Sector Marshal's grant carries a condition on the role given. The metadata

@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/civil"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // Struct-level annotations only parse from a TypeSpec doc comment, so the structs sit
@@ -153,6 +154,55 @@ type (
 	// @tenant(creation: self-service)
 	Outland struct {
 		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// Frontier still declares the retired creation argument, with the value that kept
+	// both ways.
+	//
+	// @resource
+	// @tenant(creation: both)
+	Frontier struct {
+		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// Citadel is a tenant record with every kind of field an invitation that makes a
+	// tenant meets: the ones it carries (the name people call the citadel by, a field
+	// the create may leave out, a date, a yes or no) and the ones it does not (the key,
+	// a secret, a write-only field and a field the server owns).
+	//
+	// @resource
+	// @tenant
+	Citadel struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantName
+		Name       string           `spanner:"Name"`
+		Motto      *string          `spanner:"Motto"`
+		Founded    civil.Date       `spanner:"Founded"`
+		Walled     bool             `spanner:"Walled"`
+		Passphrase *resource.Secret `spanner:"Passphrase" conditions:"secret"`
+		Cipher     *string          `spanner:"Cipher"     conditions:"input_only"`
+		Sealed     string           `spanner:"Sealed"     conditions:"output_only"`
+	}
+
+	// Keep is a tenant record whose create requires a secret: its column takes no NULL
+	// and has no default.
+	//
+	// @resource
+	// @tenant
+	Keep struct {
+		ID         impulse.UUID    `spanner:"Id"`
+		Name       string          `spanner:"Name"`
+		Passphrase resource.Secret `spanner:"Passphrase" conditions:"secret"`
+	}
+
+	// Redoubt is a tenant record whose create requires a write-only field.
+	//
+	// @resource
+	// @tenant
+	Redoubt struct {
+		ID     impulse.UUID `spanner:"Id"`
+		Name   string       `spanner:"Name"`
+		Cipher string       `spanner:"Cipher" conditions:"input_only"`
 	}
 
 	// Province passes the shape without its key.

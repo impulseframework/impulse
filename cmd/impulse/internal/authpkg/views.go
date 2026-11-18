@@ -188,7 +188,7 @@ func newView(spec *Spec) *view {
 		v.IdentityPackage = path.Join(spec.Module, spec.IdentityDir, spec.Name+"identity")
 		v.Imports = append(v.Imports, v.IdentityPackage)
 	}
-	if v.IdentityPackage != "" && v.Foothold != "" {
+	if v.IdentityPackage != "" && (v.Foothold != "" || spec.MakesTenants()) {
 		v.Imports = append(v.Imports, "github.com/impulseframework/impulse/identity")
 	}
 

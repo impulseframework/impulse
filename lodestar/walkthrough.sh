@@ -54,6 +54,15 @@ codes_mailed() { # codes_mailed <address> <log>: how many sign-in codes the log 
   grep -ac "mail (not sent) to $1, subject \"Your Lodestar sign-in code is" "$2"
 }
 
+invitation_mailed() { # invitation_mailed <address> <log>: the last invitation the auths mailed to the address, its line of the log and the lines of its text
+  # In development the mail is the log, so the walkthrough reads an invitation there as a
+  # person reads their mail: the message is the line that names the address and the
+  # subject, then the twelve lines of its text, the link among them.
+  local address=$1 log=$2
+  for _ in $(seq 1 100); do grep -aq "mail (not sent) to $address, subject \"You are invited to" "$log" && break; sleep 0.1; done
+  grep -a -A 12 "mail (not sent) to $address, subject \"You are invited to" "$log" | tail -13
+}
+
 second_factor() { # second_factor <persona> <api> <address> <log>: the sign-in code a sign-in waits for
   # A sign-in the auth's rule holds for a second factor answers no session until the code
   # mailed to the person is entered. A persona holds no address until they give one at the
@@ -166,8 +175,9 @@ assert_py() { # assert_py <label> <response> <python expression over rows -> boo
 
 # The seeded sectors' keys: a sector's key is an id nobody types, and the demo world
 # fixes the three (schema/devseed), so every URL, body and answer below names a sector by
-# its variable. Dawn's and Ember's ids are generated when each is charted and read from
-# the create's answer (DAWN_ID, EMBER_ID).
+# its variable. Dawn's and Ember's ids are generated when each is charted: Dawn's is read
+# from the sector list once its invitation is accepted, Ember's from the answer of the
+# create-your-sector route (DAWN_ID, EMBER_ID).
 ANVIL_ID=a1111111-1111-4111-8111-111111111111
 BASTION_ID=b2222222-2222-4222-8222-222222222222
 CINDER_ID=c3333333-3333-4333-8333-333333333333
@@ -730,42 +740,77 @@ if [ -n "$SECOND_PID" ]; then
   check "and on the second instance at its next request (try $tries)" 403 "$r"
 fi
 
-# ---- a sector charted at run time: the roster keeps up ----
+# ---- a sector charted at run time: the invitation makes it, the roster keeps up ----
 # Sectors is the tenant record (@tenant): its rows are the sectors every sector-scoped URL
-# names, and every instance holds a roster of them that the generated guard asks first. The
-# surveyor, who holds Create and Update on Sectors and SectorCrew in every sector, charts
-# sector Dawn through the consolidated patch, by its fields alone (the create path
-# generates Dawn's key, an id, and answers it; a key in the operation's path is refused):
-# the instance that wrote adds Dawn to its roster after the commit and signals the tenants
-# kind, so her
-# chart lights Dawn and Dawn's wings answer her with no restart, no migrate job and no
-# new login; the marshal's chart does not light it and Dawn answers her as a sector that
-# does not exist; the client's portal, whose directory role is held in every sector, opens
-# Dawn at once, as the governor and the archivist see it with nothing written for them; and
-# the second process serves Dawn at its next request, its roster reloaded on the signal
-# rather than at the five-minute backstop. The create path seats the creator as the new
-# sector's marshal (SectorMarshal, the role SectorAdministratorRoles names), whatever the
-# creation shape: the surveyor is Dawn's first administrator, as the pioneer is Ember's.
-# Demonstrates: tenancy.run-time-tenant, tenancy.creator-seat.
+# names, and every instance holds a roster of them that the generated guard asks first.
+# Nobody creates a sector directly: a create operation on Sectors is refused, whoever
+# sends it and whatever they hold, and says how a sector is made. The surveyor, who holds
+# Create and Update on Sectors and the invitation's method, brings sector Dawn in by
+# inviting the person who will run it (the crew auth's generated InviteCrewSector). The
+# invitation carries Dawn's details as she entered them, held to the rules the record's
+# create applies when it is sent, and names no sector, since none exists yet. The mailed
+# message carries the application's name and the link and nothing of the sector; the
+# invitation page shows the sector's name and the invited address; and the surveyor reads
+# the invitation that waits, with its details, in the generated list. The founder follows
+# the link and signs up with a password. That first sign-in makes Dawn from the details,
+# under an id the record's create generates, and seats her as its marshal (SectorMarshal,
+# the role SectorAdministratorRoles names) in the transaction that consumes the
+# invitation; she enters nothing, and Dawn has no directory, since a password is no
+# organization's. The instance that took the sign-in adds Dawn to its roster after the
+# commit and signals the tenants kind, so the surveyor's chart lights Dawn and Dawn's
+# wings answer her with no restart, no migrate job and no new login; the marshal's chart
+# does not light it and Dawn answers her as a sector that does not exist; the client's
+# portal, whose directory role is held in every sector, opens Dawn at once, as the
+# governor and the archivist see it with nothing written for them; and the second process
+# serves Dawn at its next request, its roster reloaded on the signal rather than at the
+# five-minute backstop.
+# Demonstrates: tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.creator-seat.
 r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the charted sectors that are not directory only: SectorCrew held in every sector, and Bastion, directory only, named closed" "$r" "$OPEN == ['$ANVIL_ID','$CINDER_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req surveyor GET "$API/sectors"); assert_py "Dawn is not on the chart yet: the sector list carries the three seeded sectors" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder']"
 if [ -n "$SECOND_PID" ]; then
   login_second surveyor
   r=$(req surveyor.2 GET "$API2/sectors"); assert_py "nor on the second process" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder']"
 fi
-r=$(req marshal PATCH "$API/resources" '[{"op":"add","path":"/sectors","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the marshal holds no Create on Sectors" 403 "$r"
-r=$(req surveyor PATCH "$API/resources" '[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "a key in the path is refused the surveyor: nobody types a sector's key, the create path generates it" 400 "$r"
-r=$(req surveyor PATCH "$API/resources" '[{"op":"add","path":"/sectors","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the surveyor charts sector Dawn (Create on Sectors; by its fields alone)" 200 "$r"
-assert_py "the answer carries the one id the create path generated for Dawn" "$r" "len(rows['sectors'])==1 and str(__import__('uuid').UUID(rows['sectors'][0]))==rows['sectors'][0]"
-DAWN_ID=$(body "$r" | py "print(rows['sectors'][0])")
+DAWN_DETAILS='"sectorName":"Dawn","sectorRegion":"Outer frontier","sectorEstablished":"2226-10-02"'
+r=$(req surveyor PATCH "$API/resources" '[{"op":"add","path":"/sectors","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "nobody creates a sector directly: the surveyor's create operation is refused, her Create on Sectors notwithstanding" 400 "$r"
+assert_py "and the refusal says how a sector is made" "$r" "rows['message']=='a sector is not created directly: invite one person, and the sector is made when that person first signs in'"
+r=$(req marshal POST "$API/invite-crew-sector" '{"email":"founder@dawn.example",'"$DAWN_DETAILS"'}'); check "the marshal may not invite a sector: she holds neither the method nor Create on Sectors" 403 "$r"
+r=$(req surveyor POST "$API/invite-crew-sector" '{"email":"founder@dawn.example","sectorName":"Anvil","sectorRegion":"Outer frontier","sectorEstablished":"2226-10-02"}'); check "details the record's create would refuse are refused when the invitation is sent: a sector named Anvil exists" 409 "$r"
+assert_py "saying which detail, and what to do" "$r" "rows['message']=='a sector with the name Anvil already exists: give the new one another'"
+r=$(req surveyor POST "$API/invite-crew-sector" '{"email":"founder@dawn.example","sectorDirectoryOnly":true,'"$DAWN_DETAILS"'}'); check "the surveyor may not send one that says directory only: her grant on the method holds only while the invitation does not say it" 403 "$r"
+r=$(req surveyor POST "$API/invite-crew-sector" '{"email":"founder@dawn.example","defaultRole":"SectorCrew",'"$DAWN_DETAILS"'}'); check "nor one that names a starting role: she gives no role to a person directly, so she names none here" 403 "$r"
+r=$(req surveyor POST "$API/invite-crew-sector" '{"email":"founder@dawn.example",'"$DAWN_DETAILS"'}'); check "the surveyor invites the person who will run Dawn (the method's grant and Create on Sectors)" 200 "$r"
+assert_py "the answer names the invitation and says its message went" "$r" "$UUID(rows['id']) and rows['sent'] is True"
+r=$(req surveyor GET "$API/sectors"); assert_py "no sector is made yet: Dawn exists when the invited person first signs in" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder']"
+r=$(req surveyor GET "$API/crew-invited-sectors"); assert_py "the invitation waits with Dawn's details, each shown where the reader may list it on Sectors" "$r" "[(i['email'],i.get('sectorName'),i.get('sectorRegion'),i.get('sectorEstablished'),i.get('sectorDirectoryOnly')) for i in rows]==[('founder@dawn.example','Dawn','Outer frontier','2226-10-02',False)]"
+r=$(req marshal GET "$API/crew-invited-sectors"); check "the list of invited sectors is not the marshal's to read" 403 "$r"
+# The mail is the log in development: the walkthrough reads the message as the founder
+# reads her mail, and takes the link's token from it.
+DAWN_MAIL=$(invitation_mailed founder@dawn.example "$LOG")
+if echo "$DAWN_MAIL" | grep -q 'subject "You are invited to Lodestar"' && ! echo "$DAWN_MAIL" | grep -q 'Dawn\|Outer frontier\|2226'; then
+  echo "PASS  the mailed message names the application and carries the link, and says nothing of the sector"
+else
+  echo "FAIL  the mailed message: $(echo "$DAWN_MAIL" | head -c 300)"; fails=$((fails + 1))
+fi
+DAWN_TOKEN=$(echo "$DAWN_MAIL" | grep -ao 'invitation=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
+curl -s -L -c "$S/founder.jar" -b "$S/founder.jar" -o /dev/null "$API/user/session"
+r=$(req founder POST "$API/user/invitation" '{"token":"'"$DAWN_TOKEN"'"}'); check "the founder follows the mailed link, signed in as nobody: the invitation page opens" 200 "$r"
+assert_py "and shows the sector's name and the invited address, a sector that has no id yet" "$r" "rows['tenantName']=='Dawn' and rows['email']=='founder@dawn.example' and rows['newTenant'] is True and 'tenantId' not in rows"
+r=$(req founder POST "$API/user/invitation/sign-up" '{"username":"founder","password":"orbit-and-anchor"}'); check "she signs up with a password, and enters nothing of the sector" 200 "$r"
+second_factor founder "$API" founder@dawn.example "$LOG"
+r=$(req founder GET "$API/user/session"); assert_py "and is signed in once the mailed code is entered" "$r" "rows['authenticated'] and rows['username']=='founder'"
+r=$(req surveyor GET "$API/sectors"); assert_py "her first sign-in made Dawn from the details the surveyor entered: the sector list carries it, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn'] and [(s['region'],s['established']) for s in rows if s['name']=='Dawn']==[('Outer frontier','2226-10-02')]"
+DAWN_ID=$(body "$r" | py "print([s['id'] for s in rows if s['name']=='Dawn'][0])")
 DAWN=$API/sectors/$DAWN_ID
-r=$(req surveyor GET "$API/sectors"); assert_py "the sector list carries Dawn, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn']"
-r=$(req surveyor GET "$API/user-domains"); assert_py "her chart lights Dawn at once: no restart, no migrate job, no new login" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID'])"
+r=$(req founder GET "$API/user-domains"); assert_py "the founder's chart lights Dawn, and Dawn alone" "$r" "[d['domain'] for d in rows] == ['$DAWN_ID']"
+r=$(req founder GET "$DAWN/crew-sector-user-roles"); check "the acceptance made her Dawn's marshal: Dawn's list of the roles held answers her" 200 "$r"
+assert_py "and carries her SectorMarshal" "$r" "[h['role'] for h in rows if h['username']=='founder']==['SectorMarshal']"
+r=$(req founder GET "$DAWN/sector-directories"); assert_py "Dawn has no directory: she accepted with a password, which is no organization's" "$r" "rows==[]"
+r=$(req surveyor GET "$API/crew-invited-sectors"); assert_py "the accepted invitation no longer waits" "$r" "rows==[]"
+r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights Dawn at once: no restart, no migrate job, no new login" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID'])"
 r=$(req surveyor GET "$DAWN/wings"); check "Dawn's wings answer her: SectorCrew, held in every sector, reached Dawn with nothing written" 200 "$r"
 assert_py "an empty wing list: Dawn is charted, not yet crewed" "$r" "rows == []"
 r=$(req surveyor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$DAWN_ID"'","value":{"region":"Far frontier"}}]'); check "the surveyor corrects Dawn's region (Update on Sectors)" 200 "$r"
-r=$(req surveyor GET "$DAWN/crew-sector-user-roles"); check "the create path made the surveyor Dawn's marshal: Dawn's list of the roles held answers her" 200 "$r"
-assert_py "and carries her SectorMarshal" "$r" "'SectorMarshal' in [h['role'] for h in rows if h['username']=='surveyor']"
 r=$(req marshal GET "$API/user-domains"); assert_py "the marshal's chart does not light Dawn" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID']"
 r=$(req marshal GET "$DAWN/wings"); check "Dawn's routes answer the marshal 404: a sector that does not exist for her" 404 "$r"
 r=$(req governor GET "$API/user-domains"); assert_py "the governor, marshal in every sector, sees Dawn" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID'])"
@@ -780,6 +825,29 @@ if [ -n "$SECOND_PID" ]; then
   r=$(req surveyor.2 GET "$API2/user-domains"); assert_py "and her chart there lights Dawn" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID'])"
   kill "$SECOND_PID" 2>/dev/null; wait "$SECOND_PID" 2>/dev/null; SECOND_PID=
 fi
+
+# An invitation that says directory only is the governor's to send (the surveyor's grant
+# on the method does not reach it), with the role the people of the sector's directory
+# start with, and it is accepted with the organization's account alone: the page says so
+# and offers no account with a password, and a sign-up with one is refused and told what
+# to sign in with. Nothing is made and the invitation stands. To change an invitation's
+# details, staff withdraw it and send another: the withdrawn link is dead.
+FLINT_DETAILS='"sectorName":"Flint","sectorRegion":"Mid frontier","sectorEstablished":"2226-11-02"'
+r=$(req governor POST "$API/invite-crew-sector" '{"email":"founder@flint.example","sectorDirectoryOnly":true,"defaultRole":"SectorCrew",'"$FLINT_DETAILS"'}'); check "the governor invites the person who will run Flint, a sector entered through its directory only, whose directory's people start as SectorCrew" 200 "$r"
+FLINT_INVITATION=$(body "$r" | py "print(rows['id'])")
+r=$(req governor GET "$API/crew-invited-sectors"); assert_py "the invitation waits, directory only, with the starting role" "$r" "[(i['email'],i.get('sectorName'),i.get('sectorDirectoryOnly'),i.get('defaultRole')) for i in rows]==[('founder@flint.example','Flint',True,'SectorCrew')]"
+FLINT_TOKEN=$(invitation_mailed founder@flint.example "$LOG" | grep -ao 'invitation=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
+curl -s -L -c "$S/flint.jar" -b "$S/flint.jar" -o /dev/null "$API/user/session"
+r=$(req flint POST "$API/user/invitation" '{"token":"'"$FLINT_TOKEN"'"}'); check "the invited person follows the mailed link" 200 "$r"
+assert_py "the page says the sector is entered through its directory only, and offers no account with a password" "$r" "rows['tenantName']=='Flint' and rows['directoryOnly'] is True and rows['signUp'] is False"
+r=$(req flint POST "$API/user/invitation/sign-up" '{"username":"flint-founder","password":"orbit-and-anchor"}'); check "a sign-up with a password is refused" 401 "$r"
+assert_py "and told to sign in with the organization's account" "$r" "rows['code']=='organization_account_required' and rows['message'].startswith(\"This invitation is accepted with your organization's account\")"
+r=$(req surveyor GET "$API/sectors"); assert_py "nothing is made: the sector list carries no Flint" "$r" "'Flint' not in [s['name'] for s in rows]"
+r=$(req governor GET "$API/crew-invited-sectors"); assert_py "and the invitation stands" "$r" "[i['id'] for i in rows]==['$FLINT_INVITATION']"
+r=$(req marshal POST "$API/withdraw-crew-invited-sector" '{"invitationId":"'"$FLINT_INVITATION"'"}'); check "the marshal may not withdraw it" 403 "$r"
+r=$(req governor POST "$API/withdraw-crew-invited-sector" '{"invitationId":"'"$FLINT_INVITATION"'"}'); check "the governor withdraws it, to send another with other details" 204 "$r"
+r=$(req governor GET "$API/crew-invited-sectors"); assert_py "the list of invited sectors no longer holds it" "$r" "rows==[]"
+r=$(req flint POST "$API/user/invitation" '{"token":"'"$FLINT_TOKEN"'"}'); check "and the withdrawn link is dead" 404 "$r"
 
 # ---- a sector of one's own: self-service creation ----
 # A sector is charted two ways. The surveyor's is above. The pioneer's is self-service:

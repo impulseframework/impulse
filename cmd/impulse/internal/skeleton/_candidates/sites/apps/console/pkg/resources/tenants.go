@@ -12,17 +12,17 @@ type (
 	// and its key is the domain in every tenant-scoped URL. The generator derives the
 	// segment from it and emits NewTenantRoster, the constructor of the tenant roster the
 	// shared data level builds and starts: the tenants as every site's generated guard
-	// knows them, kept current on every instance by this record's generated write paths
-	// (a create or a delete reaches the roster after its commit and publishes the
-	// tenants signal), so a tenant created here is usable at once, on both sites,
-	// without a restart. The application thus derives its domain universe from this
+	// knows them, kept current on every instance by what writes this record (a tenant an
+	// invitation's first sign-in makes, a rename or a delete reaches the roster after its
+	// commit and publishes the tenants signal), so a new tenant is usable at once, on
+	// both sites, without a restart. The application thus derives its domain universe from this
 	// table rather than a fixed in-code list, and a session's tenant list is the roster
 	// filtered by the engine's foothold answer (resource.SessionPermissions). The roles
 	// need no row per tenant: a domain role is held in every tenant domain. The portal
 	// declares the same record with its handlers and routes suppressed, since a site's
 	// generator reads one package and the console alone administers the tenants.
 	//
-	// The primary key is an id the create path generates, as every record's is, and the
+	// The primary key is an id generated when the tenant is made, as every record's is, and the
 	// generator refuses any other key on the tenant record: the id is written into
 	// every row the tenant owns and is the domain of every role held in it, so it never
 	// changes and is never used twice. What people call the tenant is its name, an
@@ -32,6 +32,18 @@ type (
 	//
 	// Tenant itself is a GLOBAL resource — administering the tenant list is a global
 	// concern. Its list comes in name order (@order) when the request names no sort.
+	//
+	// How a tenant comes to exist is apart from who may enter one. Nobody creates a
+	// tenant directly: the record's create is refused, saying so. An administrator
+	// brings an organization in by inviting one person (the staff auth's generated
+	// InviteStaffTenant, on the console's Invited tenants page): the invitation carries
+	// the tenant's details as the administrator entered them, held to this record's own
+	// create under the Administrator role's Create grant when it is sent, and the
+	// invited person's first sign-in makes the tenant, seats them as its administrator
+	// and, where they came through their organization's directory, makes that directory
+	// the tenant's. A person who signed up creates their own through one generated
+	// route, POST /api/create-tenant, while an administrator has a sign-in method of
+	// the staff auth open to sign-up.
 	//
 	// Who may enter a tenant is the record's declaration, data of the application
 	// rather than deploy configuration: the directory its people sign in through
@@ -60,8 +72,9 @@ type (
 		// turns it with the generated methods of the tenant's scope: MakeTenantDirectoryOnly,
 		// which refuses turning it on until the tenant has its directory, and unless the
 		// caller is signed in through it, and EndTenantDirectoryOnly. The record shows the
-		// flag and its own write paths never write it, at creation or after: a new tenant
-		// declares nothing.
+		// flag and its own write paths never write it. A tenant is directory only from the
+		// start where the invitation that makes it says so: that invitation is accepted
+		// through the directory the tenant will be only of and no other way.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

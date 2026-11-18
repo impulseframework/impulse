@@ -50,7 +50,7 @@ func TestLogin(t *testing.T) {
 			if status == http.StatusOK {
 				// The password admitted the login, and the session opens once the second
 				// factor every session carries is entered: the sign-in code the auth mailed.
-				b.secondFactor(ctx, tt.user, false)
+				b.secondFactor(ctx, tt.user)
 			}
 			if tt.wantLogin != http.StatusOK {
 				if status, body := b.do(ctx, http.MethodGet, "/api/user-domains", nil); status != http.StatusUnauthorized {

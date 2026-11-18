@@ -3,7 +3,7 @@
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's tenants and people: creates tenants, creates accounts and invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
+        "description": "Manages the application's tenants and people: brings a tenant in by inviting the person who will administer it, creates accounts and invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
         "permissions": {
           "Create": [
             {
@@ -78,6 +78,12 @@
             },
             {
               "resource": "WithdrawStaffInvitation"
+            },
+            {
+              "resource": "InviteStaffTenant"
+            },
+            {
+              "resource": "WithdrawStaffInvitedTenant"
             },
             {
               "resource": "SetStaffUserEmail"
@@ -198,6 +204,19 @@
                 "roleNames",
                 "tenantId",
                 "userId"
+              ]
+            },
+            {
+              "resource": "StaffInvitedTenants",
+              "fields": [
+                "createdAt",
+                "defaultRole",
+                "email",
+                "expiresAt",
+                "invitedByUserId",
+                "name",
+                "tenantDirectoryOnly",
+                "tenantName"
               ]
             },
             {

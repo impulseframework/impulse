@@ -134,18 +134,18 @@ func factorAddress(user string) string {
 // secondFactor completes the second factor this browser's sign-in waits for, the way the
 // login page does once the password admitted the person (or a directory the deployment
 // does not administer): the address for the code where the person holds none, the code
-// asked for and read from the mail the auth sent, and the code verified, asking for the
-// browser to be remembered when remember is set. One sign-in at a time runs its factor on
-// the stack.
-func (b *browser) secondFactor(ctx context.Context, user string, remember bool) {
+// asked for and read from the mail the auth sent, and the code verified, without asking
+// for the browser to be remembered. One sign-in at a time runs its factor on the stack.
+func (b *browser) secondFactor(ctx context.Context, user string) {
 	b.t.Helper()
 
 	b.served.codeMu.Lock()
 	defer b.served.codeMu.Unlock()
-	b.secondFactorLocked(ctx, user, remember)
+	b.secondFactorLocked(ctx, user, false)
 }
 
-// secondFactorLocked is secondFactor for a caller holding the stack's factor lock.
+// secondFactorLocked completes the second factor for a caller holding the stack's factor
+// lock, asking for the browser to be remembered when remember is set.
 func (b *browser) secondFactorLocked(ctx context.Context, user string, remember bool) {
 	b.t.Helper()
 

@@ -28,8 +28,9 @@ import {
 // writes no page for it: the people with what the caller may do to each, a person's row
 // page with the roles, the ways they sign in and the identities under it, the groups of
 // people with a group's people and roles under it, the invitations, and, for the whole
-// application, the sessions, the failed sign-ins and the Auth's sign-in methods, each
-// invite only or open to sign-up. What differs from one application
+// application, the invitations that make a tenant (staff bring an organization in by
+// inviting one person), the sessions, the failed sign-ins and the Auth's sign-in methods,
+// each invite only or open to sign-up. What differs from one application
 // to the next is read from the description: the Auth's name and label, the tenant
 // record's name, which side the pages are for, and what the Auth's sign-in methods give
 // (a list or a method the description does not name draws nothing).
@@ -40,7 +41,7 @@ import {
 // disabled account and Disable on an enabled one.
 
 /** The pages of one side of an Auth's management, by what each lists. */
-export type IdentityPage = 'users' | 'groups' | 'invitations' | 'sessions' | 'signInAttempts' | 'signIn';
+export type IdentityPage = 'users' | 'groups' | 'invitations' | 'invitedTenants' | 'sessions' | 'signInAttempts' | 'signIn';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -70,8 +71,9 @@ const made = new WeakMap<ApiDescriptor, Map<string, RootConfig[]>>();
 
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
- * people, the groups, the invitations, and for the whole application the sessions, the
- * failed sign-ins and the sign-in methods, each with its label and icon. A page whose list the description
+ * people, the groups, the invitations, and for the whole application the invitations
+ * that make a tenant, the sessions, the failed sign-ins and the sign-in methods, each
+ * with its label and icon. A page whose list the description
  * does not name is left out. The same request answers the same configurations. Refused, naming
  * what is missing: an Auth the description does not carry, a side it does not carry,
  * and a tenant's side on an API with no tenant segment.
@@ -116,6 +118,7 @@ function buildPages(
     build.people(),
     build.groups(),
     build.invitations(),
+    build.invitedTenants(),
     build.sessions(),
     build.signInAttempts(),
     build.signIn(),
@@ -341,6 +344,105 @@ class SideBuilder {
           ],
         ]),
         listMethods: this.tenant ? this.present([[methods.invite, { label: 'Invite', icon: 'send' }]]) : [],
+        elements: [],
+      }),
+    });
+  }
+
+  /**
+   * The invitations that make a tenant and still stand, each with Withdraw, and above the
+   * list the method that sends one: staff bring an organization in by inviting one
+   * person, and that person's first sign-in makes the tenant, so nobody creates a tenant
+   * directly. The whole application's alone, for the Auth whose people make the tenants.
+   *
+   * The list and the method's form are the server's: a row carries the tenant record's
+   * fields as staff entered them, each under the record's name (`sectorName`), and the
+   * method takes the same fields, so the columns and the form's inputs follow the record
+   * with nothing written here for it. A field the caller may not read on the tenant
+   * record is absent from a row, and its cell is empty. The caller sees an action only
+   * while their roles grant its method, as on every list. To change an invitation's
+   * details, it is withdrawn and another sent, which the question before a withdrawal
+   * says.
+   */
+  invitedTenants(): RootConfig | undefined {
+    const { lists, methods } = this.side;
+    if (!lists.invitedTenants) {
+      return undefined;
+    }
+    const resource = lists.invitedTenants as Resource;
+    const record = this.identity.tenant ?? 'Tenant';
+    // The fields of the tenant record, as the list and the method name them: the
+    // record's name, then the field's.
+    const prefix = record.charAt(0).toLowerCase() + record.slice(1);
+    const directoryOnly = `${prefix}DirectoryOnly`;
+    const ofRecord = (this.resourceMeta(resource)?.fields ?? [])
+      .map((candidate) => String(candidate.fieldName))
+      .filter((name) => name !== directoryOnly && name.startsWith(prefix) && /^[A-Z0-9]/.test(name.slice(prefix.length)));
+    const fields: Named[] = [
+      ...ofRecord.map((name): Named => [name, words(name)]),
+      [directoryOnly, 'Directory only'],
+      ['defaultRole', 'Starting role'],
+      ['email', 'Invited'],
+      ['name', 'Name'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+    ];
+    // What the tenants are called, many of them: the list's own name says it
+    // (CrewInvitedSectors), since the generator names the list for the record.
+    const listed = lists.invitedTenants.startsWith(`${this.identity.auth}Invited`)
+      ? lists.invitedTenants.slice(`${this.identity.auth}Invited`.length)
+      : `${record}s`;
+    const title = `Invited ${words(listed).toLowerCase()}`;
+    // The tenant a row would make, by the name staff gave it where the caller may read it.
+    const nameField = this.identity.tenantResource
+      ? this.resourceMeta(this.identity.tenantResource as Resource)?.nameField
+      : undefined;
+    const nameKey = nameField ? `${prefix}${nameField.charAt(0).toUpperCase()}${nameField.slice(1)}` : undefined;
+    const made = (row: RecordData): string => {
+      const name = nameKey ? row[nameKey] : undefined;
+      return typeof name === 'string' && name !== '' ? name : `the ${this.tenantWord}`;
+    };
+    return rootConfig({
+      page: { label: title, icon: 'domain_add' },
+      routeData: { route: this.route('invitedTenants', `invited-${kebab(listed)}`), hasViewRoute: false },
+      parentConfig: listViewConfig({
+        title,
+        primaryResource: resource,
+        showViewButton: false,
+        showRowCount: true,
+        listColumns: [
+          ...this.columns(resource, fields),
+          // Read with each row and not drawn: what Withdraw is filled from.
+          ...this.columns(resource, [['id', 'Id']]).map((column) => ({ ...column, hidden: true })),
+        ],
+        rowMethods: this.present([
+          [
+            methods.withdrawInvitedTenant,
+            {
+              label: 'Withdraw',
+              icon: 'cancel_schedule_send',
+              fill: (row) => ({ invitationId: row['id'] }),
+              confirm: (row) =>
+                `Withdraw the invitation sent to ${String(row['email'])}? Its link stops working, and ${made(row)} is not set up. To change an invitation's details, withdraw it and send another.`,
+              successMessage: 'The invitation is withdrawn.',
+            },
+          ],
+        ]),
+        listMethods: this.present([
+          [
+            methods.inviteTenant,
+            {
+              label: `Invite ${withArticle(this.tenantWord)}`,
+              icon: 'send',
+              labels: {
+                email: "Person's email",
+                name: "Person's name",
+                [directoryOnly]: 'Entered through its directory only',
+                defaultRole: "Role its directory's people start with",
+              },
+            },
+          ],
+        ]),
         elements: [],
       }),
     });
@@ -1142,6 +1244,11 @@ function words(name: string): string {
     .trim()
     .toLowerCase();
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** A word with its article: "a sector", "an office". */
+function withArticle(word: string): string {
+  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
 }
 
 /** A PascalCase name as a route segment: `FleetStaff` is "fleet-staff". */

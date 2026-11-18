@@ -150,7 +150,17 @@ export interface Landing {
  * offers a password method, the account form opens by itself, without a Cancel, but only
  * where no directory could admit the address, since the invited person has that account
  * already. "Use a different account" is not offered while an invitation stands: the
- * invitation names the account. A person the page finds already signed in accepts it with
+ * invitation names the account. An invitation that makes a tenant (`newTenant`: staff
+ * bring an organization in by inviting one person, and that person's first sign-in makes
+ * the tenant) is headed "You're invited to set up <the tenant's name>", over the same
+ * address: the name is all the page is told of the tenant. Where that tenant is entered
+ * through its directory only (`directoryOnly`) the invitation is accepted through an
+ * organization's directory alone: the screen says so under the address and offers the
+ * directory buttons only, no password form and no account with a password, whatever
+ * holds the address; a sign-in the server refuses for it comes back with
+ * `organization_account_required`, or with `organization_has_tenant` where the
+ * organization the person signed in through already has a tenant, each with its
+ * sentence and the invitation still standing. A person the page finds already signed in accepts it with
  * one click, from a button under the heading, when their account holds the invited address
  * or none; signed in as an account that holds another address, they are told whose the
  * invitation is and how to accept it, since the server refuses that acceptance too
@@ -272,7 +282,10 @@ export class LoginMethodsComponent implements OnInit {
    * form when no account holds it and the server offers a password method, only where no
    * directory could admit it, since the invited person has that account already (`create`).
    * `known` is false under an older server that did not say whether an account exists:
-   * every path is then offered, as before. Undefined while no invitation stands.
+   * every path is then offered, as before. An invitation that makes a tenant entered
+   * through its directory only (`directoryOnly`) is accepted through an organization's
+   * directory alone, so neither the password form nor the account form is offered, whatever
+   * holds the address: the server refuses both. Undefined while no invitation stands.
    */
   invitationPaths = computed(() => {
     const invited = this.invitation();
@@ -282,6 +295,9 @@ export class LoginMethodsComponent implements OnInit {
     const redirects = this.offeredRedirectMethods();
     const known = invited.accountExists !== undefined;
     const passwordListed = this.passwordMethod() !== undefined;
+    if (invited.directoryOnly === true) {
+      return { known, redirects, password: false, create: false };
+    }
     return {
       known,
       redirects,
@@ -429,17 +445,31 @@ export class LoginMethodsComponent implements OnInit {
     return `${matched} Enter that account's password to link the two.`;
   }
 
-  /** The invitation screen's heading: where the person is invited. */
+  /**
+   * The invitation screen's heading: where the person is invited, or, for an invitation
+   * that makes a tenant, what they are invited to set up: the tenant does not exist until
+   * they first sign in, and its name is all the page is told of it.
+   */
   invitationTitle(invitation: OpenedInvitation): string {
     // The tenant's id says nothing to the person reading: the name, or no tenant at all.
-    return invitation.tenantName === '' ? "You're invited" : `You're invited to ${invitation.tenantName}`;
+    if (invitation.tenantName === '') {
+      return "You're invited";
+    }
+    return invitation.newTenant === true
+      ? `You're invited to set up ${invitation.tenantName}`
+      : `You're invited to ${invitation.tenantName}`;
   }
 
   /**
    * The sentence under the heading: the address the invitation is for, and, under an older
-   * server that did not say what holds the address, what accepts it.
+   * server that did not say what holds the address, what accepts it. An invitation that is
+   * accepted through an organization's directory alone says so, since the page offers no
+   * password for it.
    */
   invitationNote(invitation: OpenedInvitation): string {
+    if (invitation.directoryOnly === true) {
+      return `The invitation is for ${invitation.email}. ${ORGANIZATION_ACCOUNT_ACCEPTS}`;
+    }
     if (invitation.accountExists !== undefined) {
       return `The invitation is for ${invitation.email}.`;
     }
@@ -594,9 +624,10 @@ export class LoginMethodsComponent implements OnInit {
 
   /**
    * Accepts the opened invitation as the person the page found signed in, then checks the
-   * session and hands the page on. A refusal for another address (403) keeps the
-   * invitation standing and shows the server's sentence; any other refusal means the
-   * invitation is gone.
+   * session and hands the page on. A refusal for who the person is signed in as (403) and
+   * a refusal to make what the invitation carries as it stands (409, a name that is taken)
+   * both leave the invitation standing on the server, so the page keeps it and shows the
+   * server's sentence; any other refusal means the invitation is gone.
    */
   accept(): Promise<void> {
     if (this.busy() || !this.acceptOffered()) {
@@ -605,7 +636,7 @@ export class LoginMethodsComponent implements OnInit {
     return this.step(async () => {
       const result = await this.client.auth.acceptInvitation();
       if (result.outcome === 'refused') {
-        if (result.status === 403) {
+        if (result.status === 403 || result.status === 409) {
           this.refusal.set(this.sentenceOf(result));
           return;
         }
@@ -624,11 +655,12 @@ export class LoginMethodsComponent implements OnInit {
   /**
    * Shows the account form for the opened invitation: an account with a password, which
    * accepts it. `itself` marks a form the screen opened without being asked, the one way
-   * to accept, which offers no Cancel.
+   * to accept, which offers no Cancel. An invitation accepted through an organization's
+   * directory alone opens none.
    */
   openAccountForm(itself = false): void {
     const invitation = this.invitation();
-    if (this.busy() || !invitation?.signUp) {
+    if (this.busy() || !invitation?.signUp || invitation.directoryOnly === true) {
       return;
     }
     this.refusal.set(undefined);
@@ -888,6 +920,7 @@ export class LoginMethodsComponent implements OnInit {
       email: result.email,
       tenantId: result.tenantId,
       tenantName: result.tenantName,
+      ...(result.newTenant === true ? { newTenant: true, directoryOnly: result.directoryOnly === true } : {}),
       expiresAt: result.expiresAt,
       signUp: result.signUp,
       usernameIsEmail: result.usernameIsEmail,
@@ -902,7 +935,8 @@ export class LoginMethodsComponent implements OnInit {
    * The invitation the list says the browser carries, as the page shows one, when the URL
    * names no token: a token is opened instead, since opening it also refreshes what the
    * browser carries. The account with a password is offered where the block names the
-   * sign-up route. Undefined when the browser carries no live invitation.
+   * sign-up route, and never for an invitation accepted through an organization's
+   * directory alone. Undefined when the browser carries no live invitation.
    */
   private carriedInvitation(list: LoginMethods, token: string): OpenedInvitation | undefined {
     const block = list.invitation;
@@ -914,8 +948,9 @@ export class LoginMethodsComponent implements OnInit {
       email: standing.email,
       tenantId: standing.tenantId,
       tenantName: standing.tenantName,
+      ...(standing.newTenant === true ? { newTenant: true, directoryOnly: standing.directoryOnly === true } : {}),
       expiresAt: standing.expiresAt,
-      signUp: block.signUp !== undefined,
+      signUp: block.signUp !== undefined && standing.directoryOnly !== true,
       usernameIsEmail: standing.usernameIsEmail,
       ...(standing.methods === undefined ? {} : { methods: standing.methods }),
       ...(standing.accountExists === undefined
@@ -1291,6 +1326,14 @@ export const SIGN_IN_STEPS = ['confirmation', 'mfa:email-code'] as const;
 export const PAGE_OLDER_THAN_SERVER =
   "We can't finish this sign-in on this page, because the page is older than the server. " +
   'Reload the page and try again. If this keeps happening, tell whoever runs this application.';
+
+/**
+ * What accepts an invitation whose tenant is entered through its directory only: the
+ * sentence under the invited address, where the page offers no password form and no
+ * account with a password.
+ */
+export const ORGANIZATION_ACCOUNT_ACCEPTS =
+  "To accept it, sign in with your organization's account, not with a password or a personal account.";
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

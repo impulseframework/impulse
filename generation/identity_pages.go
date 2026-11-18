@@ -34,6 +34,8 @@ const (
 	identityListSignInAttempts = "signInAttempts"
 	identityListSignInMethods  = "signInMethods"
 	identityListSignUpRoles    = "signUpRoles"
+	// The invitations that make a tenant and still stand (identity_invitedtenant.go).
+	identityListInvitedTenants = "invitedTenants"
 	// The lists over the groups of people (identity_groups.go): the groups, the people
 	// of a group, the roles a group holds, and the roles people hold through a group.
 	identityListGroups        = "groups"
@@ -91,7 +93,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	}
 	data := &identitySourceData{identityInstance: i}
 
-	return []identityPart{
+	parts := []identityPart{
 		{identityListUsers, data.User()},
 		{identityListRoles, data.Membership()},
 		{identityListIdentities, data.Identity()},
@@ -106,6 +108,11 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListGroupRoles, data.GroupRole()},
 		{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, false)},
 	}
+	if i.invitesTenants() {
+		parts = append(parts, identityPart{identityListInvitedTenants, i.invitedTenantName()})
+	}
+
+	return parts
 }
 
 // pageMethods names the methods of a side by what each does, as the method sources
@@ -149,6 +156,12 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
 			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
 		)
+		if i.invitesTenants() {
+			parts = append(parts,
+				identityPart{"inviteTenant", i.inviteTenantMethod()},
+				identityPart{"withdrawInvitedTenant", i.withdrawInvitedTenantMethod()},
+			)
+		}
 	}
 
 	return parts

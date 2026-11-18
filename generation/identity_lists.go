@@ -63,6 +63,11 @@ type identityTenant struct {
 	// directory is where the record keeps its directory-only switch and its directory
 	// (identity_directory.go), nil where it declares no switch.
 	directory *identityTenantDirectory
+	// invitation is the record as an invitation that makes a tenant carries it
+	// (identity_invitedtenant.go), nil where its fields could not be read before the
+	// load, and unreadable then says what stopped the reading.
+	invitation *identityTenantInvitation
+	unreadable string
 	// directorySeat is the directories record's default seat column
 	// (@directoryDefaultSeat), "" where the application declares none: the role a
 	// tenant is opened to its directory's people with, which the generated methods
@@ -317,9 +322,15 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
 
+	invitation, unreadable, err := r.tenantInvitationIn(r.resource.Dir(), name)
+	if err != nil {
+		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the fields of the tenant record (@%s) from the sources of %s", r.identityTree.Dir(), tenantKeyword, r.resource.Dir())
+	}
+
 	return &identityTenant{
 		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
 		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets,
+		invitation: invitation, unreadable: unreadable,
 	}, nil
 }
 

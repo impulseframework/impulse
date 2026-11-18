@@ -17,8 +17,8 @@ package integration
 // sector carries already.
 // Her chart lights Ember and Ember's flight deck answers her at once; a second
 // sector is refused her, as the route is refused the marshal and the governor, who hold
-// sectors already (an administrator of one sector never creates another here; the
-// surveyor's way is the record's own create path, run_time_tenant_test.go); the governor
+// sectors already (an administrator of one sector never creates another here;
+// headquarters' way is an invitation, run_time_tenant_test.go); the governor
 // and the client, held in every sector, see Ember with nothing written for them; and the
 // second instance serves Ember at its next request. The steps run in order, each named in
 // its failure, since every one reads what the ones before it wrote.

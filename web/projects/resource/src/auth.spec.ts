@@ -1162,6 +1162,36 @@ describe('the mailed links in the list', () => {
     expect(Object.keys(kept ?? {})).not.toContain('methods');
   });
 
+  it('keeps what the standing block says of the tenant the invitation makes, and nothing for any other invitation', async () => {
+    const standing = {
+      email: 'founder@dawn.example',
+      tenantId: '',
+      tenantName: 'Dawn',
+      expiresAt: '2026-10-30T12:00:00Z',
+      usernameIsEmail: true,
+    };
+    const making = authOver(
+      server({
+        methods: {
+          ...mailingList,
+          invitation: { ...invitationRoutes, standing: { ...standing, newTenant: true, directoryOnly: true } },
+        },
+      }),
+    ).auth;
+    expect((await making.methods()).invitation?.standing).toEqual({ ...standing, newTenant: true, directoryOnly: true });
+    const into = authOver(
+      server({
+        methods: {
+          ...mailingList,
+          invitation: { ...invitationRoutes, standing: { ...standing, newTenant: false, directoryOnly: false } },
+        },
+      }),
+    ).auth;
+    const kept = (await into.methods()).invitation?.standing;
+    expect(kept).toEqual(standing);
+    expect(Object.keys(kept ?? {})).not.toContain('newTenant');
+  });
+
   it("keeps an invitation block without its sign-up route, a server without a password method's", async () => {
     const { auth } = authOver(
       server({ methods: { methods: [google], invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept } } }),
@@ -1224,6 +1254,27 @@ describe('an invitation', () => {
       signUp: false,
       usernameIsEmail: false,
     });
+  });
+
+  it('carries that the invitation makes a tenant and whether that tenant is entered through its directory only, and neither for any other invitation', async () => {
+    const making = { ...opened, tenantId: '', tenantName: 'Dawn', signUp: false };
+    const closed = authOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...making, newTenant: true, directoryOnly: true } } }),
+    ).auth;
+    expect(await closed.openInvitation('tok-1')).toEqual({ outcome: 'opened', ...making, newTenant: true, directoryOnly: true });
+    // The switch is false unless the server said true.
+    const open = authOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...making, newTenant: true } } }),
+    ).auth;
+    expect(await open.openInvitation('tok-1')).toEqual({ outcome: 'opened', ...making, newTenant: true, directoryOnly: false });
+    // An invitation into a tenant that exists says neither, whatever else the answer carries.
+    const into = authOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...opened, newTenant: false, directoryOnly: true } } }),
+    ).auth;
+    const result = await into.openInvitation('tok-1');
+    expect(result).toEqual({ outcome: 'opened', ...opened });
+    expect(Object.keys(result)).not.toContain('newTenant');
+    expect(Object.keys(result)).not.toContain('directoryOnly');
   });
 
   it('carries the registration names the server says could admit the address, strings only, and none where the answer names none', async () => {

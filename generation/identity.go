@@ -383,6 +383,12 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}
+		if err := inst.refuseInvitationNamesTaken(); err != nil {
+			return err
+		}
+		if err := r.requireNewTenantColumn(inst); err != nil {
+			return err
+		}
 		if err := r.refuseReservedRole(inst); err != nil {
 			return err
 		}
@@ -735,6 +741,10 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// Who may sign in without an invitation: the list of the auth's sign-in methods and
 	// the two methods that open one to sign-up and make it invite only again.
 	files = append(files, r.signUpSources(inst)...)
+	// The invitation that makes a tenant, for the auth whose people the tenant record's
+	// outlets sign in: the method staff send one with, the list of the ones that stand,
+	// and the method that withdraws one.
+	files = append(files, r.invitedTenantSources(inst)...)
 	// The methods one tenant runs, and the computed resources beside them, where the
 	// application has a tenant record.
 	files = append(files, inst.tenantMethodSources()...)

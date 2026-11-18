@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 )
 
@@ -17,8 +16,9 @@ import (
 // removed and the invitations into it that still stood are withdrawn, in the transaction
 // that deletes the row, so nothing is left for a later tenant to pick up; a person who
 // held roles in it alone is deleted with it, by the rule on an account nothing admits,
-// and a person who holds a role elsewhere stays. The tenant is created on the console by
-// its name alone, and the create path answers the id it generated.
+// and a person who holds a role elsewhere stays. The tenant is made the way one comes to
+// exist, by an invitation sent from the console and its first sign-in (makeTenant), so
+// its founder is among the people who held roles in it alone.
 func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	t.Parallel()
 
@@ -28,10 +28,8 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	member := signedIn(ctx, t, s, s.console, memberUser)
 	portalMember := signedIn(ctx, t, s, s.portal, memberUser)
 
-	east := createTenant(ctx, t, admin, "East")
-	if _, err := impulse.UUIDFromString(east); err != nil {
-		t.Fatalf("the new tenant's key is %q, want an id the create path generated: %v", east, err)
-	}
+	east, _ := makeTenant(ctx, t, s, admin, "East", "founder")
+	founderID := staffAccountID(ctx, t, admin, "founder")
 	eastSegment := "/api/tenants/" + east + "/announcements"
 
 	// The member, north's administrator, is given a role in East; a person is created in
@@ -68,9 +66,9 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	if !accountExists(ctx, t, s, "easterner") {
 		t.Fatal("the person created in East has no account")
 	}
-	// The permission store holds a role in East for the two who were given one there,
-	// under the id of the person's account, which is how it names anyone: the member's
-	// and the person's who was created there.
+	// The permission store holds a role in East for the three who were given one there,
+	// under the id of the person's account, which is how it names anyone: the member's,
+	// the founder's (the acceptance seated them) and the person's who was created there.
 	scope := accesstypes.DomainPolicyScope(accesstypes.Domain(east))
 	type holder struct {
 		name string
@@ -78,6 +76,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}
 	seated := []holder{
 		{"the member", accesstypes.User(s.memberID)},
+		{"the founder", accesstypes.User(founderID)},
 		{"the person created there", accesstypes.User(easterner.ID)},
 	}
 	for _, h := range seated {
@@ -104,19 +103,21 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}
 
 	// The permission store holds no role in the deleted tenant: not the member's, not
-	// the person's who was created there, not the creator's.
-	for _, h := range append(seated, holder{"the creator", accesstypes.User(s.adminID)}) {
+	// the founder's, not the person's who was created there.
+	for _, h := range seated {
 		if roles := rolesHeld(ctx, t, s, h.user, scope); len(roles) != 0 {
 			t.Errorf("the roles the permission store holds for %s in the deleted tenant = %v, want none", h.name, roles)
 		}
 	}
-	// The member holds north still and keeps the account; the person who held roles in
-	// East alone is deleted with it.
+	// The member holds north still and keeps the account; the people who held roles in
+	// East alone, its founder and the person created there, are deleted with it.
 	if !accountExists(ctx, t, s, memberUser) {
 		t.Error("the member's account is gone, want it kept: the member holds a role in north")
 	}
-	if accountExists(ctx, t, s, "easterner") {
-		t.Error("the account of the person who held roles in East alone still exists, want it deleted with the tenant")
+	for _, username := range []string{"founder", "easterner"} {
+		if accountExists(ctx, t, s, username) {
+			t.Errorf("the account of %s, who held roles in East alone, still exists, want it deleted with the tenant", username)
+		}
 	}
 
 	// The invitation into East is withdrawn: its link is consumed.
@@ -146,29 +147,6 @@ func rolesHeld(ctx context.Context, t *testing.T, s *served, user accesstypes.Us
 	}
 
 	return held[scope]
-}
-
-// createTenant creates a tenant by its name through the record's create path, as the
-// browser b on the console, and answers the id the create path generated for it.
-func createTenant(ctx context.Context, t *testing.T, b *browser, name string) string {
-	t.Helper()
-
-	add, err := json.Marshal([]map[string]any{{"op": "add", "path": "/tenants", "value": map[string]string{"name": name}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, body := b.do(ctx, http.MethodPatch, "/api/resources", add)
-	if status != http.StatusOK {
-		t.Fatalf("creating the tenant %s: status %d: %s", name, status, body)
-	}
-	var created struct {
-		Tenants []string `json:"tenants"`
-	}
-	if err := json.Unmarshal(body, &created); err != nil || len(created.Tenants) != 1 {
-		t.Fatalf("creating the tenant %s answered %s (%v), want the one new id", name, body, err)
-	}
-
-	return created.Tenants[0]
 }
 
 // tenantNames reads the browser's tenant list from the generated user-domains route of

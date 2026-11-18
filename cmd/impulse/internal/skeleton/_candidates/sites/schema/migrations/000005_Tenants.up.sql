@@ -1,4 +1,4 @@
--- A tenant's key is an id the create path generates, never a word a person types: it is
+-- A tenant's key is an id generated when the tenant is made, never a word a person types: it is
 -- written into every row the tenant owns and is the domain of every role held in it,
 -- so it never changes and is never used twice. The name is what people call the
 -- tenant, changed like any field; the unique index below keeps two tenants from
@@ -20,8 +20,9 @@ CREATE UNIQUE INDEX TenantsByName ON Tenants(Name);
 -- (google, azure, workos, oidc) and the connection the method's identities carry (a
 -- Google Workspace by its domain, a Microsoft Entra tenant by its tenant id, an
 -- organization's own OpenID Connect provider by its registration's). Nobody types a
--- row in: it is written from a sign-in through the directory, when the tenant is
--- created or when its administrator, signed in through it, makes it the tenant's.
+-- row in: it is written from a sign-in through the directory, when the tenant is made
+-- by a person who came through it or when its administrator, signed in through it,
+-- makes it the tenant's.
 -- A tenant has one directory and a directory belongs to one tenant, which the two
 -- unique indexes below hold.
 -- DefaultSeat names the role a person is given in the tenant at their first sign-in

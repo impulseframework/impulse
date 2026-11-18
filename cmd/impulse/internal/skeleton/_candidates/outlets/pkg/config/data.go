@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	database "github.com/impulseframework/impulse/resource/database/spanner"
 	"github.com/impulseframework/impulse/resource/live"
@@ -149,7 +150,14 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// opens; the collection is passed in here, since the auth package imports no router.
 	// The auth opens its stores on the driver's Spanner client: the one vendor-specific
 	// seam left in the level, pending the PostgreSQL client.
-	staffAuth, err := staff.New(ctx, db.SpannerClient, env.staffSettings(router.Collection(), liveService, cookieKey, sender))
+	// The tenant roster is built before the staff auth, which takes what makes a tenant:
+	// nobody creates one directly, and an invited person's first sign-in makes it,
+	// through the generated maker over the Tenant record, the roster and the live
+	// service, so the instance that took the sign-in serves the new tenant at the
+	// person's next request and the others on the tenants signal. startTenants starts
+	// the roster once the level holds the auth.
+	tenants := app.NewTenantRoster(db.ResourceClient, resource.WithTenantSignals(liveService))
+	staffAuth, err := staff.New(ctx, db.SpannerClient, env.staffSettings(router.Collection(), liveService, cookieKey, sender, app.NewTenantMaker(tenants, liveService)))
 	if err != nil {
 		return nil, errors.Wrap(err, "staff.New()")
 	}
@@ -166,6 +174,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		cursorKey:         cursorKey,
 		secretKeys:        secretKeys,
 		staff:             staffAuth,
+		tenants:           tenants,
 		members:           membersAuth,
 		live:              liveService,
 	}
@@ -278,18 +287,17 @@ func (c *DataConfiguration) LiveOrigins() []string {
 	return c.env.Live.BrowserOrigins()
 }
 
-// startTenants builds the tenant roster over the Tenant record with the generated
-// constructor and starts it: the roster reads the Tenants table once, fails the start
+// startTenants starts the tenant roster, built over the Tenant record with the generated
+// constructor where the level is opened: the roster reads the Tenants table once, fails the start
 // when it cannot (the schema is behind the release), and keeps the set current until
 // ctx ends, rereading on the tenants signal the record's generated write paths publish
-// through the live service (a tenant created or deleted on any instance) and at its
+// through the live service (a tenant made or deleted on any instance) and at its
 // backstop. The generated DomainGuard and the consolidated dispatcher ask it before a
 // tenant-scoped request runs, with no read and no wait, so a new tenant is usable at
 // once, on every instance and on every outlet, without a restart. The foothold half of
 // the concealed-domain answer comes from the session's permissions, in the store of the
 // auth the request came through.
 func (c *DataConfiguration) startTenants(ctx context.Context) error {
-	c.tenants = app.NewTenantRoster(c.database.ResourceClient, resource.WithTenantSignals(c.live))
 	if err := c.tenants.Start(ctx); err != nil {
 		return errors.Wrap(err, "resource.TenantRoster.Start()")
 	}
@@ -411,7 +419,10 @@ type dataConfig struct {
 // sign-in's transaction. A directory registration's settings join the literal here
 // (impulse add method), read from the environment under the registration's variables, so
 // the constructor stays one call per auth.
-func (env *dataConfig) staffSettings(collection access.PermissionCollection, signals staff.Signals, cookieKey string, sender mail.Sender) *staff.Settings {
+//
+// tenants is what makes a tenant from an accepted invitation: the generated maker, which
+// the level builds over the roster and hands to the auth a tenant is made through.
+func (env *dataConfig) staffSettings(collection access.PermissionCollection, signals staff.Signals, cookieKey string, sender mail.Sender, tenants identity.TenantMaker) *staff.Settings {
 	return &staff.Settings{
 		Collection:         collection,
 		Signals:            signals,
@@ -422,6 +433,7 @@ func (env *dataConfig) staffSettings(collection access.PermissionCollection, sig
 		DevicePage:         "/console/device",
 		TenantDeclarations: app.NewTenantDeclarationReader(),
 		TenantDirectories:  app.NewTenantDirectoryReader(),
+		TenantMaker:        tenants,
 	}
 }
 

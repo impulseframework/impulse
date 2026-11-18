@@ -295,6 +295,26 @@ export interface GiveStaffTenantGroupRole {
 /** The statuses GiveStaffTenantGroupRole declares; the method chooses one per response. */
 export type GiveStaffTenantGroupRoleStatus = 204;
 
+export interface InviteStaffTenantConfig {
+  email: string | FieldPointer;
+  name?: string | FieldPointer;
+  tenantName: string | FieldPointer;
+  tenantDirectoryOnly: boolean | FieldPointer;
+  defaultRole?: string | FieldPointer;
+}
+export interface InviteStaffTenant {
+  email: string;
+  name?: string;
+  tenantName: string;
+  tenantDirectoryOnly: boolean;
+  defaultRole?: string;
+}
+/** The result InviteStaffTenant answers with. */
+export interface InviteStaffTenantResult {
+  id: string;
+  sent: boolean;
+}
+
 export interface InviteStaffTenantUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
@@ -607,6 +627,15 @@ export interface WithdrawStaffInvitation {
 }
 /** The statuses WithdrawStaffInvitation declares; the method chooses one per response. */
 export type WithdrawStaffInvitationStatus = 204;
+
+export interface WithdrawStaffInvitedTenantConfig {
+  invitationId: string | FieldPointer;
+}
+export interface WithdrawStaffInvitedTenant {
+  invitationId: string;
+}
+/** The statuses WithdrawStaffInvitedTenant declares; the method chooses one per response. */
+export type WithdrawStaffInvitedTenantStatus = 204;
 
 export interface WithdrawStaffTenantInvitationConfig {
   invitationId: string | FieldPointer;
@@ -968,6 +997,17 @@ const methodMap: MethodMap = {
       { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
   },
+  [Methods.InviteStaffTenant]: {
+    route: 'invite-staff-tenant',
+    answers: true,
+    fields: [
+      { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
+      { fieldName: 'tenantName', displayType: 'string', required: true },
+      { fieldName: 'tenantDirectoryOnly', displayType: 'boolean', attribute: 'directoryOnly' },
+      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
+    ],
+  },
   [Methods.InviteStaffTenantUser]: {
     route: 'invite-staff-tenant-user',
     answers: true,
@@ -1241,6 +1281,14 @@ const methodMap: MethodMap = {
   [Methods.WithdrawStaffInvitation]: {
     route: 'withdraw-staff-invitation',
     target: { resource: Resources.StaffSessionMailLinks, key: { invitationId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.WithdrawStaffInvitedTenant]: {
+    route: 'withdraw-staff-invited-tenant',
     statuses: [204],
     dryRun: true,
     fields: [

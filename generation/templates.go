@@ -842,33 +842,6 @@ const (
 			}
 		}`
 
-	// tenantCreatorSeated is spliced into the tenant record's write paths between the
-	// roster's reload and the tenants signal. The person who creates a tenant is its
-	// first administrator: the roles the application names (<Record>AdministratorRoles)
-	// are given in the create's own transaction, through the auth's generated identity
-	// client (tenantCreatorRoles), so a tenant never stands without its administrator.
-	// What is left for after the commit is the wait: the answer is held until the
-	// permission engine answers the person a foothold in the tenant, asked once this
-	// instance's roster lists it, so the person's next request stands in the tenant. An
-	// engine that does not answer in time is logged and the request answered: the rows
-	// are committed.
-	tenantCreatorSeated = `for _, id := range created {
-			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {
-				logger.FromCtx(ctx).Errorf("{{ .Seat.RecordLower }} %s: %v", id, err)
-			}
-		}`
-
-	// tenantCreatorRoles is spliced into the tenant record's create, after the row is
-	// buffered under the id the create generated (id, which the splice's place sets): the
-	// creator's administrator roles, buffered as memberships in the same transaction
-	// through the auth's generated identity client. The id's text is the tenant's domain.
-	tenantCreatorRoles = `for _, role := range roles {
-						if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
-							return errors.Wrap(err, "{{ .Seat.IdentityAccessor }}().AssignRole()")
-						}
-					}
-					created = append(created, id)`
-
 	// tenantCleared is spliced into the tenant record's delete, after the row's removal
 	// is buffered under its id (id, which the splice's place sets): what each auth holds
 	// for the tenant goes in the same transaction, through the generated identity client
@@ -1489,37 +1462,44 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) DomainGuard() func(http.Handl
 package {{ .Package }}
 
 import (
-{{- if .Declaration }}
+{{- if or .Declaration .Maker }}
 	"context"
+{{- end }}
+{{- if .Maker }}
+	"encoding/json"
+{{- end }}
+{{- if .Declaration }}
 
 	"cloud.google.com/go/spanner"
+{{- end }}
+{{- if or .Declaration .Maker }}
 	"github.com/go-playground/errors/v5"
 {{- end }}
-{{- if or .Seat .Declaration }}
+{{- if or .Declaration .Maker }}
 	{{ .LocalPackageImports }}
 {{- end }}
 {{- if .Declaration }}
 	"github.com/impulseframework/impulse"
 {{- end }}
-{{- if or .Seat .Declaration }}
+{{- if or .Declaration .Maker }}
 	"github.com/impulseframework/impulse/accesstypes"
 {{- end }}
+{{- if .Maker }}
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
+	"github.com/impulseframework/impulse/logger"
+{{- end }}
 	"github.com/impulseframework/impulse/resource"
+{{- if .Maker }}
+	"github.com/impulseframework/impulse/resource/live"
+{{- end }}
+{{- if and .Maker .Declaration }}
+	"github.com/impulseframework/impulse/session/sessioninfo"
+{{- end }}
 {{- if .Declaration }}
 	"github.com/impulseframework/impulse/session/signin"
 {{- end }}
 )
-{{- if .Seat }}
-
-// The {{ .Name }} record's create makes its creator the first administrator of the new
-// {{ .RecordLower }}: the roles {{ .Seat.RolesAccessor }} names are given in the
-// transaction that writes the row, through the {{ .Seat.Auth }} auth's generated identity
-// client ({{ .Seat.IdentityAccessor }}, which the auth's generated handlers ask of the
-// application too). The application supplies the roles beside the generated contract.
-var _ interface {
-	{{ .Seat.RolesAccessor }}() []accesstypes.Role
-} = (*{{ .ApplicationName }})(nil)
-{{- end }}
 {{- if .Declaration }}
 
 // {{ GoCamel .Name }}Declaration names where the {{ .Name }} record keeps its declaration of who
@@ -1631,6 +1611,169 @@ func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransact
 	}
 
 	return nil
+}
+{{- end }}
+{{- with .Maker }}
+
+// {{ GoCamel $.Name }}Maker makes a {{ $.RecordLower }} from an accepted invitation
+// (identity.TenantMaker): New{{ $.Name }}Maker builds it.
+type {{ GoCamel $.Name }}Maker struct {
+	roster  *resource.TenantRoster
+	signals live.Service
+}
+
+// New{{ $.Name }}Maker builds what makes a {{ $.RecordLower }} from an invitation's details
+// (identity.TenantMaker), over the {{ $.Name }} record's own create patch. Staff bring a
+// {{ $.RecordLower }} in by inviting one person (the auth's generated Invite method), and the
+// person's first sign-in makes the {{ $.RecordLower }}: the application hands this to the
+// auth whose people the record's outlets sign in, where it builds that auth's generated
+// identity client, which takes it. roster is the application's tenant roster and
+// signals its live service: once the sign-in's transaction has committed, this
+// instance's roster rereads its table, so the person's first request stands in the new
+// {{ $.RecordLower }}, and the tenants kind is signaled, so every instance serves it at once.
+func New{{ $.Name }}Maker(roster *resource.TenantRoster, signals live.Service) identity.TenantMaker {
+	return &{{ GoCamel $.Name }}Maker{roster: roster, signals: signals}
+}
+
+// Make buffers the {{ $.RecordLower }}'s row from the invitation's details, through the
+// record's create patch, so the record's own rules apply and its change event is written
+// with it. The details name the record's fields by their Go names; a name the record
+// does not carry on an invitation is refused. At the check a send makes
+// (tenant.Caller), the patch is armed with the caller, so the record's Create grant, on
+// the record and on each field given, answers as it would for a create, and the
+// transaction is rolled back by whoever asked. A value another {{ $.RecordLower }} holds
+// under a unique index is refused once the grants have answered. A rule the database alone applies at a commit (a CHECK constraint, a
+// unique index over several columns) is not seen by the check: it refuses the first
+// sign-in's commit, and the invitation stands.
+{{- if $.Declaration }}
+//
+// With a directory, the organization's the accepting person signed in through, the
+// {{ $.Directories }} row is buffered too, held to the rules of a {{ $.Word }}'s directory
+// (New{{ $.Name }}DirectoryRules): a directory another {{ $.Word }} has refuses the sign-in
+// (sessioninfo.RefusedOrganizationHasTenant) and nothing is written.{{ if $.DefaultSeat }} The row
+// carries the role the directory's people start with, where the invitation names one.{{ end }}
+{{- end }}
+{{- if .Flag }}
+// A {{ $.RecordLower }} that is directory only is made so with its directory, and never
+// without one.
+{{- end }}
+func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadWriteTransaction, tenant *identity.NewTenant) (accesstypes.Domain, error) {
+	var carried map[string]json.RawMessage
+	if len(tenant.Fields) > 0 {
+		if err := json.Unmarshal(tenant.Fields, &carried); err != nil {
+			return "", httpio.NewBadRequestMessageWithError(err, "the {{ $.RecordLower }}'s details do not read: they are a JSON object of the {{ $.Name }} record's fields")
+		}
+	}
+	patch, err := {{ $.ResourcePackage }}.New{{ $.Name }}CreatePatch()
+	if err != nil {
+		return "", errors.Wrap(err, "{{ $.ResourcePackage }}.New{{ $.Name }}CreatePatch()")
+	}
+	id := patch.{{ .Key }}()
+	domain := accesstypes.Domain(id.String())
+	{{- range $field := .Fields }}
+	if value, ok := carried[{{ printf "%q" $field.Name }}]; ok {
+		var given {{ $field.Type }}
+		if err := json.Unmarshal(value, &given); err != nil {
+			return "", httpio.NewBadRequestMessageWithError(err, "the {{ $.RecordLower }}'s {{ $field.Wire }} does not read")
+		}
+		patch.Set{{ $field.Name }}(given)
+		delete(carried, {{ printf "%q" $field.Name }})
+	}
+	{{- end }}
+	for name := range carried {
+		return "", httpio.NewBadRequestMessagef("an invitation carries no field %s of the {{ $.Name }} record: a field the wire cannot write, or a secret, is given to the {{ $.RecordLower }} once it exists", name)
+	}
+	{{- if $.Declaration }}
+	hasDirectory := tenant.Directory.Organization()
+	{{- end }}
+	if tenant.DirectoryOnly {
+		{{- if and .Flag $.Declaration }}
+		if !hasDirectory {
+			return "", errors.New("a {{ $.RecordLower }} that is directory only is made with its directory: the invitation was accepted through none")
+		}
+		patch.Set{{ .Flag }}({{ if .FlagType }}{{ .FlagType }}(true){{ else }}true{{ end }})
+		{{- else }}
+		return "", errors.New("the {{ $.Name }} record declares no directory-only switch, so no {{ $.RecordLower }} is made directory only")
+		{{- end }}
+	}
+	if tenant.Caller != nil {
+		patch.Enforce(tenant.Caller)
+	}
+	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
+		return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}CreatePatch.Buffer()")
+	}
+	{{- range $field := .Fields }}
+	{{- if $field.Unique }}
+	if patch.{{ $field.Name }}IsSet() {
+		// The database keeps one {{ $.RecordLower }} to a {{ $field.Wire }} (a unique index), and
+		// refuses a second at the commit: it is refused here, where the answer says so,
+		// and after the caller's grants have answered (the buffer above), so the answer
+		// tells nobody who may not create a {{ $.RecordLower }} which values are taken. The
+		// read sees what is committed, never the row just buffered.
+		switch _, err := {{ $.ResourcePackage }}.New{{ $.Name }}Query().Set{{ $field.Name }}(patch.{{ $field.Name }}()).AddColumns({{ $.ResourcePackage }}.New{{ $.Name }}Columns().{{ $.Maker.Key }}()).Read(ctx, txn); {
+		case err == nil:
+			return "", httpio.NewConflictMessagef("a {{ $.RecordLower }} with the {{ $field.Wire }} %v already exists: give the new one another", patch.{{ $field.Name }}())
+		case !httpio.HasNotFound(err):
+			return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}Query.Read()")
+		}
+	}
+	{{- end }}
+	{{- end }}
+	{{- if $.Declaration }}
+	if hasDirectory {
+		// The directory the person came through becomes the {{ $.Word }}'s own, held to
+		// the rules: one another {{ $.Word }} has refuses the sign-in.
+		if err := New{{ $.Name }}DirectoryRules().Set(ctx, txn, domain, tenant.Directory); err != nil {
+			if httpio.HasConflict(err) {
+				return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, err)
+			}
+
+			return "", errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
+		}
+		directory, err := {{ $.ResourcePackage }}.New{{ $.Directories }}CreatePatch()
+		if err != nil {
+			return "", errors.Wrap(err, "{{ $.ResourcePackage }}.New{{ $.Directories }}CreatePatch()")
+		}
+		directory.Set{{ $.Directory.TenantField }}({{ .TenantValue }}).Set{{ $.Directory.MethodField }}(string(tenant.Directory.Method)).Set{{ $.Directory.ConnectionField }}(tenant.Directory.Connection)
+		{{- if $.DefaultSeat }}
+		if tenant.DefaultRole != "" {
+			role := string(tenant.DefaultRole)
+			directory.Set{{ $.DefaultSeat }}(&role)
+		}
+		{{- end }}
+		if err := directory.Buffer(ctx, txn, tenant.Source); err != nil {
+			return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Directories }}CreatePatch.Buffer()")
+		}
+	}
+	{{- end }}
+	if tenant.Caller != nil {
+		// The check a send makes: nothing commits, and nothing is owed after it.
+		return domain, nil
+	}
+	if err := resource.AfterCommit(txn, func(ctx context.Context) {
+		if err := m.roster.Reload(ctx); err != nil {
+			logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
+		}
+		if err := m.signals.Signal(ctx, resource.KindTenants); err != nil {
+			logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
+		}
+	}); err != nil {
+		return "", errors.Wrap(err, "resource.AfterCommit()")
+	}
+
+	return domain, nil
+}
+
+// SeatsDefaultRole reports whether a {{ $.RecordLower }}'s directory keeps the role its
+// people start with: {{ if $.DefaultSeat }}{{ $.Directories }}.{{ $.DefaultSeat }}{{ else }}the application's records keep none{{ end }}.
+func (m *{{ GoCamel $.Name }}Maker) SeatsDefaultRole() bool {
+	return {{ if $.DefaultSeat }}true{{ else }}false{{ end }}
+}
+
+// DeclaresDirectoryOnly reports whether the {{ $.Name }} record declares the
+// directory-only switch{{ if .Flag }} ({{ $.Name }}.{{ .Flag }}){{ end }}.
+func (m *{{ GoCamel $.Name }}Maker) DeclaresDirectoryOnly() bool {
+	return {{ if .Flag }}true{{ else }}false{{ end }}
 }
 {{- end }}
 `
@@ -2999,17 +3142,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 	{{- end }}
 
 	decoder := NewDecoder[{{ .ResourcePackage }}.{{ .Resource.Name }}, request]({{ .ReceiverName }}, {{ .Resource.PatchPermissionList }})
-	{{- if .Seat }}
-
-	// The creator of a {{ .Resource.Name }} is its first administrator: the roles {{ .Seat.RolesAccessor }}
-	// names, given in the create's transaction through the {{ .Seat.Auth }} auth's generated
-	// identity client.
-	roles := {{ .ReceiverName }}.{{ .Seat.RolesAccessor }}()
-	if len(roles) == 0 {
-		panic("{{ .Seat.RolesAccessor }}() names no role: the person who creates a {{ .Resource.Name }} holds its administrator role, which the application names there")
-	}
-	identity := {{ .ReceiverName }}.{{ .Seat.IdentityAccessor }}()
-	{{- end }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -3028,12 +3160,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		// reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
 		{{- end }}
-		{{- if .Seat }}
-		// The {{ .Resource.Name }}s this transaction creates with their creator's membership,
-		// which the answer waits on after the commit.
-		var created []{{ $PrimaryKeyType }}
-		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
-		{{- end }}
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer.
@@ -3044,9 +3170,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 			{{- end }}
 			{{- if .Resource.SignalsTenants }}
 			tenantsWritten = false
-			{{- end }}
-			{{- if .Seat }}
-			created = nil
 			{{- end }}
 			r, err := resource.CloneRequest(r)
 			if err != nil {
@@ -3087,11 +3210,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					{{- end }}
 				}
 				{{- end }}
-				{{- if .Resource.CreateDisabled }}
+				{{- if .Resource.RefusesCreate }}
 				if op.Type == resource.OperationCreate {
 					// A row comes in another way (a NOT NULL @file key: the @upload method
-					// that stores its file; a self-service tenant record: the
-					// create-your-tenant route), so a create op is refused naming it.
+					// that stores its file; the tenant record: an invitation's first
+					// sign-in), so a create op is refused naming it, with the status an
+					// unknown resource answers.
 					return httpio.NewBadRequestMessage("{{ .Resource.CreateRefusal }}")
 				}
 				{{- end }}
@@ -3120,10 +3244,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
 					resp.IDs = append(resp.IDs, patch.{{ .Resource.PrimaryKey.Name }}())
-					{{- if .Seat }}
-					id := patch.{{ .Resource.PrimaryKey.Name }}()
-					` + tenantCreatorRoles + `
-					{{- end }}
 				{{- else if .Resource.HasCompoundPrimaryKey }}
 					{{- range $i, $field := .Resource.PrimaryKeys }}
 					id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](op.Req, "id{{ Add $i 1 }}")
@@ -3192,9 +3312,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{- if .Resource.SignalsTenants }}
 		` + tenantsReloaded + `
 		{{- end }}
-		{{- if .Seat }}
-		` + tenantCreatorSeated + `
-		{{- end }}
 		{{- if .Resource.SignalsTenants }}
 		` + tenantsSignaled + `
 		{{- end }}
@@ -3239,17 +3356,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 	{{ end }}
 
 	type response map[string][]impulse.UUID
-	{{- if .Seat }}
-
-	// The creator of a {{ .Seat.Record }} is its first administrator: the roles {{ .Seat.RolesAccessor }}
-	// names, given in the create's transaction through the {{ .Seat.Auth }} auth's generated
-	// identity client.
-	roles := {{ .ReceiverName }}.{{ .Seat.RolesAccessor }}()
-	if len(roles) == 0 {
-		panic("{{ .Seat.RolesAccessor }}() names no role: the person who creates a {{ .Seat.Record }} holds its administrator role, which the application names there")
-	}
-	identity := {{ .ReceiverName }}.{{ .Seat.IdentityAccessor }}()
-	{{- end }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -3266,11 +3372,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
 		{{- end }}
-		{{- if .Seat }}
-		// The {{ .Seat.Record }}s this transaction creates with their creator's membership,
-		// which the answer waits on after the commit.
-		var created []{{ .Seat.KeyType }}
-		{{- end }}
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
@@ -3280,9 +3381,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 			resp = response{}
 			{{- if .HasTenant }}
 			tenantsWritten = false
-			{{- end }}
-			{{- if .Seat }}
-			created = nil
 			{{- end }}
 			r, err := resource.CloneRequest(r)
 			if err != nil {
@@ -3350,9 +3448,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		{{- if .HasTenant }}
 		` + tenantsReloaded + `
 		{{- end }}
-		{{- if .Seat }}
-		` + tenantCreatorSeated + `
-		{{- end }}
 		{{- if .HasTenant }}
 		` + tenantsSignaled + `
 		{{- end }}
@@ -3407,11 +3502,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- end }}
 						}
 					{{- end }}
-					{{- if .CreateDisabled }}
+					{{- if .RefusesCreate }}
 						if op.Type == resource.OperationCreate {
 							// A row comes in another way (a NOT NULL @file key: the @upload
-							// method that stores its file; a self-service tenant record: the
-							// create-your-tenant route), so a create op is refused naming it.
+							// method that stores its file; the tenant record: an invitation's
+							// first sign-in), so a create op is refused naming it, with the
+							// status an unknown resource answers.
 							return httpio.NewBadRequestMessage("{{ .CreateRefusal }}")
 						}
 					{{- end }}
@@ -3442,15 +3538,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
 							resp["{{ GoCamel (Pluralize .Name) }}"] = append(resp["{{ GoCamel (Pluralize .Name) }}"], patch.{{ .PrimaryKey.Name }}())
-							{{- if .Seated }}
-							id := patch.{{ .PrimaryKey.Name }}()
-							for _, role := range roles {
-								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
-									return errors.Wrap(err, "the auth's identity client: AssignRole()")
-								}
-							}
-							created = append(created, id)
-							{{- end }}
 						{{- else if .HasCompoundPrimaryKey }}
 							{{- range $i, $field := .PrimaryKeys }}
 							id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](req, "id{{ Add $i 1 }}")
@@ -3757,7 +3844,7 @@ const resourceMap = defineResourceMap({
 	{{- if $resource.ReadHandlerDisabled }}
     readDisabled: true,
     {{- end }}
-	{{- if $resource.CreateHandlerDisabled }}
+	{{- if $resource.ClientCreateDisabled }}
     createDisabled: true,
     {{- end }}
 	{{- if $resource.UpdateHandlerDisabled }}

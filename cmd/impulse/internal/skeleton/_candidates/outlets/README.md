@@ -16,7 +16,7 @@ prompt. The root alone redirects to `/console/`; every other unmatched path is 4
 Tenancy as data: the `Tenant` record (`@tenant`) over the `Tenants` table is the domain
 universe, tenant-scoped routes live under `/console/api/tenants/{tenantID}/` (and under each
 outlet's prefix), the data level's tenant roster keeps the tenants current on every
-instance (a tenant created through the API is usable at once, without a restart), and
+instance (a tenant is usable the moment it is made, without a restart), and
 tenant existence is concealed from logins that hold nothing there. `Announcement` is the first tenant-scoped resource — a login's tenant list
 is where it holds a grant, and a grant needs a tenant-scoped resource to land on, so the
 application ships one. `Reading` is devices-only. The console and the portal each mirror
@@ -45,13 +45,29 @@ its own people in its groups, while an account from outside the tenant is put th
 the whole application's accounts. The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
-(`app.menus.ts`) shows Tenants (All tenants and New tenant…) and System (the staff's
-accounts and Feature flags…) in Configuration, and People and Tenant (Sign-in settings)
+(`app.menus.ts`) shows Tenants (All tenants) and System (the staff's accounts, the
+Invited tenants page and Feature flags…) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
 person's own menu holds Your account (the console's: the email address, Change your
 password, Forget this browser), Your API keys on the console, Appearance and Sign out; a
 portal member signs in through their company's directory and has nothing of their sign-in
 to change there. Help ends with About, which carries the release.
+
+How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
+directly: the record's create is refused, with a sentence that says so. An administrator
+brings an organization in by inviting one person, on the console's Invited tenants page
+(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+`StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
+`Administrator` role's Create grant on the record, and a name a tenant holds is refused
+there. No tenant exists while the invitation waits; the invited person's first sign-in
+makes it under an id the server generates, gives them the roles the App names in
+`TenantAdministratorRoles` (`TenantAdministrator`) and hands the tenant to the roster, so
+their next request stands in it. An invitation that still waits is withdrawn on the same
+page. The staff auth is handed what makes the tenant by the data level
+(`staff.Settings.TenantMaker`, the generated `app.NewTenantMaker` over the roster, built before the
+auth), and refuses to start without it. A person who signed up and holds no tenant
+creates their own through the generated create-your-tenant route, which the dashboard
+offers while an administrator has a sign-in method open to sign-up.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -255,6 +271,9 @@ generated router test proves the route sits behind the token check.
   stored value needs it (see "Secret fields").
 - `test/authz` is the generated authorization matrix over the generated test router;
   `test/integration` drives the served stack (real router, session, engine) end to end.
+  How a tenant comes to exist is held in both: `test/integration/invited_tenant_test.go`
+  plays the invitation that makes a tenant from the sending to the first sign-in, and
+  `test/authz/invited_tenant_test.go` holds the sending to the Create grant on the record.
 - `web/` is the Angular workspace, one project per browser application (`console`,
   `portal`); each has its own generated client (`GenerateTypescript` per outlet).
   `web/go.mod` exists only to keep Go tooling out of `node_modules`.

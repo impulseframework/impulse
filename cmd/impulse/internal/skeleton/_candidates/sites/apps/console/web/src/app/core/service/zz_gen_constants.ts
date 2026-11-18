@@ -24,6 +24,7 @@ export const Resources = {
   StaffGroupRoles: 'StaffGroupRoles' as Resource,
   StaffGroupUsers: 'StaffGroupUsers' as Resource,
   StaffGroups: 'StaffGroups' as Resource,
+  StaffInvitedTenants: 'StaffInvitedTenants' as Resource,
   StaffRoleGrants: 'StaffRoleGrants' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
   StaffSessionAuthEvents: 'StaffSessionAuthEvents' as Resource,
@@ -77,6 +78,7 @@ export const Methods = {
   EndStaffUserSessions: 'EndStaffUserSessions' as Method,
   GiveStaffGroupRole: 'GiveStaffGroupRole' as Method,
   GiveStaffTenantGroupRole: 'GiveStaffTenantGroupRole' as Method,
+  InviteStaffTenant: 'InviteStaffTenant' as Method,
   InviteStaffTenantUser: 'InviteStaffTenantUser' as Method,
   InviteStaffUser: 'InviteStaffUser' as Method,
   MakeStaffInviteOnly: 'MakeStaffInviteOnly' as Method,
@@ -106,6 +108,7 @@ export const Methods = {
   UnlinkStaffTenantSessionIdentity: 'UnlinkStaffTenantSessionIdentity' as Method,
   UnlockStaffSignIn: 'UnlockStaffSignIn' as Method,
   WithdrawStaffInvitation: 'WithdrawStaffInvitation' as Method,
+  WithdrawStaffInvitedTenant: 'WithdrawStaffInvitedTenant' as Method,
   WithdrawStaffTenantInvitation: 'WithdrawStaffTenantInvitation' as Method,
   EndTenantDirectoryOnly: 'EndTenantDirectoryOnly' as Method,
   MakeTenantDirectoryOnly: 'MakeTenantDirectoryOnly' as Method,
@@ -229,6 +232,31 @@ export namespace StaffGroups {
     kind: 'StaffGroups.kind' as Resource,
     name: 'StaffGroups.name' as Resource,
     updatedAt: 'StaffGroups.updatedAt' as Resource,
+  };
+}
+
+export namespace StaffInvitedTenants {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+    email: 'email' as FieldName,
+    expiresAt: 'expiresAt' as FieldName,
+    id: 'id' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
+    name: 'name' as FieldName,
+    tenantDirectoryOnly: 'tenantDirectoryOnly' as FieldName,
+    tenantName: 'tenantName' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'StaffInvitedTenants.createdAt' as Resource,
+    defaultRole: 'StaffInvitedTenants.defaultRole' as Resource,
+    email: 'StaffInvitedTenants.email' as Resource,
+    expiresAt: 'StaffInvitedTenants.expiresAt' as Resource,
+    id: 'StaffInvitedTenants.id' as Resource,
+    invitedByUserId: 'StaffInvitedTenants.invitedByUserId' as Resource,
+    name: 'StaffInvitedTenants.name' as Resource,
+    tenantDirectoryOnly: 'StaffInvitedTenants.tenantDirectoryOnly' as Resource,
+    tenantName: 'StaffInvitedTenants.tenantName' as Resource,
   };
 }
 
@@ -1012,6 +1040,16 @@ export namespace GiveStaffTenantGroupRole {
   };
 }
 
+export namespace InviteStaffTenant {
+  export const fieldName = {
+    email: 'email' as FieldName,
+    name: 'name' as FieldName,
+    tenantName: 'tenantName' as FieldName,
+    tenantDirectoryOnly: 'tenantDirectoryOnly' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+  };
+}
+
 export namespace InviteStaffTenantUser {
   export const fieldName = {
     email: 'email' as FieldName,
@@ -1204,6 +1242,12 @@ export namespace UnlockStaffSignIn {
 }
 
 export namespace WithdrawStaffInvitation {
+  export const fieldName = {
+    invitationId: 'invitationId' as FieldName,
+  };
+}
+
+export namespace WithdrawStaffInvitedTenant {
   export const fieldName = {
     invitationId: 'invitationId' as FieldName,
   };

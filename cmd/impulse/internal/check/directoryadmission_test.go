@@ -366,7 +366,7 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 			name: "tenanted without the default seat column", candidate: "tenanted",
 			edits:      []candidateEdit{{file: "pkg/resources/tenant_directories.go", old: "\t\t// @directoryDefaultSeat\n"}},
 			wantStatus: Fail, wantSummary: "1 directory admission wiring problem(s)",
-			wantDetails: []string{"pkg/resources/tenant_directories.go:47: " + noSeatColumn},
+			wantDetails: []string{"pkg/resources/tenant_directories.go:49: " + noSeatColumn},
 		},
 		{
 			name: "outlets without the members admission names the members auth", candidate: "outlets",
@@ -378,7 +378,7 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 			name: "tenanted without the grant of the method that opens a tenant to its directory", candidate: "tenanted",
 			edits:      []candidateEdit{{file: "pkg/auth/staff/roles.json", old: candidateGrant}},
 			wantStatus: Fail, wantSummary: "1 directory admission wiring problem(s)",
-			wantDetails: []string{"pkg/resources/tenant_directories.go:47: no role in pkg/auth/staff/roles.json " + fmt.Sprintf(noSeatGrant, "OpenTenantToDirectory")},
+			wantDetails: []string{"pkg/resources/tenant_directories.go:49: no role in pkg/auth/staff/roles.json " + fmt.Sprintf(noSeatGrant, "OpenTenantToDirectory")},
 		},
 	}
 
