@@ -714,6 +714,21 @@ func (mr *MockUserManagerMockRecorder) DescribeGroup(ctx, group, description any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DescribeGroup", reflect.TypeOf((*MockUserManager)(nil).DescribeGroup), ctx, group, description)
 }
 
+// GroupContents mocks base method.
+func (m *MockUserManager) GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GroupContents", ctx, scope)
+	ret0, _ := ret[0].([]GroupContent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GroupContents indicates an expected call of GroupContents.
+func (mr *MockUserManagerMockRecorder) GroupContents(ctx, scope any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GroupContents", reflect.TypeOf((*MockUserManager)(nil).GroupContents), ctx, scope)
+}
+
 // GroupRole mocks base method.
 func (m *MockUserManager) GroupRole(ctx context.Context, group accesstypes.Group, kept, scope accesstypes.PolicyScope, role accesstypes.Role, held RoleReader) (GroupRoleKey, error) {
 	m.ctrl.T.Helper()
@@ -727,6 +742,21 @@ func (m *MockUserManager) GroupRole(ctx context.Context, group accesstypes.Group
 func (mr *MockUserManagerMockRecorder) GroupRole(ctx, group, kept, scope, role, held any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GroupRole", reflect.TypeOf((*MockUserManager)(nil).GroupRole), ctx, group, kept, scope, role, held)
+}
+
+// GroupRoleLosers mocks base method.
+func (m *MockUserManager) GroupRoleLosers(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GroupRoleLosers", ctx, group, scope, role)
+	ret0, _ := ret[0].([]accesstypes.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GroupRoleLosers indicates an expected call of GroupRoleLosers.
+func (mr *MockUserManagerMockRecorder) GroupRoleLosers(ctx, group, scope, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GroupRoleLosers", reflect.TypeOf((*MockUserManager)(nil).GroupRoleLosers), ctx, group, scope, role)
 }
 
 // GroupRoles mocks base method.

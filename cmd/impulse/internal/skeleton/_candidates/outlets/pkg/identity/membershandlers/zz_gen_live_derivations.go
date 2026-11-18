@@ -27,6 +27,28 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 		}},
+		// MembersHeldRoles: the tables its query reads.
+		{Resource: membersresources.MembersHeldRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+		}},
+		// MembersListedGroups: the tables its query reads.
+		{Resource: membersresources.MembersListedGroup{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: resources.Tenant{}.Resource(), Global: true},
+		}},
+		// MembersListedGroupRoles: the tables its query reads.
+		{Resource: membersresources.MembersListedGroupRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+		}},
 		// MembersTakenRoles: the tables its query reads.
 		{Resource: membersresources.MembersTakenRole{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
@@ -34,18 +56,32 @@ var LiveDerivations = &live.Derivations{
 		}},
 		// MembersTenantGroups: the tables its query reads.
 		{Resource: membersresources.MembersTenantGroup{}.Resource(), Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// MembersTenantGroupRoles: the tables its query reads.
 		{Resource: membersresources.MembersTenantGroupRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 		}},
 		// MembersTenantGroupUsers: the tables its query reads.
 		{Resource: membersresources.MembersTenantGroupUser{}.Resource(), Tables: []live.SourceTable{
 			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+		}},
+		// MembersTenantHeldRoles: the tables its query reads.
+		{Resource: membersresources.MembersTenantHeldRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// MembersTenantIdentities: the tables its query reads.
 		{Resource: membersresources.MembersTenantIdentity{}.Resource(), Tables: []live.SourceTable{

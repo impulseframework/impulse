@@ -20,7 +20,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type DeleteCrewGroup struct {
-	// @target(CrewGroup)
+	// @target(CrewListedGroup)
 	GroupID impulse.UUID
 }
 

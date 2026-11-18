@@ -317,6 +317,10 @@ type (
 	// goes at the person's next sign-in. One that has not begun is listed, where it is
 	// given another period or taken away.
 	//
+	// The roles a person holds through a group are not rows here. The one list a page
+	// shows a person's roles from, these rows beside the ones that come through a group,
+	// is {{ .TenantHeldRole }}, whose rows Remove{{ .TenantSubject }}Role names.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet({{ .Outlets }})

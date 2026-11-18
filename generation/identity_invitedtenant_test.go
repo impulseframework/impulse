@@ -140,7 +140,7 @@ func Test_tenantInvitationIn(t *testing.T) {
 					{Name: "Garrison", Type: "int64", Wire: "garrison"},
 					{Name: "Towers", Type: "[]string", Wire: "towers"},
 				},
-				nameField:     "Name",
+				nameField: "Name", nameColumn: "Name",
 				directoryOnly: &identityTenantField{Name: "Closed", Type: "bool", Wire: "closed"},
 				seats:         true,
 				// The packages of the carried fields alone: neither the key's nor the

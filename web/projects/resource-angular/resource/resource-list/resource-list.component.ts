@@ -714,6 +714,8 @@ export class ResourceListComponent implements OnInit {
           ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
           // A column that opts out of its filter control says so to the table.
           ...(col.filterable === false ? { filterable: false } : {}),
+          // A column whose list is drawn a line each says so to the table.
+          ...(col.lines ? { lines: true } : {}),
         };
         // An icon column keeps its map and tooltip position for the grid; the cell itself is
         // resolved with the display row (processedRowData), never at render time.
@@ -840,7 +842,12 @@ export class ResourceListComponent implements OnInit {
         // and not as the word a formatter would make of it. A column that configures a
         // format is written by that format, as its author asked.
         const mark = typeof updatedRow[col.id] === 'boolean' && !col.formatType;
-        if (typeof col.valueFormatter === 'function' && !mark) {
+        // A list drawn a line each stays a list, each item written as text, so the
+        // table draws the items one under another.
+        const listed = col.lines && Array.isArray(updatedRow[col.id]);
+        if (listed) {
+          updatedRow[col.id] = (updatedRow[col.id] as unknown[]).map((item) => String(item ?? ''));
+        } else if (typeof col.valueFormatter === 'function' && !mark) {
           updatedRow[col.id] = col.valueFormatter(updatedRow[col.id]);
         }
 
@@ -869,12 +876,17 @@ export class ResourceListComponent implements OnInit {
       ...rowMethods(row, methods, this.store.methodMeta, presentations),
       ...filledMethods(row, presentations, this.store.methodMeta, (method) => filled.includes(method)),
     ];
-    return offeredHere.map((method) => ({
-      id: method.method,
-      label: method.label,
-      icon: method.icon,
-      run: (): void => this.runMethod(method, row),
-    }));
+    return offeredHere.map((method) =>
+      method.says
+        ? // What the row says where the method would be: words, and nothing to run.
+          { id: method.method, label: method.says, icon: method.icon, run: (): void => undefined, disabled: true }
+        : {
+            id: method.method,
+            label: method.label,
+            icon: method.icon,
+            run: (): void => this.runMethod(method, row),
+          },
+    );
   }
 
   /**

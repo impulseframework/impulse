@@ -29,6 +29,9 @@ import (
 //     (heldElsewhere, heldGlobally);
 //   - the roles held there: one row per role a person holds in the tenant, with the fact
 //     everyDomain;
+//   - the one list of the roles held there with where each comes from: those rows, and
+//     beside them a row per role that comes to a person through a group
+//     (identity_holdings.go);
 //   - the tenant's invitations: the mail links of the invitation kind that name the
 //     tenant, with the fact pending;
 //   - the identities of the tenant's people: one row per identity link of a person of
@@ -90,10 +93,12 @@ type identityList struct {
 }
 
 // The suffixes of the lists, each what the list holds: a tenant's people, the roles
-// they hold there, the tenant's invitations and its people's sign-in identities.
+// they hold there, the one list of those roles with where each comes from, the tenant's
+// invitations and its people's sign-in identities.
 const (
 	listPeopleSuffix      = "User"
 	listRolesSuffix       = "UserRole"
+	listHeldRolesSuffix   = heldRoleSuffix
 	listInvitationsSuffix = "Invitation"
 	listIdentitiesSuffix  = "Identity"
 )
@@ -104,6 +109,7 @@ func identityLists() []identityList {
 	return []identityList{
 		{suffix: listPeopleSuffix, template: identityTenantUsersTemplate, needs: []identityTable{identityUsers, identityMemberships}},
 		{suffix: listRolesSuffix, template: identityTenantRolesTemplate, needs: []identityTable{identityUsers, identityMemberships}},
+		{suffix: listHeldRolesSuffix, template: identityTenantHeldRolesTemplate, needs: []identityTable{identityUsers, identityMemberships}},
 		{suffix: listInvitationsSuffix, template: identityTenantMailLinksTemplate, needs: []identityTable{identityMailLinks}},
 		{suffix: listIdentitiesSuffix, template: identityTenantIdentitiesTemplate, needs: []identityTable{identityUsers, identityMemberships, identityIdentities}},
 	}
@@ -132,7 +138,7 @@ func (i *identityInstance) refuseListNamesTaken() error {
 		declared[i.auth+decl.suffix] = true
 	}
 	// The whole application's lists over groups are named after the auth alone, as the
-	// declarations are, and so are its lists of the roles held for a set time.
+	// declarations are, and so are its lists of what is held.
 	for _, suffix := range []string{listGroupPeopleSuffix, listThroughGroupsSuffix} {
 		declared[i.groupListName(suffix, false)] = true
 	}
@@ -194,6 +200,12 @@ func (d *identitySourceData) TenantUser() string {
 // TenantRole is the struct of the roles held in a tenant.
 func (d *identitySourceData) TenantRole() string {
 	return d.listName(listRolesSuffix)
+}
+
+// TenantHeldRole is the struct of the one list of the roles held in a tenant, each with
+// where it comes from.
+func (d *identitySourceData) TenantHeldRole() string {
+	return d.listName(listHeldRolesSuffix)
 }
 
 // TenantMailLink is the struct of a tenant's invitations.

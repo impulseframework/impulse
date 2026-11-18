@@ -457,7 +457,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddStaffGroupMember]: {
     route: 'add-staff-group-member',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -507,7 +507,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -525,7 +525,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeStaffGroup]: {
     route: 'describe-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -571,7 +571,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveStaffGroupRole]: {
     route: 'give-staff-group-role',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

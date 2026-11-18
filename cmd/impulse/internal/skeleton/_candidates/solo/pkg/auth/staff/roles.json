@@ -283,6 +283,39 @@
               ]
             },
             {
+              "resource": "StaffHeldRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffListedGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "losing"
+              ]
+            },
+            {
               "resource": "StaffTakenRoles",
               "fields": [
                 "username",
@@ -394,6 +427,19 @@
                 "name",
                 "description",
                 "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ]

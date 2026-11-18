@@ -42,7 +42,9 @@ whoever manages its people (`Administrator` for the whole application,
 nobody a power that giving the role directly would not: who is in a group, and what it
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
-the whole application's accounts. On the
+the whole application's accounts. The list of groups says how many people each group has and the roles it
+holds, and offers Delete only on a group that holds nothing; a person's page lists their
+roles in one list that says "Their own" or names the group each comes through. On the
 Break glass page (`/staff-break-glass`) a person who may give themselves a role takes one
 in a tenant for a set time and says why: the role ends by itself, the tenant's
 administrator reads the reason beside it and may end it early, and the role file gives

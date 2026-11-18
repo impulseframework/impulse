@@ -72,7 +72,7 @@ func Test_identityInstances_signIns(t *testing.T) {
 		}
 	}
 	want := []identitySignIn{{Name: "google", Label: "Fleet Google"}, {Name: "password", Label: "Password"}, {Name: "lakeside", Label: "Lakeside"}, {Name: "persona", Label: "Persona"}}
-	if diff := cmp.Diff(want, got); diff != "" {
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(identitySignIn{})); diff != "" {
 		t.Errorf("the Members instance's sign-ins mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -381,6 +381,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/unlink_crew_session_identity.go",
 		"crewidentity/unlock_crew_sign_in.go",
 		"crewidentity/withdraw_crew_invitation.go",
+		"internal/crewresources/crew_held_roles.go",
 		"internal/crewresources/crew_role_grants.go",
 		"internal/crewresources/crew_roles.go",
 		"internal/crewresources/crew_session_auth_events.go",
@@ -396,6 +397,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_taken_roles.go",
 		"internal/crewresources/crew_user_roles.go",
 		"internal/crewresources/resources.go",
+		"internal/membersresources/members_held_roles.go",
 		"internal/membersresources/members_roles.go",
 		"internal/membersresources/members_session_users.go",
 		"internal/membersresources/members_sessions.go",
@@ -819,11 +821,13 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 	}
 
 	lists := []string{
+		"internal/crewresources/crew_ship_held_roles.go",
 		"internal/crewresources/crew_ship_identities.go",
 		"internal/crewresources/crew_ship_invitations.go",
 		"internal/crewresources/crew_ship_user_roles.go",
 		"internal/crewresources/crew_ship_users.go",
 		// The members' schema holds neither a mail links table nor an identities table.
+		"internal/membersresources/members_ship_held_roles.go",
 		"internal/membersresources/members_ship_user_roles.go",
 		"internal/membersresources/members_ship_users.go",
 	}
@@ -1040,7 +1044,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			"client.manager.SignInWays(ctx, txn, userID)", "HeldElsewhere: person.HeldElsewhere,", "HeldGlobally:  person.HeldGlobally,",
 		},
 		"crewidentity/remove_crew_ship_role.go": {
-			"type RemoveCrewShipRole struct {", "// @target(CrewShipUserRole, key: UserID)\n\tUserID impulse.UUID", "// @target(CrewShipUserRole, key: Role)\n\tRole string",
+			"type RemoveCrewShipRole struct {", "// @target(CrewShipHeldRole, key: UserID)\n\tUserID impulse.UUID", "// @target(CrewShipHeldRole, key: Role)\n\tRole string",
 			"tenant.RemoveRole(ctx, txn, m.UserID, accesstypes.Role(m.Role))",
 		},
 		"crewidentity/create_crew_ship_user.go": {

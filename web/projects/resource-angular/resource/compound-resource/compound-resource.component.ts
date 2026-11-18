@@ -121,15 +121,23 @@ export class CompoundResourceComponent implements OnInit {
     return this.rootConfig().parentConfig;
   });
 
+  /**
+   * What the page is headed by: the row's own name where the config says how to read it
+   * off the row (rowTitle), and nothing until the row has been read, since a heading that
+   * changed under the reader would be a guess; the config's title otherwise.
+   */
   title = computed(() => {
     if (this.isArrayChild()) {
       return '';
     }
     const config = this.primaryConfig();
-    if (config.type !== 'Component') {
-      return config.title;
+    if (config.type === 'Component') {
+      return '';
     }
-    return '';
+    if ((config.type === 'ListView' || config.type === 'View') && config.rowTitle && this.isRootConfig()) {
+      return this.store.rowPresent() ? config.rowTitle(this.store.viewData()) : '';
+    }
+    return config.title;
   });
 
   isRootConfig = computed(() => {

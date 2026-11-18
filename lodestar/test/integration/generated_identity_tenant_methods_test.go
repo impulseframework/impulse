@@ -433,6 +433,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 	})
 
 	t.Run("the row's Execute answer says which roles the Marshal takes away", func(t *testing.T) {
+		answers := heldRoleAnswers(t, w.h, "marshal", anvil)
 		for _, tt := range []struct {
 			name, role string
 			want       bool
@@ -442,7 +443,14 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 			{name: "cy", role: "Archivist", want: false},
 			{name: "mara", role: "SectorMarshal", want: false},
 		} {
-			methods := executeAnswer(t, w.h, "marshal", anvil, sectorRolesPath, w.ids[tt.name]+"/"+tt.role)
+			// The removal names a row of the sector's one list of roles, read as a list:
+			// the row of the person's own role is the one whose group is empty.
+			methods, listed := answers[w.ids[tt.name]+"/"+tt.role+"/"]
+			if !listed {
+				t.Errorf("%s's %s is no row of the sector's one list of roles", tt.name, tt.role)
+
+				continue
+			}
 			if got := slices.Contains(methods, "RemoveCrewSectorRole"); got != tt.want {
 				t.Errorf("%s's %s: the answer %v lists RemoveCrewSectorRole = %v, want %v", tt.name, tt.role, methods, got, tt.want)
 			}

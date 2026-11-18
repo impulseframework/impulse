@@ -3,7 +3,7 @@ import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, NullB
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewGroups, CrewGroupMembers, CrewGroupRoles, CrewGroupUsers, CrewRoles, CrewRoleGrants, CrewSectorGroups, CrewSectorGroupRoles, CrewSectorGroupUsers, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserGroupRoles, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewTakenRoles, CrewUserGroupRoles, CrewUserRoles, DistressCalls, FeeByKinds, Hangars, HangarPasses, MembersRoles, MembersRoleGrants, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewInvitedSectors, CrewSectorDirectoryRoles, CrewSectorRoles, CrewSectorSignInWays, CrewSignInMethods, CrewSignInWays, CrewTakeLengths, CrewTakeableRoles, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
+import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewGroups, CrewGroupMembers, CrewGroupRoles, CrewGroupUsers, CrewHeldRoles, CrewListedGroups, CrewListedGroupRoles, CrewRoles, CrewRoleGrants, CrewSectorGroups, CrewSectorGroupRoles, CrewSectorGroupUsers, CrewSectorHeldRoles, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserGroupRoles, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewTakenRoles, CrewUserGroupRoles, CrewUserRoles, DistressCalls, FeeByKinds, Hangars, HangarPasses, MembersHeldRoles, MembersRoles, MembersRoleGrants, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewInvitedSectors, CrewSectorDirectoryRoles, CrewSectorRoles, CrewSectorSignInWays, CrewSignInMethods, CrewSignInWays, CrewTakeLengths, CrewTakeableRoles, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
 import { AddCrewGroupMember, AddCrewSectorGroupMember, AssignCrewRole, AssignCrewSectorRole, AttachMissionDocument, AttachMissionDocumentResult, AttachRefitPhoto, BeginRefit, ClaimMission, CompileBriefing, CompileBriefingResult, CompleteMission, CompleteMissionAnswer, CreateCrewGroup, CreateCrewGroupResult, CreateCrewSectorGroup, CreateCrewSectorGroupResult, CreateCrewSectorUser, CreateCrewSectorUserResult, CreateCrewUser, CreateCrewUserResult, DeleteCrewGroup, DeleteCrewSectorGroup, DeleteCrewSectorUser, DeleteCrewUser, DeleteMembersSectorUser, DeleteMembersUser, DescribeCrewGroup, DescribeCrewSectorGroup, DisableCrewSectorUser, DisableCrewUser, DisableMembersSectorUser, DisableMembersUser, EnableCrewSectorUser, EnableCrewUser, EnableMembersSectorUser, EnableMembersUser, EndCrewSectorUserSessions, EndCrewSession, EndCrewSessionImpersonation, EndCrewUserSessions, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, FailFlightTest, FailMission, GiveCrewGroupRole, GiveCrewSectorGroupRole, HailShip, HoldMission, InspectShip, InspectShipResult, InviteCrewSector, InviteCrewSectorResult, InviteCrewSectorUser, InviteCrewSectorUserResult, InviteCrewUser, InviteCrewUserResult, IssueBulletin, LaunchMission, MakeCrewInviteOnly, OpenCrewSignUp, PassFlightTest, ReleaseConsignment, ReleaseConsignmentResult, RemoveCrewGroupMember, RemoveCrewPassword, RemoveCrewRole, RemoveCrewSectorGroupMember, RemoveCrewSectorPassword, RemoveCrewSectorRole, RenameCrewSectorUser, RenameCrewUser, RenameMembersSectorUser, RenameMembersUser, ReplaceMissionDocument, RequireCrewPasswordChange, RequireCrewSectorPasswordChange, ResumeMission, RevokeCrewSectorUserTrustedDevices, RevokeCrewSessionToken, RevokeCrewUserTrustedDevices, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, ScrapShip, SetCrewSectorTemporaryPassword, SetCrewSectorUserEmail, SetCrewSectorUserName, SetCrewTemporaryPassword, SetCrewUserEmail, SetCrewUserName, SetMembersSectorUserEmail, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserName, SetSectorPilotClearance, StandDownMission, StartFlightTest, TakeCrewGroupRole, TakeCrewRole, TakeCrewSectorGroupRole, UnlinkCrewSectorSessionIdentity, UnlinkCrewSessionIdentity, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockCrewSignIn, UnlockMembersSignIn, WithdrawCrewInvitation, WithdrawCrewInvitedSector, WithdrawCrewSectorInvitation, SetFeature, SetFeatureResult, MakeSectorDirectoryOnly, EndSectorDirectoryOnly, OpenSectorToDirectory, MakeSectorInviteOnly } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
@@ -106,6 +106,15 @@ export type CrewGroupRolesKey = [groupId: string, kind: string, axis: string, do
 /** The primary key of CrewGroupUsers, in route order. */
 export type CrewGroupUsersKey = [groupId: string, userId: string];
 
+/** The primary key of CrewHeldRoles, in route order. */
+export type CrewHeldRolesKey = [userId: string, kind: string, axis: string, domainId: string, role: string, groupId: string];
+
+/** The primary key of CrewListedGroups, in route order. */
+export type CrewListedGroupsKey = [id: string];
+
+/** The primary key of CrewListedGroupRoles, in route order. */
+export type CrewListedGroupRolesKey = [groupId: string, kind: string, axis: string, domainId: string, role: string];
+
 /** The primary key of CrewRoles, in route order. */
 export type CrewRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
@@ -120,6 +129,9 @@ export type CrewSectorGroupRolesKey = [groupId: string, role: string];
 
 /** The primary key of CrewSectorGroupUsers, in route order. */
 export type CrewSectorGroupUsersKey = [groupId: string, userId: string];
+
+/** The primary key of CrewSectorHeldRoles, in route order. */
+export type CrewSectorHeldRolesKey = [userId: string, role: string, groupId: string];
 
 /** The primary key of CrewSectorIdentities, in route order. */
 export type CrewSectorIdentitiesKey = [id: string];
@@ -235,11 +247,17 @@ export interface HangarPassesPatch {
 /** The primary key of HangarPasses, in route order. */
 export type HangarPassesKey = [id: string];
 
+/** The primary key of MembersHeldRoles, in route order. */
+export type MembersHeldRolesKey = [userId: string, kind: string, axis: string, domainId: string, role: string, groupId: string];
+
 /** The primary key of MembersRoles, in route order. */
 export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of MembersRoleGrants, in route order. */
 export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
+/** The primary key of MembersSectorHeldRoles, in route order. */
+export type MembersSectorHeldRolesKey = [userId: string, role: string, groupId: string];
 
 /** The primary key of MembersSectorIdentities, in route order. */
 export type MembersSectorIdentitiesKey = [id: string];
@@ -732,6 +750,39 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 25, max: 200 },
       order: [{ field: 'username', direction: 'asc' }],
     },
+    [Resources.CrewHeldRoles]: {
+      resource: Resources.CrewHeldRoles,
+      property: 'crewHeldRoles',
+      route: 'crew-held-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['userId', 'kind', 'axis', 'domainId', 'role', 'groupId'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
+    },
+    [Resources.CrewListedGroups]: {
+      resource: Resources.CrewListedGroups,
+      property: 'crewListedGroups',
+      route: 'crew-listed-groups',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'name', direction: 'asc' }],
+    },
+    [Resources.CrewListedGroupRoles]: {
+      resource: Resources.CrewListedGroupRoles,
+      property: 'crewListedGroupRoles',
+      route: 'crew-listed-group-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['groupId', 'kind', 'axis', 'domainId', 'role'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
     [Resources.CrewRoles]: {
       resource: Resources.CrewRoles,
       property: 'crewRoles',
@@ -786,6 +837,17 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read'],
       page: { default: 25, max: 200 },
       order: [{ field: 'username', direction: 'asc' }],
+    },
+    [Resources.CrewSectorHeldRoles]: {
+      resource: Resources.CrewSectorHeldRoles,
+      property: 'crewSectorHeldRoles',
+      route: 'crew-sector-held-roles',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['userId', 'role', 'groupId'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
     },
     [Resources.CrewSectorIdentities]: {
       resource: Resources.CrewSectorIdentities,
@@ -1021,6 +1083,17 @@ export const apiDescriptor = defineApiDescriptor({
       order: [{ field: 'hangarId', direction: 'asc' }],
       patchable: ['hangarId', 'userId', 'squadronId', 'levelId', 'expiresAt'],
     },
+    [Resources.MembersHeldRoles]: {
+      resource: Resources.MembersHeldRoles,
+      property: 'membersHeldRoles',
+      route: 'members-held-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['userId', 'kind', 'axis', 'domainId', 'role', 'groupId'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
+    },
     [Resources.MembersRoles]: {
       resource: Resources.MembersRoles,
       property: 'membersRoles',
@@ -1042,6 +1115,17 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersSectorHeldRoles]: {
+      resource: Resources.MembersSectorHeldRoles,
+      property: 'membersSectorHeldRoles',
+      route: 'members-sector-held-roles',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['userId', 'role', 'groupId'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }, { field: 'groupName', direction: 'asc' }],
     },
     [Resources.MembersSectorIdentities]: {
       resource: Resources.MembersSectorIdentities,
@@ -1691,12 +1775,12 @@ export const apiDescriptor = defineApiDescriptor({
       sides: [
         {
           scope: 'global',
-          lists: { users: Resources.CrewSessionUsers, roles: Resources.CrewUserRoles, identities: Resources.CrewSessionIdentities, signInWays: Resources.CrewSignInWays, invitations: Resources.CrewSessionMailLinks, sessions: Resources.CrewSessions, signInAttempts: Resources.CrewSessionSignInAttempts, signInMethods: Resources.CrewSignInMethods, groups: Resources.CrewGroups, groupUsers: Resources.CrewGroupUsers, groupRoles: Resources.CrewGroupRoles, rolesThroughGroups: Resources.CrewUserGroupRoles, takenRoles: Resources.CrewTakenRoles, invitedTenants: Resources.CrewInvitedSectors },
+          lists: { users: Resources.CrewSessionUsers, roles: Resources.CrewHeldRoles, identities: Resources.CrewSessionIdentities, signInWays: Resources.CrewSignInWays, invitations: Resources.CrewSessionMailLinks, sessions: Resources.CrewSessions, signInAttempts: Resources.CrewSessionSignInAttempts, signInMethods: Resources.CrewSignInMethods, groups: Resources.CrewListedGroups, groupUsers: Resources.CrewGroupUsers, groupRoles: Resources.CrewListedGroupRoles, rolesThroughGroups: Resources.CrewUserGroupRoles, takenRoles: Resources.CrewTakenRoles, invitedTenants: Resources.CrewInvitedSectors },
           methods: { create: Methods.CreateCrewUser, invite: Methods.InviteCrewUser, withdrawInvitation: Methods.WithdrawCrewInvitation, assignRole: Methods.AssignCrewRole, removeRole: Methods.RemoveCrewRole, disable: Methods.DisableCrewUser, enable: Methods.EnableCrewUser, delete: Methods.DeleteCrewUser, rename: Methods.RenameCrewUser, setName: Methods.SetCrewUserName, setEmail: Methods.SetCrewUserEmail, setTemporaryPassword: Methods.SetCrewTemporaryPassword, requirePasswordChange: Methods.RequireCrewPasswordChange, endUserSessions: Methods.EndCrewUserSessions, revokeTrustedDevices: Methods.RevokeCrewUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSessionIdentity, removePassword: Methods.RemoveCrewPassword, createGroup: Methods.CreateCrewGroup, describeGroup: Methods.DescribeCrewGroup, deleteGroup: Methods.DeleteCrewGroup, addGroupMember: Methods.AddCrewGroupMember, removeGroupMember: Methods.RemoveCrewGroupMember, giveGroupRole: Methods.GiveCrewGroupRole, takeGroupRole: Methods.TakeCrewGroupRole, endSession: Methods.EndCrewSession, unlockSignIn: Methods.UnlockCrewSignIn, openSignUp: Methods.OpenCrewSignUp, makeInviteOnly: Methods.MakeCrewInviteOnly, takeRole: Methods.TakeCrewRole, inviteTenant: Methods.InviteCrewSector, withdrawInvitedTenant: Methods.WithdrawCrewInvitedSector },
         },
         {
           scope: 'domain',
-          lists: { users: Resources.CrewSectorUsers, roles: Resources.CrewSectorUserRoles, identities: Resources.CrewSectorIdentities, signInWays: Resources.CrewSectorSignInWays, invitations: Resources.CrewSectorInvitations, groups: Resources.CrewSectorGroups, groupUsers: Resources.CrewSectorGroupUsers, groupRoles: Resources.CrewSectorGroupRoles, rolesThroughGroups: Resources.CrewSectorUserGroupRoles },
+          lists: { users: Resources.CrewSectorUsers, roles: Resources.CrewSectorHeldRoles, identities: Resources.CrewSectorIdentities, signInWays: Resources.CrewSectorSignInWays, invitations: Resources.CrewSectorInvitations, groups: Resources.CrewSectorGroups, groupUsers: Resources.CrewSectorGroupUsers, groupRoles: Resources.CrewSectorGroupRoles, rolesThroughGroups: Resources.CrewSectorUserGroupRoles },
           methods: { create: Methods.CreateCrewSectorUser, invite: Methods.InviteCrewSectorUser, withdrawInvitation: Methods.WithdrawCrewSectorInvitation, assignRole: Methods.AssignCrewSectorRole, removeRole: Methods.RemoveCrewSectorRole, disable: Methods.DisableCrewSectorUser, enable: Methods.EnableCrewSectorUser, delete: Methods.DeleteCrewSectorUser, rename: Methods.RenameCrewSectorUser, setName: Methods.SetCrewSectorUserName, setEmail: Methods.SetCrewSectorUserEmail, setTemporaryPassword: Methods.SetCrewSectorTemporaryPassword, requirePasswordChange: Methods.RequireCrewSectorPasswordChange, endUserSessions: Methods.EndCrewSectorUserSessions, revokeTrustedDevices: Methods.RevokeCrewSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSectorSessionIdentity, removePassword: Methods.RemoveCrewSectorPassword, createGroup: Methods.CreateCrewSectorGroup, describeGroup: Methods.DescribeCrewSectorGroup, deleteGroup: Methods.DeleteCrewSectorGroup, addGroupMember: Methods.AddCrewSectorGroupMember, removeGroupMember: Methods.RemoveCrewSectorGroupMember, giveGroupRole: Methods.GiveCrewSectorGroupRole, takeGroupRole: Methods.TakeCrewSectorGroupRole },
         },
       ],
@@ -1706,15 +1790,16 @@ export const apiDescriptor = defineApiDescriptor({
       label: 'Members',
       tenant: 'Sector',
       tenantResource: Resources.Sectors,
+      rolesFrom: 'Company directory',
       sides: [
         {
           scope: 'global',
-          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersUserRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
+          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersHeldRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
           methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
         },
         {
           scope: 'domain',
-          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorUserRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations },
+          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorHeldRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations },
           methods: { disable: Methods.DisableMembersSectorUser, enable: Methods.EnableMembersSectorUser, delete: Methods.DeleteMembersSectorUser, rename: Methods.RenameMembersSectorUser, setName: Methods.SetMembersSectorUserName, setEmail: Methods.SetMembersSectorUserEmail, endUserSessions: Methods.EndMembersSectorUserSessions, revokeTrustedDevices: Methods.RevokeMembersSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSectorSessionIdentity },
         },
       ],
@@ -1768,6 +1853,9 @@ export interface GlobalApi {
   crewGroupMembers: ResourceHandle<CrewGroupMembers, CrewGroupMembersKey, 'list'>;
   crewGroupRoles: ResourceHandle<CrewGroupRoles, CrewGroupRolesKey, 'list'>;
   crewGroupUsers: ResourceHandle<CrewGroupUsers, CrewGroupUsersKey, 'list' | 'read'>;
+  crewHeldRoles: ResourceHandle<CrewHeldRoles, CrewHeldRolesKey, 'list'>;
+  crewListedGroups: ResourceHandle<CrewListedGroups, CrewListedGroupsKey, 'list' | 'read'>;
+  crewListedGroupRoles: ResourceHandle<CrewListedGroupRoles, CrewListedGroupRolesKey, 'list'>;
   crewRoles: ResourceHandle<CrewRoles, CrewRolesKey, 'list'>;
   crewRoleGrants: ResourceHandle<CrewRoleGrants, CrewRoleGrantsKey, 'list'>;
   crewSessions: ResourceHandle<CrewSessions, CrewSessionsKey, 'list' | 'read'>;
@@ -1783,6 +1871,7 @@ export interface GlobalApi {
   crewUserGroupRoles: ResourceHandle<CrewUserGroupRoles, CrewUserGroupRolesKey, 'list' | 'read'>;
   crewUserRoles: ResourceHandle<CrewUserRoles, CrewUserRolesKey, 'list'>;
   feeByKinds: ResourceHandle<FeeByKinds, FeeByKindsKey, 'list' | 'read'>;
+  membersHeldRoles: ResourceHandle<MembersHeldRoles, MembersHeldRolesKey, 'list'>;
   membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
   membersRoleGrants: ResourceHandle<MembersRoleGrants, MembersRoleGrantsKey, 'list'>;
   membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
@@ -1862,6 +1951,7 @@ export interface DomainApi {
   crewSectorGroups: ResourceHandle<CrewSectorGroups, CrewSectorGroupsKey, 'list' | 'read'>;
   crewSectorGroupRoles: ResourceHandle<CrewSectorGroupRoles, CrewSectorGroupRolesKey, 'list' | 'read'>;
   crewSectorGroupUsers: ResourceHandle<CrewSectorGroupUsers, CrewSectorGroupUsersKey, 'list' | 'read'>;
+  crewSectorHeldRoles: ResourceHandle<CrewSectorHeldRoles, CrewSectorHeldRolesKey, 'list'>;
   crewSectorIdentities: ResourceHandle<CrewSectorIdentities, CrewSectorIdentitiesKey, 'list' | 'read'>;
   crewSectorInvitations: ResourceHandle<CrewSectorInvitations, CrewSectorInvitationsKey, 'list' | 'read'>;
   crewSectorUsers: ResourceHandle<CrewSectorUsers, CrewSectorUsersKey, 'list' | 'read'>;
@@ -1870,6 +1960,7 @@ export interface DomainApi {
   distressCalls: ResourceHandle<DistressCalls, DistressCallsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', DistressCallsCreate, DistressCallsPatch>;
   hangars: ResourceHandle<Hangars, HangarsKey, 'list' | 'read' | 'create' | 'patch' | 'remove', HangarsCreate, HangarsPatch>;
   hangarPasses: ResourceHandle<HangarPasses, HangarPassesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', HangarPassesCreate, HangarPassesPatch>;
+  membersSectorHeldRoles: ResourceHandle<MembersSectorHeldRoles, MembersSectorHeldRolesKey, 'list'>;
   membersSectorIdentities: ResourceHandle<MembersSectorIdentities, MembersSectorIdentitiesKey, 'list' | 'read'>;
   membersSectorInvitations: ResourceHandle<MembersSectorInvitations, MembersSectorInvitationsKey, 'list' | 'read'>;
   membersSectorUsers: ResourceHandle<MembersSectorUsers, MembersSectorUsersKey, 'list' | 'read'>;

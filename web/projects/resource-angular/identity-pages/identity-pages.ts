@@ -1,16 +1,19 @@
 import { Route } from '@angular/router';
 import { ApiDescriptor, IdentityDescriptor, IdentitySideDescriptor, ScopeKind } from '@impulseframework/resource';
-import { Page } from '@impulseframework/resource-angular/auth-frame';
+import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
+import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
   ChildResourceConfig,
   ColumnConfig,
   field,
   FieldName,
+  ListPermission,
   listViewConfig,
   Method,
   MethodPresentation,
   multiColumnConfig,
+  PermissionScope,
   RecordData,
   Resource,
   ResourceMeta,
@@ -19,6 +22,7 @@ import {
   section,
 } from '@impulseframework/resource-angular/types';
 import { format } from 'date-fns';
+import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-says';
 
 // The pages over an Auth's people, built from the API's own description.
 //
@@ -32,7 +36,8 @@ import { format } from 'date-fns';
 // application, the invitations that make a tenant (staff bring an organization in by
 // inviting one person), the sessions, the failed sign-ins, the Auth's sign-in methods,
 // each invite only or open to sign-up, and Break glass, where a person takes a role for a
-// set time and says why. What differs from one application
+// set time and says why. Where a directory decides the Auth's roles the Groups entry
+// stays, and its page says whose groups do that job. What differs from one application
 // to the next is read from the description: the Auth's name and label, the tenant
 // record's name, which side the pages are for, and what the Auth's sign-in methods give
 // (a list or a method the description does not name draws nothing).
@@ -68,9 +73,31 @@ export interface IdentityPagesOptions {
 const heldInOneTenant = 'domain';
 const heldInEveryTenant = 'every';
 
-// The configurations made for each description and request, so the routes and the menu
-// file's pages of one request are the same pages (resourcePage answers one per config).
-const made = new WeakMap<ApiDescriptor, Map<string, RootConfig[]>>();
+/**
+ * A page of the pages that lists nothing: where it lives, how the menus show it, the
+ * grant it needs, and the sentences it says. The Groups page of an Auth whose roles a
+ * directory decides is one.
+ */
+interface SaidPage {
+  path: string;
+  page: Page;
+  scope: PermissionScope;
+  says: DirectoryGroupsSays;
+}
+
+/** One page of a side, in menu order: a page the library's list draws, or one that says something. */
+type BuiltPage = { config: RootConfig } | { said: SaidPage };
+
+/** The pages of one request: every page in menu order, and the configurations among them. */
+interface BuiltPages {
+  pages: BuiltPage[];
+  configs: RootConfig[];
+}
+
+// The pages made for each description and request, so the routes and the menu file's
+// pages of one request are the same pages (resourcePage answers one per config), and the
+// same request answers the same configurations.
+const made = new WeakMap<ApiDescriptor, Map<string, BuiltPages>>();
 
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
@@ -80,29 +107,43 @@ const made = new WeakMap<ApiDescriptor, Map<string, RootConfig[]>>();
  * does not name is left out. The same request answers the same configurations. Refused, naming
  * what is missing: an Auth the description does not carry, a side it does not carry,
  * and a tenant's side on an API with no tenant segment.
+ *
+ * A page that lists nothing has no configuration and is not among them: the Groups page
+ * of an Auth whose roles a directory decides, which `identityRoutes` and
+ * `identityMenuPages` carry in its place.
  */
 export function identityPages(
   descriptor: ApiDescriptor,
   resourceMeta: (resource: Resource) => ResourceMeta | undefined,
   options: IdentityPagesOptions,
 ): RootConfig[] {
-  const requests = made.get(descriptor) ?? new Map<string, RootConfig[]>();
+  return builtPages(descriptor, resourceMeta, options).configs;
+}
+
+/** The pages of one request, made once (see `made`). */
+function builtPages(
+  descriptor: ApiDescriptor,
+  resourceMeta: (resource: Resource) => ResourceMeta | undefined,
+  options: IdentityPagesOptions,
+): BuiltPages {
+  const requests = made.get(descriptor) ?? new Map<string, BuiltPages>();
   made.set(descriptor, requests);
   const key = JSON.stringify([options.auth, options.scope, options.routes ?? {}]);
   const known = requests.get(key);
   if (known) {
     return known;
   }
-  const configs = buildPages(descriptor, resourceMeta, options);
-  requests.set(key, configs);
-  return configs;
+  const pages = buildPages(descriptor, resourceMeta, options);
+  const built = { pages, configs: pages.flatMap((page) => ('config' in page ? [page.config] : [])) };
+  requests.set(key, built);
+  return built;
 }
 
 function buildPages(
   descriptor: ApiDescriptor,
   resourceMeta: (resource: Resource) => ResourceMeta | undefined,
   options: IdentityPagesOptions,
-): RootConfig[] {
+): BuiltPage[] {
   const identity = (descriptor.identity ?? []).find((candidate) => candidate.auth === options.auth);
   if (!identity) {
     const known = (descriptor.identity ?? []).map((candidate) => candidate.auth).join(', ') || 'none';
@@ -117,30 +158,37 @@ function buildPages(
     );
   }
   const build = new SideBuilder(descriptor, identity, side, resourceMeta, options);
+  const listed = (config: RootConfig | undefined): BuiltPage[] => (config ? [{ config }] : []);
+  const said = build.directoryGroups();
   return [
-    build.people(),
-    build.groups(),
-    build.invitations(),
-    build.invitedTenants(),
-    build.sessions(),
-    build.signInAttempts(),
-    build.signIn(),
-    build.breakGlass(),
-  ].filter((config): config is RootConfig => config !== undefined);
+    ...listed(build.people()),
+    ...listed(build.groups()),
+    ...(said ? [{ said }] : []),
+    ...listed(build.invitations()),
+    ...listed(build.invitedTenants()),
+    ...listed(build.sessions()),
+    ...listed(build.signInAttempts()),
+    ...listed(build.signIn()),
+    ...listed(build.breakGlass()),
+  ];
 }
 
 /**
  * The routes of one side of an Auth's management: `identityPages` through
  * `resourceRoutes`, which guards each page by the List grant on its resource and carries
  * its page. A tenant's routes go where the application puts its tenant pages; their
- * paths carry the tenant segment already.
+ * paths carry the tenant segment already. A page that lists nothing (the Groups page of
+ * an Auth whose roles a directory decides) is a route of its own, guarded by the grant
+ * its page needs.
  */
 export function identityRoutes(
   descriptor: ApiDescriptor,
   resourceMeta: (resource: Resource) => ResourceMeta,
   options: IdentityPagesOptions,
 ): Route[] {
-  return identityPages(descriptor, resourceMeta, options).map((config) => resourceRoutes(config, resourceMeta));
+  return builtPages(descriptor, resourceMeta, options).pages.map((built) =>
+    'config' in built ? resourceRoutes(built.config, resourceMeta) : saidRoute(built.said),
+  );
 }
 
 /**
@@ -153,7 +201,19 @@ export function identityMenuPages(
   resourceMeta: (resource: Resource) => ResourceMeta,
   options: IdentityPagesOptions,
 ): Page[] {
-  return identityPages(descriptor, resourceMeta, options).map((config) => resourcePage(config, resourceMeta));
+  return builtPages(descriptor, resourceMeta, options).pages.map((built) =>
+    'config' in built ? resourcePage(built.config, resourceMeta) : built.said.page,
+  );
+}
+
+/** The route of a page that says something: guarded by the grant its page needs, carrying the page and its sentences. */
+function saidRoute(said: SaidPage): Route {
+  return pageRoute(said.page, {
+    path: said.path,
+    data: { scope: said.scope, [directoryGroupsSaysKey]: said.says },
+    canActivate: [AuthorizationGuard],
+    loadComponent: () => import('./directory-groups-page.component').then((mod) => mod.DirectoryGroupsPageComponent),
+  });
 }
 
 /** A column or a row page field: the row's field and the words above it. */
@@ -179,8 +239,8 @@ class SideBuilder {
 
   /**
    * The people, each with what the caller may do to them, and a person's row page with
-   * the roles and the identities under it: the roles the person holds themselves, and
-   * beside them the ones they hold through a group, where the Auth keeps groups.
+   * the roles and the identities under it. A person's roles are one list, each saying
+   * where it comes from: their own, or the group it comes through.
    */
   people(): RootConfig {
     const { lists, methods } = this.side;
@@ -242,7 +302,14 @@ class SideBuilder {
   /**
    * The groups of people, each with what the caller may do to it, and a group's row page
    * with the people in it and the roles it holds under it. Left out where the Auth
-   * keeps no groups.
+   * keeps no groups (directoryGroups says why, where a directory decides the roles).
+   *
+   * A row says what the group holds: how many people, and its roles, a line each, so
+   * nobody opens every group to learn what it is for. Delete is offered on a group that
+   * holds nothing; one that still has people or roles says what is left where Delete
+   * would be, and the server refuses a request that never saw the page. A group's page
+   * is headed by the group's name. Outside every tenant the list says where each group
+   * is kept, in an application that has tenants.
    */
   groups(): RootConfig | undefined {
     const { lists, methods } = this.side;
@@ -255,6 +322,14 @@ class SideBuilder {
       ['description', 'Description'],
     ];
     const named = (row: RecordData): string => String(row['name'] ?? 'this group');
+    // What the list says each group holds, where the server says it (`people`, `roles`).
+    const counted = this.has(groups, 'people') && this.has(groups, 'roles');
+    const holds: ColumnConfig[] = counted
+      ? [
+          { id: 'people' as FieldName, header: 'People', filterable: false },
+          { id: 'roles' as FieldName, header: 'Roles', lines: true, filterable: false },
+        ]
+      : [];
     const related = [this.peopleOfGroup(), this.rolesOfGroup()].filter(
       (config): config is ChildResourceConfig => config !== undefined,
     );
@@ -265,12 +340,16 @@ class SideBuilder {
         title: this.tenant ? 'Groups' : `${this.identity.label} groups`,
         primaryResource: groups,
         showRowCount: true,
+        // A group's page is headed by its name.
+        rowTitle: named,
         listColumns: [
           ...this.columns(groups, fields),
+          ...holds,
           // Where the whole application's group is kept: the tenant by its name, where
           // the tenant record can be read, and in words for a group of the whole
-          // application. A tenant's own list holds that tenant's groups alone.
-          ...(this.has(groups, 'kind')
+          // application. A tenant's own list holds that tenant's groups alone, and an
+          // application without tenants keeps every group in the one place.
+          ...(this.has(groups, 'kind') && this.identity.tenant
             ? [
                 this.tenantNamed('domainId' as FieldName, 'Kept in', (row) => this.heldIn(row)),
                 { id: 'kind' as FieldName, hidden: true },
@@ -294,12 +373,22 @@ class SideBuilder {
           ],
           [
             methods.deleteGroup,
-            {
-              label: 'Delete',
-              icon: 'delete',
-              confirm: (row) =>
-                `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
-            },
+            counted
+              ? {
+                  label: 'Delete',
+                  icon: 'delete',
+                  // Only a group that holds nothing is deleted: one that still has people
+                  // or roles says what is left, where Delete would be.
+                  when: (row) => whatIsLeft(row) === undefined,
+                  otherwise: (row) => emptyItFirst(row),
+                  confirm: (row) => `Delete ${named(row)}?`,
+                }
+              : {
+                  label: 'Delete',
+                  icon: 'delete',
+                  confirm: (row) =>
+                    `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
+                },
           ],
         ]),
         listMethods: this.present([
@@ -307,7 +396,7 @@ class SideBuilder {
         ]),
         elements: [
           section({
-            label: 'Group',
+            label: 'About the group',
             children: this.known(groups, fields).map(([name, label]) =>
               field({ name: name as FieldName, label, cols: 6 }),
             ),
@@ -316,6 +405,36 @@ class SideBuilder {
       }),
       relatedConfigs: related,
     });
+  }
+
+  /**
+   * The Groups page of an Auth whose roles a directory decides: the Auth keeps no groups
+   * of its own, since the directory's groups do that job, and the entry stays in the
+   * menus with a page that says so and names the directory, so a person looking for
+   * Groups finds the answer in place of a missing entry. It is shown to whoever sees the
+   * people, by the List grant on them. Nothing where the Auth keeps its own groups, or
+   * where the description names no directory.
+   */
+  directoryGroups(): SaidPage | undefined {
+    const directory = this.identity.rolesFrom;
+    if (this.side.lists.groups || !directory) {
+      return undefined;
+    }
+    const path = this.route('groups', 'groups');
+    const scope: PermissionScope = { resource: this.side.lists.users as Resource, permission: ListPermission };
+    return {
+      path,
+      scope,
+      page: page({ label: 'Groups', icon: 'groups', route: [path], permission: scope }),
+      says: {
+        title: this.tenant ? 'Groups' : `${this.identity.label} groups`,
+        paragraphs: [
+          `Here, ${directory} decides who holds which role, so the groups in ${directory} do the job that groups do in other applications.`,
+          `To give several people a role at once, or take it away, change who is in the group in ${directory}. Each person's roles follow at their next sign-in.`,
+          'There are no groups to keep in this application.',
+        ],
+      },
+    };
   }
 
   /** A tenant's invitations, or every link the whole application has mailed, each with Withdraw where it still stands. */
@@ -738,23 +857,54 @@ class SideBuilder {
     });
   }
 
-  /** The roles a person holds, under the person's row, each with why it was given beside when it ends. */
+  /**
+   * The roles a person holds, under the person's row: one list, each role saying where
+   * it comes from. A role of the person's own says "Their own", carries the reason it
+   * was given for beside when it ends, and is taken away here. A role that comes through
+   * a group names the group and links to the group's page, where it is changed: the
+   * group loses the role there, or the person leaves the group. Where the server's list
+   * holds a person's own roles alone (a description from before the one list), the roles
+   * held through a group are a second list under it (rolesThroughGroupsOf).
+   */
   private rolesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.roles) {
       return undefined;
     }
     const resource = lists.roles as Resource;
+    // Whether the list holds the roles that come through a group too, each naming it:
+    // the Auth keeps groups, and the list says which group a role comes through. An Auth
+    // that keeps none has nothing to say of where a role comes from.
+    const oneList = lists.groups !== undefined && this.has(resource, 'groupName');
+    const own = (row: RecordData): boolean => !row['groupId'];
+    // A row that comes through a group opens the group's page, where the application
+    // mounts one and the row names a group of it (linksToGroup).
+    const link = oneList ? this.linksToGroup(resource) : undefined;
+    const comesFrom: ColumnConfig[] = oneList
+      ? [
+          { id: 'groupName' as FieldName, header: 'Comes from', valueGetter: (row: RecordData) => this.comesFrom(row) },
+          // Read with each row and not drawn: which rows are the person's own, for a
+          // tenant's row whether the group is the whole application's, and what the row
+          // opens its group's page by.
+          ...this.columns(resource, [
+            ['groupId', 'Group'],
+            ['globalGroup', 'Group of the whole application'],
+            ...(link && link !== 'groupId' ? ([[link, 'Group page']] as Named[]) : []),
+          ]).map((column) => ({ ...column, hidden: true })),
+        ]
+      : [];
     if (this.tenant) {
       return listViewConfig({
         title: 'Roles held here',
         primaryResource: resource,
         parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
-        showViewButton: false,
+        showViewButton: link !== undefined,
+        ...(link ? { rowRoute: link } : {}),
         collapsible: false,
         listColumns: [
+          ...this.columns(resource, [['role', 'Role']]),
+          ...comesFrom,
           ...this.columns(resource, [
-            ['role', 'Role'],
             ['everyDomain', `In every ${this.tenantWord}`],
             ['createdAt', 'Given'],
             ...periodColumns,
@@ -770,6 +920,8 @@ class SideBuilder {
             {
               label: 'Take the role away',
               icon: 'person_remove',
+              // A role that comes through a group is not the person's to lose here.
+              when: own,
               confirm: (row) => `Take ${String(row['role'])} away from ${String(row['username'] ?? 'this person')}?`,
             },
           ],
@@ -785,10 +937,12 @@ class SideBuilder {
       title: 'Roles held',
       primaryResource: resource,
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
-      showViewButton: false,
+      showViewButton: link !== undefined,
+      ...(link ? { rowRoute: link } : {}),
       collapsible: false,
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
+        ...comesFrom,
         // Where the role is held: the tenant by its name, where the tenant record can
         // be read, and in words for a role held in every tenant or the whole application.
         ...(this.has(resource, 'kind')
@@ -806,6 +960,8 @@ class SideBuilder {
           {
             label: 'Take the role away',
             icon: 'person_remove',
+            // A role that comes through a group is not the person's to lose here.
+            when: own,
             fill: (row) => this.heldRole(row),
             // The list sits under the person, and a role row carries their id, which
             // nobody reads: the question names the role and where it is held.
@@ -818,14 +974,15 @@ class SideBuilder {
   }
 
   /**
-   * The roles a person holds through a group, under the person's row beside the roles
-   * they hold themselves: each names its group, so the page says which roles are the
-   * person's own and which come through which group. Nothing is changed from here: a
-   * group's role is taken away on the group's page, and a person leaves a group there.
+   * The roles a person holds through a group, under the person's row, where the server's
+   * list of a person's roles holds their own alone (a description from before the one
+   * list): each names its group. Nothing is changed from here: a group's role is taken
+   * away on the group's page, and a person leaves a group there. Nothing where the one
+   * list holds them (rolesOf).
    */
   private rolesThroughGroupsOf(): ChildResourceConfig | undefined {
     const { lists } = this.side;
-    if (!lists.rolesThroughGroups) {
+    if (!lists.rolesThroughGroups || (lists.roles && this.has(lists.roles as Resource, 'groupName'))) {
       return undefined;
     }
     const resource = lists.rolesThroughGroups as Resource;
@@ -909,7 +1066,12 @@ class SideBuilder {
       return undefined;
     }
     const resource = lists.groupRoles as Resource;
-    const lost = 'Everyone in the group loses it, unless they hold it some other way.';
+    // How many people lose the role, where the server counts them (`losing`): the people
+    // in the group who hold the role in no other way. Read with each row and not drawn.
+    const counted = this.columns(resource, [['losing', 'People who lose it']]).map((column) => ({
+      ...column,
+      hidden: true,
+    }));
     // The method runs against the group the list sits under.
     const give = this.present([
       [
@@ -924,14 +1086,17 @@ class SideBuilder {
         parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
         showViewButton: false,
         collapsible: false,
-        listColumns: this.columns(resource, [['role', 'Role'], ['createdAt', 'Given'], ...periodColumns]),
+        listColumns: [
+          ...this.columns(resource, [['role', 'Role'], ['createdAt', 'Given'], ...periodColumns]),
+          ...counted,
+        ],
         rowMethods: this.present([
           [
             methods.takeGroupRole,
             {
               label: 'Take the role away',
               icon: 'remove_moderator',
-              confirm: (row) => `Take ${String(row['role'])} away from the group? ${lost}`,
+              confirm: (row) => `Take ${String(row['role'])} away from the group? ${whoLoses(row)}`,
             },
           ],
         ]),
@@ -957,6 +1122,7 @@ class SideBuilder {
             ]
           : []),
         ...this.columns(resource, [['createdAt', 'Given'], ...periodColumns]),
+        ...counted,
       ],
       rowMethods: this.present([
         [
@@ -970,7 +1136,7 @@ class SideBuilder {
               domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
               everyDomain: row['kind'] === heldInEveryTenant,
             }),
-            confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from the group? ${lost}`,
+            confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from the group? ${whoLoses(row)}`,
           },
         ],
       ]),
@@ -1206,6 +1372,41 @@ class SideBuilder {
   }
 
   /**
+   * Where a role of the one list of a person's roles comes from: "Their own" for a role
+   * of the person's own, and the name of the group it comes through otherwise. A tenant's
+   * row says when that group is the whole application's, which the tenant does not keep.
+   */
+  private comesFrom(row: RecordData): string {
+    if (!row['groupId']) {
+      return 'Their own';
+    }
+    const group = String(row['groupName'] || 'A group');
+    return row['globalGroup'] === true ? `${group}, a group of the whole application` : group;
+  }
+
+  /**
+   * The field of the one list of a person's roles a row opens its group's page by, where
+   * rows can open one: the field names the groups this side lists (the metadata's
+   * `enumeratedResource`), which the pages mount a row page for. A tenant's list names
+   * the group's page by a field of its own (`groupPage`), empty for a group the tenant
+   * does not keep; the whole application's by the group's id. Nothing where the Auth
+   * keeps no groups or the list names no such field: the rows then open nowhere.
+   */
+  private linksToGroup(resource: Resource): FieldName | undefined {
+    const groups = this.side.lists.groups;
+    if (!groups) {
+      return undefined;
+    }
+    const fields = this.resourceMeta(resource)?.fields ?? [];
+    for (const name of ['groupPage', 'groupId']) {
+      if (fields.some((candidate) => candidate.fieldName === name && candidate.enumeratedResource === groups)) {
+        return name as FieldName;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * What the whole application's method that takes a role from a person takes, from a
    * row that names the role and where it is held. A role held for the whole application
    * or in every tenant names no tenant: the page fills that with nothing (null), so the
@@ -1341,6 +1542,49 @@ function openToSignUp(rows: RecordData[]): string | undefined {
       return `${String(row['label'] ?? row['name'])} is open to sign-up. ${consequence}`.trim();
     })
     .join('\n');
+}
+
+/**
+ * What a group still holds, as the row says it where Delete would be: "3 people and 2
+ * roles", "1 person", "2 roles". Nothing for a group that holds nothing, which is the one
+ * Delete is offered on. The counts are the server's, over what has not ended, which is
+ * what it refuses a deletion for.
+ */
+function whatIsLeft(row: RecordData): string | undefined {
+  const people = Number(row['people'] ?? 0);
+  const roles = Array.isArray(row['roles']) ? row['roles'].length : 0;
+  const left = [
+    ...(people > 0 ? [people === 1 ? '1 person' : `${people} people`] : []),
+    ...(roles > 0 ? [roles === 1 ? '1 role' : `${roles} roles`] : []),
+  ];
+  return left.length > 0 ? left.join(' and ') : undefined;
+}
+
+/** What a group that still holds something says where Delete would be; nothing for one that holds nothing. */
+function emptyItFirst(row: RecordData): string | undefined {
+  const left = whatIsLeft(row);
+  return left ? `${left}: empty it first` : undefined;
+}
+
+/**
+ * Who loses a role a group stops holding, as the question before it is taken away says
+ * it: how many people, by the server's count of the people in the group who hold the
+ * role in no other way. Where the row carries no count (a description from before it),
+ * the question says the rule in place of the number.
+ */
+function whoLoses(row: RecordData): string {
+  const losing = row['losing'];
+  if (typeof losing !== 'number') {
+    return 'Everyone in the group loses it, unless they hold it some other way.';
+  }
+  switch (losing) {
+    case 0:
+      return 'Nobody loses it: everyone in the group who holds it holds it some other way too, or nobody holds it through the group yet.';
+    case 1:
+      return '1 person loses it. Anyone else in the group holds it some other way and keeps it.';
+    default:
+      return `${losing} people lose it. Anyone else in the group holds it some other way and keeps it.`;
+  }
 }
 
 /**

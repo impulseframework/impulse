@@ -13,19 +13,21 @@ type Resourcer interface {
 	resource.Resourcer
 	staffresources.StaffGroup | staffresources.StaffGroupMember |
 		staffresources.StaffGroupRole | staffresources.StaffGroupUser |
-		staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
+		staffresources.StaffHeldRole | staffresources.StaffListedGroup |
+		staffresources.StaffListedGroupRole | staffresources.StaffRole |
+		staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
 		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
 		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
 		staffresources.StaffTakenRole | staffresources.StaffTenantGroup |
 		staffresources.StaffTenantGroupRole | staffresources.StaffTenantGroupUser |
-		staffresources.StaffTenantIdentity | staffresources.StaffTenantInvitation |
-		staffresources.StaffTenantUser | staffresources.StaffTenantUserGroupRole |
-		staffresources.StaffTenantUserRole | staffresources.StaffUserGroupRole |
-		staffresources.StaffUserRole | staffidentity.StaffInvitedTenant |
-		staffidentity.StaffSignInMethod | staffidentity.StaffSignInWay |
-		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole |
-		staffidentity.StaffTenantDirectoryRole | staffidentity.StaffTenantRole |
-		staffidentity.StaffTenantSignInWay
+		staffresources.StaffTenantHeldRole | staffresources.StaffTenantIdentity |
+		staffresources.StaffTenantInvitation | staffresources.StaffTenantUser |
+		staffresources.StaffTenantUserGroupRole | staffresources.StaffTenantUserRole |
+		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
+		staffidentity.StaffInvitedTenant | staffidentity.StaffSignInMethod |
+		staffidentity.StaffSignInWay | staffidentity.StaffTakeLength |
+		staffidentity.StaffTakeableRole | staffidentity.StaffTenantDirectoryRole |
+		staffidentity.StaffTenantRole | staffidentity.StaffTenantSignInWay
 }

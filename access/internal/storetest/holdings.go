@@ -3,6 +3,7 @@ package storetest
 import (
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/policy"
@@ -10,9 +11,9 @@ import (
 )
 
 // The fixtures of the holdings phase, kept apart from the other phases': a
-// tenant of its own, one custom role there and two people. The phase removes
-// what it writes, so the policy read after it finds what the phases before it
-// left.
+// tenant of its own, one custom role there, three people and two groups. The
+// phase removes what it writes, so the policy read after it finds what the
+// phases before it left.
 var holdingsTenant = accesstypes.DomainPolicyScope("holdings")
 
 const (
@@ -20,13 +21,19 @@ const (
 
 	ivy = accesstypes.User("ivy")
 	jon = accesstypes.User("jon")
+	kim = accesstypes.User("kim")
+
+	crewGroup = accesstypes.Group("7f2f6a52-6c63-4a7a-9c1e-000000000006")
+	idleGroup = accesstypes.Group("7f2f6a52-6c63-4a7a-9c1e-000000000007")
 )
 
 // runHoldings holds the stores to the contract of what is said of the rows
 // beside the policy: a person's role keeps the reason it was given with, and
-// giving the role again replaces the reason with the period; and the listing of
-// a person's own assignments returns the ones that have not ended, each with
-// its period and its reason.
+// giving the role again replaces the reason with the period; the listing of a
+// person's own assignments returns the ones that have not ended, each with its
+// period and its reason; and the two listings of what the groups of a place
+// hold count what has not ended, which is what a group's deletion is refused
+// for.
 func runHoldings(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
@@ -37,6 +44,7 @@ func runHoldings(t *testing.T, store access.Store) {
 	}
 
 	t.Run("a role's reason", func(t *testing.T) { holdingReasons(t, store, &p) })
+	t.Run("what the groups of a place hold", func(t *testing.T) { holdingGroups(t, store, &p) })
 
 	if deleted, err := store.DeleteRole(ctx, holdingsTenant, steward); err != nil || !deleted {
 		t.Fatalf("DeleteRole() of the phase's role = (%v, %v), want it deleted", deleted, err)
@@ -87,5 +95,103 @@ func holdingReasons(t *testing.T, store access.Store, p *periods) {
 	}
 	if err := store.DeleteUserRole(ctx, holdingsTenant, ivy, steward); err != nil {
 		t.Fatalf("DeleteUserRole() error = %v", err)
+	}
+}
+
+// holdingGroups holds the two listings of what the groups of a place hold: how
+// many people each group has and the roles it holds, both over what has not
+// ended, a place or a role whose period has not begun among it.
+func holdingGroups(t *testing.T, store access.Store, p *periods) {
+	t.Helper()
+	ctx := t.Context()
+
+	for _, group := range []*policy.GroupRow{
+		{Group: policy.Group{ID: crewGroup, Scope: holdingsTenant}, Name: "Crew", Description: "Who keeps the stores."},
+		{Group: policy.Group{ID: idleGroup, Scope: holdingsTenant}, Name: "Spare", Description: "Nobody yet."},
+	} {
+		if taken, err := store.InsertGroup(ctx, group); err != nil || taken {
+			t.Fatalf("InsertGroup(%s) = (%v, %v), want it written", group.Name, taken, err)
+		}
+	}
+	// The crew: ivy's place counts, jon's has not begun, kim's has ended, and the
+	// role it holds has not begun.
+	for _, place := range []struct {
+		user   accesstypes.User
+		period accesstypes.Period
+	}{{ivy, p.current}, {jon, p.upcoming}, {kim, p.ended}} {
+		if err := store.InsertGroupMember(ctx, crewGroup, place.user, place.period); err != nil {
+			t.Fatalf("InsertGroupMember(%s) error = %v", place.user, err)
+		}
+	}
+	if err := store.InsertGroupRole(ctx, crewGroup, holdingsTenant, steward, p.upcoming); err != nil {
+		t.Fatalf("InsertGroupRole() error = %v", err)
+	}
+	// A second role of the crew has ended: the listing leaves it out, and the
+	// deletion below takes its row with the group.
+	if err := store.InsertGroupRole(ctx, crewGroup, holdingsTenant, viewer, p.ended); err != nil {
+		t.Fatalf("InsertGroupRole() of a role that has ended: error = %v", err)
+	}
+
+	counts, err := store.CountGroupMembersIn(ctx, holdingsTenant)
+	if err != nil {
+		t.Fatalf("CountGroupMembersIn() error = %v", err)
+	}
+	if diff := cmp.Diff(map[accesstypes.Group]int{crewGroup: 2}, counts); diff != "" {
+		t.Errorf("CountGroupMembersIn() mismatch (-want +got): a place that counts and one that has not begun are counted, one that has ended is not, and a group with nobody is absent:\n%s", diff)
+	}
+	roles, err := store.ListGroupRolesIn(ctx, holdingsTenant)
+	if err != nil {
+		t.Fatalf("ListGroupRolesIn() error = %v", err)
+	}
+	wantRoles := []policy.Membership{{Scope: holdingsTenant, Member: policy.Subject{Kind: policy.SubjectGroup, Name: string(crewGroup)}, Role: steward, Period: p.upcoming}}
+	if diff := cmp.Diff(wantRoles, roles, equateScopes); diff != "" {
+		t.Errorf("ListGroupRolesIn() mismatch (-want +got): a role whose period has not begun is listed with it, and one that has ended is not:\n%s", diff)
+	}
+	// Another place's groups are not this one's, and a group is kept in no
+	// "every tenant".
+	if counts, err := store.CountGroupMembersIn(ctx, accesstypes.GlobalPolicyScope()); err != nil || counts[crewGroup] != 0 {
+		t.Errorf("CountGroupMembersIn(global) = (%v, %v), want nothing of the tenant's group", counts, err)
+	}
+	if _, err := store.CountGroupMembersIn(ctx, accesstypes.EveryDomainPolicyScope()); err == nil {
+		t.Error("CountGroupMembersIn(every domain) error = nil, want a refusal: no group is kept in every tenant")
+	}
+	if _, err := store.ListGroupRolesIn(ctx, accesstypes.EveryDomainPolicyScope()); err == nil {
+		t.Error("ListGroupRolesIn(every domain) error = nil, want a refusal: no group is kept in every tenant")
+	}
+
+	holdingGroupDeletion(t, store)
+}
+
+// holdingGroupDeletion holds what the two listings of what groups hold answer
+// to what a deletion is refused for, over the groups holdingGroups arranged:
+// the spare group, which the listings answer nothing for, goes; the crew does
+// not while a place or a role of it has not ended, and goes once they answer
+// nothing for it, taking its ended rows with it.
+func holdingGroupDeletion(t *testing.T, store access.Store) {
+	t.Helper()
+	ctx := t.Context()
+
+	if deleted, err := store.DeleteGroup(ctx, idleGroup); err != nil || !deleted {
+		t.Fatalf("DeleteGroup() of a group listed with nobody and no role = (%v, %v), want it deleted", deleted, err)
+	}
+	if _, err := store.DeleteGroup(ctx, crewGroup); !errors.Is(err, policy.ErrStillAssigned) {
+		t.Fatalf("DeleteGroup() of a group listed with two people and a role: error = %v, want policy.ErrStillAssigned", err)
+	}
+	for _, member := range []accesstypes.User{ivy, jon} {
+		if err := store.DeleteGroupMember(ctx, crewGroup, member); err != nil {
+			t.Fatalf("DeleteGroupMember(%s) error = %v", member, err)
+		}
+	}
+	if err := store.DeleteGroupRole(ctx, crewGroup, holdingsTenant, steward); err != nil {
+		t.Fatalf("DeleteGroupRole() error = %v", err)
+	}
+	if counts, err := store.CountGroupMembersIn(ctx, holdingsTenant); err != nil || len(counts) != 0 {
+		t.Errorf("CountGroupMembersIn() once the only place left has ended = (%v, %v), want none", counts, err)
+	}
+	if roles, err := store.ListGroupRolesIn(ctx, holdingsTenant); err != nil || len(roles) != 0 {
+		t.Errorf("ListGroupRolesIn() once the role is taken away = (%v, %v), want none", roles, err)
+	}
+	if deleted, err := store.DeleteGroup(ctx, crewGroup); err != nil || !deleted {
+		t.Fatalf("DeleteGroup() once every place left has ended = (%v, %v), want it deleted", deleted, err)
 	}
 }

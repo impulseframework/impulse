@@ -204,6 +204,14 @@ export interface IdentityDescriptor {
    * from a generator that predates it, and the pages show the key.
    */
   readonly tenantResource?: string;
+  /**
+   * The directories that decide the Auth's roles, in the words of its login page's
+   * buttons ("Google", "Google or Microsoft"), where a directory writes them at every
+   * sign-in. Such an Auth keeps no groups of its own, and its Groups page says whose
+   * groups do that job. Absent where the application gives the roles by hand, and on a
+   * description from a generator that predates it.
+   */
+  readonly rolesFrom?: string;
   readonly sides: readonly IdentitySideDescriptor[];
 }
 
@@ -235,6 +243,15 @@ export interface IdentitySideDescriptor {
  */
 export interface IdentityLists {
   readonly users: string;
+  /**
+   * The roles people hold, one row for each: a role of the person's own and, where the
+   * Auth keeps groups, a role that comes through a group, which the row names
+   * (`groupId`, `groupName`, both empty for a role of the person's own). A row carries
+   * the role's period and, for a role of the person's own, the reason it was given for
+   * (`reason`). A description from a generator that predates the one list names the
+   * roles each person holds directly here, and the ones held through a group under
+   * `rolesThroughGroups`.
+   */
   readonly roles?: string;
   readonly identities?: string;
   /**
@@ -249,11 +266,18 @@ export interface IdentityLists {
   readonly signInAttempts?: string;
   readonly signInMethods?: string;
   readonly signUpRoles?: string;
-  /** The groups of people, where the Auth keeps them: a tenant's own on its side. */
+  /**
+   * The groups of people, where the Auth keeps them: a tenant's own on its side. A row
+   * says what the group holds: how many people (`people`) and which roles, a line each
+   * (`roles`), over what has not ended.
+   */
   readonly groups?: string;
   /** The people of the groups: one row for each person in each group, with their name. */
   readonly groupUsers?: string;
-  /** The roles the groups hold: one row for each role of each group. */
+  /**
+   * The roles the groups hold: one row for each role of each group, with how many people
+   * lose the role when the group stops holding it (`losing`).
+   */
   readonly groupRoles?: string;
   /** The roles people hold through a group, beside `roles`, the ones each holds directly. */
   readonly rolesThroughGroups?: string;

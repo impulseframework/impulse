@@ -138,12 +138,22 @@
             </button>
             <mat-menu #rowMethodsMenu="matMenu">
               @for (method of rowMethods(); track method.method) {
-                <button type="button" mat-menu-item class="row-method" (click)="runMethod(method)">
-                  @if (method.icon) {
-                    <mat-icon>{{ method.icon }}</mat-icon>
-                  }
-                  <span>{{ method.label }}</span>
-                </button>
+                @if (method.says) {
+                  <!-- What the row says where the method would be: words, and nothing to run. -->
+                  <button type="button" mat-menu-item class="row-method row-method-says" disabled>
+                    @if (method.icon) {
+                      <mat-icon>{{ method.icon }}</mat-icon>
+                    }
+                    <span>{{ method.says }}</span>
+                  </button>
+                } @else {
+                  <button type="button" mat-menu-item class="row-method" (click)="runMethod(method)">
+                    @if (method.icon) {
+                      <mat-icon>{{ method.icon }}</mat-icon>
+                    }
+                    <span>{{ method.label }}</span>
+                  </button>
+                }
               }
             </mat-menu>
           }

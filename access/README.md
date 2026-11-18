@@ -497,14 +497,17 @@ mgr.AssignGroupRole(ctx, watch, tenant1, "Editor", period)
 
 ### What is held and why
 
-A person's role may carry the reason it was given for, and the user manager says where
-each of a person's roles comes from.
+A person's role may carry the reason it was given for, and the user manager answers
+three questions a page asks of what is held: where each of a person's roles comes from,
+what each group holds, and who loses a role a group stops holding.
 
 ```go
 // The reason is the last argument of AssignUserRole: one line, empty for none.
 mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period, "Covering the release on Friday")
 
 held, err := mgr.UserRolesHeld(ctx, "john.doe")       // []access.HeldRole: their own with period and reason, and through each group
+groups, err := mgr.GroupContents(ctx, tenant1)          // []access.GroupContent: each group with its people counted and its roles
+losers, err := mgr.GroupRoleLosers(ctx, watch, tenant1, "Editor") // who loses Editor in tenant1 when the group stops holding it
 ```
 
 - The reason is one line of plain text of at most `MaxReason` characters, kept less the
@@ -520,6 +523,14 @@ held, err := mgr.UserRolesHeld(ctx, "john.doe")       // []access.HeldRole: thei
   that holds the role (`Group` names it). The person's own are the memberships that have
   not ended, one whose period has not begun among them; the ones through a group are the
   ones `UserRoles` counts now
+- `GroupContents` counts what has not ended, an assignment whose period has not begun
+  among it, which is what `DeleteGroup` refuses a group for: a group listed with no
+  people and no roles is one `DeleteGroup` removes
+- `GroupRoleLosers` lists the people in the group now who hold the role there through
+  this group and in no other way. A person who also holds it themselves, through another
+  group, or in every tenant when the scope is one tenant, keeps it and is not listed.
+  Nobody is listed while the group does not give the role: its period has not begun or
+  has ended, or the role is one its members do not hold through it
 
 ### Role Management
 

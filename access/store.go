@@ -179,6 +179,15 @@ type Store interface {
 	// refuses, wrapping policy.ErrHeldByGroup, while a group's row of the role
 	// in the scope has not ended, checked in the delete's own transaction, and
 	// takes the ended ones with the role.
+	// CountGroupMembersIn and ListGroupRolesIn say what the groups kept in
+	// scope hold, for a listing of them: how many people each has, and the
+	// roles each holds with their periods, sorted by group, then where the
+	// role is held, then role. Both read what has not ended, an assignment
+	// whose period has not begun among it: exactly what DeleteGroup refuses a
+	// group for, so a group the two answer nothing for is one a deletion
+	// takes. A group with no member is absent from the counts.
+	CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error)
+	ListGroupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error)
 	InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
 	DeleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)

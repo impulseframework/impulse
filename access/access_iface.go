@@ -230,6 +230,20 @@ type UserManager interface {
 	// Groups returns the groups kept in scope, sorted by name.
 	Groups(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupInfo, error)
 
+	// GroupContents returns the groups kept in scope, sorted by name, each
+	// with how many people are in it and the roles it holds (see
+	// GroupContent). Both count what has not ended, an assignment whose
+	// period has not begun among it: a group listed with no people and no
+	// roles is one DeleteGroup removes.
+	GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error)
+
+	// GroupRoleLosers returns the people who lose role in scope when group
+	// stops holding it there: the people in the group now who hold the role
+	// there through this group and in no other way, sorted. A person who also
+	// holds it themselves, through another group, or in every tenant when
+	// scope is one tenant, keeps it and is not listed.
+	GroupRoleLosers(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
+
 	// UserGroups returns the groups user is in, wherever each is kept.
 	UserGroups(ctx context.Context, user accesstypes.User) ([]GroupInfo, error)
 

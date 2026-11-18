@@ -189,6 +189,13 @@
               ]
             },
             {
+              "resource": "MembersHeldRoles",
+              "fields": [
+                "username",
+                "createdAt"
+              ]
+            },
+            {
               "resource": "CrewSessionIdentities",
               "fields": [
                 "connection",
@@ -420,6 +427,39 @@
               ]
             },
             {
+              "resource": "CrewHeldRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
+              "resource": "CrewListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
+              ]
+            },
+            {
+              "resource": "CrewListedGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "losing"
+              ]
+            },
+            {
               "resource": "CrewTakenRoles",
               "fields": [
                 "username",
@@ -643,6 +683,19 @@
                 "name",
                 "description",
                 "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewListedGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],
@@ -1360,6 +1413,20 @@
               ]
             },
             {
+              "resource": "CrewSectorHeldRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "groupName",
+                "globalGroup",
+                "groupPage",
+                "createdAt",
+                "startsAt",
+                "endsAt",
+                "reason"
+              ]
+            },
+            {
               "resource": "CrewSectorInvitations",
               "fields": [
                 "email",
@@ -1442,7 +1509,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             },
             {
@@ -1462,7 +1531,8 @@
                 "groupName",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "losing"
               ]
             },
             {
@@ -1740,7 +1810,9 @@
               "fields": [
                 "name",
                 "description",
-                "updatedAt"
+                "updatedAt",
+                "people",
+                "roles"
               ]
             }
           ],
@@ -2198,7 +2270,9 @@
               "resource": "CrewSectorGroups",
               "fields": [
                 "name",
-                "description"
+                "description",
+                "people",
+                "roles"
               ],
               "condition": "group IN subject.groups"
             },
@@ -2232,7 +2306,9 @@
               "resource": "CrewSectorGroups",
               "fields": [
                 "name",
-                "description"
+                "description",
+                "people",
+                "roles"
               ],
               "condition": "group IN subject.groups"
             }

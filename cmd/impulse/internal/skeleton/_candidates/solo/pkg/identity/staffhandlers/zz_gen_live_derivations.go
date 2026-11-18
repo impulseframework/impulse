@@ -26,6 +26,27 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 		}},
+		// StaffHeldRoles: the tables its query reads.
+		{Resource: staffresources.StaffHeldRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+		}},
+		// StaffListedGroups: the tables its query reads.
+		{Resource: staffresources.StaffListedGroup{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+		}},
+		// StaffListedGroupRoles: the tables its query reads.
+		{Resource: staffresources.StaffListedGroupRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+		}},
 		// StaffTakenRoles: the tables its query reads.
 		{Resource: staffresources.StaffTakenRole{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},

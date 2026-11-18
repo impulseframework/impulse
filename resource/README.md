@@ -3319,6 +3319,7 @@ GET  <prefix>/crew-session-trusted-devices, …/{id}         List, Read on CrewS
 GET  <prefix>/crew-session-sign-in-attempts                List on CrewSessionSignInAttempts
 GET  <prefix>/crew-session-auth-events                     List on CrewSessionAuthEvents
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
+GET  <prefix>/crew-held-roles                              List on CrewHeldRoles (the roles people hold, their own and through a group, sort=username,role)
 GET  <prefix>/crew-taken-roles                             List on CrewTakenRoles (the roles held for a set time with a reason, the last to end first)
 GET  <prefix>/crew-takeable-roles                          List on CrewTakeableRoles (the roles the caller may take for a set time)
 GET  <prefix>/crew-take-lengths                            List on CrewTakeLengths (the lengths a role is taken for)
@@ -3329,10 +3330,13 @@ GET  <prefix>/crew-group-members                           List on CrewGroupMemb
 GET  <prefix>/crew-group-roles                             List on CrewGroupRoles (the roles the groups hold)
 GET  <prefix>/crew-group-users, …/{id}                     List, Read on CrewGroupUsers (the people of the groups, with their names)
 GET  <prefix>/crew-user-group-roles, …/{id}                List, Read on CrewUserGroupRoles (the roles people hold through a group)
+GET  <prefix>/crew-listed-groups, …/{id}                   List, Read on CrewListedGroups (the groups with what each holds, sort=name)
+GET  <prefix>/crew-listed-group-roles                      List on CrewListedGroupRoles (the roles the groups hold, each with how many people lose it)
 GET  <prefix>/crew-sign-in-methods                         List on CrewSignInMethods (the methods the Auth registers, with what was chosen for each)
 GET  <prefix>/crew-invited-sectors                         List on CrewInvitedSectors (the invitations that make a sector and still stand)
 GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read on CrewSectorUsers (sort=username)
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
+GET  <prefix>/sectors/{sectorID}/crew-sector-held-roles            List on CrewSectorHeldRoles (the roles held in the sector, their own and through a group)
 GET  <prefix>/sectors/{sectorID}/crew-sector-invitations, …/{id}   List, Read on CrewSectorInvitations (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-identities, …/{id}    List, Read on CrewSectorIdentities (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-sign-in-ways?filter=userId:eq:{id}   List on CrewSectorSignInWays (how one of the sector's people signs in)
@@ -3365,11 +3369,11 @@ POST <prefix>/assign-crew-role                {"userId","role","domain","everyDo
 POST <prefix>/take-crew-role                  {"domain","role","length","reason"}        Execute on TakeCrewRole (the caller takes the role themselves)
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
-POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewGroups
-POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewGroups
-POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewGroups
+POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
+POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewListedGroups
+POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewListedGroups
 POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers
-POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewGroups
+POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewListedGroups
 POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
 POST <prefix>/make-crew-invite-only           {"name"}                         Execute on MakeCrewInviteOnly
@@ -3377,7 +3381,7 @@ POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","e
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
-POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
@@ -3774,13 +3778,20 @@ holding some of them is refused at generation.
   application's act and is not judged.
 - Taking a role away from a person removes the membership of their own. What they hold
   through a group stays, and goes when they leave the group or the group loses the
-  role.
+  role. A tenant's removal (`RemoveCrewSectorRole`) names a row of the tenant's one list
+  of roles (`CrewSectorHeldRoles`) by the person, the role and the group the role comes
+  through, which is none for a role of the person's own, the row a request that names
+  no group names. A row that comes through a group is refused (400), and the refusal
+  says where the role is changed.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
   the two that give and take a person's own role.
 - A group that still has a member or holds a role is not deleted (409): empty it first.
-  Nobody loses a role because a group was deleted. Deleting a tenant removes the
+  The lists of groups say what each holds (`people`, `roles`), counted over what the
+  deletion refuses a group for, so a page offers Delete only on a group that holds
+  nothing and says what is left on the others; the refusal stays for a request that
+  never saw the page. Nobody loses a role because a group was deleted. Deleting a tenant removes the
   tenant's groups with their members and roles, and every role a group of the whole
   application holds in it (`ClearTenant`); deleting a person takes them out of their
   groups.
@@ -3818,6 +3829,37 @@ Administrator role in a group, a tenant's group with a role outside its tenant).
 tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: the
 members of its own groups, and the members of a group of the whole application that
 holds a role there, the latter with `heldGlobally`.
+
+**What a page reads of them.** Four lists say what is held in the words a page shows,
+each a view like a tenant's lists: nothing is created in the database, and the role file
+grants each like any resource.
+
+- `CrewHeldRoles` is the one list of the roles people hold, each with where it comes
+  from: a row for each role of a person's own, with its period and the reason it was
+  given for, and a row for each role that comes to a person through a group, which
+  `groupId` and `groupName` name (both empty for a role of the person's own). A person
+  may hold a role both ways, so the group is part of what names a row. A tenant has its
+  own (`CrewSectorHeldRoles`), with `globalGroup` where the group is the whole
+  application's and `groupPage`, the group's id where the tenant keeps the group and so
+  has a page for it. It stands beside `CrewSectorUserRoles`, which holds the roles
+  people hold themselves and is read by a row's key; the one list is read as a list
+  alone. An auth whose roles a directory writes has the list too, and every row of it
+  is the person's own.
+- `CrewListedGroups` is the groups with what each holds: `people`, how many people are
+  in the group, and `roles`, the roles it holds, a line each: the role's name, and where
+  it is held when that is not where the group is kept ("Engineer in sector Anvil",
+  "Pilot in every sector"), the tenant by the name people call it by where the tenant
+  record marks one (`@tenantName`). Both count what has not ended, a place or a role
+  whose period has not begun among it. The whole application's group methods name their
+  group by its row here. A tenant's list of its groups (`CrewSectorGroups`) carries the
+  two columns itself.
+- `CrewListedGroupRoles` is the roles the groups hold, each with `losing`: how many
+  people lose the role when the group stops holding it, the people in the group now who
+  hold the role there in no other way, neither by a membership of their own nor through
+  another role of a group they are in. A person who holds the role in every tenant
+  keeps it in each, so they do not lose a role held in one. Nobody loses a role whose
+  period has not begun, or one the group gives its members nothing by. A tenant's list
+  (`CrewSectorGroupRoles`) carries the count itself.
 
 **The period of an assignment.** A role given to a person, a person's place in a group
 and a role given to a group may each carry a period: a start and an end, each optional,
@@ -3896,8 +3938,8 @@ every policy store's schema holds it).
   new request over the ones it had, so a request that gives none leaves the role with
   none.
 - It is shown wherever the roles a person holds are listed, beside the role and when it
-  ends: `CrewUserRoles` and `CrewSectorUserRoles` carry it under a field grant of its
-  own, so a tenant's
+  ends: `CrewUserRoles`, `CrewHeldRoles`, `CrewSectorUserRoles` and
+  `CrewSectorHeldRoles` carry it under a field grant of its own, so a tenant's
   administrator reads why someone from outside holds a role with them.
 - `TakeCrewRole` gives the request's caller a role for a set time, with a reason: the
   act of the Break glass page. The request names no person. It names the tenant (in an

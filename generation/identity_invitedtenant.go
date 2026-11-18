@@ -76,7 +76,10 @@ type identityTenantInvitation struct {
 	fields []identityTenantField
 	// nameField is the field people call the tenant by (@tenantName), "" where the
 	// record marks none: the invitation page then says the application's word for one.
-	nameField string
+	// nameColumn is its column of the record's table, which a list that names a tenant
+	// in a line of text reads (identitySourceData.GroupRoleLines).
+	nameField  string
+	nameColumn string
 	// directoryOnly is the record's directory-only switch, nil where it declares none
 	// (Type is unused: the switch is a yes or a no), and seats says the directories
 	// record keeps a default role.
@@ -333,7 +336,7 @@ func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *
 			return "field " + name + " has a type another package cannot name", nil
 		}
 		if fieldTenantName.MatchString(comment) {
-			t.nameField = name
+			t.nameField, t.nameColumn = name, tag.Get(spannerTagKey)
 		}
 		required := !column.IsNullable && !column.HasDefault
 		t.fields = append(t.fields, identityTenantField{

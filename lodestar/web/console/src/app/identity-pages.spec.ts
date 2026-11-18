@@ -3,7 +3,7 @@ import { apiDescriptor } from '@app/service/zz_gen_api';
 import { Methods, Resources } from '@app/service/zz_gen_constants';
 import { methodMeta as generatedMethodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { identityPages } from '@impulseframework/resource-angular/identity-pages';
+import { identityMenuPages, identityPages } from '@impulseframework/resource-angular/identity-pages';
 import {
   ListViewConfig,
   Method,
@@ -70,13 +70,27 @@ describe("the library's pages over an auth's generated management", () => {
       'sectors/:sectorID/crew-groups',
       'sectors/:sectorID/crew-invitations',
     ]);
-    // The members' roles are their directory's, and so are its groups: no page of groups.
+    // The members' roles are their directory's, and so are its groups: no list of groups.
     expect(routes('Members', 'global')).toEqual([
       'members-accounts',
       'members-mailed-links',
       'members-sessions',
       'members-failed-sign-ins',
     ]);
+  });
+
+  it("keep the Groups entry in the members' menu, with a page that lists nothing: the directory's groups do that job", () => {
+    const entries = identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' });
+    expect(entries.map((entry) => [entry.label, entry.route])).toEqual([
+      ['Accounts', ['members-accounts']],
+      ['Groups', ['members-groups']],
+      ['Mailed links', ['members-mailed-links']],
+      ['Sessions', ['members-sessions']],
+      ['Failed sign-ins', ['members-failed-sign-ins']],
+    ]);
+    // The description names the directory, in the words its sign-in button carries.
+    const members = (apiDescriptor.identity ?? []).find((identity) => identity.auth === 'Members');
+    expect(members?.rolesFrom).toBe('Company directory');
   });
 
   it("offer nothing on the members' pages that gives or takes a role, adds an account or invites one: a directory writes the members' roles", () => {

@@ -1,7 +1,8 @@
 // holdings.go is what the user manager says of what is held and why: the reason a
-// person's role carries, and the one list of a person's roles with where each comes
-// from. The store keeps the rows; everything here is read from them, and nothing here
-// is policy: the permission engine reads none of it.
+// person's role carries, the one list of a person's roles with where each comes from,
+// what each group of a place holds, and who loses a role a group stops holding. The
+// store keeps the rows; everything here is read from them, and nothing here is policy:
+// the permission engine reads none of it.
 
 package access
 
@@ -59,9 +60,29 @@ type HeldRole struct {
 	Reason string
 }
 
+// GroupContent is one group of people as UserManager.GroupContents lists it, with what
+// it holds: how many people are in it and the roles it holds, each with where it is
+// held. Both are what has not ended, an assignment whose period has not begun among it,
+// so a group that holds nothing by this answer is one DeleteGroup removes.
+type GroupContent struct {
+	GroupInfo
+
+	People int
+	Roles  []GroupHolding
+}
+
+// GroupHolding is one role a group holds: where it is held and the period the group
+// holds it for, the zero Period for none.
+type GroupHolding struct {
+	Scope  accesstypes.PolicyScope
+	Role   accesstypes.Role
+	Period accesstypes.Period
+}
+
 // holdingStore is the management surface's part for what an assignment carries beside
-// its period: the reason of a person's role. It stands beside policyStore, and one store
-// manager implements both.
+// its period and for the listings of what is held: the reason of a person's role, and
+// what the groups of a place hold. It stands beside policyStore, and one store manager
+// implements both.
 type holdingStore interface {
 	// assignUserRole gives the membership its period and its reason, replacing both on
 	// one that is there.
@@ -69,6 +90,10 @@ type holdingStore interface {
 	// userAssignments lists every membership of the user's own that has not ended, each
 	// with its period and its reason.
 	userAssignments(ctx context.Context, user accesstypes.User) ([]policy.Assignment, error)
+	// groupMemberCounts and groupRolesIn say what the groups kept in scope hold that has
+	// not ended: how many people each has, and the roles each holds.
+	groupMemberCounts(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error)
+	groupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error)
 }
 
 // managementStore is everything the user manager asks of the store: the policy rows and
@@ -96,6 +121,24 @@ func (m *storeManager) userAssignments(ctx context.Context, user accesstypes.Use
 	}
 
 	return assignments, nil
+}
+
+func (m *storeManager) groupMemberCounts(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error) {
+	counts, err := m.store.CountGroupMembersIn(ctx, scope)
+	if err != nil {
+		return nil, errors.Wrapf(err, "access.Store.CountGroupMembersIn(): scope %q", scope)
+	}
+
+	return counts, nil
+}
+
+func (m *storeManager) groupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error) {
+	roles, err := m.store.ListGroupRolesIn(ctx, scope)
+	if err != nil {
+		return nil, errors.Wrapf(err, "access.Store.ListGroupRolesIn(): scope %q", scope)
+	}
+
+	return roles, nil
 }
 
 // UserRolesHeld returns the roles user holds as one list, each with where it comes
@@ -173,4 +216,80 @@ func compareHeldRoles(a, b *HeldRole) int {
 	}
 
 	return strings.Compare(string(a.Group.ID), string(b.Group.ID))
+}
+
+// GroupContents returns the groups kept in scope, sorted by name, each with how many
+// people are in it and the roles it holds: what a list of groups says of each, so a
+// person does not open every group to learn what it is for. Both count what has not
+// ended, an assignment whose period has not begun among it, which is what DeleteGroup
+// refuses a group for: a group listed with no people and no roles is one it removes. A
+// role the group's members do not hold through it (the Super Administrator role, and for
+// a group kept in one tenant a role held outside it) is listed too, since its row stands
+// in a deletion's way like any other.
+func (u *userManager) GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	rows, err := u.store.groups(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := u.store.groupMemberCounts(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := u.store.groupRolesIn(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+	held := make(map[accesstypes.Group][]GroupHolding)
+	for i := range roles {
+		group := accesstypes.Group(roles[i].Member.Name)
+		held[group] = append(held[group], GroupHolding{Scope: roles[i].Scope, Role: roles[i].Role, Period: roles[i].Period})
+	}
+	contents := make([]GroupContent, 0, len(rows))
+	for _, group := range groupInfos(rows) {
+		contents = append(contents, GroupContent{GroupInfo: group, People: counts[group.ID], Roles: held[group.ID]})
+	}
+
+	return contents, nil
+}
+
+// GroupRoleLosers returns the people who lose role in scope when group stops holding it
+// there, sorted: the people in the group now who hold the role there through this group
+// and in no other way. A person who also holds the role there themselves, or through
+// another group, keeps it and is not listed; nor is one who holds it in every tenant,
+// themselves or through a group, when scope is one tenant, since the role stays theirs
+// in that tenant too. Nobody is listed while the group does not give the role: it does
+// not hold it there, the period it holds it for has not begun or has ended, or the role
+// is one its members do not hold through it.
+func (u *userManager) GroupRoleLosers(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	holders, err := u.RoleHolders(ctx, scope, role)
+	if err != nil {
+		return nil, err
+	}
+	everywhere := make(map[accesstypes.User]struct{})
+	if _, oneTenant := scope.Domain(); oneTenant {
+		wide, err := u.RoleHolders(ctx, accesstypes.EveryDomainPolicyScope(), role)
+		if err != nil {
+			return nil, err
+		}
+		for i := range wide {
+			everywhere[wide[i].User] = struct{}{}
+		}
+	}
+	losers := make([]accesstypes.User, 0)
+	for i := range holders {
+		if _, kept := everywhere[holders[i].User]; kept || holders[i].Own {
+			continue
+		}
+		if len(holders[i].Groups) == 1 && holders[i].Groups[0].ID == group {
+			losers = append(losers, holders[i].User)
+		}
+	}
+
+	return losers, nil
 }

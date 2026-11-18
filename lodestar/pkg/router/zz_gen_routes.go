@@ -42,6 +42,7 @@ const (
 	CrewGroupID                       httpio.ParamType = "crewGroupID"
 	CrewGroupUserGroupID              httpio.ParamType = "crewGroupUserGroupID"
 	CrewGroupUserUserID               httpio.ParamType = "crewGroupUserUserID"
+	CrewListedGroupID                 httpio.ParamType = "crewListedGroupID"
 	CrewSectorGroupID                 httpio.ParamType = "crewSectorGroupID"
 	CrewSectorGroupRoleGroupID        httpio.ParamType = "crewSectorGroupRoleGroupID"
 	CrewSectorGroupRoleRole           httpio.ParamType = "crewSectorGroupRoleRole"
@@ -198,7 +199,14 @@ type GeneratedHandlers interface {
 	CrewGroupUsers() http.HandlerFunc
 	CrewGroupUser() http.HandlerFunc
 
+	CrewHeldRoles() http.HandlerFunc
+
 	CrewInvitedSectors() http.HandlerFunc
+
+	CrewListedGroups() http.HandlerFunc
+	CrewListedGroup() http.HandlerFunc
+
+	CrewListedGroupRoles() http.HandlerFunc
 
 	CrewRoles() http.HandlerFunc
 
@@ -214,6 +222,8 @@ type GeneratedHandlers interface {
 
 	CrewSectorGroupUsers() http.HandlerFunc
 	CrewSectorGroupUser() http.HandlerFunc
+
+	CrewSectorHeldRoles() http.HandlerFunc
 
 	CrewSectorIdentities() http.HandlerFunc
 	CrewSectorIdentity() http.HandlerFunc
@@ -374,9 +384,13 @@ type GeneratedHandlers interface {
 
 	MakeCrewInviteOnly() http.HandlerFunc
 
+	MembersHeldRoles() http.HandlerFunc
+
 	MembersRoles() http.HandlerFunc
 
 	MembersRoleGrants() http.HandlerFunc
+
+	MembersSectorHeldRoles() http.HandlerFunc
 
 	MembersSectorIdentities() http.HandlerFunc
 	MembersSectorIdentity() http.HandlerFunc
@@ -715,9 +729,25 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-group-users/{crewGroupUserGroupID}/{crewGroupUserUserID}", crewGroupUserHandler)
 	bounded.Post("/console/api/crew-group-users/{crewGroupUserGroupID}/{crewGroupUserUserID}", crewGroupUserHandler)
 
+	crewHeldRolesHandler := h.CrewHeldRoles()
+	bounded.Get("/console/api/crew-held-roles", crewHeldRolesHandler)
+	bounded.Post("/console/api/crew-held-roles", crewHeldRolesHandler)
+
 	crewInvitedSectorsHandler := h.CrewInvitedSectors()
 	bounded.Get("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
 	bounded.Post("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
+
+	crewListedGroupsHandler := h.CrewListedGroups()
+	bounded.Get("/console/api/crew-listed-groups", crewListedGroupsHandler)
+	bounded.Post("/console/api/crew-listed-groups", crewListedGroupsHandler)
+
+	crewListedGroupHandler := h.CrewListedGroup()
+	bounded.Get("/console/api/crew-listed-groups/{crewListedGroupID}", crewListedGroupHandler)
+	bounded.Post("/console/api/crew-listed-groups/{crewListedGroupID}", crewListedGroupHandler)
+
+	crewListedGroupRolesHandler := h.CrewListedGroupRoles()
+	bounded.Get("/console/api/crew-listed-group-roles", crewListedGroupRolesHandler)
+	bounded.Post("/console/api/crew-listed-group-roles", crewListedGroupRolesHandler)
 
 	crewRolesHandler := h.CrewRoles()
 	bounded.Get("/console/api/crew-roles", crewRolesHandler)
@@ -754,6 +784,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewSectorGroupUserHandler := domainGuard(h.CrewSectorGroupUser())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-group-users/{crewSectorGroupUserGroupID}/{crewSectorGroupUserUserID}", crewSectorGroupUserHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-group-users/{crewSectorGroupUserGroupID}/{crewSectorGroupUserUserID}", crewSectorGroupUserHandler)
+
+	crewSectorHeldRolesHandler := domainGuard(h.CrewSectorHeldRoles())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-held-roles", crewSectorHeldRolesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-held-roles", crewSectorHeldRolesHandler)
 
 	crewSectorIdentitiesHandler := domainGuard(h.CrewSectorIdentities())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-identities", crewSectorIdentitiesHandler)
@@ -1035,6 +1069,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/make-crew-invite-only", h.MakeCrewInviteOnly())
 
+	membersHeldRolesHandler := h.MembersHeldRoles()
+	bounded.Get("/console/api/members-held-roles", membersHeldRolesHandler)
+	bounded.Post("/console/api/members-held-roles", membersHeldRolesHandler)
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/console/api/members-roles", membersRolesHandler)
 	bounded.Post("/console/api/members-roles", membersRolesHandler)
@@ -1042,6 +1080,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	membersRoleGrantsHandler := h.MembersRoleGrants()
 	bounded.Get("/console/api/members-role-grants", membersRoleGrantsHandler)
 	bounded.Post("/console/api/members-role-grants", membersRoleGrantsHandler)
+
+	membersSectorHeldRolesHandler := domainGuard(h.MembersSectorHeldRoles())
+	bounded.Get("/console/api/sectors/{sectorID}/members-sector-held-roles", membersSectorHeldRolesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/members-sector-held-roles", membersSectorHeldRolesHandler)
 
 	membersSectorIdentitiesHandler := domainGuard(h.MembersSectorIdentities())
 	bounded.Get("/console/api/sectors/{sectorID}/members-sector-identities", membersSectorIdentitiesHandler)
@@ -1552,9 +1594,13 @@ type GeneratedPortalHandlers interface {
 
 	Features() http.HandlerFunc
 
+	MembersHeldRoles() http.HandlerFunc
+
 	MembersRoles() http.HandlerFunc
 
 	MembersRoleGrants() http.HandlerFunc
+
+	MembersSectorHeldRoles() http.HandlerFunc
 
 	MembersSectorIdentities() http.HandlerFunc
 	MembersSectorIdentity() http.HandlerFunc
@@ -1709,6 +1755,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	bounded.Get("/portal/api/features", h.Features())
 
+	membersHeldRolesHandler := h.MembersHeldRoles()
+	bounded.Get("/portal/api/members-held-roles", membersHeldRolesHandler)
+	bounded.Post("/portal/api/members-held-roles", membersHeldRolesHandler)
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/portal/api/members-roles", membersRolesHandler)
 	bounded.Post("/portal/api/members-roles", membersRolesHandler)
@@ -1716,6 +1766,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersRoleGrantsHandler := h.MembersRoleGrants()
 	bounded.Get("/portal/api/members-role-grants", membersRoleGrantsHandler)
 	bounded.Post("/portal/api/members-role-grants", membersRoleGrantsHandler)
+
+	membersSectorHeldRolesHandler := domainGuard(h.MembersSectorHeldRoles())
+	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-held-roles", membersSectorHeldRolesHandler)
+	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-held-roles", membersSectorHeldRolesHandler)
 
 	membersSectorIdentitiesHandler := domainGuard(h.MembersSectorIdentities())
 	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-identities", membersSectorIdentitiesHandler)

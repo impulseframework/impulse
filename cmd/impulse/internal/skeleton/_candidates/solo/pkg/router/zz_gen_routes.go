@@ -27,6 +27,7 @@ const (
 	StaffGroupID                httpio.ParamType = "staffGroupID"
 	StaffGroupUserGroupID       httpio.ParamType = "staffGroupUserGroupID"
 	StaffGroupUserUserID        httpio.ParamType = "staffGroupUserUserID"
+	StaffListedGroupID          httpio.ParamType = "staffListedGroupID"
 	StaffSessionID              httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID      httpio.ParamType = "staffSessionIdentityID"
 	StaffSessionMailLinkID      httpio.ParamType = "staffSessionMailLinkID"
@@ -124,6 +125,13 @@ type GeneratedHandlers interface {
 
 	StaffGroupUsers() http.HandlerFunc
 	StaffGroupUser() http.HandlerFunc
+
+	StaffHeldRoles() http.HandlerFunc
+
+	StaffListedGroups() http.HandlerFunc
+	StaffListedGroup() http.HandlerFunc
+
+	StaffListedGroupRoles() http.HandlerFunc
 
 	StaffRoles() http.HandlerFunc
 
@@ -289,6 +297,22 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffGroupUserHandler := h.StaffGroupUser()
 	bounded.Get("/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 	bounded.Post("/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
+
+	staffHeldRolesHandler := h.StaffHeldRoles()
+	bounded.Get("/api/staff-held-roles", staffHeldRolesHandler)
+	bounded.Post("/api/staff-held-roles", staffHeldRolesHandler)
+
+	staffListedGroupsHandler := h.StaffListedGroups()
+	bounded.Get("/api/staff-listed-groups", staffListedGroupsHandler)
+	bounded.Post("/api/staff-listed-groups", staffListedGroupsHandler)
+
+	staffListedGroupHandler := h.StaffListedGroup()
+	bounded.Get("/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+	bounded.Post("/api/staff-listed-groups/{staffListedGroupID}", staffListedGroupHandler)
+
+	staffListedGroupRolesHandler := h.StaffListedGroupRoles()
+	bounded.Get("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
+	bounded.Post("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
 
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/api/staff-roles", staffRolesHandler)

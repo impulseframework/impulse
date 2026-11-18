@@ -24,6 +24,12 @@ export interface OfferedMethod {
   icon?: string;
   /** The page's own presentation of the method, when its configuration names it. */
   presentation?: MethodPresentation;
+  /**
+   * What the row says in the method's place, where the page's predicate keeps the method
+   * off the row and says why (MethodPresentation.otherwise): the entry is those words and
+   * runs nothing.
+   */
+  says?: string;
 }
 
 /**
@@ -77,8 +83,10 @@ export function offered(
 /**
  * The methods one row offers: of the methods that target the listed resource, those the
  * row's capability answer lists, less the ones the page hides and the ones whose row
- * predicate says no. A row read without its capability answer offers none: nothing is
- * known about what the caller may run on it.
+ * predicate says no. A method the predicate keeps off the row is an entry all the same
+ * where the page says what the row shows in its place (`otherwise`): the words, marked
+ * as said (`says`), which run nothing. A row read without its capability answer offers
+ * none and says nothing: nothing is known about what the caller may run on it.
  */
 export function rowMethods(
   row: RecordData,
@@ -96,7 +104,14 @@ export function rowMethods(
       continue;
     }
     const entry = offered(method, metaOf(method), presentations);
-    if (entry.presentation?.hidden || entry.presentation?.when?.(row) === false) {
+    if (entry.presentation?.hidden) {
+      continue;
+    }
+    if (entry.presentation?.when?.(row) === false) {
+      const says = entry.presentation.otherwise?.(row);
+      if (says) {
+        methods.push({ ...entry, says });
+      }
       continue;
     }
     methods.push(entry);
@@ -108,7 +123,9 @@ export function rowMethods(
  * The methods a row offers that name no target row and are filled from it: the ones the
  * page names with a `fill`, each while the caller holds Execute on the method (the
  * digest's answer; the server gives none for a row the method does not name), less the
- * ones the page hides and the ones whose row predicate says no.
+ * ones the page hides and the ones whose row predicate says no. As for a method that
+ * names its row (rowMethods), one the predicate keeps off the row is an entry of words
+ * where the page says what the row shows in its place (`otherwise`).
  */
 export function filledMethods(
   row: RecordData,
@@ -119,12 +136,18 @@ export function filledMethods(
   const methods: OfferedMethod[] = [];
   for (const presentation of presentations ?? []) {
     const meta = metaOf(presentation.method);
-    if (!presentation.fill || !meta || meta.target || presentation.hidden || presentation.when?.(row) === false) {
+    if (!presentation.fill || !meta || meta.target || presentation.hidden || !granted(presentation.method)) {
       continue;
     }
-    if (granted(presentation.method)) {
-      methods.push(offered(presentation.method, meta, presentations));
+    const entry = offered(presentation.method, meta, presentations);
+    if (presentation.when?.(row) === false) {
+      const says = presentation.otherwise?.(row);
+      if (says) {
+        methods.push({ ...entry, says });
+      }
+      continue;
     }
+    methods.push(entry);
   }
   return methods;
 }

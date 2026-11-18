@@ -53,6 +53,22 @@ func (a *App) StaffGroupUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffGroupUser()
 }
 
+func (a *App) StaffHeldRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffHeldRoles()
+}
+
+func (a *App) StaffListedGroups() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedGroups()
+}
+
+func (a *App) StaffListedGroup() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedGroup()
+}
+
+func (a *App) StaffListedGroupRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedGroupRoles()
+}
+
 func (a *App) StaffRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffRoles()
 }

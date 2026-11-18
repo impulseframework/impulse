@@ -27,20 +27,56 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 		}},
+		// CrewHeldRoles: the tables its query reads.
+		{Resource: crewresources.CrewHeldRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+		}},
+		// CrewListedGroups: the tables its query reads.
+		{Resource: crewresources.CrewListedGroup{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: resources.Sector{}.Resource(), Global: true},
+		}},
+		// CrewListedGroupRoles: the tables its query reads.
+		{Resource: crewresources.CrewListedGroupRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+		}},
 		// CrewSectorGroups: the tables its query reads.
 		{Resource: crewresources.CrewSectorGroup{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// CrewSectorGroupRoles: the tables its query reads.
 		{Resource: crewresources.CrewSectorGroupRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 		}},
 		// CrewSectorGroupUsers: the tables its query reads.
 		{Resource: crewresources.CrewSectorGroupUser{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
+		// CrewSectorHeldRoles: the tables its query reads.
+		{Resource: crewresources.CrewSectorHeldRole{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// CrewSectorIdentities: the tables its query reads.
 		{Resource: crewresources.CrewSectorIdentity{}.Resource(), Tables: []live.SourceTable{

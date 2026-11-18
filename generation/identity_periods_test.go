@@ -167,7 +167,7 @@ func Test_prepareIdentity_periods_tenant(t *testing.T) {
 			"m.StartsAt AS StartsAt,\n  m.EndsAt AS EndsAt\nFROM CrewGroups g", "WHERE g.Kind = 'domain' AND g.Axis = ''\n  AND " + standingSQL("m") + "\n`",
 		},
 		"internal/crewresources/crew_ship_group_roles.go": {
-			"r.StartsAt AS StartsAt,\n  r.EndsAt AS EndsAt\nFROM CrewGroups g", "AND r.DomainId = g.DomainId\n  AND " + standingSQL("r") + "\n`",
+			"r.StartsAt AS StartsAt,\n  r.EndsAt AS EndsAt,\n", ") AS Losing\nFROM CrewGroups g", "AND r.DomainId = g.DomainId\n  AND " + standingSQL("r") + "\n`",
 		},
 		"internal/crewresources/crew_ship_user_group_roles.go": {
 			"COALESCE(GREATEST(t.StartsAt, m.StartsAt), t.StartsAt, m.StartsAt) AS StartsAt,\n  COALESCE(LEAST(t.EndsAt, m.EndsAt), t.EndsAt, m.EndsAt) AS EndsAt\nFROM (",

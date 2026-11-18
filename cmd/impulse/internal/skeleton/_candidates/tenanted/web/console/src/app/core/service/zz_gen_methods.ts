@@ -429,10 +429,12 @@ export type RemoveStaffTenantPasswordStatus = 204;
 export interface RemoveStaffTenantRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveStaffTenantRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveStaffTenantRole declares; the method chooses one per response. */
 export type RemoveStaffTenantRoleStatus = 204;
@@ -779,7 +781,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddStaffGroupMember]: {
     route: 'add-staff-group-member',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -875,7 +877,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -911,7 +913,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeStaffGroup]: {
     route: 'describe-staff-group',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -994,7 +996,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveStaffGroupRole]: {
     route: 'give-staff-group-role',
-    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1118,12 +1120,13 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveStaffTenantRole]: {
     route: 'remove-staff-tenant-role',
-    target: { resource: Resources.StaffTenantUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.StaffTenantHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
     ],
   },
   [Methods.RenameStaffTenantUser]: {

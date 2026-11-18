@@ -172,3 +172,139 @@ func Test_userManager_UserRolesHeld(t *testing.T) {
 		t.Errorf("UserRolesHeld() of a person who holds nothing = (%v, %v), want none", got, err)
 	}
 }
+
+// Test_userManager_GroupContents pins what a list of groups says of each: how many
+// people are in it and which roles it holds, counting what has not ended (a place or a
+// role whose period has not begun among it) and nothing that has, so the answer is what
+// DeleteGroup refuses a group for.
+func Test_userManager_GroupContents(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	_, manager, _ := periodClient(t)
+	now := time.Now()
+	ended := accesstypes.Period{End: now.Add(-time.Hour)}
+	upcoming := accesstypes.Period{Start: now.Add(time.Hour)}
+	day := mustAddGroup(t, manager, tenant1Policy, "Day shift")
+	night := mustAddGroup(t, manager, tenant1Policy, "Night shift")
+	spare := mustAddGroup(t, manager, tenant1Policy, "Spare")
+	staff := mustAddGroup(t, manager, globalPolicy, "Staff")
+	info := func(id accesstypes.Group, scope accesstypes.PolicyScope, name string) GroupInfo {
+		return GroupInfo{ID: id, Scope: scope, Name: name, Description: "The people the tests put in " + name + "."}
+	}
+
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("arranging the groups: %v", err)
+		}
+	}
+	// The day shift: two people now, one from an hour on, one whose place has ended; it
+	// holds Editor, and Reader from an hour on.
+	must(manager.AddGroupUsers(ctx, day, "ann", "bob"))
+	must(manager.AssignGroupUser(ctx, day, "cat", upcoming))
+	must(manager.AssignGroupUser(ctx, day, "dee", ended))
+	must(manager.AddGroupRoles(ctx, day, tenant1Policy, "Editor"))
+	must(manager.AssignGroupRole(ctx, day, tenant1Policy, "Reader", upcoming))
+	// The night shift: everything it had has ended.
+	must(manager.AssignGroupUser(ctx, night, "eve", ended))
+	must(manager.AssignGroupRole(ctx, night, tenant1Policy, "Editor", ended))
+	// The staff, kept for the whole application, hold a role in every tenant.
+	must(manager.AddGroupUsers(ctx, staff, "ann"))
+	must(manager.AddGroupRoles(ctx, staff, everyDomainPolicy, "Reader"))
+
+	want := []GroupContent{
+		{GroupInfo: info(day, tenant1Policy, "Day shift"), People: 3, Roles: []GroupHolding{{Scope: tenant1Policy, Role: "Editor"}, {Scope: tenant1Policy, Role: "Reader", Period: upcoming}}},
+		{GroupInfo: info(night, tenant1Policy, "Night shift")},
+		{GroupInfo: info(spare, tenant1Policy, "Spare")},
+	}
+	got, err := manager.GroupContents(ctx, tenant1Policy)
+	if err != nil {
+		t.Fatalf("GroupContents() error = %v", err)
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(accesstypes.PolicyScope{})); diff != "" {
+		t.Errorf("GroupContents() of the tenant (-want +got):\n%s", diff)
+	}
+	wantGlobal := []GroupContent{{GroupInfo: info(staff, globalPolicy, "Staff"), People: 1, Roles: []GroupHolding{{Scope: everyDomainPolicy, Role: "Reader"}}}}
+	got, err = manager.GroupContents(ctx, globalPolicy)
+	if err != nil {
+		t.Fatalf("GroupContents() error = %v", err)
+	}
+	if diff := cmp.Diff(wantGlobal, got, cmp.AllowUnexported(accesstypes.PolicyScope{})); diff != "" {
+		t.Errorf("GroupContents() of the whole application (-want +got):\n%s", diff)
+	}
+
+	// The answer is what a deletion is refused for: a group listed with nothing goes,
+	// though rows of it that have ended still stand, and one listed with people does not.
+	if err := manager.DeleteGroup(ctx, night); err != nil {
+		t.Errorf("DeleteGroup() of a group listed with no people and no roles: error = %v, want it deleted", err)
+	}
+	if err := manager.DeleteGroup(ctx, day); !httpio.HasConflict(err) {
+		t.Errorf("DeleteGroup() of a group listed with three people and two roles: error = %v, want a Conflict", err)
+	}
+}
+
+// Test_userManager_GroupRoleLosers pins who loses a role a group stops holding: the
+// people in the group now who hold the role there through it and in no other way. A
+// person who also holds it themselves, through another group, or in every tenant keeps
+// it; a person whose place has not begun or has ended holds nothing to lose; and while
+// the group's role does not count nobody loses anything.
+func Test_userManager_GroupRoleLosers(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	_, manager, _ := periodClient(t)
+	now := time.Now()
+	ended := accesstypes.Period{End: now.Add(-time.Hour)}
+	upcoming := accesstypes.Period{Start: now.Add(time.Hour)}
+	night := mustAddGroup(t, manager, tenant1Policy, "Night shift")
+	day := mustAddGroup(t, manager, tenant1Policy, "Day shift")
+	staff := mustAddGroup(t, manager, globalPolicy, "Staff")
+
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("arranging the roles: %v", err)
+		}
+	}
+	must(manager.AddGroupRoles(ctx, night, tenant1Policy, "Reader"))
+	must(manager.AddGroupRoles(ctx, day, tenant1Policy, "Reader"))
+	must(manager.AddGroupRoles(ctx, staff, everyDomainPolicy, "Reader"))
+	// ann and gus hold it through the night shift alone. bob holds it themselves too, cat
+	// through the day shift too, dee in every tenant themselves and eve in every tenant
+	// through the staff. fay's place has not begun and hal's has ended. ivy's own
+	// membership has ended, and jon's has not begun: neither holds it another way now.
+	must(manager.AddGroupUsers(ctx, night, "ann", "bob", "cat", "dee", "eve", "gus", "ivy", "jon"))
+	must(manager.AssignGroupUser(ctx, night, "fay", upcoming))
+	must(manager.AssignGroupUser(ctx, night, "hal", ended))
+	must(manager.AddUserRoles(ctx, tenant1Policy, "bob", "Reader"))
+	must(manager.AddGroupUsers(ctx, day, "cat"))
+	must(manager.AddUserRoles(ctx, everyDomainPolicy, "dee", "Reader"))
+	must(manager.AddGroupUsers(ctx, staff, "eve"))
+	must(manager.AssignUserRole(ctx, tenant1Policy, "ivy", "Reader", ended, ""))
+	must(manager.AssignUserRole(ctx, tenant1Policy, "jon", "Reader", upcoming, ""))
+
+	losers := func(t *testing.T, group accesstypes.Group, scope accesstypes.PolicyScope, want ...accesstypes.User) {
+		t.Helper()
+		got, err := manager.GroupRoleLosers(ctx, group, scope, "Reader")
+		if err != nil {
+			t.Fatalf("GroupRoleLosers() error = %v", err)
+		}
+		if len(want) == 0 {
+			want = []accesstypes.User{}
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("GroupRoleLosers() (-want +got):\n%s", diff)
+		}
+	}
+	losers(t, night, tenant1Policy, "ann", "gus", "ivy", "jon")
+	// The staff's role in every tenant: eve holds it there through the staff alone.
+	losers(t, staff, everyDomainPolicy, "eve")
+	// A place a group does not hold the role in loses nobody anything.
+	losers(t, night, globalPolicy)
+
+	// The night shift's role has not begun: nobody holds it through the group yet.
+	must(manager.AssignGroupRole(ctx, night, tenant1Policy, "Reader", upcoming))
+	losers(t, night, tenant1Policy)
+	// It has ended: the same.
+	must(manager.AssignGroupRole(ctx, night, tenant1Policy, "Reader", ended))
+	losers(t, night, tenant1Policy)
+}

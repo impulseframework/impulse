@@ -426,3 +426,72 @@ describe('CompoundResourceComponent row page, a method above a child list that n
     });
   }
 });
+
+// What a row's page is headed by: the config's title, or the row's own name where the
+// config says how to read it off the row, and then nothing until the row has been read.
+describe('CompoundResourceComponent row page, its heading', () => {
+  async function routed(parentConfig: ReturnType<typeof listViewConfig>, script: Script) {
+    await TestBed.configureTestingModule({
+      imports: [CompoundResourceComponent],
+      providers: [
+        provideResourceTesting({
+          transport: script.transport,
+          client: (transport: Transport) => createClient(descriptor, { baseUrl: '/api', transport }),
+        }),
+        provideNoopAnimations(),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metadata[resource] },
+        { provide: METHOD_META, useValue: (): MethodMeta => ({}) as MethodMeta },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              data: { config: rootConfig({ parentConfig, routeData: { route: 'squadrons', hasViewRoute: true } }) },
+              params: {},
+              queryParams: {},
+            },
+          },
+        },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(CompoundResourceComponent);
+    fixture.componentRef.setInput('uuid', 'sq-1');
+    fixture.detectChanges();
+    return fixture;
+  }
+  const heading = (fixture: ComponentFixture<unknown>): string | undefined =>
+    (fixture.nativeElement as HTMLElement).querySelector('.title h1')?.textContent?.trim();
+
+  it("is the row's own name where the config reads one off the row, and nothing until the row is read", async () => {
+    const script = scripted();
+    const fixture = await routed(
+      listViewConfig({
+        title: 'Squadrons',
+        primaryResource: 'Squadrons' as Resource,
+        rowTitle: (row) => String(row['name']),
+        elements: [],
+        listColumns: [],
+      }),
+      script,
+    );
+    await settle(() => rowReads(script).length === 1);
+    // The row has not answered: the page is headed by nothing, never by the list's title.
+    expect(heading(fixture)).toBeUndefined();
+
+    script.releaseRow();
+    await settle(() => heading(fixture) !== undefined);
+    expect(heading(fixture)).toBe('Hammer');
+  });
+
+  it("is the config's title where the config reads no name off the row", async () => {
+    const script = scripted();
+    const fixture = await routed(
+      listViewConfig({ title: 'Squadrons', primaryResource: 'Squadrons' as Resource, elements: [], listColumns: [] }),
+      script,
+    );
+    await settle(() => rowReads(script).length === 1);
+    expect(heading(fixture)).toBe('Squadrons');
+    script.releaseRow();
+    await settle(() => fixture.componentInstance.store.rowPresent());
+    expect(heading(fixture)).toBe('Squadrons');
+  });
+});

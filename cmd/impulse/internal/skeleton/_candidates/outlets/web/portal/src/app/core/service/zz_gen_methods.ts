@@ -369,10 +369,12 @@ export type RemoveMembersTenantGroupMemberStatus = 204;
 export interface RemoveMembersTenantRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveMembersTenantRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveMembersTenantRole declares; the method chooses one per response. */
 export type RemoveMembersTenantRoleStatus = 204;
@@ -650,7 +652,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddMembersGroupMember]: {
     route: 'add-members-group-member',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -744,7 +746,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteMembersGroup]: {
     route: 'delete-members-group',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -780,7 +782,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeMembersGroup]: {
     route: 'describe-members-group',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -863,7 +865,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveMembersGroupRole]: {
     route: 'give-members-group-role',
-    target: { resource: Resources.MembersGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -941,12 +943,13 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveMembersTenantRole]: {
     route: 'remove-members-tenant-role',
-    target: { resource: Resources.MembersTenantUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.MembersTenantHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
     ],
   },
   [Methods.RenameMembersTenantUser]: {

@@ -23,6 +23,9 @@ export const Resources = {
   StaffGroupRoles: 'StaffGroupRoles' as Resource,
   StaffGroupUsers: 'StaffGroupUsers' as Resource,
   StaffGroups: 'StaffGroups' as Resource,
+  StaffHeldRoles: 'StaffHeldRoles' as Resource,
+  StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
+  StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffRoleGrants: 'StaffRoleGrants' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
   StaffSessionAuthEvents: 'StaffSessionAuthEvents' as Resource,
@@ -175,6 +178,87 @@ export namespace StaffGroups {
     kind: 'StaffGroups.kind' as Resource,
     name: 'StaffGroups.name' as Resource,
     updatedAt: 'StaffGroups.updatedAt' as Resource,
+  };
+}
+
+export namespace StaffHeldRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
+    groupId: 'groupId' as FieldName,
+    groupName: 'groupName' as FieldName,
+    kind: 'kind' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffHeldRoles.axis' as Resource,
+    createdAt: 'StaffHeldRoles.createdAt' as Resource,
+    domainId: 'StaffHeldRoles.domainId' as Resource,
+    endsAt: 'StaffHeldRoles.endsAt' as Resource,
+    groupId: 'StaffHeldRoles.groupId' as Resource,
+    groupName: 'StaffHeldRoles.groupName' as Resource,
+    kind: 'StaffHeldRoles.kind' as Resource,
+    reason: 'StaffHeldRoles.reason' as Resource,
+    role: 'StaffHeldRoles.role' as Resource,
+    startsAt: 'StaffHeldRoles.startsAt' as Resource,
+    userId: 'StaffHeldRoles.userId' as Resource,
+    username: 'StaffHeldRoles.username' as Resource,
+  };
+}
+
+export namespace StaffListedGroupRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
+    groupId: 'groupId' as FieldName,
+    kind: 'kind' as FieldName,
+    losing: 'losing' as FieldName,
+    role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffListedGroupRoles.axis' as Resource,
+    createdAt: 'StaffListedGroupRoles.createdAt' as Resource,
+    domainId: 'StaffListedGroupRoles.domainId' as Resource,
+    endsAt: 'StaffListedGroupRoles.endsAt' as Resource,
+    groupId: 'StaffListedGroupRoles.groupId' as Resource,
+    kind: 'StaffListedGroupRoles.kind' as Resource,
+    losing: 'StaffListedGroupRoles.losing' as Resource,
+    role: 'StaffListedGroupRoles.role' as Resource,
+    startsAt: 'StaffListedGroupRoles.startsAt' as Resource,
+  };
+}
+
+export namespace StaffListedGroups {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    description: 'description' as FieldName,
+    domainId: 'domainId' as FieldName,
+    id: 'id' as FieldName,
+    kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
+    people: 'people' as FieldName,
+    roles: 'roles' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffListedGroups.axis' as Resource,
+    description: 'StaffListedGroups.description' as Resource,
+    domainId: 'StaffListedGroups.domainId' as Resource,
+    id: 'StaffListedGroups.id' as Resource,
+    kind: 'StaffListedGroups.kind' as Resource,
+    name: 'StaffListedGroups.name' as Resource,
+    people: 'StaffListedGroups.people' as Resource,
+    roles: 'StaffListedGroups.roles' as Resource,
+    updatedAt: 'StaffListedGroups.updatedAt' as Resource,
   };
 }
 
@@ -515,6 +599,7 @@ export namespace StaffTakenRoles {
 export namespace StaffUserGroupRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
+    createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
     endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
@@ -527,6 +612,7 @@ export namespace StaffUserGroupRoles {
   };
   export const resourceName = {
     axis: 'StaffUserGroupRoles.axis' as Resource,
+    createdAt: 'StaffUserGroupRoles.createdAt' as Resource,
     domainId: 'StaffUserGroupRoles.domainId' as Resource,
     endsAt: 'StaffUserGroupRoles.endsAt' as Resource,
     groupId: 'StaffUserGroupRoles.groupId' as Resource,

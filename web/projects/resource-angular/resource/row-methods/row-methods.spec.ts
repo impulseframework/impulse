@@ -144,6 +144,39 @@ describe('rowMethods', () => {
       'Enable',
     ]);
   });
+
+  it("says what the page gives in a method's place where the row predicate keeps the method off, and only where the server lets the caller run it", () => {
+    const presentations: MethodPresentation[] = [
+      {
+        method: 'DisableCrewSectorUser' as Method,
+        label: 'Disable',
+        icon: 'block',
+        when: (r) => r['sessions'] === 0,
+        otherwise: (r) => (r['sessions'] ? `${String(r['sessions'])} sessions: end them first` : undefined),
+      },
+      { method: 'EnableCrewSectorUser' as Method, label: 'Enable', when: (r) => r['disabled'] === true },
+    ];
+    const all = ['DisableCrewSectorUser', 'EnableCrewSectorUser'];
+    // Where the method is offered it is the method, and says nothing.
+    expect(
+      rowMethods(row(all, { sessions: 0 }), targeting, metaOf, presentations).map((m) => [m.method, m.label, m.says]),
+    ).toEqual([['DisableCrewSectorUser', 'Disable', undefined]]);
+    // Where the predicate says no, the entry is the page's words in the method's place.
+    expect(
+      rowMethods(row(all, { sessions: 3 }), targeting, metaOf, presentations).map((m) => [m.method, m.says, m.icon]),
+    ).toEqual([['DisableCrewSectorUser', '3 sessions: end them first', 'block']]);
+    // A method with no words for its place leaves nothing, as before.
+    expect(rowMethods(row(all, { sessions: 0, disabled: false }), targeting, metaOf, presentations)).toHaveLength(1);
+    // Nothing is said of a method the server does not let the caller run on the row,
+    // nor on a row read without its capability answer.
+    expect(rowMethods(row(['EnableCrewSectorUser'], { sessions: 3 }), targeting, metaOf, presentations)).toEqual([]);
+    expect(rowMethods(row(undefined, { sessions: 3 }), targeting, metaOf, presentations)).toEqual([]);
+    // Words that come back empty say nothing.
+    const silent: MethodPresentation[] = [
+      { method: 'DisableCrewSectorUser' as Method, when: () => false, otherwise: () => undefined },
+    ];
+    expect(rowMethods(row(['DisableCrewSectorUser']), targeting, metaOf, silent)).toEqual([]);
+  });
 });
 
 describe('targetBody', () => {
@@ -293,6 +326,27 @@ describe('filledMethods and filledBody', () => {
     ]);
     expect(filledMethods(held, presentations, metaOf, () => false)).toEqual([]);
     expect(filledMethods(held, presentations, metaOf, (method) => method === 'AssignCrewRole')).toEqual([]);
+  });
+
+  it("says what the page gives in a filled method's place where the row predicate keeps it off, while the caller holds Execute on it", () => {
+    const said: MethodPresentation[] = [
+      {
+        method: 'AssignCrewRole' as Method,
+        label: 'Give a role',
+        fill: (row) => ({ username: row['user'] }),
+        when: (row) => row['kind'] === 'global',
+        otherwise: (row) => (row['kind'] === 'domain' ? 'Given in the sector' : undefined),
+      },
+    ];
+    expect(filledMethods(held, said, metaOf, all).map((m) => [m.method, m.says])).toEqual([
+      ['AssignCrewRole', 'Given in the sector'],
+    ]);
+    expect(filledMethods({ ...held, kind: 'global' }, said, metaOf, all).map((m) => [m.label, m.says])).toEqual([
+      ['Give a role', undefined],
+    ]);
+    // Words that come back empty say nothing, and nothing is said of a method the caller may not run.
+    expect(filledMethods({ ...held, kind: 'every' }, said, metaOf, all)).toEqual([]);
+    expect(filledMethods(held, said, metaOf, () => false)).toEqual([]);
   });
 
   it('offers nothing a page hides, nothing with no metadata, and nothing where the page names no method', () => {

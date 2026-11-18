@@ -715,10 +715,12 @@ export type RemoveCrewSectorPasswordStatus = 204;
 export interface RemoveCrewSectorRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  groupId: string | FieldPointer;
 }
 export interface RemoveCrewSectorRole {
   userId: string;
   role: string;
+  groupId: string;
 }
 /** The statuses RemoveCrewSectorRole declares; the method chooses one per response. */
 export type RemoveCrewSectorRoleStatus = 204;
@@ -1222,7 +1224,7 @@ export type MethodMap = Record<Method, MethodMeta>;
 const methodMap: MethodMap = {
   [Methods.AddCrewGroupMember]: {
     route: 'add-crew-group-member',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1377,7 +1379,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DeleteCrewGroup]: {
     route: 'delete-crew-group',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1431,7 +1433,7 @@ const methodMap: MethodMap = {
   },
   [Methods.DescribeCrewGroup]: {
     route: 'describe-crew-group',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1605,7 +1607,7 @@ const methodMap: MethodMap = {
   },
   [Methods.GiveCrewGroupRole]: {
     route: 'give-crew-group-role',
-    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1796,12 +1798,13 @@ const methodMap: MethodMap = {
   },
   [Methods.RemoveCrewSectorRole]: {
     route: 'remove-crew-sector-role',
-    target: { resource: Resources.CrewSectorUserRoles, key: { userId: 'userId', role: 'role' } },
+    target: { resource: Resources.CrewSectorHeldRoles, key: { userId: 'userId', role: 'role', groupId: 'groupId' } },
     statuses: [204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'groupId', displayType: 'string' },
     ],
   },
   [Methods.RenameCrewSectorUser]: {

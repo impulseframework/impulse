@@ -56,6 +56,22 @@ func (a *App) CrewGroupUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewGroupUser()
 }
 
+func (a *App) CrewHeldRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewHeldRoles()
+}
+
+func (a *App) CrewListedGroups() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroups()
+}
+
+func (a *App) CrewListedGroup() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroup()
+}
+
+func (a *App) CrewListedGroupRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedGroupRoles()
+}
+
 func (a *App) CrewRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewRoles()
 }
@@ -86,6 +102,10 @@ func (a *App) CrewSectorGroupUsers() http.HandlerFunc {
 
 func (a *App) CrewSectorGroupUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorGroupUser()
+}
+
+func (a *App) CrewSectorHeldRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSectorHeldRoles()
 }
 
 func (a *App) CrewSectorIdentities() http.HandlerFunc {
@@ -486,12 +506,20 @@ var _ = map[bool]struct{}{false: {}, members.TablePrefix == membersidentity.Tabl
 // would take every caller for a person of another auth.
 var _ = map[bool]struct{}{false: {}, members.Name == membersidentity.AuthName: {}}
 
+func (a *App) MembersHeldRoles() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersHeldRoles()
+}
+
 func (a *App) MembersRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRoles()
 }
 
 func (a *App) MembersRoleGrants() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRoleGrants()
+}
+
+func (a *App) MembersSectorHeldRoles() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSectorHeldRoles()
 }
 
 func (a *App) MembersSectorIdentities() http.HandlerFunc {
