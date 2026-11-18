@@ -1110,12 +1110,14 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
 -- to an address, carrying the sector and the roles its acceptance seats and who sent it;
 -- the verification of an address a signed-in person adds (UserId names the account,
--- Email the address); or a sign-up a person starts by giving their address. The mail
--- carries an opaque token and the row keeps its hash; the row is accepted only while it
--- is live, not expired and not consumed, and is consumed by a conditional update so one
--- link completes once. A revoked invitation is consumed by hand. A verification link
--- goes with its user. CreatedAt and ConsumedAt take the commit time; ExpiresAt is the
--- library's deadline, written as given.
+-- Email the address); a sign-up a person starts by giving their address; or the code a
+-- signed-in person who has no password is mailed to choose their first one (UserId
+-- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- The mail carries an opaque token and the row keeps its hash; the row is accepted only
+-- while it is live, not expired and not consumed, and is consumed by a conditional
+-- update so one link completes once. A revoked invitation is consumed by hand. A
+-- verification link and a first-password code go with their user. CreatedAt and
+-- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE CrewSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1130,7 +1132,7 @@ CREATE TABLE CrewSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up')),
+    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
     CONSTRAINT FK_CrewSessionMailLinks_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -1191,12 +1193,14 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
 -- to an address, carrying the sector and the roles its acceptance seats and who sent it;
 -- the verification of an address a signed-in person adds (UserId names the account,
--- Email the address); or a sign-up a person starts by giving their address. The mail
--- carries an opaque token and the row keeps its hash; the row is accepted only while it
--- is live, not expired and not consumed, and is consumed by a conditional update so one
--- link completes once. A revoked invitation is consumed by hand. A verification link
--- goes with its user. CreatedAt and ConsumedAt take the commit time; ExpiresAt is the
--- library's deadline, written as given.
+-- Email the address); a sign-up a person starts by giving their address; or the code a
+-- signed-in person who has no password is mailed to choose their first one (UserId
+-- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- The mail carries an opaque token and the row keeps its hash; the row is accepted only
+-- while it is live, not expired and not consumed, and is consumed by a conditional
+-- update so one link completes once. A revoked invitation is consumed by hand. A
+-- verification link and a first-password code go with their user. CreatedAt and
+-- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE MembersSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1211,7 +1215,7 @@ CREATE TABLE MembersSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up')),
+    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
     CONSTRAINT FK_MembersSessionMailLinks_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
