@@ -113,9 +113,12 @@ func TestRun(t *testing.T) {
 			if failed != tt.wantFailed {
 				t.Errorf("Run() failed = %v, want %v", failed, tt.wantFailed)
 			}
-			// The fixtures declare no flag and construct no engine, so every run ends in the
-			// two empty sections.
-			if diff := cmp.Diff(tt.wantOut+featuresHeading+"\n"+noFeaturesLine+"\n"+enginesHeading+"\n"+noEnginesLine+"\n", out.String()); diff != "" {
+			// The sections read from the code follow the programs', in this order. The
+			// fixtures declare no flag and construct no engine, so the first two are empty,
+			// and the sign-in section is the fixture's own, which TestWriteSignIn pins.
+			var signIn strings.Builder
+			WriteSignIn(&signIn, a)
+			if diff := cmp.Diff(tt.wantOut+featuresHeading+"\n"+noFeaturesLine+"\n"+enginesHeading+"\n"+noEnginesLine+"\n"+signIn.String(), out.String()); diff != "" {
 				t.Errorf("output mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantCalls, exec.calls); diff != "" {

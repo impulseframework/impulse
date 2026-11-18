@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -64,6 +65,19 @@ const (
 	TenantsListed   = "listed"
 	TenantsAny      = "any"
 	TenantsPersonal = "personal"
+)
+
+// The Workspace shapes of a Google registration, read from the building blocks its
+// configuration's Workspaces slot is made of: one Workspace (google.Workspace alone),
+// listed Workspaces (google.Workspaces of several, or a Workspace built in a loop), any
+// Workspace (google.AnyWorkspace, alone or beside listed Workspaces) and any Google
+// account alone (google.AnyGoogleAccount). Any Google account beside Workspaces is
+// Method.GoogleAccounts.
+const (
+	WorkspacesOne      = "one"
+	WorkspacesListed   = "listed"
+	WorkspacesAny      = "any"
+	WorkspacesAccounts = "accounts"
 )
 
 // The session library's default table names for an Auth, which the library's schema sets
@@ -191,8 +205,8 @@ func parseAuths(rel string, src []byte, ownPkg string) (auths []Auth, unattached
 // (the first argument's identifier), its registration name (the second argument, a
 // literal or a constant of the file; the password method is always "password") and, for
 // a directory method, its authority from the configuration (the fourth argument), with
-// the tenant shape of a Microsoft registration; for the password method, the option
-// after the Auth (session.UsernameIsEmail()).
+// the tenant shape of a Microsoft registration and the Workspace shape of a Google one;
+// for the password method, the option after the Auth (session.UsernameIsEmail()).
 func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.FileSet, consts map[string]string, body *ast.BlockStmt, f *ast.File) Method {
 	m := Method{File: rel, Line: fset.Position(call.Pos()).Line, Kind: kind, Name: PasswordRegistration}
 	if len(call.Args) > 0 {
@@ -225,6 +239,9 @@ func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.Fil
 		if kind == MethodAzure {
 			m.Tenants, m.PersonalAccounts = readTenants(configField(cfg, "Tenants"), body, local, f)
 		}
+		if kind == MethodGoogle {
+			m.Workspaces, m.GoogleAccounts = readWorkspaces(configField(cfg, "Workspaces"), body, local, f)
+		}
 		if kind == MethodPersona {
 			m.Kind = oidcKind(cfg)
 		}
@@ -250,22 +267,23 @@ func oidcKind(cfg *ast.CompositeLit) string {
 // attachMethods gives each method to the Auth its first argument names, and to the only
 // Auth of the set when the identifier does not resolve; it returns the methods left over.
 func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
-	for _, m := range methods {
+	for j := range methods {
+		m := &methods[j]
 		placed := false
 		for i := range auths {
 			if auths[i].Var != "" && auths[i].Var == m.AuthVar {
-				auths[i].Methods = append(auths[i].Methods, m)
+				auths[i].Methods = append(auths[i].Methods, *m)
 				placed = true
 
 				break
 			}
 		}
 		if !placed && len(auths) == 1 {
-			auths[0].Methods = append(auths[0].Methods, m)
+			auths[0].Methods = append(auths[0].Methods, *m)
 			placed = true
 		}
 		if !placed {
-			unattached = append(unattached, m)
+			unattached = append(unattached, *m)
 		}
 	}
 
@@ -277,7 +295,8 @@ func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
 // UnattachedMethods for the session-tables check to report.
 func (a *App) attachPackageMethods() {
 	var left []Method
-	for _, m := range a.unattached {
+	for j := range a.unattached {
+		m := &a.unattached[j]
 		var same []int
 		for i := range a.Auths {
 			if path.Dir(a.Auths[i].File) == path.Dir(m.File) {
@@ -285,11 +304,11 @@ func (a *App) attachPackageMethods() {
 			}
 		}
 		if len(same) == 1 {
-			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, m)
+			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, *m)
 
 			continue
 		}
-		left = append(left, m)
+		left = append(left, *m)
 	}
 	a.UnattachedMethods = left
 }
@@ -381,7 +400,7 @@ func readTenants(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.Fi
 		return "", false
 	}
 	var s tenantShape
-	collectTenantBlocks(fn.Body, false, methodPkg, f, 0, &s)
+	collectTenantBlocks(fn.Body, false, methodPkg, f, 0, azureBlocks, &s)
 	switch {
 	case s.any:
 		return TenantsAny, s.personal
@@ -394,6 +413,49 @@ func readTenants(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.Fi
 	default:
 		// A function building no block the scan reads, or azure.Tenants() of nothing,
 		// which the library refuses at registration.
+		return "", false
+	}
+}
+
+// readWorkspaces reads the Workspaces slot of a Google registration's configuration into
+// the shape it builds and whether it admits any Google account. The slot is read from
+// the google building blocks it is made of: google.Workspace lists one Workspace,
+// google.AnyWorkspace admits any, google.AnyGoogleAccount admits any Google account, and
+// google.Workspaces unites. They are found in the registration's slot function, the
+// function of the file an identifier in the slot was assigned from a call to
+// (workspaces, err := workspaceSlot(settings)), as impulse add method writes it, or in
+// the slot's own expression where the registering function builds it in place
+// (Workspaces: google.AnyGoogleAccount(), or a name it assigned such a value). A
+// Workspace reached inside a loop counts as several, and Attesting() on a block keeps its
+// shape. A slot written any other way (a method of the settings, a value built in
+// another file) is not read, and both are empty.
+func readWorkspaces(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.File) (workspaces string, accounts bool) {
+	if slot == nil {
+		return "", false
+	}
+	var s tenantShape
+	if fn := slotFunction(slot, body, f); fn != nil && fn.Body != nil {
+		collectTenantBlocks(fn.Body, false, methodPkg, f, 0, googleBlocks, &s)
+	} else {
+		// The slot built in place, or the value the function assigned the name it gives.
+		built := slot
+		if id, ok := slot.(*ast.Ident); ok {
+			if value := assignedValue(id, body); value != nil {
+				built = value
+			}
+		}
+		collectTenantBlocks(built, false, methodPkg, f, 0, googleBlocks, &s)
+	}
+	switch {
+	case s.any:
+		return WorkspacesAny, s.personal
+	case s.several || s.listed > 1:
+		return WorkspacesListed, s.personal
+	case s.listed == 1:
+		return WorkspacesOne, s.personal
+	case s.personal:
+		return WorkspacesAccounts, true
+	default:
 		return "", false
 	}
 }
@@ -437,9 +499,10 @@ func fileFunction(f *ast.File, name string) *ast.FuncDecl {
 	return nil
 }
 
-// tenantShape is what the scan reads of a slot function: how many tenants it lists
-// outside loops, whether it lists tenants inside one, and whether it admits any tenant
-// or personal accounts.
+// tenantShape is what the scan reads of an organization slot: how many organizations it
+// lists outside loops, whether it lists organizations inside one, and whether it admits
+// any organization, or the accounts outside every organization (Microsoft personal
+// accounts, any Google account).
 type tenantShape struct {
 	listed   int
 	several  bool
@@ -447,33 +510,49 @@ type tenantShape struct {
 	personal bool
 }
 
-// collectTenantBlocks adds the azure building blocks under n to the shape: a block in a
-// loop's body is read with inLoop set, and a call to another function of the file is
-// read through, one level down, so the listed slot's parser counts. Attesting() and the
-// other calls on a block are walked into, so the block under them is read.
-func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File, depth int, s *tenantShape) {
+// slotBlocks names the building blocks a directory method's package makes an
+// organization slot of: the ones that list one organization each, the one that admits
+// any organization, and the one that admits the accounts outside every organization.
+type slotBlocks struct {
+	listed   []string
+	any      string
+	accounts string
+}
+
+// The building blocks of a Microsoft registration's Tenants slot and of a Google
+// registration's Workspaces slot.
+var (
+	azureBlocks  = slotBlocks{listed: []string{"Tenant", "NamedTenant"}, any: "AnyTenant", accounts: "PersonalAccounts"}
+	googleBlocks = slotBlocks{listed: []string{"Workspace"}, any: "AnyWorkspace", accounts: "AnyGoogleAccount"}
+)
+
+// collectTenantBlocks adds the method package's building blocks under n to the shape: a
+// block in a loop's body is read with inLoop set, and a call to another function of the
+// file is read through, one level down, so the listed slot's parser counts. Attesting()
+// and the other calls on a block are walked into, so the block under them is read.
+func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File, depth int, blocks slotBlocks, s *tenantShape) {
 	ast.Inspect(n, func(node ast.Node) bool {
 		switch e := node.(type) {
 		case *ast.ForStmt:
-			collectTenantBlocks(e.Body, true, methodPkg, f, depth, s)
+			collectTenantBlocks(e.Body, true, methodPkg, f, depth, blocks, s)
 
 			return false
 		case *ast.RangeStmt:
-			collectTenantBlocks(e.Body, true, methodPkg, f, depth, s)
+			collectTenantBlocks(e.Body, true, methodPkg, f, depth, blocks, s)
 
 			return false
 		case *ast.CallExpr:
 			if name, ok := qualifiedName(e.Fun, methodPkg); ok {
-				switch name {
-				case "Tenant", "NamedTenant":
+				switch {
+				case slices.Contains(blocks.listed, name):
 					if inLoop {
 						s.several = true
 					} else {
 						s.listed++
 					}
-				case "AnyTenant":
+				case name == blocks.any:
 					s.any = true
-				case "PersonalAccounts":
+				case name == blocks.accounts:
 					s.personal = true
 				}
 
@@ -481,7 +560,7 @@ func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File,
 			}
 			if id, ok := e.Fun.(*ast.Ident); ok && depth == 0 {
 				if fn := fileFunction(f, id.Name); fn != nil && fn.Body != nil {
-					collectTenantBlocks(fn.Body, inLoop, methodPkg, f, depth+1, s)
+					collectTenantBlocks(fn.Body, inLoop, methodPkg, f, depth+1, blocks, s)
 				}
 			}
 

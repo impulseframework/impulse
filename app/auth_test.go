@@ -248,6 +248,158 @@ func parseDirectoryTenants(value string, administered []string) (azure.TenantSet
 	}
 }
 
+// TestReadWorkspaces reads a Google registration's Workspace shape from the building
+// blocks its Workspaces slot is made of: in the slot function, as impulse add method
+// writes one for each slot kind (one Workspace, listed Workspaces parsed out of their
+// setting, any Workspace, any Google account, and one Workspace beside any Google
+// account), and in the configuration itself, as an auth written by hand has it. A slot
+// built anywhere else leaves the shape empty, and a Microsoft registration has none.
+func TestReadWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	const (
+		// The registering statements as impulse writes them: a fallible slot function,
+		// and one that cannot fail.
+		fallible = `	workspaces, err := workspaceSlot(settings)
+	if err != nil {
+		return
+	}
+	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: workspaces, RoleSync: google.DisableRoleSync()})`
+		infallible = `	workspaces := workspaceSlot(settings)
+	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: workspaces, RoleSync: google.DisableRoleSync()})`
+		// The one-Workspace slot function, returning the Workspace alone or beside any
+		// Google account.
+		oneWorkspace = `func workspaceSlot(settings *Settings) (google.WorkspaceSet, error) {
+	workspace := google.Workspace(WorkspaceRegistration, settings.Workspace.HostedDomain)
+	for _, domain := range parseWorkspaceAdministered(settings.Workspace.AdministeredWorkspaces) {
+		if !strings.EqualFold(domain, settings.Workspace.HostedDomain) {
+			return google.WorkspaceSet{}, errors.Newf("the administered Workspace %q is not the Workspace admitted", domain)
+		}
+		workspace = workspace.Attesting()
+	}
+
+	return RETURN, nil
+}`
+		// The open slot function, with the administered Workspaces attesting beside it.
+		anyWorkspace = `func workspaceSlot(settings *Settings) google.WorkspaceSet {
+	administered := parseWorkspaceAdministered(settings.Workspace.AdministeredWorkspaces)
+	sets := make([]google.WorkspaceSet, 0, len(administered)+2)
+	sets = append(sets, OPEN)
+	for _, domain := range administered {
+		sets = append(sets, google.Workspace(domain, domain).Attesting())
+	}
+
+	return google.Workspaces(sets...)
+}`
+		// The listed slot function and the parser of its setting.
+		listedWorkspaces = `func workspaceSlot(settings *Settings) (google.WorkspaceSet, error) {
+	return parseWorkspaceWorkspaces(settings.Workspace.Workspaces)
+}
+
+func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
+	var sets []google.WorkspaceSet
+	for _, entry := range strings.Split(value, ",") {
+		name, domains, ok := strings.Cut(entry, "=")
+		if !ok {
+			return google.WorkspaceSet{}, errors.Newf("Workspace %q is not <name>=<domain>", entry)
+		}
+		sets = append(sets, google.Workspace(name, strings.Split(domains, "+")...))
+	}
+
+	return google.Workspaces(sets...), nil
+}`
+	)
+	tests := []struct {
+		name           string
+		statements     string
+		decls          []string
+		wantWorkspaces string
+		wantAccounts   bool
+	}{
+		{
+			name:           "one Workspace",
+			statements:     fallible,
+			decls:          []string{strings.Replace(oneWorkspace, "RETURN", "workspace", 1)},
+			wantWorkspaces: WorkspacesOne,
+		},
+		{
+			name:           "one Workspace and any Google account",
+			statements:     fallible,
+			decls:          []string{strings.Replace(oneWorkspace, "RETURN", "google.Workspaces(workspace, google.AnyGoogleAccount())", 1)},
+			wantWorkspaces: WorkspacesOne,
+			wantAccounts:   true,
+		},
+		{
+			name:           "listed Workspaces parsed out of their setting",
+			statements:     fallible,
+			decls:          []string{listedWorkspaces},
+			wantWorkspaces: WorkspacesListed,
+		},
+		{
+			name:           "any Workspace",
+			statements:     infallible,
+			decls:          []string{strings.Replace(anyWorkspace, "OPEN", "google.AnyWorkspace()", 1)},
+			wantWorkspaces: WorkspacesAny,
+		},
+		{
+			name:           "any Google account, with any Workspace named beside it",
+			statements:     infallible,
+			decls:          []string{strings.Replace(anyWorkspace, "OPEN", "google.AnyWorkspace(), google.AnyGoogleAccount()", 1)},
+			wantWorkspaces: WorkspacesAny,
+			wantAccounts:   true,
+		},
+		{
+			name:           "any Google account alone, built in the configuration itself",
+			statements:     `	_, _ = google.SignIn(authSession, "sign-up", nil, &google.Config{Workspaces: google.AnyGoogleAccount(), RoleSync: google.DisableRoleSync()})`,
+			wantWorkspaces: WorkspacesAccounts,
+			wantAccounts:   true,
+		},
+		{
+			name: "a slot the registering function assigned from the library's blocks",
+			statements: `	set := google.Workspaces(google.Workspace("fleet", "fleet.example"), google.Workspace("yard", "yard.example"))
+	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: set, RoleSync: google.DisableRoleSync()})`,
+			wantWorkspaces: WorkspacesListed,
+		},
+		{
+			name:       "a slot the settings build is not read",
+			statements: `	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: settings.Directory.Workspace(), RoleSync: google.DisableRoleSync()})`,
+		},
+		{
+			name:       "a configuration with no slot is not read",
+			statements: `	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{RoleSync: google.DisableRoleSync()})`,
+		},
+		{
+			name:       "a configuration built elsewhere is not read",
+			statements: `	_, _ = google.SignIn(authSession, "workspace", nil, workspaceConfig(settings))`,
+		},
+		{
+			name: "a Microsoft registration has no Workspace shape",
+			statements: `	tenants := directorySlot()
+	_, _ = azure.SignIn(authSession, "directory", nil, &azure.Config{Tenants: tenants, RoleSync: signin.DisableRoleSync()})`,
+			decls: []string{`func directorySlot() azure.TenantSet {
+	return azure.PersonalAccounts()
+}`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statements, tt.decls...)), "example.com/harbor/pkg/auth/members")
+			if err != nil {
+				t.Fatalf("parseAuths() error = %v", err)
+			}
+			if len(auths) != 1 || len(auths[0].Methods) != 1 || len(unattached) != 0 {
+				t.Fatalf("parseAuths() = %d auths, %d unattached; want one auth with one method", len(auths), len(unattached))
+			}
+			m := auths[0].Methods[0]
+			if m.Workspaces != tt.wantWorkspaces || m.GoogleAccounts != tt.wantAccounts {
+				t.Errorf("Workspaces = %q, GoogleAccounts = %v; want %q, %v", m.Workspaces, m.GoogleAccounts, tt.wantWorkspaces, tt.wantAccounts)
+			}
+		})
+	}
+}
+
 // TestPersonaRegistration reads the persona method from the generic OpenID Connect
 // package's constructor (oidc.SignIn): the method's kind is persona under the
 // registration name the call gives it.

@@ -74,7 +74,8 @@ func Collect(ctx context.Context, a *app.App, exec check.Execer) []Program {
 // Run runs every generator program of the application with -audit and writes one section
 // per program: the lines it raised, or "no findings". It reports whether any program
 // failed; a failure's output tail is written under its heading, and a program that does
-// not take -audit is told to adopt the runner shape.
+// not take -audit is told to adopt the runner shape. The sections read from the code
+// follow: the feature flags, the permission engines and the sign-in choices.
 func Run(ctx context.Context, a *app.App, exec check.Execer, out io.Writer) (failed bool) {
 	if len(a.Generators) == 0 {
 		fmt.Fprintln(out, "no generator program found (no file calls generation.NewResourceGenerator)")
@@ -104,6 +105,7 @@ func Run(ctx context.Context, a *app.App, exec check.Execer, out io.Writer) (fai
 	}
 	WriteFeatures(out, a)
 	WriteEngines(out, a)
+	WriteSignIn(out, a)
 
 	return failed
 }
