@@ -9,10 +9,12 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-// TestScanReadsWhatTheGoToolReads holds the scan to the tree the Go tool reads: nothing
-// under a directory whose name begins with "_" or ".", nothing under testdata, and no Go
-// file whose own name begins with "_" or ".". A file placed directly in a directory the
-// Go tool reads, tmp among them, is read, as go build ./... compiles it.
+// TestScanReadsWhatTheGoToolReads holds the scan to the Go files the application's builds
+// compile: nothing under a directory whose name begins with "_" or ".", nothing under
+// testdata, unless the application imports the package by its path; no Go file whose own
+// name begins with "_" or "."; and nothing of a module of its own under the root. A file
+// placed directly in a directory the Go tool reads, tmp among them, is read, as go build
+// ./... compiles it.
 func TestScanReadsWhatTheGoToolReads(t *testing.T) {
 	t.Parallel()
 
@@ -100,6 +102,60 @@ func TestScanReadsWhatTheGoToolReads(t *testing.T) {
 			wantWebApps:   []WebApp{{Dir: "web/console"}},
 			wantHarnesses: []EmulatorRef{{File: "test/integration/main_test.go", Line: 6, Version: "1.5.56"}},
 			wantMains:     []string{"cmd/tool"},
+		},
+		{
+			name: "a directory under the root with a go.mod is another module: its Go files are not read, its browser application is found",
+			files: map[string]string{
+				"cmd/tool/main.go":    program,
+				"web/go.mod":          "module example.com/acme/beacon/web\n\ngo 1.26\n",
+				"web/angular.json":    "{}\n",
+				"web/tools/gen.go":    program,
+				"web/tools/deep/x.go": program,
+				"web/main_test.go":    harness,
+				"tools/go.mod":        "module example.com/acme/tools\n\ngo 1.26\n",
+				"tools/main.go":       program,
+				"tools/go.mod.go":     program,
+				"pkg/gomod/main.go":   program,
+			},
+			wantGoFiles: []string{"cmd/tool/main.go", "pkg/gomod/main.go"},
+			wantWebApps: []WebApp{{Dir: "web"}},
+			wantMains:   []string{"cmd/tool", "pkg/gomod"},
+		},
+		{
+			name: "a package under a passed-over directory that the application imports is read, with what it imports in turn and nothing beside it",
+			files: map[string]string{
+				"cmd/tool/main.go":                    "package main\n\nimport _ \"example.com/acme/beacon/internal/_cfg\"\n\nfunc main() {}\n",
+				"internal/_cfg/cfg.go":                "package cfg\n\nimport _ \"example.com/acme/beacon/internal/_cfg/testdata/deep\"\n",
+				"internal/_cfg/_draft.go":             "package cfg\n",
+				"internal/_cfg/testdata/deep/deep.go": "package deep\n",
+				"internal/_cfg/other/other.go":        "package other\n",
+				"internal/_unused/unused.go":          "package unused\n",
+			},
+			wantGoFiles: []string{"cmd/tool/main.go", "internal/_cfg/cfg.go", "internal/_cfg/testdata/deep/deep.go"},
+			wantMains:   []string{"cmd/tool"},
+		},
+		{
+			name: "a fixture package a test imports from testdata is read, as go test compiles it, and its harness with it",
+			files: map[string]string{
+				"pkg/thing/thing.go":                 "package thing\n",
+				"pkg/thing/thing_test.go":            "package thing\n\nimport (\n\t\"testing\"\n\n\t_ \"example.com/acme/beacon/pkg/thing/testdata/fix\"\n)\n\nfunc TestThing(t *testing.T) {}\n",
+				"pkg/thing/testdata/fix/fix.go":      "package fix\n",
+				"pkg/thing/testdata/fix/fix_test.go": harness,
+				"pkg/thing/testdata/other/other.go":  "package other\n",
+			},
+			wantGoFiles:   []string{"pkg/thing/testdata/fix/fix.go", "pkg/thing/thing.go"},
+			wantHarnesses: []EmulatorRef{{File: "pkg/thing/testdata/fix/fix_test.go", Line: 6, Version: "1.5.56"}},
+		},
+		{
+			name: "an import of another module, of a module of its own under a passed-over directory, or of a directory the tree does not hold leads nowhere",
+			files: map[string]string{
+				"cmd/tool/main.go":  "package main\n\nimport (\n\t_ \"example.com/acme/beacon/_tools/gen\"\n\t_ \"example.com/acme/beacon/internal/_gone\"\n\t_ \"example.com/other/_cfg\"\n)\n\nfunc main() {}\n",
+				"_tools/go.mod":     "module example.com/acme/beacon/_tools\n\ngo 1.26\n",
+				"_tools/gen/gen.go": program,
+				"_scratch/main.go":  program,
+			},
+			wantGoFiles: []string{"cmd/tool/main.go"},
+			wantMains:   []string{"cmd/tool"},
 		},
 		{
 			name: "the application's own root is read whatever it is called",

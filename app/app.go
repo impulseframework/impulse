@@ -112,6 +112,15 @@ type App struct {
 
 	// goFiles are the non-test Go files scanned, for the passes that follow the walk.
 	goFiles []string
+	// goRead are the Go files scanned, tests among them: what a pass that follows every
+	// Go file the application's builds compile reads (the imports, a flag's uses).
+	goRead []string
+	// walked are the directories whose Go files were read, root-relative, and leftAlone
+	// says the walk left at least one directory alone, so an import may lead into one.
+	walked    map[string]bool
+	leftAlone bool
+	// nestedModules are the directories under the root that hold a go.mod of their own.
+	nestedModules []string
 	// unattached are the methods the per-file scan could not attach, resolved per package
 	// after the walk.
 	unattached []Method

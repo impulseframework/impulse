@@ -127,6 +127,22 @@ func main() {
 }
 `
 	envReadsNoRead = "package main\n\nfunc main() {}\n"
+	// envReadsImported is the tool's reads in a package another package imports.
+	envReadsImported = `package cfg
+
+import (
+	"os"
+	"syscall"
+)
+
+func init() {
+	_ = os.Getenv("TOOL_TARGET")
+	_, _ = os.LookupEnv("TOOL_TOKEN")
+	lookup := os.Getenv
+	_ = lookup("TOOL_SOURCE")
+	_, _ = syscall.Getenv("TOOL_HOME")
+}
+`
 )
 
 func TestEnvReads(t *testing.T) {
@@ -208,6 +224,32 @@ func TestEnvReads(t *testing.T) {
 				"cmd/tool/_draft.go":            envReadsTool,
 				"cmd/tool/main.go":              envReadsNoRead,
 				"pkg/config/testdata/x_test.go": envReadsToolTest,
+			},
+			want: pass(envReads{}.Name(), "1 environment read(s), every one in the config package (pkg/config)"),
+		},
+		{
+			name:    "a package under a passed-over directory that the application imports is the application's: the build compiles it, so it may not read the environment",
+			program: plain,
+			files: map[string]string{
+				configFile:             envReadsConfig,
+				toolFile:               "package main\n\nimport _ \"example.com/harbor/internal/_cfg\"\n\nfunc main() {}\n",
+				"internal/_cfg/cfg.go": envReadsImported,
+			},
+			want: fail(envReads{}.Name(), "4 environment read(s) outside the config package",
+				"internal/_cfg/cfg.go:9: os.Getenv "+twoPlaces,
+				"internal/_cfg/cfg.go:10: os.LookupEnv "+twoPlaces,
+				"internal/_cfg/cfg.go:11: os.Getenv "+twoPlaces,
+				"internal/_cfg/cfg.go:13: syscall.Getenv "+twoPlaces,
+			),
+		},
+		{
+			name:    "a Go file in a module of its own under the root is not the application's, where ./... stops, and may read the environment",
+			program: plain,
+			files: map[string]string{
+				configFile:           envReadsConfig,
+				toolFile:             envReadsNoRead,
+				"web/go.mod":         "module example.com/harbor/web\n\ngo 1.26\n",
+				"web/tools/probe.go": envReadsTool,
 			},
 			want: pass(envReads{}.Name(), "1 environment read(s), every one in the config package (pkg/config)"),
 		},

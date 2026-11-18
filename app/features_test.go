@@ -172,15 +172,48 @@ func TestFeatureUses(t *testing.T) {
 		{
 			name: "a read in a file the Go tool passes over is no use: under an underscore or dot directory, under testdata, or in a file so named",
 			files: map[string]string{
-				"tmp/_scratch/main.go":        "package main\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
-				".tools/gen/main.go":          "package main\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
-				"app/testdata/use.go":         "package app\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
-				"pkg/resources/_draft.go":     "package resources\n\nvar draft = CargoManifest\n",
-				"pkg/resources/.wip.go":       "package resources\n\nvar wip = CargoManifest\n",
-				"_old/web/console/src/nav.ts": "export const item = { feature: Feature.Debriefs };\n",
-				"tmp/use.go":                  "package tmp\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				"tmp/_scratch/main.go":    "package main\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				".tools/gen/main.go":      "package main\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				"app/testdata/use.go":     "package app\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				"pkg/resources/_draft.go": "package resources\n\nvar draft = CargoManifest\n",
+				"pkg/resources/.wip.go":   "package resources\n\nvar wip = CargoManifest\n",
+				"tmp/use.go":              "package tmp\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
 			},
 			want: []FeatureUse{{File: "tmp/use.go", Line: 5, Constant: "Debriefs"}},
+		},
+		{
+			name: "a read in a package under a passed-over directory that the application imports is a use, as the build compiles it",
+			files: map[string]string{
+				"cmd/tool/main.go":       "package main\n\nimport _ \"example.com/acme/beacon/internal/_flags\"\n\nfunc main() {}\n",
+				"internal/_flags/use.go": "package flags\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				"internal/_other/use.go": "package other\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+			},
+			want: []FeatureUse{{File: "internal/_flags/use.go", Line: 5, Constant: "Debriefs"}},
+		},
+		{
+			name: "a read in a Go file of a module of its own under the root is no use: no build of the application compiles it",
+			files: map[string]string{
+				"web/go.mod":       "module example.com/acme/beacon/web\n\ngo 1.26\n",
+				"web/tools/use.go": "package tools\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+			},
+		},
+		{
+			name: "the Go tool's rule about names is no rule of the browser's build: a read under an underscore, a dot or a testdata directory of a browser application is a use",
+			files: map[string]string{
+				"web/go.mod":                               "module example.com/acme/beacon/web\n\ngo 1.26\n",
+				"web/console/src/app/_shared/nav.ts":       "export const item = { feature: Feature.Debriefs };\n",
+				"web/console/src/app/.drafts/nav.html":     "<a *impulseFeature=\"Feature.CargoManifest\">Cargo</a>\n",
+				"web/console/src/app/testdata/fixtures.ts": "export const flag = Feature.Debriefs;\n",
+				"web/console/src/app/_shared/_nav.ts":      "export const other = { feature: Feature.CargoManifest };\n",
+				"_old/web/console/src/nav.ts":              "export const item = { feature: Feature.Debriefs };\n",
+				"web/dist/console/main.ts":                 "Feature.Debriefs\n",
+			},
+			want: []FeatureUse{
+				{File: "web/console/src/app/.drafts/nav.html", Line: 1, Constant: "CargoManifest"},
+				{File: "web/console/src/app/_shared/_nav.ts", Line: 1, Constant: "CargoManifest"},
+				{File: "web/console/src/app/_shared/nav.ts", Line: 1, Constant: "Debriefs"},
+				{File: "web/console/src/app/testdata/fixtures.ts", Line: 1, Constant: "Debriefs"},
+			},
 		},
 		{
 			name: "another package's identifier of the same name is not a read",
