@@ -2,7 +2,6 @@ package check
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,12 +12,11 @@ import (
 	"github.com/impulseframework/impulse/app"
 )
 
-const (
-	// plainFoothold is the foothold impulse add auth writes for an auth it names no
-	// registration for: the first administrator seeded with no password, under an id
-	// that says nothing of where its name is believed from. SeedAdministrator is
-	// declared on line 9.
-	plainFoothold = `package staff
+// invitingFoothold is the foothold impulse add auth writes for an auth that brings in a
+// first administrator: the invitation and the fresh one, both asked of the session
+// library. InviteAdministrator is declared on line 9, its call into the library is on
+// line 10; ReinviteAdministrator is declared on line 13.
+const invitingFoothold = `package staff
 
 import (
 	"context"
@@ -26,28 +24,19 @@ import (
 	"github.com/impulseframework/impulse/session"
 )
 
-func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, error) {
-	return true, a.seedFoothold(ctx, &session.CreateUserRequest{Username: signInName})
+func (a *Auth) InviteAdministrator(ctx context.Context, email string) (*session.FirstAdministrator, error) {
+	return a.handlers.API().InviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: []string{"SuperAdministrator"}})
 }
 
-func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest) error {
-	id := session.SeedUserID(Name, req.Username)
-	req.ID = &id
-
-	return nil
+func (a *Auth) ReinviteAdministrator(ctx context.Context, email string) (*session.FirstAdministrator, error) {
+	return a.handlers.API().ReinviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: []string{"SuperAdministrator"}})
 }
 `
-	seedPlain = "id := session.SeedUserID(Name, req.Username)"
-	// The directory registration the fixture's auth signs its people in through, in the
-	// forms the rule tells apart.
-	googleRegistration = `google.SignIn(s, "google", nil, &google.Config{RoleSync: google.DisableRoleSync()})`
-	passwordMethod     = "\tsession.PasswordSignIn(s)\n"
-)
 
-// passwordFoothold is the foothold impulse add auth writes for an auth that starts with
-// the password method: the first administrator seeded with the password the
-// deployment generates. SeedAdministrator is declared on line 11.
-const passwordFoothold = `package staff
+// seedingFoothold is the foothold an earlier impulse add auth wrote: the first
+// administrator seeded as an account, here with the password the deployment generated.
+// SeedAdministrator is declared on line 11.
+const seedingFoothold = `package staff
 
 import (
 	"context"
@@ -64,67 +53,40 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest) error {
 	id := session.SeedUserID(Name, req.Username)
 	req.ID = &id
+	_, err := a.handlers.API().CreateSessionUser(ctx, req)
 
-	return nil
+	return err
 }
 `
 
-// The findings for a first administrator seeded for no registration, by what the auth
-// lacks: the password method, or a seed that gives the account a password.
+// The parts of invitingFoothold the cases replace: each function's one statement.
 const (
-	cannotSignInOpening = "pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: the application's tenants have directories, where a name alone links no account that has never signed in, "
-	seedWithPassword    = "seed the administrator with a password, as impulse add auth writes SeedAdministrator for an auth that starts with the method (session.CreateUserRequest with Password and PasswordChangeRequired, the migrate command handing it the secret the deployment generates)"
-	nameRegistration    = ", or name the registration that is the deployment's own directory in seedFoothold: derive the id with session.SeedUserIDThrough(Name, the registration's constant, req.Username), which the sign-in rule links at that person's first sign-in through the registration while it admits one organization alone"
-	cannotSignIn        = cannotSignInOpening + "the auth registers no password method, and the seed names no registration (session.SeedUserID); give the auth a password method for its first administrator (impulse add method staff password) and " + seedWithPassword + nameRegistration
-	noPasswordSeeded    = cannotSignInOpening + "the auth registers the password method but its seed creates the account with no password (the session.CreateUserRequest in SeedAdministrator sets none), which nobody is there yet to give it, and the seed names no registration (session.SeedUserID); " + seedWithPassword + nameRegistration
+	inviteCall   = `return a.handlers.API().InviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: []string{"SuperAdministrator"}})`
+	reinviteCall = `return a.handlers.API().ReinviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: []string{"SuperAdministrator"}})`
 )
 
-// TestFirstAdministrator pins the rule on the first administrator an auth seeds where
-// the application's tenants have directories. The refusal is the case the rule exists
-// for: an auth that seeds its administrator with no password and for no registration
-// deploys an account nobody can sign in to, and the check fails naming both ways out.
-// Either way out passes: a password method with a seed that gives the account a
-// password, or a session.SeedUserIDThrough the author wrote in the seed, which is taken
-// as the author's word and held only to naming a registration of the auth that admits
-// one organization. The password method alone is no way out, since adding it leaves
-// the seed as it was; and what the package does outside the seed's two functions, for
-// some other account, is not taken for the seed's.
+// The findings the check writes, by what the package does in place of inviting; each
+// opens with where it is.
+const (
+	seedsAnAccount  = ": the staff auth seeds its first administrator as an account (SeedAdministrator), under a password the deployment generates or a sign-in name the placement names. Nobody can read a generated password, and an account made ahead of its person is tied to whoever signs in first by its name alone, so the first administrator is invited instead: replace SeedAdministrator and seedFoothold with InviteAdministrator and ReinviteAdministrator as impulse add auth writes foothold.go (session.AuthAPI.InviteFirstAdministrator and ReinviteFirstAdministrator, mailed to the address the placement names in APP_STAFF_ADMINISTRATOR), read that address in the data level in place of the password (the APP_STAFF_ADMINISTRATOR_PASSWORD declaration and its secret:\"generated\" tag go), and call the two from pkg/deploy and the migrate command"
+	createsAUser    = ": the staff auth creates a user where it invites its first administrator (session.AuthAPI.CreateSessionUser or a session.CreateUserRequest): the person's account is made by their own first sign-in from the mailed link, and none is created ahead of them, with a password or without; remove the user it creates"
+	invitesItself   = ": the staff auth's InviteAdministrator does not ask the session library for the invitation (session.AuthAPI.InviteFirstAdministrator), which is what stops once the auth has an account, withdraws an invitation the placement no longer names, and refuses to write the link to a log; invite through it, as impulse add auth writes foothold.go"
+	reinvitesItself = ": the staff auth's ReinviteAdministrator does not ask the session library for the fresh invitation (session.AuthAPI.ReinviteFirstAdministrator), which is what refuses once the auth has an account, withdraws the standing invitation so its link no longer opens, and refuses to write the new link to a log; invite again through it, as impulse add auth writes foothold.go"
+)
+
+// TestFirstAdministrator pins the rule on the first administrator an auth brings in: it
+// is invited, through the session library, and no account is made ahead of the person.
+// The refusals are the cases the rule exists for. A package that still seeds an account
+// deploys one nobody can sign in to (nobody reads a generated password) or one whoever
+// signs in first takes; an invitation written by hand beside the library's skips what
+// the library holds, the stop once the auth has an account and the refusal to write the
+// link to a log. What the package does outside the functions a first administrator is
+// brought in by, for some other account, is not taken for theirs, and neither is what
+// its tests and generated files do.
 func TestFirstAdministrator(t *testing.T) {
 	t.Parallel()
 
-	// directoryOnly is the fixture's auth with no password method and the foothold
-	// that seeds its first administrator under seed.
-	directoryOnly := func(files map[string]string, registration, seed string) {
-		auth := strings.Replace(fmt.Sprintf(admittingAuth, "google.DisableRoleSync()"), passwordMethod, "", 1)
-		auth = strings.Replace(auth, `google.SignIn(s, "google", nil, &google.Config{RoleSync: google.DisableRoleSync()})`, registration, 1)
-		files["pkg/auth/staff/staff.go"] = auth
-		files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, seedPlain, seed, 1)
-	}
-	// microsoft is that auth with a Microsoft registration in place of the Google one,
-	// its tenants slot written as impulse add auth writes it, by a function of the
-	// file, which is the form the scan reads the registration's width from; the seed
-	// names the registration.
-	microsoft := func(files map[string]string, tenants string) {
-		directoryOnly(files,
-			"tenants := directorySlot()\n\tazure.SignIn(s, \"directory\", nil, &azure.Config{Tenants: tenants, RoleSync: signin.DisableRoleSync()})",
-			`id := session.SeedUserIDThrough(Name, "directory", req.Username)`)
-		auth := strings.Replace(files["pkg/auth/staff/staff.go"], `"github.com/impulseframework/impulse/session/google"`, `"github.com/impulseframework/impulse/session/azure"`, 1)
-		files["pkg/auth/staff/staff.go"] = auth + "\nfunc directorySlot() azure.TenantSet {\n\treturn " + tenants + "\n}\n"
-	}
-	// workspace is that auth with its Google registration's Workspaces slot written as
-	// impulse add auth writes it, by a function of the file, which is the form the scan
-	// reads the registration's width from; the seed names the registration.
-	workspace := func(files map[string]string, workspaces string) {
-		directoryOnly(files,
-			"workspaces := googleSlot()\n\tgoogle.SignIn(s, \"google\", nil, &google.Config{Workspaces: workspaces, RoleSync: google.DisableRoleSync()})",
-			`id := session.SeedUserIDThrough(Name, "google", req.Username)`)
-		files["pkg/auth/staff/staff.go"] += "\nfunc googleSlot() google.WorkspaceSet {\n\treturn " + workspaces + "\n}\n"
-	}
-	// seededForGoogle is the finding for a seed that names a Google registration wider
-	// than one Workspace of one domain, by what the registration admits.
-	seededForGoogle := func(width string) string {
-		return "pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the google registration (session.SeedUserIDThrough), which admits more than one organization (" + width + "), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own Workspace alone, by one domain (google.Workspace with the name and that domain), and seed for that registration, or give the auth a password method and seed the administrator with a password"
-	}
+	const foothold = "pkg/auth/staff/foothold.go"
 	tests := []struct {
 		name        string
 		edit        func(files map[string]string)
@@ -133,199 +95,158 @@ func TestFirstAdministrator(t *testing.T) {
 		wantDetails []string
 	}{
 		{
-			name: "a seed for a Google registration open to several Workspaces",
+			name: "an auth that invites its first administrator through the session library",
 			edit: func(files map[string]string) {
-				workspace(files, `google.Workspaces(google.Workspace("fleet", "fleet.example"), google.Workspace("yard", "yard.example"))`)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{seededForGoogle("the Workspaces it lists")},
-		},
-		{
-			name: "a seed for a Google registration of one Workspace of two domains, which the sign-in rule counts as two",
-			edit: func(files map[string]string) {
-				workspace(files, `google.Workspace("fleet", "fleet.example", "fleet.test")`)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{seededForGoogle("one Workspace of several domains, which the rule counts by its domains")},
-		},
-		{
-			name: "a seed for a Google registration open to any Workspace",
-			edit: func(files map[string]string) {
-				workspace(files, `google.AnyWorkspace()`)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{seededForGoogle("any Google Workspace")},
-		},
-		{
-			name: "a seed for a Google registration of one Workspace beside any Google account",
-			edit: func(files map[string]string) {
-				workspace(files, `google.Workspaces(google.Workspace("fleet", "fleet.example"), google.AnyGoogleAccount())`)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{seededForGoogle("one Workspace and any Google account")},
-		},
-		{
-			name: "a seed for a Google registration of one Workspace of one domain",
-			edit: func(files map[string]string) {
-				workspace(files, `google.Workspace("fleet", "fleet.example")`)
+				files[foothold] = invitingFoothold
 			},
 			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (seeded for the google registration)",
+			wantSummary: "the first administrator is invited: staff",
 		},
 		{
-			name: "an auth with the password method that seeds its first administrator with a password",
+			name: "an auth that still seeds its first administrator as an account",
 			edit: func(files map[string]string) {
-				files["pkg/auth/staff/foothold.go"] = passwordFoothold
-			},
-			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (seeded with a password)",
-		},
-		{
-			name: "the password method beside a seed that gives no password: the administrator still cannot sign in",
-			edit: func(files map[string]string) {
-				files["pkg/auth/staff/foothold.go"] = plainFoothold
+				files[foothold] = seedingFoothold
 			},
 			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{noPasswordSeeded},
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":11" + seedsAnAccount},
 		},
 		{
-			name: "a password given to another account outside the seed is not the seed's",
+			name: "an auth that invites and still seeds: the seed goes",
 			edit: func(files map[string]string) {
-				files["pkg/auth/staff/foothold.go"] = plainFoothold
+				files[foothold] = invitingFoothold
+				files["pkg/auth/staff/seed.go"] = seedingFoothold
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{"pkg/auth/staff/seed.go:11" + seedsAnAccount},
+		},
+		{
+			name: "an invitation that also creates the account ahead of the person",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(invitingFoothold, inviteCall,
+					"if _, err := a.handlers.API().CreateSessionUser(ctx, nil); err != nil {\n\t\treturn nil, err\n\t}\n\n\t"+inviteCall, 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":10" + createsAUser},
+		},
+		{
+			name: "an invitation that builds the request for an account",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(invitingFoothold, inviteCall,
+					"req := &session.CreateUserRequest{Username: email}\n\t_ = req\n\n\t"+inviteCall, 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":10" + createsAUser},
+		},
+		{
+			name: "a fresh invitation that creates the account ahead of the person",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(invitingFoothold, reinviteCall,
+					"if _, err := a.handlers.API().CreateSessionUser(ctx, nil); err != nil {\n\t\treturn nil, err\n\t}\n\n\t"+reinviteCall, 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":14" + createsAUser},
+		},
+		{
+			name: "an invitation written by hand, beside the session library's",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(invitingFoothold, inviteCall,
+					`return nil, a.handlers.API().Invite(ctx, &session.InviteRequest{Email: email, RoleNames: []string{"SuperAdministrator"}})`, 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":9" + invitesItself},
+		},
+		{
+			name: "an invitation that asks for the fresh one, which a release would mail again each time",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(invitingFoothold, inviteCall, reinviteCall, 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":9" + invitesItself},
+		},
+		{
+			name: "a fresh invitation written by hand, beside the session library's",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(invitingFoothold, reinviteCall,
+					`return nil, a.handlers.API().Invite(ctx, &session.InviteRequest{Email: email, RoleNames: []string{"SuperAdministrator"}})`, 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":13" + reinvitesItself},
+		},
+		{
+			name: "a fresh invitation alone, with no invitation a release sends",
+			edit: func(files map[string]string) {
+				files[foothold] = "package staff\n\nfunc (a *Auth) ReinviteAdministrator(ctx context.Context, email string) error {\n\treturn a.mailAgain(ctx, email)\n}\n"
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":3" + reinvitesItself},
+		},
+		{
+			name: "every finding of a package is reported",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(invitingFoothold, inviteCall,
+					"_, err := a.handlers.API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: email})\n\n\treturn nil, err", 1)
+				files["pkg/auth/staff/seed.go"] = seedingFoothold
+			},
+			wantStatus:  Fail,
+			wantSummary: "3 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{
+				"pkg/auth/staff/seed.go:11" + seedsAnAccount,
+				foothold + ":10" + createsAUser,
+				foothold + ":9" + invitesItself,
+			},
+		},
+		{
+			name: "a user created outside the invitation's functions, for some other account, is not the first administrator's",
+			edit: func(files map[string]string) {
+				files[foothold] = invitingFoothold
 				files["pkg/auth/staff/operator.go"] = "package staff\n\nfunc (a *Auth) operator(password string) *session.CreateUserRequest {\n\treturn &session.CreateUserRequest{Username: \"operator\", Password: &password}\n}\n"
 			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{noPasswordSeeded},
+			wantStatus:  Pass,
+			wantSummary: "the first administrator is invited: staff",
 		},
 		{
-			name: "a seed that gives the password to a request built before",
+			name: "what the package's tests and generated files do is not read",
 			edit: func(files map[string]string) {
-				files["pkg/auth/staff/foothold.go"] = strings.Replace(passwordFoothold,
-					"return true, a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password, PasswordChangeRequired: true})",
-					"req := &session.CreateUserRequest{Username: Administrator, PasswordChangeRequired: true}\n\treq.Password = &password\n\n\treturn true, a.seedFoothold(ctx, req)", 1)
+				files[foothold] = invitingFoothold
+				files["pkg/auth/staff/foothold_test.go"] = strings.Replace(seedingFoothold, "package staff", "package staff_test", 1)
+				files["pkg/auth/staff/zz_gen_seed.go"] = seedingFoothold
 			},
 			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (seeded with a password)",
+			wantSummary: "the first administrator is invited: staff",
 		},
 		{
-			name: "a seed whose request names a nil password gives none",
+			name: "an auth that brings in no first administrator is not held",
 			edit: func(files map[string]string) {
-				files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, "&session.CreateUserRequest{Username: signInName}", "&session.CreateUserRequest{Username: signInName, Password: nil}", 1)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{noPasswordSeeded},
-		},
-		{
-			name: "a seed that names the password method as its registration: no first sign-in links through it",
-			edit: func(files map[string]string) {
-				files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, seedPlain, `id := session.SeedUserIDThrough(Name, "password", req.Username)`, 1)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{`pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the registration "password" (session.SeedUserIDThrough), and the auth registers no directory method under that name, so no sign-in links the account through it; name one of the auth's own directory registrations (google), the one that is the deployment's own directory`},
-		},
-		{
-			name: "the password method beside a seed the author names the registration of",
-			edit: func(files map[string]string) {
-				files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, seedPlain, `id := session.SeedUserIDThrough(Name, "google", req.Username)`, 1)
-			},
-			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (seeded for the google registration)",
-		},
-		{
-			name: "no password method and a seed for no registration: the administrator cannot sign in",
-			edit: func(files map[string]string) {
-				directoryOnly(files, googleRegistration, seedPlain)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{cannotSignIn},
-		},
-		{
-			name: "a seed the author names the registration of, by a constant of the package",
-			edit: func(files map[string]string) {
-				directoryOnly(files, googleRegistration, "id := session.SeedUserIDThrough(Name, GoogleRegistration, req.Username)")
-				files["pkg/auth/staff/google.go"] = "package staff\n\n// GoogleRegistration is the registration's name.\nconst GoogleRegistration = \"google\"\n"
-			},
-			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (seeded for the google registration)",
-		},
-		{
-			name: "a registration named outside the seed, for some other account, is not the seed's",
-			edit: func(files map[string]string) {
-				directoryOnly(files, googleRegistration, seedPlain)
-				files["pkg/auth/staff/operator.go"] = "package staff\n\nfunc operatorID() string {\n\treturn session.SeedUserIDThrough(Name, \"google\", \"operator\").String()\n}\n"
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{cannotSignIn},
-		},
-		{
-			name: "a seed that names the registration by a value the check cannot read is the author's word",
-			edit: func(files map[string]string) {
-				directoryOnly(files, googleRegistration, "id := session.SeedUserIDThrough(Name, a.ownDirectory(), req.Username)")
-			},
-			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (seeded for the registration its foothold names)",
-		},
-		{
-			name: "a seed for a registration the auth does not have",
-			edit: func(files map[string]string) {
-				directoryOnly(files, googleRegistration, `id := session.SeedUserIDThrough(Name, "workspace", req.Username)`)
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{`pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the registration "workspace" (session.SeedUserIDThrough), and the auth registers no directory method under that name, so no sign-in links the account through it; name one of the auth's own directory registrations (google), the one that is the deployment's own directory`},
-		},
-		{
-			name: "a seed for a Microsoft registration open to any tenant",
-			edit: func(files map[string]string) {
-				microsoft(files, "azure.AnyTenant()")
-			},
-			wantStatus:  Fail,
-			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{"pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the directory registration (session.SeedUserIDThrough), which admits more than one organization (any tenant), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own directory as one tenant (azure.Tenant) and seed for that registration, or give the auth a password method and seed the administrator with a password"},
-		},
-		{
-			name: "a seed for a Microsoft registration of one tenant",
-			edit: func(files map[string]string) {
-				microsoft(files, `azure.Tenant("")`)
-			},
-			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (seeded for the directory registration)",
-		},
-		{
-			name: "an auth that seeds no first administrator is not held",
-			edit: func(files map[string]string) {
-				directoryOnly(files, googleRegistration, seedPlain)
-				delete(files, "pkg/auth/staff/foothold.go")
+				files[foothold] = "package staff\n\n// AdministratorRoles are the roles that count as an administrator's.\nfunc AdministratorRoles() (global, everyDomain []string) {\n\treturn []string{\"Administrator\"}, nil\n}\n"
 			},
 			wantStatus:  Skip,
-			wantSummary: "no auth whose roles the application assigns seeds a first administrator",
+			wantSummary: "no auth brings in a first administrator",
 		},
 		{
-			name: "an auth whose directory writes the roles seeds nobody by name",
-			edit: func(files map[string]string) {
-				directoryOnly(files, `google.SignIn(s, "google", nil, &google.Config{RoleSync: google.RoleSync()})`, seedPlain)
-			},
+			name:        "an auth with no foothold is not held",
 			wantStatus:  Skip,
-			wantSummary: "no auth whose roles the application assigns seeds a first administrator",
+			wantSummary: "no auth brings in a first administrator",
 		},
 		{
-			name: "a tenant record declaring no directories links a seed on its name",
+			name: "an application with no auth package",
 			edit: func(files map[string]string) {
-				directoryOnly(files, googleRegistration, seedPlain)
-				delete(files, "pkg/resources/tenant_directories.go")
+				for rel := range files {
+					if strings.HasPrefix(rel, "pkg/auth/") {
+						delete(files, rel)
+					}
+				}
 			},
 			wantStatus:  Skip,
-			wantSummary: "no tenant record declares directories, so an account seeded ahead of its first sign-in is linked on its name",
+			wantSummary: "no auth package (pkg/auth/<name>) constructs a session Auth",
 		},
 	}
 

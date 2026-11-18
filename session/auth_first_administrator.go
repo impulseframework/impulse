@@ -67,8 +67,7 @@ const (
 	// FirstAdministratorStanding says an invitation to the address, with the same
 	// roles, stands: nothing was mailed.
 	FirstAdministratorStanding
-	// FirstAdministratorHasAccount says the Auth has an account: nobody is invited,
-	// and nothing was read or changed beyond that.
+	// FirstAdministratorHasAccount says the Auth has an account: nobody is invited.
 	FirstAdministratorHasAccount
 )
 
@@ -92,8 +91,11 @@ type FirstAdministrator struct {
 // administrator. While the Auth has no account it leaves exactly one invitation
 // standing: the one mailed to req.Email with req.RoleNames.
 //
-//   - The Auth has an account: nothing is done (FirstAdministratorHasAccount). Every
-//     person after the first is invited from the application.
+//   - The Auth has an account: nobody is invited (FirstAdministratorHasAccount). Every
+//     person after the first is invited from the application. An invitation of the
+//     deployment's that still stands, with these roles, for an address it no longer
+//     names is withdrawn all the same, so no link stays open for an address the
+//     deployment took back.
 //   - An invitation to the address with those roles stands: nothing is mailed
 //     (FirstAdministratorStanding), so a release while the person has not yet accepted
 //     sends no second message.
@@ -150,9 +152,6 @@ func (p *AuthAPI[S, U, Tx]) inviteFirstAdministrator(ctx context.Context, req *F
 	if err != nil {
 		return nil, err
 	}
-	if hasAccount {
-		return &FirstAdministrator{Outcome: FirstAdministratorHasAccount}, nil
-	}
 
 	// The address as an invitation keeps it, bare, so one written with a display name is
 	// the same address at the next release. One that is no address names nobody: nothing
@@ -160,6 +159,13 @@ func (p *AuthAPI[S, U, Tx]) inviteFirstAdministrator(ctx context.Context, req *F
 	email, bare, notAddress := strings.TrimSpace(req.Email), "", error(nil)
 	if email != "" {
 		bare, notAddress = address(email)
+	}
+	if hasAccount {
+		if fresh {
+			return &FirstAdministrator{Outcome: FirstAdministratorHasAccount}, nil
+		}
+
+		return p.withdrawTakenBack(ctx, bare, roles)
 	}
 	standing, stale, err := p.firstAdministratorInvitations(ctx, bare, roles)
 	if err != nil {
@@ -207,6 +213,34 @@ func (p *AuthAPI[S, U, Tx]) inviteFirstAdministrator(ctx context.Context, req *F
 		return nil, withdrawnBefore(err, result.Withdrawn)
 	}
 	result.Outcome, result.Email, result.ExpiresAt = FirstAdministratorInvited, invitation.Email, invitation.ExpiresAt
+
+	return result, nil
+}
+
+// withdrawTakenBack is what a release does once the Auth has an account. Nobody is
+// invited, and one thing is still done: an invitation the deployment sent earlier that
+// stands for an address the deployment no longer names is withdrawn, so a link mailed
+// to an address the deployment took back does not stay open until it runs out. That is
+// the case where an account came to be before the invited person accepted, as where a
+// test environment's seed creates accounts in the release that invites. An invitation
+// to the address still named is left to be accepted. Only an invitation that gives
+// exactly roles is taken for the deployment's here: once the Auth has accounts, an
+// invitation no user sent may be the application's own, for a purpose of its own, and
+// one that gives the first administrator's roles is the first administrator's.
+func (p *AuthAPI[S, U, Tx]) withdrawTakenBack(ctx context.Context, email string, roles []string) (*FirstAdministrator, error) {
+	result := &FirstAdministrator{Outcome: FirstAdministratorHasAccount}
+	_, stale, err := p.firstAdministratorInvitations(ctx, email, roles)
+	if err != nil {
+		return nil, err
+	}
+	for _, inv := range stale {
+		if !slices.Equal(distinctRoleNames(inv.RoleNames), roles) {
+			continue
+		}
+		if _, err := p.withdrawFirstAdministrator(ctx, inv, result); err != nil {
+			return nil, err
+		}
+	}
 
 	return result, nil
 }

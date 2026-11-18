@@ -109,15 +109,54 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 			wantMailed: []string{ada},
 		},
 		{
-			name: "the Auth has an account: nobody is invited, and what stands is left as it is",
+			name: "the Auth has an account: nobody is invited, and the invitation that stands for the address named is left to be accepted",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+
+				return []*sessionstorage.MailLink{f.standing(ada, week, firstAdministratorRoles...)}
+			},
+			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:         FirstAdministrator{Outcome: FirstAdministratorHasAccount},
+			wantStanding: []int{0},
+		},
+		{
+			name: "the Auth has an account and the deployment names another address: nobody is invited, and the link mailed to the address taken back no longer opens",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
 				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
 
 				return []*sessionstorage.MailLink{f.standing(grace, week, firstAdministratorRoles...)}
 			},
+			request:  FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:     FirstAdministrator{Outcome: FirstAdministratorHasAccount, Withdrawn: []string{grace}},
+			wantDead: []int{0},
+		},
+		{
+			name: "the Auth has an account and the deployment names nobody any more: the first administrator's invitation that stood is withdrawn",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+
+				return []*sessionstorage.MailLink{f.standing(grace, week, firstAdministratorRoles...)}
+			},
+			request:  FirstAdministratorRequest{Email: "", RoleNames: firstAdministratorRoles},
+			want:     FirstAdministrator{Outcome: FirstAdministratorHasAccount, Withdrawn: []string{grace}},
+			wantDead: []int{0},
+		},
+		{
+			name: "the Auth has an account: an invitation no user sent that gives other roles is the application's own, as are a user's, a tenant's and one that makes a tenant, and all stand",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				sent := f.standing(grace, week, firstAdministratorRoles...)
+				sent.InvitedByUserID = impulse.NullUUIDFromUUID(impulse.Must(impulse.NewUUID()))
+				tenant := f.standing(grace, week, firstAdministratorRoles...)
+				tenant.TenantID = "lakeside"
+				makes := f.standing(grace, week, firstAdministratorRoles...)
+				makes.NewTenant = &sessioninfo.NewTenant{Name: "Lakeside High"}
+
+				return []*sessionstorage.MailLink{f.standing(grace, week, "Auditor"), sent, tenant, makes}
+			},
 			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
 			want:         FirstAdministrator{Outcome: FirstAdministratorHasAccount},
-			wantStanding: []int{0},
+			wantStanding: []int{0, 1, 2, 3},
 		},
 		{
 			name: "an invitation to the address stands: a second release mails nothing, whatever case the address and order the roles are written in",
@@ -426,15 +465,15 @@ func TestAuthAPI_ReinviteFirstAdministrator(t *testing.T) {
 			wantDead:   []int{0},
 		},
 		{
-			name: "the Auth has an account: refused, and the invitation that stands is left as it is",
+			name: "the Auth has an account: refused, and what stands is left as it is, for the address named and for another: a refusal changes nothing",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
 				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
 
-				return []*sessionstorage.MailLink{f.standing(ada, week, firstAdministratorRoles...)}
+				return []*sessionstorage.MailLink{f.standing(ada, week, firstAdministratorRoles...), f.standing(grace, week, firstAdministratorRoles...)}
 			},
 			wantErr:      ErrFirstAdministratorHasAccount,
 			wantErrText:  "A person who has one invites the others from the application",
-			wantStanding: []int{0},
+			wantStanding: []int{0, 1},
 		},
 		{
 			name:   "the application writes its mail to the log: refused, and the invitation that stands is not withdrawn for a fresh one that cannot be sent",

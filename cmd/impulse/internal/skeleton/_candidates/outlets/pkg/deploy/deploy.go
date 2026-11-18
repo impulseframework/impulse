@@ -1,8 +1,8 @@
 // Package deploy holds the database steps a deployment runs and the development
 // bootstrap reuses: applying the schema migrations, checking the release's role policy
-// against what the permission engine's store holds, seeding each auth's first
-// administrator while its users table holds no rows, and bringing the feature flags to
-// the release's declarations.
+// against what the permission engine's store holds, inviting each auth's first
+// administrator while the auth has no account, and bringing the feature flags to the
+// release's declarations.
 package deploy
 
 import (
@@ -11,6 +11,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
@@ -20,6 +21,7 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/resources"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
 )
 
 // MigrationsSource is where the schema migrations live, relative to the module root.
@@ -154,45 +156,116 @@ func CheckRoles(ctx context.Context, client *access.Client, name string) error {
 	return nil
 }
 
-// SeedAdministrators gives each auth its first administrator while its users table holds
-// no rows, the foothold a deployed environment starts from, and prints what it did. The
-// staff auth, whose people sign in with a password, gets the administrator user with the
-// password the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD), which the first sign-in
-// changes before anything else is served; the members auth, whose
-// people the directory provisions and whose roles the application assigns, gets a user
-// without a password under the sign-in name the placement names
-// (APP_MEMBERS_ADMINISTRATOR), which that person's first sign-in through the directory
-// links to. Each holds the Super Administrator role and its administrator roles from the
-// seed, by the id of its account. It runs after the role check, so the memberships name
-// roles the release ships, and seeds nothing while a user exists: every user after the
-// first comes from the administration surface, and the development bootstrap creates its
-// own logins and members instead.
-func SeedAdministrators(ctx context.Context, data *config.DataConfiguration) error {
-	seeded, err := data.Staff().SeedAdministrator(ctx, data.StaffAdministratorPassword())
-	if err != nil {
-		return errors.Wrap(err, "staff.Auth.SeedAdministrator() with APP_STAFF_ADMINISTRATOR_PASSWORD")
-	}
-	global, everyDomain := staff.FirstAdministratorRoles()
-	reportSeed(staff.Name, seeded, fmt.Sprintf("%s, a super administrator, holding %v in the global partition and %v in every domain", staff.Administrator, global, everyDomain))
+// AdministratorAuths names the auths whose first administrator the deployment invites, in
+// the order a release invites them: the staff auth, whose people sign in with a password,
+// and the members auth, whose people sign in through the directory and whose roles the
+// application assigns. They are what the migrate command's -reinvite-administrator takes.
+func AdministratorAuths() []string {
+	return []string{staff.Name, members.Name}
+}
 
-	seeded, err = data.Members().SeedAdministrator(ctx, data.MembersAdministrator())
-	if err != nil {
-		return errors.Wrap(err, "members.Auth.SeedAdministrator() with APP_MEMBERS_ADMINISTRATOR")
+// firstAdministrator is what the deployment knows of one auth's first administrator: the
+// address the placement names, and the auth's two ways to invite them.
+type firstAdministrator struct {
+	email    string
+	invite   func(ctx context.Context, email string) (*session.FirstAdministrator, error)
+	reinvite func(ctx context.Context, email string) (*session.FirstAdministrator, error)
+}
+
+// administratorOf answers the named auth's first administrator, and refuses a name that
+// is none of AdministratorAuths.
+func administratorOf(data *config.DataConfiguration, auth string) (*firstAdministrator, error) {
+	switch auth {
+	case staff.Name:
+		return &firstAdministrator{email: data.StaffAdministrator(), invite: data.Staff().InviteAdministrator, reinvite: data.Staff().ReinviteAdministrator}, nil
+	case members.Name:
+		return &firstAdministrator{email: data.MembersAdministrator(), invite: data.Members().InviteAdministrator, reinvite: data.Members().ReinviteAdministrator}, nil
+	default:
+		return nil, errors.Newf("no auth named %q invites a first administrator: name one of %s", auth, strings.Join(AdministratorAuths(), ", "))
 	}
-	_, everyDomain = members.FirstAdministratorRoles()
-	reportSeed(members.Name, seeded, fmt.Sprintf("%s, a super administrator, a user without a password holding %v in every domain, whose first sign-in through the directory links to it", data.MembersAdministrator(), everyDomain))
+}
+
+// InviteAdministrators invites each auth's first administrator while the auth has no
+// account, the way into a deployed environment, and writes what it did to out, never an
+// invitation's link. The invitation is mailed to the address the placement names for the
+// environment (APP_STAFF_ADMINISTRATOR, APP_MEMBERS_ADMINISTRATOR) and gives the Super
+// Administrator role and the auth's first administrator's roles; the person signs in from
+// its link by a method of the auth, a staff administrator choosing a password there and a
+// members administrator through the directory, whose address for them must be the
+// invited one. No account is created ahead of either and no password is generated.
+//
+// Every release runs it, after the role check, so the invitation names roles the release
+// ships. An invitation that stands for the address is left as it is and nothing is
+// mailed; one that ran out (seven days) is replaced; one that stands for an address the
+// placement no longer names is withdrawn, so its link no longer opens, and the address
+// named now is mailed. Once the auth has an account nobody is invited: every person after
+// the first comes from the administration surface, and the development bootstrap creates
+// its own logins instead; an invitation of the first administrator's that still stands
+// then for an address the placement no longer names is withdrawn all the same. It
+// refuses, with nothing mailed, while the auth has no account and the placement names no
+// address, and while the environment has no mailbox to send as: an invitation's link is
+// never written to a log, so the mailbox comes before the first release.
+func InviteAdministrators(ctx context.Context, data *config.DataConfiguration, out io.Writer) error {
+	for _, auth := range AdministratorAuths() {
+		administrator, err := administratorOf(data, auth)
+		if err != nil {
+			return err
+		}
+		invited, err := administrator.invite(ctx, administrator.email)
+		if err != nil {
+			return invitationRefused(err, auth, "InviteAdministrator")
+		}
+		reportAdministrator(out, auth, invited)
+	}
 
 	return nil
 }
 
-// reportSeed prints what the seed did for one auth.
-func reportSeed(name string, seeded bool, what string) {
-	if seeded {
-		fmt.Printf("Seeded the %s auth's first administrator: %s\n", name, what)
-
-		return
+// ReinviteAdministrator withdraws the standing invitation of the named auth's first
+// administrator and mails a fresh one to the address the placement names, for mail that
+// was lost: the earlier link no longer opens. It writes what it did to out, never the
+// link. It is what the migrate command's -reinvite-administrator runs, on demand from the
+// deployment's operations, and it refuses once the auth has an account, since somebody is
+// then there to invite the others; it refuses as InviteAdministrators does besides.
+func ReinviteAdministrator(ctx context.Context, data *config.DataConfiguration, auth string, out io.Writer) error {
+	administrator, err := administratorOf(data, auth)
+	if err != nil {
+		return err
 	}
-	fmt.Printf("The %s auth has users: no administrator seeded\n", name)
+	invited, err := administrator.reinvite(ctx, administrator.email)
+	if err != nil {
+		return invitationRefused(err, auth, "ReinviteAdministrator")
+	}
+	reportAdministrator(out, auth, invited)
+
+	return nil
+}
+
+// invitationRefused says where a refusal of the first administrator's invitation came
+// from, and, for one made for want of a mailbox, which settings give the environment its
+// mailbox: the auth has already said which setting names the address.
+func invitationRefused(err error, auth, method string) error {
+	if errors.Is(err, session.ErrFirstAdministratorNoMailbox) {
+		return errors.Wrapf(err, "%s.Auth.%s(): give the environment its mailbox before this release, the deployment's hand step for the mailbox: name the mailbox (APP_MAIL_MAILBOX) and add its app password (the secret APP_MAIL_APP_PASSWORD), then run the release again", auth, method)
+	}
+
+	return errors.Wrapf(err, "%s.Auth.%s()", auth, method)
+}
+
+// reportAdministrator writes what was done about one auth's first administrator: the
+// address and when the invitation runs out, never its link, which is in the message alone.
+func reportAdministrator(out io.Writer, auth string, invited *session.FirstAdministrator) {
+	for _, address := range invited.Withdrawn {
+		fmt.Fprintf(out, "Withdrew the invitation of the %s auth's first administrator mailed to %s: its link no longer opens\n", auth, address)
+	}
+	switch invited.Outcome {
+	case session.FirstAdministratorInvited:
+		fmt.Fprintf(out, "Invited the %s auth's first administrator: the invitation was mailed to %s and runs out %s\n", auth, invited.Email, invited.ExpiresAt.UTC().Format(time.RFC3339))
+	case session.FirstAdministratorStanding:
+		fmt.Fprintf(out, "The %s auth's first administrator is invited: the invitation mailed to %s stands until %s, and nothing was mailed\n", auth, invited.Email, invited.ExpiresAt.UTC().Format(time.RFC3339))
+	case session.FirstAdministratorHasAccount:
+		fmt.Fprintf(out, "The %s auth has an account: no first administrator invited\n", auth)
+	}
 }
 
 // MigrateFeatures brings the FeatureFlags table to the release's declarations

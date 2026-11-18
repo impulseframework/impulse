@@ -13,7 +13,6 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/shape"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 	transition_ "github.com/impulseframework/impulse/cmd/impulse/internal/transition"
@@ -481,11 +480,11 @@ func Test_methodStartingPoints(t *testing.T) {
 	}
 
 	// Open sign-up on an auth with no password method, where the application's tenants
-	// have directories, is refused before anything is written: its first administrator
-	// could not sign in. The same methods are a starting point where no tenant has a
-	// directory (above), and with the password method beside them.
-	if _, err := authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{google}); err == nil || !strings.Contains(err.Error(), "could not sign in, and impulse check refuses it (first-administrator)") {
-		t.Errorf("add auth with a directory method alone under Open sign-up, where tenants have directories: error = %v, want the first administrator's refusal", err)
+	// have directories, is a starting point like any other: the auth's first administrator
+	// comes in by an invitation, which ties the person's first sign-in through the
+	// directory to the roles however many organizations the method admits.
+	if _, err := authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{google}); err != nil {
+		t.Errorf("add auth with a directory method alone under Open sign-up, where tenants have directories: error = %v, want the starting point", err)
 	}
 
 	// Under Directory members add auth says the password method beside the directory
@@ -502,10 +501,7 @@ func Test_methodStartingPoints(t *testing.T) {
 }
 
 // Test_startingPoint_write pins what a command given --shape prints beside its change:
-// the shape by number and name with what it filled in, and, after the check's report,
-// what the author does next where the check refuses the first administrator the
-// starting point's auth would be seeded with, in the check's own words. Any other
-// outcome of that check, and any other check's failure, adds nothing.
+// the shape by number and name with what it filled in.
 func Test_startingPoint_write(t *testing.T) {
 	t.Parallel()
 
@@ -514,42 +510,5 @@ func Test_startingPoint_write(t *testing.T) {
 	start.write(&out)
 	if want := "Starting point: 4 Open sign-up.\n  - The google method admits any Google account, and the application gives the roles.\n\n"; out.String() != want {
 		t.Errorf("write() mismatch (-want +got):\n%s", cmp.Diff(want, out.String()))
-	}
-
-	const finding = "pkg/auth/partners/foothold.go:60: the first administrator the migrate command seeds for the partners auth cannot sign in"
-	tests := []struct {
-		name    string
-		results []check.Result
-		want    string
-	}{
-		{
-			name:    "the check refuses the first administrator",
-			results: []check.Result{{Name: "session-tables", Status: check.Pass}, {Name: firstAdministratorCheck, Status: check.Fail, Summary: "1 auth(s) seed a first administrator who cannot sign in", Details: []string{finding}}},
-			want:    "\nWith the Open sign-up starting point written, the migrate command would seed a first administrator who cannot sign in, which impulse check refuses (first-administrator). What to do next, in the check's words:\n  - " + finding + "\n",
-		},
-		{name: "the check passes", results: []check.Result{{Name: firstAdministratorCheck, Status: check.Pass}}},
-		{name: "the check is skipped", results: []check.Result{{Name: firstAdministratorCheck, Status: check.Skip}}},
-		{name: "another check fails", results: []check.Result{{Name: "session-tables", Status: check.Fail, Details: []string{"a table is missing"}}}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var out strings.Builder
-			start.writeHeld(&out, tt.results)
-			if out.String() != tt.want {
-				t.Errorf("writeHeld() mismatch (-want +got):\n%s", cmp.Diff(tt.want, out.String()))
-			}
-		})
-	}
-
-	// The check the starting point answers for is one impulse check runs, under the name
-	// the command reads its result by.
-	named := false
-	for _, c := range check.All() {
-		named = named || c.Name() == firstAdministratorCheck
-	}
-	if !named {
-		t.Errorf("impulse check runs no check named %q; the starting point reads its result by that name", firstAdministratorCheck)
 	}
 }

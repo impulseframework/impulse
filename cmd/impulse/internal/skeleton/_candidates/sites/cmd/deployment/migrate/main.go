@@ -1,7 +1,8 @@
 // Package main is the deployment's migration step: it applies the schema migrations,
 // checks the release's role policy against what the permission engine's store holds, and
-// seeds the staff auth's first administrator while its users table holds no rows. It
-// reads the core and data configuration levels and nothing above them.
+// invites the staff auth's first administrator while the auth has no account, by an
+// invitation mailed to the address the placement names. It reads the core and data
+// configuration levels and nothing above them.
 //
 // Three flags make it the instrument for the states the migration runner refuses to
 // guess at. -version prints what each migrations table (schema, data) says about the
@@ -18,6 +19,17 @@
 // wrote and never a value, refuses the current version, and is safe to run again. Its
 // environment is the migration's with one variable for each enabled version, the one
 // being retired among them. It applies no migration and goes with no other flag.
+//
+// -reinvite-administrator <auth> sends the first administrator's invitation again, for
+// mail that was lost: it withdraws the standing invitation of the named auth (staff),
+// so the earlier link no longer opens, and mails a fresh one to the address the
+// placement names. It refuses once the auth has an account, since somebody is then there
+// to invite the others, and while the environment has no mailbox to send as. Its
+// environment is the migration's. It applies no migration and goes with no other flag.
+//
+// The command writes what it did about an invitation, the address and when it runs out,
+// and never the invitation's link: whoever opens the link becomes the administrator, so
+// it is in the mailed message alone.
 package main
 
 import (
@@ -27,7 +39,9 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/auth/staff"
@@ -81,6 +95,9 @@ type options struct {
 	// retireSecret is the variable of the version of the application secret to retire
 	// (APP_SECRET_KEY_1); empty when the command is not asked to retire one.
 	retireSecret string
+	// reinviteAdministrator is the auth whose first administrator's invitation is to be
+	// sent again; empty when the command is not asked to send one.
+	reinviteAdministrator string
 }
 
 // versionFlag is a version to force: set once given, -1 meaning no version.
@@ -110,7 +127,8 @@ func (f *versionFlag) Set(s string) error {
 
 // parse reads the arguments and refuses, before anything is opened, what cannot run
 // together: a force applies no migration, so neither -seed nor -version goes with it,
-// and -version applies none either, so -seed does not go with it.
+// and -version applies none either, so -seed does not go with it; a retirement and a
+// fresh invitation each go alone, and the invitation names an auth that invites.
 func parse(args []string, stderr io.Writer) (*options, error) {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -120,6 +138,7 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	fs.Var(&o.force, "force", "set the schema migrations table to this `version`, clean, print the row before and after, and exit; -1 means no version; the next run continues from it")
 	fs.Var(&o.forceData, "force-data", "the same for the data migrations table")
 	fs.StringVar(&o.retireSecret, "retire-secret", "", "retire one version of the application secret, named by the `variable` it is handed over in (APP_SECRET_KEY_1): write every stored secret that names it again under the current version, confirm none is left, and exit; nothing is migrated")
+	fs.StringVar(&o.reinviteAdministrator, "reinvite-administrator", "", "withdraw the standing invitation of the named `auth`'s first administrator ("+strings.Join(deploy.AdministratorAuths(), ", ")+") and mail a fresh one to the address the placement names, for mail that was lost, and exit; refused once the auth has an account; nothing is migrated")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil, errors.Wrap(err, "flag.FlagSet.Parse()")
@@ -132,6 +151,10 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	}
 	forcing := o.force.set || o.forceData.set
 	switch {
+	case o.reinviteAdministrator != "" && (forcing || o.seed || o.version || o.retireSecret != ""):
+		return nil, errors.New("-reinvite-administrator applies no migration and reports no version: it goes with no other flag")
+	case o.reinviteAdministrator != "" && !slices.Contains(deploy.AdministratorAuths(), o.reinviteAdministrator):
+		return nil, errors.Newf("-reinvite-administrator %s: no auth of that name invites a first administrator; name one of %s", o.reinviteAdministrator, strings.Join(deploy.AdministratorAuths(), ", "))
 	case o.retireSecret != "" && (forcing || o.seed || o.version):
 		return nil, errors.New("-retire-secret applies no migration and reports no version: it goes with no other flag")
 	case forcing && o.seed:
@@ -145,7 +168,8 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	return &o, nil
 }
 
-// run does what the flags ask: the report, the force, or the migrations.
+// run does what the flags ask: the report, the force, the retirement, the fresh
+// invitation, or the migrations.
 func run(ctx context.Context, o *options, out io.Writer) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
@@ -161,9 +185,11 @@ func run(ctx context.Context, o *options, out io.Writer) error {
 		return force(ctx, settings, o, out)
 	case o.retireSecret != "":
 		return retireSecret(ctx, o.retireSecret, out)
+	case o.reinviteAdministrator != "":
+		return reinviteAdministrator(ctx, o.reinviteAdministrator, out)
 	}
 
-	return migrate(ctx, settings, o.seed)
+	return migrate(ctx, settings, o.seed, out)
 }
 
 // report prints one line per migrations table: what it says about the database.
@@ -240,8 +266,26 @@ func retireSecret(ctx context.Context, variable string, out io.Writer) error {
 	return nil
 }
 
-// migrate is the deployment's migration step itself.
-func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) error {
+// reinviteAdministrator sends the named auth's first administrator's invitation again:
+// it opens the data level, whose auths mail through the environment's mailbox, withdraws
+// the standing invitation and mails a fresh one to the address the placement names.
+func reinviteAdministrator(ctx context.Context, auth string, out io.Writer) error {
+	data, err := config.NewDataConfiguration(ctx)
+	if err != nil {
+		return errors.Wrap(err, "config.NewDataConfiguration()")
+	}
+	defer data.Close()
+
+	if err := deploy.ReinviteAdministrator(ctx, data, auth, out); err != nil {
+		return errors.Wrap(err, "deploy.ReinviteAdministrator()")
+	}
+
+	return nil
+}
+
+// migrate is the deployment's migration step itself; out takes what it did about each
+// first administrator's invitation.
+func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool, out io.Writer) error {
 	// The schema goes first, before any client opens: the tables the data level's
 	// clients read may not exist yet.
 	if err := deploy.MigrateSchema(ctx, settings); err != nil {
@@ -272,11 +316,13 @@ func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool) e
 		return errors.Wrap(err, "deploy.CheckRoles()")
 	}
 
-	// The foothold: a users table holding no rows means nobody can sign in, so the staff
-	// auth's first administrator is seeded now, after the roles the release ships are in
-	// place, and never again while a user exists.
-	if err := deploy.SeedAdministrators(ctx, data); err != nil {
-		return errors.Wrap(err, "deploy.SeedAdministrators()")
+	// The foothold: an auth with no account has nobody who can sign in, so the staff
+	// auth's first administrator is invited now, after the roles the release ships are in
+	// place, by an invitation mailed to the address the placement names, and nobody is
+	// invited once the auth has an account. A release that cannot mail it stops here: the
+	// link is never written to a log.
+	if err := deploy.InviteAdministrators(ctx, data, out); err != nil {
+		return errors.Wrap(err, "deploy.InviteAdministrators()")
 	}
 
 	// The feature flags the release declares: a new flag is written off, a known one keeps

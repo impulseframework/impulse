@@ -6,22 +6,17 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
-	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/auth/staff"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/config"
 	initiator "github.com/impulseframework/impulse/db"
-	"github.com/impulseframework/impulse/session"
 )
 
 // The emulator's own project and instance: db-initiator creates the instance when the
@@ -40,10 +35,16 @@ const (
 // (APP_SERVICE_NAME); any name serves the emulators.
 const serviceName = "migrate-test"
 
-// The foothold's settings, as a deployment supplies them: the password the staff auth's
-// first administrator is seeded with, the stack's generated secret.
+// administratorAddress is the foothold's setting, as a deployment supplies it: the email
+// address of the staff auth's first administrator, which the placement names.
+const administratorAddress = "ada@lakeside.example"
+
+// What the command says when it refuses to invite for want of a mailbox: the refusal,
+// whose it is, and the hand step that gives the environment its mailbox.
 const (
-	administratorPassword = "a-generated-password"
+	noMailbox       = "the application has no mailbox to send as, so the first administrator's invitation was not sent"
+	whoseInvitation = "the staff auth's first administrator (APP_STAFF_ADMINISTRATOR)"
+	mailboxHandStep = "give the environment its mailbox before this release, the deployment's hand step for the mailbox: name the mailbox (APP_MAIL_MAILBOX) and add its app password (the secret APP_MAIL_APP_PASSWORD), then run the release again"
 )
 
 // The package's emulators: the Spanner container the cases create their databases on,
@@ -107,15 +108,27 @@ func stopFirestore(ctx context.Context, f *initiator.FirestoreContainer) {
 }
 
 // TestExecute runs the command's flags against the emulators, each case on a database of
-// its own: the migrations with the seed, the report on a fresh, a migrated and a dirty
+// its own: the migrations with the seed, the first administrator's invitation where the
+// command can decide it without mailing, the report on a fresh, a migrated and a dirty
 // database, the forces with the row before and after, the refusals before the database is
 // touched, and the exit codes. The command reads its target from the environment, so the
 // cases run one at a time, from the module root, where the migrations are read from as
 // they are in the image.
+//
+// No case names a mailbox, so the data level writes its mail to the log, as an
+// environment does before the mailbox's hand step: the command then refuses to invite a
+// first administrator and says what to give, and a database with an account needs no
+// invitation. Whatever a case does, no invitation's link is in what the command wrote:
+// its output, its errors and its log are read for one after every run. The invitation
+// itself, mailed, accepted and sent again, is proven where the auth mails to a recorder
+// (test/integration).
 func TestExecute(t *testing.T) {
 	emulators(t)
-	// The foothold's settings, which a case may override.
-	t.Setenv("APP_STAFF_ADMINISTRATOR_PASSWORD", administratorPassword)
+	// The foothold's setting, which a case may override, and no mailbox, whatever the
+	// shell the suite runs in names.
+	t.Setenv(staff.AdministratorVariable, administratorAddress)
+	t.Setenv("APP_MAIL_MAILBOX", "")
+	t.Setenv("APP_MAIL_APP_PASSWORD", "")
 	last := lastMigration(t)
 
 	tests := []struct {
@@ -127,9 +140,11 @@ func TestExecute(t *testing.T) {
 		missing  bool
 		args     []string
 		wantCode int
-		// wantOut is the whole of stdout; wantErr a fragment of stderr.
-		wantOut string
-		wantErr string
+		// wantOut is the whole of stdout; wantErr a fragment of stderr, and wantAlso
+		// further fragments of it.
+		wantOut  string
+		wantErr  string
+		wantAlso []string
 		// wantAfter is what -version reports once the case has run; empty skips the check.
 		wantAfter string
 		// env overrides the environment for the case, a variable at a time; an empty value
@@ -139,26 +154,88 @@ func TestExecute(t *testing.T) {
 		after func(t *testing.T)
 	}{
 		{
-			name:      "the migrations with the seed apply every schema and data migration and seed the first administrator",
+			name:      "the migrations with the seed apply every schema and data migration; with no mailbox the first administrator is not invited, and the run says what to give",
 			args:      []string{"-seed"},
+			wantCode:  exitFailed,
+			wantErr:   noMailbox,
+			wantAlso:  []string{whoseInvitation, mailboxHandStep},
 			wantAfter: fmt.Sprintf("schema: version %d\ndata: %s\n", last, seededData(t)),
-			after:     administratorSeeded,
+			after:     nobodyInvited,
 		},
 		{
-			name:    "a database with a user seeds no administrator",
+			name:    "a database with an account invites nobody, and the run goes to its end",
 			prepare: withUser,
-			after:   administratorAbsent,
+			wantOut: "The staff auth has an account: no first administrator invited\n",
+			after:   nobodyInvited,
 		},
 		{
-			name:    "a database every user has left seeds the administrator again",
-			prepare: seededThenEmptied,
-			after:   administratorSeeded,
+			name:    "a database with an account needs no address named",
+			prepare: withUser,
+			env:     map[string]string{staff.AdministratorVariable: ""},
+			wantOut: "The staff auth has an account: no first administrator invited\n",
+			after:   nobodyInvited,
 		},
 		{
-			name:     "an empty users table with no administrator password is refused",
-			env:      map[string]string{"APP_STAFF_ADMINISTRATOR_PASSWORD": ""},
+			name:     "no account and no address named is refused",
+			env:      map[string]string{staff.AdministratorVariable: ""},
 			wantCode: exitFailed,
-			wantErr:  "no administrator password was given",
+			wantErr:  "no first administrator is named",
+			wantAlso: []string{whoseInvitation},
+			after:    nobodyInvited,
+		},
+		{
+			name:     "no account and a name that is no address is refused: the setting holds an email address, where it held a sign-in name",
+			env:      map[string]string{staff.AdministratorVariable: "administrator"},
+			wantCode: exitFailed,
+			wantErr:  "is not an email address",
+			wantAlso: []string{whoseInvitation},
+			after:    nobodyInvited,
+		},
+		{
+			name:     "a fresh invitation while the environment has no mailbox is refused, and the run says what to give",
+			prepare:  migrated,
+			args:     []string{"-reinvite-administrator", staff.Name},
+			wantCode: exitFailed,
+			wantErr:  noMailbox,
+			wantAlso: []string{whoseInvitation, mailboxHandStep},
+			after:    nobodyInvited,
+		},
+		{
+			name:     "a fresh invitation once the auth has an account is refused",
+			prepare:  withUser,
+			args:     []string{"-reinvite-administrator", staff.Name},
+			wantCode: exitFailed,
+			wantErr:  "the application has an account, so no first administrator is invited",
+			wantAlso: []string{whoseInvitation},
+			after:    nobodyInvited,
+		},
+		{
+			name:     "a fresh invitation with another flag is refused before the database is touched",
+			missing:  true,
+			args:     []string{"-reinvite-administrator", staff.Name, "-seed"},
+			wantCode: exitRefused,
+			wantErr:  "-reinvite-administrator applies no migration and reports no version: it goes with no other flag",
+		},
+		{
+			name:     "a fresh invitation with a retirement is refused before the database is touched",
+			missing:  true,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_1", "-reinvite-administrator", staff.Name},
+			wantCode: exitRefused,
+			wantErr:  "-reinvite-administrator applies no migration and reports no version: it goes with no other flag",
+		},
+		{
+			name:     "a fresh invitation for an auth that invites nobody is refused before the database is touched",
+			missing:  true,
+			args:     []string{"-reinvite-administrator", "partners"},
+			wantCode: exitRefused,
+			wantErr:  "-reinvite-administrator partners: no auth of that name invites a first administrator; name one of staff",
+		},
+		{
+			name:     "a fresh invitation without its auth is refused",
+			missing:  true,
+			args:     []string{"-reinvite-administrator"},
+			wantCode: exitRefused,
+			wantErr:  "flag needs an argument: -reinvite-administrator",
 		},
 		{
 			name:    "the report on a fresh database",
@@ -314,16 +391,32 @@ func TestExecute(t *testing.T) {
 				tt.prepare(t, db)
 			}
 
-			var stdout, stderr bytes.Buffer
+			// The process's log, where a sender that only logs would write a message, link
+			// included: read beside the command's two streams for a link.
+			var stdout, stderr, logged bytes.Buffer
+			log.SetOutput(&logged)
+			t.Cleanup(func() {
+				log.SetOutput(os.Stderr)
+			})
 			code := execute(t.Context(), tt.args, &stdout, &stderr)
 			if code != tt.wantCode {
 				t.Fatalf("execute(%v) = %d, want %d; stdout:\n%s\nstderr:\n%s", tt.args, code, tt.wantCode, stdout.String(), stderr.String())
+			}
+			for where, wrote := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String(), "the log": logged.String()} {
+				if strings.Contains(wrote, "invitation=") || strings.Contains(wrote, "/login?") {
+					t.Errorf("%s holds an invitation's link, which is for the mailed message alone:\n%s", where, wrote)
+				}
 			}
 			if stdout.String() != tt.wantOut {
 				t.Errorf("stdout = %q, want %q", stdout.String(), tt.wantOut)
 			}
 			if tt.wantErr != "" && !strings.Contains(stderr.String(), tt.wantErr) {
 				t.Errorf("stderr lacks %q:\n%s", tt.wantErr, stderr.String())
+			}
+			for _, want := range tt.wantAlso {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr lacks %q:\n%s", want, stderr.String())
+				}
 			}
 			if tt.wantErr == "" && stderr.Len() != 0 {
 				t.Errorf("stderr = %q, want none", stderr.String())
@@ -341,92 +434,6 @@ func TestExecute(t *testing.T) {
 			if after.String() != tt.wantAfter {
 				t.Errorf("the report after the run = %q, want %q", after.String(), tt.wantAfter)
 			}
-		})
-	}
-}
-
-// TestSeedAdministrator proves the foothold's rule, each case on a migrated database of
-// its own, by what the seed reports and what it leaves. The seed runs only while the
-// users table is empty, and it is two writes: the administrator's roles first, the Super
-// Administrator role among them, which the permission store holds under an id the seed
-// derives (session.SeedUserID, the same on every run), then the user, created under that
-// id with the password the seed is handed, marked for change: the deployment generated
-// it, and the first sign-in changes it. The user's row is what says the seed
-// is done: a run that stopped between the two left the table empty, and the next run
-// writes the same memberships again, each left as it is, and creates the user. Once the
-// table holds a user nothing is seeded, whoever that user is and whatever it holds: a
-// user under the administrator's name whom the seed did not create is given no role.
-// The data level reads its target from the environment, so the cases run one at a time.
-func TestSeedAdministrator(t *testing.T) {
-	emulators(t)
-	// The seed is handed the password; the setting is the deployment's, which the data
-	// level reads as it opens.
-	t.Setenv("APP_STAFF_ADMINISTRATOR_PASSWORD", administratorPassword)
-
-	tests := []struct {
-		name string
-		// prepare readies the users table and the permission store before the run; nil
-		// leaves both empty.
-		prepare func(t *testing.T, auth *staff.Auth)
-		// wantSeeded is what the run reports.
-		wantSeeded bool
-		// wantAdministrator says the run leaves the first administrator: the one user of
-		// the table, under the id the seed derives, which holds the administrator's roles.
-		// False, that the run leaves the users it found and no other, none of them holding
-		// a role, and the administrator's roles held by nobody.
-		wantAdministrator bool
-	}{
-		{
-			name:              "an empty users table: the roles are held under the id the seed derives and the user is created under it",
-			wantSeeded:        true,
-			wantAdministrator: true,
-		},
-		{
-			name:              "a second run seeds nothing: the administrator keeps the account and the roles the first gave",
-			prepare:           seededOnce,
-			wantAdministrator: true,
-		},
-		{
-			name:              "a run that stopped after the roles and before the user: the next run creates the user and each role is held once",
-			prepare:           stoppedBeforeTheUser,
-			wantSeeded:        true,
-			wantAdministrator: true,
-		},
-		{
-			name:    "a user under the administrator's name who holds no role, in a table that is not empty: nothing is seeded and the user is given no role",
-			prepare: someoneUnderTheName,
-		},
-		{
-			name:    "other users and no user under the administrator's name: nothing is seeded",
-			prepare: someoneElse,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db := database(t)
-			t.Setenv("GOOGLE_CLOUD_SPANNER_DATABASE_NAME", path.Base(db.DatabaseName()))
-			migrated(t, db)
-			data := openData(t)
-			auth := data.Staff()
-			if tt.prepare != nil {
-				tt.prepare(t, auth)
-			}
-			before := accounts(t, auth)
-
-			seeded, err := auth.SeedAdministrator(t.Context(), administratorPassword)
-			if err != nil {
-				t.Fatalf("staff.Auth.SeedAdministrator() error = %v", err)
-			}
-			if seeded != tt.wantSeeded {
-				t.Errorf("staff.Auth.SeedAdministrator() = %v, want %v", seeded, tt.wantSeeded)
-			}
-
-			if tt.wantAdministrator {
-				administratorAlone(t, data)
-
-				return
-			}
-			nothingSeeded(t, data, before)
 		})
 	}
 }
@@ -456,205 +463,6 @@ func emulators(t *testing.T) {
 	t.Setenv("APP_SERVICE_NAME", serviceName)
 	t.Setenv("APP_PUBLIC_URL", "http://sites.test")
 	t.Setenv("FIRESTORE_EMULATOR_HOST", firestoreEmulator.Host())
-}
-
-// seededOnce is a run before the case's own that seeded the administrator.
-func seededOnce(t *testing.T, auth *staff.Auth) {
-	t.Helper()
-
-	seeded, err := auth.SeedAdministrator(t.Context(), administratorPassword)
-	if err != nil || !seeded {
-		t.Fatalf("the first staff.Auth.SeedAdministrator() = %v, %v, want the administrator seeded", seeded, err)
-	}
-}
-
-// stoppedBeforeTheUser stands for a run that stopped between the seed's two writes: the
-// administrator's memberships are held under the id the seed derives, each where its
-// roles are held, written as the seed writes them, and the users table is empty.
-func stoppedBeforeTheUser(t *testing.T, auth *staff.Auth) {
-	t.Helper()
-
-	global, everyDomain := seededRoles()
-	manager := auth.Access().UserManager()
-	user := accesstypes.User(seedID().String())
-	if err := manager.AddUserRoles(t.Context(), accesstypes.GlobalPolicyScope(), user, global...); err != nil {
-		t.Fatalf("access.UserManager.AddUserRoles(%s) in the global partition error = %v", user, err)
-	}
-	if err := manager.AddUserRoles(t.Context(), accesstypes.EveryDomainPolicyScope(), user, everyDomain...); err != nil {
-		t.Fatalf("access.UserManager.AddUserRoles(%s) in every domain error = %v", user, err)
-	}
-}
-
-// someoneUnderTheName gives the auth one user under the first administrator's name whom
-// the seed did not create, as a stranger's sign-up or an operator's entry leaves one: an
-// account under an id of its own, with a password, that holds no role anywhere.
-func someoneUnderTheName(t *testing.T, auth *staff.Auth) {
-	t.Helper()
-
-	password := administratorPassword
-	if _, err := auth.Session().API().CreateSessionUser(t.Context(), &session.CreateUserRequest{Username: staff.Administrator, Password: &password}); err != nil {
-		t.Fatalf("session.AuthAPI.CreateSessionUser(%s) error = %v", staff.Administrator, err)
-	}
-}
-
-// someoneElse gives the auth one user who is not under the first administrator's name.
-func someoneElse(t *testing.T, auth *staff.Auth) {
-	t.Helper()
-
-	if _, err := auth.Session().API().CreateSessionUser(t.Context(), &session.CreateUserRequest{Username: "someone"}); err != nil {
-		t.Fatalf("session.AuthAPI.CreateSessionUser(someone) error = %v", err)
-	}
-}
-
-// seededRoles are the roles the seed writes for the first administrator, by where they
-// are held: the Super Administrator role, which the framework defines in every auth and
-// every first administrator holds, beside the application's own
-// (staff.FirstAdministratorRoles).
-func seededRoles() (global, everyDomain []accesstypes.Role) {
-	global, everyDomain = staff.FirstAdministratorRoles()
-
-	return append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...), everyDomain
-}
-
-// seedID is the id the seed creates the first administrator under, which it derives from
-// the auth's name and the administrator's: the same on every run.
-func seedID() impulse.UUID {
-	return session.SeedUserID(staff.Name, staff.Administrator)
-}
-
-// accounts are the auth's users: the name of each by the id of its account.
-func accounts(t *testing.T, auth *staff.Auth) map[impulse.UUID]string {
-	t.Helper()
-
-	users, err := auth.Session().API().Users(t.Context())
-	if err != nil {
-		t.Fatalf("session.AuthAPI.Users() error = %v", err)
-	}
-	byID := make(map[impulse.UUID]string, len(users))
-	for _, user := range users {
-		byID[user.ID] = user.Username
-	}
-
-	return byID
-}
-
-// administratorAlone checks what the seed leaves: the users table holds the first
-// administrator alone, under the id the seed derives, with the password the seed was
-// handed marked for change, and the permission store holds the administrator's roles
-// under that id.
-func administratorAlone(t *testing.T, data *config.DataConfiguration) {
-	t.Helper()
-
-	id := seedID()
-	if got, want := accounts(t, data.Staff()), map[impulse.UUID]string{id: staff.Administrator}; !maps.Equal(got, want) {
-		t.Errorf("the users table after the run = %v, want %v: %s alone, under the id the seed derives", got, want, staff.Administrator)
-	} else {
-		mustChangePassword(t, data.Staff(), id)
-	}
-	holdsAdministratorRoles(t, data, id)
-}
-
-// mustChangePassword checks the first administrator's row holds a password and the mark
-// that it must change (PasswordChangeRequired). The deployment generated the password,
-// so the session library serves the person nothing but the change until they have chosen
-// one of their own, and the generated one signs nobody in after that.
-func mustChangePassword(t *testing.T, auth *staff.Auth, id impulse.UUID) {
-	t.Helper()
-
-	user, err := auth.Session().API().User(t.Context(), id)
-	if err != nil {
-		t.Fatalf("session.AuthAPI.User(%s) error = %v", id, err)
-	}
-	if user.PasswordHash == nil {
-		t.Errorf("%s holds no password, want the one the seed was handed", staff.Administrator)
-	}
-	if !user.PasswordChangeRequired {
-		t.Errorf("%s is not marked to change the password, want the mark: the deployment generated the password, and the first sign-in changes it", staff.Administrator)
-	}
-}
-
-// nothingSeeded checks what a run that seeds nothing leaves: the users table as the run
-// found it, the same accounts under the same names and no other; none of them holding a
-// role anywhere, whatever its name; nothing held under the id the seed derives or under
-// the administrator's username; and the administrator's roles held by nobody.
-func nothingSeeded(t *testing.T, data *config.DataConfiguration, before map[impulse.UUID]string) {
-	t.Helper()
-
-	after := accounts(t, data.Staff())
-	if !maps.Equal(after, before) {
-		t.Errorf("the users table after the run = %v, want %v: the users the run found and no other", after, before)
-	}
-	for id, name := range after {
-		holdsNoRole(t, data, accesstypes.User(id.String()), "the account of "+name+", which the seed did not create")
-	}
-	holdsNoRole(t, data, accesstypes.User(seedID().String()), "the id the seed derives, which no user is under")
-	holdsNoRole(t, data, staff.Administrator, "the administrator's username: a role is held by the account")
-	global, everyDomain := seededRoles()
-	heldBy(t, data, accesstypes.GlobalPolicyScope(), global)
-	heldBy(t, data, accesstypes.EveryDomainPolicyScope(), everyDomain)
-}
-
-// holdsAdministratorRoles checks the permission store holds the administrator's roles
-// under the id of the account, each where it is held and each held by that account
-// alone, nothing anywhere else under the id, and nothing under the administrator's
-// username: a membership names its person by the id of their account, and one written
-// under a name is held by nobody.
-func holdsAdministratorRoles(t *testing.T, data *config.DataConfiguration, id impulse.UUID) {
-	t.Helper()
-
-	user := accesstypes.User(id.String())
-	roles, err := data.UserManager().UserRoles(t.Context(), user)
-	if err != nil {
-		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", id, err)
-	}
-	global, everyDomain := seededRoles()
-	if got, want := sorted(roles[accesstypes.GlobalPolicyScope()]), sorted(global); !slices.Equal(got, want) {
-		t.Errorf("roles in the global partition = %v, want %v", got, want)
-	}
-	if got, want := sorted(roles[accesstypes.EveryDomainPolicyScope()]), sorted(everyDomain); !slices.Equal(got, want) {
-		t.Errorf("roles in every domain = %v, want %v", got, want)
-	}
-	delete(roles, accesstypes.GlobalPolicyScope())
-	delete(roles, accesstypes.EveryDomainPolicyScope())
-	for scope, held := range roles {
-		t.Errorf("roles held under the id of the account in %v = %v, want none: the administrator's roles are held in the global partition and in every domain", scope, held)
-	}
-	heldBy(t, data, accesstypes.GlobalPolicyScope(), global, user)
-	heldBy(t, data, accesstypes.EveryDomainPolicyScope(), everyDomain, user)
-	holdsNoRole(t, data, staff.Administrator, "the administrator's username: a role is held by the account")
-}
-
-// heldBy checks who holds each of the roles where they are held: the users given and no
-// other, so a second set of memberships under another id fails it; nobody, when none is
-// given.
-func heldBy(t *testing.T, data *config.DataConfiguration, scope accesstypes.PolicyScope, roles []accesstypes.Role, want ...accesstypes.User) {
-	t.Helper()
-
-	for _, role := range roles {
-		got, err := data.UserManager().RoleUsers(t.Context(), scope, role)
-		if err != nil {
-			t.Fatalf("access.UserManager.RoleUsers(%v, %s) error = %v", scope, role, err)
-		}
-		if !slices.Equal(got, want) {
-			t.Errorf("the users who hold %s (%v) = %v, want %v", role, scope, got, want)
-		}
-	}
-}
-
-// holdsNoRole checks the permission store holds no role under the user anywhere; whose
-// says who the user is, for the failure.
-func holdsNoRole(t *testing.T, data *config.DataConfiguration, user accesstypes.User, whose string) {
-	t.Helper()
-
-	roles, err := data.UserManager().UserRoles(t.Context(), user)
-	if err != nil {
-		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", user, err)
-	}
-	for scope, held := range roles {
-		if len(held) > 0 {
-			t.Errorf("roles held under %s (%s) in %v = %v, want none", user, whose, scope, held)
-		}
-	}
 }
 
 // secretVersion is one version of a test application secret as the deployment hands it
@@ -704,8 +512,8 @@ func dirty(t *testing.T, db *initiator.SpannerDB) {
 	}
 }
 
-// withUser migrates the database and gives the staff auth one user, so the foothold has
-// nothing to do.
+// withUser migrates the database and gives the staff auth one user, so the auth has an
+// account and nobody is invited.
 func withUser(t *testing.T, db *initiator.SpannerDB) {
 	t.Helper()
 
@@ -713,28 +521,6 @@ func withUser(t *testing.T, db *initiator.SpannerDB) {
 	mutation := spanner.Insert("StaffSessionUsers", []string{"Id", "Username", "CreatedAt"}, []any{"00000000-0000-4000-8000-000000000001", "someone", spanner.CommitTimestamp})
 	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
-	}
-}
-
-// seededThenEmptied runs the migration once, which seeds the administrator, then deletes
-// the administrator: a users table every user has left. The administrator's memberships
-// stay in the permission store, under the id the seed derives, so the next run finds
-// them, leaves each as it is and creates the user under that id again.
-func seededThenEmptied(t *testing.T, _ *initiator.SpannerDB) {
-	t.Helper()
-
-	var stdout, stderr bytes.Buffer
-	if code := execute(t.Context(), nil, &stdout, &stderr); code != 0 {
-		t.Fatalf("execute() = %d; stderr:\n%s", code, stderr.String())
-	}
-	data := openData(t)
-	api := data.Staff().Session().API()
-	id, err := api.ValidateCredentials(t.Context(), staff.Administrator, administratorPassword)
-	if err != nil {
-		t.Fatalf("session.AuthAPI.ValidateCredentials(%s) error = %v", staff.Administrator, err)
-	}
-	if err := api.DeleteSessionUser(t.Context(), id); err != nil {
-		t.Fatalf("session.AuthAPI.DeleteSessionUser(%s) error = %v", staff.Administrator, err)
 	}
 }
 
@@ -757,32 +543,20 @@ func openData(t *testing.T) *config.DataConfiguration {
 	return data
 }
 
-// administratorSeeded checks the foothold: the staff auth's administrator signs in with
-// the configured password and is the one user of the table, under the id the seed
-// derives, which holds the administrator's roles in the permission store.
-func administratorSeeded(t *testing.T) {
+// nobodyInvited checks what a run that mailed nothing leaves: no invitation stands for
+// the staff auth, so no link exists that anybody could open. A case on a database the
+// run never migrated has no table to read and nothing to check.
+func nobodyInvited(t *testing.T) {
 	t.Helper()
 
 	data := openData(t)
-	if _, err := data.Staff().Session().API().ValidateCredentials(t.Context(), staff.Administrator, administratorPassword); err != nil {
-		t.Errorf("session.AuthAPI.ValidateCredentials(%s) error = %v", staff.Administrator, err)
+	invitations, err := data.Staff().Session().API().Invitations(t.Context())
+	if err != nil {
+		t.Fatalf("session.AuthAPI.Invitations() error = %v", err)
 	}
-	administratorAlone(t, data)
-}
-
-// administratorAbsent checks nothing was seeded: no administrator signs in.
-func administratorAbsent(t *testing.T) {
-	t.Helper()
-
-	data := openData(t)
-	if _, err := data.Staff().Session().API().ValidateCredentials(t.Context(), staff.Administrator, administratorPassword); err == nil {
-		t.Errorf("session.AuthAPI.ValidateCredentials(%s) succeeded, want a refusal", staff.Administrator)
+	for _, invitation := range invitations {
+		t.Errorf("an invitation stands for %s, want none: nothing was mailed", invitation.Email)
 	}
-}
-
-// sorted is a copy of the roles in order, for a comparison that ignores the store's.
-func sorted(roles []accesstypes.Role) []accesstypes.Role {
-	return slices.Sorted(slices.Values(roles))
 }
 
 // lastMigration is the highest version among the tree's schema migrations.

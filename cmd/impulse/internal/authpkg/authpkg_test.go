@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
-	"go/types"
 	"maps"
 	"os"
 	"path/filepath"
@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/app"
 )
 
@@ -184,69 +185,24 @@ func TestFiles(t *testing.T) {
 	requireImportsNamed(t, rendered)
 }
 
-// TestFiles_castRefusesTheFirstAdministratorsName holds the persona seed apart from the
-// first administrator's: the two derive an account's id from its name, so where the
-// auth seeds a first administrator with a password the cast refuses a persona of that
-// name, and where it seeds none there is no name to refuse.
-func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
-	t.Parallel()
-	const refusal = "if id == session.SeedUserID(Name, Administrator) {"
-	tests := []struct {
-		name string
-		spec *Spec
-		want bool
-	}{
-		{name: "a password first administrator", want: true, spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "crew", Methods: []Method{
-			{Kind: app.MethodPassword},
-			{Kind: app.MethodPersona},
-		}}},
-		{name: "no password first administrator", want: false, spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "reviewers", Methods: []Method{
-			{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication},
-			{Kind: app.MethodPersona},
-		}}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			files, err := Files(tt.spec)
-			if err != nil {
-				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
-			}
-			cast, ok := files[CastGoFile]
-			if !ok {
-				t.Fatalf("Files(%s) wrote no %s", tt.spec.Name, CastGoFile)
-			}
-			if got := strings.Contains(string(cast), refusal); got != tt.want {
-				t.Errorf("%s refuses a persona named as the first administrator = %v, want %v", CastGoFile, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestFiles_footholdRegistration holds the first administrator of an auth whose people
-// sign in through a directory to the registration their name is believed from. Such an
-// administrator is seeded with no password and holds roles for the whole application,
-// so where the application's tenants have directories nothing but the deployment's own
-// word links the account at its person's first sign-in: the seed creates it under the
-// id that names the registration (session.SeedUserIDThrough). Naming a registration
-// says that whoever its directory presents under the name is the administrator, so the
-// generator names one only where it cannot be wrong: the auth's one directory method
-// whose roles the application gives, of one Microsoft Entra tenant or one Google
-// Workspace. A method open to more than one organization is never it, since any of
-// them could present the name; an organization's identity provider is not, since the
-// library can hold its names to nothing; with several directory methods nothing says
-// which is the deployment's own, and their order says nothing; and the persona method
-// is no foothold's. An auth with no such method seeds the account for no registration
-// and says what follows and what its author may do; a password foothold, which signs
-// in with its password, is seeded as it always was.
-func TestFiles_footholdRegistration(t *testing.T) {
+// TestFiles_firstAdministratorInvited holds how an auth's first administrator comes in:
+// by an invitation mailed to the address the placement names, whichever methods the auth
+// has. The foothold file asks the session library for the invitation
+// (session.AuthAPI.InviteFirstAdministrator) under the convention's variable, creates no
+// account and no password, and is the same code for a password auth, for a directory of
+// one organization and for a directory method open to any number of them, an
+// organization's identity provider or several methods: the invitation, and not the
+// method's width, ties the person's first sign-in to the roles. An auth with no
+// generated management invites nobody, since nothing would give the invitation's roles,
+// and says so; an auth whose directory writes the roles has no foothold file.
+func TestFiles_firstAdministratorInvited(t *testing.T) {
 	t.Parallel()
 
 	const (
-		forNone      = "id := session.SeedUserID(Name, req.Username)"
-		refusedSaid  = "its first sign-in is refused as a\n// stranger's is"
-		byHandSaid   = "derive the id with session.SeedUserIDThrough(Name, the\n// registration's constant, req.Username)"
-		believedFrom = "its id says which of the auth's\n// registrations the name is believed from"
+		invites   = "a.handlers.API().InviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: roles})"
+		reinvites = "a.handlers.API().ReinviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: roles})"
+		variable  = `const AdministratorVariable = "APP_MEMBERS_ADMINISTRATOR"`
+		nobody    = "The deployment invites no first administrator for this auth."
 	)
 	application := func(kind, name, slot string) Method {
 		return Method{Kind: kind, Name: name, Slot: slot, Authority: app.AuthorityApplication}
@@ -254,90 +210,132 @@ func TestFiles_footholdRegistration(t *testing.T) {
 	tests := []struct {
 		name    string
 		methods []Method
-		// wantRegistration is the constant the seed names, "" where it names none, and
-		// wantFoothold the foothold's form.
-		wantRegistration string
-		wantFoothold     string
+		// noManagement renders the auth for an application that generates no management
+		// of its people.
+		noManagement bool
+		// wantFoothold says the package holds a foothold file, and wantInvites that it
+		// invites a first administrator.
+		wantFoothold, wantInvites bool
 	}{
-		{name: "one Microsoft Entra tenant", methods: []Method{application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership},
-		{name: "a slot left empty is one organization", methods: []Method{application(app.MethodAzure, "directory", "")}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership},
-		{name: "one Google Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotOne)}, wantRegistration: "GoogleRegistration", wantFoothold: FootholdMembership},
+		{name: "the password method", methods: []Method{{Kind: app.MethodPassword}}, wantFoothold: true, wantInvites: true},
+		{name: "one Microsoft Entra tenant", methods: []Method{application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: true, wantInvites: true},
+		{name: "one Google Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotOne)}, wantFoothold: true, wantInvites: true},
+		{name: "any tenant", methods: []Method{application(app.MethodAzure, "directory", SlotAny)}, wantFoothold: true, wantInvites: true},
+		{name: "listed tenants", methods: []Method{application(app.MethodAzure, "directory", SlotListed)}, wantFoothold: true, wantInvites: true},
+		{name: "one tenant and personal accounts", methods: []Method{application(app.MethodAzure, "directory", SlotOnePersonal)}, wantFoothold: true, wantInvites: true},
+		{name: "any Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotAnyWorkspace)}, wantFoothold: true, wantInvites: true},
+		{name: "any Google account", methods: []Method{application(app.MethodGoogle, "google", SlotAny)}, wantFoothold: true, wantInvites: true},
+		{name: "an organization's identity provider", methods: []Method{application(app.MethodOIDC, "okta", "")}, wantFoothold: true, wantInvites: true},
 		{
-			name:    "the persona method beside the one directory method does not make two",
-			methods: []Method{application(app.MethodPersona, "", ""), application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership,
+			name:    "several directory methods",
+			methods: []Method{application(app.MethodAzure, "partners", SlotOne), application(app.MethodGoogle, "google", SlotAny), application(app.MethodOIDC, "okta", "")}, wantFoothold: true, wantInvites: true,
 		},
 		{
-			name:    "a method whose directory writes the roles is not the application's to seed for, and does not make two",
-			methods: []Method{{Kind: app.MethodAzure, Name: "staff", Slot: SlotOne, Authority: app.AuthorityDirectory}, application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership,
+			name:    "the password method beside a directory",
+			methods: []Method{{Kind: app.MethodPassword}, application(app.MethodAzure, "directory", SlotAny)}, wantFoothold: true, wantInvites: true,
 		},
-		{name: "an organization's identity provider: the library holds its names to nothing", methods: []Method{application(app.MethodOIDC, "okta", "")}, wantFoothold: FootholdMembership},
-		{name: "any tenant could present the name", methods: []Method{application(app.MethodAzure, "directory", SlotAny)}, wantFoothold: FootholdMembership},
-		{name: "listed tenants could each present the name", methods: []Method{application(app.MethodAzure, "directory", SlotListed)}, wantFoothold: FootholdMembership},
-		{name: "one tenant and personal accounts", methods: []Method{application(app.MethodAzure, "directory", SlotOnePersonal)}, wantFoothold: FootholdMembership},
-		{name: "any Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotAnyWorkspace)}, wantFoothold: FootholdMembership},
-		{name: "one Workspace and any Google account", methods: []Method{application(app.MethodGoogle, "google", SlotMixed)}, wantFoothold: FootholdMembership},
+		{name: "the persona method beside a directory", methods: []Method{application(app.MethodPersona, "", ""), application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: true, wantInvites: true},
+		{name: "no generated management: nothing would give the invitation's roles", methods: []Method{{Kind: app.MethodPassword}}, noManagement: true, wantFoothold: true},
 		{
-			name:    "two directory methods of one organization each: nothing says which is the deployment's own",
-			methods: []Method{application(app.MethodAzure, "partners", SlotOne), application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdMembership,
+			name:    "a directory that writes the roles ranks its people itself",
+			methods: []Method{{Kind: app.MethodAzure, Name: "staff", Slot: SlotOne, Authority: app.AuthorityDirectory}},
 		},
-		{
-			name:    "a provider declared before the one tenant is not taken for the deployment's own, and neither is the tenant",
-			methods: []Method{application(app.MethodOIDC, "okta", ""), application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdMembership,
-		},
-		{
-			name:    "a wide method beside the one tenant leaves two",
-			methods: []Method{application(app.MethodAzure, "directory", SlotOne), application(app.MethodGoogle, "google", SlotAny)}, wantFoothold: FootholdMembership,
-		},
-		{name: "the persona method alone is no foothold's", methods: []Method{application(app.MethodPersona, "", "")}, wantFoothold: FootholdMembership},
-		{name: "a password foothold signs in with its password", methods: []Method{{Kind: app.MethodPassword}, application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdPassword},
 	}
+	// The code of the foothold file of every auth that invites is one text: nothing in
+	// it turns on the auth's methods.
+	var code string
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			spec := &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: tt.methods}
-			files, err := Files(spec)
-			if err != nil {
-				t.Fatalf("Files() error = %v", err)
+		spec := &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", IdentityDir: "pkg/identity", Methods: tt.methods}
+		if tt.noManagement {
+			spec.IdentityDir = ""
+		}
+		files, err := Files(spec)
+		if err != nil {
+			t.Fatalf("%s: Files() error = %v", tt.name, err)
+		}
+		if got := Foothold(spec); got != tt.wantFoothold {
+			t.Errorf("%s: Foothold() = %v, want %v", tt.name, got, tt.wantFoothold)
+		}
+		if got := InvitesAdministrator(spec); got != tt.wantInvites {
+			t.Errorf("%s: InvitesAdministrator() = %v, want %v", tt.name, got, tt.wantInvites)
+		}
+		foothold, ok := files[footholdFile]
+		if ok != tt.wantFoothold {
+			t.Fatalf("%s: Files() wrote a %s = %v, want %v", tt.name, footholdFile, ok, tt.wantFoothold)
+		}
+		if !ok {
+			continue
+		}
+		text := string(foothold)
+		for _, want := range []string{invites, reinvites, variable} {
+			if got := strings.Contains(text, want); got != tt.wantInvites {
+				t.Errorf("%s: %s holds %q = %v, want %v", tt.name, footholdFile, want, got, tt.wantInvites)
 			}
-			if got := Foothold(spec); got != tt.wantFoothold {
-				t.Fatalf("Foothold() = %q, want %q", got, tt.wantFoothold)
+		}
+		if got := strings.Contains(text, nobody); got == tt.wantInvites {
+			t.Errorf("%s: %s says the deployment invites nobody = %v, want %v", tt.name, footholdFile, got, !tt.wantInvites)
+		}
+		// Nothing of the account the deployment used to create: no user, no password, no
+		// id derived for a seed, and no registration named for a sign-in name.
+		for _, gone := range []string{"CreateSessionUser", "CreateUserRequest", "SeedUserID", "SeedAdministrator", "password string", "usersTable"} {
+			if strings.Contains(text, gone) {
+				t.Errorf("%s: %s still holds %q: the first administrator is invited, and no account is created ahead of them", tt.name, footholdFile, gone)
 			}
-			var registration string
-			if m := FootholdMethod(spec); m != nil {
-				registration = m.Registration()
-			}
-			if registration != tt.wantRegistration {
-				t.Errorf("FootholdMethod() names %q, want %q", registration, tt.wantRegistration)
-			}
-			foothold := string(files[footholdFile])
-			forRegistration := "id := session.SeedUserIDThrough(Name, " + tt.wantRegistration + ", req.Username)"
-			switch {
-			case tt.wantRegistration != "":
-				if !strings.Contains(foothold, forRegistration) || strings.Contains(foothold, forNone) || !strings.Contains(foothold, believedFrom) || strings.Contains(foothold, refusedSaid) {
-					t.Errorf("%s does not seed the first administrator for %s alone and say so:\n%s", footholdFile, tt.wantRegistration, foothold)
-				}
-			case tt.wantFoothold == FootholdMembership:
-				// No registration the generator may name: the account is seeded for none,
-				// and the file says its first sign-in links nothing where tenants have
-				// directories, and how its author names the deployment's own directory.
-				if !strings.Contains(foothold, forNone) || strings.Contains(foothold, "id := session.SeedUserIDThrough") || !strings.Contains(foothold, refusedSaid) || !strings.Contains(foothold, byHandSaid) {
-					t.Errorf("%s does not seed the first administrator for no registration and say what follows and what its author may do:\n%s", footholdFile, foothold)
-				}
-			default:
-				if !strings.Contains(foothold, forNone) || strings.Contains(foothold, "SeedUserIDThrough") || strings.Contains(foothold, refusedSaid) {
-					t.Errorf("%s does not seed the password administrator as it was:\n%s", footholdFile, foothold)
-				}
-			}
-		})
+		}
+		if !tt.wantInvites {
+			continue
+		}
+		body := functionsOf(t, foothold, "InviteAdministrator", "ReinviteAdministrator", "firstAdministratorRoleNames")
+		if code == "" {
+			code = body
+		}
+		if body != code {
+			t.Errorf("%s: the foothold's code differs from the first auth's, want one text whatever the methods (-first +this):\n%s", tt.name, cmp.Diff(code, body))
+		}
 	}
+	if code == "" {
+		t.Fatal("no case rendered a foothold that invites")
+	}
+}
+
+// functionsOf renders the named functions of a rendered Go file, bodies and no comments,
+// in the order given: what the file does, apart from what it says.
+func functionsOf(t *testing.T, src []byte, names ...string) string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, footholdFile, src, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parser.ParseFile(%s) error = %v", footholdFile, err)
+	}
+	var b strings.Builder
+	for _, name := range names {
+		found := false
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != name {
+				continue
+			}
+			found = true
+			fn.Doc = nil
+			if err := printer.Fprint(&b, fset, fn); err != nil {
+				t.Fatalf("printer.Fprint(%s) error = %v", name, err)
+			}
+			b.WriteString("\n")
+		}
+		if !found {
+			t.Fatalf("%s declares no %s", footholdFile, name)
+		}
+	}
+
+	return b.String()
 }
 
 // TestFiles_superAdministrator holds what every auth package writes for the role the
 // framework defines in every auth: the Auth is built told who its super administrators
 // are, so their sign-in carries a second factor whatever the sign-in rule asks; the engine is
 // built with the methods that give and take the auth's roles where the application
-// generates them; the first administrator is seeded holding the role; and a persona the
+// generates them; the first administrator's invitation gives the role; and a persona the
 // cast names a super administrator is seated in the global partition. An auth whose
 // roles the directory writes says the directory decides who is a super administrator,
 // and promises no second factor of the library's own.
@@ -346,7 +344,7 @@ func TestFiles_superAdministrator(t *testing.T) {
 	const (
 		told    = "\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n"
 		methods = "access.WithSuperAdministratorMethods(%sidentity.SuperAdministratorMethods()...),"
-		seeded  = "global = append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)"
+		invited = "names := []string{string(accesstypes.SuperAdministrator)}"
 		seated  = "case role == accesstypes.SuperAdministrator, definesRole(roles.Roles.Global, role):"
 		tenants = "identity.WithAdministratorRoles(tenantAdministrators)"
 		// What the package says of the holder's sign-in: the library's factor where
@@ -358,32 +356,32 @@ func TestFiles_superAdministrator(t *testing.T) {
 		name string
 		spec *Spec
 		// wantMethods says the engine is handed the generated management's methods,
-		// wantSeeded that a first administrator is seeded, and wantSeated that the
-		// package holds a cast.
-		wantMethods, wantSeeded, wantSeated bool
+		// wantFoothold that the application gives the auth's roles, wantInvited that a
+		// first administrator is invited, and wantSeated that the package holds a cast.
+		wantMethods, wantFoothold, wantInvited, wantSeated bool
 	}{
 		{
-			name: "a password auth with its generated management", wantMethods: true, wantSeeded: true,
+			name: "a password auth with its generated management", wantMethods: true, wantFoothold: true, wantInvited: true,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
 		},
 		{
-			name: "a password auth with no generated management", wantSeeded: true,
+			name: "a password auth with no generated management invites nobody", wantFoothold: true,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
 		},
 		{
-			name: "a directory auth whose roles the application gives", wantMethods: true, wantSeeded: true,
+			name: "a directory auth whose roles the application gives", wantMethods: true, wantFoothold: true, wantInvited: true,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", IdentityDir: "pkg/identity", Methods: []Method{
 				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
 			}},
 		},
 		{
-			name: "a directory auth whose roles the directory gives seeds nobody", wantMethods: true,
+			name: "a directory auth whose roles the directory gives invites nobody", wantMethods: true,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", IdentityDir: "pkg/identity", Methods: []Method{
 				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
 			}},
 		},
 		{
-			name: "an auth with a cast", wantMethods: true, wantSeeded: true, wantSeated: true,
+			name: "an auth with a cast", wantMethods: true, wantFoothold: true, wantInvited: true, wantSeated: true,
 			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "crew", IdentityDir: "pkg/identity", Methods: []Method{
 				{Kind: app.MethodPassword},
 				{Kind: app.MethodPersona},
@@ -401,7 +399,7 @@ func TestFiles_superAdministrator(t *testing.T) {
 			if !strings.Contains(auth, told) {
 				t.Errorf("%s.go does not tell the Auth who its super administrators are: it lacks %q", tt.spec.Name, told)
 			}
-			synced := !tt.wantSeeded
+			synced := !tt.wantFoothold
 			if got := strings.Count(auth, factor); (got == 0) != synced {
 				t.Errorf("%s.go promises the library's second factor for a holder %d times, want none = %v", tt.spec.Name, got, synced)
 			}
@@ -411,15 +409,15 @@ func TestFiles_superAdministrator(t *testing.T) {
 			if got := strings.Contains(auth, fmt.Sprintf(methods, tt.spec.Name)); got != tt.wantMethods {
 				t.Errorf("%s.go hands the engine the methods that give and take the auth's roles = %v, want %v", tt.spec.Name, got, tt.wantMethods)
 			}
-			if got := strings.Contains(auth, tenants); got != (tt.wantMethods && tt.wantSeeded) {
-				t.Errorf("%s.go names the tenant's administrator roles alone to the identity client = %v, want %v", tt.spec.Name, got, tt.wantMethods && tt.wantSeeded)
+			if got := strings.Contains(auth, tenants); got != (tt.wantMethods && tt.wantFoothold) {
+				t.Errorf("%s.go names the tenant's administrator roles alone to the identity client = %v, want %v", tt.spec.Name, got, tt.wantMethods && tt.wantFoothold)
 			}
 			foothold, ok := files[footholdFile]
-			if ok != tt.wantSeeded {
-				t.Fatalf("Files(%s) wrote a %s = %v, want %v", tt.spec.Name, footholdFile, ok, tt.wantSeeded)
+			if ok != tt.wantFoothold {
+				t.Fatalf("Files(%s) wrote a %s = %v, want %v", tt.spec.Name, footholdFile, ok, tt.wantFoothold)
 			}
-			if ok && !strings.Contains(string(foothold), seeded) {
-				t.Errorf("%s does not seed the first administrator with the Super Administrator role: it lacks %q", footholdFile, seeded)
+			if got := strings.Contains(string(foothold), invited); got != tt.wantInvited {
+				t.Errorf("%s invites the first administrator to the Super Administrator role (%q) = %v, want %v", footholdFile, invited, got, tt.wantInvited)
 			}
 			cast, ok := files[CastGoFile]
 			if ok != tt.wantSeated {
@@ -430,105 +428,6 @@ func TestFiles_superAdministrator(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestFiles_firstAdministratorChangesThePassword holds the user the seed of an auth's
-// first administrator creates. The password of an auth with a password method is the
-// one the deployment generated, so the seed creates the user marked to change it
-// (session.CreateUserRequest.PasswordChangeRequired): the session library serves the
-// person nothing but the change until they have chosen a password of their own, and the
-// generated one signs nobody in after that. The first administrator of an auth whose
-// people a directory signs in is created under a sign-in name with no password, which
-// has none to change: the session library refuses the mark on such a user, and the seed
-// sets none.
-func TestFiles_firstAdministratorChangesThePassword(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		spec *Spec
-		// want is the request the rendered SeedAdministrator creates the user with: each
-		// field it sets, as the file writes it.
-		want map[string]string
-	}{
-		{
-			name: "a password auth: the generated password is marked for change",
-			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
-			want: map[string]string{"Username": "Administrator", "Password": "&password", "PasswordChangeRequired": "true"},
-		},
-		{
-			name: "a password auth with a directory beside it: the generated password is marked for change",
-			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "tenants", Methods: []Method{
-				{Kind: app.MethodPassword},
-				{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
-			}},
-			want: map[string]string{"Username": "Administrator", "Password": "&password", "PasswordChangeRequired": "true"},
-		},
-		{
-			name: "a directory auth whose roles the application gives: no password and no mark",
-			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: []Method{
-				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
-			}},
-			want: map[string]string{"Username": "signInName"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			files, err := Files(tt.spec)
-			if err != nil {
-				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
-			}
-			foothold, ok := files[footholdFile]
-			if !ok {
-				t.Fatalf("Files(%s) wrote no %s", tt.spec.Name, footholdFile)
-			}
-			if got := seedRequest(t, foothold); !maps.Equal(got, tt.want) {
-				t.Errorf("%s: SeedAdministrator creates the user with %v, want %v", footholdFile, got, tt.want)
-			}
-		})
-	}
-}
-
-// seedRequest reads the session.CreateUserRequest the SeedAdministrator of a rendered
-// foothold file creates the first administrator with: each field the literal sets, by
-// name, as the file writes its value. The file must hold exactly one such literal in
-// that function.
-func seedRequest(t *testing.T, foothold []byte) map[string]string {
-	t.Helper()
-
-	file, err := parser.ParseFile(token.NewFileSet(), footholdFile, foothold, parser.AllErrors)
-	if err != nil {
-		t.Fatalf("parser.ParseFile(%s) error = %v", footholdFile, err)
-	}
-	var requests []map[string]string
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "SeedAdministrator" {
-			continue
-		}
-		ast.Inspect(fn, func(n ast.Node) bool {
-			lit, ok := n.(*ast.CompositeLit)
-			if !ok || types.ExprString(lit.Type) != "session.CreateUserRequest" {
-				return true
-			}
-			fields := map[string]string{}
-			for _, elt := range lit.Elts {
-				kv, ok := elt.(*ast.KeyValueExpr)
-				if !ok {
-					t.Fatalf("%s: SeedAdministrator's session.CreateUserRequest sets a field without naming it: %s", footholdFile, types.ExprString(elt))
-				}
-				fields[types.ExprString(kv.Key)] = types.ExprString(kv.Value)
-			}
-			requests = append(requests, fields)
-
-			return true
-		})
-	}
-	if len(requests) != 1 {
-		t.Fatalf("%s: SeedAdministrator holds %d session.CreateUserRequest literals, want one", footholdFile, len(requests))
-	}
-
-	return requests[0]
 }
 
 // TestFiles_signedInHook holds what an auth package sets for the roles given for a

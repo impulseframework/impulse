@@ -212,7 +212,7 @@ func (m *Method) writeCast(a *app.App, pkg *app.AuthPackage, pkgSpec *authpkg.Sp
 	}
 	ch.didf("%s/%s and %s/%s: the cast of the persona sign-in, empty, and the file that embeds it, reads it (Cast) and seeds its accounts (SeedCast)", pkg.Dir, cast.CastFile, pkg.Dir, authpkg.CastGoFile)
 	ch.skipf("%s/%s: name the personas (login, name, email, roles from roles.json); impulse check and bedrock check refuse an empty cast (persona-cast), since a persona sign-in with nobody to sign in as deploys nothing useful", pkg.Dir, cast.CastFile)
-	ch.skipf("cmd/deployment/migrate: seed the cast where the seed runs (-seed), after SeedAdministrators: data.%s().SeedCast(ctx), so the environments that take the seed hold the personas' accounts for the sign-in to link", names.Pascal(m.Auth))
+	ch.skipf("cmd/deployment/migrate: seed the cast where the seed runs (-seed), after InviteAdministrators: data.%s().SeedCast(ctx), so the environments that take the seed hold the personas' accounts for the sign-in to link", names.Pascal(m.Auth))
 	ch.skipf("placement.json: name the persona provider under persona ({\"issuer\": the provider's URL, \"clientId\": the application's client ID root, both from the provider's registration of the application}), so bedrock sets %s in the first environment and its pull requests, derives %s and %s, and registers each deployment with the provider after traffic; without it the method is registered nowhere", methodVariables(m.Auth, &pkgSpec.Methods[0])[0], methodVariables(m.Auth, &pkgSpec.Methods[0])[1], methodVariables(m.Auth, &pkgSpec.Methods[0])[2])
 
 	return nil
@@ -315,7 +315,7 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 	}
 	loc := returnAuthRE.FindIndex(edited)
 	if loc == nil {
-		ch.skipf("%s: New does not end in `return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does (db: db where the auth carries a foothold, identity where the application generates the auth's management), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
+		ch.skipf("%s: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does (identity where the application generates the auth's management), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
 	} else {
 		edited = append(edited[:loc[0]:loc[0]], append([]byte(registration), edited[loc[0]:]...)...)
 	}
@@ -328,10 +328,9 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 }
 
 // returnAuthRE matches the Auth file's final statement, before which a method's
-// registration goes: the rendered auth packages' return, with the database client where
-// the auth carries a foothold and the identity client where the application generates
-// the auth's management.
-var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{(?:db: db, )?access: accessClient, handlers: handlers(?:, identity: identityClient)?\}, nil`)
+// registration goes: the rendered auth packages' return, with the identity client where
+// the application generates the auth's management.
+var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{access: accessClient, handlers: handlers(?:, identity: identityClient)?\}, nil`)
 
 // hereRE matches the package doc's list of the methods registered on the Auth, which a
 // method added joins.
@@ -584,7 +583,7 @@ func (m *Method) Meaning() string {
 	case spec.Persona():
 		items = append(items,
 			fmt.Sprintf("Name the cast in `pkg/auth/%s/cast.json`: each persona's login, name, email and roles (roles the role file defines; a global role is held in the global partition, a domain role in every tenant domain). The deploy registers the cast with the provider, the picker shows it, and the migrate command seeds its accounts.", m.Auth),
-			fmt.Sprintf("Seed the cast where the seed runs: in `cmd/deployment/migrate`, after `SeedAdministrators`, call `data.%s().SeedCast(ctx)` under `-seed`, so the environments that take the seed hold the personas' accounts for the sign-in to link.", names.Pascal(m.Auth)),
+			fmt.Sprintf("Seed the cast where the seed runs: in `cmd/deployment/migrate`, after `InviteAdministrators`, call `data.%s().SeedCast(ctx)` under `-seed`, so the environments that take the seed hold the personas' accounts for the sign-in to link.", names.Pascal(m.Auth)),
 			"Name the provider in `placement.json`: a `persona` block with `issuer` (the provider's URL) and `clientId` (the application's client ID root), both from the provider's registration of the application. bedrock sets the issuer in the first environment and its pull requests and derives the deployment's client ID and the callback; the method is registered nowhere without the block, and `bedrock check` says so.",
 			fmt.Sprintf("Prove it under `-tags skipAuth` as the reference's `test/integration/portal_login_skipauth_test.go` does, setting `APP_%s_USERNAME` to a persona's login and following `user/%s/login` to the callback; in a pull-request environment, open the login page, sign in through the provider as a persona, and read the persona's roles on the user page.", strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")), spec.Name),
 		)

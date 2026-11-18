@@ -154,17 +154,21 @@ turned on, since that takes a person who is signed in through the tenant's direc
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
-  flags the release declares (section Feature flags). Between the two, `SeedAdministrators` gives each auth its first
-  administrator while its users table holds no rows, the foothold a deployed environment
-  starts from: the staff auth's `administrator`, with the password the stack generates
-  (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. The generated password is for the first sign-in alone: sign in
-  as `administrator` with it, give an email address and confirm it with the sign-in code
-  mailed there (the account starts with no address), then choose a new password, which
-  the login page asks for before it opens anything else; the generated password signs
-  nobody in after that. A user that exists stops the seed; the auth's management
-  creates every user after the first, and the bootstrap creates the development logins
-  instead. The staff auth's role file validates against the union
+  flags the release declares (section Feature flags). Between the two, `InviteAdministrators` invites each
+  auth's first administrator while the auth has no account, the foothold a deployed
+  environment starts from: an invitation mailed to the address the placement names for
+  the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
+  and the development administrator's roles. The person opens the link and chooses a
+  password there, their address proven by the link. No account is made ahead of them and
+  no password is generated. A release leaves an invitation that stands as it is, mails a new one once
+  it has run out (seven days), and withdraws one for an address the placement no longer
+  names; the migrate command's `-reinvite-administrator staff` withdraws the
+  standing one and mails a fresh one on demand, for mail that was lost, while the auth
+  has no account. Both refuse while the environment has no mailbox (`APP_MAIL_MAILBOX`
+  with `APP_MAIL_APP_PASSWORD`): an invitation's link is never written to a log, so the
+  mailbox comes before the first release. An account that exists stops the invitation;
+  the auth's management invites every person after the first, and the bootstrap creates
+  the development logins instead. The staff auth's role file validates against the union
   of the sites' generated collections (`config.Collection`) when its engine opens: one
   policy store, one role file, one identity across sites.
   `cmd/deployment/migrate` is the deploy step; `cmd/bootstrap` reuses it for the emulator

@@ -241,25 +241,26 @@ generated router test proves the route sits behind the token check.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   each auth's role policy check (`CheckRoles`), which prints what its store holds that
   this release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table
-  to the flags the release declares (section Feature flags). Between the two, `SeedAdministrators` gives each auth its first
-  administrator while its users table holds no rows, the foothold a deployed environment
-  starts from: the staff auth's `administrator`, with the password the stack generates
-  (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles; the members auth's user without a password under the
-  sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), holding the administrator
-  roles in every domain, which that person's first sign-in through the directory links to.
-  The tenants here have directories, where a name alone links no account that has never
-  signed in, so the seed creates this one for the `directory` registration
-  (`session.SeedUserIDThrough`): the id is the deployment's word on which registration
-  the name is believed from, and the sign-in rule links the account at the person's
-  first sign-in through it while it admits one organization alone (`azure.Tenant`).
-  The staff auth's generated password is for the first sign-in alone: sign in as
-  `administrator` with it, give an email address and confirm it with the sign-in code
-  mailed there (the account starts with no address), then choose a new password, which
-  the login page asks for before it opens anything else; the generated password signs
-  nobody in after that. A user that exists stops the seed; the auth's management
-  creates every user after the first, and the bootstrap creates the development logins
-  instead. `cmd/deployment/migrate` is the deploy step;
+  to the flags the release declares (section Feature flags). Between the two, `InviteAdministrators` invites each
+  auth's first administrator while the auth has no account, the foothold a deployed
+  environment starts from: an invitation mailed to the address the placement names for
+  the environment (`APP_STAFF_ADMINISTRATOR`, `APP_MEMBERS_ADMINISTRATOR`), which gives
+  the Super Administrator role and the auth's administrator roles. The staff
+  administrator opens the link and chooses a password there, their address proven by the
+  link. The members administrator opens the link and signs in through the directory: the
+  tenants here have directories, where a stranger is admitted by an invitation or by a
+  tenant's directory alone, and the first administrator belongs to no tenant, so the
+  invitation is what ties the sign-in to the roles, and the address the directory gives
+  must be the invited one. No account is made ahead of either person and no password is
+  generated. A release leaves an invitation that stands as it is, mails a new one once
+  it has run out (seven days), and withdraws one for an address the placement no longer
+  names; the migrate command's `-reinvite-administrator <auth>` (`staff` or `members`) withdraws the
+  standing one and mails a fresh one on demand, for mail that was lost, while the auth
+  has no account. Both refuse while the environment has no mailbox (`APP_MAIL_MAILBOX`
+  with `APP_MAIL_APP_PASSWORD`): an invitation's link is never written to a log, so the
+  mailbox comes before the first release. An account that exists stops the invitation;
+  the auth's management invites every person after the first, and the bootstrap creates
+  the development logins instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development
   tenants (tenancy is data), and adds the development logins and the development member
   from `cmd/bootstrap/users.json`, each with its

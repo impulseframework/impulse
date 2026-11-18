@@ -580,37 +580,15 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 		}
 	}
 	ch.didf("%s: the %s auth package (%s), rendered from the skeleton's auth source: the Auth session over tables prefixed %s, the %s permission store, and the methods %s, each in its own file%s", dir, au.Name, strings.Join(authpkg.FileNames(spec), ", "), au.Pascal(), au.Name, strings.Join(described, ", "), rule)
-	switch authpkg.Foothold(spec) {
-	case authpkg.FootholdPassword:
-		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a user named administrator with a generated password; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the password in the data level (%s, secret:\"generated\") and seed it from pkg/deploy SeedAdministrators", dir, au.variable("ADMINISTRATOR_PASSWORD"))
-	case authpkg.FootholdMembership:
-		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, %s; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (%s) and seed it from pkg/deploy SeedAdministrators", dir, footholdLink(spec), au.variable("ADMINISTRATOR"))
+	switch {
+	case authpkg.InvitesAdministrator(spec):
+		variable := authpkg.AdministratorVariable(au.Name)
+		ch.skipf("%[1]s/foothold.go: the first administrator the migrate command invites while the auth has no account, by an invitation mailed to the address the placement names (%[2]s) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file, declare the address in the data level (%[2]s, a setting with no secret tag), invite from pkg/deploy InviteAdministrators and send the invitation again from ReinviteAdministrator (the migrate command's -reinvite-administrator), as they are written for the auth the application has", dir, variable)
+	case authpkg.Foothold(spec):
+		ch.skipf("%s/foothold.go: AdministratorRoles, the roles whose holder can give a role back, to author with the role file. The deployment invites no first administrator for the %s auth: the application generates no management of the auth's people, so nothing would give an accepted invitation its roles. The first person in is the application's to bring in until it generates the management (generation.GenerateIdentity)", dir, au.Name)
 	}
 
 	return nil
-}
-
-// footholdLink says, in the note a membership foothold leaves its author, what the first
-// sign-in of the user it seeds does. It links the account where the foothold names the
-// registration the name is believed from (authpkg.FootholdMethod), and where the auth
-// sets no directory admission, so a name links an account created ahead as it always
-// did. Where the application's tenants have directories and the foothold names no
-// registration, the sign-in is refused until the author names one, and the note says so.
-func footholdLink(spec *authpkg.Spec) string {
-	switch method := authpkg.FootholdMethod(spec); {
-	case method != nil:
-		return fmt.Sprintf("seeded for the %s registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration", method.Name)
-	case spec.DirectoryAdmission():
-		return "seeded for no registration and linked to by no sign-in while the application's tenants have directories (a name alone links no account that has never signed in): " +
-			"name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method and seed the administrator with a password, which impulse check holds the application to (first-administrator)"
-	default:
-		return "which the person's first sign-in links to"
-	}
-}
-
-// variable is a setting of the auth under the convention APP_<AUTH>_<SUFFIX>.
-func (au Auth) variable(suffix string) string {
-	return "APP_" + strings.ToUpper(strings.ReplaceAll(au.Name, "-", "_")) + "_" + suffix
 }
 
 // writeMigrations writes the auth's tables: the Auth session tables rendered under the

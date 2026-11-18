@@ -4,107 +4,191 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session"
 
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
 )
 
-// The first administrator's passwords: the one a deployment generates for the seed
-// (APP_STAFF_ADMINISTRATOR_PASSWORD), and the one the person chooses at the first
-// sign-in.
+// The first administrator a deployment names for the staff auth, and the person the
+// placement names once the address is changed: each by the address the invitation is
+// mailed to and the name the person gives their account.
 const (
-	generatedPassword = "a-generated-password"
-	chosenPassword    = "a-password-of-their-own"
+	firstAddress, firstName   = "ada@lakeside.example", "ada"
+	secondAddress, secondName = "grace@lakeside.example", "grace"
+	firstPassword             = "a-password-of-their-own"
 )
 
-// TestFirstAdministrator_firstSignIn drives the first sign-in of a deployed environment
-// the way the login page does. The migrate command seeded the staff auth's first
-// administrator into an empty users table with the password the deployment generated,
-// marked for change. The password is accepted and the sign-in waits for the second
-// factor; the account holds no address, so the person gives one, and the code mailed
-// there opens the session and proves the address. The session stands under the mark: the
-// session read says the password must change, and every other request is refused with
-// password_change_required until the person posts the change. The change clears the
-// mark and the session serves; the generated password then signs nobody in, and the one
-// the person chose does.
-func TestFirstAdministrator_firstSignIn(t *testing.T) {
+// TestFirstAdministrator_invited drives the first sign-in of a deployed environment the
+// way the migrate command and the login page do. The staff auth has no account, so the
+// release has an invitation mailed to the address the placement names, and makes no
+// account and no password. A second release while the invitation stands mails nothing.
+// The person opens the link and chooses a password, their address proven by the link,
+// and holds the Super Administrator role and the first administrator's roles, so they
+// can invite the others. From then on a release invites nobody, and the fresh invitation
+// the deployment's operations can ask for is refused: somebody is there to invite.
+func TestFirstAdministrator_invited(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	s := newServed(ctx, t)
 	deployed(ctx, t, s)
 
-	b := newBrowser(t, s)
-	if status, body := b.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
-		t.Fatalf("GET /api/user/session before login: status %d: %s", status, body)
+	// The first release: one invitation, mailed to the address named, and no account.
+	before := len(s.mail.Messages())
+	invited, err := s.auth.InviteAdministrator(ctx, firstAddress)
+	if err != nil {
+		t.Fatalf("staff.Auth.InviteAdministrator() error = %v", err)
 	}
-	status, body := b.login(ctx, staff.Administrator, generatedPassword)
-	if status != http.StatusOK || !heldForFactor(t, body) {
-		t.Fatalf("login with the generated password: status %d: %s, want 200 with the sign-in held for the second factor (mfaIsRequired)", status, body)
+	if invited.Outcome != session.FirstAdministratorInvited || invited.Email != firstAddress || len(invited.Withdrawn) != 0 {
+		t.Fatalf("the first release = %+v, want an invitation mailed to %s", invited, firstAddress)
 	}
-	if pending := b.pending(ctx); pending.Reason != string(sessioninfo.PendingMFA) || pending.EmailCode == nil || !pending.EmailCode.EnrollEmail {
-		t.Fatalf("the pending sign-in = %+v, want the second factor's wait with an address to give: the seeded account holds none", pending)
+	if sent := s.mail.Messages()[before:]; len(sent) != 1 || sent[0].To != firstAddress {
+		t.Fatalf("the first release mailed %d message(s) %+v, want one, to %s", len(sent), sent, firstAddress)
 	}
-	b.secondFactor(ctx, staff.Administrator, false)
+	token := mailedToken(t, s, before, "invitation")
+	if names := accountNames(ctx, t, s); len(names) != 0 {
+		t.Fatalf("the accounts after the first release = %v, want none: the invitation makes no account ahead of its person", names)
+	}
 
-	// The session stands, the address the code went to is the account's, proven, and the
-	// password must change before anything else is served.
+	// A second release while the invitation stands mails nothing.
+	before = len(s.mail.Messages())
+	again, err := s.auth.InviteAdministrator(ctx, firstAddress)
+	if err != nil {
+		t.Fatalf("the second staff.Auth.InviteAdministrator() error = %v", err)
+	}
+	if again.Outcome != session.FirstAdministratorStanding || again.Email != firstAddress || len(s.mail.Messages()) != before {
+		t.Fatalf("the second release = %+v with %d message(s) mailed, want the invitation left standing and nothing mailed", again, len(s.mail.Messages())-before)
+	}
+
+	// The person opens the link and chooses a password; the link proves the address.
+	b := accepted(ctx, t, s, token, firstName)
 	sess := b.session(ctx)
-	if !sess.Authenticated || sess.Username != staff.Administrator || !sess.PasswordChangeRequired {
-		t.Fatalf("session after the code = %+v, want authenticated as %s with the password to change", sess, staff.Administrator)
+	if !sess.Authenticated || sess.Username != firstName || sess.PasswordChangeRequired {
+		t.Fatalf("session after the acceptance = %+v, want authenticated as %s with no password to change", sess, firstName)
 	}
-	if sess.Email != factorAddress(staff.Administrator) || !sess.EmailVerified {
-		t.Errorf("session after the code = %+v, want the address %s held and proven by the code", sess, factorAddress(staff.Administrator))
+	if sess.Email != firstAddress || !sess.EmailVerified {
+		t.Errorf("session after the acceptance = %+v, want the invited address %s held and proven by the link", sess, firstAddress)
 	}
-	if status, body := b.do(ctx, http.MethodGet, "/api/permission-digest", nil); status != http.StatusForbidden || !strings.Contains(string(body), string(sessioninfo.RefusedPasswordChangeRequired)) {
-		t.Fatalf("GET /api/permission-digest before the change: status %d: %s, want 403 naming %s", status, body, sessioninfo.RefusedPasswordChangeRequired)
-	}
-
-	// The change, as the login page posts it: the generated password and the new one.
-	if status, body := b.changePassword(ctx, generatedPassword, chosenPassword); status != http.StatusOK {
-		t.Fatalf("POST /api/user/password/change: status %d: %s", status, body)
-	}
-	if sess := b.session(ctx); !sess.Authenticated || sess.Username != staff.Administrator || sess.PasswordChangeRequired {
-		t.Fatalf("session after the change = %+v, want authenticated as %s with no password to change", sess, staff.Administrator)
-	}
-	if status, body := b.do(ctx, http.MethodGet, "/api/permission-digest", nil); status != http.StatusOK {
-		t.Fatalf("GET /api/permission-digest after the change: status %d: %s", status, body)
+	if names := accountNames(ctx, t, s); !slices.Equal(names, []string{firstName}) {
+		t.Errorf("the accounts after the acceptance = %v, want the person's alone: no account named administrator exists", names)
 	}
 
-	// From another browser the generated password is refused as a wrong one is, and the
-	// chosen one signs the person in, with the code sent to the address they now hold;
-	// the person asks for this browser to be remembered.
-	other := newBrowser(t, s)
-	if status, body := other.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
-		t.Fatalf("GET /api/user/session before the second login: status %d: %s", status, body)
+	// They hold the Super Administrator role and the first administrator's roles, each
+	// for the whole application, and nothing else.
+	user, err := s.auth.Session().API().UserByUsername(ctx, firstName)
+	if err != nil {
+		t.Fatalf("session.AuthAPI.UserByUsername(%s) error = %v", firstName, err)
 	}
-	if status, body := other.login(ctx, staff.Administrator, generatedPassword); status != http.StatusUnauthorized {
-		t.Fatalf("login with the generated password after the change: status %d: %s, want 401", status, body)
+	held, err := s.access.UserManager().UserRoles(ctx, accesstypes.User(user.ID.String()))
+	if err != nil {
+		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", firstName, err)
 	}
-	status, body = other.login(ctx, staff.Administrator, chosenPassword)
-	if status != http.StatusOK || !heldForFactor(t, body) {
-		t.Fatalf("login with the chosen password: status %d: %s, want 200 with the sign-in held for the second factor", status, body)
+	global, _ := staff.FirstAdministratorRoles()
+	want := slices.Sorted(slices.Values(append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)))
+	if got := slices.Sorted(slices.Values(held[accesstypes.GlobalPolicyScope()])); !slices.Equal(got, want) {
+		t.Errorf("the first administrator's roles for the whole application = %v, want %v", got, want)
 	}
-	if pending := other.pending(ctx); pending.EmailCode == nil || pending.EmailCode.EnrollEmail {
-		t.Fatalf("the pending sign-in with the chosen password = %+v, want the code offered to the address the account holds", pending)
+
+	// So they can invite the others, from the application.
+	invite, err := json.Marshal(map[string]any{"email": "ines@mail.example", "name": "ines", "roles": []string{"FeatureAdministrator"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	other.secondFactor(ctx, staff.Administrator, true)
-	if sess := other.session(ctx); !sess.Authenticated || sess.PasswordChangeRequired {
-		t.Fatalf("session with the chosen password = %+v, want authenticated with no password to change", sess)
+	if status, body := b.do(ctx, http.MethodPost, "/api/invite-staff-user", invite); status != http.StatusOK {
+		t.Errorf("POST /api/invite-staff-user as the first administrator: status %d: %s, want 200", status, body)
 	}
-	if other.trustedCookie() == nil {
-		t.Error("the browser asked to be remembered holds no trusted-device cookie")
+
+	// A release after the person accepted mails nothing, and the fresh invitation is
+	// refused: the auth has an account.
+	before = len(s.mail.Messages())
+	after, err := s.auth.InviteAdministrator(ctx, firstAddress)
+	if err != nil {
+		t.Fatalf("staff.Auth.InviteAdministrator() after the acceptance error = %v", err)
+	}
+	if after.Outcome != session.FirstAdministratorHasAccount || len(s.mail.Messages()) != before {
+		t.Errorf("the release after the acceptance = %+v with %d message(s) mailed, want nobody invited", after, len(s.mail.Messages())-before)
+	}
+	if _, err := s.auth.ReinviteAdministrator(ctx, firstAddress); !errors.Is(err, session.ErrFirstAdministratorHasAccount) {
+		t.Errorf("staff.Auth.ReinviteAdministrator() once the auth has an account: error = %v, want %v", err, session.ErrFirstAdministratorHasAccount)
+	}
+	if len(s.mail.Messages()) != before {
+		t.Errorf("the refused fresh invitation mailed %d message(s), want none", len(s.mail.Messages())-before)
+	}
+}
+
+// TestFirstAdministrator_sentAgain proves the two ways an invitation is replaced while
+// the auth has no account. The placement names another address: the next release
+// withdraws the standing invitation, whose link no longer opens, and mails the address
+// named now. The deployment's operations ask for a fresh one, for mail that was lost: the
+// standing invitation is withdrawn, its link no longer opens, and a new one is mailed to
+// the same address, which the person accepts.
+func TestFirstAdministrator_sentAgain(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	deployed(ctx, t, s)
+
+	before := len(s.mail.Messages())
+	if _, err := s.auth.InviteAdministrator(ctx, firstAddress); err != nil {
+		t.Fatalf("staff.Auth.InviteAdministrator(%s) error = %v", firstAddress, err)
+	}
+	first := mailedToken(t, s, before, "invitation")
+
+	// The address changes: the old link is dead and the new address is mailed.
+	before = len(s.mail.Messages())
+	changed, err := s.auth.InviteAdministrator(ctx, secondAddress)
+	if err != nil {
+		t.Fatalf("staff.Auth.InviteAdministrator(%s) error = %v", secondAddress, err)
+	}
+	if changed.Outcome != session.FirstAdministratorInvited || changed.Email != secondAddress || !slices.Equal(changed.Withdrawn, []string{firstAddress}) {
+		t.Fatalf("the release after the address changed = %+v, want %s invited and the invitation to %s withdrawn", changed, secondAddress, firstAddress)
+	}
+	if sent := s.mail.Messages()[before:]; len(sent) != 1 || sent[0].To != secondAddress {
+		t.Fatalf("the release after the address changed mailed %+v, want one message, to %s", sent, secondAddress)
+	}
+	second := mailedToken(t, s, before, "invitation")
+	if status, body := opened(ctx, t, s, first); status != http.StatusNotFound {
+		t.Errorf("opening the link mailed to the address taken back: status %d: %s, want 404", status, body)
+	}
+
+	// The operations action: the standing link is dead and a fresh one is mailed.
+	before = len(s.mail.Messages())
+	fresh, err := s.auth.ReinviteAdministrator(ctx, secondAddress)
+	if err != nil {
+		t.Fatalf("staff.Auth.ReinviteAdministrator(%s) error = %v", secondAddress, err)
+	}
+	if fresh.Outcome != session.FirstAdministratorInvited || fresh.Email != secondAddress || !slices.Equal(fresh.Withdrawn, []string{secondAddress}) {
+		t.Fatalf("the fresh invitation = %+v, want %s invited again and the earlier invitation withdrawn", fresh, secondAddress)
+	}
+	if sent := s.mail.Messages()[before:]; len(sent) != 1 || sent[0].To != secondAddress {
+		t.Fatalf("the fresh invitation mailed %+v, want one message, to %s", sent, secondAddress)
+	}
+	third := mailedToken(t, s, before, "invitation")
+	if status, body := opened(ctx, t, s, second); status != http.StatusNotFound {
+		t.Errorf("opening the earlier link after the fresh invitation: status %d: %s, want 404", status, body)
+	}
+
+	// The fresh link is the one that opens, and the person it was mailed to gets in.
+	b := accepted(ctx, t, s, third, secondName)
+	if sess := b.session(ctx); !sess.Authenticated || sess.Username != secondName || sess.Email != secondAddress {
+		t.Errorf("session after accepting the fresh invitation = %+v, want authenticated as %s holding %s", sess, secondName, secondAddress)
+	}
+	if names := accountNames(ctx, t, s); !slices.Equal(names, []string{secondName}) {
+		t.Errorf("the accounts after the acceptance = %v, want %s alone: nobody got in by a withdrawn link", names, secondName)
 	}
 }
 
 // deployed makes the stack what a deployed environment starts from. The suites' stack
 // opens with the development login the bootstrap creates, which a deployment never has:
-// it leaves, so the staff auth's users table holds no rows, and the migrate command's
-// seed (staff.Auth.SeedAdministrator) then creates the first administrator with the
-// password the deployment generated.
+// it leaves, so the staff auth has no account, which is when the migrate command invites
+// the first administrator (staff.Auth.InviteAdministrator).
 func deployed(ctx context.Context, t *testing.T, s *served) {
 	t.Helper()
 
@@ -118,21 +202,58 @@ func deployed(ctx context.Context, t *testing.T, s *served) {
 			t.Fatalf("session.AuthAPI.DeleteSessionUser(%s) error = %v", user.Username, err)
 		}
 	}
-	seeded, err := s.auth.SeedAdministrator(ctx, generatedPassword)
-	if err != nil || !seeded {
-		t.Fatalf("staff.Auth.SeedAdministrator() = %v, %v, want the first administrator seeded", seeded, err)
-	}
 }
 
-// changePassword posts the password change the way the login page's change form does,
-// and returns the route's answer.
-func (b *browser) changePassword(ctx context.Context, oldPassword, newPassword string) (status int, body []byte) {
-	b.t.Helper()
+// accountNames are the usernames of the staff auth's accounts, in order.
+func accountNames(ctx context.Context, t *testing.T, s *served) []string {
+	t.Helper()
 
-	change, err := json.Marshal(map[string]string{"oldPassword": oldPassword, "newPassword": newPassword})
+	users, err := s.auth.Session().API().Users(ctx)
 	if err != nil {
-		b.t.Fatal(err)
+		t.Fatalf("session.AuthAPI.Users() error = %v", err)
+	}
+	names := make([]string, 0, len(users))
+	for _, user := range users {
+		names = append(names, user.Username)
 	}
 
-	return b.do(ctx, http.MethodPost, "/api/user/password/change", change)
+	return slices.Sorted(slices.Values(names))
+}
+
+// opened shows the invitation page what the link is, as a browser that follows the link
+// does, and returns the route's answer: 404 for a link that no longer opens.
+func opened(ctx context.Context, t *testing.T, s *served, token string) (status int, body []byte) {
+	t.Helper()
+
+	b := newBrowser(t, s)
+	b.prime(ctx)
+
+	return b.do(ctx, http.MethodPost, "/api/user/invitation", []byte(`{"token":"`+token+`"}`))
+}
+
+// accepted has the invited person follow the link and create their account from it with
+// a password they choose, then complete the second factor where the sign-in waits for
+// it, as the login page does. It returns the person's browser, signed in.
+func accepted(ctx context.Context, t *testing.T, s *served, token, username string) *browser {
+	t.Helper()
+
+	b := newBrowser(t, s)
+	b.prime(ctx)
+	if status, body := b.do(ctx, http.MethodPost, "/api/user/invitation", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK {
+		t.Fatalf("POST /api/user/invitation as %s: status %d: %s", username, status, body)
+	}
+	accept, err := json.Marshal(map[string]string{"password": firstPassword, "username": username})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, body := b.do(ctx, http.MethodPost, "/api/user/invitation/sign-up", accept)
+	if status != http.StatusOK {
+		t.Fatalf("POST /api/user/invitation/sign-up as %s: status %d: %s", username, status, body)
+	}
+	if strings.Contains(string(body), firstPassword) {
+		t.Errorf("the acceptance answered with the password the person chose: %s", body)
+	}
+	factorIfHeld(ctx, t, b, username, body)
+
+	return b
 }
