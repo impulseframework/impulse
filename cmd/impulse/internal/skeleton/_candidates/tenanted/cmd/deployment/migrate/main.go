@@ -1,8 +1,8 @@
 // Package main is the deployment's migration step: it applies the schema migrations,
 // checks the release's role policy against what the permission engine's store holds, and
-// invites the staff auth's first administrator while the auth has no account, by an
-// invitation mailed to the address the placement names. It reads the core and data
-// configuration levels and nothing above them.
+// invites the staff auth's first administrator while nobody of the auth holds the Super
+// Administrator role, by an invitation mailed to the address the placement names. It
+// reads the core and data configuration levels and nothing above them.
 //
 // Three flags make it the instrument for the states the migration runner refuses to
 // guess at. -version prints what each migrations table (schema, data) says about the
@@ -23,9 +23,10 @@
 // -reinvite-administrator <auth> sends the first administrator's invitation again, for
 // mail that was lost: it withdraws the standing invitation of the named auth (staff),
 // so the earlier link no longer opens, and mails a fresh one to the address the
-// placement names. It refuses once the auth has an account, since somebody is then there
-// to invite the others, and while the environment has no mailbox to send as. Its
-// environment is the migration's. It applies no migration and goes with no other flag.
+// placement names. It refuses once somebody holds the Super Administrator role in the
+// auth, since somebody is then there to invite the others, and while the environment has
+// no mailbox to send as. Its environment is the migration's. It applies no migration and
+// goes with no other flag.
 //
 // The command writes what it did about an invitation, the address and when it runs out,
 // and never the invitation's link: whoever opens the link becomes the administrator, so
@@ -138,7 +139,7 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	fs.Var(&o.force, "force", "set the schema migrations table to this `version`, clean, print the row before and after, and exit; -1 means no version; the next run continues from it")
 	fs.Var(&o.forceData, "force-data", "the same for the data migrations table")
 	fs.StringVar(&o.retireSecret, "retire-secret", "", "retire one version of the application secret, named by the `variable` it is handed over in (APP_SECRET_KEY_1): write every stored secret that names it again under the current version, confirm none is left, and exit; nothing is migrated")
-	fs.StringVar(&o.reinviteAdministrator, "reinvite-administrator", "", "withdraw the standing invitation of the named `auth`'s first administrator ("+strings.Join(deploy.AdministratorAuths(), ", ")+") and mail a fresh one to the address the placement names, for mail that was lost, and exit; refused once the auth has an account; nothing is migrated")
+	fs.StringVar(&o.reinviteAdministrator, "reinvite-administrator", "", "withdraw the standing invitation of the named `auth`'s first administrator ("+strings.Join(deploy.AdministratorAuths(), ", ")+") and mail a fresh one to the address the placement names, for mail that was lost, and exit; refused once somebody holds the Super Administrator role in the auth; nothing is migrated")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil, errors.Wrap(err, "flag.FlagSet.Parse()")
@@ -316,11 +317,13 @@ func migrate(ctx context.Context, settings config.DatabaseSettings, seed bool, o
 		return errors.Wrap(err, "deploy.CheckRoles()")
 	}
 
-	// The foothold: an auth with no account has nobody who can sign in, so the staff
-	// auth's first administrator is invited now, after the roles the release ships are in
-	// place, by an invitation mailed to the address the placement names, and nobody is
-	// invited once the auth has an account. A release that cannot mail it stops here: the
-	// link is never written to a log.
+	// The foothold: an auth where nobody holds the Super Administrator role has nobody to
+	// administer it, so the staff auth's first administrator is invited now, after the
+	// roles the release ships are in place, by an invitation mailed to the address the
+	// placement names, and nobody is invited once somebody holds the role. An application
+	// with a cast of personas seeds it above this step (under -seed), so an environment
+	// whose cast holds the role invites nobody and needs no mailbox. A release that must
+	// invite and cannot mail stops here: the link is never written to a log.
 	if err := deploy.InviteAdministrators(ctx, data, out); err != nil {
 		return errors.Wrap(err, "deploy.InviteAdministrators()")
 	}

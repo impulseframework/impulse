@@ -108,15 +108,18 @@ func TestFirstAdministrator_invitedThroughADirectory(t *testing.T) {
 	}
 
 	// A release after the person accepted invites nobody.
-	if after, err := s.auth.InviteAdministrator(ctx, invitedAddress); err != nil || after.Outcome != session.FirstAdministratorHasAccount {
+	if after, err := s.auth.InviteAdministrator(ctx, invitedAddress); err != nil || after.Outcome != session.FirstAdministratorRoleHeld {
 		t.Errorf("the release after the acceptance = %+v, %v, want nobody invited", after, err)
 	}
 }
 
 // deployed makes the stack what a deployed environment starts from. The suites' stack
-// opens with the development logins the bootstrap creates, which a deployment never has:
-// they leave, so the staff auth has no account, which is when the migrate command invites
-// the first administrator (staff.Auth.InviteAdministrator).
+// opens with the development logins the bootstrap creates, one of which holds the Super
+// Administrator role, and which a deployment never has: they leave, so nobody of the
+// staff auth holds the role, which is when the migrate command invites the first
+// administrator (staff.Auth.InviteAdministrator). Their memberships stay in the
+// permission store and name no account any more: a holder who is no account of the auth
+// is nobody of it.
 func deployed(ctx context.Context, t *testing.T, s *served) {
 	t.Helper()
 

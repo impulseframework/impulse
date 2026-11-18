@@ -350,10 +350,11 @@ type dataConfig struct {
 
 	// StaffAdministrator is the email address of the staff auth's first administrator
 	// (staff.AdministratorVariable), which the placement names for each environment:
-	// while the auth has no account the migrate command has an invitation mailed there
-	// (staff.Auth.InviteAdministrator), and the person signs in from its link. It is an
-	// address, not a secret, and no password is generated for the person. Unset in
-	// development, where the bootstrap creates the development logins instead.
+	// while nobody of the auth holds the Super Administrator role the migrate command
+	// has an invitation mailed there (staff.Auth.InviteAdministrator), and the person
+	// signs in from its link. It is an address, not a secret, and no password is
+	// generated for the person. Unset in development, where the bootstrap creates the
+	// development logins instead, one of them holding the role.
 	StaffAdministrator string `env:"APP_STAFF_ADMINISTRATOR"`
 }
 
@@ -389,10 +390,10 @@ func (env *dataConfig) staffSettings(collection access.PermissionCollection, sig
 // the first environment before an operator adds the secret's version (the stack's
 // secret_versions, where no entry means not yet): the log stands in there too, and the
 // relay takes over once the version is pinned; a release to any other environment is
-// refused until it is. The log is no mailbox (mail.Delivers): while an auth has no
-// account the migrate command refuses to invite its first administrator through it,
-// since an invitation's link is never written to a log, so the mailbox and its app
-// password come before the first release.
+// refused until it is. The log is no mailbox (mail.Delivers): while nobody of an auth
+// holds the Super Administrator role the migrate command refuses to invite its first
+// administrator through it, since an invitation's link is never written to a log, so
+// the mailbox and its app password come before the first release.
 func openMailSender(env *dataConfig) (mail.Sender, error) {
 	if env.MailMailbox == "" || env.MailAppPassword == "" {
 		return mail.Log{}, nil

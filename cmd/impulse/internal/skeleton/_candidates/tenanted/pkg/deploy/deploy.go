@@ -1,8 +1,8 @@
 // Package deploy holds the database steps a deployment runs and the development
 // bootstrap reuses: applying the schema migrations, checking the release's role policy
 // against what the permission engine's store holds, inviting each auth's first
-// administrator while the auth has no account, and bringing the feature flags to the
-// release's declarations.
+// administrator while nobody of the auth holds the Super Administrator role, and bringing
+// the feature flags to the release's declarations.
 package deploy
 
 import (
@@ -182,9 +182,9 @@ func administratorOf(data *config.DataConfiguration, auth string) (*firstAdminis
 	}
 }
 
-// InviteAdministrators invites the staff auth's first administrator while the auth has no
-// account, the way into a deployed environment, and writes what it did to out, never the
-// invitation's link. The invitation is mailed to the address the placement names for the
+// InviteAdministrators invites the staff auth's first administrator while nobody of the
+// auth holds the Super Administrator role, the way into a deployed environment, and
+// writes what it did to out, never the invitation's link. The invitation is mailed to the address the placement names for the
 // environment (APP_STAFF_ADMINISTRATOR) and gives the Super Administrator role and the
 // auth's first administrator's roles; the person signs in from its link by a method of
 // the auth, choosing a password there or through Google, where the invitation is what
@@ -195,13 +195,18 @@ func administratorOf(data *config.DataConfiguration, auth string) (*firstAdminis
 // ships. An invitation that stands for the address is left as it is and nothing is
 // mailed; one that ran out (seven days) is replaced; one that stands for an address the
 // placement no longer names is withdrawn, so its link no longer opens, and the address
-// named now is mailed. Once the auth has an account nobody is invited: every person after
-// the first comes from the administration surface, and the development bootstrap creates
-// its own logins instead; an invitation of the first administrator's that still stands
-// then for an address the placement no longer names is withdrawn all the same. It
-// refuses, with nothing mailed, while the auth has no account and the placement names no
-// address, and while the environment has no mailbox to send as: an invitation's link is
-// never written to a log, so the mailbox comes before the first release.
+// named now is mailed. Once somebody holds the Super Administrator role nobody is invited,
+// nothing is mailed and no mailbox is asked for: every person after the first comes from
+// the administration surface, and the development bootstrap creates its own logins
+// instead, one of them holding the role; an invitation of the first administrator's that
+// still stands then for an address the placement no longer names is withdrawn all the
+// same. The role is what is asked: an account that holds nothing (a person who signed
+// up, a persona who holds no such role) stops no invitation, and a holder whose account
+// is disabled is a holder still. An application with a cast of personas seeds it before
+// this step, so an environment whose cast holds the role invites nobody. It refuses, with
+// nothing mailed, while nobody holds the role and the placement names no address, and
+// while nobody holds it and the environment has no mailbox to send as: an invitation's
+// link is never written to a log, so the mailbox comes before the first release.
 func InviteAdministrators(ctx context.Context, data *config.DataConfiguration, out io.Writer) error {
 	for _, auth := range AdministratorAuths() {
 		administrator, err := administratorOf(data, auth)
@@ -222,8 +227,9 @@ func InviteAdministrators(ctx context.Context, data *config.DataConfiguration, o
 // administrator and mails a fresh one to the address the placement names, for mail that
 // was lost: the earlier link no longer opens. It writes what it did to out, never the
 // link. It is what the migrate command's -reinvite-administrator runs, on demand from the
-// deployment's operations, and it refuses once the auth has an account, since somebody is
-// then there to invite the others; it refuses as InviteAdministrators does besides.
+// deployment's operations, and it refuses once somebody holds the Super Administrator
+// role, since somebody is then there to invite the others; it refuses as
+// InviteAdministrators does besides.
 func ReinviteAdministrator(ctx context.Context, data *config.DataConfiguration, auth string, out io.Writer) error {
 	administrator, err := administratorOf(data, auth)
 	if err != nil {
@@ -260,8 +266,8 @@ func reportAdministrator(out io.Writer, auth string, invited *session.FirstAdmin
 		fmt.Fprintf(out, "Invited the %s auth's first administrator: the invitation was mailed to %s and runs out %s\n", auth, invited.Email, invited.ExpiresAt.UTC().Format(time.RFC3339))
 	case session.FirstAdministratorStanding:
 		fmt.Fprintf(out, "The %s auth's first administrator is invited: the invitation mailed to %s stands until %s, and nothing was mailed\n", auth, invited.Email, invited.ExpiresAt.UTC().Format(time.RFC3339))
-	case session.FirstAdministratorHasAccount:
-		fmt.Fprintf(out, "The %s auth has an account: no first administrator invited\n", auth)
+	case session.FirstAdministratorRoleHeld:
+		fmt.Fprintf(out, "Somebody holds the Super Administrator role in the %s auth: no first administrator invited\n", auth)
 	}
 }
 

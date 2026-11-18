@@ -822,7 +822,7 @@ func register{{.Pascal}}(authSession *Session) *session.PasswordMethod {
 
 // footholdTemplate renders the foothold file: the roles that count as an administrator's
 // and, where the deployment invites the auth's first administrator, the invitation the
-// migrate command asks for while the auth has no account.
+// migrate command asks for while nobody of the auth holds the Super Administrator role.
 const footholdTemplate = `package {{.Name}}
 {{if .InvitesAdministrator}}
 import (
@@ -874,11 +874,12 @@ func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 const AdministratorVariable = "{{.AdministratorVariable}}"
 
 // InviteAdministrator invites the auth's first administrator, the way into a deployed
-// environment: while the auth has no account, the migrate command has an invitation
-// mailed to email, the address the placement names (AdministratorVariable), which gives
-// the Super Administrator role and the application's own roles for the first
-// administrator (FirstAdministratorRoles). The person opens the link and signs in by a
-// method of the auth, as everyone invited after them does.
+// environment: while nobody of the auth holds the Super Administrator role, the migrate
+// command has an invitation mailed to email, the address the placement names
+// (AdministratorVariable), which gives the Super Administrator role and the
+// application's own roles for the first administrator (FirstAdministratorRoles). The
+// person opens the link and signs in by a method of the auth, as everyone invited after
+// them does.
 {{- if .Password}}
 // With the password method they choose a password there, their address proven by the
 // link.
@@ -896,21 +897,28 @@ const AdministratorVariable = "{{.AdministratorVariable}}"
 // the link): an invitation that stands for the address is left as it is and nothing is
 // mailed; one that ran out (seven days) is replaced by a new one; one that stands for an
 // address the placement no longer names, or for roles the release no longer names, is
-// withdrawn, so its link no longer opens, and the address named now is mailed. Once the
-// auth has an account nobody is invited: every person after the first comes from the
-// administration surface. An invitation of the first administrator's that still stands
-// then, for an address the placement no longer names, is withdrawn all the same.
+// withdrawn, so its link no longer opens, and the address named now is mailed. Once
+// somebody holds the Super Administrator role nobody is invited, nothing is mailed and
+// no mailbox is asked for: every person after the first comes from the administration
+// surface. An invitation of the first administrator's that still stands then, for an
+// address the placement no longer names, is withdrawn all the same.
 //
-// It refuses, with nothing mailed, while the auth has no account and the placement names
-// no address, and while the application has no mailbox to send as: an invitation's link
-// is never written to a log, since whoever opens it becomes the administrator, so the
-// mailbox comes before the first release.
+// The role is what is asked, read from the auth's own permission engine: an account
+// that holds nothing (a person who signed up, one a directory seated, a persona who
+// holds no such role) administers nothing and stops no invitation, and a holder whose
+// account is disabled is a holder still. A persona the environment's cast seeds holding
+// the role is a holder, so the cast is seeded before this runs.
+//
+// It refuses, with nothing mailed, while nobody holds the role and the placement names
+// no address, and while nobody holds it and the application has no mailbox to send as:
+// an invitation's link is never written to a log, since whoever opens it becomes the
+// administrator, so the mailbox comes before the first release.
 func (a *Auth) InviteAdministrator(ctx context.Context, email string) (*session.FirstAdministrator, error) {
 	roles, err := firstAdministratorRoleNames()
 	if err != nil {
 		return nil, err
 	}
-	invited, err := a.handlers.API().InviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: roles})
+	invited, err := a.handlers.API().InviteFirstAdministrator(ctx, a.access.UserManager(), &session.FirstAdministratorRequest{Email: email, RoleNames: roles})
 	if err != nil {
 		return nil, errors.Wrapf(err, "the %s auth's first administrator (%s)", Name, AdministratorVariable)
 	}
@@ -921,14 +929,15 @@ func (a *Auth) InviteAdministrator(ctx context.Context, email string) (*session.
 // ReinviteAdministrator withdraws the first administrator's standing invitation and
 // mails a fresh one to email, for a message that was lost: the earlier link no longer
 // opens. It is what the migrate command's -reinvite-administrator runs, on demand from
-// the deployment's operations. It refuses once the auth has an account, since somebody
-// is then there to invite the others, and is InviteAdministrator in every other respect.
+// the deployment's operations. It refuses once somebody holds the Super Administrator
+// role, since somebody is then there to invite the others, and is InviteAdministrator
+// in every other respect.
 func (a *Auth) ReinviteAdministrator(ctx context.Context, email string) (*session.FirstAdministrator, error) {
 	roles, err := firstAdministratorRoleNames()
 	if err != nil {
 		return nil, err
 	}
-	invited, err := a.handlers.API().ReinviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: roles})
+	invited, err := a.handlers.API().ReinviteFirstAdministrator(ctx, a.access.UserManager(), &session.FirstAdministratorRequest{Email: email, RoleNames: roles})
 	if err != nil {
 		return nil, errors.Wrapf(err, "the %s auth's first administrator (%s)", Name, AdministratorVariable)
 	}
@@ -976,9 +985,11 @@ func firstAdministratorRoleNames() ([]string, error) {
 // The deployment invites no first administrator for this auth. The application
 // generates no management of the auth's people (generation.GenerateIdentity), so nothing
 // gives an accepted invitation its roles, and an invitation mailed to the first
-// administrator would let them in holding nothing. Until the application generates the
-// management, or gives its people their roles some way of its own, the first person in
-// is the application's to bring in.
+// administrator would let them in holding nothing. impulse check refuses the auth as it
+// stands (first-administrator), since nobody can be invited as its first administrator
+// and an account seeded by hand is refused too: have the application generate the
+// management, build the auth's identity client from it, and invite the first
+// administrator as impulse add auth writes it for such an auth.
 {{- end}}
 `
 

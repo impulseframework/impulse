@@ -325,7 +325,7 @@ func TestMethodApply(t *testing.T) {
 			},
 			wantSkipped: []string{
 				"pkg/auth/staff/cast.json: name the personas (login, name, email, roles from roles.json); impulse check and bedrock check refuse an empty cast (persona-cast), since a persona sign-in with nobody to sign in as deploys nothing useful",
-				"cmd/deployment/migrate: seed the cast where the seed runs (-seed), after InviteAdministrators: data.Staff().SeedCast(ctx), so the environments that take the seed hold the personas' accounts for the sign-in to link",
+				"cmd/deployment/migrate: seed the cast under -seed, once the data level is open and before InviteAdministrators: data.Staff().SeedCast(ctx), so the environments that take the seed hold the personas' accounts for the sign-in to link, and one whose cast gives a persona the Super Administrator role invites no first administrator and needs no mailbox. A persona takes its roles when its account is first seeded: SeedCast skips an account that exists",
 				`placement.json: name the persona provider under persona ({"issuer": the provider's URL, "clientId": the application's client ID root, both from the provider's registration of the application}), so bedrock sets APP_STAFF_PERSONA_ISSUER in the first environment and its pull requests, derives APP_STAFF_PERSONA_CLIENT_ID and APP_STAFF_PERSONA_REDIRECT_URL, and registers each deployment with the provider after traffic; without it the method is registered nowhere`,
 				"pkg/config/data.go: no environment struct (env := &T{}) to add the persona method's variables to; read APP_STAFF_PERSONA_ISSUER, APP_STAFF_PERSONA_CLIENT_ID, APP_STAFF_PERSONA_REDIRECT_URL and pass them in staff.Settings.Persona",
 			},

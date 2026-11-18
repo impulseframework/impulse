@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/mail"
 
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
 )
@@ -25,9 +26,9 @@ const (
 )
 
 // TestFirstAdministrator_invited drives the first sign-in of a deployed environment the
-// way the migrate command and the login page do. The staff auth has no account, so the
-// release has an invitation mailed to the address the placement names, and makes no
-// account and no password. A second release while the invitation stands mails nothing.
+// way the migrate command and the login page do. Nobody of the staff auth holds the
+// Super Administrator role, so the release has an invitation mailed to the address the
+// placement names, and makes no account and no password. A second release while the invitation stands mails nothing.
 // The person opens the link and chooses a password, their address proven by the link,
 // and holds the Super Administrator role and the first administrator's roles, so they
 // can invite the others. They sign in again from another browser with that password and
@@ -51,7 +52,7 @@ func TestFirstAdministrator_invited(t *testing.T) {
 		t.Fatalf("the first release = %+v, want an invitation mailed to %s", invited, firstAddress)
 	}
 	if sent := s.mail.Messages()[before:]; len(sent) != 1 || sent[0].To != firstAddress {
-		t.Fatalf("the first release mailed %d message(s) %+v, want one, to %s", len(sent), sent, firstAddress)
+		t.Fatalf("the first release mailed %d message(s), to %v, want one, to %s", len(sent), addressed(sent), firstAddress)
 	}
 	token := mailedToken(t, s, before, "invitation")
 	if names := accountNames(ctx, t, s); len(names) != 0 {
@@ -123,17 +124,17 @@ func TestFirstAdministrator_invited(t *testing.T) {
 	}
 
 	// A release after the person accepted mails nothing, and the fresh invitation is
-	// refused: the auth has an account.
+	// refused: somebody holds the Super Administrator role.
 	before = len(s.mail.Messages())
 	after, err := s.auth.InviteAdministrator(ctx, firstAddress)
 	if err != nil {
 		t.Fatalf("staff.Auth.InviteAdministrator() after the acceptance error = %v", err)
 	}
-	if after.Outcome != session.FirstAdministratorHasAccount || len(s.mail.Messages()) != before {
+	if after.Outcome != session.FirstAdministratorRoleHeld || len(s.mail.Messages()) != before {
 		t.Errorf("the release after the acceptance = %+v with %d message(s) mailed, want nobody invited", after, len(s.mail.Messages())-before)
 	}
-	if _, err := s.auth.ReinviteAdministrator(ctx, firstAddress); !errors.Is(err, session.ErrFirstAdministratorHasAccount) {
-		t.Errorf("staff.Auth.ReinviteAdministrator() once the auth has an account: error = %v, want %v", err, session.ErrFirstAdministratorHasAccount)
+	if _, err := s.auth.ReinviteAdministrator(ctx, firstAddress); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
+		t.Errorf("staff.Auth.ReinviteAdministrator() once somebody holds the Super Administrator role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
 	}
 	if len(s.mail.Messages()) != before {
 		t.Errorf("the refused fresh invitation mailed %d message(s), want none", len(s.mail.Messages())-before)
@@ -141,7 +142,7 @@ func TestFirstAdministrator_invited(t *testing.T) {
 }
 
 // TestFirstAdministrator_sentAgain proves the two ways an invitation is replaced while
-// the auth has no account. The placement names another address: the next release
+// nobody holds the Super Administrator role. The placement names another address: the next release
 // withdraws the standing invitation, whose link no longer opens, and mails the address
 // named now. The deployment's operations ask for a fresh one, for mail that was lost: the
 // standing invitation is withdrawn, its link no longer opens, and a new one is mailed to
@@ -169,7 +170,7 @@ func TestFirstAdministrator_sentAgain(t *testing.T) {
 		t.Fatalf("the release after the address changed = %+v, want %s invited and the invitation to %s withdrawn", changed, secondAddress, firstAddress)
 	}
 	if sent := s.mail.Messages()[before:]; len(sent) != 1 || sent[0].To != secondAddress {
-		t.Fatalf("the release after the address changed mailed %+v, want one message, to %s", sent, secondAddress)
+		t.Fatalf("the release after the address changed mailed %d message(s), to %v, want one, to %s", len(sent), addressed(sent), secondAddress)
 	}
 	second := mailedToken(t, s, before, "invitation")
 	if status, body := opened(ctx, t, s, first); status != http.StatusNotFound {
@@ -186,7 +187,7 @@ func TestFirstAdministrator_sentAgain(t *testing.T) {
 		t.Fatalf("the fresh invitation = %+v, want %s invited again and the earlier invitation withdrawn", fresh, secondAddress)
 	}
 	if sent := s.mail.Messages()[before:]; len(sent) != 1 || sent[0].To != secondAddress {
-		t.Fatalf("the fresh invitation mailed %+v, want one message, to %s", sent, secondAddress)
+		t.Fatalf("the fresh invitation mailed %d message(s), to %v, want one, to %s", len(sent), addressed(sent), secondAddress)
 	}
 	third := mailedToken(t, s, before, "invitation")
 	if status, body := opened(ctx, t, s, second); status != http.StatusNotFound {
@@ -203,10 +204,63 @@ func TestFirstAdministrator_sentAgain(t *testing.T) {
 	}
 }
 
+// TestFirstAdministrator_theRoleDecides proves what the release asks before it invites:
+// who holds the Super Administrator role, not whether the auth has an account. On the
+// stack as the development bootstrap leaves it, the admin login holds the role, so a
+// release invites nobody, with no address named, and the fresh invitation is refused:
+// that is a developer's own stack. Once that login is gone, an account that holds
+// nothing (a person who signed up, a persona who holds no such role) administers nothing
+// and stops no invitation: the release mails the address the placement names.
+func TestFirstAdministrator_theRoleDecides(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+
+	// The development login holds the role: nobody is invited, and nothing is mailed.
+	before := len(s.mail.Messages())
+	held, err := s.auth.InviteAdministrator(ctx, "")
+	if err != nil {
+		t.Fatalf("staff.Auth.InviteAdministrator() while the development login holds the role, with no address named: error = %v, want nobody invited", err)
+	}
+	if held.Outcome != session.FirstAdministratorRoleHeld || len(held.Withdrawn) != 0 {
+		t.Errorf("the release while the development login holds the role = %+v, want nobody invited", held)
+	}
+	if _, err := s.auth.ReinviteAdministrator(ctx, firstAddress); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
+		t.Errorf("staff.Auth.ReinviteAdministrator() while the development login holds the role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
+	}
+	if sent := len(s.mail.Messages()) - before; sent != 0 {
+		t.Errorf("%d message(s) mailed while somebody holds the role, want none", sent)
+	}
+
+	// The login leaves, and an account that holds no role stands: nobody administers the
+	// auth, so the release invites.
+	deployed(ctx, t, s)
+	if _, err := s.auth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: "holds-nothing"}); err != nil {
+		t.Fatalf("session.AuthAPI.CreateSessionUser() error = %v", err)
+	}
+	before = len(s.mail.Messages())
+	invited, err := s.auth.InviteAdministrator(ctx, firstAddress)
+	if err != nil {
+		t.Fatalf("staff.Auth.InviteAdministrator() beside an account that holds no role: error = %v", err)
+	}
+	if invited.Outcome != session.FirstAdministratorInvited || invited.Email != firstAddress {
+		t.Errorf("the release beside an account that holds no role = %+v, want an invitation mailed to %s", invited, firstAddress)
+	}
+	if sent := s.mail.Messages()[before:]; len(sent) != 1 || sent[0].To != firstAddress {
+		t.Errorf("the release mailed %d message(s), to %v, want one, to %s", len(sent), addressed(sent), firstAddress)
+	}
+	if names := accountNames(ctx, t, s); !slices.Equal(names, []string{"holds-nothing"}) {
+		t.Errorf("the accounts after the release = %v, want the one that holds nothing: the invitation makes no account ahead of its person", names)
+	}
+}
+
 // deployed makes the stack what a deployed environment starts from. The suites' stack
-// opens with the development login the bootstrap creates, which a deployment never has:
-// it leaves, so the staff auth has no account, which is when the migrate command invites
-// the first administrator (staff.Auth.InviteAdministrator).
+// opens with the development login the bootstrap creates, which holds the Super
+// Administrator role and which a deployment never has: it leaves, so nobody of the staff
+// auth holds the role, which is when the migrate command invites the first administrator
+// (staff.Auth.InviteAdministrator). The login's memberships stay in the permission store
+// and name no account any more: a holder who is no account of the auth is nobody of it.
 func deployed(ctx context.Context, t *testing.T, s *served) {
 	t.Helper()
 
@@ -220,6 +274,17 @@ func deployed(ctx context.Context, t *testing.T, s *served) {
 			t.Fatalf("session.AuthAPI.DeleteSessionUser(%s) error = %v", user.Username, err)
 		}
 	}
+}
+
+// addressed are the addresses the messages were mailed to, which is what a failure
+// prints of them: a message's text holds its link, and a link is for its mailbox alone.
+func addressed(sent []mail.Message) []string {
+	to := make([]string, 0, len(sent))
+	for _, m := range sent {
+		to = append(to, m.To)
+	}
+
+	return to
 }
 
 // accountNames are the usernames of the staff auth's accounts, in order.
@@ -281,7 +346,7 @@ func accepted(ctx context.Context, t *testing.T, s *served, token, username, add
 	}
 	b.secondFactor(ctx, username, false)
 	if sent := s.mail.Messages(); len(sent) == 0 || sent[len(sent)-1].To != address {
-		t.Errorf("the sign-in code was mailed to %+v, want the invited address %s", sent[max(len(sent)-1, 0):], address)
+		t.Errorf("the sign-in code was mailed to %v, want the invited address %s", addressed(sent[max(len(sent)-1, 0):]), address)
 	}
 
 	return b

@@ -192,8 +192,8 @@ func newServed(ctx context.Context, t *testing.T) *served {
 
 // newServedInviting is newServed with the members auth's first administrator invited at
 // membersAdministrator before anything else of the auth exists, as the migrate command
-// invites one while the auth has no account (members.Auth.InviteAdministrator); ""
-// invites none. The invitation is mailed to the members auth's recorder
+// invites one while nobody of the auth holds the Super Administrator role
+// (members.Auth.InviteAdministrator); "" invites none. The invitation is mailed to the members auth's recorder
 // (served.membersMail).
 func newServedInviting(ctx context.Context, t *testing.T, membersAdministrator string) *served {
 	t.Helper()
@@ -272,7 +272,8 @@ func newServedInviting(ctx context.Context, t *testing.T, membersAdministrator s
 		}
 	})
 	membersAccess := membersAuth.Access()
-	// The deployment's release invites while the members auth has no account.
+	// The deployment's release invites while nobody of the members auth holds the Super
+	// Administrator role.
 	if membersAdministrator != "" {
 		invited, err := membersAuth.InviteAdministrator(ctx, membersAdministrator)
 		if err != nil || invited.Outcome != session.FirstAdministratorInvited || invited.Email != membersAdministrator {

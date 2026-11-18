@@ -220,14 +220,15 @@ func Foothold(spec *Spec) bool {
 }
 
 // InvitesAdministrator reports an auth whose first administrator the deployment
-// invites: while the auth has no account, the migrate command has an invitation mailed
-// to the address the placement names (AdministratorVariable), and the person accepts it
-// by signing in through a method of the auth, whichever methods it has and however many
-// organizations a directory method admits. It is every auth whose roles the application
-// gives (Foothold) and whose management the application generates (Spec.IdentityDir):
-// the roles an invitation carries are given by the generated identity client's
-// acceptance hook, so an auth without one would let the invited person in holding
-// nothing, and invites nobody.
+// invites: while nobody of the auth holds the Super Administrator role, the migrate
+// command has an invitation mailed to the address the placement names
+// (AdministratorVariable), and the person accepts it by signing in through a method of
+// the auth, whichever methods it has and however many organizations a directory method
+// admits. It is every auth whose roles the application gives (Foothold) and whose
+// management the application generates (Spec.IdentityDir): the roles an invitation
+// carries are given by the generated identity client's acceptance hook, so an auth
+// without one would let the invited person in holding nothing, and invites nobody.
+// impulse check refuses such an auth (first-administrator): it has no way in.
 func InvitesAdministrator(spec *Spec) bool {
 	return Foothold(spec) && spec.IdentityDir != ""
 }

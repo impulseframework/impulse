@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/staff"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/config"
@@ -52,10 +53,10 @@ const (
 	mailboxHandStep   = "give the environment its mailbox before this release, the deployment's hand step for the mailbox: name the mailbox (APP_MAIL_MAILBOX) and add its app password (the secret APP_MAIL_APP_PASSWORD), then run the release again"
 )
 
-// What the command writes for an auth that has an account.
+// What the command writes for an auth where somebody holds the Super Administrator role.
 const (
-	staffHasAccount   = "The staff auth has an account: no first administrator invited\n"
-	membersHasAccount = "The members auth has an account: no first administrator invited\n"
+	staffRoleHeld   = "Somebody holds the Super Administrator role in the staff auth: no first administrator invited\n"
+	membersRoleHeld = "Somebody holds the Super Administrator role in the members auth: no first administrator invited\n"
 )
 
 // The package's emulators: the Spanner container the cases create their databases on,
@@ -128,8 +129,10 @@ func stopFirestore(ctx context.Context, f *initiator.FirestoreContainer) {
 //
 // No case names a mailbox, so the data level writes its mail to the log, as an
 // environment does before the mailbox's hand step: the command then refuses to invite a
-// first administrator and says what to give, and a database with an account needs no
-// invitation. Whatever a case does, no invitation's link is in what the command wrote:
+// first administrator and says what to give, whether the auth has no account or accounts
+// that hold nothing, and an auth where somebody holds the Super Administrator role needs
+// no invitation, no address and no mailbox. Whatever a case does, no invitation's link
+// is in what the command wrote:
 // its output, its errors and its log are read for one after every run. The invitation
 // itself, mailed, accepted and sent again, is proven where the auth mails to a recorder
 // (test/integration).
@@ -175,25 +178,43 @@ func TestExecute(t *testing.T) {
 			after:     nobodyInvited,
 		},
 		{
-			name:    "a database where each auth has an account invites nobody, and the run goes to its end",
-			prepare: withUsers,
-			wantOut: staffHasAccount + membersHasAccount,
+			name:    "a database where somebody holds the Super Administrator role in each auth invites nobody, and the run goes to its end with no mailbox",
+			prepare: withHolders,
+			wantOut: staffRoleHeld + membersRoleHeld,
 			after:   nobodyInvited,
 		},
 		{
-			name:    "a database where each auth has an account needs no address named",
-			prepare: withUsers,
+			name:    "a database where somebody holds the Super Administrator role in each auth needs no address named",
+			prepare: withHolders,
 			env:     map[string]string{staff.AdministratorVariable: "", members.AdministratorVariable: ""},
-			wantOut: staffHasAccount + membersHasAccount,
+			wantOut: staffRoleHeld + membersRoleHeld,
 			after:   nobodyInvited,
 		},
 		{
-			name:     "an auth with an account beside one with none: the one with none is not invited while the environment has no mailbox",
-			prepare:  withUser,
+			name:     "an auth where somebody holds the role beside one with no account: the one with none is not invited while the environment has no mailbox",
+			prepare:  withHolder,
 			wantCode: exitFailed,
-			wantOut:  staffHasAccount,
+			wantOut:  staffRoleHeld,
 			wantErr:  noMailbox,
 			wantAlso: []string{membersInvitation, mailboxHandStep},
+			after:    nobodyInvited,
+		},
+		{
+			name:     "accounts that hold no role stop no invitation: with no mailbox the staff auth's first administrator is not invited, and the run says what to give",
+			prepare:  withUsers,
+			wantCode: exitFailed,
+			wantErr:  noMailbox,
+			wantAlso: []string{whoseInvitation, mailboxHandStep},
+			after:    nobodyInvited,
+		},
+		{
+			name:     "the database as the development bootstrap leaves it, a staff login that holds the Super Administrator role and a members login that holds none: nobody administers the members auth, and with no address named for it the run is refused",
+			prepare:  asBootstrapped,
+			env:      map[string]string{staff.AdministratorVariable: "", members.AdministratorVariable: ""},
+			wantCode: exitFailed,
+			wantOut:  staffRoleHeld,
+			wantErr:  "no first administrator is named: nobody holds the Super Administrator role yet",
+			wantAlso: []string{membersInvitation},
 			after:    nobodyInvited,
 		},
 		{
@@ -206,10 +227,10 @@ func TestExecute(t *testing.T) {
 		},
 		{
 			name:     "no members account and no address named for the members auth is refused",
-			prepare:  withUser,
+			prepare:  withHolder,
 			env:      map[string]string{members.AdministratorVariable: ""},
 			wantCode: exitFailed,
-			wantOut:  staffHasAccount,
+			wantOut:  staffRoleHeld,
 			wantErr:  "no first administrator is named",
 			wantAlso: []string{membersInvitation},
 			after:    nobodyInvited,
@@ -233,7 +254,7 @@ func TestExecute(t *testing.T) {
 		},
 		{
 			name:     "a fresh invitation for the members auth while the environment has no mailbox is refused, whatever the staff auth holds",
-			prepare:  withUser,
+			prepare:  withHolder,
 			args:     []string{"-reinvite-administrator", members.Name},
 			wantCode: exitFailed,
 			wantErr:  noMailbox,
@@ -241,21 +262,30 @@ func TestExecute(t *testing.T) {
 			after:    nobodyInvited,
 		},
 		{
-			name:     "a fresh invitation once the auth has an account is refused",
-			prepare:  withUser,
+			name:     "a fresh invitation once somebody holds the Super Administrator role is refused",
+			prepare:  withHolder,
 			args:     []string{"-reinvite-administrator", staff.Name},
 			wantCode: exitFailed,
-			wantErr:  "the application has an account, so no first administrator is invited",
+			wantErr:  "somebody holds the Super Administrator role, so no first administrator is invited",
 			wantAlso: []string{whoseInvitation},
 			after:    nobodyInvited,
 		},
 		{
-			name:     "a fresh invitation for the members auth once it has an account is refused",
-			prepare:  withUsers,
+			name:     "a fresh invitation for the members auth once somebody holds the Super Administrator role there is refused",
+			prepare:  withHolders,
 			args:     []string{"-reinvite-administrator", members.Name},
 			wantCode: exitFailed,
-			wantErr:  "the application has an account, so no first administrator is invited",
+			wantErr:  "somebody holds the Super Administrator role, so no first administrator is invited",
 			wantAlso: []string{membersInvitation},
+			after:    nobodyInvited,
+		},
+		{
+			name:     "a fresh invitation for the members auth is not refused for an account that holds no role: with no mailbox the run says what to give",
+			prepare:  asBootstrapped,
+			args:     []string{"-reinvite-administrator", members.Name},
+			wantCode: exitFailed,
+			wantErr:  noMailbox,
+			wantAlso: []string{membersInvitation, mailboxHandStep},
 			after:    nobodyInvited,
 		},
 		{
@@ -565,27 +595,77 @@ func dirty(t *testing.T, db *initiator.SpannerDB) {
 	}
 }
 
-// withUser migrates the database and gives the staff auth one user, so the auth has an
-// account and nobody is invited to it; the members auth still has none.
+// The ids of the accounts the cases give the staff auth and the members auth.
+const (
+	someone       = "00000000-0000-4000-8000-000000000001"
+	someoneMember = "00000000-0000-4000-8000-000000000002"
+)
+
+// withUser migrates the database and gives the staff auth one user who holds no role, as
+// a person who signed up or a persona is: the auth has an account and nobody who
+// administers it, so its first administrator is invited still; the members auth has no
+// account.
 func withUser(t *testing.T, db *initiator.SpannerDB) {
 	t.Helper()
 
 	migrated(t, db)
-	mutation := spanner.Insert("StaffSessionUsers", []string{"Id", "Username", "CreatedAt"}, []any{"00000000-0000-4000-8000-000000000001", "someone", spanner.CommitTimestamp})
+	mutation := spanner.Insert("StaffSessionUsers", []string{"Id", "Username", "CreatedAt"}, []any{someone, "someone", spanner.CommitTimestamp})
 	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 }
 
-// withUsers migrates the database and gives each auth one user, so each has an account
-// and nobody is invited.
+// withUsers migrates the database and gives each auth one user who holds no role: each
+// has an account and nobody who administers it.
 func withUsers(t *testing.T, db *initiator.SpannerDB) {
 	t.Helper()
 
 	withUser(t, db)
-	mutation := spanner.Insert("MembersSessionUsers", []string{"Id", "Username", "CreatedAt"}, []any{"00000000-0000-4000-8000-000000000002", "someone", spanner.CommitTimestamp})
+	mutation := spanner.Insert("MembersSessionUsers", []string{"Id", "Username", "CreatedAt"}, []any{someoneMember, "someone", spanner.CommitTimestamp})
 	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+}
+
+// withHolder migrates the database and gives the staff auth one user who holds the Super
+// Administrator role, so somebody administers it and nobody is invited to it; the
+// members auth has no account.
+func withHolder(t *testing.T, db *initiator.SpannerDB) {
+	t.Helper()
+
+	withUser(t, db)
+	holdsStaff(t)
+}
+
+// asBootstrapped migrates the database and gives it the logins the development bootstrap
+// creates (cmd/bootstrap/users.json): a staff login that holds the Super Administrator
+// role and a members login that holds none.
+func asBootstrapped(t *testing.T, db *initiator.SpannerDB) {
+	t.Helper()
+
+	withUsers(t, db)
+	holdsStaff(t)
+}
+
+// withHolders migrates the database and gives each auth one user who holds the Super
+// Administrator role, so somebody administers each and nobody is invited.
+func withHolders(t *testing.T, db *initiator.SpannerDB) {
+	t.Helper()
+
+	asBootstrapped(t, db)
+	manager := openData(t).Members().Access().UserManager()
+	if err := manager.AddUserRoles(t.Context(), accesstypes.GlobalPolicyScope(), accesstypes.User(someoneMember), accesstypes.SuperAdministrator); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles() of the members auth error = %v", err)
+	}
+}
+
+// holdsStaff gives the staff auth's user the Super Administrator role.
+func holdsStaff(t *testing.T) {
+	t.Helper()
+
+	manager := openData(t).Staff().Access().UserManager()
+	if err := manager.AddUserRoles(t.Context(), accesstypes.GlobalPolicyScope(), accesstypes.User(someone), accesstypes.SuperAdministrator); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles() of the staff auth error = %v", err)
 	}
 }
 

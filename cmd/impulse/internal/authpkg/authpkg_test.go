@@ -188,19 +188,21 @@ func TestFiles(t *testing.T) {
 // TestFiles_firstAdministratorInvited holds how an auth's first administrator comes in:
 // by an invitation mailed to the address the placement names, whichever methods the auth
 // has. The foothold file asks the session library for the invitation
-// (session.AuthAPI.InviteFirstAdministrator) under the convention's variable, creates no
-// account and no password, and is the same code for a password auth, for a directory of
-// one organization and for a directory method open to any number of them, an
-// organization's identity provider or several methods: the invitation, and not the
-// method's width, ties the person's first sign-in to the roles. An auth with no
-// generated management invites nobody, since nothing would give the invitation's roles,
-// and says so; an auth whose directory writes the roles has no foothold file.
+// (session.AuthAPI.InviteFirstAdministrator) under the convention's variable, hands it
+// the user manager of the auth's own permission engine to ask who holds the Super
+// Administrator role, creates no account and no password, and is the same code for a
+// password auth, for a directory of one organization and for a directory method open to
+// any number of them, an organization's identity provider or several methods: the
+// invitation, and not the method's width, ties the person's first sign-in to the roles.
+// An auth with no generated management invites nobody, since nothing would give the
+// invitation's roles, and says so; an auth whose directory writes the roles has no
+// foothold file.
 func TestFiles_firstAdministratorInvited(t *testing.T) {
 	t.Parallel()
 
 	const (
-		invites   = "a.handlers.API().InviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: roles})"
-		reinvites = "a.handlers.API().ReinviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email: email, RoleNames: roles})"
+		invites   = "a.handlers.API().InviteFirstAdministrator(ctx, a.access.UserManager(), &session.FirstAdministratorRequest{Email: email, RoleNames: roles})"
+		reinvites = "a.handlers.API().ReinviteFirstAdministrator(ctx, a.access.UserManager(), &session.FirstAdministratorRequest{Email: email, RoleNames: roles})"
 		variable  = `const AdministratorVariable = "APP_MEMBERS_ADMINISTRATOR"`
 		nobody    = "The deployment invites no first administrator for this auth."
 	)

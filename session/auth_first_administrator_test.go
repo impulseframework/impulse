@@ -2,13 +2,17 @@ package session
 
 import (
 	"context"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -18,20 +22,61 @@ import (
 // firstAdministratorRoles are the roles the cases' first administrator is invited to.
 var firstAdministratorRoles = []string{"SuperAdministrator", "Administrator"}
 
-// firstAdministratorFixture is an Auth with mail and the two tables the first
-// administrator's invitation reads: the mail links and the users, which hold nobody
+// firstAdministratorFixture is an Auth with mail and what the first administrator's
+// invitation reads: the mail links, the accounts and the role store, which hold nobody
 // until a case says so.
 type firstAdministratorFixture struct {
 	*authFixture
 	recorder *mail.Recorder
 	links    *mailLinks
-	// users is what the store answers for the users table.
+	// mu guards users and roles, which a case may change while a call runs.
+	mu sync.Mutex
+	// users are the Auth's accounts, which the store answers by id.
 	users []*sessionstorage.SessionUser
+	// roles is the role store the cases hand the call.
+	roles *roleHolders
+}
+
+// roleHolders is a role store as the first administrator's invitation asks it: the
+// holders of the Super Administrator role in the global partition, as the permission
+// store names them, and nobody for any other question.
+type roleHolders struct {
+	fixture *firstAdministratorFixture
+	// super are the holders, and err what the store fails with.
+	super []accesstypes.User
+	err   error
+}
+
+func (r *roleHolders) RoleUsers(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
+	r.fixture.mu.Lock()
+	defer r.fixture.mu.Unlock()
+	if r.err != nil {
+		return nil, r.err
+	}
+	if scope != accesstypes.GlobalPolicyScope() || role != accesstypes.SuperAdministrator {
+		return nil, nil
+	}
+
+	return slices.Clone(r.super), nil
 }
 
 // newFirstAdministratorFixture is the fixture over sender; nil is a recorder, a sender
-// that delivers.
+// that delivers. Its Auth has an acceptance hook, as an application whose invitations
+// give roles has.
 func newFirstAdministratorFixture(t *testing.T, sender mail.Sender) *firstAdministratorFixture {
+	t.Helper()
+
+	f := newUnhookedFirstAdministratorFixture(t, sender)
+	f.auth.SetInvitationAccepted(func(context.Context, mockTx, impulse.UUID, string, *sessioninfo.Invitation) (func(context.Context), error) {
+		return nil, nil
+	})
+
+	return f
+}
+
+// newUnhookedFirstAdministratorFixture is the fixture whose Auth has no acceptance
+// hook: an accepted invitation gives its person nothing.
+func newUnhookedFirstAdministratorFixture(t *testing.T, sender mail.Sender) *firstAdministratorFixture {
 	t.Helper()
 
 	ctrl := gomock.NewController(t)
@@ -40,13 +85,43 @@ func newFirstAdministratorFixture(t *testing.T, sender mail.Sender) *firstAdmini
 		sender = recorder
 	}
 	f := &firstAdministratorFixture{recorder: recorder}
+	f.roles = &roleHolders{fixture: f}
 	f.authFixture = newAuthFixtureWith(t, ctrl, nil, WithMail(sender, testMail))
 	f.links = expectMailLinks(f.authFixture)
-	f.store.EXPECT().Users(gomock.Any()).DoAndReturn(func(context.Context) ([]*sessionstorage.SessionUser, error) {
-		return f.users, nil
+	f.store.EXPECT().User(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, user := range f.users {
+			if user.ID == id {
+				return user, nil
+			}
+		}
+
+		return nil, httpio.NewNotFoundMessage("no such user")
 	}).AnyTimes()
 
 	return f
+}
+
+// account gives the Auth an account under username that holds no role, and answers it.
+func (f *firstAdministratorFixture) account(username string) *sessionstorage.SessionUser {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: username}
+	f.users = append(f.users, user)
+
+	return user
+}
+
+// holder gives the Auth an account under username that holds the Super Administrator
+// role, and answers it.
+func (f *firstAdministratorFixture) holder(username string) *sessionstorage.SessionUser {
+	user := f.account(username)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.roles.super = append(f.roles.super, accesstypes.User(user.ID.String()))
+
+	return user
 }
 
 // standing puts an invitation in the table as an earlier release would have left it:
@@ -103,70 +178,126 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 		wantDead     []int
 	}{
 		{
-			name:       "no account and nothing standing: the address the deployment names is mailed one invitation",
+			name:       "nobody holds the Super Administrator role and nothing stands: the address the deployment names is mailed one invitation",
 			request:    FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
 			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada},
 			wantMailed: []string{ada},
 		},
 		{
-			name: "the Auth has an account: nobody is invited, and the invitation that stands for the address named is left to be accepted",
+			name: "the Auth has accounts that hold no role (a person who signed up, a persona, one a directory seated): they stop nothing, and the address is mailed",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				f.account("signed-up")
+				f.account("a-persona")
+
+				return nil
+			},
+			request:    FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada},
+			wantMailed: []string{ada},
+		},
+		{
+			name: "the Auth has an account that holds no role, and no address is named: refused as where nobody is there, since nobody administers the Auth",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.account("signed-up")
+
+				return nil
+			},
+			request:     FirstAdministratorRequest{RoleNames: firstAdministratorRoles},
+			wantErr:     ErrFirstAdministratorUnnamed,
+			wantErrText: "nobody holds the Super Administrator role yet",
+		},
+		{
+			name: "the role store names holders who are no account of this Auth (a person of another Auth over the same store, a name that is no account's id): nobody of this Auth holds the role, and the address is mailed",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.account("signed-up")
+				f.roles.super = []accesstypes.User{accesstypes.User(impulse.Must(impulse.NewUUID()).String()), "a-name-and-no-id"}
+
+				return nil
+			},
+			request:    FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada},
+			wantMailed: []string{ada},
+		},
+		{
+			name: "somebody holds the Super Administrator role: nobody is invited, and the invitation that stands for the address named is left to be accepted",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.holder("someone")
 
 				return []*sessionstorage.MailLink{f.standing(ada, week, firstAdministratorRoles...)}
 			},
 			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
-			want:         FirstAdministrator{Outcome: FirstAdministratorHasAccount},
+			want:         FirstAdministrator{Outcome: FirstAdministratorRoleHeld},
 			wantStanding: []int{0},
 		},
 		{
-			name: "the Auth has an account and the deployment names another address: nobody is invited, and the link mailed to the address taken back no longer opens",
+			name: "the one holder's account is disabled: a holder still, so nobody is invited",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				f.holder("someone").Disabled = true
+
+				return nil
+			},
+			request: FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:    FirstAdministrator{Outcome: FirstAdministratorRoleHeld},
+		},
+		{
+			name:   "somebody holds the role where the application writes its mail to the log and names no address: nothing is to send, so nothing is refused",
+			sender: mail.Log{},
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.holder("a-persona")
+
+				return nil
+			},
+			request: FirstAdministratorRequest{RoleNames: firstAdministratorRoles},
+			want:    FirstAdministrator{Outcome: FirstAdministratorRoleHeld},
+		},
+		{
+			name: "somebody holds the role and the deployment names another address: nobody is invited, and the link mailed to the address taken back no longer opens",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.holder("someone")
 
 				return []*sessionstorage.MailLink{f.standing(grace, week, firstAdministratorRoles...)}
 			},
 			request:  FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
-			want:     FirstAdministrator{Outcome: FirstAdministratorHasAccount, Withdrawn: []string{grace}},
+			want:     FirstAdministrator{Outcome: FirstAdministratorRoleHeld, Withdrawn: []string{grace}},
 			wantDead: []int{0},
 		},
 		{
-			name: "the Auth has an account and the deployment names nobody any more: the first administrator's invitation that stood is withdrawn",
+			name: "somebody holds the role and the deployment names nobody any more: the first administrator's invitation that stood is withdrawn",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				f.holder("someone")
 
 				return []*sessionstorage.MailLink{f.standing(grace, week, firstAdministratorRoles...)}
 			},
 			request:  FirstAdministratorRequest{Email: "", RoleNames: firstAdministratorRoles},
-			want:     FirstAdministrator{Outcome: FirstAdministratorHasAccount, Withdrawn: []string{grace}},
+			want:     FirstAdministrator{Outcome: FirstAdministratorRoleHeld, Withdrawn: []string{grace}},
 			wantDead: []int{0},
 		},
 		{
-			name: "the Auth has an account and the address changed with the roles: the link mailed to the address taken back no longer opens, whatever else it gave beside the Super Administrator role",
+			name: "somebody holds the role and the address changed with the roles: the link mailed to the address taken back no longer opens, whatever else it gave beside the Super Administrator role",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				f.holder("someone")
 
 				return []*sessionstorage.MailLink{f.standing(grace, week, "SuperAdministrator", "Retired")}
 			},
 			request:  FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
-			want:     FirstAdministrator{Outcome: FirstAdministratorHasAccount, Withdrawn: []string{grace}},
+			want:     FirstAdministrator{Outcome: FirstAdministratorRoleHeld, Withdrawn: []string{grace}},
 			wantDead: []int{0},
 		},
 		{
-			name: "the Auth has an account and the roles changed for the address still named: its invitation is left to be accepted, since nobody would be invited in its place",
+			name: "somebody holds the role and the roles changed for the address still named: its invitation is left to be accepted, since nobody would be invited in its place",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				f.holder("someone")
 
 				return []*sessionstorage.MailLink{f.standing(ada, week, "SuperAdministrator", "Retired")}
 			},
 			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
-			want:         FirstAdministrator{Outcome: FirstAdministratorHasAccount},
+			want:         FirstAdministrator{Outcome: FirstAdministratorRoleHeld},
 			wantStanding: []int{0},
 		},
 		{
-			name: "the Auth has an account: an invitation no user of the Auth sent that does not give the Super Administrator role is another's, as are a user's, a tenant's and one that makes a tenant, and all stand",
+			name: "somebody holds the role: an invitation no user of the Auth sent that does not give the Super Administrator role is another's, as are a user's, a tenant's and one that makes a tenant, and all stand",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				f.holder("someone")
 				sent := f.standing(grace, week, firstAdministratorRoles...)
 				sent.InvitedByUserID = impulse.NullUUIDFromUUID(impulse.Must(impulse.NewUUID()))
 				tenant := f.standing(grace, week, firstAdministratorRoles...)
@@ -177,7 +308,7 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 				return []*sessionstorage.MailLink{f.standing(grace, week, "Auditor"), sent, tenant, makes}
 			},
 			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
-			want:         FirstAdministrator{Outcome: FirstAdministratorHasAccount},
+			want:         FirstAdministrator{Outcome: FirstAdministratorRoleHeld},
 			wantStanding: []int{0, 1, 2, 3},
 		},
 		{
@@ -312,6 +443,56 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 			wantErrText:  "does not give the SuperAdministrator role",
 			wantStanding: []int{0},
 		},
+		{
+			name: "the person an earlier release invited accepts while this release withdraws their invitation for another address: the withdrawal finds it spent and its person holding the role, so nobody is invited and the new address is not mailed",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				link := f.standing(grace, week, firstAdministratorRoles...)
+				f.links.beforeRevoke = func(context.Context) {
+					f.links.mu.Lock()
+					now := time.Now()
+					link.ConsumedAt = &now
+					f.links.mu.Unlock()
+					f.holder(grace)
+				}
+
+				return []*sessionstorage.MailLink{link}
+			},
+			request:  FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:     FirstAdministrator{Outcome: FirstAdministratorRoleHeld},
+			wantDead: []int{0},
+		},
+		{
+			name: "somebody holds the role and an invitation taken back stops standing while the release withdraws it: nothing is left to withdraw, and the role store is not asked again",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.holder("someone")
+				link := f.standing(grace, week, firstAdministratorRoles...)
+				f.links.beforeRevoke = func(context.Context) {
+					f.links.mu.Lock()
+					now := time.Now()
+					link.ConsumedAt = &now
+					f.links.mu.Unlock()
+					f.mu.Lock()
+					defer f.mu.Unlock()
+					f.roles.err = errors.New("the role store is down")
+				}
+
+				return []*sessionstorage.MailLink{link}
+			},
+			request:  FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:     FirstAdministrator{Outcome: FirstAdministratorRoleHeld},
+			wantDead: []int{0},
+		},
+		{
+			name: "the role store cannot be read: the call fails with nothing mailed and nothing withdrawn, since who holds the role is not known",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.roles.err = errors.New("the role store is down")
+
+				return []*sessionstorage.MailLink{f.standing(grace, week, firstAdministratorRoles...)}
+			},
+			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			wantErrText:  "the role store is down",
+			wantStanding: []int{0},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -324,7 +505,7 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 			}
 			before := len(f.links.rows)
 
-			got, err := f.auth.API().InviteFirstAdministrator(t.Context(), &tt.request)
+			got, err := f.auth.API().InviteFirstAdministrator(t.Context(), f.roles, &tt.request)
 			checkFirstAdministratorError(t, err, tt.wantErr, tt.wantErrText)
 			if err == nil {
 				checkFirstAdministrator(t, got, &tt.want)
@@ -398,9 +579,9 @@ func checkFirstAdministrator(t *testing.T, got, want *FirstAdministrator) {
 	if diff := cmp.Diff(*want, trimmed); diff != "" {
 		t.Errorf("FirstAdministrator mismatch (-want +got):\n%s", diff)
 	}
-	if want.Outcome == FirstAdministratorHasAccount {
+	if want.Outcome == FirstAdministratorRoleHeld {
 		if !expires.IsZero() {
-			t.Errorf("ExpiresAt = %s for an Auth with an account, want none", expires)
+			t.Errorf("ExpiresAt = %s where somebody holds the Super Administrator role, want none", expires)
 		}
 
 		return
@@ -413,8 +594,8 @@ func checkFirstAdministrator(t *testing.T, got, want *FirstAdministrator) {
 // TestAuthAPI_InviteFirstAdministrator_again pins what the releases after the first
 // do, one Auth through them: an address written with a display name is the same
 // address at the next release, a message that could not be sent leaves no invitation
-// standing and the next release mails again, and a release after the person has an
-// account mails nothing.
+// standing and the next release mails again, and a release after the person accepted,
+// who holds the Super Administrator role from then on, mails nothing.
 func TestAuthAPI_InviteFirstAdministrator_again(t *testing.T) {
 	t.Parallel()
 
@@ -423,7 +604,7 @@ func TestAuthAPI_InviteFirstAdministrator_again(t *testing.T) {
 	req := &FirstAdministratorRequest{Email: "Ada Lovelace <ada@lakeside.edu>", RoleNames: firstAdministratorRoles}
 
 	f.recorder.Fail(errors.New("the relay is down"))
-	if _, err := api.InviteFirstAdministrator(t.Context(), req); err == nil || !strings.Contains(err.Error(), "the message could not be sent") {
+	if _, err := api.InviteFirstAdministrator(t.Context(), f.roles, req); err == nil || !strings.Contains(err.Error(), "the message could not be sent") {
 		t.Fatalf("InviteFirstAdministrator() with the relay down: error = %v, want the message not sent", err)
 	}
 	if standing, err := api.Invitations(t.Context()); err != nil || len(standing) != 0 {
@@ -431,11 +612,11 @@ func TestAuthAPI_InviteFirstAdministrator_again(t *testing.T) {
 	}
 	f.recorder.Fail(nil)
 
-	first, err := api.InviteFirstAdministrator(t.Context(), req)
+	first, err := api.InviteFirstAdministrator(t.Context(), f.roles, req)
 	if err != nil || first.Outcome != FirstAdministratorInvited || first.Email != "ada@lakeside.edu" {
 		t.Fatalf("InviteFirstAdministrator() once the relay is back = %+v, %v; want an invitation mailed to the bare address", first, err)
 	}
-	second, err := api.InviteFirstAdministrator(t.Context(), req)
+	second, err := api.InviteFirstAdministrator(t.Context(), f.roles, req)
 	if err != nil || second.Outcome != FirstAdministratorStanding || len(second.Withdrawn) != 0 {
 		t.Fatalf("InviteFirstAdministrator() at the next release = %+v, %v; want the invitation left standing and nothing mailed", second, err)
 	}
@@ -443,12 +624,13 @@ func TestAuthAPI_InviteFirstAdministrator_again(t *testing.T) {
 		t.Errorf("the invitation standing runs out at %s, want %s: the one the first release mailed", second.ExpiresAt, first.ExpiresAt)
 	}
 
-	// The person accepts: they have an account, and the link is spent.
-	f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "ada@lakeside.edu"}}
+	// The person accepts: they have an account that holds the role, and the link is
+	// spent.
+	f.holder("ada@lakeside.edu")
 	now := time.Now()
 	f.links.last(t).ConsumedAt = &now
-	third, err := api.InviteFirstAdministrator(t.Context(), req)
-	if err != nil || third.Outcome != FirstAdministratorHasAccount {
+	third, err := api.InviteFirstAdministrator(t.Context(), f.roles, req)
+	if err != nil || third.Outcome != FirstAdministratorRoleHeld {
 		t.Fatalf("InviteFirstAdministrator() after the person accepted = %+v, %v; want nobody invited", third, err)
 	}
 	// Two attempts were mailed: the one the relay refused and the one that went.
@@ -499,15 +681,26 @@ func TestAuthAPI_ReinviteFirstAdministrator(t *testing.T) {
 			wantDead:   []int{0},
 		},
 		{
-			name: "the Auth has an account: refused, and what stands is left as it is, for the address named and for another: a refusal changes nothing",
+			name: "somebody holds the Super Administrator role: refused, and what stands is left as it is, for the address named and for another: a refusal changes nothing",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+				f.holder("someone")
 
 				return []*sessionstorage.MailLink{f.standing(ada, week, firstAdministratorRoles...), f.standing(grace, week, firstAdministratorRoles...)}
 			},
-			wantErr:      ErrFirstAdministratorHasAccount,
-			wantErrText:  "A person who has one invites the others from the application",
+			wantErr:      ErrFirstAdministratorRoleHeld,
+			wantErrText:  "A person who holds it invites the others from the application",
 			wantStanding: []int{0, 1},
+		},
+		{
+			name: "the Auth has an account that holds no role: not refused, since nobody is there to invite the others; the standing invitation is withdrawn and a fresh one mailed",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.account("signed-up")
+
+				return []*sessionstorage.MailLink{f.standing(ada, week, firstAdministratorRoles...)}
+			},
+			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada, Withdrawn: []string{ada}},
+			wantMailed: []string{ada},
+			wantDead:   []int{0},
 		},
 		{
 			name:   "the application writes its mail to the log: refused, and the invitation that stands is not withdrawn for a fresh one that cannot be sent",
@@ -520,7 +713,25 @@ func TestAuthAPI_ReinviteFirstAdministrator(t *testing.T) {
 			wantStanding: []int{0},
 		},
 		{
-			name: "the person accepts while the action runs: the withdrawal finds the invitation spent and an account standing, and nothing is mailed",
+			name: "the person accepts while the action runs: the withdrawal finds the invitation spent and its person holding the role, and nothing is mailed",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				link := f.standing(ada, week, firstAdministratorRoles...)
+				f.links.beforeRevoke = func(context.Context) {
+					f.links.mu.Lock()
+					now := time.Now()
+					link.ConsumedAt = &now
+					f.links.mu.Unlock()
+					f.holder(ada)
+				}
+
+				return []*sessionstorage.MailLink{link}
+			},
+			wantErr:     ErrFirstAdministratorRoleHeld,
+			wantErrText: "somebody holds the Super Administrator role",
+			wantDead:    []int{0},
+		},
+		{
+			name: "the invitation stops standing while the action runs and nobody holds the role (it ran out, or another run withdrew it): the withdrawal finds it gone, and a fresh one is mailed",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
 				link := f.standing(ada, week, firstAdministratorRoles...)
 				f.links.beforeRevoke = func(context.Context) {
@@ -528,14 +739,13 @@ func TestAuthAPI_ReinviteFirstAdministrator(t *testing.T) {
 					defer f.links.mu.Unlock()
 					now := time.Now()
 					link.ConsumedAt = &now
-					f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: ada}}
 				}
 
 				return []*sessionstorage.MailLink{link}
 			},
-			wantErr:     ErrFirstAdministratorHasAccount,
-			wantErrText: "the application has an account",
-			wantDead:    []int{0},
+			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada},
+			wantMailed: []string{ada},
+			wantDead:   []int{0},
 		},
 	}
 	for _, tt := range tests {
@@ -548,7 +758,7 @@ func TestAuthAPI_ReinviteFirstAdministrator(t *testing.T) {
 				arranged = tt.arrange(f)
 			}
 
-			got, err := f.auth.API().ReinviteFirstAdministrator(t.Context(), &FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles})
+			got, err := f.auth.API().ReinviteFirstAdministrator(t.Context(), f.roles, &FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles})
 			checkFirstAdministratorError(t, err, tt.wantErr, tt.wantErrText)
 			if err == nil {
 				checkFirstAdministrator(t, got, &tt.want)
@@ -565,6 +775,59 @@ func TestAuthAPI_ReinviteFirstAdministrator(t *testing.T) {
 				if f.stands(arranged[i]) {
 					t.Errorf("the invitation to %s arranged at %d still stands, want its link dead", arranged[i].Email, i)
 				}
+			}
+		})
+	}
+}
+
+// TestAuthAPI_InviteFirstAdministrator_builtWrongly pins the refusals of a call the
+// application built wrongly, which no environment changes, so each is made whoever holds
+// the role and before anything is read, withdrawn or mailed. Handed no role store, the
+// call cannot ask who holds the Super Administrator role. On an Auth with no acceptance
+// hook an accepted invitation would give its person nothing: nobody would come to hold
+// the role, and every release after would mail the address again.
+func TestAuthAPI_InviteFirstAdministrator_builtWrongly(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// unhooked builds the Auth with no acceptance hook, and noStore hands the call
+		// no role store.
+		unhooked, noStore bool
+		// held gives the Auth a holder of the Super Administrator role first.
+		held bool
+		want string
+	}{
+		{name: "no role store", noStore: true, want: "pass the user manager of the Auth's own permission engine"},
+		{name: "no acceptance hook, while nobody holds the role", unhooked: true, want: "set the hook that gives an invitation its roles when the Auth is built (SetInvitationAccepted"},
+		{name: "no acceptance hook, where somebody holds the role: refused all the same, so the mistake shows before a deployment where nobody does", unhooked: true, held: true, want: "the Auth has no acceptance hook"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFirstAdministratorFixture(t, nil)
+			if tt.unhooked {
+				f = newUnhookedFirstAdministratorFixture(t, nil)
+			}
+			if tt.held {
+				f.holder("someone")
+			}
+			var roles RoleHolders = f.roles
+			if tt.noStore {
+				roles = nil
+			}
+			standing := f.standing("grace@lakeside.edu", time.Hour, firstAdministratorRoles...)
+			req := &FirstAdministratorRequest{Email: "ada@lakeside.edu", RoleNames: firstAdministratorRoles}
+
+			if _, err := f.auth.API().InviteFirstAdministrator(t.Context(), roles, req); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("InviteFirstAdministrator() error = %v, want one saying %q", err, tt.want)
+			}
+			if _, err := f.auth.API().ReinviteFirstAdministrator(t.Context(), roles, req); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("ReinviteFirstAdministrator() error = %v, want one saying %q", err, tt.want)
+			}
+			if !f.stands(standing) || len(f.mailedTo()) != 0 {
+				t.Errorf("after the refusals the standing invitation stands = %t and %d message(s) were mailed, want it left and nothing mailed", f.stands(standing), len(f.mailedTo()))
 			}
 		})
 	}

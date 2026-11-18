@@ -1815,38 +1815,70 @@ although Google would admit the sign-in: name the secondary domain on the Worksp
 The first administrator of a deployed application comes in as everyone after them does:
 by an invitation mailed to their own address, which they accept by signing in through a
 method of the Auth. The deployment names the address, and its release asks for the
-invitation while the Auth has no account. No account is created ahead of the person and
-no password is generated for them, so nothing stands that somebody other than the
-mailbox's owner could sign in with, and no secret exists that a person would have to
-read. With the password method the person chooses a password from the link, their address
-proven by it; through a directory the invitation is what ties the sign-in to the roles,
-whoever else the directory admits and however many organizations the method is open to,
-and the address the directory gives is held to the invited one, as for every invitation.
+invitation while nobody of the Auth holds the Super Administrator role
+(`accesstypes.SuperAdministrator`). No account is created ahead of the person and no
+password is generated for them, so nothing stands that somebody other than the mailbox's
+owner could sign in with, and no secret exists that a person would have to read. With
+the password method the person chooses a password from the link, their address proven by
+it; through a directory the invitation is what ties the sign-in to the roles, whoever
+else the directory admits and however many organizations the method is open to, and the
+address the directory gives is held to the invited one, as for every invitation.
 
-`AuthAPI.InviteFirstAdministrator(ctx, &session.FirstAdministratorRequest{Email, RoleNames})`
-is the step a release runs. It answers what it did (`session.FirstAdministrator`: the
-outcome, the address, when the invitation runs out and the addresses of the invitations
-it withdrew), and never the link or its token, which are in the mailed message alone:
+As the library stands, an Auth whose only sign-in method asserts no address cannot
+accept the invitation yet. The Microsoft Entra method asks the directory for the
+`openid` and `profile` scopes alone, so its sign-ins carry no address unless the
+registration itself is set up to send one, and a sign-in with no address has nothing to
+hold to the invited one: the invited person is refused there (`invitation_address`),
+nobody becomes that Auth's first administrator, and every release goes on asking for the
+address and the mailbox. An Auth that also has the password method, or a method that
+sends the address (Google), is not affected.
 
-- The Auth has an account: nobody is invited (`FirstAdministratorHasAccount`); every
-  person after the first is invited from the application. One thing is still done: an
-  invitation of the deployment's that still stands for an address the deployment no
-  longer names is withdrawn, so no link stays open for an address it took back.
+The role is what the release asks about, and not whether the Auth has an account. The
+invitation exists so that somebody administers the Auth, and an account that holds
+nothing (a person who signed up, one a directory seated, a persona a test environment
+seeds) administers nothing and stops no invitation. A holder counts when the id the
+role store lists is an account of this Auth; the account may be disabled, since the
+last holder who can sign in keeps the role and the account whoever asks, so the
+question is who holds the role, not who can sign in. A persona a test environment
+seeds holding the role is a holder: such an environment seeds its cast before this
+step, invites nobody and needs no mailbox.
+
+`AuthAPI.InviteFirstAdministrator(ctx, roles, &session.FirstAdministratorRequest{Email, RoleNames})`
+is the step a release runs. `roles` is the role store it asks who holds the Super
+Administrator role (`session.RoleHolders`, which the access library's user manager is:
+pass the manager of the Auth's own permission engine, the one the acceptance hook gives
+the roles through); a call handed none is refused. It answers what it did
+(`session.FirstAdministrator`: the outcome, the address, when the invitation runs out
+and the addresses of the invitations it withdrew), and never the link or its token,
+which are in the mailed message alone:
+
+- Somebody holds the Super Administrator role: nobody is invited
+  (`FirstAdministratorRoleHeld`), nothing is mailed, and neither an address nor a
+  mailbox is asked for; every person after the first is invited from the application.
+  One thing is still done: an invitation of the deployment's that still stands for an
+  address the deployment no longer names is withdrawn, so no link stays open for an
+  address it took back. One to the address still named is left to be accepted, with the
+  roles it was sent with.
 - An invitation to the address with those roles stands: nothing is mailed
   (`FirstAdministratorStanding`), so a release while the person has not yet accepted
   sends no second message.
 - None stands, because none was sent or the one sent has run out
   (`MailSettings.InvitationTimeout`, seven days unless set): one is mailed
   (`FirstAdministratorInvited`).
-- One stands that the deployment no longer names, for another address or other roles: it
-  is withdrawn, so its link no longer opens, and the address named now is mailed.
+- One stands that the deployment no longer names: it is withdrawn, so its link no longer
+  opens, and the address named now is mailed. That is so for another address, and for
+  other roles: an invitation carries the roles it was sent with, so a release that
+  names a changed set of roles replaces the standing invitation with one that gives
+  the set named now, and the person is mailed again.
 
 `AuthAPI.ReinviteFirstAdministrator` is the same on demand, for a message that was lost:
-it withdraws the standing invitation and mails a fresh one. It is refused once the Auth
-has an account (`ErrFirstAdministratorHasAccount`), and a refusal changes nothing.
+it withdraws the standing invitation and mails a fresh one. It is refused once somebody
+holds the Super Administrator role (`ErrFirstAdministratorRoleHeld`), and a refusal
+changes nothing; an account that holds no such role does not refuse it.
 
-Both refuse, with nothing mailed, an empty address (`ErrFirstAdministratorUnnamed`) and
-an Auth whose sender delivers nothing (`ErrFirstAdministratorNoMailbox`). The second is
+While nobody holds the role, both refuse, with nothing mailed, an empty address
+(`ErrFirstAdministratorUnnamed`) and an Auth whose sender delivers nothing
+(`ErrFirstAdministratorNoMailbox`). The second is
 the rule that the release never writes an invitation's link to a log: a sender says
 itself whether it hands its messages to a mail system (`mail.Deliverer`, which the
 Workspace relay declares), `mail.Delivers` takes a sender that says nothing, as
@@ -1867,8 +1899,10 @@ Auth sent, which only the application acting for itself writes. Those are the
 invitations the two calls read and withdraw, and they touch no invitation a user sent,
 none into a tenant, none that makes a tenant and none that gives other roles alone. The
 roles are given by the application's acceptance hook
-(`SetInvitationAccepted`), as any invitation's are; an Auth with no such hook gives an
-accepted invitation nothing, so its application invites no first administrator this way.
+(`SetInvitationAccepted`), as any invitation's are. An Auth with no such hook gives an
+accepted invitation nothing: nobody would come to hold the role and every release would
+mail the address again, so both calls refuse such an Auth, whoever holds the role, as
+they refuse a call handed no role store.
 Nothing here locks: a deployment runs one release at a time, and the step is its.
 
 ### Sign-up

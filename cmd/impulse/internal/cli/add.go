@@ -885,8 +885,9 @@ access tables copied from an auth the application has; an empty role file is wri
 the package (the file its Roles() embeds and hands to the permission engine), and the data
 level constructs it beside that auth. The package carries a foothold (foothold.go) for
 an auth whose roles the application assigns, with the password method or without: the
-first administrator the migrate command invites while the auth has no account, by an
-invitation mailed to the address the placement names for each environment
+first administrator the migrate command invites while nobody of the auth holds the
+Super Administrator role, by an invitation mailed to the address the placement names
+for each environment
 (APP_<AUTH>_ADMINISTRATOR). The invitation gives the Super Administrator role and the
 first administrator's roles, and the person accepts it as everyone invited after them
 does, by signing in from the link through a method of the auth: with the password method
@@ -895,12 +896,14 @@ sign-in to the roles, however many organizations the method admits. No account i
 ahead of the person and no password is generated. A release leaves a standing invitation
 as it is, replaces one that ran out, and withdraws one for an address the placement no
 longer names; the migrate command's -reinvite-administrator mails a fresh one on demand;
-and both refuse while the application has no mailbox to send as, since the link is never
-written to a log. The foothold's roles, its setting in the data level and its invitation
+and both refuse while nobody holds the role and the application has no mailbox to send
+as, since the link is never written to a log. Once somebody holds the Super Administrator
+role nobody is invited, and an account that holds no such role stops no invitation. The foothold's roles, its setting in the data level and its invitation
 from pkg/deploy are handed to the agent; impulse check holds the package to inviting
 (first-administrator). An auth the application generates no management for
 (generation.GenerateIdentity) invites nobody, since nothing there would give an accepted
-invitation its roles.
+invitation its roles, and impulse check refuses it until the application does: it has no
+way in.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),

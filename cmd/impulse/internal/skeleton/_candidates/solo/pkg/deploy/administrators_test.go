@@ -39,9 +39,9 @@ func Test_reportAdministrator(t *testing.T) {
 				"Invited the staff auth's first administrator: the invitation was mailed to grace@lakeside.example and runs out 2026-11-25T14:30:00Z\n",
 		},
 		{
-			name:    "an auth with an account",
-			invited: &session.FirstAdministrator{Outcome: session.FirstAdministratorHasAccount},
-			want:    "The staff auth has an account: no first administrator invited\n",
+			name:    "an auth where somebody holds the Super Administrator role",
+			invited: &session.FirstAdministrator{Outcome: session.FirstAdministratorRoleHeld},
+			want:    "Somebody holds the Super Administrator role in the staff auth: no first administrator invited\n",
 		},
 	}
 	for _, tt := range tests {

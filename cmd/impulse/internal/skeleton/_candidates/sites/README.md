@@ -155,20 +155,26 @@ turned on, since that takes a person who is signed in through the tenant's direc
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
   flags the release declares (section Feature flags). Between the two, `InviteAdministrators` invites each
-  auth's first administrator while the auth has no account, the foothold a deployed
-  environment starts from: an invitation mailed to the address the placement names for
+  auth's first administrator while nobody of the auth holds the Super Administrator
+  role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
   the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
   and the development administrator's roles. The person opens the link and chooses a
   password there, their address proven by the link. No account is made ahead of them and
   no password is generated. A release leaves an invitation that stands as it is, mails a new one once
   it has run out (seven days), and withdraws one for an address the placement no longer
   names; the migrate command's `-reinvite-administrator staff` withdraws the
-  standing one and mails a fresh one on demand, for mail that was lost, while the auth
-  has no account. Both refuse while the environment has no mailbox (`APP_MAIL_MAILBOX`
-  with `APP_MAIL_APP_PASSWORD`): an invitation's link is never written to a log, so the
-  mailbox comes before the first release. An account that exists stops the invitation;
-  the auth's management invites every person after the first, and the bootstrap creates
-  the development logins instead. The staff auth's role file validates against the union
+  standing one and mails a fresh one on demand, for mail that was lost, while nobody
+  holds the role. Both refuse while nobody holds it and the environment has no mailbox
+  (`APP_MAIL_MAILBOX` with `APP_MAIL_APP_PASSWORD`): an invitation's link is never
+  written to a log, so the mailbox comes before the first release. Once somebody holds
+  the Super Administrator role nobody is invited, and neither an address nor a mailbox
+  is asked for; an account that holds no such role (a person who signed up, a persona)
+  stops no invitation, and a holder whose account is disabled is a holder still. The
+  auth's management invites every person after the first. The bootstrap creates the
+  development logins instead, and its `admin` login holds the role, so a migrate run
+  against a bootstrapped database invites nobody. An application that adds a cast of
+  personas seeds it before `InviteAdministrators`, so an environment whose cast holds
+  the role invites nobody. The staff auth's role file validates against the union
   of the sites' generated collections (`config.Collection`) when its engine opens: one
   policy store, one role file, one identity across sites.
   `cmd/deployment/migrate` is the deploy step; `cmd/bootstrap` reuses it for the emulator

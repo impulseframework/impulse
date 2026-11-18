@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -125,14 +126,16 @@ func TestPortalOutlet_aRoleUnderANameAdmitsNobody(t *testing.T) {
 // far as the simulated directory shows it: the deployment invites the first
 // administrator, makes no account ahead of them, and nobody else gets in. The members
 // auth's people sign in through a directory and the application gives its roles, so the
-// release has an invitation mailed to the address the placement names, while the auth
-// has no account. The application's tenants have directories, and the first
-// administrator belongs to no tenant, so no tenant's directory vouches for them: the
-// invitation does. Another person of the same directory who signs in first is a
+// release has an invitation mailed to the address the placement names, while nobody of
+// the auth holds the Super Administrator role: the portal's client, an account that
+// holds no such role, stops nothing. The application's tenants have directories, and the
+// first administrator belongs to no tenant, so no tenant's directory vouches for them:
+// the invitation does. Another person of the same directory who signs in first is a
 // stranger without the link, and with it the invitation is for another address; neither
 // makes an account, and the invitation stands. An account somebody created ahead under
 // a name, for the whole application, is nobody's invitation either, and its name links
-// nothing.
+// nothing; holding the Super Administrator role, it is somebody who administers the
+// auth, so from then on a release invites nobody and a fresh invitation is refused.
 //
 // The acceptance itself is not played here. An invitation is accepted by the account
 // whose address it was mailed to, and the simulated Microsoft directory asserts no
@@ -149,7 +152,7 @@ func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 
 	// The release mailed one invitation and made no account.
 	if sent := s.membersMail.Messages(); len(sent) != 1 || sent[0].To != administrator {
-		t.Fatalf("the release mailed %+v, want one message, to %s", sent, administrator)
+		t.Fatalf("the release mailed %d message(s), want one, to %s: a message's text holds its link and is not printed", len(sent), administrator)
 	}
 	if accountExists(ctx, t, s, membersUsers, administrator) {
 		t.Fatal("the release made an account for the members auth's first administrator, want none ahead of the person")
@@ -182,6 +185,21 @@ func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 		t.Errorf("the invitations that stand after the refused sign-ins = %+v, %v, want the first administrator's alone", standing, err)
 	}
 
+	// The next release finds an account in the members auth, the portal's client, who
+	// holds no Super Administrator role: nobody administers the auth, so the first
+	// administrator is invited still, by the invitation that stands, and nothing is
+	// mailed.
+	if !accountExists(ctx, t, s, membersUsers, clientUser) {
+		t.Fatalf("the members auth has no account for %s, want the portal's client there", clientUser)
+	}
+	again, err := s.membersAuth.InviteAdministrator(ctx, administrator)
+	if err != nil || again.Outcome != session.FirstAdministratorStanding || again.Email != administrator {
+		t.Errorf("the release beside an account that holds no role = %+v, %v, want the first administrator's invitation left standing", again, err)
+	}
+	if sent := len(s.membersMail.Messages()); sent != 1 {
+		t.Errorf("%d message(s) mailed in all, want the first release's one", sent)
+	}
+
 	// An account an administrator created ahead under a name, with a role for the whole
 	// application and no password, is nobody's invitation. The directory presents the
 	// name and nothing vouches for the account, so the sign-in is refused as a stranger's
@@ -203,6 +221,20 @@ func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 	}
 	if n := identityLinks(ctx, t, s, ahead.String()); n != 0 {
 		t.Errorf("the account created ahead holds %d identity links after the refused sign-in, want none", n)
+	}
+
+	// That account holds the Super Administrator role, so somebody administers the
+	// members auth: the next release invites nobody, and a fresh invitation is refused.
+	// The invitation that stands for the address still named is left to be accepted.
+	held, err := s.membersAuth.InviteAdministrator(ctx, administrator)
+	if err != nil || held.Outcome != session.FirstAdministratorRoleHeld || len(held.Withdrawn) != 0 {
+		t.Errorf("the release once an account holds the Super Administrator role = %+v, %v, want nobody invited and nothing withdrawn", held, err)
+	}
+	if _, err := s.membersAuth.ReinviteAdministrator(ctx, administrator); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
+		t.Errorf("members.Auth.ReinviteAdministrator() once an account holds the Super Administrator role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
+	}
+	if sent := len(s.membersMail.Messages()); sent != 1 {
+		t.Errorf("%d message(s) mailed in all, want the first release's one", sent)
 	}
 }
 
