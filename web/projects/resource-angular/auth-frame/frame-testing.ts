@@ -121,6 +121,6 @@ export function provideFrameTesting(
     { provide: RESOURCE_CLIENT, useValue: createClient(descriptor, { baseUrl: '/api', transport }) },
     provideRouter(routes),
     provideNoopAnimations(),
-    provideFrame({ name: 'Redgrade', home: 'dashboard', menus: [], ...config }),
+    provideFrame({ name: 'Lodestar', home: 'dashboard', menus: [], ...config }),
   ];
 }

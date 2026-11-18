@@ -5,10 +5,11 @@
 // A test environment (a pull-request environment, or the first environment itself) seeds
 // a cast of personas: accounts with names, addresses and roles that exercise the
 // application's screens, which nobody can sign in as through a real identity provider. The
-// persona provider, a function of Redgrade, signs a person in as one of them after that
-// person has signed in to Redgrade as themselves and Redgrade has said they may enter the
-// application; the application takes the sign-in through the session library's generic
-// OpenID Connect method (impulse add method persona), whose subject is the persona's login.
+// persona provider, a service of the platform the application is hosted on, signs a person
+// in as one of them after that person has signed in to the platform as themselves and the
+// platform has said they may enter the application; the application takes the sign-in
+// through the session library's generic OpenID Connect method (impulse add method
+// persona), whose subject is the persona's login.
 //
 // The application declares its cast in cast.json beside its auth package, which impulse
 // add method persona writes and the auth package embeds: the migrate command seeds the

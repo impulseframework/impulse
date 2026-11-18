@@ -1458,8 +1458,9 @@ harness.
 `persona` is the sign-in of the test environments: a reviewer, a tester or an agent opens
 the application in a pull-request environment or the first environment, clicks one button
 on its login page, picks a persona from the deployment's cast at the persona provider
-(Redgrade's, which signs the person in itself and decides whether they may enter the
-application's test environments), and is signed in as that persona with its roles; the
+(the hosting platform's, which signs the person in itself and decides whether they may
+enter the application's test environments), and is signed in as that persona with its
+roles; the
 application's own methods stay on the page. The method is the session library's generic
 OpenID Connect method (`oidc.SignIn`), the application a public client (no secret, PKCE),
 the application the authority for role membership (`--authority` defaults to
@@ -1475,7 +1476,7 @@ with its own invitation, and a persona holds its roles in every tenant or in non
 `register<Registration>` answers nil when the issuer is empty, so the method is registered
 only where the provider is configured: bedrock sets the issuer in the first environment and
 its pull requests from the placement's `persona` block (`{"issuer": ..., "clientId": ...}`,
-both from Redgrade's registration of the application), derives the client id (the root with
+both from the provider's registration of the application), derives the client id (the root with
 the pull request or the environment appended) and the callback, and registers each
 deployment, its callbacks and its cast with the provider after traffic; a later
 environment carries no issuer, so it never offers the method and nothing in the build

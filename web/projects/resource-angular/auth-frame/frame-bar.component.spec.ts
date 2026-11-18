@@ -67,7 +67,7 @@ describe('FrameBarComponent', () => {
 
   it('draws the name, the place, the menus, and the person', async () => {
     await signIn(nobody);
-    expect(element().querySelector('a.brand')?.textContent).toContain('Redgrade');
+    expect(element().querySelector('a.brand')?.textContent).toContain('Lodestar');
     expect(element().querySelector('impulse-place-switcher')).not.toBeNull();
     expect(element().querySelector('impulse-menu-bar')).not.toBeNull();
     expect(element().querySelector('impulse-person-menu')?.textContent).toContain('gale');
@@ -120,7 +120,7 @@ describe('FrameBarComponent', () => {
     await signIn(nobody, { help: [{ entries: [{ label: 'Guides', icon: 'menu_book', run: (): void => undefined }] }] });
     const help = TestBed.inject(MenuService).menus().at(-1);
     expect(help?.label).toBe('Help');
-    expect(help?.groups.map((group) => group.entries.map((e) => e.label))).toEqual([['Guides'], ['About Redgrade']]);
+    expect(help?.groups.map((group) => group.entries.map((e) => e.label))).toEqual([['Guides'], ['About Lodestar']]);
     expect(help?.groups.at(-1)?.entries[0]?.link).toEqual(['about']);
   });
 });

@@ -229,7 +229,7 @@ Provide it after the client, and route every signed-in page as a child of `Frame
 
 ```ts
 // app.config.ts
-provideFrame({ name: 'Redgrade', home: 'dashboard', outside: { label: 'Configuration', icon: 'settings' }, menus });
+provideFrame({ name: 'Lodestar', home: 'dashboard', outside: { label: 'Configuration', icon: 'settings' }, menus });
 
 // app.routes.ts
 {
