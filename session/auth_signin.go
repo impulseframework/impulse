@@ -407,16 +407,21 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 }
 
 // checkCredentials returns the enabled user for username when password matches, under
-// the attempt limiter. A name or a client the limiter holds is refused before anything
-// is read or hashed, with too_many_attempts and the wait. Otherwise the user is looked
-// up and the password compared: against a dummy hash when there is no user or no
-// password, so an unknown name takes as long as a known one, and a missing user, a
-// wrong password and a password-less user are all invalid credentials, counted against
-// the name and the client alike. A match resets the name. An outdated hash is upgraded
-// when auto-upgrade is enabled, in a write that names the hash this sign-in compared
-// against: a password changed, reset or removed since the user was read is left as it
-// is, and the password entered is then no longer the user's, so the check fails as a
-// wrong password does, counted the same. A disabled user is refused after the match.
+// the attempt limiter. The attempt takes its place under the limit before anything is
+// read or hashed (takeAttempt): a name or a client the limiter holds is refused with
+// too_many_attempts and the wait, and so is an attempt the store did not count because
+// the name's limit was reached by others made at once, so no more attempts than the
+// limit are ever compared with a password. Otherwise the user is looked up and the
+// password compared: against a dummy hash when there is no user or no password, so an
+// unknown name takes as long as a known one, and a missing user, a wrong password and
+// a password-less user are all invalid credentials, counted against the name and the
+// client alike by the place the attempt took; a user the store could not read is
+// answered the same and its attempt stays counted too. A match gives the attempt back
+// and resets the name. An outdated hash is upgraded when auto-upgrade is enabled, in a write that
+// names the hash this sign-in compared against: a password changed, reset or removed
+// since the user was read is left as it is, and the password entered is then no longer
+// the user's, so the check fails as a wrong password does, counted the same. A disabled
+// user is refused after the match.
 //
 // The proof returned names the password that matched, by the hash the user's row holds
 // for it now (the upgraded one when the upgrade wrote): what the caller inserts on the
@@ -426,7 +431,8 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 	ctx context.Context, username, password string, client attempts.Client,
 ) (user *sessionstorage.SessionUser, proof sessionstorage.PasswordProof, err error) {
 	methods := a.registered()
-	if err := a.limitAttempt(ctx, username, client); err != nil {
+	taken, err := a.takeAttempt(ctx, username, client)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -440,7 +446,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 	}
 	upgrade, err := a.compareOrDummy(ctx, methods, hash, password)
 	if err != nil {
-		a.recordFailure(ctx, username, client)
+		a.attemptFailed(ctx, username, taken)
 		// The log names the cause: no such user, or the comparison's failure.
 		if lookupErr != nil {
 			err = lookupErr
@@ -455,7 +461,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			// The row holds another password than the one this sign-in read, or none:
 			// the password entered is no longer the user's. Nothing was written, and
 			// the check fails as a wrong password does.
-			a.recordFailure(ctx, username, client)
+			a.attemptFailed(ctx, username, taken)
 
 			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 		case err != nil:
@@ -465,7 +471,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), methods.hasher.KeyType())
 		}
 	}
-	a.attemptsSucceeded(ctx, username)
+	a.attemptSucceeded(ctx, taken)
 	if user.Disabled {
 		return nil, nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
@@ -493,18 +499,22 @@ func (a *Auth[S, U, Tx]) upgradePasswordHash(ctx context.Context, userID impulse
 	return hash, nil
 }
 
-// limitAttempt asks the attempt limiter whether an attempt on username by client may
-// go on, and refuses it with too_many_attempts and the wait when it may not.
-func (a *Auth[S, U, Tx]) limitAttempt(ctx context.Context, username string, client attempts.Client) error {
-	wait, err := a.registered().attempts.Check(ctx, username, client)
+// takeAttempt takes an attempt on username by client from the attempt limiter, before
+// its password is compared, and refuses it with too_many_attempts and the wait when the
+// limiter gives none: the name or the client is held, or the attempt was not counted
+// because the name's limit was reached by attempts made at once with it. The attempt it
+// returns is given back by a password that matches (attemptSucceeded) and stays counted
+// by one that does not (attemptFailed).
+func (a *Auth[S, U, Tx]) takeAttempt(ctx context.Context, username string, client attempts.Client) (*attempts.Attempt, error) {
+	taken, wait, err := a.registered().attempts.Take(ctx, username, client)
 	if err != nil {
-		return errors.Wrap(err, "attempts.Limiter.Check()")
+		return nil, errors.Wrap(err, "attempts.Limiter.Take()")
 	}
-	if wait > 0 {
-		return sessioninfo.NewTooManyAttemptsRefusal(wait)
+	if taken == nil {
+		return nil, sessioninfo.NewTooManyAttemptsRefusal(wait)
 	}
 
-	return nil
+	return taken, nil
 }
 
 // compareOrDummy compares password against hash, or against the dummy hash when there
@@ -530,27 +540,49 @@ func (a *Auth[S, U, Tx]) compareOrDummy(ctx context.Context, methods *signInMeth
 // provePassword checks password against the one user holds, for a step that proves a
 // password outside the login: a pending identity's confirmation, a person's own change
 // and a person's own removal. It is held to the login's limit and counted under the
-// user's name as a login is: a name or a client the limiter holds is refused before
-// anything is hashed, with too_many_attempts and the wait; a wrong password counts
-// against the name and the client; a match resets the name. A session of the person
-// therefore guesses their password no faster than a stranger at the login does. wrong
-// reports a password that did not match, a user with no password among them, with the
-// comparison's error, for the caller to answer in its own words.
+// user's name as a login is: the attempt takes its place under the limit before
+// anything is hashed (takeAttempt), and one the limiter gives no place is refused with
+// too_many_attempts and the wait; a wrong password counts against the name and the
+// client by the place it took; a match gives it back and resets the name. A session of
+// the person therefore guesses their password no faster than a stranger at the login
+// does, however many guesses it makes at once. wrong reports a password that did not
+// match, a user with no password among them, with the comparison's error, for the
+// caller to answer in its own words.
 func (a *Auth[S, U, Tx]) provePassword(ctx context.Context, user *sessionstorage.SessionUser, password string, client attempts.Client) (wrong bool, err error) {
-	if err := a.limitAttempt(ctx, user.Username, client); err != nil {
+	taken, err := a.takeAttempt(ctx, user.Username, client)
+	if err != nil {
 		return false, err
 	}
 	if _, err := a.registered().comparePassword(user.PasswordHash, password); err != nil {
-		a.recordFailure(ctx, user.Username, client)
+		a.attemptFailed(ctx, user.Username, taken)
 
 		return true, err
 	}
-	a.attemptsSucceeded(ctx, user.Username)
+	a.attemptSucceeded(ctx, taken)
 
 	return false, nil
 }
 
-// recordFailure counts a failed attempt on username by client. A store failure is
+// attemptFailed is the end of an attempt whose password did not match: the place it
+// took before the comparison stays taken, against the name and the client alike, so
+// nothing more is counted. The attempt that reached the name's limit is logged.
+func (a *Auth[S, U, Tx]) attemptFailed(ctx context.Context, username string, taken *attempts.Attempt) {
+	if taken.Lock > 0 {
+		logger.FromCtx(ctx).Warnf("sign-in attempts on %q reached the limit: refused for %s", username, taken.Lock)
+	}
+}
+
+// attemptSucceeded gives taken back after a matching password and resets its name. A
+// store failure is logged; the sign-in goes on.
+func (a *Auth[S, U, Tx]) attemptSucceeded(ctx context.Context, taken *attempts.Attempt) {
+	if err := a.registered().attempts.Succeeded(ctx, taken); err != nil {
+		logger.FromCtx(ctx).Error(err)
+	}
+}
+
+// recordFailure counts a failed attempt on username by client that took no place under
+// the limit: a sign-in whose password matched, and gave its attempt back, and which the
+// store then refused because the password was changed meanwhile. A store failure is
 // logged; the refusal stands either way.
 func (a *Auth[S, U, Tx]) recordFailure(ctx context.Context, username string, client attempts.Client) {
 	lock, err := a.registered().attempts.Failed(ctx, username, client)
@@ -559,14 +591,6 @@ func (a *Auth[S, U, Tx]) recordFailure(ctx context.Context, username string, cli
 	}
 	if lock > 0 {
 		logger.FromCtx(ctx).Warnf("sign-in attempts on %q reached the limit: refused for %s", username, lock)
-	}
-}
-
-// attemptsSucceeded resets username's attempts after a matching password. A store
-// failure is logged; the sign-in goes on.
-func (a *Auth[S, U, Tx]) attemptsSucceeded(ctx context.Context, username string) {
-	if err := a.registered().attempts.Succeeded(ctx, username); err != nil {
-		logger.FromCtx(ctx).Error(err)
 	}
 }
 

@@ -271,8 +271,9 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Fatalf("RemoveUserPassword() = %d %s, want 200", rr.Code, rr.Body.String())
 		}
-		if _, _, clears := f.counts(); clears != 1 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want once", clears)
+		// The password's match gave its attempt back, and the removal reset the name.
+		if _, _, clears := f.counts(); clears != 2 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want twice: by the password's match and by the removal", clears)
 		}
 	})
 
@@ -290,8 +291,10 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), want) {
 			t.Errorf("RemoveUserPassword() of a password that changed meanwhile = %d %s, want 409 saying %q", rr.Code, rr.Body.String(), want)
 		}
-		if _, _, clears := f.counts(); clears != 0 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was removed", clears)
+		// The password matched and gave its attempt back; the removal that was not made
+		// clears nothing more.
+		if _, _, clears := f.counts(); clears != 1 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once, by the password's match: nothing was removed", clears)
 		}
 	})
 
@@ -353,8 +356,10 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), want) {
 			t.Errorf("RemoveUserPassword() of a person with no link = %d %s, want 409 saying %q", rr.Code, rr.Body.String(), want)
 		}
-		if _, _, clears := f.counts(); clears != 0 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was removed", clears)
+		// The password matched and gave its attempt back; the removal that was not made
+		// clears nothing more.
+		if _, _, clears := f.counts(); clears != 1 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once, by the password's match: nothing was removed", clears)
 		}
 	})
 

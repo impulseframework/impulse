@@ -70,7 +70,8 @@ func directoriesAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *
 }
 
 // directoriesAuthWithPassword is directoriesAuth with its password method, whose
-// handlers a test serves. The store counts no failed attempt and forgets none.
+// handlers a test serves. The store gives every attempt its place under the limit and
+// holds no name.
 func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *PasswordMethod, *mock_sessionstorage.MockAuthStore[mockTx]) {
 	t.Helper()
 
@@ -78,6 +79,10 @@ func directoriesAuthWithPassword(t *testing.T) (*Auth[NoCustomData, NoCustomData
 	store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	store.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
 	store.EXPECT().SignInAttempts(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")).AnyTimes()
+	store.EXPECT().RecordSignInFailure(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, name string, _ sessionstorage.SignInAttemptLimit) (*sessionstorage.SignInAttempts, error) {
+			return &sessionstorage.SignInAttempts{Name: name, Failures: 1, Counted: true}, nil
+		}).AnyTimes()
 	store.EXPECT().ClearSignInAttempts(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
 	if err != nil {

@@ -109,7 +109,11 @@ var (
 
 // InsertFactorCode consumes the earlier codes of c's pending sign-in that are live at
 // now and inserts c, in one transaction: one code stands for a pending sign-in at a
-// time.
+// time. Inserts made at once for one pending sign-in leave one code too: the
+// transaction is serializable, Spanner's isolation unless a database is set to another,
+// and its update reads the pending sign-in's live codes under locks that the other's
+// insert conflicts with, so Spanner runs one of the two after the other, where it
+// consumes the first one's code.
 func (s *SessionStorageDriver) InsertFactorCode(ctx context.Context, c *dbtype.FactorCode, now time.Time) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

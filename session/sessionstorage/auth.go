@@ -312,7 +312,10 @@ type AuthStore[Tx any] interface {
 	// and the write are one transaction, so concurrent failures each count, and the
 	// record says whether this one was counted (Counted): of failures recorded at
 	// once, as many as limit.Failures are and no more, so a caller that takes the
-	// failure before it judges a guess judges no more guesses than the limit.
+	// failure before it judges a guess judges no more guesses than the limit. Every
+	// limit the Auth keeps in this table is taken this way, before the thing it
+	// bounds: a password attempt before the password is compared, a code's guess
+	// before the code is, and a code or link before it is mailed.
 	RecordSignInFailure(ctx context.Context, name string, limit SignInAttemptLimit) (*SignInAttempts, error)
 	// ClearSignInAttempts deletes the sign-in attempts record of name: a successful
 	// password check, an MFA completion and a password change reset the count.
@@ -399,7 +402,9 @@ type AuthStore[Tx any] interface {
 	SetTrustedDevicesTableName(name string) error
 	// InsertFactorCode consumes the earlier live codes of c's pending sign-in and
 	// inserts c, in one transaction, so one code stands for a pending sign-in at a
-	// time; it gives c its ID.
+	// time; it gives c its ID. Inserts made at once for one pending sign-in run one
+	// after another, each consuming the code of the one before it, so one code
+	// stands after them too and none is left to be guessed at beside it.
 	InsertFactorCode(ctx context.Context, c *FactorCode) error
 	// FactorCode returns the live code of pendingID, or NotFound.
 	FactorCode(ctx context.Context, pendingID impulse.UUID) (*FactorCode, error)

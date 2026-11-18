@@ -264,8 +264,8 @@ func TestAuth_PasswordLogin_AttemptLimit(t *testing.T) {
 					t.Errorf("store writes = %d, want one per failure", writes)
 				}
 				assertLocked(t, f.login("pat", "pw", "10.0.0.1", "tok"))
-				if readsAfter, _, _ := f.counts(); readsAfter != reads {
-					t.Errorf("store reads during the lock = %d, want none beyond %d", readsAfter, reads)
+				if readsAfter, writesAfter, _ := f.counts(); readsAfter != reads || writesAfter != writes {
+					t.Errorf("store calls during the lock = %d reads, %d writes; want none beyond %d, %d", readsAfter, writesAfter, reads, writes)
 				}
 				if *compares != 3 {
 					t.Errorf("password comparisons = %d, want 3: the locked attempt hashed nothing", *compares)

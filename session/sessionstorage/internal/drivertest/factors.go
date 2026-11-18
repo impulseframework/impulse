@@ -249,6 +249,54 @@ func testFactorCodeAttemptsAtOnce(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 }
 
+// testFactorCodesInsertedAtOnce inserts a dozen codes for one pending sign-in at once,
+// for several pending sign-ins in turn, and checks that one code stands for each: every
+// insert succeeds, eleven of the twelve codes are consumed, and the one that is live is
+// the one read back by the pending sign-in. A code asked for over and over at once so
+// leaves no second code to be guessed at with attempts of its own.
+func testFactorCodesInsertedAtOnce(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	user := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
+
+	const (
+		racers = 12
+		rounds = 5
+	)
+	for round := range rounds {
+		pending := insertPending(ctx, t, in.Driver, user.ID, tokenHash(byte(round+1)))
+		codes := make([]*dbtype.FactorCode, racers)
+		for i := range codes {
+			codes[i] = newFactorCode(pending.ID, tokenHash(byte(i+1)))
+		}
+		failed := make([]error, racers)
+		var wg sync.WaitGroup
+		for i, code := range codes {
+			wg.Go(func() {
+				failed[i] = in.Driver.InsertFactorCode(ctx, code, time.Now())
+			})
+		}
+		wg.Wait()
+
+		for i, err := range failed {
+			if err != nil {
+				t.Fatalf("round %d: InsertFactorCode() %d of %d at once error = %v", round, i, racers, err)
+			}
+		}
+		var live []impulse.UUID
+		for _, code := range codes {
+			if factorCodeState(ctx, t, in.Driver, code.ID).ConsumedAt == nil {
+				live = append(live, code.ID)
+			}
+		}
+		if len(live) != 1 {
+			t.Fatalf("round %d: %d of %d codes inserted at once for one pending sign-in are live, want one", round, len(live), racers)
+		}
+		if got, err := in.Driver.FactorCodeByPending(ctx, pending.ID, time.Now()); err != nil || got.ID != live[0] {
+			t.Errorf("round %d: FactorCodeByPending() after %d inserts at once = %+v, %v; want the one live code, %s", round, racers, got, err, live[0])
+		}
+	}
+}
+
 func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	user := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
