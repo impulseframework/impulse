@@ -25,7 +25,7 @@ export interface AboutFacts {
  * the two differ, and the environment where the server names one. "Lodestar, release
  * v0.3.1 (this tab runs v0.3.0), environment tst"; in production, "Lodestar, release
  * v0.3.1". A part that is not known is left out, and with no name the line opens with
- * "Release".
+ * "Release". The name is copied as the application writes it, a small first letter kept.
  */
 export function aboutLine(facts: AboutFacts): string {
   const parts = [
@@ -34,7 +34,9 @@ export function aboutLine(facts: AboutFacts): string {
     facts.environment === undefined ? undefined : `environment ${facts.environment}`,
   ].filter((part): part is string => part !== undefined && part !== '');
   const line = parts.join(', ');
-  return line.charAt(0).toUpperCase() + line.slice(1);
+  // The application's name is written as the application writes it. A line with no name
+  // opens with one of the library's own words, which takes a capital as a sentence does.
+  return facts.name ? line : line.charAt(0).toUpperCase() + line.slice(1);
 }
 
 /** The pop-up's default size; a config passed to openAboutDialog overrides any of it. */

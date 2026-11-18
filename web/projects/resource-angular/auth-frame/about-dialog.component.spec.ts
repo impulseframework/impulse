@@ -191,6 +191,16 @@ describe('aboutLine', () => {
       want: 'Release v0.3.1, environment tst',
     },
     { name: 'a server that has not answered names no release', facts: { name: 'Lodestar' }, want: 'Lodestar' },
+    {
+      name: "an application's name is copied as it is written, a small first letter kept",
+      facts: { name: 'eDock', release: 'v0.3.1', environment: 'tst' },
+      want: 'eDock, release v0.3.1, environment tst',
+    },
+    {
+      name: 'an application with an empty name opens with the release too',
+      facts: { name: '', release: 'v0.3.1' },
+      want: 'Release v0.3.1',
+    },
   ];
   for (const tt of cases) {
     it(tt.name, () => {
