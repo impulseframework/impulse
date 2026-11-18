@@ -112,6 +112,15 @@ func TestFirstAdministrator(t *testing.T) {
 			wantDetails: []string{foothold + ":11" + seedsAnAccount},
 		},
 		{
+			name: "a seed whose public function was renamed still creates the account in seedFoothold",
+			edit: func(files map[string]string) {
+				files[foothold] = strings.Replace(seedingFoothold, "func (a *Auth) SeedAdministrator(", "func (a *Auth) Bootstrap(", 1)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 finding(s): a first administrator is brought in another way than by an invitation",
+			wantDetails: []string{foothold + ":15" + seedsAnAccount},
+		},
+		{
 			name: "an auth that invites and still seeds: the seed goes",
 			edit: func(files map[string]string) {
 				files[foothold] = invitingFoothold

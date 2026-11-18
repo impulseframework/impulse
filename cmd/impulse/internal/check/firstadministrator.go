@@ -97,8 +97,9 @@ func (c firstAdministrator) Run(_ context.Context, env *Env) Result {
 
 // foothold is what an auth package shows of the first administrator it brings in.
 type foothold struct {
-	// seeds is where the package declares SeedAdministrator (file:line), the seed that
-	// creates an account; empty where it declares none.
+	// seeds is where the package declares SeedAdministrator, or seedFoothold where it
+	// declares that alone (file:line): the seed that creates an account; empty where it
+	// declares neither.
 	seeds string
 	// invites is where the package declares InviteAdministrator (file:line), empty where
 	// it declares none.
@@ -151,7 +152,7 @@ func readFoothold(a *app.App, dir string) (*foothold, error) {
 				return fmt.Sprintf("%s:%d", rel, fset.Position(pos).Line)
 			}
 			switch fn.Name.Name {
-			case seedAdministratorFunc:
+			case seedAdministratorFunc, seedFootholdFunc:
 				if found.seeds == "" {
 					found.seeds = at(fn.Pos())
 				}

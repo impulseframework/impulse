@@ -30,8 +30,10 @@ const (
 // account and no password. A second release while the invitation stands mails nothing.
 // The person opens the link and chooses a password, their address proven by the link,
 // and holds the Super Administrator role and the first administrator's roles, so they
-// can invite the others. From then on a release invites nobody, and the fresh invitation
-// the deployment's operations can ask for is refused: somebody is there to invite.
+// can invite the others. They sign in again from another browser with that password and
+// the code mailed to their address. From then on a release invites nobody, and the fresh
+// invitation the deployment's operations can ask for is refused: somebody is there to
+// invite.
 func TestFirstAdministrator_invited(t *testing.T) {
 	t.Parallel()
 
@@ -67,7 +69,7 @@ func TestFirstAdministrator_invited(t *testing.T) {
 	}
 
 	// The person opens the link and chooses a password; the link proves the address.
-	b := accepted(ctx, t, s, token, firstName)
+	b := accepted(ctx, t, s, token, firstName, firstAddress)
 	sess := b.session(ctx)
 	if !sess.Authenticated || sess.Username != firstName || sess.PasswordChangeRequired {
 		t.Fatalf("session after the acceptance = %+v, want authenticated as %s with no password to change", sess, firstName)
@@ -102,6 +104,22 @@ func TestFirstAdministrator_invited(t *testing.T) {
 	}
 	if status, body := b.do(ctx, http.MethodPost, "/api/invite-staff-user", invite); status != http.StatusOK {
 		t.Errorf("POST /api/invite-staff-user as the first administrator: status %d: %s, want 200", status, body)
+	}
+
+	// From another browser the person signs in with the password they chose, the code
+	// sent to the address they hold, and asks for the browser to be remembered.
+	other := newBrowser(t, s)
+	other.prime(ctx)
+	status, body := other.login(ctx, firstName, firstPassword)
+	if status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("login with the chosen password: status %d: %s, want 200 with the sign-in held for the second factor", status, body)
+	}
+	other.secondFactor(ctx, firstName, true)
+	if sess := other.session(ctx); !sess.Authenticated || sess.Username != firstName {
+		t.Fatalf("session with the chosen password = %+v, want authenticated as %s", sess, firstName)
+	}
+	if other.trustedCookie() == nil {
+		t.Error("the browser asked to be remembered holds no trusted-device cookie")
 	}
 
 	// A release after the person accepted mails nothing, and the fresh invitation is
@@ -176,7 +194,7 @@ func TestFirstAdministrator_sentAgain(t *testing.T) {
 	}
 
 	// The fresh link is the one that opens, and the person it was mailed to gets in.
-	b := accepted(ctx, t, s, third, secondName)
+	b := accepted(ctx, t, s, third, secondName, secondAddress)
 	if sess := b.session(ctx); !sess.Authenticated || sess.Username != secondName || sess.Email != secondAddress {
 		t.Errorf("session after accepting the fresh invitation = %+v, want authenticated as %s holding %s", sess, secondName, secondAddress)
 	}
@@ -232,9 +250,11 @@ func opened(ctx context.Context, t *testing.T, s *served, token string) (status 
 }
 
 // accepted has the invited person follow the link and create their account from it with
-// a password they choose, then complete the second factor where the sign-in waits for
-// it, as the login page does. It returns the person's browser, signed in.
-func accepted(ctx context.Context, t *testing.T, s *served, token, username string) *browser {
+// a password they choose, as the login page does. The link and the password open no
+// session by themselves: the sign-in waits for the code mailed to the invited address,
+// so whoever holds the link without the mailbox gets no further. It returns the person's
+// browser, signed in.
+func accepted(ctx context.Context, t *testing.T, s *served, token, username, address string) *browser {
 	t.Helper()
 
 	b := newBrowser(t, s)
@@ -253,7 +273,16 @@ func accepted(ctx context.Context, t *testing.T, s *served, token, username stri
 	if strings.Contains(string(body), firstPassword) {
 		t.Errorf("the acceptance answered with the password the person chose: %s", body)
 	}
-	factorIfHeld(ctx, t, b, username, body)
+	if !heldForFactor(t, body) {
+		t.Fatalf("the acceptance as %s answered %s, want the sign-in held for the second factor: the link alone opens no session", username, body)
+	}
+	if sess := b.session(ctx); sess.Authenticated {
+		t.Fatalf("session before the sign-in code = %+v, want none: the link and a password are not the mailbox", sess)
+	}
+	b.secondFactor(ctx, username, false)
+	if sent := s.mail.Messages(); len(sent) == 0 || sent[len(sent)-1].To != address {
+		t.Errorf("the sign-in code was mailed to %+v, want the invited address %s", sent[max(len(sent)-1, 0):], address)
+	}
 
 	return b
 }
