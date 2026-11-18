@@ -535,7 +535,7 @@ describe('TenantSignInComponent', () => {
       "Directory only: only people who sign in through this tenant's directory enter this tenant.",
     );
     expect(texts('.kept-out')).toEqual([
-      'Everyone else seated in this tenant is kept out while this is on, and keeps their roles. The People page says who they are.',
+      'Everyone else seated in this tenant is kept out while this is on, and keeps their roles, but for an administrator of this tenant who has a password: they still get in with it and a code sent to their email. The People page says who is kept out.',
     ]);
     expect(element().querySelector('.make-directory-only')).toBeNull();
 
