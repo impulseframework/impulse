@@ -375,10 +375,7 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 // expectSessionThrough makes sessionID a live session of user for the store, one that
 // records how it was established, oldest event first.
 func (f *authFixture) expectSessionThrough(sessionID impulse.UUID, user *sessionstorage.SessionUser, events ...sessioninfo.AuthEvent) {
-	session := &sessioninfo.SessionData{
-		SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: user.Username, UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(user.ID), AuthEvents: events,
-	}
-	f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, user, events...)).AnyTimes()
 	f.store.EXPECT().User(gomock.Any(), user.ID).Return(user, nil).AnyTimes()
 }
 

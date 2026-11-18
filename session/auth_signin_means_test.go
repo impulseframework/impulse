@@ -353,8 +353,10 @@ func TestAuth_SignInMeans_labelsOfTheListServedBeside(t *testing.T) {
 	if console == nil || portal == nil {
 		t.Fatal("Methods() = nil, want each list's handler")
 	}
+	// The subtests run in parallel, after this function has returned: each read is answered
+	// a session active when it is read (sessionAtEachRead).
 	store.EXPECT().Session(gomock.Any(), sessionID).
-		Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(userID)}, nil).AnyTimes()
+		DoAndReturn(sessionAtEachRead(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"})).AnyTimes()
 	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).AnyTimes()
 	store.EXPECT().IdentitiesByUser(gomock.Any(), userID).Return([]*sessionstorage.SessionIdentity{
 		{ID: impulse.Must(impulse.NewUUID()), UserID: userID, Method: sessioninfo.MethodGoogle, Connection: "fleet", Subject: "sub"},

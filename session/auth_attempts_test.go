@@ -111,9 +111,9 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 	pat := func() *sessionstorage.SessionUser {
 		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: held}
 	}
-	session := func() *sessioninfo.SessionData {
-		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(userID)}
-	}
+	// Each of a case's several reads is answered a session active at the read
+	// (sessionAtEachRead), so a slow run of the password comparisons between them finds
+	// none of them idle.
 	post := func(h http.Handler, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID), http.MethodPost, "/api/user/password", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -132,7 +132,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 			run: func(t *testing.T, f *authFixture) {
 				// The session's validation and the proof each read the user. The mock
 				// refuses a removal it was not told of.
-				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(4)
+				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(4)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(8)
 				compares := countCompares(f)
 				for i := range 3 {
@@ -154,7 +154,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 		{
 			name: "a change's wrong old passwords count, and at the limit the right one is refused before the hash and nothing is changed",
 			run: func(t *testing.T, f *authFixture) {
-				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(4)
+				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(4)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(8)
 				compares := countCompares(f)
 				for i := range 3 {
@@ -193,7 +193,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 		{
 			name: "a right proof resets the name: two wrong removals, then the right one removes and leaves no count",
 			run: func(t *testing.T, f *authFixture) {
-				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(3)
+				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(3)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(6)
 				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).Return(nil)
 				for range 2 {
@@ -213,7 +213,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 		{
 			name: "a right proof resets the name even where the removal is then refused, as a login's match does where the sign-in is",
 			run: func(t *testing.T, f *authFixture) {
-				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(2)
+				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(2)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(4)
 				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).
 					Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in"))

@@ -409,10 +409,23 @@ func (f *authFixture) asUser(h http.Handler, sessionID impulse.UUID, body any, c
 	return rr
 }
 
+// sessionAtEachRead answers a read of sessionID with a session of user that was active at the
+// moment of the read, established by events, oldest first. A test that hands the store
+// one session for several reads answers them with it: a session built once, when the
+// test was set up, has gone idle past the interval the activity update is held to (five
+// seconds) by the time a slow machine reads it, and the update is a call no test here
+// expects.
+func sessionAtEachRead(sessionID impulse.UUID, user *sessionstorage.SessionUser, events ...sessioninfo.AuthEvent) func(context.Context, impulse.UUID) (*sessioninfo.SessionData, error) {
+	return func(context.Context, impulse.UUID) (*sessioninfo.SessionData, error) {
+		return &sessioninfo.SessionData{
+			SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: user.Username, UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(user.ID), AuthEvents: events,
+		}, nil
+	}
+}
+
 // expectSession makes sessionID a live session of user for the store.
 func (f *authFixture) expectSession(sessionID impulse.UUID, user *sessionstorage.SessionUser) {
-	session := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: user.Username, UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(user.ID)}
-	f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, user)).AnyTimes()
 	f.store.EXPECT().User(gomock.Any(), user.ID).Return(user, nil).AnyTimes()
 }
 
