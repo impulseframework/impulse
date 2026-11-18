@@ -7,16 +7,17 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
  * Account answers which sections the person's account page holds, from what the person's
  * sign-in offers: their name where the server serves its change, the email address where
  * the server sends mail, the password change where the person's auth has the password
- * method, the removal of the password where the server serves it, and forgetting this
- * browser where it is remembered for them. A page with none of them is not offered in the
- * person's menu.
+ * method, the removal of the password where the server serves it, a first password where
+ * the person has none and the server serves one, and forgetting this browser where it is
+ * remembered for them. A page with none of them is not offered in the person's menu.
  *
  * The password sections follow what the server says the person signs in with
  * (`signInMeans`): neither the change nor the removal is offered to a person who holds no
  * password, and the removal only to one a directory sign-in is linked to, who is told
- * which. The removal is offered on the server's word alone: where the read answers
- * nothing, because the server names none or the read failed, no removal is offered. A
- * hidden section is a courtesy; the server refuses what it must.
+ * which. A person who holds no password is offered the choice of a first one in their
+ * place. The removal and the first password are offered on the server's word alone: where
+ * the read answers nothing, because the server names none or the read failed, neither is
+ * offered. A hidden section is a courtesy; the server refuses what it must.
  */
 @Injectable({ providedIn: 'root' })
 export class Account {
@@ -79,6 +80,21 @@ export class Account {
     );
   });
   /**
+   * The person holds no password, the server serves the choice of a first one, which it
+   * does where their auth has the password method, and the session is the person's own:
+   * they choose one, with a code mailed to the address their account holds confirmed. It
+   * is offered on the server's word that they hold none: a read that answers nothing, or
+   * is still out, offers nothing.
+   */
+  readonly firstPassword = computed(
+    () =>
+      this.auth.sessionInfo().impersonation === undefined &&
+      this.methods.hasValue() &&
+      this.methods.value().firstPassword !== undefined &&
+      !this.means.isLoading() &&
+      this.signInMeans()?.password === false,
+  );
+  /**
    * What a person who removes their password is left to sign in through, each by the
    * words its button on the login page carries: the directory sign-ins the server says
    * are linked to them, and none where the server said nothing.
@@ -94,9 +110,11 @@ export class Account {
       this.methods.value().forgetBrowser !== undefined,
   );
   /** The page holds anything at all. */
-  readonly any = computed(() => this.name() || this.email() || this.password() || this.browser());
+  readonly any = computed(
+    () => this.name() || this.email() || this.password() || this.firstPassword() || this.browser(),
+  );
 
-  /** Reads what the person signs in with again: after a removal of the password on the page, which changed it. */
+  /** Reads what the person signs in with again: after a removal of the password on the page, or the choice of a first one, which changed it. */
   rereadSignInMeans(): void {
     this.means.reload();
   }
