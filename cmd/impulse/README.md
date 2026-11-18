@@ -666,6 +666,11 @@ an application from a shape by its name or its number (`--shape
 global-users-each-tenant-chooses` or `--shape 8`), and this section is where the result is
 read back.
 
+Each shape is described in full in
+[docs/sign-in-shapes.md](../../docs/sign-in-shapes.md): who gets an account, what role
+they start with, who manages the account, which sign-in methods it can use, the command
+that starts from it and the line this section prints for it.
+
 Findings never fail the command: it exits 0 with or without them. A program that fails
 exits 1 with its output tail, and a program that does not take `-audit` exits 1 saying to
 adopt the runner shape: the skeletons' generate program is three files in one directory,

@@ -523,6 +523,10 @@ the row with `sessionstorage.AuthStore.SetSignInMethod`, with `OpenedFor` the ke
 registration's audience (`auth.API().SignInMethods()` answers each registration's), and
 lists them with `SignInMethods`. `session.WithSignInMethodsTableName` renames the table.
 
+Open to sign-up or invite only is one of the choices that add up to an application's
+sign-in shape. The eight shapes that have a name, and every choice they are made of, are
+described in [docs/sign-in-shapes.md](../docs/sign-in-shapes.md).
+
 ### The tenant policy
 
 The tenant policy is the library's sign-in rule for an application whose users belong
