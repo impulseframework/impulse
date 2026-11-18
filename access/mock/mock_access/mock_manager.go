@@ -196,6 +196,20 @@ func (mr *MockControllerMockRecorder) RolePermissionDigest(ctx, role, scope any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RolePermissionDigest", reflect.TypeOf((*MockController)(nil).RolePermissionDigest), ctx, role, scope)
 }
 
+// TenantAdministratorRoles mocks base method.
+func (m *MockController) TenantAdministratorRoles() []accesstypes.Role {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TenantAdministratorRoles")
+	ret0, _ := ret[0].([]accesstypes.Role)
+	return ret0
+}
+
+// TenantAdministratorRoles indicates an expected call of TenantAdministratorRoles.
+func (mr *MockControllerMockRecorder) TenantAdministratorRoles() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TenantAdministratorRoles", reflect.TypeOf((*MockController)(nil).TenantAdministratorRoles))
+}
+
 // UserAdministersTenant mocks base method.
 func (m *MockController) UserAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error) {
 	m.ctrl.T.Helper()
