@@ -662,7 +662,9 @@ roles in an application with tenants, or beside another method; a method whose a
 is not read) reads `no named shape`. That is no error: nothing in the framework acts on a
 shape's name, and `impulse check` refuses nothing for it. The `--shape` flag of
 `impulse new`, `impulse add tenancy`, `impulse add auth` and `impulse add method` starts
-an application from a shape by name, and this section is where the result is read back.
+an application from a shape by its name or its number (`--shape
+global-users-each-tenant-chooses` or `--shape 8`), and this section is where the result is
+read back.
 
 Findings never fail the command: it exits 0 with or without them. A program that fails
 exits 1 with its output tail, and a program that does not take `-audit` exits 1 saying to

@@ -16,6 +16,7 @@ package shape
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -131,21 +132,22 @@ func Usage(offered []Shape, fills string) string {
 		named = append(named, fmt.Sprintf("%s (%s)", s.Key, s))
 	}
 
-	return "a sign-in shape to start from, which fills in " + fills + ": " + strings.Join(named, ", ") + "; a flag given beside it that contradicts it is refused"
+	return "a sign-in shape to start from, by its name or its number, which fills in " + fills + ": " + strings.Join(named, ", ") + "; a flag given beside it that contradicts it is refused"
 }
 
-// Find returns the shape a command's --shape flag names, among the ones the command
-// offers. A name the command does not know is refused with the names it knows, and, for
-// a shape another command offers, with where that one is a starting point.
+// Find returns the shape a command's --shape flag names, by its name or by its number,
+// among the ones the command offers. A name the command does not know is refused with
+// the names it knows, and, for a shape another command offers, with where that one is a
+// starting point.
 func Find(key string, offered []Shape, command string) (Shape, error) {
 	for _, s := range offered {
-		if s.Key == key {
+		if s.named(key) {
 			return s, nil
 		}
 	}
 	elsewhere := ""
 	for _, s := range All() {
-		if s.Key != key {
+		if !s.named(key) {
 			continue
 		}
 		commands := "impulse add auth and impulse add method, since a sign-in method's choices tell it apart"
@@ -156,4 +158,10 @@ func Find(key string, offered []Shape, command string) (Shape, error) {
 	}
 
 	return Shape{}, errors.Newf("--%s %s: %s does not know that shape. It knows %s%s", FlagName, key, command, Keys(offered), elsewhere)
+}
+
+// named reports whether key asks for the shape: its name as --shape takes it, or its
+// number, as the audit's read-out and the framework's documents give it.
+func (s Shape) named(key string) bool {
+	return s.Key == key || strconv.Itoa(s.Number) == key
 }

@@ -69,6 +69,16 @@ func TestFind(t *testing.T) {
 	}{
 		{name: "a method's shape", key: "directory-members", offered: OfMethods(), command: "impulse add method", want: "2 Directory members"},
 		{name: "a tenants' shape", key: "global-users-each-tenant-chooses", offered: OfTenants(), command: "impulse new", want: "8 Global users, each tenant chooses"},
+		{name: "a method's shape by its number", key: "4", offered: OfMethods(), command: "impulse add auth", want: "4 Open sign-up"},
+		{name: "a tenants' shape by its number", key: "5", offered: OfTenants(), command: "impulse add tenancy", want: "5 Tenant-owned users, invite only"},
+		{
+			name: "a number no shape has", key: "9", offered: OfTenants(), command: "impulse new",
+			wantErr: "--shape 9: impulse new does not know that shape. It knows tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses",
+		},
+		{
+			name: "a tenants' shape's number given to a method's command", key: "8", offered: OfMethods(), command: "impulse add method",
+			wantErr: "--shape 8: impulse add method does not know that shape. It knows invite-only, directory-members, directory-roles, open-sign-up. 8 Global users, each tenant chooses is a starting point of impulse new and impulse add tenancy, since the tenants' choices tell it apart",
+		},
 		{
 			name: "a name nobody knows", key: "members-only", offered: OfMethods(), command: "impulse add auth",
 			wantErr: "--shape members-only: impulse add auth does not know that shape. It knows invite-only, directory-members, directory-roles, open-sign-up",
