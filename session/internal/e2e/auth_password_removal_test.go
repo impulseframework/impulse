@@ -111,7 +111,7 @@ func seamPasswordRemoval[Tx any](ctx context.Context, t *testing.T, a *authApp[T
 	if !strings.Contains(string(locked), `"code":"too_many_attempts"`) || !strings.Contains(string(locked), `"retryAfter":`) {
 		t.Errorf("POST /password/remove under a locked name = %s, want too_many_attempts with the wait", locked)
 	}
-	time.Sleep(2*time.Second + 200*time.Millisecond)
+	time.Sleep(lockForCases + 200*time.Millisecond)
 
 	// Nothing is left to remove, and the link is now pat's last means of sign-in.
 	own.expect(ctx, http.StatusBadRequest, http.MethodPost, "/password/remove", map[string]string{"password": seedPassword})
