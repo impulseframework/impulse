@@ -180,9 +180,11 @@ type Store interface {
 	// transaction or the application's client. A schema that holds no such table
 	// answers none, which is every method invite only.
 	SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]SignInMethodRow, error)
-	// SetSignInMethod buffers the row of the method it names, written whole: created
-	// where the method has none, replaced where it has one. The write keeps who made
-	// it and when (the table's change events).
+	// SetSignInMethod buffers who may sign up through the method the row names
+	// (OpenSignUp, OpenedFor, DefaultRole), the three written together: the row is
+	// created where the method has none, and those three replaced where it has one.
+	// SelfServiceReset is not read from the row and stands as it is. The write keeps
+	// who made it and when (the table's change events).
 	SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *SignInMethodRow) error
 	// SetSelfServiceReset writes whether a person may ask for their own password reset
 	// link on the row of the sign-in method of the name, and nothing else of the row:

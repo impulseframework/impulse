@@ -319,6 +319,7 @@ export interface StaffSignInMethods {
   directoryGivesRoles?: boolean;
   ownRule?: boolean;
   says?: string;
+  selfServiceReset?: boolean;
 }
 
 export interface StaffSignInWays {
@@ -839,6 +840,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
   [Resources.StaffSignInWays]: {

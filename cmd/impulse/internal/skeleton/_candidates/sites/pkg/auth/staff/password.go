@@ -46,6 +46,27 @@ func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
 	return h.FirstPassword().Set()
 }
 
+// PasswordResetRequest takes a person's own request for a link that resets their
+// password, served while an administrator has turned that on: the answer is the same
+// whether or not the address has an account, and an address with none is mailed
+// nothing.
+func (h *Handlers) PasswordResetRequest() http.HandlerFunc {
+	return h.PasswordReset().Request()
+}
+
+// PasswordResetOpen opens a password reset link, the person's own or one an
+// administrator sent, and answers the username it resets the password of.
+func (h *Handlers) PasswordResetOpen() http.HandlerFunc {
+	return h.PasswordReset().Open()
+}
+
+// PasswordResetComplete sets the new password a reset link's reader chose: the link is
+// spent, the old password is refused from then on, every session of the person ends,
+// and they sign in with the new password.
+func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
+	return h.PasswordReset().Complete()
+}
+
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
 // becomes a user under the sign-in name they give, with the
 // address verified by the link, seated in the roles the invitation names.

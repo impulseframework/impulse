@@ -780,6 +780,7 @@ export interface CrewSignInMethods {
   directoryGivesRoles?: boolean;
   ownRule?: boolean;
   says?: string;
+  selfServiceReset?: boolean;
 }
 
 export interface CrewSignInWays {
@@ -1999,6 +2000,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSignInWays]: {

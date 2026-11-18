@@ -7,7 +7,7 @@
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
 //	default (/api), sessions (password):
 //	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means
-//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete
+//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/email/confirm, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete, POST /api/user/password-reset, POST /api/user/password-reset/open, POST /api/user/password-reset/complete
 //	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify, POST /api/user/first-password/code, POST /api/user/first-password
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1), hooks.Default, EnforceReadOnlyMask: generatedRoutes
@@ -109,6 +109,8 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).
+	EmailConfirm() http.HandlerFunc
 	// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).
 	FirstPasswordSendCode() http.HandlerFunc
 	// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).
@@ -119,6 +121,12 @@ type DefaultSession interface {
 	SignUpOpen() http.HandlerFunc
 	// The sign-up completed with a password: the account created and signed in (session.SignUpHandlers.Complete).
 	SignUpComplete() http.HandlerFunc
+	// A person's own request for a password reset link, served while an administrator allows it (session.PasswordResetHandlers.Request).
+	PasswordResetRequest() http.HandlerFunc
+	// The password reset link opened (session.PasswordResetHandlers.Open).
+	PasswordResetOpen() http.HandlerFunc
+	// The password reset completed with a new password: every session of the person ends (session.PasswordResetHandlers.Complete).
+	PasswordResetComplete() http.HandlerFunc
 	// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.
 	PasswordLogin() http.HandlerFunc
 	PasswordChange() http.HandlerFunc
@@ -202,8 +210,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			SignInMeans:    "/api/user/sign-in-means",
 			ChangeLook:     "/api/user/look",
 			Invitation:     session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
-			Email:          session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify"},
+			Email:          session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify", Confirm: "/api/user/email/confirm"},
 			SignUp:         session.SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
+			PasswordReset:  session.PasswordResetRoutes{Request: "/api/user/password-reset", Open: "/api/user/password-reset/open", Complete: "/api/user/password-reset/complete"},
 		}))
 		bounded.Get("/api/user/session", h.Authenticated())
 		bounded.Delete("/api/user/session", h.Logout())
@@ -222,9 +231,13 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/api/user/look", h.ChangeLook())
 		guarded.Post("/api/user/invitation", h.InvitationOpen())
 		guarded.Post("/api/user/invitation/sign-up", h.InvitationSignUp())
+		guarded.Post("/api/user/email/confirm", h.EmailConfirm())
 		guarded.Post("/api/user/sign-up", h.SignUpStart())
 		guarded.Post("/api/user/sign-up/open", h.SignUpOpen())
 		guarded.Post("/api/user/sign-up/complete", h.SignUpComplete())
+		guarded.Post("/api/user/password-reset", h.PasswordResetRequest())
+		guarded.Post("/api/user/password-reset/open", h.PasswordResetOpen())
+		guarded.Post("/api/user/password-reset/complete", h.PasswordResetComplete())
 
 		r.Group(func(r chi.Router) {
 			r.Use(h.ValidateSession)

@@ -20,6 +20,19 @@ const (
 // method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
 {{- end }}`
 
+	// identityTenantResetNote is the paragraph the tenant's method that mails a reset
+	// link adds to its comment. It leaves nothing to a condition of the role file: a
+	// tenant's administrator sends the link to any person of the tenant.
+	identityTenantResetNote = `
+{{- if .ForTenant }}
+//
+// It is a tenant's method: served under the address of one {{ .TenantName }}, it names a
+// row of {{ .TenantUser }}, the tenant's own list of the auth's people. A person who holds
+// no role in the tenant is not found there. Every person of the tenant may be sent the
+// link, whoever else they hold a role with: it goes to the person's own mailbox and
+// changes nothing until they use it, so its grant needs no condition on the row.
+{{- end }}`
+
 	// identityTenantInvitationNote is the paragraph a tenant's method that names an
 	// invitation adds to its comment.
 	identityTenantInvitationNote = `
@@ -151,7 +164,7 @@ type (
 	// link is used. The link works once and the message says who asked. The answer
 	// says whether the link went (Sent) and, where it did not, why (Reason): the
 	// account has no password to reset or no confirmed address, or the address was
-	// mailed too often.` + identityTenantUserNote + `
+	// mailed too often.` + identityTenantResetNote + `
 	//
 	// @rpc` + identityTenantScope + `
 	// @outlet({{ .Outlets }})

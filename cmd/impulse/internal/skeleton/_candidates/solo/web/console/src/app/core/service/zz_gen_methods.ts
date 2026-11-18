@@ -273,6 +273,27 @@ export interface RevokeStaffUserTrustedDevices {
 /** The statuses RevokeStaffUserTrustedDevices declares; the method chooses one per response. */
 export type RevokeStaffUserTrustedDevicesStatus = 204;
 
+export interface SendStaffUserPasswordResetLinkConfig {
+  userId: string | FieldPointer;
+}
+export interface SendStaffUserPasswordResetLink {
+  userId: string;
+}
+/** The result SendStaffUserPasswordResetLink answers with. */
+export interface SendStaffUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
+
+export interface SetStaffSelfServiceResetConfig {
+  on: boolean | FieldPointer;
+}
+export interface SetStaffSelfServiceReset {
+  on: boolean;
+}
+/** The statuses SetStaffSelfServiceReset declares; the method chooses one per response. */
+export type SetStaffSelfServiceResetStatus = 204;
+
 export interface SetStaffTemporaryPasswordConfig {
   userId: string | FieldPointer;
   password: string | FieldPointer;
@@ -286,14 +307,17 @@ export type SetStaffTemporaryPasswordStatus = 204;
 
 export interface SetStaffUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetStaffUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetStaffUserEmail declares; the method chooses one per response. */
-export type SetStaffUserEmailStatus = 204;
+/** The result SetStaffUserEmail answers with. */
+export interface SetStaffUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetStaffUserNameConfig {
   userId: string | FieldPointer;
@@ -663,6 +687,23 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
+  [Methods.SendStaffUserPasswordResetLink]: {
+    route: 'send-staff-user-password-reset-link',
+    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetStaffSelfServiceReset]: {
+    route: 'set-staff-self-service-reset',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'on', displayType: 'boolean' },
+    ],
+  },
   [Methods.SetStaffTemporaryPassword]: {
     route: 'set-staff-temporary-password',
     target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
@@ -676,11 +717,11 @@ const methodMap: MethodMap = {
   [Methods.SetStaffUserEmail]: {
     route: 'set-staff-user-email',
     target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetStaffUserName]: {

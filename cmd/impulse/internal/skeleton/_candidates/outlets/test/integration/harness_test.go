@@ -164,7 +164,7 @@ type served struct {
 	// tenants is the roster the stack serves from, for a suite that writes what a
 	// tenant declares in code, as a sign-in would, and reloads it as a write path does.
 	tenants *resource.TenantRoster
-	// mail is the recorder the staff auth sends its mail to, where a suite reads the
+	// mail is the recorder both auths send their mail to, where a suite reads the
 	// sign-in code a sign-in waits for.
 	mail *mail.Recorder
 	// codeMu lets one sign-in at a time run its second factor on the stack, so the code a
@@ -208,7 +208,7 @@ func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator st
 	if err := roster.Start(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
 	}
-	// The recorder the staff auth's mail goes to: the suites read the sign-in codes from it.
+	// The recorder the auths' mail goes to: the suites read the sign-in codes from it.
 	sent := &mail.Recorder{}
 	staffAuth, err := staff.New(ctx, db.Client, &staff.Settings{
 		Collection:         router.Collection(),
@@ -243,13 +243,15 @@ func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator st
 	// registration whether or not the directory is simulated. The tenant is declared as
 	// one the deployment administers, so a sign-in through the directory carries the
 	// tenant's own second factor and opens its session at the callback, with no sign-in
-	// code asked.
+	// code asked, once the person's account holds a confirmed address: the directory
+	// vouches for none, so their first sign-in waits for the code that confirms one,
+	// mailed to the same recorder the staff auth's mail goes to.
 	membersAuth, err := members.New(ctx, db.Client, &members.Settings{
 		Collection:     router.Collection(),
 		Signals:        svc,
 		CookieKey:      testCookieKey,
 		SessionTimeout: time.Minute,
-		Mail:           &mail.Recorder{},
+		Mail:           sent,
 		MailLoginURL:   "http://outlets.test/portal/login",
 		LoginURL:       "/portal/login",
 		Directory:      members.DirectorySettings{TenantID: directoryTenant, AdministeredTenants: directoryTenant, RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},

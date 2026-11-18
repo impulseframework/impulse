@@ -230,7 +230,7 @@ func (m *Manager) resetLinksEndAtCommit(txn resource.ReadWriteTransaction, userI
 // another auth, and no account, are NotFound.
 //
 // Shared rule: the session library's SendPasswordReset, which counts the message
-// against the one limit on mail to an address.
+// against the limit on reset links to an address, the person's own requests with it.
 func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, sent func(sent bool, reason string)) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

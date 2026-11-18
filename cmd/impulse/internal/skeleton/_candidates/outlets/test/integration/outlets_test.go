@@ -40,11 +40,29 @@ func TestPortalOutlet(t *testing.T) {
 	if n := identityLinks(ctx, t, s, s.clientID); n != 0 {
 		t.Fatalf("the client's account holds %d identity links before the first sign-in, want none", n)
 	}
-	// The deployment administers the directory's tenant (the harness declares it), so
-	// the sign-in carries the tenant's second factor: the callback opens the session and
-	// sends the browser to the page, asking for no sign-in code.
+	// The directory vouches for no address and the client's account holds none, so the
+	// first sign-in waits for the code that confirms the address the person gives
+	// (loginPortal answers it) and then goes on to the page.
 	if status, location := b.loginPortal(ctx, clientUser); status != http.StatusFound || location != portalPage {
 		t.Fatalf("portal login: status %d to %q, want %d to %q", status, location, http.StatusFound, portalPage)
+	}
+	if !addressConfirmed(ctx, t, s, s.clientID, factorAddress(clientUser)) {
+		t.Fatalf("the client's account does not hold %s as its confirmed address after the first sign-in: the code confirms the address the person gave", factorAddress(clientUser))
+	}
+	// The deployment administers the directory's tenant (the harness declares it), so
+	// a sign-in carries the tenant's second factor: once the account holds its confirmed
+	// address the callback opens the session and sends the browser to the page, asking
+	// for no sign-in code and mailing nothing.
+	mailed := len(s.mail.Messages())
+	later := newBrowser(t, s, portalAPI)
+	if status, body := later.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the second login: status %d: %s", status, body)
+	}
+	if status, location := later.loginPortal(ctx, clientUser); status != http.StatusFound || location != portalPage {
+		t.Fatalf("the client's second portal login: status %d to %q, want %d straight to %q", status, location, http.StatusFound, portalPage)
+	}
+	if n := len(s.mail.Messages()); n != mailed {
+		t.Fatalf("the client's second portal login mailed %d messages, want none: the address is confirmed and the tenant's own second factor is carried", n-mailed)
 	}
 	status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil)
 	if status != http.StatusOK {
@@ -341,6 +359,28 @@ func identityLinks(ctx context.Context, t *testing.T, s *served, account string)
 	}
 
 	return n
+}
+
+// addressConfirmed reports whether the members auth holds address for the account as
+// its confirmed one.
+func addressConfirmed(ctx context.Context, t *testing.T, s *served, account, address string) bool {
+	t.Helper()
+
+	iter := s.db.Client.Single().Query(ctx, spanner.Statement{
+		SQL:    "SELECT COUNT(*) FROM " + membersUsers + " WHERE Id = @account AND Email = @address AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"account": account, "address": address},
+	})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("reading the confirmed address of the account %s: %v", account, err)
+	}
+	var n int64
+	if err := row.Columns(&n); err != nil {
+		t.Fatalf("reading the confirmed address of the account %s: %v", account, err)
+	}
+
+	return n > 0
 }
 
 // issueToken signs the staff login in on the console and issues an application token

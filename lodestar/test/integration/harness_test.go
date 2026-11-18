@@ -342,6 +342,30 @@ func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label s
 	return "", ""
 }
 
+// RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
+// here to mail through, and each says so.
+func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {
+	return fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+func (noSessionAPI) SendPasswordReset(context.Context, impulse.UUID, session.AskedBy) error {
+	return fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+// EndPasswordResetLinks withdraws nothing, and the two notices tell nobody: no link was
+// mailed here and no mail is sent.
+func (noSessionAPI) EndPasswordResetLinks(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, bool) error {
+	return nil
+}
+
 // CrewIdentity is the crew auth's identity client: on the served stack the one the crew
 // auth built when it opened, as production's is; in a suite that serves no session
 // manager, one over the suite's crew engine.
@@ -948,6 +972,10 @@ func newServedAt(ctx context.Context, t *testing.T, version string) *served {
 type servedOptions struct {
 	version string
 	persona *auth.Persona
+	// namesTenants hands the crew auth the stack's roster as what names a sector, as
+	// production's data level does, for a suite that reads the sector's name in a
+	// message the auth mails.
+	namesTenants bool
 }
 
 // newServedWith is the served stack under the options.
@@ -1012,6 +1040,9 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 			t.Errorf("crew.Auth.Close() error = %v", err)
 		}
 	})
+	if opts.namesTenants {
+		crewAuth.Session().SetTenantNames(roster)
+	}
 
 	membersAuth, err := members.New(ctx, db.Client, &members.Settings{
 		CookieKey:      testCookieKey,

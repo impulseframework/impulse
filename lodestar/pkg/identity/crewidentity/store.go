@@ -61,10 +61,6 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	if change.Name != nil {
 		patch.SetName(change.Name.Name)
 	}
-	// An address entered by hand is unverified, whatever the one before it was.
-	if change.Email != nil {
-		patch.SetEmail(change.Email.Address).SetEmailVerifiedAt(nil)
-	}
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionUserUpdatePatch.Buffer()")
 	}
@@ -326,6 +322,24 @@ func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTran
 	}
 
 	return id, found, nil
+}
+
+func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	// A read that goes past the declarations, as UserByVerifiedEmail's is: an address
+	// nobody confirmed is no address to mail a person at, so it is not answered.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Email FROM CrewSessionUsers WHERE Id = @id AND Email IS NOT NULL AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"id": id.String()},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &email)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return email, found, nil
 }
 
 func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -683,21 +697,26 @@ func (store) InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransac
 
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
 	query := crewresources.NewCrewSessionSignInMethodQuery().
-		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole())
+		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())
 	var rows []identity.SignInMethodRow
 	for row, err := range query.List(ctx, reader) {
 		if err != nil {
 			return nil, errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.List()")
 		}
-		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole})
+		rows = append(rows, identity.SignInMethodRow{
+			Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole,
+			SelfServiceReset: row.Data.SelfServiceReset,
+		})
 	}
 
 	return rows, nil
 }
 
 func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
-	// The row is written whole: created where the method has none, replaced where it
-	// has one, which is read in the transaction. Either write leaves its change event
+	// Who may sign up is written whole: the row is created where the method has none,
+	// and the three columns of the choice are replaced where it has one, which is read
+	// in the transaction. Whether people reset their own password is not this write's
+	// and stands as it is (SetSelfServiceReset). Either write leaves its change event
 	// under the caller, the record of who made the choice and when.
 	_, err := crewresources.NewCrewSessionSignInMethodQuery().
 		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name()).
@@ -717,6 +736,33 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error {
+	// The one field is written, and what else the row says is left as it stands: a
+	// method with no row gets one that is invite only. Either write leaves its change
+	// event under the caller, the record of who made the choice and when.
+	_, err := crewresources.NewCrewSessionSignInMethodQuery().
+		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name()).
+		SetName(name).
+		Read(ctx, txn)
+	switch {
+	case err == nil:
+		patch := crewresources.NewCrewSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
+		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			return errors.Wrap(err, "crewresources.CrewSessionSignInMethodUpdatePatch.Buffer()")
+		}
+
+		return nil
+	case !httpio.HasNotFound(err):
+		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.Read()")
+	}
+	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
 	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
 	}

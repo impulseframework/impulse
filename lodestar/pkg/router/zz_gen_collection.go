@@ -992,6 +992,12 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"sectorId", "displayName"},
 			},
 			{
+				Name:        "SendCrewSectorUserPasswordResetLink",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "CrewSectorUsers",
+			},
+			{
 				Name:        "SetCrewSectorTemporaryPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -1604,6 +1610,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "ownRule", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "selfServiceReset", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
 			},
 			{
@@ -2079,6 +2086,12 @@ func Collection() *resource.GeneratedCollection {
 				RequiredTags: []accesstypes.Tag{"established", "name", "region"},
 			},
 			{
+				Name:        "SendCrewUserPasswordResetLink",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "CrewSessionUsers",
+			},
+			{
 				Name:        "ServiceLedgers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,
@@ -2091,6 +2104,11 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "sectorId"},
 					{Name: "settlements", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
+			},
+			{
+				Name:        "SetCrewSelfServiceReset",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "SetCrewTemporaryPassword",

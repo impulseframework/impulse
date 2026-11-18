@@ -224,8 +224,10 @@ func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTrans
 }
 
 func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {
-	// The row is written whole: created where the method has none, replaced where it
-	// has one, which is read in the transaction. Either write leaves its change event
+	// Who may sign up is written whole: the row is created where the method has none,
+	// and the three columns of the choice are replaced where it has one, which is read
+	// in the transaction. Whether people reset their own password is not this write's
+	// and stands as it is (SetSelfServiceReset). Either write leaves its change event
 	// under the caller, the record of who made the choice and when.
 	_, err := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .SignInMethodRow }}Columns().Name()).

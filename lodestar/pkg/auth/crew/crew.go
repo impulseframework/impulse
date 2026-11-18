@@ -45,7 +45,14 @@
 // a person's remembered browsers from the person's account
 // (RevokeCrewUserTrustedDevices).
 //
-// Demonstrates: auth.password, auth.two-populations, auth.multi-method, auth.directory-roles, auth.open-sign-up, auth.invitation, auth.email-address, auth.password-sign-up, auth.second-factor, auth.trusted-device.
+// A person who forgot their password gets back in by a link mailed to the address they
+// confirmed (session.Auth.PasswordReset, whose three handlers the generated router
+// mounts): Headquarters or a sector's marshal sends one from the person's row, and the
+// person asks for one at the sign-in page while Headquarters allows it
+// (SetCrewSelfServiceReset). An address Headquarters sets for a person is theirs once
+// its mailbox confirms it (session.EmailHandlers.Confirm).
+//
+// Demonstrates: auth.password, auth.two-populations, auth.multi-method, auth.directory-roles, auth.open-sign-up, auth.invitation, auth.email-address, auth.password-sign-up, auth.password-reset, auth.second-factor, auth.trusted-device.
 package crew
 
 import (

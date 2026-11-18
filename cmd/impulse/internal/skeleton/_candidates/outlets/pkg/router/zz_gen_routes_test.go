@@ -406,6 +406,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/revoke-staff-session-token", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/portal/api/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		{url: "/portal/api/send-staff-user-password-reset-link", method: http.MethodPost},
+		{url: "/portal/api/set-staff-self-service-reset", method: http.MethodPost},
 		{url: "/portal/api/set-staff-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -695,10 +698,13 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/revoke-staff-session-token", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/devices/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		{url: "/devices/send-staff-user-password-reset-link", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-email", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-name", method: http.MethodPost},
 		{url: "/devices/set-members-user-email", method: http.MethodPost},
 		{url: "/devices/set-members-user-name", method: http.MethodPost},
+		{url: "/devices/set-staff-self-service-reset", method: http.MethodPost},
 		{url: "/devices/set-staff-temporary-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -2304,8 +2310,20 @@ func (s *generatedHandlersStub) RevokeStaffUserTrustedDevices() http.HandlerFunc
 	return s.record("RevokeStaffUserTrustedDevices")
 }
 
+func (s *generatedHandlersStub) SendStaffTenantUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffTenantUserPasswordResetLink")
+}
+
+func (s *generatedHandlersStub) SendStaffUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffUserPasswordResetLink")
+}
+
 func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 	return s.record("SetFeature")
+}
+
+func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
+	return s.record("SetStaffSelfServiceReset")
 }
 
 func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {

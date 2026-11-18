@@ -490,9 +490,12 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/revoke-members-sector-user-trusted-devices", method: http.MethodPost},
 		{url: "/droids/revoke-members-user-trusted-devices", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
+		{url: "/droids/send-crew-user-password-reset-link", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
+		{url: "/droids/set-crew-self-service-reset", method: http.MethodPost},
 		{url: "/droids/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/droids/set-crew-user-email", method: http.MethodPost},
 		{url: "/droids/set-crew-user-name", method: http.MethodPost},
@@ -789,9 +792,12 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/revoke-crew-session-token", method: http.MethodPost},
 		{url: "/portal/api/revoke-crew-user-trusted-devices", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
+		{url: "/portal/api/send-crew-user-password-reset-link", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
+		{url: "/portal/api/set-crew-self-service-reset", method: http.MethodPost},
 		{url: "/portal/api/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/set-crew-user-email", method: http.MethodPost},
 		{url: "/portal/api/set-crew-user-name", method: http.MethodPost},
@@ -3848,6 +3854,14 @@ func (s *generatedHandlersStub) SectorPilot() http.HandlerFunc {
 	return s.record("SectorPilot")
 }
 
+func (s *generatedHandlersStub) SendCrewSectorUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendCrewSectorUserPasswordResetLink")
+}
+
+func (s *generatedHandlersStub) SendCrewUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendCrewUserPasswordResetLink")
+}
+
 func (s *generatedHandlersStub) ServiceLedgers() http.HandlerFunc {
 	return s.record("ServiceLedgers")
 }
@@ -3862,6 +3876,10 @@ func (s *generatedHandlersStub) SetCrewSectorUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetCrewSectorUserName() http.HandlerFunc {
 	return s.record("SetCrewSectorUserName")
+}
+
+func (s *generatedHandlersStub) SetCrewSelfServiceReset() http.HandlerFunc {
+	return s.record("SetCrewSelfServiceReset")
 }
 
 func (s *generatedHandlersStub) SetCrewTemporaryPassword() http.HandlerFunc {

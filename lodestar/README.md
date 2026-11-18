@@ -788,8 +788,11 @@ The generator also writes each auth's management as code the application owns
 writes three packages: resource declarations over every table the session library and
 the permission store keep for the auth (`pkg/identity/internal/crewresources`), the
 methods that change them (`pkg/identity/crewidentity`: create a user holding a role;
-rename, disable, enable and delete one; set a temporary password and require a password
-change; reset the second factor; clear a lockout; invite an address and withdraw the
+rename, disable, enable and delete one; ask for a change of their email address, which
+the person confirms from the new mailbox; set a temporary password, send a password
+reset link and require a password change; say whether people may ask for a reset link
+themselves at the sign-in page; reset the second factor; clear a lockout; invite an
+address and withdraw the
 invitation; assign and remove a role; end a session, all of a person's sessions or an
 impersonation; unlink an identity; remove a password; revoke a token), and their handlers
 (`pkg/identity/crewhandlers`); the members get the same three, without the methods

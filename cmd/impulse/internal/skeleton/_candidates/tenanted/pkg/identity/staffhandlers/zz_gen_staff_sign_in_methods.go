@@ -25,6 +25,7 @@ func (h *Handlers) StaffSignInMethods() http.HandlerFunc {
 		DirectoryGivesRoles bool   `json:"directoryGivesRoles"`
 		OwnRule             bool   `json:"ownRule"`
 		Says                string `json:"says"`
+		SelfServiceReset    bool   `json:"selfServiceReset"`
 	}
 
 	type response []map[string]any
@@ -83,6 +84,8 @@ func (h *Handlers) StaffSignInMethods() http.HandlerFunc {
 					rmap["ownRule"] = rec.OwnRule
 				case "Says":
 					rmap["says"] = rec.Says
+				case "SelfServiceReset":
+					rmap["selfServiceReset"] = rec.SelfServiceReset
 				}
 			}
 			resp = append(resp, rmap)

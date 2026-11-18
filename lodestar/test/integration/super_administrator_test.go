@@ -117,14 +117,18 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 		status, body = post(hana, act.method, act.body)
 		refused("headquarters running "+act.method+" on a holder", status, body, http.StatusForbidden, "only a super administrator "+act.says+", and "+notAHolder)
 	}
-	// The governor holds the role, and is refused neither of two: sol's address is set,
-	// and the spare of her two identities unlinked, as the role file allows.
-	for method, body := range map[string]string{
-		"set-crew-user-email":          `{"userId":"` + solID + `","email":"sol-` + sfx + `@example.com"}`,
-		"unlink-crew-session-identity": `{"identityId":"` + spare + `"}`,
+	// The governor holds the role, and is refused neither of two: a new address is asked
+	// for sol (the method answers whether its link was mailed), and the spare of her two
+	// identities is unlinked, as the role file allows.
+	for method, act := range map[string]struct {
+		body string
+		want int
+	}{
+		"set-crew-user-email":          {`{"userId":"` + solID + `","email":"sol-` + sfx + `@example.com"}`, http.StatusOK},
+		"unlink-crew-session-identity": {`{"identityId":"` + spare + `"}`, http.StatusNoContent},
 	} {
-		if status, answer := post("governor", method, body); status != http.StatusNoContent {
-			t.Errorf("a super administrator running %s on another: status %d, want 204: %s", method, status, answer)
+		if status, answer := post("governor", method, act.body); status != act.want {
+			t.Errorf("a super administrator running %s on another: status %d, want %d: %s", method, status, act.want, answer)
 		}
 	}
 

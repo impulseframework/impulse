@@ -225,10 +225,15 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	}
 
 	// An account north holds alone is north's to change: every method goes through for
-	// nora, in the order above.
+	// nora, in the order above. The method that asks for a new address answers how its
+	// mailing went, and the others answer nothing.
 	for _, m := range accountMethods {
-		if status, body := tenantPost(ctx, member, north, m.method, m.body("nora")); status != http.StatusNoContent {
-			t.Fatalf("%s on nora: status %d, want 204: %s", m.method, status, body)
+		want := http.StatusNoContent
+		if m.method == "set-staff-tenant-user-email" {
+			want = http.StatusOK
+		}
+		if status, body := tenantPost(ctx, member, north, m.method, m.body("nora")); status != want {
+			t.Fatalf("%s on nora: status %d, want %d: %s", m.method, status, want, body)
 		}
 	}
 	// The last of the methods deleted the account.

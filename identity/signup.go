@@ -258,7 +258,8 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	audience := registered.Audience.Key()
-	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil}
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil, SelfServiceReset: false}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
 		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
@@ -325,7 +326,9 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	if row := rowNamed(rows, method); row == nil || !row.OpenSignUp {
 		return nil
 	}
-	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil}); err != nil {
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	closed := &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil, SelfServiceReset: false}
+	if err := m.store.SetSignInMethod(ctx, txn, closed); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
 

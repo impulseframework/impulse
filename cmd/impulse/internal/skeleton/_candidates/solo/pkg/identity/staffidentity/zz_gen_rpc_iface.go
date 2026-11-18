@@ -12,7 +12,8 @@ type Method interface {
 		EndStaffSession | EndStaffUserSessions | GiveStaffGroupRole | InviteStaffUser |
 		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
 		RemoveStaffRole | RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
-		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword | SetStaffUserEmail |
+		RevokeStaffUserTrustedDevices | SendStaffUserPasswordResetLink |
+		SetStaffSelfServiceReset | SetStaffTemporaryPassword | SetStaffUserEmail |
 		SetStaffUserName | TakeStaffGroupRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn |
 		WithdrawStaffInvitation
 }

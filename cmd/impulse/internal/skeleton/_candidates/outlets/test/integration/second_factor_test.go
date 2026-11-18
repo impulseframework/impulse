@@ -153,7 +153,15 @@ func (b *browser) secondFactorLocked(ctx context.Context, user string, remember 
 	if pending.Reason != string(sessioninfo.PendingMFA) || pending.EmailCode == nil {
 		b.t.Fatalf("the sign-in of %s waits for %+v, want the second factor with the sign-in code offered", user, pending)
 	}
-	code := b.askCodeLocked(ctx, pending.EmailCode.EnrollEmail, factorAddress(user))
+	b.verifyCodeLocked(ctx, user, b.askCodeLocked(ctx, pending.EmailCode.EnrollEmail, factorAddress(user)), remember)
+}
+
+// verifyCodeLocked enters the sign-in code the person read from their mail, asking for
+// the browser to be remembered when remember is set, and fails the test when the code is
+// refused. The caller holds the stack's factor lock.
+func (b *browser) verifyCodeLocked(ctx context.Context, user, code string, remember bool) {
+	b.t.Helper()
+
 	verify, err := json.Marshal(map[string]any{"code": code, "rememberDevice": remember})
 	if err != nil {
 		b.t.Fatal(err)

@@ -20,6 +20,10 @@
 // adds an address and proves it by following the link sent to it; and, while an
 // administrator has the password method open to sign-up, a stranger signs up from a link
 // mailed to the address they give.
+// An address an administrator sets for a person is theirs once its mailbox confirms it,
+// by the link the auth mails there; and a person who forgot their password gets back
+// in by a link mailed to the address they confirmed, which an administrator sends or,
+// while an administrator allows it, the person asks for at the sign-in page.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -279,6 +283,14 @@ func (h *Handlers) EmailAdd() http.HandlerFunc {
 // EmailVerify completes an address change from its link: the address is stored verified.
 func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
+}
+
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address: the account holds the address it had until then. The
+// reader of the link confirms it signed in or not, since they may have lost the mailbox
+// their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
 // DeviceAuthorize starts a command-line client's device authorization ({"client_id",
