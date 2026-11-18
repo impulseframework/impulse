@@ -147,6 +147,15 @@ func NewTooManyAttemptsRefusal(wait time.Duration) error {
 	return NewLoginRefusal(RefusedTooManyAttempts, &retryAfterError{wait: wait, cause: httpio.NewTooManyRequestsMessage("Too many sign-in attempts")})
 }
 
+// NewTooManyAttemptsRefusalSaying is NewTooManyAttemptsRefusal in the words the caller
+// gives: the refusal of an attempt at something other than a password at the login,
+// held by a limit of its own (the wrong codes entered for a person's first password).
+// The code and the wait are the same, so a page that knows RefusedTooManyAttempts
+// handles it alike, and the words say what was held and what to do.
+func NewTooManyAttemptsRefusalSaying(wait time.Duration, message string) error {
+	return NewLoginRefusal(RefusedTooManyAttempts, &retryAfterError{wait: wait, cause: httpio.NewTooManyRequestsMessage(message)})
+}
+
 // RefusedTooManyEmails is the code for a sign-in code or link asked for an address that
 // reached its limit of mail: the address was sent as many codes and links as the limit
 // allows, none of them used, and is sent no more until its lock passes. A code or link

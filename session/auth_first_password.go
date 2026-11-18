@@ -178,6 +178,16 @@ func errNoConfirmedAddress() error {
 		"Add your email address, confirm it from the link we send you, then choose your password")
 }
 
+// errTooManyFirstPasswordCodes is the refusal of an account whose first password is
+// held after too many wrong codes: too_many_attempts and the wait, in words that say a
+// code was what was wrong and when to ask for another. The wait is said in whole
+// minutes, rounded up, so the person is never told to come back too soon.
+func errTooManyFirstPasswordCodes(wait time.Duration) error {
+	minutes := int((wait + time.Minute - 1) / time.Minute)
+
+	return sessioninfo.NewTooManyAttemptsRefusalSaying(wait, "Too many wrong codes were entered. Ask for a new code in "+count(minutes, "minute"))
+}
+
 // errFirstPasswordCodeDead is the refusal of a code entered when none stands.
 func errFirstPasswordCodeDead() error {
 	return httpio.NewConflictMessage("That code has expired or was already used. Ask for a new one")
@@ -209,7 +219,7 @@ func (a *Auth[S, U, Tx]) firstPasswordHeld(ctx context.Context, userID impulse.U
 		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
 	}
 	if wait, locked := record.Locked(time.Now()); locked {
-		return sessioninfo.NewTooManyAttemptsRefusal(wait)
+		return errTooManyFirstPasswordCodes(wait)
 	}
 
 	return nil
@@ -369,7 +379,7 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 				return nil, err
 			}
 
-			return nil, sessioninfo.NewTooManyAttemptsRefusal(wait)
+			return nil, errTooManyFirstPasswordCodes(wait)
 		}
 
 		return nil, httpio.NewBadRequestMessage("That is not the code we sent. Check it and try again")

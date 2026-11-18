@@ -244,6 +244,9 @@ func firstPasswordCase3(t *testing.T) {
 	if rr.Code != http.StatusTooManyRequests || decoded(t, rr)["code"] != string(sessioninfo.RefusedTooManyAttempts) || rr.Header().Get("Retry-After") == "" {
 		t.Fatalf("the fifth wrong code = %d %s, want 429 too_many_attempts and the wait", rr.Code, rr.Body.String())
 	}
+	if got := decoded(t, rr)["message"]; got != "Too many wrong codes were entered. Ask for a new code in 15 minutes" {
+		t.Errorf("the fifth wrong code said %q, want it to say wrong codes were what was held and when to ask again", got)
+	}
 	if links.last(t).ConsumedAt == nil {
 		t.Error("the code stands after five wrong ones, want it ended")
 	}
