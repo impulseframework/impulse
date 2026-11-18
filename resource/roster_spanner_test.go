@@ -337,7 +337,9 @@ func TestTenantRoster_follows(t *testing.T) {
 			if !first.Has("beta") {
 				t.Fatal("first.Has(beta) = false right after Add; a write must be visible at once")
 			}
-			if second.Has("beta") {
+			// A roster on a short backstop may have reread already, by its tick or by this
+			// very lookup, so only the rosters that wait for the signal are asked.
+			if tt.signals && second.Has("beta") {
 				t.Fatal("second.Has(beta) = true before any reload")
 			}
 			secondClient.fail.Store(tt.failReads)
@@ -361,6 +363,13 @@ func TestTenantRoster_follows(t *testing.T) {
 			}
 			if !eventually(t, tt.within, func() bool { return second.Has("beta") }) {
 				t.Fatalf("the second roster did not show beta within %s", tt.within)
+			}
+
+			// The first roster heard the signal too. Its lookup returns once the reread that
+			// followed the signal has landed, so that reread cannot land behind the Remove
+			// below and bring the row back.
+			if !first.Has("beta") {
+				t.Fatal("first.Has(beta) = false once its reread landed; the row is committed")
 			}
 
 			// The first instance's delete path: the commit, then Remove, then the signal.

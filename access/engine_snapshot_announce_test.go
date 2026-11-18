@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -47,13 +48,13 @@ func (s *announcedSignal) Announce(ctx context.Context) error {
 	case hangs:
 		<-ctx.Done()
 
-		return ctx.Err()
+		return fmt.Errorf("the channel did not answer: %w", ctx.Err())
 	case hold != nil:
 		s.entered <- struct{}{}
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("the announcement was cut short: %w", ctx.Err())
 		}
 	case takes > 0:
 		time.Sleep(takes)
