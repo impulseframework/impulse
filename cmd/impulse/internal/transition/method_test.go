@@ -22,6 +22,7 @@ func TestMethodCommand(t *testing.T) {
 		{name: "password", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPassword}}, want: "impulse add method staff password"},
 		{name: "a directory method with its shape", method: Method{Auth: "members", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Slot: authpkg.SlotListed}}, want: "impulse add method members google workspace --authority application --slot listed"},
 		{name: "an organization's identity provider under its name", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication}}, want: "impulse add method staff oidc okta --authority application"},
+		{name: "an organization's identity provider with the words its people read", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityApplication, Label: "Lakeside ID"}}, want: `impulse add method staff oidc company-sso --authority application --label "Lakeside ID"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -268,6 +269,9 @@ func TestMethodApply(t *testing.T) {
 				"pkg/auth/staff/staff.go: Handlers holds the okta method (okta *oidc.Method), New registers it (registerOkta), and Settings carries its OktaSettings and the LoginURL, and the package doc lists it",
 				"pkg/config/data.go: dataConfig reads the staff auth's okta registration from APP_STAFF_OKTA_ISSUER, APP_STAFF_OKTA_CLIENT_ID, APP_STAFF_OKTA_CLIENT_SECRET, APP_STAFF_OKTA_REDIRECT_URL, and dataConfig.staffSettings passes them",
 				`cmd/generate/resourcegenerator/main.go: generation.OIDCMethod("okta") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/okta/login and the callback and the methods route offers it`,
+				// No words were given: the brief says what people read and names the file
+				// where the provider's own name goes.
+				`cmd/generate/resourcegenerator/main.go: people read the okta method as "Okta", words made from its registration name, on the login page's button (Sign in with Okta) and in the lists of a person's ways to sign in; to show the provider's own name, chain .Labeled("<words>") on the declaration (generation.OIDCMethod("okta").Labeled("Lakeside ID")) and run go generate ./...`,
 				"Procfile: 2 go run command(s) build with -tags skipAuth, so the staff auth's directory is simulated in development",
 				"ran go generate ./..., so the router mounts the method's routes and the login page offers it",
 			},
@@ -310,6 +314,32 @@ func TestMethodApply(t *testing.T) {
 				}
 				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("okta"))`) {
 					t.Errorf("program = %s", program)
+				}
+			},
+		},
+		{
+			name:   "an organization's identity provider added with the words its people read: the declaration carries them and the brief names the file",
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityApplication, Label: "Lakeside ID"}},
+			extra:  map[string]string{"pkg/config/data.go": authConfigSettings},
+			wantDid: []string{
+				`cmd/generate/resourcegenerator/main.go: generation.OIDCMethod("company-sso").Labeled("Lakeside ID") declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/company-sso/login and the callback and the methods route offers it`,
+				`cmd/generate/resourcegenerator/main.go: people read the company-sso method as "Lakeside ID", on the login page's button (Sign in with Lakeside ID) and in the lists of a person's ways to sign in; the words are the declaration's .Labeled("Lakeside ID"), so change them there and run go generate ./...`,
+			},
+			check: func(t *testing.T, a *app.App) {
+				t.Helper()
+				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("company-sso").Labeled("Lakeside ID"))`) {
+					t.Errorf("program = %s", program)
+				}
+				// The words are the page's alone: the registration name stays the key in the
+				// method file, its routes and its variables.
+				file := read(t, a, "pkg/auth/staff/company-sso.go")
+				for _, want := range []string{`const CompanySsoRegistration = "company-sso"`, "Connection:   CompanySsoRegistration,"} {
+					if !strings.Contains(file, want) {
+						t.Errorf("company-sso.go lacks %q:\n%s", want, file)
+					}
+				}
+				if strings.Contains(file, "Lakeside") {
+					t.Errorf("company-sso.go carries the words, which the declaration alone holds:\n%s", file)
 				}
 			},
 		},
@@ -572,8 +602,22 @@ func TestMethodMeaningIdentityProvider(t *testing.T) {
 				"Register it with the identity provider",
 				"Decide who may open a sign-in method to sign-up. Every method of the staff auth starts invite only",
 				"A newcomer needs an invitation until an administrator opens the method to sign-up",
+				// No words were given, so the brief says what people read and where the
+				// provider's own name goes.
+				"Give the method the name its people know. Nothing said what to call the provider, so the login page's button says \"Sign in with Okta\", words made from the registration name",
+				"Chain `.Labeled(\"<words>\")` on the method's declaration in the generator program (`generation.OIDCMethod(\"okta\").Labeled(\"Lakeside ID\")`; the change's lines above name the file, where an outlet declares the auth) and run `go generate ./...`",
 			},
-			unwanted: []string{"organization slot", "cast", "placement.json", "Have the provider send the roles"},
+			unwanted: []string{"organization slot", "cast", "placement.json", "Have the provider send the roles", "Read the method's name where people do"},
+		},
+		{
+			name: "the provider was added with the words its people read",
+			spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityApplication, Label: "Lakeside ID"},
+			want: []string{
+				"Read the method's name where people do. The login page's button says \"Sign in with Lakeside ID\"",
+				"The words are the declaration's `.Labeled(\"Lakeside ID\")` in the generator program (the change's lines above name the file, where an outlet declares the auth): change them there and run `go generate ./...`",
+				"The registration name (`company-sso`) stays the key in the routes, the variables and the stored links",
+			},
+			unwanted: []string{"Give the method the name its people know", "Company Sso"},
 		},
 		{
 			name: "the provider's token names the roles",

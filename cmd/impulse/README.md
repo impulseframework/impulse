@@ -1444,6 +1444,19 @@ only on an auth that registers no other method, as no method is added beside a
 registration that writes the roles: the command names the two ways out, an auth of its
 own or the application authority.
 
+`--label "<words>"` gives the words people read for an `oidc` method's provider: the login
+page's button says "Sign in with" and those words, and the generated lists of a person's
+ways to sign in name the method by them. They are written on the method's declaration in
+the generator program (`generation.OIDCMethod("company-sso").Labeled("Lakeside ID")`),
+which is where they are changed, with `go generate ./...` after; the handoff names the
+file. Without the flag the words are made from the registration name (`company-sso` reads
+"Company Sso"), and the handoff says so and names the same file. The flag is the `oidc`
+method's alone, since its words are the only ones made from a registration name: every
+other kind is shown by what it is (Password, Persona) or by its brand (Google,
+Microsoft), and the command refuses the flag there, naming `.Labeled` on the declaration
+for an application that wants other words. The registration name stays the key in the
+routes, the variables and the stored links, whatever the words are.
+
 `--shape <name>` is as for `add auth` and fills in the choices the flags left open:
 `invite-only` sets the application authority and takes any slot; `directory-members`
 takes a slot limited to the organizations it names (`one`, the default, or `listed`, or an
@@ -1556,6 +1569,7 @@ impulse add method members google workspace --slot listed --authority applicatio
 impulse add method partners password
 impulse add method clients password --username-is-email
 impulse add method staff oidc okta --authority application
+impulse add method staff oidc company-sso --authority application --label "Lakeside ID"
 impulse add method staff persona
 impulse add method staff google workspace --shape directory-members
 impulse add method staff azure entra --shape open-sign-up

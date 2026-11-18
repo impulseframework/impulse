@@ -620,6 +620,7 @@ func newAddMethod() *cobra.Command {
 		slot            string
 		usernameIsEmail bool
 		shapeKey        string
+		label           string
 	)
 
 	cmd := &cobra.Command{
@@ -639,7 +640,7 @@ func newAddMethod() *cobra.Command {
 			if len(args) == 3 {
 				registration = args[2]
 			}
-			spec, err := methodSpec(cmd, args[1], registration, slot, authority, usernameIsEmail, start)
+			spec, err := methodSpec(cmd, args[1], registration, slot, authority, label, usernameIsEmail, start)
 			if err != nil {
 				return err
 			}
@@ -658,20 +659,45 @@ func newAddMethod() *cobra.Command {
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for a directory method: directory (roles synchronized at every sign-in, one organization only) or application (roles assigned in the application); asked when not given, and application for the persona method")
 	cmd.Flags().StringVar(&slot, "slot", "", "the organization slot of a Microsoft or Google method: azure one|listed|any|personal|one-personal|any-personal, google one|listed|any-workspace|any|mixed (default: one); oidc and persona take none")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
+	cmd.Flags().StringVar(&label, "label", "", "the words people read for an oidc method's provider, on the login page's button and in the lists of a person's ways to sign in (\"Lakeside ID\"); without it they are made from the registration name (company-sso reads Company Sso)")
 
 	return cmd
 }
 
+// labelGiven refuses --label where it says nothing a method can carry, before anything
+// is asked or read: given with no words, or given for a kind other than an
+// organization's identity provider, whose words alone are made from a registration
+// name. Every other kind is shown by what it is or by its brand.
+func labelGiven(cmd *cobra.Command, kind, label string) error {
+	if !cmd.Flags().Changed("label") {
+		return nil
+	}
+	if strings.TrimSpace(label) == "" {
+		return errors.New("--label takes the words people read for the provider (--label \"Lakeside ID\"); leave the flag out for the words made from the registration name")
+	}
+	if kind != app.MethodOIDC {
+		probe := authpkg.Method{Kind: kind, Label: label}
+
+		return probe.Validate()
+	}
+
+	return nil
+}
+
 // methodSpec reads add method's arguments and flags into the method to add: its kind,
 // its registration name (the kind's own when none is given, registration being empty
-// then, except for an identity provider, which has no default), its slot and its
-// authority. The password method
-// takes neither flag, the persona method no slot and the application's authority.
+// then, except for an identity provider, which has no default), its slot, its
+// authority and, for an identity provider, the words --label gives it. The password
+// method takes neither --slot nor --authority, the persona method no slot and the
+// application's authority.
 // Under --shape (start) the shape fills in what the flags left open and refuses a
 // method or a flag that contradicts it; without one, a directory method's authority is
 // asked when the flag did not say.
-func methodSpec(cmd *cobra.Command, kind, registration, slot, authority string, usernameIsEmail bool, start *shape.Shape) (authpkg.Method, error) {
-	spec := authpkg.Method{Kind: kind, Name: registration, Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail}
+func methodSpec(cmd *cobra.Command, kind, registration, slot, authority, label string, usernameIsEmail bool, start *shape.Shape) (authpkg.Method, error) {
+	spec := authpkg.Method{Kind: kind, Name: registration, Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail, Label: label}
+	if err := labelGiven(cmd, kind, label); err != nil {
+		return spec, err
+	}
 	switch {
 	case registration != "":
 	case spec.Kind == app.MethodOIDC:
@@ -995,6 +1021,16 @@ release. The registration name is required: it is the application's word for the
 once. It takes no slot. With --authority directory
 every sign-in reconciles the person's roles to the role names the provider's ID token
 carries in its roles claim, which the provider has to be set up to send.
+
+--label gives the words people read for an oidc method's provider: the login page's
+button says "Sign in with" and those words, and the application names the method by them
+wherever it lists a person's ways to sign in. They are written on the method's
+declaration in the generator program (.Labeled), which is where they are changed, with go
+generate run after. Without the flag the words are made from the registration name
+(company-sso reads "Company Sso") and the handoff says where to change them. The flag is
+the oidc method's alone: every other kind is shown by what it is (Password, Persona) or
+by its brand (Google, Microsoft), and the registration name stays the key in routes,
+variables and stored links whatever the words are.
 
 The persona method is registered only where the persona provider is configured: the
 placement's persona block names the provider's issuer and the application's client ID root,
