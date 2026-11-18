@@ -399,13 +399,13 @@ func TestExecute(t *testing.T) {
 				log.SetOutput(os.Stderr)
 			})
 			code := execute(t.Context(), tt.args, &stdout, &stderr)
-			if code != tt.wantCode {
-				t.Fatalf("execute(%v) = %d, want %d; stdout:\n%s\nstderr:\n%s", tt.args, code, tt.wantCode, stdout.String(), stderr.String())
-			}
 			for where, wrote := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String(), "the log": logged.String()} {
 				if strings.Contains(wrote, "invitation=") || strings.Contains(wrote, "/login?") {
 					t.Errorf("%s holds an invitation's link, which is for the mailed message alone:\n%s", where, wrote)
 				}
+			}
+			if code != tt.wantCode {
+				t.Fatalf("execute(%v) = %d, want %d; stdout:\n%s\nstderr:\n%s", tt.args, code, tt.wantCode, stdout.String(), stderr.String())
 			}
 			if stdout.String() != tt.wantOut {
 				t.Errorf("stdout = %q, want %q", stdout.String(), tt.wantOut)

@@ -22,9 +22,9 @@ import (
 // registration admits any Workspace and any Google account, so nothing about the method
 // says which organization the first administrator signs in from; the invitation mailed to
 // the address the placement names does. Another person of the same directory who signs in
-// first gets nothing: without the link they are a stranger, refused by invitation only,
-// and with the link the invitation is for another address. Neither makes an account, and
-// the invitation stands. The invited person follows the link, signs in through Google,
+// first gets nothing: without the link they are a stranger, refused as not invited (the
+// directory is no tenant's), and with the link the invitation is for another address.
+// Neither makes an account, and the invitation stands. The invited person follows the link, signs in through Google,
 // and holds the Super Administrator role and the first administrator's roles.
 //
 // Under the session library's skipAuth build tag Google is simulated: the callback signs
@@ -51,8 +51,8 @@ func TestFirstAdministrator_invitedThroughADirectory(t *testing.T) {
 	if status, body := stranger.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
 		t.Fatalf("GET /api/user/session before the sign-in: status %d: %s", status, body)
 	}
-	if status, location := throughGoogle(ctx, t, stranger); status != http.StatusFound || location != "/login?code="+string(sessioninfo.RefusedInvitationOnly) {
-		t.Errorf("another person of the directory signing in first, with no link: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedInvitationOnly)
+	if status, location := throughGoogle(ctx, t, stranger); status != http.StatusFound || location != "/login?code="+string(sessioninfo.RefusedNotInvited) {
+		t.Errorf("another person of the directory signing in first, with no link: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedNotInvited)
 	}
 
 	// The same person with the link: the invitation is for another address.
