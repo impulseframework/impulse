@@ -637,7 +637,8 @@ project the application credentials reach.
 Three **sectors** are the tenants: **Anvil** is home (nearly everyone holds a role there,
 and the hangars are there), **Bastion** is where a role stops at a border, and also the
 sector that admits its people through its directory only (the persona provider's, so no
-password and no other sector's directory reaches it),
+password and no other sector's directory reaches it, but for the password and code of a
+marshal of Bastion itself),
 and **Cinder** is the dark sector only headquarters, the archivist, and the hazard analyst
 can see, and the sector the fleet's Google Workspace is the directory of.
 Clients post **missions** with a hazard class, a fee, and a deadline. **Squadrons**
@@ -841,9 +842,11 @@ the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewSectorDeclarationReader`, which reads the declaration in the sign-in's own
 transaction). A sector's declaration restricts its own door alone: a sector that is not
 directory only admits everyone it seats, however they signed in, and a directory-only
-sector admits a sign-in through its own directory and nothing else, so a person is
-refused at sign-in only when every sector that seats them is directory only and none has
-the way they signed in as its directory; a person who holds a role outside any one
+sector admits a sign-in through its own directory and, of its own marshals alone, a
+password with the code sent to their email, and nothing else, so a person is
+refused at sign-in only when every sector that seats them is directory only, none has
+the way they signed in as its directory, and they are no marshal of one of them signing
+in with a password; a person who holds a role outside any one
 sector (a global role, or one held in every sector) and a sign-in whose directory names
 the roles are admitted on the library's checks, and a
 person holding no sector too, since the pioneer signs up first and charts after. Whether
@@ -861,13 +864,24 @@ every sector that seats the person, except a sector that is directory only and w
 directory is not the one they signed in through, which stays on the chart marked closed
 to this sign-in, with the reason ("Bastion admits only people who sign in through its
 own directory. You signed in with a password."), and answers as a sector that does not
-exist. One person alone is exempt from a sector's declaration: a super administrator,
-the holder of the role the framework defines in every auth (`SuperAdministrator`, in no
-role file), which the governor holds. His password session charts Bastion, where the
-dispatcher's and the archivist's, who hold global roles and a role there, do not; the
-rigger's session he starts by viewing as her enters it, and his own started by the
-marshal does not. The same person answers for who makes a super administrator: the
-marshal, viewing as the governor, is refused the role for herself. The data level's roster
+exist. Two people are exempt from a sector's declaration. A super administrator is
+exempt in every sector: the holder of the role the framework defines in every auth
+(`SuperAdministrator`, in no role file), which the governor holds. His password session
+charts Bastion, where the dispatcher's and the archivist's, who hold global roles and a
+role there, do not; the rigger's session he starts by viewing as her enters it, and his
+own started by the marshal does not. The same person answers for who makes a super
+administrator: the marshal, viewing as the governor, is refused the role for herself.
+A sector's own marshal is exempt in that sector alone, so that a sector whose directory
+has a problem can be mended by the people who run it: a person who holds `SectorMarshal`
+at Bastion itself (the role the crew's role file names as a sector's administrator's,
+which the crew's permission engine is built with, `access.WithTenantAdministratorRoles`),
+by a role of their own or through one of Bastion's own groups, enters Bastion signed in
+with a password and the code sent to their email, or from a browser they asked to be
+remembered. The way in is that narrow: a marshal in every sector, as the fleet's own
+team is seated, is kept out with everyone else, which is what the switch is for; so is
+Bastion's marshal signed in through the fleet's Workspace, another sector's directory;
+the role taken away closes the door at the next request; and the same person's password
+session reaches their other sectors by those sectors' own declarations. The data level's roster
 keeps every sector's declaration beside its key (`resource.TenantRoster.Declarations`,
 handed to `resource.SessionPermissions`), the records' write paths reload it after their
 commit and signal the other instances, so a declaration decides the next request, and
@@ -884,25 +898,38 @@ which `SectorMarshal` holds beside the sector's directory: `MakeSectorDirectoryO
 `EndSectorDirectoryOnly` (`.../end-sector-directory-only`) turns it off, each with an
 empty body. The `Sectors` record, which headquarters writes in the global scope, shows
 the flag and takes no write of it: a create or a patch that carries it is refused.
-Turning it on is held to two rules (`resource.TenantDirectoryRules.DirectoryOnly`): the
-sector has its directory, and the person turning it on is signed in through that
+Turning it on is held to three rules (`resource.TenantDirectoryRules.DirectoryOnly`): the
+sector has its directory; the person turning it on is signed in through that
 directory themselves, which shows the directory works and that they are not shutting
-themselves out; each refusal is a sentence that says what to do. Turning it off is
+themselves out; and the person has a password of their own, which is their way back in
+if the directory has a problem (`PasswordsBy`, handed the crew's
+`identity.Manager.CallerPassword`; an auth with no password method is asked nothing).
+Each refusal is a sentence that says what to do, on the method, on its dry run and on
+the warning: a marshal who has only ever signed in through a directory, as the warden
+has, is told to choose a password on Your account first, and does, on a code mailed to
+his confirmed address (`POST /console/api/user/first-password/code`, then
+`/console/api/user/first-password` with the code and the password; refused for an
+account that has a password, which changes it with the one it has, and under a view of
+someone else). Turning it off is
 plain; while the switch is on, the sector's routes, these among them, answer the people
-the sector admits, so a sector whose directory has stopped working is opened again by a
+the sector admits, so a sector whose directory has stopped working is opened again by
+its own marshal, signed in with a password and the code, or by a
 super administrator. The marshal, who does not read the `Sectors` record, reads the
 switch in the sector (`GET /console/api/sectors/{sectorID}/directory-only`, under the
 grant of either method). `MakeSectorDirectoryOnly` declares a warning
 (`@warning`'s mechanism, the word `close`): asked for it (`X-Warning: true`), the method
 answers what the call would do in place of running, the sentence with the count of the
-people seated in the sector who sign in another way, their names as a list where the
+people seated in the sector who sign in another way (it says too that an administrator
+of the sector who has a password can still sign in with it and a code sent to their
+email, and counts no such person among them), their names as a list where the
 caller may list the sector's people (List on the sector's people lists and on their
 `username` and `name` fields), and the words on the button; a caller who may list only
 some of them is told so in the sentence, and one who may list nobody is told how many
 and no names. While it is on, the sector's People page says who
 it keeps out, on the row of each person with no sign-in through the directory ("Has not
 signed in through this sector's directory, so cannot enter while this sector is
-directory only"); the list is made from who holds a role in the sector, so nobody
+directory only"), but for a marshal of the sector itself who has a password, whose row
+says nothing; the list is made from who holds a role in the sector, so nobody
 disappears from it. Every sentence that speaks of a sector's directory says it in words
 a person knows, the name the crew's sign-in registrations give it (`example`, the
 fleet's Workspace; `persona`, the persona provider), and never by a connection that is
