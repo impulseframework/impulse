@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -445,6 +446,87 @@ func seamEmailCodeUsedResetsLimit[Tx any](ctx context.Context, t *testing.T, a *
 		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, "pat@lakeside.edu")})
 		assertEventsSeen(t, b.view(ctx), "password", "email-code")
 		b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	}
+}
+
+// seamEmailCodeGuessesAtOnce: the code's attempts hold under guesses made at once,
+// through the real handlers and the database's own counting. A dozen wrong guesses
+// sent together each take an attempt: four are told the code is wrong, every other
+// that no code stands, none is answered with a failure of the server, and the right
+// code is dead after them. A dozen copies of the right code sent together sign one
+// browser in.
+func seamEmailCodeGuessesAtOnce[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	a.seedWithEmail(ctx, t, "pat@lakeside.edu", "pat@lakeside.edu")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+
+	const guesses = 12
+	// atOnce enters code from a dozen copies of b's cookies together and returns what
+	// each was answered.
+	atOnce := func(b *browser, code string) (statuses []int, bodies []string) {
+		copies := make([]*browser, guesses)
+		for i := range copies {
+			copies[i] = b.clone()
+		}
+		statuses, bodies = make([]int, guesses), make([]string, guesses)
+		var wg sync.WaitGroup
+		for i, c := range copies {
+			wg.Go(func() {
+				status, body := c.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
+				statuses[i], bodies[i] = status, string(body)
+			})
+		}
+		wg.Wait()
+
+		return statuses, bodies
+	}
+
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "pat@lakeside.edu", "password": seedPassword})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	code := a.lastCode(t, "pat@lakeside.edu")
+	wrong := "000000"
+	if wrong == code {
+		wrong = "111111"
+	}
+
+	statuses, bodies := atOnce(b, wrong)
+	invalid, dead := 0, 0
+	for i, status := range statuses {
+		switch {
+		case status == http.StatusUnauthorized && strings.Contains(bodies[i], `"code":"invalid_code"`):
+			invalid++
+		case status == http.StatusUnauthorized && strings.Contains(bodies[i], `"code":"code_expired"`):
+			dead++
+		default:
+			t.Errorf("wrong guess %d of %d at once = %d %s, want 401 invalid_code or code_expired", i, guesses, status, bodies[i])
+		}
+	}
+	if invalid != 4 || dead != guesses-4 {
+		t.Errorf("%d wrong guesses at once: %d were told the code is wrong and %d that none stands, want 4 and %d", guesses, invalid, dead, guesses-4)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+		t.Errorf("the right code after %d wrong guesses at once = %d %s, want 401 code_expired", guesses, status, body)
+	}
+
+	// A new code, entered right from a dozen copies of the browser at once: one is
+	// signed in, and every other is refused.
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	statuses, bodies = atOnce(b, a.lastCode(t, "pat@lakeside.edu"))
+	accepted := 0
+	for i, status := range statuses {
+		switch status {
+		case http.StatusOK:
+			accepted++
+		case http.StatusUnauthorized:
+		default:
+			t.Errorf("right guess %d of %d at once = %d %s, want 200 or 401", i, guesses, status, bodies[i])
+		}
+	}
+	if accepted != 1 {
+		t.Errorf("%d copies of the right code at once: %d were accepted, want one", guesses, accepted)
 	}
 }
 

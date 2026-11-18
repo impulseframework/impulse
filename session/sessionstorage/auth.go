@@ -309,7 +309,10 @@ type AuthStore[Tx any] interface {
 	// the call, under limit, and returns the record as written: the failure counts in
 	// the name's window, or opens one, and the failure that reaches limit.Failures
 	// locks the name for limit.Lock; a name that is locked is left as it is. The read
-	// and the write are one transaction, so concurrent failures each count.
+	// and the write are one transaction, so concurrent failures each count, and the
+	// record says whether this one was counted (Counted): of failures recorded at
+	// once, as many as limit.Failures are and no more, so a caller that takes the
+	// failure before it judges a guess judges no more guesses than the limit.
 	RecordSignInFailure(ctx context.Context, name string, limit SignInAttemptLimit) (*SignInAttempts, error)
 	// ClearSignInAttempts deletes the sign-in attempts record of name: a successful
 	// password check, an MFA completion and a password change reset the count.
@@ -400,8 +403,10 @@ type AuthStore[Tx any] interface {
 	InsertFactorCode(ctx context.Context, c *FactorCode) error
 	// FactorCode returns the live code of pendingID, or NotFound.
 	FactorCode(ctx context.Context, pendingID impulse.UUID) (*FactorCode, error)
-	// RecordFactorCodeAttempt counts a wrong code against the live code id and
-	// returns the count; NotFound when it is not live.
+	// RecordFactorCodeAttempt counts an attempt against the live code id and returns
+	// the count, in one step: attempts counted at once are each counted and answered
+	// their own count, so a caller that takes the attempt before it judges a guess
+	// judges no more guesses than it allows. NotFound when the code is not live.
 	RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID) (int, error)
 	// ConsumeFactorCode marks the live code id consumed, by a conditional update, so
 	// a code is used once; NotFound when it is not live.

@@ -243,7 +243,7 @@ type db interface {
 	InsertFactorCode(ctx context.Context, c *dbtype.FactorCode, now time.Time) error
 	// FactorCodeByPending returns the newest code of pendingID that is live at now, or NotFound.
 	FactorCodeByPending(ctx context.Context, pendingID impulse.UUID, now time.Time) (*dbtype.FactorCode, error)
-	// RecordFactorCodeAttempt counts a wrong code against the code id that is live at now and returns the count; NotFound when it is not live.
+	// RecordFactorCodeAttempt counts an attempt against the code id that is live at now and returns the count, in one step; NotFound when it is not live.
 	RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID, now time.Time) (int, error)
 	// ConsumeFactorCode marks the live code id consumed at now by a conditional update; NotFound when it is not live.
 	ConsumeFactorCode(ctx context.Context, id impulse.UUID, now time.Time) error

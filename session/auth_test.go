@@ -96,6 +96,9 @@ type authFixture struct {
 	attemptWrites int
 	attemptClears int
 	clock         time.Time
+	// afterFailure, when set, is called with a failure's context once the store counted
+	// it, before the store answers: where a test holds guesses made at once.
+	afterFailure func(ctx context.Context)
 	// signedInCalls records the SignedInHook's calls, and signedInErr is what it answers.
 	signedInCalls []*SignedIn
 	signedInErr   error
@@ -213,7 +216,18 @@ func (f *authFixture) attemptsOf(_ context.Context, name string) (*sessionstorag
 
 // recordFailure answers the store's record of a failure as the table would, under
 // the fixture's clock.
-func (f *authFixture) recordFailure(_ context.Context, name string, limit sessionstorage.SignInAttemptLimit) (*sessionstorage.SignInAttempts, error) {
+func (f *authFixture) recordFailure(ctx context.Context, name string, limit sessionstorage.SignInAttemptLimit) (*sessionstorage.SignInAttempts, error) {
+	copied := f.countFailure(name, limit)
+	if f.afterFailure != nil {
+		f.afterFailure(ctx)
+	}
+
+	return copied, nil
+}
+
+// countFailure counts a failure of name in the fixture's table, in one step as the
+// store's transaction does, and returns a copy of the record as written.
+func (f *authFixture) countFailure(name string, limit sessionstorage.SignInAttemptLimit) *sessionstorage.SignInAttempts {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -223,7 +237,7 @@ func (f *authFixture) recordFailure(_ context.Context, name string, limit sessio
 	f.attempts[name] = next
 	copied := *next
 
-	return &copied, nil
+	return &copied
 }
 
 // clearAttempts answers the store's reset of a name as the table would.

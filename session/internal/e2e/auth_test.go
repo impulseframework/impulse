@@ -744,6 +744,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamEmailCodeLimits[Tx],
 		},
 		{
+			name: "a dozen wrong codes entered at once each take an attempt, four told the code is wrong and the rest that none stands; a dozen copies of the right code entered at once sign one browser in",
+			run:  seamEmailCodeGuessesAtOnce[Tx],
+		},
+		{
 			name: "a person who signs in with each code sent is mailed one every time: a used code resets the address's mail count",
 			run:  seamEmailCodeUsedResetsLimit[Tx],
 		},

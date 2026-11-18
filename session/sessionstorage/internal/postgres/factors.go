@@ -109,8 +109,9 @@ func (s *SessionStorageDriver) FactorCodeByPending(ctx context.Context, pendingI
 	return rows[0].code(), nil
 }
 
-// RecordFactorCodeAttempt counts a wrong code against the code id, when it is live at
-// now, and returns the count. A code that is not live is NotFound.
+// RecordFactorCodeAttempt counts an attempt against the code id, when it is live at
+// now, and returns the count, in one statement: attempts counted at once are each
+// counted and answered their own count. A code that is not live is NotFound.
 func (s *SessionStorageDriver) RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID, now time.Time) (int, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

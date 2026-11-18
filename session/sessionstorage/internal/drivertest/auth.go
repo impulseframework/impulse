@@ -581,6 +581,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
+		{name: "of failed attempts recorded at once on one name, as many as the limit are told they were counted and no more", run: testSignInAttemptsCountedAtOnce},
 		{name: "a driver whose sign-in attempts table is not there says so: an error naming the table, never a count of nothing", run: testSignInAttemptsMissingTable},
 		{name: "a user's email address is stored in two states, unique among every address held, and read back with the user", run: testUserEmail},
 		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
@@ -617,7 +618,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a device code is pending until approved or denied, holds the client to its interval, and is redeemed once for the approver's tokens", run: testDeviceCodeLifecycle},
 		{name: "a user's tokens and device codes go with the user", run: testTokensCascade},
 		{name: "a factor code is read back by its pending sign-in while it is live, the newest standing alone, and a new code consumes the earlier one", run: testFactorCodeRoundTrip},
-		{name: "a factor code counts the wrong codes entered against it and is consumed once; a dead code is neither read, counted nor consumed", run: testFactorCodeAttemptsAndConsume},
+		{name: "a factor code counts the guesses made at it and is consumed once; a dead code is neither read, counted nor consumed", run: testFactorCodeAttemptsAndConsume},
+		{name: "attempts counted against a factor code at once are each counted and answered their own count", run: testFactorCodeAttemptsAtOnce},
 		{name: "a trusted device is read back by its token hash while it is live, touched at the database's time, revoked once by its token and all at once by its user", run: testTrustedDeviceLifecycle},
 		{name: "a factor code goes with its pending sign-in and a trusted device with its user", run: testFactorsCascade},
 	}
