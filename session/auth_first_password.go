@@ -174,7 +174,7 @@ func errPasswordHeld() error {
 }
 
 // errNoConfirmedAddress is the refusal of a first password's code for an account with
-// no confirmed address.
+// no confirmed address, or with one no message can be sent to.
 func errNoConfirmedAddress() error {
 	return httpio.NewConflictMessage("Your account has no confirmed email address, and the code to choose a password is sent to one. " +
 		"Add your email address, confirm it from the link we send you, then choose your password")
@@ -272,6 +272,12 @@ func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impul
 		return nil, errNoConfirmedAddress()
 	}
 	email := *user.Email
+	// An address no message can be sent to is no address for the code: the simulated
+	// build's directories vouch for a person under their login name. The account is
+	// told what one with no confirmed address is, which says how to add one.
+	if _, err := address(email); err != nil {
+		return nil, errNoConfirmedAddress()
+	}
 	if err := a.firstPasswordHeld(ctx, user.ID); err != nil {
 		return nil, err
 	}

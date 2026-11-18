@@ -397,6 +397,20 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if status, body := rigger.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account already has a password. To change it, enter the one you have and the new one") {
 		t.Errorf("asking for the code of a first password as the rigger, who has a password: status %d, want 409 saying the account has one: %s", status, body)
 	}
+	// The simulated persona provider vouches for the warden under her login name, which
+	// no message can be sent to: her account is told it has no confirmed address, and
+	// she adds one and confirms it from the link mailed to it. The code goes there.
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account has no confirmed email address") {
+		t.Errorf("asking for the code of a first password with an address no message can be sent to: status %d, want 409 saying the account has no confirmed address: %s", status, body)
+	}
+	const wardensAddress = "warden@fleet.example"
+	if status, body := warden.do(ctx, http.MethodPost, consoleAPI+"/user/email", jsonBody(t, map[string]string{"email": wardensAddress})); status != http.StatusOK {
+		t.Fatalf("adding the warden's address: status %d: %s", status, body)
+	}
+	_, token := lastMailTo(t, s, wardensAddress, "verify")
+	if status, body := warden.do(ctx, http.MethodPost, consoleAPI+"/user/email/verify", jsonBody(t, map[string]string{"token": token})); status != http.StatusOK {
+		t.Fatalf("confirming the warden's address from the mailed link: status %d: %s", status, body)
+	}
 	code := firstPasswordCode(ctx, t, warden)
 	wrong := "000000"
 	if code == wrong {

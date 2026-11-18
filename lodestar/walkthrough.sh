@@ -1037,7 +1037,10 @@ r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role
 # signed in through the persona provider, so the warning, the dry run and the method
 # refuse him until he chooses a password on Your account: a code is mailed to his
 # confirmed address (the log, in development) and sets the password. No password is set
-# without the code, and an account that has one is refused the code.
+# without the code, and an account that has one is refused the code. In development the
+# persona provider is simulated and vouches for him under his login name, which no
+# message can be sent to, so his account is told it has no confirmed address, and he
+# adds one and confirms it from the link mailed to it before the code is sent.
 NO_PASSWORD='Directory only is turned on by a person who has a password: an administrator of this sector enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again.'
 r=$(warning rookie "$MAKE_ONLY" '{}'); check "the rookie, Bastion's marshal and signed in through its directory, asks what turning it on would do, and is refused: he has no password" 409 "$r"
 assert_py "in a sentence that says why, and what to do" "$r" "rows['message']==\"$NO_PASSWORD\""
@@ -1045,9 +1048,16 @@ r=$(dryrun rookie POST "$MAKE_ONLY" '{}'); check "the dry run is refused the sam
 r=$(req rookie POST "$MAKE_ONLY" '{}'); check "and so is the method" 409 "$r"
 r=$(req rookie POST "$API/user/first-password" '{"code":"000000","password":"lodestar"}'); check "no first password without the mailed code: none was asked for, and the password is refused" 409 "$r"
 r=$(req rigger POST "$API/user/first-password/code"); check "an account that has a password is refused the code: the rigger changes hers with the one she has" 409 "$r"
+r=$(req rookie POST "$API/user/first-password/code"); check "the rookie asks for the code of a first password and is told his account has no confirmed address: the simulated provider vouched for him under his login name" 409 "$r"
+assert_py "in a sentence that says what to do" "$r" "rows['message'].startswith('Your account has no confirmed email address') and 'confirm it from the link we send you' in rows['message']"
+ROOKIE_LINK='mail (not sent) to rookie@fleet.example, subject "Confirm your email address for Lodestar"'
+r=$(req rookie POST "$API/user/email" '{"email":"rookie@fleet.example"}'); check "he adds his address on Your account" 200 "$r"
+for _ in $(seq 1 100); do grep -aq "$ROOKIE_LINK" "$LOG" && break; sleep 0.1; done
+ROOKIE_TOKEN=$(grep -a -A 4 "$ROOKIE_LINK" "$LOG" | grep -ao 'verify=[A-Za-z0-9_-]*' | tail -1 | cut -d= -f2)
+r=$(req rookie POST "$API/user/email/verify" "{\"token\":\"$ROOKIE_TOKEN\"}"); check "and confirms it from the link mailed to it" 200 "$r"
 FIRST_CODES='subject "Your code to choose a Lodestar password is'
 first_codes=$(grep -ac "$FIRST_CODES" "$LOG")
-r=$(req rookie POST "$API/user/first-password/code"); check "the rookie asks for the code of a first password, mailed to his confirmed address" 200 "$r"
+r=$(req rookie POST "$API/user/first-password/code"); check "the rookie asks again, and the code is mailed to the address he confirmed" 200 "$r"
 for _ in $(seq 1 100); do [ "$(grep -ac "$FIRST_CODES" "$LOG")" -gt "$first_codes" ] && break; sleep 0.1; done
 FIRST_CODE=$(grep -a "$FIRST_CODES" "$LOG" | tail -1 | sed -E 's/.*password is ([0-9]{3}) ([0-9]{3}).*/\1\2/')
 r=$(req rookie POST "$API/user/first-password" "{\"code\":\"$FIRST_CODE\",\"password\":\"lodestar\"}"); check "and chooses his password with it" 200 "$r"

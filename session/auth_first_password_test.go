@@ -306,6 +306,12 @@ func firstPasswordCase5(t *testing.T) {
 		"an address nobody confirmed": func(userID impulse.UUID) *sessionstorage.SessionUser {
 			return &sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu")}
 		},
+		"a confirmed address no message can be sent to, as a simulated directory leaves one": func(userID impulse.UUID) *sessionstorage.SessionUser {
+			person := directoryPerson(userID)
+			person.Email = strPtr("pat")
+
+			return person
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

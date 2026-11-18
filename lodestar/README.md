@@ -931,7 +931,9 @@ if the directory has a problem (`PasswordsBy`, handed the crew's
 Each refusal is a sentence that says what to do, on the method, on its dry run and on
 the warning: a marshal who has only ever signed in through a directory, as the warden
 has, is told to choose a password on Your account first, and does, on a code mailed to
-his confirmed address (`POST /console/api/user/first-password/code`, then
+his confirmed address (in development the simulated provider vouches for a person under
+their login name, which no message can be sent to, so the account is told to add an
+address and confirm it first; `POST /console/api/user/first-password/code`, then
 `/console/api/user/first-password` with the code and the password; refused for an
 account that has a password, which changes it with the one it has, and under a view of
 someone else). Turning it off is
