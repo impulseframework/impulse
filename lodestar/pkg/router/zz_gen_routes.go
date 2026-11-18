@@ -263,6 +263,12 @@ type GeneratedHandlers interface {
 
 	CrewSignInWays() http.HandlerFunc
 
+	CrewTakeLengths() http.HandlerFunc
+
+	CrewTakeableRoles() http.HandlerFunc
+
+	CrewTakenRoles() http.HandlerFunc
+
 	CrewUserGroupRoles() http.HandlerFunc
 	CrewUserGroupRole() http.HandlerFunc
 
@@ -549,6 +555,8 @@ type GeneratedHandlers interface {
 	StartFlightTest() http.HandlerFunc
 
 	TakeCrewGroupRole() http.HandlerFunc
+
+	TakeCrewRole() http.HandlerFunc
 
 	TakeCrewSectorGroupRole() http.HandlerFunc
 
@@ -866,6 +874,18 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewSignInWaysHandler := h.CrewSignInWays()
 	bounded.Get("/console/api/crew-sign-in-ways", crewSignInWaysHandler)
 	bounded.Post("/console/api/crew-sign-in-ways", crewSignInWaysHandler)
+
+	crewTakeLengthsHandler := h.CrewTakeLengths()
+	bounded.Get("/console/api/crew-take-lengths", crewTakeLengthsHandler)
+	bounded.Post("/console/api/crew-take-lengths", crewTakeLengthsHandler)
+
+	crewTakeableRolesHandler := h.CrewTakeableRoles()
+	bounded.Get("/console/api/crew-takeable-roles", crewTakeableRolesHandler)
+	bounded.Post("/console/api/crew-takeable-roles", crewTakeableRolesHandler)
+
+	crewTakenRolesHandler := h.CrewTakenRoles()
+	bounded.Get("/console/api/crew-taken-roles", crewTakenRolesHandler)
+	bounded.Post("/console/api/crew-taken-roles", crewTakenRolesHandler)
 
 	crewUserGroupRolesHandler := h.CrewUserGroupRoles()
 	bounded.Get("/console/api/crew-user-group-roles", crewUserGroupRolesHandler)
@@ -1362,6 +1382,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/start-flight-test", domainGuard(h.StartFlightTest()))
 
 	asked.Post("/console/api/take-crew-group-role", h.TakeCrewGroupRole())
+
+	asked.Post("/console/api/take-crew-role", h.TakeCrewRole())
 
 	asked.Post("/console/api/sectors/{sectorID}/take-crew-sector-group-role", domainGuard(h.TakeCrewSectorGroupRole()))
 

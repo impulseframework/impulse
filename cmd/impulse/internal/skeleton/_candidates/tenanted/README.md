@@ -34,7 +34,11 @@ for the whole application, `TenantAdministrator` in a tenant). A group gives
 nobody a power that giving the role directly would not: who is in a group, and what it
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
-the whole application's accounts. The library draws them from the API description
+the whole application's accounts. On the
+Break glass page (`/staff-break-glass`) a person who may give themselves a role takes one
+in a tenant for a set time and says why: the role ends by itself, the tenant's
+administrator reads the reason beside it and may end it early, and the role file gives
+the page's lists and its method to the `Administrator`. The library draws them from the API description
 (`identityRoutes` in `app.routes.ts`, placed by `identityMenuPages` in the menu file), and
 a tenant's pages read the tenant from the URL (the frame provides `RESOURCE_DOMAIN`).
 The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list page over the

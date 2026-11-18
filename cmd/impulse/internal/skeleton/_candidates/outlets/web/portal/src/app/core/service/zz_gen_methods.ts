@@ -43,6 +43,7 @@ export interface AssignMembersRoleConfig {
   everyDomain: boolean | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignMembersRole {
   userId: string;
@@ -51,6 +52,7 @@ export interface AssignMembersRole {
   everyDomain: boolean;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignMembersRole declares; the method chooses one per response. */
 export type AssignMembersRoleStatus = 204;
@@ -60,12 +62,14 @@ export interface AssignMembersTenantRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignMembersTenantRole {
   userId: string;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignMembersTenantRole declares; the method chooses one per response. */
 export type AssignMembersTenantRoleStatus = 204;
@@ -481,6 +485,21 @@ export interface TakeMembersGroupRole {
 /** The statuses TakeMembersGroupRole declares; the method chooses one per response. */
 export type TakeMembersGroupRoleStatus = 204;
 
+export interface TakeMembersRoleConfig {
+  domain: string | FieldPointer;
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeMembersRole {
+  domain: string;
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeMembersRole declares; the method chooses one per response. */
+export type TakeMembersRoleStatus = 204;
+
 export interface TakeMembersTenantGroupRoleConfig {
   groupId: string | FieldPointer;
   role: string | FieldPointer;
@@ -664,6 +683,7 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AssignMembersTenantRole]: {
@@ -676,6 +696,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersTenantRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateMembersGroup]: {
@@ -1024,6 +1045,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeMembersRole]: {
+    route: 'take-members-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'string', required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.MembersTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.TakeMembersTenantGroupRole]: {

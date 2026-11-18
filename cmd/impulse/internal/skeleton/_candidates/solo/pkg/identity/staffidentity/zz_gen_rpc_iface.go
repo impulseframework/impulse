@@ -13,6 +13,6 @@ type Method interface {
 		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
 		RemoveStaffRole | RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
 		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword | SetStaffUserEmail |
-		SetStaffUserName | TakeStaffGroupRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn |
-		WithdrawStaffInvitation
+		SetStaffUserName | TakeStaffGroupRole | TakeStaffRole | UnlinkStaffSessionIdentity |
+		UnlockStaffSignIn | WithdrawStaffInvitation
 }

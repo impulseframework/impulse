@@ -107,6 +107,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, false)},
 		{identityListGroupRoles, data.GroupRole()},
 		{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, false)},
+		{identityListTakenRoles, data.TakenRole()},
 	}
 	if i.invitesTenants() {
 		parts = append(parts, identityPart{identityListInvitedTenants, i.invitedTenantName()})
@@ -155,6 +156,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			identityPart{"unlockSignIn", "Unlock" + i.auth + "SignIn"},
 			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
 			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
+			identityPart{identityMethodTakeRole, i.takeRoleMethod()},
 		)
 		if i.invitesTenants() {
 			parts = append(parts,

@@ -90,6 +90,12 @@ export class ResourceListCreateComponent {
     return this.rootConfig().parentConfig as ListViewConfig;
   });
 
+  /**
+   * The lists drawn under this one: the ones the page's own list names (`below`), and
+   * none for a list that is not the one its page is built on.
+   */
+  below = computed<ListViewConfig[]>(() => (this.isRootList() ? (this.config().below ?? []) : []));
+
   expPanel = viewChild<MatExpansionPanel, MatExpansionPanel>('expPanel', { read: MatExpansionPanel });
 
   rootConfig = computed(() => {
@@ -128,10 +134,17 @@ export class ResourceListCreateComponent {
    * A method ran from this list. Under a row page it may have changed the row or
    * another of the row's lists (a role taken away is one fewer role the person holds),
    * so the page reads the row and its other lists again; a list that is a page of its
-   * own has nothing above it to tell.
+   * own has nothing above it to tell, and tells the lists drawn under it (`below`), which
+   * read again: what ran may have moved a row from one of the page's lists to another.
    */
   methodRan(): void {
-    if (this.isRootList() || !this.pageStore) {
+    if (this.isRootList()) {
+      if (this.below().length > 0) {
+        this.store.rowChanges.update((count) => count + 1);
+      }
+      return;
+    }
+    if (!this.pageStore) {
       return;
     }
     this.ranHere = true;

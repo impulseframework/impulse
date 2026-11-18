@@ -96,7 +96,14 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	told := func(user accesstypes.User, res accesstypes.Resource) bool {
 		return slices.Contains(changeNames(fake.Changes(principalID(user))), "resource|"+string(res)+"|||false")
 	}
-	lists := []live.WholeChange{{Resource: crewSectorIdentities, AllDomains: true}, {Resource: crewSectorRoles, AllDomains: true}, {Resource: crewSectorPeople, AllDomains: true}}
+	// The lists that read the memberships: the sector's people, their roles and their
+	// identities, and the roles held for a set time with a reason.
+	lists := []live.WholeChange{
+		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: crewSectorRoles, AllDomains: true},
+		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewTakenRoles", AllDomains: true},
+	}
 	// The lists over the crew's groups name each person from the users table, so a
 	// commit that writes an account tells them too; one that writes a membership alone
 	// does not.
@@ -107,6 +114,7 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 		{Resource: "CrewSectorUserGroupRoles", AllDomains: true},
 		{Resource: crewSectorRoles, AllDomains: true},
 		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewTakenRoles", AllDomains: true},
 		{Resource: "CrewUserGroupRoles", AllDomains: true},
 	}
 

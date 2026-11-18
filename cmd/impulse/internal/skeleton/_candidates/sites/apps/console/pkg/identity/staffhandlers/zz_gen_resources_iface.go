@@ -18,12 +18,14 @@ type Resourcer interface {
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
 		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
 		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
-		staffresources.StaffTenantGroup | staffresources.StaffTenantGroupRole |
-		staffresources.StaffTenantGroupUser | staffresources.StaffTenantIdentity |
-		staffresources.StaffTenantInvitation | staffresources.StaffTenantUser |
-		staffresources.StaffTenantUserGroupRole | staffresources.StaffTenantUserRole |
-		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
-		staffidentity.StaffInvitedTenant | staffidentity.StaffSignInMethod |
-		staffidentity.StaffSignInWay | staffidentity.StaffTenantDirectoryRole |
-		staffidentity.StaffTenantRole | staffidentity.StaffTenantSignInWay
+		staffresources.StaffTakenRole | staffresources.StaffTenantGroup |
+		staffresources.StaffTenantGroupRole | staffresources.StaffTenantGroupUser |
+		staffresources.StaffTenantIdentity | staffresources.StaffTenantInvitation |
+		staffresources.StaffTenantUser | staffresources.StaffTenantUserGroupRole |
+		staffresources.StaffTenantUserRole | staffresources.StaffUserGroupRole |
+		staffresources.StaffUserRole | staffidentity.StaffInvitedTenant |
+		staffidentity.StaffSignInMethod | staffidentity.StaffSignInWay |
+		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole |
+		staffidentity.StaffTenantDirectoryRole | staffidentity.StaffTenantRole |
+		staffidentity.StaffTenantSignInWay
 }

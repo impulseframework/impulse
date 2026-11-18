@@ -37,6 +37,9 @@ export const Resources = {
   StaffSessions: 'StaffSessions' as Resource,
   StaffSignInMethods: 'StaffSignInMethods' as Resource,
   StaffSignInWays: 'StaffSignInWays' as Resource,
+  StaffTakeLengths: 'StaffTakeLengths' as Resource,
+  StaffTakeableRoles: 'StaffTakeableRoles' as Resource,
+  StaffTakenRoles: 'StaffTakenRoles' as Resource,
   StaffTenantDirectoryRoles: 'StaffTenantDirectoryRoles' as Resource,
   StaffTenantGroupRoles: 'StaffTenantGroupRoles' as Resource,
   StaffTenantGroupUsers: 'StaffTenantGroupUsers' as Resource,
@@ -103,6 +106,7 @@ export const Methods = {
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
   SetStaffUserName: 'SetStaffUserName' as Method,
   TakeStaffGroupRole: 'TakeStaffGroupRole' as Method,
+  TakeStaffRole: 'TakeStaffRole' as Method,
   TakeStaffTenantGroupRole: 'TakeStaffTenantGroupRole' as Method,
   UnlinkStaffSessionIdentity: 'UnlinkStaffSessionIdentity' as Method,
   UnlinkStaffTenantSessionIdentity: 'UnlinkStaffTenantSessionIdentity' as Method,
@@ -532,6 +536,57 @@ export namespace StaffSignInWays {
   };
 }
 
+export namespace StaffTakeLengths {
+  export const fieldName = {
+    minutes: 'minutes' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    minutes: 'StaffTakeLengths.minutes' as Resource,
+    name: 'StaffTakeLengths.name' as Resource,
+  };
+}
+
+export namespace StaffTakeableRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'StaffTakeableRoles.description' as Resource,
+    name: 'StaffTakeableRoles.name' as Resource,
+  };
+}
+
+export namespace StaffTakenRoles {
+  export const fieldName = {
+    axis: 'axis' as FieldName,
+    domainId: 'domainId' as FieldName,
+    ended: 'ended' as FieldName,
+    endsAt: 'endsAt' as FieldName,
+    kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    axis: 'StaffTakenRoles.axis' as Resource,
+    domainId: 'StaffTakenRoles.domainId' as Resource,
+    ended: 'StaffTakenRoles.ended' as Resource,
+    endsAt: 'StaffTakenRoles.endsAt' as Resource,
+    kind: 'StaffTakenRoles.kind' as Resource,
+    name: 'StaffTakenRoles.name' as Resource,
+    reason: 'StaffTakenRoles.reason' as Resource,
+    role: 'StaffTakenRoles.role' as Resource,
+    startsAt: 'StaffTakenRoles.startsAt' as Resource,
+    userId: 'StaffTakenRoles.userId' as Resource,
+    username: 'StaffTakenRoles.username' as Resource,
+  };
+}
+
 export namespace StaffTenantDirectoryRoles {
   export const fieldName = {
     description: 'description' as FieldName,
@@ -733,6 +788,7 @@ export namespace StaffTenantUserRoles {
     domainId: 'domainId' as FieldName,
     endsAt: 'endsAt' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    reason: 'reason' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
@@ -743,6 +799,7 @@ export namespace StaffTenantUserRoles {
     domainId: 'StaffTenantUserRoles.domainId' as Resource,
     endsAt: 'StaffTenantUserRoles.endsAt' as Resource,
     everyDomain: 'StaffTenantUserRoles.everyDomain' as Resource,
+    reason: 'StaffTenantUserRoles.reason' as Resource,
     role: 'StaffTenantUserRoles.role' as Resource,
     startsAt: 'StaffTenantUserRoles.startsAt' as Resource,
     userId: 'StaffTenantUserRoles.userId' as Resource,
@@ -819,6 +876,7 @@ export namespace StaffUserRoles {
     domainId: 'domainId' as FieldName,
     endsAt: 'endsAt' as FieldName,
     kind: 'kind' as FieldName,
+    reason: 'reason' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
@@ -829,6 +887,7 @@ export namespace StaffUserRoles {
     domainId: 'StaffUserRoles.domainId' as Resource,
     endsAt: 'StaffUserRoles.endsAt' as Resource,
     kind: 'StaffUserRoles.kind' as Resource,
+    reason: 'StaffUserRoles.reason' as Resource,
     role: 'StaffUserRoles.role' as Resource,
     startsAt: 'StaffUserRoles.startsAt' as Resource,
     userId: 'StaffUserRoles.userId' as Resource,
@@ -891,6 +950,7 @@ export namespace AssignStaffRole {
     everyDomain: 'everyDomain' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
+    reason: 'reason' as FieldName,
   };
 }
 
@@ -900,6 +960,7 @@ export namespace AssignStaffTenantRole {
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
+    reason: 'reason' as FieldName,
   };
 }
 
@@ -1213,6 +1274,15 @@ export namespace TakeStaffGroupRole {
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace TakeStaffRole {
+  export const fieldName = {
+    domain: 'domain' as FieldName,
+    role: 'role' as FieldName,
+    length: 'length' as FieldName,
+    reason: 'reason' as FieldName,
   };
 }
 

@@ -1098,12 +1098,17 @@ func storedPeriod(start, end *time.Time) accesstypes.Period {
 	return period
 }
 
-// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
-// handed replaces the one the membership had.
-func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+// SetMembershipPeriod writes both columns of the period and the reason, an absent start
+// or end and an empty reason as NULL: what is handed replaces what the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period, reason string) error {
+	var why *string
+	if reason != "" {
+		why = &reason
+	}
 	patch := crewresources.NewCrewUserRoleUpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
 		SetStartsAt(period.StartPtr()).
-		SetEndsAt(period.EndPtr())
+		SetEndsAt(period.EndPtr()).
+		SetReason(why)
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewUserRoleUpdatePatch.Buffer()")
 	}
@@ -1112,10 +1117,14 @@ func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTran
 }
 
 func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
-	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	periods := &identity.UserPeriods{
+		Memberships: map[access.MembershipKey]accesstypes.Period{},
+		Places:      map[access.GroupMemberKey]accesstypes.Period{},
+		Reasons:     map[access.MembershipKey]string{},
+	}
 	// The table's index by user leads with the person, the id of their account.
 	memberships := crewresources.NewCrewUserRoleQuery().
-		AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt().Reason()).
 		Where(crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String()))
 	for row, err := range memberships.List(ctx, txn) {
 		if err != nil {
@@ -1123,6 +1132,9 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 		}
 		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
 		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+		if row.Data.Reason != nil && *row.Data.Reason != "" {
+			periods.Reasons[key] = *row.Data.Reason
+		}
 	}
 	places := crewresources.NewCrewGroupMemberQuery().
 		AddColumns(crewresources.NewCrewGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).

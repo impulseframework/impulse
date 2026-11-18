@@ -3319,6 +3319,9 @@ GET  <prefix>/crew-session-trusted-devices, …/{id}         List, Read on CrewS
 GET  <prefix>/crew-session-sign-in-attempts                List on CrewSessionSignInAttempts
 GET  <prefix>/crew-session-auth-events                     List on CrewSessionAuthEvents
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
+GET  <prefix>/crew-taken-roles                             List on CrewTakenRoles (the roles held for a set time with a reason, the last to end first)
+GET  <prefix>/crew-takeable-roles                          List on CrewTakeableRoles (the roles the caller may take for a set time)
+GET  <prefix>/crew-take-lengths                            List on CrewTakeLengths (the lengths a role is taken for)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
 GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
 GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
@@ -3358,7 +3361,8 @@ POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    E
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
 POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
-POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain"}   Execute on AssignCrewRole
+POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
+POST <prefix>/take-crew-role                  {"domain","role","length","reason"}        Execute on TakeCrewRole (the caller takes the role themselves)
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
 POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewGroups
@@ -3372,7 +3376,7 @@ POST <prefix>/make-crew-invite-only           {"name"}                         E
 POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
-POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role"}            Execute on AssignCrewSectorRole, targeting CrewSectorUsers
+POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
@@ -3879,6 +3883,47 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   taken away or given again. Where the sign-in rule refuses a person who holds nothing,
   a person whose every assignment has ended is refused, nothing is cleared for them,
   and the rows go with the account.
+
+**The reason of a role, and taking one for a set time.** A role given to a person may
+carry the reason it was given for: one line of plain text, kept in a nullable column of
+the permission store's memberships table (`Reason`; the store's `DDL()` has it, and
+every policy store's schema holds it).
+
+- The methods that give a person a role (`AssignCrewRole`, `AssignCrewSectorRole`) take
+  it as `reason`, which is optional there. It is one line of at most 500 characters; a
+  line break is refused (400).
+- Nothing edits a reason. Giving the role again writes the period and the reason of the
+  new request over the ones it had, so a request that gives none leaves the role with
+  none.
+- It is shown wherever the roles a person holds are listed, beside the role and when it
+  ends: `CrewUserRoles` and `CrewSectorUserRoles` carry it under a field grant of its
+  own, so a tenant's
+  administrator reads why someone from outside holds a role with them.
+- `TakeCrewRole` gives the request's caller a role for a set time, with a reason: the
+  act of the Break glass page. The request names no person. It names the tenant (in an
+  application that has tenants; without them the role is the whole application's), the
+  role, a length and the reason, which is required here. The lengths are the ones
+  `CrewTakeLengths` lists (1 hour, 4 hours, 8 hours, 1 day), and the role is held from
+  now until the length is over, when it ends by itself as any period does. A longer
+  need is an ordinary role with an end.
+- Taking gives nobody a power that giving themselves the role directly would not.
+  Beside the grant of `TakeCrewRole`, the caller needs what `AssignCrewRole` needs of
+  them for the same role in the same place, asked for themselves, which a super
+  administrator always holds. `CrewTakeableRoles` lists the roles the caller could take,
+  so a page offers what the caller may do. The one rule taking sets aside is that
+  nobody lengthens their own holding: taking a role the caller holds there already
+  writes the new time and the new reason over the old ones, and nothing is refused. A
+  session that views as someone else takes nothing (403), and neither does a caller who
+  is not a person of the Auth.
+- Ending a taken role early is taking it away, by whoever may: a tenant's administrators
+  by the role file's grant on `RemoveCrewSectorRole`, headquarters by `RemoveCrewRole`.
+  Nothing here is permission code of its own.
+- `CrewTakenRoles` lists the roles held for a set time with a reason, whoever gave them:
+  a role a person took, and a role given the ordinary way with an end and a reason,
+  which is the same thing held the same way. `ended` says the time is over, by the
+  database's clock. An ended row stands, with its reason, until its person next signs
+  in, which removes it as it removes any ended role: nothing keeps an assignment once
+  its row is gone.
 
 **The rules** are the `identity` package's, written once over a `Store` the generated
 `crewidentity` package implements with the Auth's own typed queries and patches:

@@ -26,6 +26,11 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 		}},
+		// StaffTakenRoles: the tables its query reads.
+		{Resource: staffresources.StaffTakenRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+		}},
 		// StaffUserGroupRoles: the tables its query reads.
 		{Resource: staffresources.StaffUserGroupRole{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},

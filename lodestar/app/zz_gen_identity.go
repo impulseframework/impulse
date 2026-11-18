@@ -192,6 +192,10 @@ func (a *App) CrewSessionUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSessionUser()
 }
 
+func (a *App) CrewTakenRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakenRoles()
+}
+
 func (a *App) CrewUserGroupRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewUserGroupRoles()
 }
@@ -226,6 +230,14 @@ func (a *App) CrewSignInMethods() http.HandlerFunc {
 
 func (a *App) CrewSignInWays() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSignInWays()
+}
+
+func (a *App) CrewTakeLengths() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakeLengths()
+}
+
+func (a *App) CrewTakeableRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewTakeableRoles()
 }
 
 func (a *App) AddCrewGroupMember() http.HandlerFunc {
@@ -422,6 +434,10 @@ func (a *App) SetCrewUserName() http.HandlerFunc {
 
 func (a *App) TakeCrewGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).TakeCrewGroupRole()
+}
+
+func (a *App) TakeCrewRole() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).TakeCrewRole()
 }
 
 func (a *App) TakeCrewSectorGroupRole() http.HandlerFunc {

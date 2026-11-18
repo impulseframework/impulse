@@ -272,6 +272,12 @@ type GeneratedHandlers interface {
 
 	StaffSignInWays() http.HandlerFunc
 
+	StaffTakeLengths() http.HandlerFunc
+
+	StaffTakeableRoles() http.HandlerFunc
+
+	StaffTakenRoles() http.HandlerFunc
+
 	StaffTenantDirectoryRoles() http.HandlerFunc
 
 	StaffTenantGroups() http.HandlerFunc
@@ -308,6 +314,8 @@ type GeneratedHandlers interface {
 	StaffUserRoles() http.HandlerFunc
 
 	TakeStaffGroupRole() http.HandlerFunc
+
+	TakeStaffRole() http.HandlerFunc
 
 	TakeStaffTenantGroupRole() http.HandlerFunc
 
@@ -587,6 +595,18 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-sign-in-ways", staffSignInWaysHandler)
 	bounded.Post("/console/api/staff-sign-in-ways", staffSignInWaysHandler)
 
+	staffTakeLengthsHandler := h.StaffTakeLengths()
+	bounded.Get("/console/api/staff-take-lengths", staffTakeLengthsHandler)
+	bounded.Post("/console/api/staff-take-lengths", staffTakeLengthsHandler)
+
+	staffTakeableRolesHandler := h.StaffTakeableRoles()
+	bounded.Get("/console/api/staff-takeable-roles", staffTakeableRolesHandler)
+	bounded.Post("/console/api/staff-takeable-roles", staffTakeableRolesHandler)
+
+	staffTakenRolesHandler := h.StaffTakenRoles()
+	bounded.Get("/console/api/staff-taken-roles", staffTakenRolesHandler)
+	bounded.Post("/console/api/staff-taken-roles", staffTakenRolesHandler)
+
 	staffTenantDirectoryRolesHandler := domainGuard(h.StaffTenantDirectoryRoles())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-directory-roles", staffTenantDirectoryRolesHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-directory-roles", staffTenantDirectoryRolesHandler)
@@ -676,6 +696,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/console/api/staff-user-roles", staffUserRolesHandler)
 
 	asked.Post("/console/api/take-staff-group-role", h.TakeStaffGroupRole())
+
+	asked.Post("/console/api/take-staff-role", h.TakeStaffRole())
 
 	asked.Post("/console/api/tenants/{tenantID}/take-staff-tenant-group-role", domainGuard(h.TakeStaffTenantGroupRole()))
 
@@ -826,6 +848,12 @@ type GeneratedPortalHandlers interface {
 	MembersSessionUsers() http.HandlerFunc
 	MembersSessionUser() http.HandlerFunc
 
+	MembersTakeLengths() http.HandlerFunc
+
+	MembersTakeableRoles() http.HandlerFunc
+
+	MembersTakenRoles() http.HandlerFunc
+
 	MembersTenantGroups() http.HandlerFunc
 	MembersTenantGroup() http.HandlerFunc
 
@@ -886,6 +914,8 @@ type GeneratedPortalHandlers interface {
 	SetMembersUserName() http.HandlerFunc
 
 	TakeMembersGroupRole() http.HandlerFunc
+
+	TakeMembersRole() http.HandlerFunc
 
 	TakeMembersTenantGroupRole() http.HandlerFunc
 
@@ -1085,6 +1115,18 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 	bounded.Post("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 
+	membersTakeLengthsHandler := h.MembersTakeLengths()
+	bounded.Get("/portal/api/members-take-lengths", membersTakeLengthsHandler)
+	bounded.Post("/portal/api/members-take-lengths", membersTakeLengthsHandler)
+
+	membersTakeableRolesHandler := h.MembersTakeableRoles()
+	bounded.Get("/portal/api/members-takeable-roles", membersTakeableRolesHandler)
+	bounded.Post("/portal/api/members-takeable-roles", membersTakeableRolesHandler)
+
+	membersTakenRolesHandler := h.MembersTakenRoles()
+	bounded.Get("/portal/api/members-taken-roles", membersTakenRolesHandler)
+	bounded.Post("/portal/api/members-taken-roles", membersTakenRolesHandler)
+
 	membersTenantGroupsHandler := domainGuard(h.MembersTenantGroups())
 	bounded.Get("/portal/api/tenants/{tenantID}/members-tenant-groups", membersTenantGroupsHandler)
 	bounded.Post("/portal/api/tenants/{tenantID}/members-tenant-groups", membersTenantGroupsHandler)
@@ -1194,6 +1236,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	asked.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
 
 	asked.Post("/portal/api/take-members-group-role", h.TakeMembersGroupRole())
+
+	asked.Post("/portal/api/take-members-role", h.TakeMembersRole())
 
 	asked.Post("/portal/api/tenants/{tenantID}/take-members-tenant-group-role", domainGuard(h.TakeMembersTenantGroupRole()))
 

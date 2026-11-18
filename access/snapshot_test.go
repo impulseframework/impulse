@@ -1137,7 +1137,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Policy, "Editor", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Editor", "Read", "employees", "", ""),
-		store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", accesstypes.Period{}),
+		store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", accesstypes.Period{}, ""),
 	} {
 		if err != nil {
 			t.Fatalf("seeding fake store: %v", err)

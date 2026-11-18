@@ -972,6 +972,14 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   /** Show the server's total row count in the title. */
   showRowCount?: boolean;
   /**
+   * Further lists drawn under this one on its page, in order, each a list of its own
+   * with its own title, rows and methods: for a page that is more than one list of the
+   * same kind of thing (what is held right now, then what has ended). Only the list a
+   * page is built on draws them; a list under a row's page names its lists among the
+   * row's related configs.
+   */
+  below?: ListViewConfig[];
+  /**
    * A standing notice above the list, drawn in the library's warning colors under a
    * warning icon: what the page must not let a person overlook for as long as it holds
    * (a sign-in method that is open to sign-up). It is said from the rows on the page,
@@ -1057,6 +1065,8 @@ export interface ListViewConfig extends BaseConfig {
   sorts: FieldSort[];
   shouldRenderActions: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   showRowCount: boolean;
+  /** The lists drawn under this one on its page; see ListViewConfigOptions.below. */
+  below?: ListViewConfig[];
   /** The page's standing notice; see ListViewConfigOptions.notice. */
   notice?: (rows: RecordData[]) => string | undefined;
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */

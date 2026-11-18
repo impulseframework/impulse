@@ -35,6 +35,9 @@
               "resource": "RemoveStaffRole"
             },
             {
+              "resource": "TakeStaffRole"
+            },
+            {
               "resource": "EndStaffSession"
             },
             {
@@ -150,7 +153,8 @@
               "fields": [
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -309,6 +313,29 @@
                 "groupName",
                 "startsAt",
                 "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffTakenRoles",
+              "fields": [
+                "username",
+                "name",
+                "reason",
+                "startsAt",
+                "endsAt",
+                "ended"
+              ]
+            },
+            {
+              "resource": "StaffTakeableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "StaffTakeLengths",
+              "fields": [
+                "minutes"
               ]
             }
           ],
@@ -626,7 +653,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -775,7 +803,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {

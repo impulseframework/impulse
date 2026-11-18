@@ -19,10 +19,11 @@ type Resourcer interface {
 		membersresources.MembersSessionSignInAttempt |
 		membersresources.MembersSessionSignInMethod | membersresources.MembersSessionToken |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
-		membersresources.MembersTenantGroup | membersresources.MembersTenantGroupRole |
-		membersresources.MembersTenantGroupUser | membersresources.MembersTenantIdentity |
-		membersresources.MembersTenantInvitation | membersresources.MembersTenantUser |
-		membersresources.MembersTenantUserGroupRole |
+		membersresources.MembersTakenRole | membersresources.MembersTenantGroup |
+		membersresources.MembersTenantGroupRole | membersresources.MembersTenantGroupUser |
+		membersresources.MembersTenantIdentity | membersresources.MembersTenantInvitation |
+		membersresources.MembersTenantUser | membersresources.MembersTenantUserGroupRole |
 		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
-		membersresources.MembersUserRole | membersidentity.MembersTenantRole
+		membersresources.MembersUserRole | membersidentity.MembersTakeLength |
+		membersidentity.MembersTakeableRole | membersidentity.MembersTenantRole
 }

@@ -132,9 +132,12 @@ func (i *identityInstance) refuseListNamesTaken() error {
 		declared[i.auth+decl.suffix] = true
 	}
 	// The whole application's lists over groups are named after the auth alone, as the
-	// declarations are.
+	// declarations are, and so are its lists of the roles held for a set time.
 	for _, suffix := range []string{listGroupPeopleSuffix, listThroughGroupsSuffix} {
 		declared[i.groupListName(suffix, false)] = true
+	}
+	for _, name := range i.holdingNames() {
+		declared[name] = true
 	}
 	suffixes := []string{tenantRoleChoiceSuffix, directoryRoleChoiceSuffix, listGroupsSuffix, listGroupPeopleSuffix, listGroupRolesSuffix, listThroughGroupsSuffix}
 	for _, list := range identityLists() {

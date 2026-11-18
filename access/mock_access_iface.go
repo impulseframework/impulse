@@ -507,17 +507,17 @@ func (mr *MockUserManagerMockRecorder) AssignGroupUser(ctx, group, user, period 
 }
 
 // AssignUserRole mocks base method.
-func (m *MockUserManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+func (m *MockUserManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AssignUserRole", ctx, scope, user, role, period)
+	ret := m.ctrl.Call(m, "AssignUserRole", ctx, scope, user, role, period, reason)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AssignUserRole indicates an expected call of AssignUserRole.
-func (mr *MockUserManagerMockRecorder) AssignUserRole(ctx, scope, user, role, period any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) AssignUserRole(ctx, scope, user, role, period, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignUserRole", reflect.TypeOf((*MockUserManager)(nil).AssignUserRole), ctx, scope, user, role, period)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignUserRole", reflect.TypeOf((*MockUserManager)(nil).AssignUserRole), ctx, scope, user, role, period, reason)
 }
 
 // ChangeRoleGrants mocks base method.
@@ -948,4 +948,19 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, user any, scopes ...any) *
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, user}, scopes...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
+}
+
+// UserRolesHeld mocks base method.
+func (m *MockUserManager) UserRolesHeld(ctx context.Context, user accesstypes.User) ([]HeldRole, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserRolesHeld", ctx, user)
+	ret0, _ := ret[0].([]HeldRole)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserRolesHeld indicates an expected call of UserRolesHeld.
+func (mr *MockUserManagerMockRecorder) UserRolesHeld(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRolesHeld", reflect.TypeOf((*MockUserManager)(nil).UserRolesHeld), ctx, user)
 }

@@ -21,7 +21,7 @@ type Method interface {
 		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
 		SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail |
 		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
-		TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
+		TakeStaffRole | TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
 		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
 		WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
 }

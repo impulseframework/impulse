@@ -478,6 +478,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
 		},
 		{
+			url: "/api/staff-taken-roles", method: http.MethodGet,
+			handlerFunc: "StaffTakenRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-taken-roles", method: http.MethodPost,
+			handlerFunc: "StaffTakenRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodGet,
 			handlerFunc: "StaffTenantGroups",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -735,6 +745,26 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/staff-sign-in-ways", method: http.MethodPost,
 			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-take-lengths", method: http.MethodGet,
+			handlerFunc: "StaffTakeLengths",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-take-lengths", method: http.MethodPost,
+			handlerFunc: "StaffTakeLengths",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-takeable-roles", method: http.MethodGet,
+			handlerFunc: "StaffTakeableRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-takeable-roles", method: http.MethodPost,
+			handlerFunc: "StaffTakeableRoles",
 			parameters:  map[string]string{},
 		},
 		{
@@ -1218,6 +1248,18 @@ func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
 	return s.record("StaffSignInWays")
 }
 
+func (s *generatedHandlersStub) StaffTakeLengths() http.HandlerFunc {
+	return s.record("StaffTakeLengths")
+}
+
+func (s *generatedHandlersStub) StaffTakeableRoles() http.HandlerFunc {
+	return s.record("StaffTakeableRoles")
+}
+
+func (s *generatedHandlersStub) StaffTakenRoles() http.HandlerFunc {
+	return s.record("StaffTakenRoles")
+}
+
 func (s *generatedHandlersStub) StaffTenantDirectoryRoles() http.HandlerFunc {
 	return s.record("StaffTenantDirectoryRoles")
 }
@@ -1308,6 +1350,10 @@ func (s *generatedHandlersStub) StaffUserRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) TakeStaffGroupRole() http.HandlerFunc {
 	return s.record("TakeStaffGroupRole")
+}
+
+func (s *generatedHandlersStub) TakeStaffRole() http.HandlerFunc {
+	return s.record("TakeStaffRole")
 }
 
 func (s *generatedHandlersStub) TakeStaffTenantGroupRole() http.HandlerFunc {

@@ -45,12 +45,15 @@ import (
 //     gives the assignment that period: the row is written where the key is
 //     free, and where it is taken the period is replaced and the rest of the
 //     row left as it was, so assigning again is how a period changes and the
-//     same period again is a no-op. No row is written when a period begins or
-//     ends: the reads apply it. The listings of what a person or a group holds
-//     return the assignments that count at the database's present, so one
-//     outside its period is left out while its row is still there; ReadPolicy
-//     returns every row with its period, for the engine to apply at the
-//     instant of each check.
+//     same period again is a no-op. A person's role carries a reason too,
+//     opaque text that is empty for none: its insert writes the reason with
+//     the period and replaces both where the key is taken, so the reason kept
+//     is the one the role was last given with. No row is written when a
+//     period begins or ends: the reads apply it. The listings of what a
+//     person or a group holds return the assignments that count at the
+//     database's present, so one outside its period is left out while its row
+//     is still there; ReadPolicy returns every row with its period, for the
+//     engine to apply at the instant of each check.
 //   - A membership names a role by name alone: InsertUserRole writes it
 //     whether or not a role row exists, since the role may be one of the
 //     release's defaults, which have no row. The access package checks that
@@ -79,16 +82,22 @@ type Store interface {
 	// the memberships.
 	ReadPolicy(ctx context.Context) (*policy.Records, error)
 
-	// Membership. InsertUserRole gives the membership its period, replacing
-	// the period of one that is there; the three listings return the
-	// memberships that count now.
-	InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+	// Membership. InsertUserRole gives the membership its period and its
+	// reason, replacing the period and the reason of one that is there; the
+	// three listings return the memberships that count now.
+	InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
 	DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
 	ListUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
 	// ListUserMemberships returns every membership the user holds now,
 	// wherever it is held, sorted by scope then role: the no-scope listing,
 	// read through the user index.
 	ListUserMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error)
+	// ListUserAssignments returns every membership of the user's own that has
+	// not ended, wherever it is held, each with its period and the reason it
+	// was given for, sorted by scope then role: what the person holds or
+	// will, and why. One whose period has not begun is listed; ReadPolicy
+	// does not carry the reason, which is not policy.
+	ListUserAssignments(ctx context.Context, user accesstypes.User) ([]policy.Assignment, error)
 	ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// Roles. A role row carries the description its creator gave it, as

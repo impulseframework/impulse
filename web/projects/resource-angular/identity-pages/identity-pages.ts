@@ -18,6 +18,7 @@ import {
   RootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
+import { format } from 'date-fns';
 
 // The pages over an Auth's people, built from the API's own description.
 //
@@ -29,8 +30,9 @@ import {
 // page with the roles, the ways they sign in and the identities under it, the groups of
 // people with a group's people and roles under it, the invitations, and, for the whole
 // application, the invitations that make a tenant (staff bring an organization in by
-// inviting one person), the sessions, the failed sign-ins and the Auth's sign-in methods,
-// each invite only or open to sign-up. What differs from one application
+// inviting one person), the sessions, the failed sign-ins, the Auth's sign-in methods,
+// each invite only or open to sign-up, and Break glass, where a person takes a role for a
+// set time and says why. What differs from one application
 // to the next is read from the description: the Auth's name and label, the tenant
 // record's name, which side the pages are for, and what the Auth's sign-in methods give
 // (a list or a method the description does not name draws nothing).
@@ -42,7 +44,7 @@ import {
 
 /** The pages of one side of an Auth's management, by what each lists. */
 export type IdentityPage =
-  'users' | 'groups' | 'invitations' | 'invitedTenants' | 'sessions' | 'signInAttempts' | 'signIn';
+  'users' | 'groups' | 'invitations' | 'invitedTenants' | 'sessions' | 'signInAttempts' | 'signIn' | 'breakGlass';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -73,8 +75,8 @@ const made = new WeakMap<ApiDescriptor, Map<string, RootConfig[]>>();
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
  * people, the groups, the invitations, and for the whole application the invitations
- * that make a tenant, the sessions, the failed sign-ins and the sign-in methods, each
- * with its label and icon. A page whose list the description
+ * that make a tenant, the sessions, the failed sign-ins, the sign-in methods and Break
+ * glass, each with its label and icon. A page whose list the description
  * does not name is left out. The same request answers the same configurations. Refused, naming
  * what is missing: an Auth the description does not carry, a side it does not carry,
  * and a tenant's side on an API with no tenant segment.
@@ -123,6 +125,7 @@ function buildPages(
     build.sessions(),
     build.signInAttempts(),
     build.signIn(),
+    build.breakGlass(),
   ].filter((config): config is RootConfig => config !== undefined);
 }
 
@@ -623,7 +626,119 @@ class SideBuilder {
     });
   }
 
-  /** The roles a person holds, under the person's row. */
+  /**
+   * Break glass: a person takes a role for a set time and says why. The whole
+   * application's alone, for an Auth whose roles the application gives by hand; in an
+   * application with tenants the role is taken in one tenant, and without them it is a
+   * role of the whole application, with no tenant to choose.
+   *
+   * "Take a role" above the first list opens the method's dialog: the tenant, the role,
+   * how long, and why, each the method's own request field, the role and the length
+   * picked from the lists the server offers. The role goes to the person who asks and
+   * nobody else: the method names no person. "Held right now" lists the roles held for a
+   * set time with a reason, whoever holds them, each with who, where, why, when it ends
+   * and how long is left, and End now, which is the ordinary removal of the role and is
+   * offered to whoever may run it. "Ended" lists the ones whose time is over, which the
+   * server keeps until the person next signs in. The page is shown to whoever may list
+   * the roles held for a set time, as every list page is.
+   */
+  breakGlass(): RootConfig | undefined {
+    const { lists, methods } = this.side;
+    if (this.tenant || !lists.takenRoles) {
+      return undefined;
+    }
+    const taken = lists.takenRoles as Resource;
+    const tenant = words(this.identity.tenant ?? 'Tenant');
+    // Who holds which role where, and why: what both lists say of a row.
+    const held: ColumnConfig[] = [
+      ...this.columns(taken, [
+        ['username', 'Username'],
+        ['name', 'Name'],
+      ]),
+      ...(this.identity.tenant && this.has(taken, 'kind')
+        ? [this.tenantNamed('domainId' as FieldName, tenant, (row) => this.heldIn(row))]
+        : []),
+      ...this.columns(taken, [
+        ['role', 'Role'],
+        ['reason', 'Why'],
+      ]),
+      // Read with each row and not drawn: what End now is filled from.
+      ...this.columns(taken, [
+        ['kind', 'Kind'],
+        ['userId', 'User'],
+        ...(this.identity.tenant ? [] : ([['domainId', 'Domain']] as Named[])),
+      ]).map((column) => ({ ...column, hidden: true })),
+    ];
+    const when = (id: string, header: string): ColumnConfig[] =>
+      this.has(taken, id) ? [{ id: id as FieldName, header, formatType: dayAndTime, filterable: false }] : [];
+    const ended = listViewConfig({
+      title: 'Ended',
+      primaryResource: taken,
+      showViewButton: false,
+      showRowCount: true,
+      collapsible: false,
+      showSearchBox: false,
+      filter: () => 'ended:eq:true',
+      listColumns: [...held, ...when('startsAt', 'From'), ...when('endsAt', 'Ended')],
+      rowMethods: false,
+      elements: [],
+    });
+    return rootConfig({
+      page: { label: 'Break glass', icon: 'lock_open' },
+      routeData: { route: this.route('breakGlass', 'break-glass'), hasViewRoute: false },
+      parentConfig: listViewConfig({
+        title: 'Held right now',
+        primaryResource: taken,
+        showViewButton: false,
+        showRowCount: true,
+        showSearchBox: false,
+        filter: () => 'ended:eq:false',
+        listColumns: [
+          ...held,
+          // When it ends and how long is left, as the page was read.
+          ...(this.has(taken, 'endsAt')
+            ? [
+                {
+                  id: 'endsAt' as FieldName,
+                  header: 'Ends',
+                  valueGetter: (row: RecordData): string => endsIn(row['endsAt'], Date.now()),
+                  filterable: false,
+                },
+              ]
+            : []),
+        ],
+        rowMethods: this.present([
+          [
+            methods.removeRole,
+            {
+              label: 'End now',
+              icon: 'timer_off',
+              fill: (row) => this.heldRole(row),
+              confirm: (row) =>
+                `End ${String(row['role'])}${this.heldWhere(row)} for ${String(row['username'] ?? 'this person')} now? It is taken away, as any role is.`,
+              successMessage: 'The role is ended.',
+            },
+          ],
+        ]),
+        listMethods: this.present([
+          [
+            methods.takeRole,
+            {
+              label: 'Take a role',
+              icon: 'lock_open',
+              labels: { domain: tenant, length: 'For how long', reason: 'Why you need it' },
+              shows: { role: ['name', 'description'] },
+              successMessage: 'You hold the role. It ends by itself when the time is over.',
+            },
+          ],
+        ]),
+        below: [ended],
+        elements: [],
+      }),
+    });
+  }
+
+  /** The roles a person holds, under the person's row, each with why it was given beside when it ends. */
   private rolesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.roles) {
@@ -643,6 +758,7 @@ class SideBuilder {
             ['everyDomain', `In every ${this.tenantWord}`],
             ['createdAt', 'Given'],
             ...periodColumns,
+            ['reason', 'Why'],
           ]),
           // Read with each row and not drawn: the list sits under the person, and the
           // question before a role is taken away names them.
@@ -682,7 +798,7 @@ class SideBuilder {
               { id: 'kind' as FieldName, hidden: true },
             ]
           : []),
-        ...this.columns(resource, [['createdAt', 'Given'], ...periodColumns]),
+        ...this.columns(resource, [['createdAt', 'Given'], ...periodColumns, ['reason', 'Why']]),
       ],
       rowMethods: this.present([
         [
@@ -690,15 +806,7 @@ class SideBuilder {
           {
             label: 'Take the role away',
             icon: 'person_remove',
-            fill: (row) => ({
-              userId: row['userId'],
-              role: row['role'],
-              // A role held for the whole application or in every tenant names no tenant:
-              // the page fills that with nothing (null), so the dialog asks for none and
-              // puts its question. Left undefined, the dialog would ask the person for it.
-              domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
-              everyDomain: row['kind'] === heldInEveryTenant,
-            }),
+            fill: (row) => this.heldRole(row),
             // The list sits under the person, and a role row carries their id, which
             // nobody reads: the question names the role and where it is held.
             confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from this person?`,
@@ -1098,6 +1206,22 @@ class SideBuilder {
   }
 
   /**
+   * What the whole application's method that takes a role from a person takes, from a
+   * row that names the role and where it is held. A role held for the whole application
+   * or in every tenant names no tenant: the page fills that with nothing (null), so the
+   * dialog asks for none and puts its question. Left undefined, the dialog would ask the
+   * person for it.
+   */
+  private heldRole(row: RecordData): Record<string, unknown> {
+    return {
+      userId: row['userId'],
+      role: row['role'],
+      domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
+      everyDomain: row['kind'] === heldInEveryTenant,
+    };
+  }
+
+  /**
    * Where the role of a row is held, as the question before it is taken away says it.
    * The row the person clicked names the tenant; the question says no key.
    */
@@ -1254,6 +1378,56 @@ function lastDay(end: unknown): string {
   }
   const instant = new Date(end).getTime();
   return Number.isNaN(instant) ? '' : new Date(instant - 1).toISOString();
+}
+
+/**
+ * How a list writes an instant that matters to the minute: the day and the time of day,
+ * in the viewer's time zone. A role taken for an hour ends at a time, not on a day.
+ */
+const dayAndTime = 'M/d/yyyy h:mm a';
+
+/**
+ * When a role held for a set time ends and how long is left, as a list says it in one
+ * cell: the day and the time of day, then the time left in words ("11/18/2026 3:00 PM,
+ * 45 minutes left"). The day and time alone once the instant has passed, and empty for
+ * no instant.
+ */
+function endsIn(end: unknown, now: number): string {
+  if (typeof end !== 'string' && !(end instanceof Date)) {
+    return '';
+  }
+  const instant = new Date(end);
+  if (Number.isNaN(instant.getTime())) {
+    return '';
+  }
+  const at = format(instant, dayAndTime);
+  const left = timeLeft(instant.getTime() - now);
+  return left ? `${at}, ${left} left` : at;
+}
+
+/**
+ * A length of time in words a person reads at a glance: "45 minutes", "3 hours 10
+ * minutes", "1 day", rounded down to the unit, and "less than a minute" at the very end.
+ * Empty for none.
+ */
+function timeLeft(left: number): string {
+  if (Number.isNaN(left) || left <= 0) {
+    return '';
+  }
+  const minutes = Math.floor(left / 60_000);
+  if (minutes < 1) {
+    return 'less than a minute';
+  }
+  const count = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'}`;
+  if (minutes < 60) {
+    return count(minutes, 'minute');
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest === 0 ? count(hours, 'hour') : `${count(hours, 'hour')} ${count(rest, 'minute')}`;
+  }
+  return count(Math.floor(hours / 24), 'day');
 }
 
 /** The columns of a session, beside whose it is. */

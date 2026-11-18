@@ -14,14 +14,14 @@ import (
 
 var _ UserManager = &userManager{}
 
-// userManager implements UserManager on top of the policyStore seam, the
-// release's default roles and the evaluator. Validation (role existence,
+// userManager implements UserManager on top of the store's management seam
+// (managementStore), the release's default roles and the evaluator. Validation (role existence,
 // empty-input checks, the default roles' read-only rule) lives here; the
 // store only persists and queries policy. Scopes are opaque partition labels
 // — nothing here validates tenant existence, and no operation enumerates
 // tenants: the application owns its tenant list.
 type userManager struct {
-	store     policyStore
+	store     managementStore
 	defaults  *defaultRoles
 	evaluator evaluator
 	// tenantAdministrators are the roles whose holders administer a tenant
@@ -34,7 +34,7 @@ type userManager struct {
 // default roles (nil for none), the evaluator the effective-permission
 // listings answer from and the roles whose holders administer a tenant (none
 // where the application named none).
-func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role) *userManager {
+func newUserManager(store managementStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role) *userManager {
 	return &userManager{
 		store:                store,
 		defaults:             defaults,
@@ -74,18 +74,24 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 }
 
 // AddUserRoles assigns roles to user, the memberships held in scope, each with
-// no period: a role the user holds for a period is theirs until it is removed.
-// Errors if any role doesn't exist in scope.
+// no period and no reason: a role the user holds for a period is theirs until
+// it is removed, and the reason it was given for goes with the period. Errors
+// if any role doesn't exist in scope.
 func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, roles...)
+	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, "", roles...)
 }
 
-// assignUserRoles gives user each role in scope for the period, once every role
-// is one the user may be given there for it.
-func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, roles ...accesstypes.Role) error {
+// assignUserRoles gives user each role in scope for the period and with the
+// reason, once every role is one the user may be given there for it and the
+// reason is one a role carries.
+func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, reason string, roles ...accesstypes.Role) error {
+	reason, err := ValidateReason(reason)
+	if err != nil {
+		return err
+	}
 	for _, role := range roles {
 		if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
 			return err
@@ -107,7 +113,7 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 	}
 
 	for _, role := range roles {
-		if err := u.store.addUserRole(ctx, scope, user, role, period); err != nil {
+		if err := u.store.assignUserRole(ctx, scope, user, role, period, reason); err != nil {
 			return err
 		}
 	}

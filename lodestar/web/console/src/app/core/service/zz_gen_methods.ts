@@ -43,6 +43,7 @@ export interface AssignCrewRoleConfig {
   everyDomain: boolean | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignCrewRole {
   userId: string;
@@ -51,6 +52,7 @@ export interface AssignCrewRole {
   everyDomain: boolean;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignCrewRole declares; the method chooses one per response. */
 export type AssignCrewRoleStatus = 204;
@@ -60,12 +62,14 @@ export interface AssignCrewSectorRoleConfig {
   role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignCrewSectorRole {
   userId: string;
   role: string;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignCrewSectorRole declares; the method chooses one per response. */
 export type AssignCrewSectorRoleStatus = 204;
@@ -997,6 +1001,21 @@ export interface TakeCrewGroupRole {
 /** The statuses TakeCrewGroupRole declares; the method chooses one per response. */
 export type TakeCrewGroupRoleStatus = 204;
 
+export interface TakeCrewRoleConfig {
+  domain: string | FieldPointer;
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeCrewRole {
+  domain: string;
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeCrewRole declares; the method chooses one per response. */
+export type TakeCrewRoleStatus = 204;
+
 export interface TakeCrewSectorGroupRoleConfig {
   groupId: string | FieldPointer;
   role: string | FieldPointer;
@@ -1236,6 +1255,7 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AssignCrewSectorRole]: {
@@ -1248,6 +1268,7 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.AttachMissionDocument]: {
@@ -2050,6 +2071,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeCrewRole]: {
+    route: 'take-crew-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.CrewTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.TakeCrewSectorGroupRole]: {

@@ -79,10 +79,40 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // lengthens their own holding: a caller who may give the role does not give their own
 // membership a period that lasts longer than the one it has, and someone else who may
 // give it does (refuseLongerForOneself).
-func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
+//
+// reason says why the role is given: one line of plain text, empty for none
+// (access.ValidateReason). It is kept with the membership and shown wherever the roles a
+// person holds are listed. A membership the person holds already is given the reason
+// handed in place of the one it had, with the period, so a role given again with no
+// reason carries none: nothing edits a reason by itself (reasons.go).
+func (m *Manager) AssignRoleFor(
+	ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period, reason string,
+) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	reason, err := access.ValidateReason(reason)
+	if err != nil {
+		return errors.Wrap(err, "access.ValidateReason()")
+	}
+
+	return m.assignRole(ctx, txn, scope, userID, role, &given{period: period, reason: reason, lengthens: false})
+}
+
+// given is what a membership is given with: the period it counts in and the reason it
+// is given for, as the rules left it. lengthens says the act may make the caller's own
+// membership last longer than it did, which only the taking of a role for a set time
+// does (TakeRole).
+type given struct {
+	period    accesstypes.Period
+	reason    string
+	lengthens bool
+}
+
+// assignRole buffers the membership under the rules of AssignRoleFor, with what it is
+// given with.
+func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, given *given) error {
+	period := given.period
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
 	}
@@ -122,7 +152,7 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
 	}
-	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, period, inserted, m.callerIs(ctx, userID))
+	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, given, inserted, !given.lengthens && m.callerIs(ctx, userID))
 	if err != nil {
 		return err
 	}

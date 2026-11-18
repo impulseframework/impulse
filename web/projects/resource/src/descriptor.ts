@@ -230,7 +230,8 @@ export interface IdentitySideDescriptor {
  * the roles a person who signs up may be given, and, for the Auth whose people make the
  * application's tenants, the invitations that make a tenant and still stand. Where the Auth keeps groups of people,
  * the side also names the groups, the people in them, the roles they hold and the roles
- * each person holds through one.
+ * each person holds through one. Where the application gives the Auth's roles by hand,
+ * the whole application's side names the roles held for a set time with a reason.
  */
 export interface IdentityLists {
   readonly users: string;
@@ -265,6 +266,11 @@ export interface IdentityLists {
    * may read that field on the record itself.
    */
   readonly invitedTenants?: string;
+  /**
+   * The roles held for a set time and for a reason, on the whole application's side: what
+   * the Break glass page lists, each with whether its time is over (`ended`).
+   */
+  readonly takenRoles?: string;
 }
 
 /**
@@ -282,7 +288,8 @@ export interface IdentityLists {
  * the group's id and where the role is held. `inviteTenant` names no row: it takes the
  * invited address and the tenant record's fields, and sends the invitation whose first
  * sign-in makes the tenant; `withdrawInvitedTenant` takes such an invitation's id
- * (`invitationId`), which the page fills from its row.
+ * (`invitationId`), which the page fills from its row. `takeRole` names no row and no
+ * person: the caller takes a role themselves for a set time, with a reason.
  */
 export interface IdentityMethods {
   readonly create?: string;
@@ -315,6 +322,7 @@ export interface IdentityMethods {
   readonly takeGroupRole?: string;
   readonly inviteTenant?: string;
   readonly withdrawInvitedTenant?: string;
+  readonly takeRole?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

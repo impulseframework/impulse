@@ -154,7 +154,8 @@
               "fields": [
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -416,6 +417,29 @@
                 "groupName",
                 "startsAt",
                 "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewTakenRoles",
+              "fields": [
+                "username",
+                "name",
+                "reason",
+                "startsAt",
+                "endsAt",
+                "ended"
+              ]
+            },
+            {
+              "resource": "CrewTakeableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "CrewTakeLengths",
+              "fields": [
+                "minutes"
               ]
             },
             {
@@ -752,6 +776,9 @@
             },
             {
               "resource": "RemoveCrewRole"
+            },
+            {
+              "resource": "TakeCrewRole"
             },
             {
               "resource": "DisableMembersUser"
@@ -1328,7 +1355,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {
@@ -1650,7 +1678,8 @@
                 "everyDomain",
                 "createdAt",
                 "startsAt",
-                "endsAt"
+                "endsAt",
+                "reason"
               ]
             },
             {

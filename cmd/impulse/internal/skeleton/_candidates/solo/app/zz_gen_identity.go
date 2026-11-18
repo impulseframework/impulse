@@ -117,6 +117,10 @@ func (a *App) StaffSessionUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionUser()
 }
 
+func (a *App) StaffTakenRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTakenRoles()
+}
+
 func (a *App) StaffUserGroupRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffUserGroupRoles()
 }
@@ -139,6 +143,14 @@ func (a *App) StaffSignInWays() http.HandlerFunc {
 
 func (a *App) StaffSignUpRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSignUpRoles()
+}
+
+func (a *App) StaffTakeLengths() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTakeLengths()
+}
+
+func (a *App) StaffTakeableRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTakeableRoles()
 }
 
 func (a *App) AddStaffGroupMember() http.HandlerFunc {
@@ -243,6 +255,10 @@ func (a *App) SetStaffUserName() http.HandlerFunc {
 
 func (a *App) TakeStaffGroupRole() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).TakeStaffGroupRole()
+}
+
+func (a *App) TakeStaffRole() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).TakeStaffRole()
 }
 
 func (a *App) UnlinkStaffSessionIdentity() http.HandlerFunc {

@@ -28,6 +28,7 @@ export interface AssignStaffRoleConfig {
   everyDomain: boolean | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
+  reason?: string | FieldPointer;
 }
 export interface AssignStaffRole {
   userId: string;
@@ -36,6 +37,7 @@ export interface AssignStaffRole {
   everyDomain: boolean;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 /** The statuses AssignStaffRole declares; the method chooses one per response. */
 export type AssignStaffRoleStatus = 204;
@@ -321,6 +323,19 @@ export interface TakeStaffGroupRole {
 /** The statuses TakeStaffGroupRole declares; the method chooses one per response. */
 export type TakeStaffGroupRoleStatus = 204;
 
+export interface TakeStaffRoleConfig {
+  role: string | FieldPointer;
+  length: string | FieldPointer;
+  reason: string | FieldPointer;
+}
+export interface TakeStaffRole {
+  role: string;
+  length: string;
+  reason: string;
+}
+/** The statuses TakeStaffRole declares; the method chooses one per response. */
+export type TakeStaffRoleStatus = 204;
+
 export interface UnlinkStaffSessionIdentityConfig {
   identityId: string | FieldPointer;
 }
@@ -463,6 +478,7 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
+      { fieldName: 'reason', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateStaffGroup]: {
@@ -702,6 +718,16 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeStaffRole]: {
+    route: 'take-staff-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeableRoles, required: true, attribute: 'role' },
+      { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.StaffTakeLengths, required: true },
+      { fieldName: 'reason', displayType: 'string', required: true },
     ],
   },
   [Methods.UnlinkStaffSessionIdentity]: {

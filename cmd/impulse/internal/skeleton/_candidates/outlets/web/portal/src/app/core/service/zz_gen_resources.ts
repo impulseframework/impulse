@@ -159,6 +159,20 @@ export interface MembersSessionUsers {
   lastSignInAt?: Date;
 }
 
+export interface MembersTakenRoles {
+  userId: string;
+  username?: string;
+  name?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  reason?: string;
+  startsAt?: Date;
+  endsAt?: Date;
+  ended?: boolean;
+}
+
 export interface MembersTenantGroups {
   id: string;
   domainId?: string;
@@ -257,6 +271,7 @@ export interface MembersTenantUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 
 export interface MembersUserGroupRoles {
@@ -281,6 +296,17 @@ export interface MembersUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
+}
+
+export interface MembersTakeLengths {
+  name: string;
+  minutes?: number;
+}
+
+export interface MembersTakeableRoles {
+  name: string;
+  description?: string;
 }
 
 export interface MembersTenantRoles {
@@ -558,6 +584,24 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersTakenRoles]: {
+    route: 'members-taken-roles',
+    readDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'reason', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'ended', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.MembersTenantGroups]: {
     route: 'tenants/{tenantID}/members-tenant-groups',
     live: true,
@@ -680,6 +724,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.MembersUserGroupRoles]: {
@@ -714,6 +759,31 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersTakeLengths]: {
+    route: 'members-take-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'minutes', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersTakeableRoles]: {
+    route: 'members-takeable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.MembersTenantRoles]: {
@@ -778,6 +848,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.MembersSessionTokens]: PermissionScopes.global,
   [Resources.MembersSessionTrustedDevices]: PermissionScopes.global,
   [Resources.MembersSessionUsers]: PermissionScopes.global,
+  [Resources.MembersTakenRoles]: PermissionScopes.global,
   [Resources.MembersTenantGroups]: PermissionScopes.domain,
   [Resources.MembersTenantGroupRoles]: PermissionScopes.domain,
   [Resources.MembersTenantGroupUsers]: PermissionScopes.domain,
@@ -788,6 +859,8 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.MembersTenantUserRoles]: PermissionScopes.domain,
   [Resources.MembersUserGroupRoles]: PermissionScopes.global,
   [Resources.MembersUserRoles]: PermissionScopes.global,
+  [Resources.MembersTakeLengths]: PermissionScopes.global,
+  [Resources.MembersTakeableRoles]: PermissionScopes.global,
   [Resources.MembersTenantRoles]: PermissionScopes.domain,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };

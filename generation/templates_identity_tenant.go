@@ -345,6 +345,10 @@ import (
 // request in place of the one it had, so a request that names neither makes the role
 // stand until it is taken away; ending a role now is taking it away.
 //
+// The role carries the reason the request gives (Reason), which is shown wherever the
+// person's roles are listed. It is replaced with the period: a role given again carries
+// the reason of the new request, and none where the request gives none.
+//
 // It is a tenant's method: it names a row of {{ .TenantUser }}, the tenant's own list of
 // the auth's people, so the role goes to a person who holds one in the tenant already.
 // A person new to the tenant is created in it or invited to it, holding a role from the
@@ -363,7 +367,7 @@ type Assign{{ .Subject }}Role struct {
 	//
 	// @attribute(role)
 	// @enumerate({{ Pluralize .TenantRoleChoice }})
-	Role string ` + "`validate:\"required\"`" + identityPeriodFields + `
+	Role string ` + "`validate:\"required\"`" + identityPeriodFields + identityReasonField + `
 }
 
 // Execute buffers the membership into the caller's transaction.
@@ -376,7 +380,7 @@ func (m *Assign{{ .Subject }}Role) Execute(ctx context.Context, txn resource.Rea
 	if err != nil {
 		return errors.Wrap(err, "identity.RequestPeriod()")
 	}
-	if err := tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+	if err := tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason)); err != nil {
 		return errors.Wrap(err, "identity.Tenant.AssignRoleFor()")
 	}
 

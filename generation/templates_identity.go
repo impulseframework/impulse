@@ -405,7 +405,9 @@ type (
 	// StartsAt and EndsAt are the membership's period: the first instant it counts and
 	// the first it no longer does, each empty for none. Outside its period a membership
 	// grants nothing, and a row whose period has ended stands until its person next signs
-	// in, which removes it.
+	// in, which removes it. Reason is why the role was given, one line of plain text and
+	// empty for none: it is written with the period and replaced with it, and nothing
+	// edits it by itself.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -422,6 +424,7 @@ type (
 		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
 		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
 		EndsAt    *time.Time ` + "`spanner:\"EndsAt\"`" + `
+		Reason    *string    ` + "`spanner:\"Reason\"`" + `
 	}
 )
 `
@@ -2123,6 +2126,10 @@ import (
 // stand until it is taken away; ending a role now is taking it away. The Super
 // Administrator role takes no period: there is always one.
 //
+// The role carries the reason the request gives (Reason), which is shown wherever the
+// person's roles are listed. It is replaced with the period: a role given again carries
+// the reason of the new request, and none where the request gives none.
+//
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
@@ -2140,7 +2147,7 @@ type Assign{{ .Auth }}Role struct {
 	// @enumerate({{ .TenantPicker }})
 	{{- end }}
 	Domain      *string
-	EveryDomain bool` + identityPeriodFields + `
+	EveryDomain bool` + identityPeriodFields + identityReasonField + `
 }
 
 // Execute buffers the membership into the caller's transaction.
@@ -2156,7 +2163,7 @@ func (m *Assign{{ .Auth }}Role) Execute(ctx context.Context, txn resource.ReadWr
 	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
 		return errors.Wrap(err, "identity.Manager.RequireUser()")
 	}
-	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period, identity.RequestReason(m.Reason)); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRoleFor()")
 	}
 

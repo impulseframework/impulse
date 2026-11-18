@@ -159,6 +159,20 @@ export interface StaffSessionUsers {
   lastSignInAt?: Date;
 }
 
+export interface StaffTakenRoles {
+  userId: string;
+  username?: string;
+  name?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  reason?: string;
+  startsAt?: Date;
+  endsAt?: Date;
+  ended?: boolean;
+}
+
 export interface StaffTenantGroups {
   id: string;
   domainId?: string;
@@ -257,6 +271,7 @@ export interface StaffTenantUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 
 export interface StaffUserGroupRoles {
@@ -281,6 +296,7 @@ export interface StaffUserRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  reason?: string;
 }
 
 export interface Tenants {
@@ -327,6 +343,16 @@ export interface StaffSignInWays {
   method?: string;
   connection?: string;
   through?: string;
+}
+
+export interface StaffTakeLengths {
+  name: string;
+  minutes?: number;
+}
+
+export interface StaffTakeableRoles {
+  name: string;
+  description?: string;
 }
 
 export interface StaffTenantDirectoryRoles {
@@ -620,6 +646,24 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffTakenRoles]: {
+    route: 'staff-taken-roles',
+    readDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'reason', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'ended', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.StaffTenantGroups]: {
     route: 'tenants/{tenantID}/staff-tenant-groups',
     live: true,
@@ -742,6 +786,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.StaffUserGroupRoles]: {
@@ -776,6 +821,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.Tenants]: {
@@ -853,6 +899,30 @@ const resourceMap = defineResourceMap({
       { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffTakeLengths]: {
+    route: 'staff-take-lengths',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'minutes', displayType: 'number', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffTakeableRoles]: {
+    route: 'staff-takeable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.StaffTenantDirectoryRoles]: {
@@ -947,6 +1017,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffSessionTokens]: PermissionScopes.global,
   [Resources.StaffSessionTrustedDevices]: PermissionScopes.global,
   [Resources.StaffSessionUsers]: PermissionScopes.global,
+  [Resources.StaffTakenRoles]: PermissionScopes.global,
   [Resources.StaffTenantGroups]: PermissionScopes.domain,
   [Resources.StaffTenantGroupRoles]: PermissionScopes.domain,
   [Resources.StaffTenantGroupUsers]: PermissionScopes.domain,
@@ -962,6 +1033,8 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffInvitedTenants]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,
+  [Resources.StaffTakeLengths]: PermissionScopes.global,
+  [Resources.StaffTakeableRoles]: PermissionScopes.global,
   [Resources.StaffTenantDirectoryRoles]: PermissionScopes.domain,
   [Resources.StaffTenantRoles]: PermissionScopes.domain,
   [Resources.StaffTenantSignInWays]: PermissionScopes.domain,

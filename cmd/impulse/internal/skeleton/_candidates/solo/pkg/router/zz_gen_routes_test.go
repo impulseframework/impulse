@@ -441,6 +441,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
 		},
 		{
+			url: "/api/staff-taken-roles", method: http.MethodGet,
+			handlerFunc: "StaffTakenRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-taken-roles", method: http.MethodPost,
+			handlerFunc: "StaffTakenRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-user-group-roles", method: http.MethodGet,
 			handlerFunc: "StaffUserGroupRoles",
 			parameters:  map[string]string{},
@@ -498,6 +508,26 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/staff-sign-up-roles", method: http.MethodPost,
 			handlerFunc: "StaffSignUpRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-take-lengths", method: http.MethodGet,
+			handlerFunc: "StaffTakeLengths",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-take-lengths", method: http.MethodPost,
+			handlerFunc: "StaffTakeLengths",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-takeable-roles", method: http.MethodGet,
+			handlerFunc: "StaffTakeableRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-takeable-roles", method: http.MethodPost,
+			handlerFunc: "StaffTakeableRoles",
 			parameters:  map[string]string{},
 		},
 		{
@@ -782,6 +812,18 @@ func (s *generatedHandlersStub) StaffSignUpRoles() http.HandlerFunc {
 	return s.record("StaffSignUpRoles")
 }
 
+func (s *generatedHandlersStub) StaffTakeLengths() http.HandlerFunc {
+	return s.record("StaffTakeLengths")
+}
+
+func (s *generatedHandlersStub) StaffTakeableRoles() http.HandlerFunc {
+	return s.record("StaffTakeableRoles")
+}
+
+func (s *generatedHandlersStub) StaffTakenRoles() http.HandlerFunc {
+	return s.record("StaffTakenRoles")
+}
+
 func (s *generatedHandlersStub) StaffUserGroupRoles() http.HandlerFunc {
 	return s.record("StaffUserGroupRoles")
 }
@@ -796,6 +838,10 @@ func (s *generatedHandlersStub) StaffUserRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) TakeStaffGroupRole() http.HandlerFunc {
 	return s.record("TakeStaffGroupRole")
+}
+
+func (s *generatedHandlersStub) TakeStaffRole() http.HandlerFunc {
+	return s.record("TakeStaffRole")
 }
 
 func (s *generatedHandlersStub) UnlinkStaffSessionIdentity() http.HandlerFunc {

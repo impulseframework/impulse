@@ -45,14 +45,16 @@ const sampleRow = (resource: Resource): RecordData =>
   Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
 
 describe("the library's pages over an auth's generated management", () => {
-  it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins and sign-in methods of the whole service, and the people, groups and invitations of a sector', () => {
+  it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins, sign-in methods and Break glass of the whole service, and the people, groups and invitations of a sector', () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
     // The crew's auth carries the choice of who may sign up, so it has the Sign-in page;
     // the members' auth, whose roles a directory writes, has none. The crew's people
     // make the sectors, so its pages hold the invitations that make one; the members'
-    // do not.
+    // do not. The crew's roles are given by hand, so a person of the crew takes one for
+    // a set time on Break glass; nobody gives the members a role by hand, and they have
+    // no such page.
     expect(routes('Crew', 'global')).toEqual([
       'crew-accounts',
       'crew-groups',
@@ -61,6 +63,7 @@ describe("the library's pages over an auth's generated management", () => {
       'crew-sessions',
       'crew-failed-sign-ins',
       'crew-sign-in',
+      'crew-break-glass',
     ]);
     expect(routes('Crew', 'domain')).toEqual([
       'sectors/:sectorID/crew-people',

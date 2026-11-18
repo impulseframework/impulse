@@ -48,6 +48,10 @@ what they hold.
   the people. A group gives nobody a power that giving the role directly would not: who is
   in a group, and what it holds, is changed by someone who may give or take those roles
   directly.
+  On the Break glass page (`/staff-break-glass`) a person who may give themselves a role
+  takes one for a set time and says why: the role ends by itself, whoever may take it
+  away ends it early, and the role file gives the page's lists and its method to the
+  `Administrator`.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the

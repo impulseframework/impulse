@@ -81,6 +81,11 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
+		// CrewTakenRoles: the tables its query reads.
+		{Resource: crewresources.CrewTakenRole{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+		}},
 		// CrewUserGroupRoles: the tables its query reads.
 		{Resource: crewresources.CrewUserGroupRole{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},

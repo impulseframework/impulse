@@ -22,6 +22,7 @@ describe('the menu file', () => {
       'Sessions',
       'Failed sign-ins',
       'Sign-in',
+      'Break glass',
     ]);
   });
 });

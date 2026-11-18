@@ -26,6 +26,7 @@ func (h *Handlers) AssignCrewSectorRole() http.HandlerFunc {
 		Role     string       `json:"role"`
 		StartsAt *time.Time   `json:"startsAt"`
 		EndsAt   *time.Time   `json:"endsAt"`
+		Reason   *string      `json:"reason"`
 	}
 
 	decoder := NewTargetedRPCDecoder[crewidentity.AssignCrewSectorRole, request](h, accesstypes.Execute)

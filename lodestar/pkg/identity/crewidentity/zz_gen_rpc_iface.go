@@ -20,7 +20,8 @@ type Method interface {
 		RequireCrewSectorPasswordChange | RevokeCrewSectorUserTrustedDevices |
 		RevokeCrewSessionToken | RevokeCrewUserTrustedDevices | SetCrewSectorTemporaryPassword |
 		SetCrewSectorUserEmail | SetCrewSectorUserName | SetCrewTemporaryPassword |
-		SetCrewUserEmail | SetCrewUserName | TakeCrewGroupRole | TakeCrewSectorGroupRole |
-		UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity | UnlockCrewSignIn |
-		WithdrawCrewInvitation | WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
+		SetCrewUserEmail | SetCrewUserName | TakeCrewGroupRole | TakeCrewRole |
+		TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity |
+		UnlockCrewSignIn | WithdrawCrewInvitation | WithdrawCrewInvitedSector |
+		WithdrawCrewSectorInvitation
 }

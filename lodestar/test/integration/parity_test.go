@@ -63,11 +63,12 @@ type demoUser struct {
 
 // demoTour is a tour of duty as cmd/bootstrap/users.json declares it: the roles a persona
 // holds in one sector, named by its name, for a number of days from the day the world is
-// made. Each is a role given for a period that ends.
+// made. Each is a role given for a period that ends, with the reason the file gives.
 type demoTour struct {
 	Domain string             `json:"domain"`
 	Roles  []accesstypes.Role `json:"roles"`
 	Days   int                `json:"days"`
+	Reason string             `json:"reason"`
 }
 
 // demoAccount is an identity of the file that has no password: a member of the portal,
@@ -379,7 +380,7 @@ func assignDemoTours(ctx context.Context, client *access.Client, user accesstype
 		}
 		period := accesstypes.Period{End: time.Now().UTC().AddDate(0, 0, tour.Days)}
 		for _, role := range tour.Roles {
-			if err := client.UserManager().AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, period); err != nil {
+			if err := client.UserManager().AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, period, tour.Reason); err != nil {
 				return fmt.Errorf("AssignUserRole(%s, %s, %s): %w", user, tour.Domain, role, err)
 			}
 		}
