@@ -1,8 +1,9 @@
 # Sign-in shapes
 
-There are eight shapes an application's sign-in can take. Each one says who gets an
-account, what role they start with, who manages the account, and which sign-in methods it
-can use.
+There are eight shapes an application's sign-in can take. Each one says whether the
+application has tenants, who gets an account and with what role, where one person can hold
+roles, and who manages the account. Each shape can use some sign-in methods and not
+others.
 
 This document describes the eight shapes, the choices each one is made of, the commands
 that start an application from one, and what `impulse audit` prints for it.
@@ -34,10 +35,13 @@ that start an application from one, and what `impulse audit` prints for it.
   A **grant** is one line of that file: it lets the role's holders do one thing, such as
   list the accounts or disable one. A grant can carry a condition, a test of the row it
   is used on. A person holds a role in one of three places: for the whole application, in
-  one tenant, or in every tenant.
+  one tenant, or in every tenant. The role file keeps the roles held for the whole
+  application apart from the roles held in a tenant. A person holds a role of their own
+  or through a **group**: a named set of people that is given roles, kept for the whole
+  application or in one tenant.
 - **Super Administrator**: the one role the framework defines in every auth. It is held
-  for the whole application. Its holders give and take every role, and a tenant's
-  settings never keep them out.
+  for the whole application. Its holders give and take every role, and no tenant's
+  choice keeps them out.
 - **Tenant**: one organization's own part of the application, with its own data and its
   own people. Each tenant is a row of the application's tenant record, the table that
   lists its tenants.
@@ -52,10 +56,15 @@ that start an application from one, and what `impulse audit` prints for it.
   another identity provider. An auth registers each method in code, under a name. The
   command's words for the kinds are `password`, `google`, `azure` (Microsoft) and `oidc`
   (another identity provider).
+- **Sign-in identity**: the link between an account and the person's account at Google,
+  Microsoft or another provider.
 - **Login page** and **Sign-in page**: the login page is where a person signs in. The
   Sign-in page is where an administrator sets who may sign in. There is one Sign-in page
   for each auth (in the skeletons: Sign-in, in the System menu) and one for each tenant
   (in the skeletons: Sign-in settings, in the Tenant menu).
+- **Outlet**: a URL space of the application. The kind this document uses has its own
+  browser application and its own login page, and is bound to one auth. A new application
+  has one, named `default`, and `impulse add outlet` adds another on the same host.
 - **Settings**: the deployment's environment variables, which the application reads when
   it starts.
 - **Skeleton**: one of the starting applications the `impulse` command carries. A new
@@ -76,8 +85,8 @@ through their organization's directory.
 
 No application declares its shape, and nothing stores one. An application makes separate
 choices, some in its code and some while it runs. A shape is the name of what they add up
-to. The framework's libraries know no shape: what they refuse is always a combination of
-the separate choices.
+to. The framework's libraries have no notion of a shape: what they refuse is always a
+combination of the separate choices.
 
 | The choice | Where it is made |
 | --- | --- |
@@ -103,11 +112,16 @@ the separate choices.
 | 8 | [Global users, each tenant chooses](#8-global-users-each-tenant-chooses) | `global-users-each-tenant-chooses` | Several per person | Everyone in a directory a tenant has taken, and people it invites |
 
 The `--shape` column is the word the `impulse` command takes for the shape. The number
-works too (`--shape 6`). Each shape's heading in this document is its number and its
-name, which is how `impulse audit` names it.
+works too (`--shape 6`). Shapes 1 to 4 are taken by `impulse add auth` and
+`impulse add method`, and shapes 5 to 8 by `impulse new` and `impulse add tenancy`, as
+[Starting from a shape](#starting-from-a-shape-impulse-new-and-impulse-add) describes.
+Each shape's heading in this document is its number and its name, which is how
+`impulse audit` names it.
 
-The Tenants column also answers where one person can hold roles: for the whole
-application alone, in one tenant, or in several tenants.
+The Tenants column also answers where one person can hold roles. With no tenants it is
+for the whole application alone. With one tenant per person it is in one tenant, the
+application's own staff apart. With several per person it is in as many tenants as give
+the person a role.
 
 ## How wide a Google or Microsoft sign-in can be opened
 
@@ -127,7 +141,9 @@ The same word is not the same width for both: `--slot any` is any organization f
 Microsoft, and personal accounts too for Google.
 
 Without `--slot` a method is one organization's, unless `--shape open-sign-up` makes it
-the widest. `impulse add auth` has no `--slot`.
+the widest. `impulse add auth` has no `--slot`: a method it adds is one organization's,
+or the widest with `--shape open-sign-up`, and `impulse add method` adds a method of any
+other width.
 
 The width is written in the method's own file, `pkg/auth/<auth>/<method>.go`. The
 organizations it names come from settings:
@@ -138,16 +154,23 @@ organizations it names come from settings:
 | A list of organizations | `APP_<AUTH>_<METHOD>_TENANTS`: `<name>=<tenant id>`, separated by commas | `APP_<AUTH>_<METHOD>_WORKSPACES`: `<name>=<domain>`, separated by commas |
 
 `<AUTH>` is the auth's name and `<METHOD>` the name the method is registered under, both
-in capitals, with a hyphen written as an underscore. Nobody changes a width, the one
-organization or the list in the running application. Changing which organization takes a
-release, and so does changing the list: the width is code, and a setting is read when the
-application starts.
+in capitals, with a hyphen written as an underscore. In a list, `<name>` is the
+application's own name for the organization, which every sign-in identity made through
+it carries. A Google Workspace with several domains joins them with `+`
+(`<name>=<domain>+<domain>`). A Workspace's name is not changed once its people have
+signed in: their sign-ins would no longer match their accounts.
+
+No page of the running application changes a width, the one organization or the list.
+The width is code, and a setting is read when the application starts, so each changes
+only by deploying the application again.
 
 `--slot` has three more values, and each admits personal accounts: `personal` (Microsoft
 personal accounts alone), `one-personal` (one Microsoft Entra tenant and personal
-accounts) and `mixed` (one Google Workspace and any Google account). Anyone can have a
-personal account, so the framework treats each of them as a method anyone can use, like
-the widest width.
+accounts) and `mixed` (any Google account, with one Google Workspace named so that its
+sign-ins are told apart). The last two name their one organization in the same setting
+as the one-organization width.
+Anyone can have a personal account, so the framework treats each of the three as a method
+anyone can use, and the tables below mark them as the widest width.
 
 An application can also use another identity provider, such as Okta or Keycloak. That is
 always one organization's. The method's kind is `oidc`: it names one provider by its
@@ -158,10 +181,10 @@ Every Google, Microsoft or other provider's method also needs the client id and 
 the provider gave the application. Those settings are listed with `add method` in
 [cmd/impulse/README.md](../cmd/impulse/README.md).
 
-A method that an administrator opened to sign-up stays open only for the people it
-admitted when it was opened. After a release that changes whom a method admits, the
-method is invite only again until an administrator opens it again. The Sign-in page says
-whom the method admits now.
+An administrator opens a method to sign-up for the people it admits at that moment, and
+for no others. After a deployment that changes whom the method admits (its width, its
+organization or its list), the method is invite only again until an administrator opens
+it again. The auth's Sign-in page says whom the method admits now.
 
 `impulse audit` says each method's width in words:
 
@@ -192,7 +215,9 @@ Each shape marks each sign-in method one of four ways.
 
 In shapes 2 and 4 the marks are about the method an administrator opens to sign-up, since
 that is what makes an auth one of those shapes. Other methods can be registered on the
-same auth and stay invite only.
+same auth and stay invite only. The password's mark in shape 2 is the one exception: it
+is about a password kept beside the directory's method for the same people, as that
+shape's section says.
 
 The marks are the same for Google and for Microsoft, so the table has one column for
 each width.
@@ -211,18 +236,24 @@ each width.
 Shapes 6 and 8 have one more method, single sign-on through a tenant's own identity
 provider. It is **not released yet**: the method is in the session library, the
 framework's package `session`, as an internal package (`session/internal/workos`), which
-an application cannot import.
+an application cannot import. It is not the `oidc` method of the last column: that one
+names a single provider in a setting, so it serves one organization.
 
 One thing differs between Google and Microsoft: invitations. An invitation is accepted
-only by a sign-in that carries the invited email address. A Google sign-in carries the
-person's address. A Microsoft sign-in carries none unless the application's registration
-at Microsoft is set up to send it, and without it an invited person who signs in with
-Microsoft is refused. A person can still accept with a password where the auth has the
-password method. This is described under "Invitations" and "The first administrator's
-invitation" in [session/README.md](../session/README.md).
+only with the invited email address: the address of the sign-in must be the invited one.
+A Google sign-in carries the person's address. A Microsoft sign-in carries none unless
+the application's registration at Microsoft is set up to send it, and without it an
+invited person who signs in with Microsoft is refused. A person can still accept with a
+password where the auth has the password method. A new person chooses a password from the
+link, and the account is made with the invited address. An account that has no address
+yet accepts by the link alone and takes the invited address. This is described under
+"Invitations" and "The first administrator's invitation" in
+[session/README.md](../session/README.md).
 
-The persona method, the sign-in of the test environments, is not part of any shape. It
-stays invite only. It is described with `add method` in
+The persona method, the sign-in of the test environments, is not part of any shape.
+Given `--shape`, `impulse add auth` and `impulse add method` accept only `invite-only`
+for it, and `impulse audit` prints it as left invite only. It is described with
+`add method` in
 [cmd/impulse/README.md](../cmd/impulse/README.md).
 
 ## Shapes and the impulse command
@@ -232,12 +263,13 @@ The `impulse` command reads a shape and starts from one. It never stores one.
 ### Reading a shape: impulse audit
 
 `impulse audit`, run in the application's directory, ends with a section named `sign-in`.
-This is the section for a new application without tenants:
+This is the section for a new application without tenants. `N` stands here for a line
+number, which the command prints in its place:
 
 ```text
 sign-in
   staff (pkg/auth/staff)
-    password (pkg/auth/staff/password.go:81): admits anyone with an email address; the application gives the roles; invite only until an administrator opens it to sign-up on the Sign-in page, which is chosen while the application runs
+    password (pkg/auth/staff/password.go:N): admits anyone with an email address; the application gives the roles; invite only until an administrator opens it to sign-up on the Sign-in page, which is chosen while the application runs
     shape: 1 Invite only. It starts so, and stays so until an administrator opens a method to sign-up on the Sign-in page, which is chosen while the application runs: opening password makes it 4 Open sign-up.
   the application
     tenants: none
@@ -245,7 +277,7 @@ sign-in
 
 - `staff (pkg/auth/staff)` is an auth: its name and its package. Every auth has its own
   block.
-- `password (pkg/auth/staff/password.go:81)` is a sign-in method of that auth: the name
+- `password (pkg/auth/staff/password.go:N)` is a sign-in method of that auth: the name
   it is registered under, then the file and the line where it is registered. The rest of
   the line gives the method's three choices: how wide it is (`admits ...`), who gives the
   roles, and open to sign-up or invite only.
@@ -253,9 +285,9 @@ sign-in
   not say it. The command says where it is chosen and never guesses it.
 - `shape:` is the shape the auth's choices add up to, by number and name.
 - `the application` gives the application's own choices: tenants or none, and, with
-  tenants, whether a tenant can have a directory of its own and who creates a tenant. With
-  tenants each auth's block also says whether a person belongs to one tenant or can be in
-  several.
+  tenants, whether a tenant can have a directory of its own and through which auth a
+  tenant is made. With tenants each auth's block also has a line, above its `shape:` line,
+  that says whether a person belongs to one tenant or can be in several.
 
 Shapes 1, 2 and 4 are one auth at different moments. Every method starts invite only, so
 the command always prints such an auth as `1 Invite only`. It then says what opening each
@@ -272,7 +304,7 @@ Four commands take `--shape`, with the shape's word or its number.
 
 | Command | Shapes it takes | What the shape fills in |
 | --- | --- | --- |
-| `impulse add auth`, `impulse add method` | 1 to 4 | For each method: who gives the roles (the flag `--authority`), and how wide the method is (the flag `--slot`) |
+| `impulse add auth`, `impulse add method` | 1 to 4 | For each method: who gives the roles (the flag `--authority`), and how wide the method is (the flag `--slot` of `impulse add method`) |
 | `impulse new`, `impulse add tenancy` | 5 to 8 | Tenants (the flag `--tenancy` of `impulse new`), and whether a person belongs to one tenant (the flag `--one-tenant-per-person`) |
 
 `--authority` takes `application` or `directory`. For a Google, Microsoft or other
@@ -284,7 +316,7 @@ given with `--shape` that contradicts the shape is refused before anything is wr
 The refusal names both and says what to take instead. A shape the command does not take
 is refused too, and the refusal lists the shapes it takes.
 
-A shape only fills in the separate choices. Nothing remembers it afterwards: the
+A shape only fills in the separate choices. Nothing remembers it afterward: the
 application keeps the choices, and `impulse audit` reads the shape back from them. No
 command opens a method to sign-up, since that is chosen while the application runs.
 
@@ -296,11 +328,15 @@ Given shape 6 or 8 they say which `impulse add method` adds it, and until it is 
 In an application with tenants, `impulse add auth` and `impulse add method` still take
 shapes 1 to 4, for the choices of the method they write. `impulse audit` then names the
 auth by one of shapes 5 to 8, or prints `no named shape` where a directory gives the
-roles.
+roles. It names every auth of such an application so, whether or not a tenant is made
+through it.
 
-Every `impulse add` starts from a clean working tree and leaves its change staged. Commit
-one command's change before running the next. `impulse new` commits the new application,
-but leaves what `--shape` or `--tenancy` added staged in the same way.
+Every `impulse add` starts from a clean git working tree and leaves its change staged.
+Where checks of `impulse check` still fail after its change, it hands them off in a
+brief, as the wiring left to do. Finish what a command hands off and commit its change
+(`git commit`) before running the next. `impulse new` commits the new application, but
+leaves what `--shape` or `--tenancy` added staged in the same way. The examples below
+show each commit.
 
 Every command and flag is described in [cmd/impulse/README.md](../cmd/impulse/README.md).
 
@@ -313,7 +349,10 @@ people.
 "The application's administrators" below are the people whose roles carry the grants on
 the auth's accounts: the lists of the accounts and the operations that change them. The
 skeletons give those grants to a role named `Administrator`. An application names its own
-roles in its role file. A Super Administrator can always give them.
+roles in its role file. A Super Administrator can give any role to a person. In the
+skeletons the first administrator's invitation, described under
+[1. Invite only](#1-invite-only), gives the `Administrator` role beside the Super
+Administrator role, so the first person in can invite the others and open a method.
 
 ### 1. Invite only
 
@@ -330,8 +369,9 @@ roles in its role file. A Super Administrator can always give them.
 | Google or Microsoft, at any of the four widths | Can be used |
 | Another identity provider | Can be used |
 
-Any method, registered as wide as you like. How wide a method is makes no difference
-while it stays invite only.
+Any method can be used, at any width. The width does not change the shape while the
+method stays invite only. It still limits who can sign in through the method: an invited
+person needs an account the method admits.
 
 In an application without tenants, every auth whose roles the application gives starts as
 this shape: each sign-in method is invite only until an administrator opens it.
@@ -348,7 +388,11 @@ impulse new ./harbor --module example.com/harbor --auth staff
   first auth signs in with a password.
 
 `impulse audit` then prints the section shown under
-[Reading a shape](#reading-a-shape-impulse-audit).
+[Reading a shape](#reading-a-shape-impulse-audit). The auth's block ends with:
+
+```text
+    shape: 1 Invite only. It starts so, and stays so until an administrator opens a method to sign-up on the Sign-in page, which is chosen while the application runs: opening password makes it 4 Open sign-up.
+```
 
 The first administrator of a deployed environment is invited too. While nobody in the
 auth holds the Super Administrator role, the deployment mails an invitation that gives
@@ -368,7 +412,10 @@ roles the application gives, so in every shape but
   directory. An administrator chooses open to sign-up or invite only for each sign-in
   method while the application runs, and names the default role when opening one. Open
   cannot be saved without a default role, and invite only is shape 1.
-- **Managed by**: the application's administrators.
+- **Managed by**: the application's administrators. The directory decides who can sign
+  in through it, and nothing more: the application reads no roles from it, and a person
+  who leaves the directory keeps their account and their roles here until an
+  administrator takes them away.
 
 | Sign-in method | In this shape |
 | --- | --- |
@@ -383,14 +430,24 @@ Any organization or personal accounts would let in the whole world. Such a metho
 registered, but once it is opened the auth is [Open sign-up](#4-open-sign-up). Given this
 shape and such a width together, `impulse add method` refuses.
 
-A password can be offered to the same users, on the same auth as the directory. That is
-not typical. It is for moving an application from invite only with passwords to a
-directory. The command leaves the password method invite only, and an administrator who
-opened it would make the auth Open sign-up. The shape needs a method that goes through a
-directory: given this shape and the password method alone, the command refuses.
+A new application's first auth has the password method, and no command removes a sign-in
+method. Where the directory's method is added to that auth, as in the example below, the
+password method is beside it and starts invite only. Kept for other people, who are
+invited, it is ordinary: see
+[Shapes that make sense together](#shapes-that-make-sense-together). Offered to the same
+people as the directory, it is not typical: that is for moving an application from invite
+only with passwords to a directory. `impulse add method` leaves the password method as it
+is, and an administrator who opened it to sign-up would make the auth Open sign-up. The
+shape needs a method that goes through a directory: given this shape and the password
+method alone, the command refuses.
 
 The default role is a role held for the whole application that the administrator could
-give a person directly. It is never the Super Administrator role.
+give a person directly. It is never the Super Administrator role. A new application's
+role file has two roles held for the whole application, `Administrator` and
+`FeatureAdministrator`, so the role ordinary people start with is one the application
+adds to its role file.
+
+In the directory of an application made as under [1. Invite only](#1-invite-only):
 
 ```sh
 impulse add method staff google workspace --shape directory-members
@@ -400,9 +457,10 @@ impulse add method staff google workspace --shape directory-members
 - `google` is the kind of method: Google.
 - `workspace` is the name the method is registered under. It is a segment of the method's
   URL paths (`user/workspace/login`), and the name `impulse audit` lists the method by.
-- `--shape directory-members` has the application give the roles and keeps the method one
-  organization's. Which Workspace that is comes from the setting
-  `APP_STAFF_WORKSPACE_HOSTED_DOMAIN`.
+- `--shape directory-members` has the application give the roles. With no `--slot` the
+  method is one organization's, and which Workspace that is comes from the setting
+  `APP_STAFF_WORKSPACE_HOSTED_DOMAIN`. `--slot listed` can be given with the shape, for
+  a list of organizations.
 
 The command prints:
 
@@ -445,7 +503,7 @@ on an auth that already has a method.
 | Google or Microsoft, personal accounts too | Cannot be used |
 | Another identity provider | Can be used |
 
-Exactly one directory in all, and no other sign-in on the same auth. The roles are one
+The auth has exactly one directory method and no other sign-in method. The roles are one
 organization's, so the method is one organization's: the application refuses to start
 with a wider method whose directory gives the roles.
 
@@ -470,26 +528,27 @@ Each is described with `add method` in
 [cmd/impulse/README.md](../cmd/impulse/README.md).
 
 A new application's first auth signs in with a password, so this shape is an auth of its
-own:
+own, on an outlet of its own. The first auth stays beside it, with its password method,
+on the application's first outlet: no command removes an auth or a sign-in method. In the
+application's directory:
 
 ```sh
 impulse add outlet portal --prefix portal/api --auth staff
+git commit -m "Add the portal outlet"
 impulse add auth members --method google:workspace --shape directory-roles --outlet portal
 ```
 
-- The first line adds an outlet named `portal`. An outlet is a second URL space of the
-  application on the same host: a browser application with its own login page, bound to
-  one auth. `--prefix portal/api` is the URL prefix of the outlet's API. `--auth staff`
-  binds the outlet to the auth the application already has, until the next line moves it.
-- Commit the first line's change before the second line: every `impulse add` starts from
-  a clean working tree.
-- In the second line, `members` is the new auth's name, the package `pkg/auth/members`.
+- The first line adds a second outlet, named `portal`. `--prefix portal/api` is the URL
+  prefix of the outlet's API. `--auth staff` binds the new outlet to the auth the
+  application already has. The last line then binds it to the new auth instead.
+- The second line commits the first line's change, once what that command handed off is
+  done: every `impulse add` starts from a clean working tree.
+- In the last line, `members` is the new auth's name, the package `pkg/auth/members`.
 - `--method google:workspace` gives the auth one Google method, registered under the name
   `workspace`.
 - `--shape directory-roles` has the directory give the roles (`--authority directory`)
   and keeps the method one organization's.
-- `--outlet portal` names the outlet the new auth serves. An application's first outlet
-  is named `default`.
+- `--outlet portal` names the outlet the new auth serves.
 
 `impulse audit` ends the auth's block with:
 
@@ -534,7 +593,11 @@ by typing the word the page asks for. The same page makes the method invite only
 and the people who have accounts keep them.
 
 The default role is a role held for the whole application that the administrator could
-give a person directly. It is never the Super Administrator role.
+give a person directly. It is never the Super Administrator role. As in shape 2, the
+role ordinary people start with is one the application adds to its role file.
+
+To add a Google method anyone can use, in the directory of an application made as under
+[1. Invite only](#1-invite-only):
 
 ```sh
 impulse add method staff google --shape open-sign-up
@@ -554,12 +617,17 @@ Starting point: 4 Open sign-up.
 ```
 
 `impulse audit` still prints `1 Invite only` for the auth, and names each method whose
-opening makes the auth `4 Open sign-up`, as in the section shown under
-[Reading a shape](#reading-a-shape-impulse-audit).
+opening makes the auth `4 Open sign-up`. Here they are the two methods of the `staff`
+auth, `google` and `password`:
+
+```text
+    shape: 1 Invite only. It starts so, and stays so until an administrator opens a method to sign-up on the Sign-in page, which is chosen while the application runs: opening google or password makes it 4 Open sign-up.
+```
 
 ### Shapes that make sense together
 
-Shapes 1, 2 and 4 are one auth, by which of its methods are open to sign-up.
+Shapes 1, 2 and 4 are the same auth. Which of the three it is depends on which of its
+methods are open to sign-up.
 
 **1 and 2 go together.** The choice is made for each sign-in method. For example,
 employees sign in with the organization's Google Workspace directory, which is open to
@@ -569,8 +637,9 @@ Microsoft, which stay invite only.
 **4 does not go with 1 or 2.** When anyone can sign up, a directory's members are already
 covered, and invite only is the opposite of open sign-up. The framework does not refuse an
 auth with both kinds of method open: each method keeps its own choice and its own default
-role. Sending an invitation still works in an open sign-up application: the invited person
-gets the roles the invitation carries.
+role. Such an auth admits anyone, so it is open sign-up whatever else is open. Sending an
+invitation still works in an open sign-up application: the invited person gets the roles
+the invitation carries.
 
 **3 stands alone.** It cannot share an auth with any other shape. An application that
 needs it together with another shape gives it an auth of its own.
@@ -590,35 +659,45 @@ Each tenant's Sign-in page decides who joins that tenant.
 ### Staff
 
 The application's own people hold roles for the whole application or in every tenant. A
-role held in every tenant holds in each tenant, the ones made later too. Staff belong to
-no one tenant, and the rule of one tenant per person never applies to them.
+role held in every tenant counts in each tenant, including the tenants made later. Staff
+belong to no one tenant, and the rule of one tenant per person never applies to them.
+They get their accounts as in [shape 1](#1-invite-only): the deployment invites the first
+administrator, and an administrator invites the others.
 
 ### Who can create a tenant
 
 Nobody creates a tenant directly. A tenant comes to exist in one of two ways.
 
-**Invite only.** Staff do not create tenants. They invite a person, and that person's
+**By invitation.** Staff do not create tenants. They invite a person, and that person's
 first sign-in creates the tenant and makes them its first administrator. This is how to
 control who is added. In the skeletons the invitation is sent from the Invited tenants
 page, in the System menu, by a holder of the `Administrator` role. The invitation carries
 the tenant's name. It can also say that the tenant is entered through its directory only,
 and name the role the directory's people start with.
 
-**Open sign-up.** Anyone can sign up and create their own tenant, and becomes its first
+**By sign-up.** Anyone can sign up and create their own tenant, and becomes its first
 administrator. This works while an administrator has a sign-in method open to sign-up on
 the auth's Sign-in page. In an application with tenants, opening a method names no default
-role: a person who signs up holds no tenant, and the application offers them to create
-theirs. A person who already has a tenant creates no second one.
+role: a person who signs up holds no tenant, and the application offers to let them
+create one. A person who already has a tenant creates no second one this way, in any
+shape.
+
+Whether its tenants are made by invitation, by sign-up or both does not change an
+application's shape. With tenants, a shape's name says how a tenant's people come to the
+tenant, not how the tenant came to exist.
 
 Where the person who makes the tenant is signed in through an organization's directory,
-that directory becomes the tenant's own, in the same step. An organization that already
-has a tenant is refused. A person who accepts with a password makes a tenant with no
-directory, and an administrator can set one later.
+that directory becomes the tenant's own, in the same step. A person whose organization's
+directory is already another tenant's makes no second tenant: they are refused, and told
+to ask that tenant's administrator for an invitation. A person who is signed in with a
+password makes a tenant with no directory, and an administrator of the tenant can set
+one later, as [A tenant's directory](#a-tenants-directory) describes.
 
 One auth of the application is the one a tenant is made through: the auth of the outlets
 that serve the tenant record. `impulse audit` names it. The Sign-in page of any other auth
 of the same application offers nothing to open: a person who signed up to it could be
-given no tenant.
+given no tenant. Where the application gives such an auth's roles, `impulse audit` names
+it by one of shapes 5 to 8 all the same.
 
 ### A tenant's directory
 
@@ -627,8 +706,8 @@ A tenant has at most one directory, and a directory belongs to one tenant only.
 A tenant can have a directory where two things are in the code. The application has a
 directories record, the table that holds each tenant's directory, which
 `impulse add tenancy` and `impulse new --tenancy` always write. And the auth registers a
-Google, Microsoft or other provider's method whose roles the application gives. Each
-tenant then chooses, while the application runs, whether it takes one.
+Google, Microsoft or other provider's method whose roles the application gives. Whether
+a tenant then has one is settled while the application runs.
 
 Nobody types a directory in. It is set from a sign-in, in one of two ways:
 
@@ -644,12 +723,12 @@ account belongs to no organization, so it is never a tenant's directory.
 ### What a tenant's administrator sets
 
 A tenant's administrator is a person who holds, in that tenant, a role the application
-names as a tenant's administrator's. In the skeletons that role is `TenantAdministrator`,
-and the person who makes a tenant is given it.
+names as an administrator's role of a tenant. In the skeletons that role is
+`TenantAdministrator`, and the person who makes a tenant is given it.
 
-The tenant's administrator has three settings, on the tenant's Sign-in page.
+The tenant's administrator makes three choices, on the tenant's Sign-in page.
 
-| Setting | What it does |
+| Choice | What it does |
 | --- | --- |
 | The tenant's directory | Makes the directory the administrator is signed in through the tenant's own, or removes it. |
 | Open to the directory, or invite only | Open names the role each person from the directory is given at their first sign-in through it, with no invitation. The role is one of the tenant's roles that the administrator could give directly. Invite only clears it: the directory's people then need an invitation. A tenant starts invite only unless the invitation that made it named a role. |
@@ -661,25 +740,27 @@ sign-in method is open to sign-up on the auth's Sign-in page.
 Opening the tenant to its directory and making it directory only each warn first, with
 who is affected, and are confirmed by typing a word (`open`, `close`).
 
-A tenant's administrator turns directory only on only once the tenant has its directory,
-and only while signed in through that directory. Where the auth has the password method,
-the administrator must also have a password of their own, which is their way back in if
-the directory stops working. A person who has only ever signed in through a directory
-chooses a password on the Your account page first. A tenant can also be directory only
-from the start: the invitation that makes it says so, and is then accepted through an
-organization's directory and no other way. The directory of a tenant that is directory
-only cannot be removed.
+A tenant's administrator can turn directory only on once the tenant has its directory,
+and must be signed in through that directory to do it. Where the auth has the password
+method, the administrator must also have a password of their own, which is their way back
+in if the directory stops working. A person who has only ever signed in through a
+directory chooses a password on the Your account page first. A tenant can also be
+directory only from the start: the invitation that makes it says so, and is then accepted
+through an organization's directory and no other way. The password rule applies only
+when directory only is turned on from the page: the first administrator of a tenant made
+directory only may have no password until they choose one on the Your account page. The
+directory of a tenant that is directory only cannot be removed.
 
-A tenant's settings restrict who enters that tenant and no other. A tenant that is not
+A tenant's choices restrict who enters that tenant and no other. A tenant that is not
 directory only admits everyone it has given a role, however they signed in.
 
 ### Who manages an account
 
-An account is one for the whole application: a person who is in three tenants has one
-account, one password and one email address. A tenant's administrator who changed that
-account would change it for the other tenants too. So the application's role file says
-what a tenant's administrator may do to the account of a person who also holds a role
-somewhere else.
+A person has one account in the auth, whatever the number of tenants they are in: a
+person who is in three tenants has one account, one password and one email address. A
+tenant's administrator who changed that account would change it for the other tenants
+too. So the application's role file says what a tenant's administrator may do to the
+account of a person who also holds a role somewhere else.
 
 The application's management of an auth's accounts has two sides.
 
@@ -690,23 +771,26 @@ The application's management of an auth's accounts has two sides.
   tenant's invitations, and changes them. The skeletons grant it to the
   `TenantAdministrator` role, held in a tenant.
 
-Each person in a tenant's list carries two facts that a grant's condition can test:
-`heldElsewhere`, the person also holds a role in another tenant or in every tenant, and
-`heldGlobally`, the person holds a role for the whole application. The skeletons' role
-file gives a tenant's administrator this much:
+Each person in a tenant's list carries two facts that a grant's condition can test.
+`heldElsewhere` says the person also holds a role in every tenant, or holds a role or
+belongs to a group in another tenant. `heldGlobally` says the person holds a role for the
+whole application, or belongs to a group kept for the whole application. (The "globally"
+in that name is the role file's word for the whole application. It is not the "Global" of
+shapes 7 and 8, which is about being in several tenants.) With the skeletons' role file,
+a tenant's administrator can do this much:
 
 | A tenant's administrator can | For whom |
 | --- | --- |
-| Invite a person, create an account in the tenant, give a role in the tenant | Anyone. Where a person belongs to one tenant, anyone who is in no other tenant. |
+| Invite a person, create an account in the tenant | Anyone. Where a person belongs to one tenant, anyone who is in no other tenant. |
+| Give a role in the tenant | A person who already holds a role in the tenant. A person new to the tenant is invited or has an account created there, with a role from the start. |
 | Take away a role held in the tenant | Anyone in the tenant. A role a person holds in every tenant is not one tenant's to take. |
-| Withdraw an invitation | While the invitation stands |
-| See a person's sign-in name and name, whether the account is disabled, and when it was created and last signed in | Everyone in the tenant |
+| Withdraw an invitation | An invitation of the tenant that still stands |
+| See the name a person signs in with and their name, whether the account is disabled, and when it was created and last signed in | Everyone in the tenant |
 | See a person's email address, and whether they must choose a new password | A person who holds no role in another tenant or in every tenant (`heldElsewhere = false`) |
 | Disable and enable the account, delete it, rename it, set its email address or name, set a temporary password, require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
 
-A browser a person trusted is one they asked the application to remember after the code
-mailed to them at sign-in. A sign-in identity is the link between an account and the
-person's account at Google, Microsoft or another provider.
+A browser a person trusted is one they asked the application to remember, after they
+entered the code the application mails at a sign-in that asks for a second step.
 
 `impulse check` has a check for the last row, named `tenant-accounts`. It fails when a
 grant lets a role held in a tenant run one of those operations on an account with no
@@ -715,24 +799,28 @@ condition that tests the person's row. Which condition is the application's to c
 Some rules hold whatever the role file says. Among them:
 
 - Taking away the last role a person holds anywhere, their own or through a group,
-  deletes the account, with its sign-in identities and its sessions.
+  deletes the account, with its sign-in identities and its sessions. Where a directory's
+  people get an account without an invitation, such a person's next sign-in through the
+  directory is a first sign-in again, and makes a new account with the default role.
 - Only a Super Administrator gives or takes the Super Administrator role, or changes how
   another Super Administrator signs in. The role is never taken from the last holder who
   can sign in.
-- A person does not give up a tenant's administrator role that nobody else holds there.
+- A person does not give up their administrator's role in a tenant where that would
+  leave the tenant with no administrator.
 - The administrators of a tenant that is directory only are changed only by someone that
   tenant admits, or by a Super Administrator.
 
-A person changes their own account on the Your account page: their name, their email
-address, by a link mailed to the new one, their password, and the browser they asked to
-be remembered. The switcher next to the application's name lists their tenants. A tenant
-they cannot enter with the way they signed in is listed as closed, with the reason.
+A person changes their own account on the Your account page: their name, their password,
+the browser they asked to be remembered, and their email address, which changes once they
+follow a link mailed to the new one. The switcher next to the application's name lists
+their tenants. A tenant they cannot enter with the way they signed in is listed as
+closed, with the reason.
 
 ## With tenants, one tenant per person
 
 Every tenant follows the same rule. A person belongs to exactly one tenant, and that
-tenant's administrator manages their account. Think of three boxes, each holding its own
-people.
+tenant's administrator manages their account. Think of three tenants as three boxes,
+each holding its own people.
 
 The option `identity.WithOneTenantPerPerson()` holds a person to one tenant. It is an
 option of the framework's package `identity`. An auth's package passes it where it builds
@@ -743,8 +831,8 @@ does `--shape` with shape 5 or 6. With the option:
 - a role in a tenant is refused for a person who holds a role in another tenant, however
   it would be given: directly, by an accepted invitation, or by a directory's default
   role;
-- an invitation into a tenant is refused when it is sent, where an account that has
-  confirmed the email address belongs to another tenant;
+- an invitation into a tenant is refused as soon as it is sent, if the invited email
+  address is the confirmed address of an account that belongs to another tenant;
 - a refusal never says which tenant holds the person.
 
 Since each person is in one tenant, every person in a tenant's list except the
@@ -759,7 +847,7 @@ the rule, and manage any account from the whole application's side.
 
 - **Gets an account**: only people the tenant's administrator invites, or creates an
   account for. A person belongs to one tenant, so an invitation from a second tenant is
-  refused.
+  refused, when it is sent or when it is accepted.
 - **Starts with**: the roles the tenant's administrator gives with the invitation.
 - **Managed by**: the tenant's administrator.
 
@@ -804,7 +892,7 @@ and the line where the option is passed. Then it prints:
 
 - **Gets an account**: anyone in the tenant's directory, once the tenant has opened
   itself to its directory. They land in that tenant. A person belongs to one tenant, so
-  an invitation from a second tenant is refused.
+  an invitation from a second tenant is refused, when it is sent or when it is accepted.
 - **Starts with**: the default role the tenant set for its directory. A tenant that sets
   no default role invites its people instead.
 - **Managed by**: the tenant's administrator.
@@ -822,12 +910,12 @@ and the line where the option is passed. Then it prints:
 A tenant has at most one directory, and a directory belongs to one tenant only.
 
 Google and Microsoft accept a work account from any organization. That alone lets nobody
-in: a person gets in only if their organization has a tenant that is open to its
-directory, or they carry an invitation. Which organizations get a tenant is decided by
-who may create one. See [Who can create a tenant](#who-can-create-a-tenant).
+into a tenant: a person gets into one only if their organization has a tenant that is
+open to its directory, or they carry an invitation. Whether a person with no tenant can
+make one is a separate choice: see [Who can create a tenant](#who-can-create-a-tenant).
 
 Naming the approved organizations, with the list width, also works. It is not typical: no
-tenant could then take a directory without a release that puts its organization on the
+tenant could then take a directory without a deployment that puts its organization on the
 list. A method that is one organization's, or another identity provider, can be the
 directory of one tenant only.
 
@@ -846,6 +934,8 @@ shape 8 a tenant without a directory is ordinary.
 
 ```sh
 impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned-users-by-directory
+cd depot
+git commit -m "Tenants, one for each person"
 impulse add method staff google --slot any-workspace --authority application
 ```
 
@@ -854,15 +944,20 @@ impulse add method staff google --slot any-workspace --authority application
   `--shape tenant-owned-users-by-directory` gives it tenants and holds a person to one
   tenant. It writes no method that goes through a directory: a new application's first
   auth signs in with a password.
-- Commit the first line's change before the second line: every `impulse add` starts from
-  a clean working tree.
-- The second line, run in the application's directory, adds a Google method to the
-  `staff` auth, registered under the name `google`. `--slot any-workspace` registers it
-  as wide as any organization, so every tenant's organization can sign in through it.
-  `--authority application` has the application give the roles. For Microsoft the line is
-  `impulse add method staff azure --slot any --authority application`.
+- The second and third lines move into the application's directory and commit what
+  `--shape` added, which `impulse new` leaves staged, once what the command handed off is
+  done: every `impulse add` starts from a clean working tree.
+- The last line adds a Google method to the `staff` auth, registered under the name
+  `google`. `--slot any-workspace` registers it as wide as any organization, so every
+  tenant's organization can sign in through it. `--authority application` has the
+  application give the roles. For Microsoft the line is
+  `impulse add method staff azure --slot any --authority application`, and an invitation
+  is then accepted with Microsoft only where the sign-in carries the person's address, as
+  [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
+  describes.
 
-`impulse audit` then prints, in the auth's block:
+`impulse audit` then prints, in the auth's block, the line that says a person belongs to
+one tenant, as in shape 5, and:
 
 ```text
     shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the google method). Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page.
@@ -870,13 +965,13 @@ impulse add method staff google --slot any-workspace --authority application
 
 Staff then invite each tenant's first administrator. That person signs in with their
 organization's Google account, which makes the tenant and makes their Workspace its
-directory, and opens the tenant to its directory on the tenant's Sign-in page.
+directory. They then open the tenant to its directory on the tenant's Sign-in page.
 
 ## With tenants, several tenants per person
 
 A person has one account for the whole application. They can be in several tenants, with
-a different role in each. Think of three boxes, with two people who sit in two boxes at
-once.
+a different role in each. Think of three tenants as three boxes, with two people who
+each sit in two boxes at once.
 
 This is an application with tenants as `impulse new --tenancy` and `impulse add tenancy`
 write it: no auth passes `identity.WithOneTenantPerPerson()`.
@@ -951,35 +1046,40 @@ impulse new ./depot --module example.com/depot --auth staff --shape global-users
 | Another identity provider | Can be used |
 | Single sign-on | Not released yet |
 
-Any method, the same for every tenant.
+Any method can be used, and the methods are the same for every tenant.
 
 A tenant has at most one directory, and a directory belongs to one tenant only. So a
 method that is one organization's, or another identity provider, lets one tenant have a
 directory, and the list width lets the organizations on the list have one. A method as
-wide as any organization lets every tenant choose. The other tenants are invite only,
-which is ordinary in this shape.
+wide as any organization lets every tenant choose. A tenant that has no directory is
+invite only, which is ordinary in this shape.
 
 A person is given the directory's default role at their first sign-in through the
 directory, whether their account is created then or existed before, unless they already
-hold a role in the tenant. A role the tenant's administrator took away afterwards is not
-given back by signing in.
+hold a role in the tenant. A later sign-in gives nothing: a role the tenant's
+administrator took away afterward is not given back while the person still has their
+account. Taking away the last role a person holds anywhere deletes the account, and
+their next sign-in through the directory is then a first one again.
 
 ```sh
 impulse add tenancy --shape global-users-each-tenant-chooses
+git commit -m "Tenants"
 impulse add method staff google --slot any-workspace --authority application
 ```
 
 - The first line, run in the directory of an application without tenants, gives it
   tenants. A person can be in several.
-- Commit the first line's change before the second line: every `impulse add` starts from
-  a clean working tree.
-- The second line adds a Google method to the auth named `staff`, registered under the
+- The second line commits the first line's change, once what that command handed off is
+  done: every `impulse add` starts from a clean working tree.
+- The last line adds a Google method to the auth named `staff`, registered under the
   name `google`. `--slot any-workspace` registers it as wide as any organization, so
   every tenant's organization can sign in through it. `--authority application` has the
   application give the roles. For Microsoft the line is
-  `impulse add method staff azure --slot any --authority application`.
+  `impulse add method staff azure --slot any --authority application`, with the same
+  note on invitations as in shape 6.
 
-`impulse audit` prints, in the auth's block:
+`impulse audit` prints, in the auth's block, the line that says a person can be in
+several tenants, as in shape 7, and:
 
 ```text
     shape: 8 Global users, each tenant chooses. A tenant's people can come through its organization's directory (the google method). Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page.

@@ -651,7 +651,7 @@ also says whether a person belongs to one tenant or can be in several.
 ```text
 sign-in
   staff (pkg/auth/staff)
-    password (pkg/auth/staff/password.go:65): admits anyone with an email address; the application gives the roles; invite only until an administrator opens it to sign-up on the Sign-in page, which is chosen while the application runs
+    password (pkg/auth/staff/password.go:81): admits anyone with an email address; the application gives the roles; invite only until an administrator opens it to sign-up on the Sign-in page, which is chosen while the application runs
     shape: 1 Invite only. It starts so, and stays so until an administrator opens a method to sign-up on the Sign-in page, which is chosen while the application runs: opening password makes it 4 Open sign-up.
   the application
     tenants: none
@@ -679,8 +679,11 @@ directory where the tenant record declares directories (a record annotated
 application gives; what a tenant then does with its directory is the tenant's choice,
 made while the application runs. An auth outside the eight (a directory that gives the
 roles in an application with tenants, or beside another method; a method whose authority
-is not read) reads `no named shape`. That is no error: nothing in the framework acts on a
-shape's name, and `impulse check` refuses nothing for it. The `--shape` flag of
+is not read) reads `no named shape`. That is no error in itself: nothing in the framework
+acts on a shape's name, and no check of `impulse check` reads one. One of those auths is
+refused for its own reason: a directory that gives the roles beside another method fails
+`impulse check` (`auths-wired`), and the session library refuses the registration when
+the application starts. The `--shape` flag of
 `impulse new`, `impulse add tenancy`, `impulse add auth` and `impulse add method` starts
 an application from a shape by its name or its number (`--shape
 global-users-each-tenant-chooses` or `--shape 8`), and this section is where the result is
