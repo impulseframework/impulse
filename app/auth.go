@@ -240,7 +240,7 @@ func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.Fil
 			m.Tenants, m.PersonalAccounts = readTenants(configField(cfg, "Tenants"), body, local, f)
 		}
 		if kind == MethodGoogle {
-			m.Workspaces, m.GoogleAccounts, m.SeveralDomains = readWorkspaces(configField(cfg, "Workspaces"), body, local, f)
+			m.Workspaces, m.GoogleAccounts = readWorkspaces(configField(cfg, "Workspaces"), body, local, f)
 		}
 		if kind == MethodPersona {
 			m.Kind = oidcKind(cfg)
@@ -428,16 +428,11 @@ func readTenants(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.Fi
 // (Workspaces: google.AnyGoogleAccount(), or a name it assigned such a value). A
 // Workspace reached inside a loop counts as several, and Attesting() on a block keeps its
 // shape. A slot written any other way (a method of the settings, a value built in
-// another file) is not read, and all three are empty.
-//
-// severalDomains says a Workspace the slot names was given more than one domain, or a
-// spread of them. It is told apart from the shape and changes nothing of it: one
-// Workspace of two domains is one Workspace (WorkspacesOne), and it is several
-// organizations to the sign-in rule, which lists a Workspace by each of its domains
-// (signin.Audience.OneOrganization).
-func readWorkspaces(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.File) (workspaces string, accounts, severalDomains bool) {
+// another file) is not read, and both are empty. A Workspace is counted once however
+// many domains it is given.
+func readWorkspaces(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.File) (workspaces string, accounts bool) {
 	if slot == nil {
-		return "", false, false
+		return "", false
 	}
 	var s tenantShape
 	if fn := slotFunction(slot, body, f); fn != nil && fn.Body != nil {
@@ -454,15 +449,15 @@ func readWorkspaces(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast
 	}
 	switch {
 	case s.any:
-		return WorkspacesAny, s.personal, s.domains
+		return WorkspacesAny, s.personal
 	case s.several || s.listed > 1:
-		return WorkspacesListed, s.personal, s.domains
+		return WorkspacesListed, s.personal
 	case s.listed == 1:
-		return WorkspacesOne, s.personal, s.domains
+		return WorkspacesOne, s.personal
 	case s.personal:
-		return WorkspacesAccounts, true, false
+		return WorkspacesAccounts, true
 	default:
-		return "", false, false
+		return "", false
 	}
 }
 
@@ -508,34 +503,28 @@ func fileFunction(f *ast.File, name string) *ast.FuncDecl {
 // tenantShape is what the scan reads of an organization slot: how many organizations it
 // lists outside loops, whether it lists organizations inside one, whether it admits any
 // organization, or the accounts outside every organization (Microsoft personal accounts,
-// any Google account), and whether a block that lists one organization was given several
-// domains for it (a Google Workspace of more than one domain).
+// any Google account).
 type tenantShape struct {
 	listed   int
 	several  bool
 	any      bool
 	personal bool
-	domains  bool
 }
 
 // slotBlocks names the building blocks a directory method's package makes an
 // organization slot of: the ones that list one organization each, the one that admits
 // any organization, and the one that admits the accounts outside every organization.
-// domains names the listed block that takes the organization's name and then its
-// domains, one or more ("" where the package has none): given more than one, or a
-// spread of them, the block still lists one organization, and the shape notes it.
 type slotBlocks struct {
 	listed   []string
 	any      string
 	accounts string
-	domains  string
 }
 
 // The building blocks of a Microsoft registration's Tenants slot and of a Google
 // registration's Workspaces slot.
 var (
-	azureBlocks  = slotBlocks{listed: []string{"Tenant", "NamedTenant"}, any: "AnyTenant", accounts: "PersonalAccounts", domains: ""}
-	googleBlocks = slotBlocks{listed: []string{"Workspace"}, any: "AnyWorkspace", accounts: "AnyGoogleAccount", domains: "Workspace"}
+	azureBlocks  = slotBlocks{listed: []string{"Tenant", "NamedTenant"}, any: "AnyTenant", accounts: "PersonalAccounts"}
+	googleBlocks = slotBlocks{listed: []string{"Workspace"}, any: "AnyWorkspace", accounts: "AnyGoogleAccount"}
 )
 
 // collectTenantBlocks adds the method package's building blocks under n to the shape: a
@@ -561,10 +550,6 @@ func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File,
 						s.several = true
 					} else {
 						s.listed++
-					}
-					// The name, then the domains: more than one, or a spread of them.
-					if name == blocks.domains && (len(e.Args) > 2 || e.Ellipsis.IsValid()) {
-						s.domains = true
 					}
 				case name == blocks.any:
 					s.any = true

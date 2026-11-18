@@ -13,7 +13,6 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
-	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -288,52 +287,6 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			}
 			if engine.changed != tt.wantChanged {
 				t.Errorf("the engine was told the policy changed %d time(s), want %d", engine.changed, tt.wantChanged)
-			}
-		})
-	}
-}
-
-// TestManager_DirectorySeated_seeded pins the manager's word on the deployment's own
-// seed: the account whose id is the one a seed derives for the auth's name, the
-// registration the person comes through and the username it carries
-// (session.SeedUserIDThrough) is recognized for that registration, and for no other.
-// The session library links such an account on its name at its person's first sign-in
-// through a registration of one organization: the first administrator of an auth whose
-// people sign in through a directory, whom no tenant's directory vouches for. An
-// account under any other id is nobody's seed here: one an administrator created, one
-// seeded for no registration (session.SeedUserID), one seeded in another auth, and one
-// renamed since, whose id is the old name's.
-func TestManager_DirectorySeated_seeded(t *testing.T) {
-	t.Parallel()
-
-	const name = "first.admin@operator.example"
-	m, _ := newManager(t, &fakeStore{}, engineRoles)
-	seeded := m.DirectorySeated("Staff").Seeded
-	if seeded == nil {
-		t.Fatal("DirectorySeated() answers no Seeded: the first administrator of an auth whose people sign in through a directory could never sign in")
-	}
-
-	tests := []struct {
-		name         string
-		id           impulse.UUID
-		username     string
-		registration string
-		want         bool
-	}{
-		{name: "the account the seed made for the registration", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: name, registration: "directory", want: true},
-		{name: "its username in another case is the same name", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: "First.Admin@Operator.example", registration: "directory", want: true},
-		{name: "a sign-in through another registration of the auth", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: name, registration: "okta"},
-		{name: "an account seeded for no registration", id: session.SeedUserID(managedAuth, name), username: name, registration: "directory"},
-		{name: "an account seeded in another auth", id: session.SeedUserIDThrough("another", "directory", name), username: name, registration: "directory"},
-		{name: "an account an administrator created, under a generated id", id: impulse.Must(impulse.NewUUID()), username: name, registration: "directory"},
-		{name: "the seed's account renamed since: its id is the old name's", id: session.SeedUserIDThrough(managedAuth, "directory", name), username: "someone.else@operator.example", registration: "directory"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := seeded(tt.id, tt.username, tt.registration); got != tt.want {
-				t.Errorf("Seeded(%s, %q, %q) = %v, want %v", tt.id, tt.username, tt.registration, got, tt.want)
 			}
 		})
 	}

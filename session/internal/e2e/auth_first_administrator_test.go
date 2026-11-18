@@ -228,6 +228,10 @@ func runFirstAdministratorSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamFirstAdministratorChangedAddress[Tx],
 		},
 		{
+			name: "an account came to be before the invited person accepted, and the address changed: nobody is invited, and the link mailed to the address taken back no longer opens",
+			run:  seamFirstAdministratorTakenBack[Tx],
+		},
+		{
 			name: "the operations action mails a fresh invitation and the earlier link no longer opens; it refuses once the Auth has an account",
 			run:  seamFirstAdministratorSentAgain[Tx],
 		},
@@ -403,6 +407,50 @@ func seamFirstAdministratorChangedAddress[Tx any](ctx context.Context, t *testin
 	standing := a.standingInvitations(ctx, t)
 	if len(standing) != 1 || standing[0].Email != firstAdministrator {
 		t.Errorf("standing invitations = %+v, want the one to %s", standing, firstAdministrator)
+	}
+}
+
+// seamFirstAdministratorTakenBack is the scenario "an account came to be before the
+// invited person accepted, and the address changed": a test environment's seed creates
+// accounts in the release that invites, so the next release finds an account and
+// invites nobody, and a link mailed to an address the deployment took back must not
+// stay open until it runs out.
+func seamFirstAdministratorTakenBack[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newFirstAdministratorApp(ctx, t, be, firstAdministratorShape{workspaces: lakesideAlone()})
+
+	a.release(ctx, t, sameDirectory)
+	old := lastInvitationToken(t, a.mail)
+	if _, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "a-seeded-persona"}); err != nil {
+		t.Fatalf("CreateSessionUser() error = %v", err)
+	}
+
+	// A release that still names the address leaves its invitation to be accepted.
+	same := a.release(ctx, t, sameDirectory)
+	if same.Outcome != session.FirstAdministratorHasAccount || len(same.Withdrawn) != 0 {
+		t.Errorf("the release naming the same address, once an account exists = %+v, want nobody invited and nothing withdrawn", same)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	if status := a.open(ctx, b, old); status != http.StatusOK {
+		t.Errorf("opening the invitation to the address still named = %d, want 200", status)
+	}
+
+	// The address changes: nobody is invited, and the old link is dead.
+	changed := a.release(ctx, t, firstAdministrator)
+	if changed.Outcome != session.FirstAdministratorHasAccount {
+		t.Errorf("the release naming another address, once an account exists = %+v, want nobody invited", changed)
+	}
+	if diff := cmp.Diff([]string{sameDirectory}, changed.Withdrawn); diff != "" {
+		t.Errorf("the addresses whose invitations were withdrawn (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{sameDirectory}, a.mailed()); diff != "" {
+		t.Errorf("addresses mailed (-want +got):\n%s", diff)
+	}
+	if status := a.open(ctx, b, old); status != http.StatusNotFound {
+		t.Errorf("opening the invitation mailed to the address taken back = %d, want 404", status)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations = %+v, want none", standing)
 	}
 }
 
