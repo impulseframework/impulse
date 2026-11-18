@@ -51,13 +51,13 @@ describe('MenuDrawerComponent', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(MenuDrawerComponent);
     fixture.componentRef.setInput('menus', menus);
-    fixture.componentRef.setInput('name', 'Redgrade');
+    fixture.componentRef.setInput('name', 'Lodestar');
     fixture.detectChanges();
   });
 
   it('opens on the menus, under its own bar with the name and the close button', () => {
     expect(inView()).toEqual(['Records', 'Help']);
-    expect(element().querySelector('.top .name')?.textContent).toBe('Redgrade');
+    expect(element().querySelector('.top .name')?.textContent).toBe('Lodestar');
     expect(element().querySelector('.top button.close')).not.toBeNull();
   });
 
