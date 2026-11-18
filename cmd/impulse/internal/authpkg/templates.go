@@ -743,9 +743,8 @@ func (h *Handlers) PasswordRemove() http.HandlerFunc {
 
 // FirstPasswordSendCode mails the signed-in person who has no password, because they
 // have only ever signed in through a directory, the code they choose their first one
-// with, at the address their account holds confirmed. A person at a browser someone
-// else left signed in does not read that mailbox, so they add no password to the
-// account.
+// with, at the address their account holds confirmed. Whoever asks must read that
+// mailbox to finish, so the password is tied to it.
 func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
 	return h.FirstPassword().SendCode()
 }

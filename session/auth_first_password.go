@@ -23,9 +23,11 @@ import (
 // holds no password, and the change of a password asks for the old one, so they could
 // never give themselves one. FirstPassword() is how they do: signed in, they ask for a
 // code, which is mailed to the address their account holds confirmed, and they choose
-// the password with the code. The code is what keeps someone at a browser the person
-// left signed in from adding a password to the account: that person does not read the
-// mailbox. It is the only way to a first password a person has; an account that holds
+// the password with the code. The code ties the password to that mailbox: whoever asks
+// must read it to finish, and a code counts only while the address it was mailed to is
+// still the one the account holds confirmed. It is as strong as that address is, which
+// a signed-in person replaces with a link mailed to the new one (Email()). It is the
+// only way to a first password a person has; an account that holds
 // a password changes it with the old one (PasswordMethod.ChangeUserPassword), and an
 // administrator's reset is AuthAPI.ResetSessionUserPassword. See "A person's first
 // password" in the README.
@@ -310,14 +312,17 @@ func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impul
 }
 
 // setFirstPassword gives userID the password they chose, on the code mailed for it. The
-// account is read again and held to what the code's request was held to, the password
-// to the rule a sign-up's is, and the code is ended before the password is written, so
-// one code writes one password; the store writes only while the account still holds
-// none.
+// account is read again and held to what the code's request was held to, a confirmed
+// address among it, the password to the rule a sign-up's is, and the code is ended
+// before the password is written, so one code writes one password; the store writes
+// only while the account still holds none.
 func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UUID, code, password string) error {
 	user, err := a.firstPasswordUser(ctx, userID)
 	if err != nil {
 		return err
+	}
+	if !user.EmailVerified() {
+		return errNoConfirmedAddress()
 	}
 	if err := acceptedPassword(password); err != nil {
 		return err
@@ -325,7 +330,7 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 	if err := a.firstPasswordHeld(ctx, user.ID); err != nil {
 		return err
 	}
-	standing, err := a.proveFirstPasswordCode(ctx, user.ID, code)
+	standing, err := a.proveFirstPasswordCode(ctx, user.ID, *user.Email, code)
 	if err != nil {
 		return err
 	}
@@ -357,8 +362,10 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 // account (firstPasswordAttempts), and the one that reaches the limit ends the code
 // that stands and is answered with too_many_attempts and the wait. A code entered while
 // none stands is errFirstPasswordCodeDead, and so is one that another request used
-// first.
-func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impulse.UUID, code string) (*sessionstorage.MailLink, error) {
+// first. A code counts for the mailbox it was sent to: confirmed is the address the
+// account holds confirmed now, and a code mailed to another, one the account held when
+// it asked and has replaced since, is ended and dead, whatever was entered.
+func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impulse.UUID, confirmed, code string) (*sessionstorage.MailLink, error) {
 	codes, err := a.firstPasswordCodes(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -368,6 +375,13 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 	}
 	// The newest is the one the person was sent last.
 	standing := codes[len(codes)-1]
+	if !strings.EqualFold(standing.Email, confirmed) {
+		if err := a.endFirstPasswordCodes(ctx, codes); err != nil {
+			return nil, err
+		}
+
+		return nil, errFirstPasswordCodeDead()
+	}
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
 	if subtle.ConstantTimeCompare(standing.TokenHash, hashFirstPasswordCode(userID, standing.ExpiresAt, code)) != 1 {
 		record, err := a.storage.RecordSignInFailure(ctx, firstPasswordKey(userID), firstPasswordAttempts)

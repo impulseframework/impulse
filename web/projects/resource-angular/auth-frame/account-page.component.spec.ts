@@ -429,7 +429,7 @@ describe('AccountPageComponent', () => {
     await open({ methods: choosing, means: signsInWith(false, true) });
     expect(text('.first-password h2')).toBe('Choose a password');
     expect(text('.first-password p')).toBe(
-      'You have no password here. To choose one, ask for a code first: we email it to the address on your account, so nobody else at this browser can add a password for you.',
+      'You have no password here. To choose one, ask for a code first: we email it to the address on your account.',
     );
     expect(text('button.first-code')).toBe('Email me a code');
     // Nothing is typed until a code is on its way.

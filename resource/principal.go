@@ -245,7 +245,10 @@ func (p rosterPermissions) Reaches(ctx context.Context, domain accesstypes.Domai
 // tenant's. One value serves one request, so a tenant's declaration is read
 // once, the super administrator question asked once and the tenant
 // administrator question once for a tenant, whatever is asked about the tenant
-// after; the next request asks again.
+// after; the next request asks again. The session's tenant list alone asks
+// once more of a tenant that is closed to a password session, to tell the
+// tenant's own administrator that the code is all that is missing
+// (opensWithSecondFactor).
 type admittedPermissions struct {
 	UserPermissionChecker
 	declarations TenantDeclarations
@@ -322,6 +325,36 @@ func (a *admittedPermissions) administratorsWayIn(ctx context.Context, declarati
 	}
 
 	return declaration.AdmitsAdministrator(a.establishment.Method, a.secondFactor, administers), nil
+}
+
+// opensWithSecondFactor answers whether the tenant's declaration would admit the
+// session by the administrators' way in had the session a second factor, which it
+// does not carry: a tenant that is directory only, a session established with a
+// password, and an actor who administers the tenant. The decision is the one Reaches
+// asks (signin.TenantDeclaration.AdmitsAdministrator), with the factor taken as given,
+// so what the tenant list tells the person and what a sign-in with the code then
+// reaches cannot disagree. A session that carries a second factor is answered no: the
+// factor is not what keeps it out.
+func (a *admittedPermissions) opensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.foreignActor || a.secondFactor {
+		return false, nil
+	}
+	declaration, err := a.declarations(ctx, domain)
+	if err != nil {
+		return false, errors.Wrapf(err, "resource.TenantDeclarations(%q)", domain)
+	}
+	if !declaration.AdmitsAdministrator(a.establishment.Method, true, true) {
+		return false, nil
+	}
+	administers, err := a.actor().AdministersTenant(ctx, domain)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.SessionUserChecker.AdministersTenant()")
+	}
+
+	return declaration.AdmitsAdministrator(a.establishment.Method, true, administers), nil
 }
 
 // actorIsSuperAdministrator answers, once per value, whether the session's actor

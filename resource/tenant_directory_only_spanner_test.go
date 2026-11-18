@@ -310,7 +310,7 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 	t.Run("turning it on is refused until the caller has a password, where their auth has passwords", func(t *testing.T) {
 		t.Parallel()
 
-		const noPassword = "Directory only is turned on by a person who has a password: an administrator of this station enters it with a password and a code sent to their email, and that is your way back in if the directory has a problem. Choose a password on Your account first, then try again."
+		const noPassword = "Directory only is turned on by a person who has a password: an administrator of this station enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again."
 		answers := func(has, applies bool) CallerPassword {
 			return func(context.Context, ReadWriteTransaction) (bool, bool, error) {
 				return has, applies, nil

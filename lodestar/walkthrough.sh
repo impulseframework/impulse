@@ -1038,7 +1038,7 @@ r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role
 # refuse him until he chooses a password on Your account: a code is mailed to his
 # confirmed address (the log, in development) and sets the password. No password is set
 # without the code, and an account that has one is refused the code.
-NO_PASSWORD='Directory only is turned on by a person who has a password: an administrator of this sector enters it with a password and a code sent to their email, and that is your way back in if the directory has a problem. Choose a password on Your account first, then try again.'
+NO_PASSWORD='Directory only is turned on by a person who has a password: an administrator of this sector enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again.'
 r=$(warning rookie "$MAKE_ONLY" '{}'); check "the rookie, Bastion's marshal and signed in through its directory, asks what turning it on would do, and is refused: he has no password" 409 "$r"
 assert_py "in a sentence that says why, and what to do" "$r" "rows['message']==\"$NO_PASSWORD\""
 r=$(dryrun rookie POST "$MAKE_ONLY" '{}'); check "the dry run is refused the same way" 409 "$r"

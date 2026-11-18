@@ -18,9 +18,18 @@ type closedDomainLister interface {
 	ClosedDomains(ctx context.Context) ([]accesstypes.Domain, error)
 }
 
+// secondFactorOpener is what the permissions SessionPermissions composes answer about
+// a tenant that is closed to the session: whether it would open by the administrators'
+// way in, had the session a second factor. opensWithSecondFactor asks it.
+type secondFactorOpener interface {
+	OpensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error)
+}
+
 var (
 	_ closedDomainLister = rosterPermissions{}
 	_ closedDomainLister = (*maskedPermissions)(nil)
+	_ secondFactorOpener = rosterPermissions{}
+	_ secondFactorOpener = (*maskedPermissions)(nil)
 )
 
 // ClosedDomains lists the tenants that are closed to this session: the domains of the
@@ -91,12 +100,61 @@ func (m *maskedPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Do
 	return ClosedDomains(ctx, m.UserPermissions)
 }
 
+// opensWithSecondFactor reports whether domain, a tenant closed to the session, would
+// open to it by the administrators' way in had the session a second factor: the
+// session's own person administers the tenant and signed in with a password, and only
+// the code is missing. The permissions SessionPermissions composes answer it, for a
+// person's own sign-in; any other UserPermissions answer no.
+func opensWithSecondFactor(ctx context.Context, perms UserPermissions, domain accesstypes.Domain) (bool, error) {
+	opener, ok := perms.(secondFactorOpener)
+	if !ok {
+		return false, nil
+	}
+	opens, err := opener.OpensWithSecondFactor(ctx, domain)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.opensWithSecondFactor()")
+	}
+
+	return opens, nil
+}
+
+// OpensWithSecondFactor reports whether domain would open to the session by the
+// administrators' way in had the session a second factor (admittedPermissions): no for
+// a session that is not a person's own sign-in, which is told of no closed tenant, and
+// in an application that keeps no declarations.
+func (p rosterPermissions) OpensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	if p.admission == nil || !p.ownSignIn {
+		return false, nil
+	}
+
+	return p.admission.opensWithSecondFactor(ctx, domain)
+}
+
+// OpensWithSecondFactor passes through, as ClosedDomains does.
+func (m *maskedPermissions) OpensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	return opensWithSecondFactor(ctx, m.UserPermissions, domain)
+}
+
+// administratorsWaySentence is the last sentence of a tenant's closed reason for the
+// tenant's own administrator whose password session carries no second factor: the way
+// in they hold, and what to do to take it. A sign-in of theirs with the password is
+// held for the code (signin.TenantPolicy), and the session it makes enters the tenant.
+const administratorsWaySentence = "As one of its administrators you can still enter it: sign out, then sign in again with your password and the code we email you."
+
 // closedReason is the sentence the session's tenant list gives for a tenant that is
 // closed to the session: what the tenant admits, and how this session was established.
 // name is the tenant's name as the list shows it, and namers say what the application's
-// sign-in registrations call the directory the session came through.
-func closedReason(name string, session *sessioninfo.SessionData, namers []DirectoryNamer) string {
-	return fmt.Sprintf("%s admits only people who sign in through its own directory. %s", name, establishedSentence(session, namers))
+// sign-in registrations call the directory the session came through. administrator
+// says the tenant would open to the person by the administrators' way in had the
+// session a second factor (opensWithSecondFactor), and the reason then ends with what
+// to do.
+func closedReason(name string, session *sessioninfo.SessionData, namers []DirectoryNamer, administrator bool) string {
+	reason := fmt.Sprintf("%s admits only people who sign in through its own directory. %s", name, establishedSentence(session, namers))
+	if administrator {
+		reason += " " + administratorsWaySentence
+	}
+
+	return reason
 }
 
 // establishedSentence says how a session was established, to the person whose session

@@ -420,7 +420,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// directory-only tenant enters it with a password and a code sent to their email,
 	// and that is the way back in if the directory has a problem. The warning and the
 	// method refuse in the same words, which say what to do, and nothing is written.
-	noPassword := "Directory only is turned on by a person who has a password: an administrator of this tenant enters it with a password and a code sent to their email, and that is your way back in if the directory has a problem. Choose a password on Your account first, then try again."
+	noPassword := "Directory only is turned on by a person who has a password: an administrator of this tenant enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again."
 	if status, body := warns(organizer, north); status != http.StatusConflict || !strings.Contains(string(body), noPassword) {
 		t.Errorf("asking what directory only would do to north as the organizer, who has no password: status %d, want 409 saying %q: %s", status, noPassword, body)
 	}

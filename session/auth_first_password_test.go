@@ -95,6 +95,7 @@ func TestAuth_FirstPassword(t *testing.T) {
 	t.Run("a new code replaces the one that stood, and a code writes one password", firstPasswordCase8)
 	t.Run("a mailbox is sent five codes it does not use, then refused", firstPasswordCase9)
 	t.Run("an Auth that records no auth events writes the password and records none; an Auth without mail has no first password handlers", firstPasswordCase10)
+	t.Run("a code counts for the mailbox it was mailed to: once the account's confirmed address is another, or none, it writes no password", firstPasswordCase11)
 }
 
 func firstPasswordCase1(t *testing.T) {
@@ -441,6 +442,57 @@ func firstPasswordCase10(t *testing.T) {
 // TestAuth_Methods_firstPassword pins the routes the account page is told: the paths of
 // the first password handlers where the list names them, nothing where it does not,
 // and a wiring mistake refused where the routes are wired.
+func firstPasswordCase11(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		// change is what happens to the account between the code and the password.
+		change   func(user *sessionstorage.SessionUser)
+		wantSays string
+		// wantEnded says the code is ended by the refusal.
+		wantEnded bool
+	}{
+		{
+			name: "the confirmed address was replaced after the code was mailed: the code is ended",
+			change: func(user *sessionstorage.SessionUser) {
+				user.Email = strPtr("elsewhere@lakeside.edu")
+			},
+			wantSays:  "Ask for a new one",
+			wantEnded: true,
+		},
+		{
+			name: "the address is no longer confirmed: the account is told to confirm one",
+			change: func(user *sessionstorage.SessionUser) {
+				user.EmailVerifiedAt = nil
+			},
+			wantSays: "no confirmed email address",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			userID, sessionID := newIDs()
+			f, recorder, links := newMailFixture(t, gomock.NewController(t))
+			user := directoryPerson(userID)
+			f.expectSession(sessionID, user)
+			written := expectFirstPassword(f, user)
+
+			code := sendFirstPasswordCode(t, f, recorder, sessionID)
+			tt.change(user)
+			rr := f.asUser(f.auth.FirstPassword().Set(), sessionID, map[string]string{"code": code, "password": chosenPassword}, nil)
+			if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), tt.wantSays) {
+				t.Errorf("Set() with the code mailed before the change = %d %s, want 409 saying %q", rr.Code, rr.Body.String(), tt.wantSays)
+			}
+			if *written != 0 || user.PasswordHash != nil {
+				t.Errorf("%d passwords were written, want none: the code was mailed to an address the account does not hold confirmed", *written)
+			}
+			if ended := links.last(t).ConsumedAt != nil; ended != tt.wantEnded {
+				t.Errorf("the code is ended = %t, want %t", ended, tt.wantEnded)
+			}
+		})
+	}
+}
+
 func TestAuth_Methods_firstPassword(t *testing.T) {
 	t.Parallel()
 

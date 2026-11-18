@@ -459,8 +459,7 @@ func (h *Handlers) PasswordRemove() http.HandlerFunc {
 // first one with, at the address their login holds confirmed (no body in). It is how a
 // sector's marshal who came in through the directory gets the password a directory-only
 // sector asks of whoever turns the switch on, and keeps a way in if the directory fails.
-// A person at a browser someone else left signed in does not read that mailbox, so they
-// add no password to the login.
+// Whoever asks must read that mailbox to finish, so the password is tied to it.
 //
 // Demonstrates: tenancy.directory-only.
 func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {

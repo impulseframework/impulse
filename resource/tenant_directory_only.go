@@ -376,7 +376,7 @@ func (r *TenantDirectoryRules) requirePassword(ctx context.Context, txn ReadWrit
 			return errors.Wrap(err, "resource.CallerPassword()")
 		}
 		if applies && !has {
-			return httpio.NewConflictMessagef("Directory only is turned on by a person who has a password: an administrator of this %[1]s enters it with a password and a code sent to their email, and that is your way back in if the directory has a problem. Choose a password on Your account first, then try again.", r.word)
+			return httpio.NewConflictMessagef("Directory only is turned on by a person who has a password: an administrator of this %[1]s enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again.", r.word)
 		}
 	}
 

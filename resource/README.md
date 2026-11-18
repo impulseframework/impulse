@@ -589,7 +589,15 @@ sign-in does not open the tenant. A session that came through another directory 
 which, in the words a person knows it by ("You signed in through Google Workspace
 north.example.", "You signed in through your organization's Microsoft directory."): the
 generated handler passes `WithDirectoryNames` with each auth's namer (section 16, "How a
-sentence names a directory"), and the reason never says a connection that is an id. Only a person's own sign-in is told so: a session that
+sentence names a directory"), and the reason never says a connection that is an id. The
+tenant's own administrator who signed in with a password, and whose session carries no
+second factor, is told the way in they hold: the reason ends "As one of its
+administrators you can still enter it: sign out, then sign in again with your password
+and the code we email you." It is asked of the same decision the reach is
+(`signin.TenantDeclaration.AdmitsAdministrator`), with the code taken as given, so the
+sentence and the next sign-in agree; such a session arises when the role, or the switch,
+came after the sign-in, and when a password change left the session without its code.
+Only a person's own sign-in is told so: a session that
 views the application as someone else, and one that acts as a role, are refused the
 tenant and are listed none closed. The browser library keeps a closed tenant out of the
 session's domains (`PermissionStore.domains`, so the tenant guard refuses it as it

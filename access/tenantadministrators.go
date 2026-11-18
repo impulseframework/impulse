@@ -160,10 +160,10 @@ func (c *Client) UserAdministersTenant(ctx context.Context, user accesstypes.Use
 }
 
 // TenantAdministratorRoles returns the roles the client was told administer a
-// tenant (WithTenantAdministratorRoles), none without the option. The identity
-// library holds the engine it is handed to the roles its auth names
-// (identity.New), so the sign-in, the session's reach and the lists of a
-// tenant's people are answered over one set of names.
+// tenant (WithTenantAdministratorRoles), none without the option. An auth's
+// generated identity client reads them here and hands them to the tenant's list
+// of its people, so the sign-in, the session's reach and the list are answered
+// over one set of names.
 func (c *Client) TenantAdministratorRoles() []accesstypes.Role {
 	return slices.Clone(c.tenantAdministrators)
 }

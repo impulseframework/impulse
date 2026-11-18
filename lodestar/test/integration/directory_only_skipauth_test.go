@@ -356,7 +356,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// problem. The warden signed in through Bastion's directory and has never had a
 	// password: the warning a page asks first, the dry run and the method are refused in
 	// the same words, which say what to do, and nothing is written.
-	noPassword := "Directory only is turned on by a person who has a password: an administrator of this sector enters it with a password and a code sent to their email, and that is your way back in if the directory has a problem. Choose a password on Your account first, then try again."
+	noPassword := "Directory only is turned on by a person who has a password: an administrator of this sector enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again."
 	rehearses := func(b *browser, sector string) (int, []byte) {
 		res := b.doWith(ctx, http.MethodPost, sectorPath(sector, method[true]), []byte(`{}`), map[string]string{"X-Dry-Run": "true"})
 		defer res.Body.Close()

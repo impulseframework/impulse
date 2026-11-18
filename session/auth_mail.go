@@ -285,9 +285,8 @@ Nobody from %s will ask you for it. Don't share it.
 
 // firstPasswordMessage is the mail that carries the code of a person's first password:
 // the code, where to enter it and how long it is good for (lifetime), then what to do
-// if they did not ask, which is what the code is for: someone at a browser they left
-// signed in asked, and without the code nothing changes. The code is spaced in the
-// middle for reading.
+// if they did not ask: someone at a browser they left signed in asked, and without the
+// code nothing changes. The code is spaced in the middle for reading.
 func (m *mailSettings) firstPasswordMessage(to, code string, lifetime time.Duration) mail.Message {
 	app := m.settings.Application
 	spaced := code

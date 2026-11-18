@@ -583,8 +583,8 @@ it has no confirmed address for the code to go to, the mailbox was sent too many
 not use). `setFirstPassword(code, password)` posts the code and the password to the second:
 `set`, after which the password signs the person in and the session they hold continues, or
 `refused` with the server's words (the code is not the one sent, it expired, the password is
-too short, or too many wrong codes were entered, a 429 with the wait). The code is what keeps
-someone at a browser the person left signed in from adding a password to the account. A
+too short, or too many wrong codes were entered, a 429 with the wait). The code ties the
+password to the mailbox the account holds confirmed: whoever asks must read it to finish. A
 server whose list names no such paths serves none, and both calls throw saying so.
 
 A page offers the removal only where it can happen. Where the methods list names

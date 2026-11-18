@@ -19,7 +19,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
 - `Open to sign-up, or invite only`: whether a person with no account and no invitation may sign in is one choice an administrator makes in the running application, for each sign-in method, kept in a table of the auth; every method is invite only until it is opened, and an open method gives a new person its default role. See "Open to sign-up, or invite only" under the Auth session.
 - `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to (an account with no address, by the link), or carrying the tenant its acceptance makes, held to an organization's directory where the tenant is entered through its directory only; a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password while an administrator has the password method open to it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
-- `A person's first password`: a person who has only ever signed in through a directory chooses a password while signed in, with a code mailed to the address their account holds confirmed, so nobody at a browser they left signed in adds one for them. See "A person's first password".
+- `A person's first password`: a person who has only ever signed in through a directory chooses a password while signed in, with a code mailed to the address their account holds confirmed, so the password is tied to that mailbox. See "A person's first password".
 - `Mail`: one interface the invitation, verification, sign-up and sign-in code flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
@@ -1461,10 +1461,13 @@ change of a password asks for the old one, so they could never give themselves o
   sign-in code's lifetime, `WithEmailCodeTimeout`, ten minutes by default).
 - `Set()` accepts `{"code", "password"}` and writes the password.
 
-The code is the point of it: a person at a browser someone left signed in can ask for
-the code, and cannot read the mailbox it goes to, so they add no password to the
-account. The mail says so, and tells the owner to sign out of the browsers they do not
-use.
+The code ties the password to the mailbox the account holds confirmed: whoever asks must
+read that mailbox to finish, and a code counts only while the address it was mailed to is
+still the one the account holds confirmed. It is as strong as that address is: a
+signed-in person replaces their address with a link mailed to the new one (`Email()`,
+above), and a code asked for afterwards goes there. The mail says a code was asked for
+from a browser where the person is signed in, and tells them to sign out of the browsers
+they do not use.
 
 What is refused, and how:
 

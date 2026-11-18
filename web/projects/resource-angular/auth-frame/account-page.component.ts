@@ -48,9 +48,9 @@ export const nameMaxLength = 200;
  * A person who holds no password, because they have only ever signed in through a
  * directory, chooses one here where the server serves it: they ask for a code, which the
  * server mails to the address their account holds confirmed, and set the password with
- * the code. The code is what keeps someone at a browser the person left signed in from
- * adding a password to the account. The server's words are shown when it refuses, among
- * them that the account has no confirmed address yet, which the email section above adds.
+ * the code. The code ties the password to that mailbox: whoever asks must read it to
+ * finish. The server's words are shown when it refuses, among them that the account has
+ * no confirmed address yet, which the email section above adds.
  */
 @Component({
   selector: 'impulse-account-page',
@@ -107,8 +107,7 @@ export const nameMaxLength = 200;
         <section class="part first-password">
           <h2>Choose a password</h2>
           <p>
-            You have no password here. To choose one, ask for a code first: we email it to the address on your account,
-            so nobody else at this browser can add a password for you.
+            You have no password here. To choose one, ask for a code first: we email it to the address on your account.
           </p>
           <button
             mat-stroked-button

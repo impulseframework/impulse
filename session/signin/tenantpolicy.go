@@ -189,9 +189,11 @@ type tenantPolicy[Tx any] struct {
 //     (UserRoleManager.TenantsAdministered, TenantDeclaration.AdmitsAdministrator) is
 //     not refused, and the sign-in is held for the library's second factor, the code
 //     it mails (RequireMFA with sessioninfo.MethodEmailCode), whatever else would have
-//     admitted it and whatever the application's own rule asks of anyone: the session
-//     reaches that tenant only while it carries the factor, so the factor is asked at
-//     the sign-in. A browser the person asked to be remembered passes it, for the
+//     admitted it and though the application's own rule would hold nobody: the session
+//     reaches that tenant only while it carries a second factor, so one is asked at
+//     the sign-in. A rule chained after this one (Then) that holds the sign-in for a
+//     factor of its own has its hold stand in this one's place, and the session then
+//     carries that factor. A browser the person asked to be remembered passes it, for the
 //     period the library remembers one. Nobody but a super administrator and a
 //     tenant's own administrators, in their own tenant, enters a directory-only tenant
 //     another way than through its directory: a person who holds the administrator's
