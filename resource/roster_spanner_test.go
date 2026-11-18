@@ -490,6 +490,11 @@ func TestTenantRoster_stopsWithContext(t *testing.T) {
 	if !r.Has("alpha") {
 		t.Error("Has(alpha) = false after the context ended; the last set stays")
 	}
+	// The lookup found the copy past its backstop, and read nothing: the roster is kept
+	// current until the context ends and no longer.
+	if got := counting.reads.Load(); got != reads {
+		t.Errorf("reads after a lookup past the backstop, once the context ended = %d, want %d", got, reads)
+	}
 }
 
 // stationColumns names the declaration the roster tests' fixture carries: the

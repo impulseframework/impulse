@@ -28,7 +28,8 @@ const (
 // Signaler signals every instance of the application that a kind of shared state
 // changed: what a flip signals through. The live service implements it
 // (live.Signaler); a failure is the caller's to log and never fails the request, since
-// every subscriber also rereads at its own backstop.
+// every subscriber also holds its copy to its own backstop: no request is answered from
+// a copy older than that, signal or no signal.
 type Signaler interface {
 	Signal(ctx context.Context, kind SignalKind) error
 }

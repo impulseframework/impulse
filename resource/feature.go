@@ -14,6 +14,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/freshness"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/tracer"
@@ -64,9 +65,15 @@ const (
 
 // The numbers.
 const (
-	// FeatureBackstop is how often a FeatureSet rereads the table whether or not a
-	// signal arrived, so an instance that missed a signal is at most this far behind.
+	// FeatureBackstop is how old a followed FeatureSet's copy may be when a request is
+	// answered from it, and how often its loop rereads the table whether or not a signal
+	// arrived, so an instance that missed a signal, or got no CPU to hear one, is at
+	// most this far behind.
 	FeatureBackstop = 5 * time.Minute
+	// featureReadTimeout bounds one read of the table, so a database that does not
+	// answer holds the requests waiting on the read no longer than this before they are
+	// answered from the copy as it was.
+	featureReadTimeout = 10 * time.Second
 	// FeatureSignalTimeout bounds a flip's signal: past it the failure is logged and
 	// the request answers, since the other instances reload at their backstop.
 	FeatureSignalTimeout = 2 * time.Second
@@ -375,12 +382,34 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 
 // FeatureSet is one instance's copy of the FeatureFlags table: what the gated routes,
 // the decoders and the permission digest consult. LoadFeatures reads it once at start;
-// Follow keeps it current on the features signals and the backstop; Reload rereads it
-// now. A nil FeatureSet answers every flag off, so an application that wires none fails
-// closed on every gate. It is safe for concurrent use.
+// Follow keeps it current until its context ends; Reload rereads it now. A nil
+// FeatureSet answers every flag off, so an application that wires none fails closed on
+// every gate. It is safe for concurrent use.
+//
+// Once followed, the freshness is the request's own. A lookup that finds the copy older
+// than the backstop, or behind a features signal this instance received, rereads the
+// table before it answers, and one reread serves every request waiting at that moment; a
+// reread that fails is logged and the copy answers as it was. Follow's loop rereads on
+// every signal and at the backstop interval too, ahead of the requests, so on an
+// instance that is serving a lookup finds the copy fresh and reads nothing. Nothing
+// depends on the loop: an instance that got no CPU between requests answers its next
+// one from a read no older than the backstop.
 type FeatureSet struct {
 	db       Client
 	backstop time.Duration
+
+	// fresh decides, for every lookup, whether the table is reread before the lookup
+	// answers: from Follow until its context ends, when the copy is past the backstop
+	// or behind a signal. Nil in a set LoadFeatures did not build, which answers from
+	// what it holds.
+	fresh *freshness.Gate
+	// clock is the set's present: the wall clock outside a test.
+	clock func() time.Time
+	// logf logs a reread that failed: through the context's logger outside a test.
+	logf func(ctx context.Context, format string, v ...any)
+	// noLoop is a test's stand-in for an instance that gets no CPU between requests:
+	// Follow starts no loop, so nothing but a lookup rereads the table.
+	noLoop bool
 
 	mu    sync.RWMutex
 	flags map[Feature]FeatureFlag
@@ -389,7 +418,8 @@ type FeatureSet struct {
 // FeatureOption configures a FeatureSet at load.
 type FeatureOption func(*FeatureSet)
 
-// WithFeatureBackstop sets how often Follow rereads the table without a signal;
+// WithFeatureBackstop sets how old a followed copy may be when a request is answered
+// from it, which is also how often Follow's loop rereads the table without a signal;
 // FeatureBackstop by default. Tests shorten it.
 func WithFeatureBackstop(d time.Duration) FeatureOption {
 	return func(s *FeatureSet) {
@@ -397,15 +427,13 @@ func WithFeatureBackstop(d time.Duration) FeatureOption {
 	}
 }
 
-// LoadFeatures reads the FeatureFlags table into a FeatureSet.
+// LoadFeatures reads the FeatureFlags table into a FeatureSet. The copy stays as read
+// until Reload, and is kept current from Follow.
 func LoadFeatures(ctx context.Context, db Client, opts ...FeatureOption) (*FeatureSet, error) {
 	if db.DBType() != SpannerDBType {
 		return nil, errFeaturesUnsupportedDatabase
 	}
-	s := &FeatureSet{db: db, backstop: FeatureBackstop, flags: make(map[Feature]FeatureFlag)}
-	for _, opt := range opts {
-		opt(s)
-	}
+	s := newFeatureSet(db, opts...)
 	if err := s.Reload(ctx); err != nil {
 		return nil, err
 	}
@@ -413,12 +441,49 @@ func LoadFeatures(ctx context.Context, db Client, opts ...FeatureOption) (*Featu
 	return s, nil
 }
 
-// Reload rereads the table. A failed read leaves the copy as it was; a nil FeatureSet
+// newFeatureSet builds a FeatureSet over the database that holds no flag and has read
+// nothing.
+func newFeatureSet(db Client, opts ...FeatureOption) *FeatureSet {
+	s := &FeatureSet{db: db, backstop: FeatureBackstop, clock: time.Now, logf: logErrorf, flags: make(map[Feature]FeatureFlag)}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.fresh = freshness.New(s.load, s.backstop, featureReadTimeout, s.now, s.rereadFailed)
+
+	return s
+}
+
+// now is the set's present, read through clock at every call: a test sets the clock
+// after the set is loaded.
+func (s *FeatureSet) now() time.Time {
+	return s.clock()
+}
+
+// rereadFailed logs a reread the set made itself that failed: a lookup's or the loop's.
+// ctx is the one Follow was given.
+func (s *FeatureSet) rereadFailed(ctx context.Context, err error) {
+	s.logf(ctx, "feature flags: rereading the table failed; the copy stays as it was, and the next request rereads it: %v", err)
+}
+
+// Reload rereads the table now: what a flip's handler calls after its commit, so the
+// instance that flipped answers from the flip at once. It reads under ctx, the
+// caller's, so it is called after a commit and never inside a transaction. A failed
+// read leaves the copy as it was; a nil FeatureSet, and one LoadFeatures did not build,
 // has nothing to reread and says so.
 func (s *FeatureSet) Reload(ctx context.Context) error {
-	if s == nil {
+	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")
 	}
+	if err := s.fresh.Read(ctx); err != nil {
+		return errors.Wrap(err, "freshness.Gate.Read()")
+	}
+
+	return nil
+}
+
+// load is the set's one read of its table, made by fresh, one at a time: it reads the
+// flags and replaces the copy whole.
+func (s *FeatureSet) load(ctx context.Context) error {
 	txn := s.db.ReadOnlyTransaction()
 	defer txn.Close()
 
@@ -438,12 +503,22 @@ func (s *FeatureSet) Reload(ctx context.Context) error {
 	return nil
 }
 
+// freshen is what every lookup does first: it rereads the table when the copy is past
+// the backstop or behind a signal, in a set that is followed. A reread that failed was
+// logged, and the copy as it was answers.
+func (s *FeatureSet) freshen() {
+	if s.fresh != nil {
+		_ = s.fresh.Freshen()
+	}
+}
+
 // Enabled reports whether the flag is on. A flag the table does not hold, and every
 // flag of a nil FeatureSet, is off.
 func (s *FeatureSet) Enabled(name Feature) bool {
 	if s == nil {
 		return false
 	}
+	s.freshen()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -455,6 +530,7 @@ func (s *FeatureSet) Flag(name Feature) (FeatureFlag, bool) {
 	if s == nil {
 		return FeatureFlag{}, false
 	}
+	s.freshen()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	flag, ok := s.flags[name]
@@ -468,6 +544,7 @@ func (s *FeatureSet) EnabledNames() []string {
 	if s == nil {
 		return names
 	}
+	s.freshen()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for name, flag := range s.flags {
@@ -480,13 +557,17 @@ func (s *FeatureSet) EnabledNames() []string {
 	return names
 }
 
-// Follow keeps the copy current until ctx ends: it rereads the table on every signal
-// of KindFeatures the subscriber delivers, and at the backstop interval regardless, the
-// backstop being the correctness guard should a signal be missed. The subscriber is the
-// application's live service, which every application wires; nil is refused. A failed
-// reread is logged and the copy stays as it was until the next.
+// Follow keeps the copy current until ctx ends. From here a lookup that finds the copy
+// past the backstop, or behind a signal of KindFeatures, rereads the table before it
+// answers, under ctx and never under a request's context; and a goroutine does the same
+// ahead of the requests, on every signal the subscriber delivers and at the backstop
+// interval regardless. A signal is recorded the moment it arrives, before any reread is
+// tried, so a flip that was announced to this instance is never answered from the old
+// copy, whether or not the goroutine got to reread. The subscriber is the application's
+// live service, which every application wires; nil is refused. A failed reread is
+// logged and the copy stays as it was; the next request tries again.
 func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error {
-	if s == nil {
+	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")
 	}
 	if signals == nil {
@@ -494,6 +575,7 @@ func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error
 	}
 	wake := make(chan struct{}, 1)
 	stop, err := signals.Subscribe(KindFeatures, func() {
+		s.fresh.Nudge()
 		select {
 		case wake <- struct{}{}:
 		default:
@@ -502,12 +584,19 @@ func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error
 	if err != nil {
 		return errors.Wrap(err, "SignalSubscriber.Subscribe()")
 	}
+	s.fresh.Keep(ctx)
+	if s.noLoop {
+		context.AfterFunc(ctx, stop)
+
+		return nil
+	}
 	go s.follow(ctx, wake, stop)
 
 	return nil
 }
 
-// follow is Follow's loop.
+// follow is Follow's loop, an accelerator and nothing more: on every signal and every
+// backstop tick it asks for the reread a lookup would make, sooner, until ctx ends.
 func (s *FeatureSet) follow(ctx context.Context, signals <-chan struct{}, stop func()) {
 	defer stop()
 	ticker := time.NewTicker(s.backstop)
@@ -517,11 +606,14 @@ func (s *FeatureSet) follow(ctx context.Context, signals <-chan struct{}, stop f
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// The tick asks for a reread as a signal does, so the loop rereads as the
+			// backstop ends and not the request that would find it ended.
+			s.fresh.Nudge()
 		case <-signals:
+			// The subscription recorded the signal as it arrived.
 		}
-		if err := s.Reload(ctx); err != nil && ctx.Err() == nil {
-			logger.FromCtx(ctx).Errorf("feature flags: rereading the table failed; the copy stays as it was until the next signal or the backstop: %v", err)
-		}
+		// A failure was logged where it happened (rereadFailed).
+		s.freshen()
 	}
 }
 
