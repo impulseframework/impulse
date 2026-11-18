@@ -286,8 +286,10 @@ func Test_snapshotEngine_idleInstance_hint(t *testing.T) {
 }
 
 // Test_snapshotEngine_idleInstance_failedRead pins a store read that fails on the
-// check's path: it is reported, the last good snapshot answers, and the next check
-// past the bound tries the store again.
+// check's path: it is reported, the last good snapshot answers, the checks that come
+// in the pause after it are answered from that snapshot with no read and no report,
+// whatever is announced meanwhile, and the first check after the pause tries the store
+// again.
 func Test_snapshotEngine_idleInstance_failedRead(t *testing.T) {
 	t.Parallel()
 
@@ -301,19 +303,44 @@ func Test_snapshotEngine_idleInstance_failedRead(t *testing.T) {
 	clock.advance(idleBound + time.Second)
 
 	steps := []struct {
-		name         string
+		name string
+		// wait is how long after the step before it the check is made.
+		wait         time.Duration
+		do           func()
 		storeErr     error
 		wantGranted  bool
 		wantReads    int64
 		wantReported int64
 	}{
 		{name: "the read past the bound fails", storeErr: errors.New("store down"), wantGranted: false, wantReads: 2, wantReported: 1},
-		{name: "the next check tries the store again", storeErr: errors.New("store down"), wantGranted: false, wantReads: 3, wantReported: 2},
-		{name: "the check after the store is back sees the change", storeErr: nil, wantGranted: true, wantReads: 4, wantReported: 2},
+		{
+			name: "a check at the end of the pause reads nothing, though the store is back",
+			wait: reloadPause - time.Nanosecond, storeErr: nil, wantGranted: false, wantReads: 2, wantReported: 1,
+		},
+		{
+			name: "a write of this instance and a hint inside the pause do not make a check read",
+			do: func() {
+				e.invalidate()
+				e.hinted()
+			},
+			storeErr: nil, wantGranted: false, wantReads: 2, wantReported: 1,
+		},
+		{
+			name: "the first check after the pause tries the store again",
+			wait: time.Nanosecond, storeErr: errors.New("store down"), wantGranted: false, wantReads: 3, wantReported: 2,
+		},
+		{
+			name: "the check after the next pause, with the store back, sees the change",
+			wait: reloadPause, storeErr: nil, wantGranted: true, wantReads: 4, wantReported: 2,
+		},
 		{name: "the check after it reads nothing", storeErr: nil, wantGranted: true, wantReads: 4, wantReported: 2},
 	}
 	// One engine's history, so the steps run in order.
 	for _, step := range steps {
+		clock.advance(step.wait)
+		if step.do != nil {
+			step.do()
+		}
 		store.setFail(step.storeErr)
 		if got := listsWidgets(t, e); got != step.wantGranted {
 			t.Errorf("%s: widgets granted = %v, want %v", step.name, got, step.wantGranted)
@@ -323,6 +350,58 @@ func Test_snapshotEngine_idleInstance_failedRead(t *testing.T) {
 		}
 		if got := reported.Load(); got != step.wantReported {
 			t.Errorf("%s: reload errors reported so far = %d, want %d", step.name, got, step.wantReported)
+		}
+	}
+}
+
+// Test_snapshotEngine_idleInstance_storeDown pins what a store that refuses at once
+// costs an instance: the checks that find the snapshot due together read the store once
+// and report once, the checks that come inside the pause after read nothing more, and
+// the checks that come after the pause read it once more between them. Every one of
+// them is answered from the last good snapshot.
+func Test_snapshotEngine_idleInstance_storeDown(t *testing.T) {
+	t.Parallel()
+
+	const checks = 50
+	store := newCountedStore(engineFakeStore(t))
+	e, clock, reported := idleEngine(t, store)
+	if listsWidgets(t, e) {
+		t.Fatal("widgets granted before the change")
+	}
+	grantWidgets(t, store.fakeStore)
+	clock.advance(idleBound + time.Second)
+	store.setFail(errors.New("store down"))
+
+	waves := []struct {
+		name         string
+		advance      time.Duration
+		wantReads    int64
+		wantReported int64
+	}{
+		{name: "the checks that find the snapshot due", advance: 0, wantReads: 1, wantReported: 1},
+		{name: "the checks inside the pause", advance: reloadPause / 2, wantReads: 1, wantReported: 1},
+		{name: "the checks after the pause", advance: reloadPause / 2, wantReads: 2, wantReported: 2},
+	}
+	before := store.reads.Load()
+	for _, wave := range waves {
+		clock.advance(wave.advance)
+		answers := make(chan answer, checks)
+		for range checks {
+			go func() {
+				granted, err := lists(e, "widgets")
+				answers <- answer{granted: granted, err: err}
+			}()
+		}
+		for range checks {
+			if got := <-answers; got.err != nil || got.granted {
+				t.Errorf("%s: a check = (%v, %v), want the last good snapshot's answer", wave.name, got.granted, got.err)
+			}
+		}
+		if got := store.reads.Load() - before; got != wave.wantReads {
+			t.Errorf("%s: store reads so far for %d checks a wave = %d, want %d", wave.name, checks, got, wave.wantReads)
+		}
+		if got := reported.Load(); got != wave.wantReported {
+			t.Errorf("%s: reload errors reported so far = %d, want %d", wave.name, got, wave.wantReported)
 		}
 	}
 }

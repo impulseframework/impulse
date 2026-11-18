@@ -104,8 +104,9 @@ func (u *userManager) Membership(ctx context.Context, scope accesstypes.PolicySc
 // it. The next check on this instance reloads the policy before it answers, as after the
 // manager's own writes, wherever that check is made, inside another request's open
 // transaction included; the background loop is nudged, and the other instances are hinted
-// through the change signal. Called when nothing changed, it costs one read of the policy
-// store.
+// through the change signal before PolicyChanged returns (bounded by two seconds; a
+// failed announcement is reported to the reload-error hook). Called when nothing changed,
+// it costs one read of the policy store.
 func (c *Client) PolicyChanged() {
 	c.snapEngine.policyChanged()
 }

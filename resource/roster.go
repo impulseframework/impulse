@@ -42,6 +42,13 @@ const TenantBackstop = 5 * time.Minute
 // twice this before it is answered from the copy as it was.
 const tenantReadTimeout = 10 * time.Second
 
+// tenantReadPause is how long the roster leaves the table alone after a reread of its own
+// failed: the lookups that come inside it are answered from the copy as it was and none
+// of them reads, so a database that refuses at once is read once a pause and not once a
+// lookup, and the failure is logged at that rate. A change recorded meanwhile stays
+// recorded, and the first lookup after the pause rereads.
+const tenantReadPause = time.Second
+
 // errTenantRosterUnsupportedDatabase is the answer on a database the roster's read is
 // not implemented for: the statement renders for Postgres, the read does not yet.
 var errTenantRosterUnsupportedDatabase = errors.New("resource: the tenant roster's read is implemented for Spanner only")
@@ -209,7 +216,7 @@ func NewTenantRoster(client Client, table, keyColumn string, opts ...TenantRoste
 	for _, opt := range opts {
 		opt(r)
 	}
-	r.fresh = freshness.New(r.load, r.backstop, tenantReadTimeout, r.now, r.rereadFailed)
+	r.fresh = freshness.New(r.load, r.backstop, tenantReadTimeout, tenantReadPause, r.now, r.rereadFailed)
 
 	return r
 }
@@ -223,7 +230,7 @@ func (r *TenantRoster) now() time.Time {
 // rereadFailed logs a reread the roster made itself that failed: a lookup's or the
 // loop's. ctx is the one Start was given.
 func (r *TenantRoster) rereadFailed(ctx context.Context, err error) {
-	r.logf(ctx, "tenants: rereading the %s table failed; the roster stays as it was, and the next request rereads it: %v", r.table, err)
+	r.logf(ctx, "tenants: rereading the %s table failed; the roster stays as it was, and the first request after %s rereads it: %v", r.table, tenantReadPause, err)
 }
 
 // logErrorf logs an error through the logger the context carries: how the tenant roster
@@ -241,7 +248,8 @@ func logErrorf(ctx context.Context, format string, v ...any) {
 // signal is recorded the moment it arrives, before any reread is tried, so a change
 // that was announced to this instance is never answered from the old copy, whether or
 // not the goroutine got to reread. A failed reread is logged and the copy stays as it
-// was; the next request tries again.
+// was; the table is left alone for a moment (tenantReadPause), and the first request
+// after that tries again.
 func (r *TenantRoster) Start(ctx context.Context) error {
 	if r == nil {
 		return errors.New("resource: no tenant roster is wired")

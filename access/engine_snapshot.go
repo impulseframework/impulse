@@ -31,12 +31,23 @@ const (
 	// check is answered from the last good snapshot.
 	reloadTimeout = 10 * time.Second
 
+	// reloadPause is how long the engine leaves the policy store alone after a
+	// reload of its own failed: the checks that come inside it are answered
+	// from the last good snapshot and none of them reads, so a store that
+	// refuses at once is read once a pause and not once a check, and the
+	// failure is reported at that rate. A change announced meanwhile stays
+	// recorded, and the first check after the pause reads.
+	reloadPause = time.Second
+
 	// watchRetryDelay is how long the engine waits before re-invoking
 	// ChangeSignal.Watch after it returns.
 	watchRetryDelay = 5 * time.Second
 
-	// announceTimeout bounds the best-effort change broadcast after a write.
-	announceTimeout = 5 * time.Second
+	// defaultAnnounceTimeout bounds the announcement of a policy write to the
+	// other instances, which the write waits for: past it the write returns,
+	// the failure is reported, and the other instances learn of the change at
+	// their heartbeat interval. It is what a feature flip's signal gets.
+	defaultAnnounceTimeout = 2 * time.Second
 
 	// maxWindows bounds the snapshots kept for instants outside the current
 	// one's window (snapshotEngine.windows).
@@ -65,7 +76,7 @@ const (
 // Failure semantics: the first load must succeed before checks are served
 // (errors are returned, never panicked); once a snapshot exists, a failed
 // reload serves the last good snapshot and reports through onError, and the
-// next check tries the store again.
+// store is tried again by the first check after a short pause (reloadPause).
 //
 // An assignment counts inside its period alone, and a snapshot holds the ones
 // that count in a window of time (snapshot.holdsAt). A check is answered from
@@ -82,8 +93,11 @@ type snapshotEngine struct {
 	// (WithTenantAdministratorRoles); none where the application named none.
 	tenantAdministrators []accesstypes.Role
 	heartbeatInterval    time.Duration
-	signal               ChangeSignal // may be nil
-	onError              func(error)  // never nil
+	// announceTimeout bounds one announcement of a policy write
+	// (defaultAnnounceTimeout outside a test).
+	announceTimeout time.Duration
+	signal          ChangeSignal // may be nil
+	onError         func(error)  // never nil
 
 	// fresh decides, for every check, whether the store is read before the
 	// check is answered: when the snapshot is past the heartbeat interval, and
@@ -124,11 +138,6 @@ type snapshotEngine struct {
 	closed      bool
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
-	// announcing counts the change announcements in flight, so close waits
-	// for them: a write right before Close, the migrate command's seed, must
-	// reach the other instances before the application closes the channel
-	// the signal rides on.
-	announcing sync.WaitGroup
 }
 
 func newSnapshotEngine(store Store, defaults *defaultRoles, opts *clientOptions) *snapshotEngine {
@@ -138,13 +147,14 @@ func newSnapshotEngine(store Store, defaults *defaultRoles, opts *clientOptions)
 		collection:           opts.collection,
 		tenantAdministrators: slices.Clone(opts.tenantAdministrators),
 		heartbeatInterval:    opts.heartbeatInterval,
+		announceTimeout:      defaultAnnounceTimeout,
 		signal:               opts.signal,
 		onError:              opts.onReloadError,
 		clock:                time.Now,
 		ready:                make(chan struct{}),
 		hintCh:               make(chan struct{}, 1),
 	}
-	s.fresh = freshness.New(s.reload, opts.heartbeatInterval, reloadTimeout, s.now, s.reloadFailed)
+	s.fresh = freshness.New(s.reload, opts.heartbeatInterval, reloadTimeout, reloadPause, s.now, s.reloadFailed)
 
 	return s
 }
@@ -157,18 +167,19 @@ func (s *snapshotEngine) now() time.Time {
 
 // reloadFailed reports a reload the engine made itself that failed: the
 // check's or the loop's, refused or failed. The last good snapshot answers,
-// and the next check tries the store again.
+// and the first check after the pause tries the store again.
 func (s *snapshotEngine) reloadFailed(_ context.Context, err error) {
 	s.onError(err)
 }
 
 // policyChanged is invoked by the policy write path after every successful
 // write: the local snapshot reloads on the next check (read-your-writes), the
-// background loop is nudged, and other instances are hinted best-effort.
+// background loop is nudged, and the other instances are told before it
+// returns.
 func (s *snapshotEngine) policyChanged() {
 	s.invalidate()
 	s.hint()
-	s.announceAsync()
+	s.announce()
 }
 
 // invalidate marks the current snapshot as predating a local policy write:
@@ -194,22 +205,26 @@ func (s *snapshotEngine) hint() {
 	}
 }
 
-// announceAsync broadcasts the change without holding up the write. The
-// announcement is bounded by announceTimeout and counted, so close waits for
-// it instead of letting the process close the channel under it.
-func (s *snapshotEngine) announceAsync() {
+// announce tells the other instances of the change, and returns once the
+// announcement has been handed to the signal or its time has run out. It is
+// the last thing a policy write does, inside the write, so nothing is left to
+// publish once the write has returned: an instance that gets no CPU after it
+// has answered holds no announcement back, and a write made right before
+// Close has reached the other instances before the application closes the
+// channel the signal rides on. The announcement runs under the engine's own
+// timeout and no caller's context. One that fails or runs out does not fail
+// the write, which is committed: it is reported through onError, as a failed
+// reload is, and the other instances learn of the change at their heartbeat
+// interval.
+func (s *snapshotEngine) announce() {
 	if s.signal == nil {
 		return
 	}
-	s.announcing.Add(1)
-	go func() {
-		defer s.announcing.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), announceTimeout)
-		defer cancel()
-		if err := s.signal.Announce(ctx); err != nil {
-			s.onError(errors.Wrap(err, "ChangeSignal.Announce()"))
-		}
-	}()
+	ctx, cancel := context.WithTimeout(context.Background(), s.announceTimeout)
+	defer cancel()
+	if err := s.signal.Announce(ctx); err != nil {
+		s.onError(errors.Wrap(err, "ChangeSignal.Announce()"))
+	}
 }
 
 // waitReady blocks until the first successful load or ctx expiry.
@@ -223,9 +238,9 @@ func (s *snapshotEngine) waitReady(ctx context.Context) error {
 	}
 }
 
-// close ends the engine's life: it stops the background loops and waits for
-// the announcements in flight, each bounded by announceTimeout. Checks keep
-// serving the last snapshot, and read the store no more.
+// close ends the engine's life: it stops the background loops. Checks keep
+// serving the last snapshot, and read the store no more. No announcement is
+// left to wait for: each is made inside the write it follows.
 func (s *snapshotEngine) close() error {
 	s.lifecycleMu.Lock()
 	if s.closed {
@@ -241,7 +256,6 @@ func (s *snapshotEngine) close() error {
 		cancel()
 	}
 	s.wg.Wait()
-	s.announcing.Wait()
 
 	return nil
 }

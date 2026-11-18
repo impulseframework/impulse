@@ -295,7 +295,9 @@ func TestTenantRoster_follows(t *testing.T) {
 	}{
 		{name: "the signal reloads the second roster at once", signals: true, backstop: time.Hour, within: 2 * time.Second},
 		{name: "the backstop brings the row in without a signal", backstop: 50 * time.Millisecond, within: 2 * time.Second},
-		{name: "a failed reread keeps the last set until the next succeeds", signals: true, backstop: time.Hour, failReads: true, within: 2 * time.Second},
+		// The second signal comes inside the pause after the failed reread, so the reread
+		// that brings the row in is the first lookup's past the pause, a second later.
+		{name: "a failed reread keeps the last set until the next succeeds", signals: true, backstop: time.Hour, failReads: true, within: 5 * time.Second},
 	}
 
 	for i, tt := range tests {

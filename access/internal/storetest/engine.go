@@ -24,6 +24,11 @@ type Transaction func(t *testing.T, f func(ctx context.Context))
 // on the wall clock.
 const engineBound = 300 * time.Millisecond
 
+// pastThePause is a little longer than the engine leaves the store alone after a reload
+// of its own failed (one second). Where the suite has turned the loop's reload away it
+// waits this long, so the check that follows is past the pause and reads the store.
+const pastThePause = 1100 * time.Millisecond
+
 // tenant1Request is where the suite's checks are made: a request in tenant1.
 var tenant1Request = accesstypes.DomainScope("tenant1")
 
@@ -37,9 +42,10 @@ var tenant1Request = accesstypes.DomainScope("tenant1")
 //
 // In the first two the engine's loop is turned away from the store when it comes to
 // reload (gatedStore), as a store that answers an error turns it away, so the reload
-// is the check's own to make, inside the transaction: the case in which an engine that
-// reloaded under the caller's context was refused by the Spanner client and answered
-// from the snapshot before the write. The engine reads the store on its own context
+// is the check's own to make, inside the transaction, once the pause the engine keeps
+// after a failed reload has passed: the case in which an engine that reloaded under
+// the caller's context was refused by the Spanner client and answered from the
+// snapshot before the write. The engine reads the store on its own context
 // whoever asks, so the check's read runs beside the open transaction and never under
 // it. A store whose client refuses a read under a transaction's context, or whose
 // database does not serve a read beside an open transaction, fails here: the read
@@ -68,7 +74,7 @@ func RunEngine(t *testing.T, store access.Store, within Transaction) {
 // runEngineLocalWrite: a request of this instance takes the role away and commits; the
 // engine is told (Client.PolicyChanged, as the manager's own writes tell it) while
 // another request is inside its transaction, the loop's reload is turned away, and that
-// request's check is the first to reach the store after.
+// request's check is the first to reach the store after, once the pause has passed.
 func runEngineLocalWrite(t *testing.T, store access.Store, within Transaction) {
 	t.Helper()
 	ctx := t.Context()
@@ -90,8 +96,9 @@ func runEngineLocalWrite(t *testing.T, store access.Store, within Transaction) {
 		client.PolicyChanged()
 		reported.await(t, runs)
 		gated.turnAway.Store(false)
+		time.Sleep(pastThePause)
 		if readsEmployees(txnCtx, t, client, alice) {
-			t.Errorf("the first check after the write, made inside an open transaction, still let %s read employees", alice)
+			t.Errorf("the first check to read the store after the write, made inside an open transaction, still let %s read employees", alice)
 		}
 	})
 
@@ -104,7 +111,7 @@ func runEngineLocalWrite(t *testing.T, store access.Store, within Transaction) {
 // runEngineHint: another instance takes the role away and announces it; the hint
 // reaches this instance while a request of its own is inside its transaction, the
 // loop's reload is turned away, and that request's check is the first to reach the
-// store after the hint.
+// store after the hint, once the pause has passed.
 func runEngineHint(t *testing.T, store access.Store, within Transaction) {
 	t.Helper()
 	ctx := t.Context()
@@ -133,8 +140,9 @@ func runEngineHint(t *testing.T, store access.Store, within Transaction) {
 		hints.deliver()
 		reported.await(t, runs)
 		gated.turnAway.Store(false)
+		time.Sleep(pastThePause)
 		if readsEmployees(txnCtx, t, client, bob) {
-			t.Errorf("the first check after the hint, made inside an open transaction, still let %s read employees", bob)
+			t.Errorf("the first check to read the store after the hint, made inside an open transaction, still let %s read employees", bob)
 		}
 	})
 

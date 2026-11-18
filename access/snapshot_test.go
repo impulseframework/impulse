@@ -1479,7 +1479,7 @@ func Test_snapshotEngine_checkUnderATransactionAfterALocalWrite(t *testing.T) {
 
 // Test_snapshotEngine_refusedReloadIsReported pins that a reload the store refuses is
 // never dropped: the check is answered from the last good snapshot, the refusal reaches
-// the reload-error hook, and the next check tries the store again.
+// the reload-error hook, and the first check after the pause tries the store again.
 func Test_snapshotEngine_refusedReloadIsReported(t *testing.T) {
 	t.Parallel()
 
@@ -1499,6 +1499,8 @@ func Test_snapshotEngine_refusedReloadIsReported(t *testing.T) {
 	// No loop runs, so every refusal counted below is one a check met: a loop whose
 	// first pass came while the store refused would be refused too.
 	e.noLoops = true
+	clock := newMovedClock(noon)
+	e.clock = clock.now
 	widgets := func() bool {
 		t.Helper()
 		got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
@@ -1530,10 +1532,15 @@ func Test_snapshotEngine_refusedReloadIsReported(t *testing.T) {
 		t.Errorf("reload errors reported = %v, want the one refusal", got)
 	}
 
-	// The next check tries again, and sees the write once the store answers.
+	// The store answers again. Inside the pause the engine does not try it; the first
+	// check after the pause does, and sees the write.
 	store.setFail(nil)
+	if widgets() {
+		t.Error("a check inside the pause after the refusal saw the write, want the last good snapshot's answer and no read")
+	}
+	clock.advance(reloadPause)
 	if !widgets() {
-		t.Error("the check after the store answered again did not see the write")
+		t.Error("the first check after the pause did not see the write")
 	}
 	if got := reports(); len(got) != 1 {
 		t.Errorf("reload errors reported = %v, want still the one refusal", got)
@@ -1639,14 +1646,10 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// A local policy write announces to other instances.
+	// A local policy write announces to other instances before it returns.
 	e.policyChanged()
-	deadline = time.Now().Add(5 * time.Second)
-	for sig.announces.Load() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("policyChanged did not announce within the deadline")
-		}
-		time.Sleep(10 * time.Millisecond)
+	if got := sig.announces.Load(); got != 1 {
+		t.Fatalf("announcements made by the time policyChanged returned = %d, want 1", got)
 	}
 }
 
@@ -2113,12 +2116,36 @@ func Test_snapshotEngine_reportsSkippedGrants(t *testing.T) {
 	}
 }
 
+// lockedBuffer is where Test_logReloadError has the standard log write. The log is the
+// process's own, so the tests that run beside that one write there too while it reads:
+// every write and every read takes the lock.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// A bytes.Buffer's Write returns no error.
+	n, _ := b.buf.Write(p)
+
+	return n, nil
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
 // Test_logReloadError pins the default hook: a skipped grant reaches the
 // standard log, prefixed so the line is found by its package.
 func Test_logReloadError(t *testing.T) {
 	t.Parallel()
 
-	var buf bytes.Buffer
+	var buf lockedBuffer
 	previous := log.Writer()
 	log.SetOutput(&buf)
 	t.Cleanup(func() {

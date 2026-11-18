@@ -262,40 +262,87 @@ func TestFeatureSet_idleInstance_signal(t *testing.T) {
 }
 
 // TestFeatureSet_idleInstance_failedReread pins a reread that fails on a lookup's path,
-// on the Spanner emulator: it is logged, the copy as it was answers, and the next lookup
-// past the backstop tries the table again.
+// on the Spanner emulator: it is logged and the copy as it was answers; the lookups that
+// come in the pause after it read nothing and log nothing, whatever is signaled or
+// flipped meanwhile; and the first lookup after the pause tries the table again.
 func TestFeatureSet_idleInstance_failedReread(t *testing.T) {
 	t.Parallel()
 
 	_, base := featureDatabase(t, "features-idle-failed")
 	failing := &failingClient{Client: base}
-	features, clock, logged := idleFeatures(t, base, failing, &fakeSignals{})
+	held := newHeldClient(failing)
+	signals := &fakeSignals{}
+	features, clock, logged := idleFeatures(t, base, held, signals)
 
 	flip(t, base, debriefsFlag)
 	clock.setAge(freshBound + time.Second)
+	ended, end := context.WithCancel(t.Context())
+	end()
 
 	steps := []struct {
-		name         string
+		name string
+		// wait is how long after the step before it the lookup is made, and do what
+		// happens right before the lookup.
+		wait time.Duration
+		do   func()
+		// fail says the database fails the lookup's read, if it makes one.
 		fail         bool
 		wantOn       bool
+		wantReads    int64
 		wantFailures int64
 		wantLogged   int
 	}{
-		{name: "the reread past the backstop fails", fail: true, wantOn: false, wantFailures: 1, wantLogged: 1},
-		{name: "the next lookup tries the table again", fail: true, wantOn: false, wantFailures: 2, wantLogged: 2},
-		{name: "the lookup after the database is back sees the flip", fail: false, wantOn: true, wantFailures: 2, wantLogged: 2},
+		{name: "the reread past the backstop fails", fail: true, wantOn: false, wantReads: 1, wantFailures: 1, wantLogged: 1},
+		{
+			name: "a lookup at the end of the pause reads nothing, though the database is back",
+			wait: featureReadPause - time.Nanosecond, wantOn: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
+		},
+		{
+			name: "a features signal inside the pause does not make a lookup read",
+			do: func() {
+				if err := signals.Signal(t.Context(), KindFeatures); err != nil {
+					t.Errorf("Signal() error = %v", err)
+				}
+			},
+			wantOn: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
+		},
+		{
+			name: "a flip of this instance whose reload failed inside the pause does not either",
+			do: func() {
+				if err := features.Reload(ended); err == nil {
+					t.Error("Reload() under a context that has ended error = nil, want the read's failure")
+				}
+			},
+			wantOn: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
+		},
+		{
+			name: "the first lookup after the pause tries the table again",
+			wait: time.Nanosecond, fail: true, wantOn: false, wantReads: 1, wantFailures: 2, wantLogged: 2,
+		},
+		{
+			name: "the lookup after the next pause, with the database back, sees the flip",
+			wait: featureReadPause, wantOn: true, wantReads: 1, wantFailures: 2, wantLogged: 2,
+		},
 		// The database fails again, and nobody notices: inside the backstop no read is tried.
-		{name: "the lookup after it reads nothing", fail: true, wantOn: true, wantFailures: 2, wantLogged: 2},
+		{name: "the lookup after it reads nothing", fail: true, wantOn: true, wantReads: 0, wantFailures: 2, wantLogged: 2},
 	}
 	// One set's history, so the steps run in order, one lookup each.
 	for _, step := range steps {
+		clock.advance(step.wait)
+		if step.do != nil {
+			step.do()
+		}
 		failing.fail.Store(step.fail)
+		before := held.reads.Load()
 		flag, ok := features.Flag(debriefsFlag)
 		if !ok {
 			t.Errorf("%s: the copy lost the flag; the copy as it was answers", step.name)
 		}
 		if flag.Enabled != step.wantOn {
 			t.Errorf("%s: the lookup saw the flag on = %v, want %v", step.name, flag.Enabled, step.wantOn)
+		}
+		if got := held.reads.Load() - before; got != step.wantReads {
+			t.Errorf("%s: reads the lookup made = %d, want %d", step.name, got, step.wantReads)
 		}
 		if got := failing.failures.Load(); got != step.wantFailures {
 			t.Errorf("%s: failed reads so far = %d, want %d", step.name, got, step.wantFailures)

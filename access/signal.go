@@ -15,8 +15,12 @@ import "context"
 // signal channel, through ChangeSignalFunc.
 type ChangeSignal interface {
 	// Announce broadcasts that policy may have changed. The Client calls it
-	// after successful policy writes; failures are reported through the
-	// reload error handler and never fail the write.
+	// as the last step of every successful policy write, and the write
+	// returns once Announce has: nothing is published after the write, so an
+	// instance that gets no CPU once it has answered holds no announcement
+	// back. ctx carries the Client's own timeout for the announcement (two
+	// seconds), and Announce must return when it ends. Failures are reported
+	// through the reload error handler and never fail the write.
 	Announce(ctx context.Context) error
 
 	// Watch delivers received hints by invoking onChange, blocking until ctx

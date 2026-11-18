@@ -2431,7 +2431,10 @@ signal and at the backstop interval too, ahead of the requests, so on an instanc
 is serving a lookup finds the copy fresh and reads nothing; nothing depends on the loop,
 so an instance that got no CPU between requests (Cloud Run's default) answers its next
 one from a read no older than the backstop. A failed reread is logged, the copy stays as
-it was, and the next request tries again. `Reload`, which a flip's handler calls after
+it was, and the table is left alone for one second: lookups in that pause are answered
+from the copy without a read, so a database that is down is read, and its failure
+logged, once a pause and not once a lookup, and the first lookup after the pause tries
+again. `Reload`, which a flip's handler calls after
 its commit, records the flip before it reads, so a reload that fails (the request that
 flipped had ended) is made good by the next lookup, under the set's own context. A
 database that does not answer holds a lookup for less than twice the read's timeout
@@ -2603,8 +2606,10 @@ every signal and at the backstop interval too, ahead of the requests, so on an i
 that is serving a lookup finds the copy fresh; nothing depends on the loop, so an
 instance that got no CPU between requests (Cloud Run's default) answers its next one
 from a read no older than the backstop, and an instance that missed a signal is at most
-that far behind. A failed reread is logged, the set stays as it was, and the next
-request tries again. `Reload` records the change before it reads, so a reload that fails
+that far behind. A failed reread is logged, the set stays as it was, and the table is
+left alone for one second: lookups in that pause are answered from the set without a
+read, so a database that is down is read, and its failure logged, once a pause and not
+once a lookup, and the first lookup after the pause tries again. `Reload` records the change before it reads, so a reload that fails
 (the request that wrote had ended) is made good by the next lookup, under the roster's
 own context. A database that does not answer holds a lookup for less than twice the
 read's timeout (ten seconds): the read in flight when the lookup came, and at most one

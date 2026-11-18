@@ -75,6 +75,12 @@ const (
 	// read after it, so a database that does not answer holds a lookup for less than
 	// twice this before it is answered from the copy as it was.
 	featureReadTimeout = 10 * time.Second
+	// featureReadPause is how long the set leaves the table alone after a reread of its
+	// own failed: the lookups that come inside it are answered from the copy as it was
+	// and none of them reads, so a database that refuses at once is read once a pause
+	// and not once a lookup, and the failure is logged at that rate. A flip recorded
+	// meanwhile stays recorded, and the first lookup after the pause rereads.
+	featureReadPause = time.Second
 	// FeatureSignalTimeout bounds a flip's signal: past it the failure is logged and
 	// the request answers, since the other instances reload at their backstop.
 	FeatureSignalTimeout = 2 * time.Second
@@ -449,7 +455,7 @@ func newFeatureSet(db Client, opts ...FeatureOption) *FeatureSet {
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.fresh = freshness.New(s.load, s.backstop, featureReadTimeout, s.now, s.rereadFailed)
+	s.fresh = freshness.New(s.load, s.backstop, featureReadTimeout, featureReadPause, s.now, s.rereadFailed)
 
 	return s
 }
@@ -463,7 +469,7 @@ func (s *FeatureSet) now() time.Time {
 // rereadFailed logs a reread the set made itself that failed: a lookup's or the loop's.
 // ctx is the one Follow was given.
 func (s *FeatureSet) rereadFailed(ctx context.Context, err error) {
-	s.logf(ctx, "feature flags: rereading the table failed; the copy stays as it was, and the next request rereads it: %v", err)
+	s.logf(ctx, "feature flags: rereading the table failed; the copy stays as it was, and the first request after %s rereads it: %v", featureReadPause, err)
 }
 
 // Reload rereads the table now: what a flip's handler calls after its commit, so the
@@ -569,7 +575,8 @@ func (s *FeatureSet) EnabledNames() []string {
 // tried, so a flip that was announced to this instance is never answered from the old
 // copy, whether or not the goroutine got to reread. The subscriber is the application's
 // live service, which every application wires; nil is refused. A failed reread is
-// logged and the copy stays as it was; the next request tries again.
+// logged and the copy stays as it was; the table is left alone for a moment
+// (featureReadPause), and the first request after that tries again.
 func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error {
 	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")

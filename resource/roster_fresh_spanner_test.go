@@ -404,34 +404,79 @@ func TestTenantRoster_idleInstance_signal(t *testing.T) {
 }
 
 // TestTenantRoster_idleInstance_failedReread pins a reread that fails on a lookup's
-// path, on the Spanner emulator: it is logged, the copy as it was answers, and the next
-// lookup past the backstop tries the table again.
+// path, on the Spanner emulator: it is logged and the copy as it was answers; the
+// lookups that come in the pause after it read nothing and log nothing, whatever is
+// signaled or written meanwhile; and the first lookup after the pause tries the table
+// again.
 func TestTenantRoster_idleInstance_failedReread(t *testing.T) {
 	t.Parallel()
 
 	db, client := tenantDatabase(t, "roster-idle-failed", "alpha")
 	failing := &failingClient{Client: client}
-	r, clock, logged := idleRoster(t, failing)
+	held := newHeldClient(failing)
+	signals := &fakeTenantSignals{}
+	r, clock, logged := idleRoster(t, held, WithTenantSignals(signals))
 
 	insertStations(t, db, "beta")
 	clock.advance(freshBound + time.Second)
+	ended, end := context.WithCancel(t.Context())
+	end()
 
 	steps := []struct {
-		name         string
+		name string
+		// wait is how long after the step before it the lookup is made, and do what
+		// happens right before the lookup.
+		wait time.Duration
+		do   func()
+		// fail says the database fails the lookup's read, if it makes one.
 		fail         bool
 		wantBeta     bool
+		wantReads    int64
 		wantFailures int64
 		wantLogged   int
 	}{
-		{name: "the reread past the backstop fails", fail: true, wantBeta: false, wantFailures: 1, wantLogged: 1},
-		{name: "the next lookup tries the table again", fail: true, wantBeta: false, wantFailures: 2, wantLogged: 2},
-		{name: "the lookup after the database is back sees the new tenant", fail: false, wantBeta: true, wantFailures: 2, wantLogged: 2},
+		{name: "the reread past the backstop fails", fail: true, wantBeta: false, wantReads: 1, wantFailures: 1, wantLogged: 1},
+		{
+			name: "a lookup at the end of the pause reads nothing, though the database is back",
+			wait: tenantReadPause - time.Nanosecond, wantBeta: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
+		},
+		{
+			name: "a tenants signal inside the pause does not make a lookup read",
+			do: func() {
+				if err := signals.Signal(t.Context(), KindTenants); err != nil {
+					t.Errorf("Signal() error = %v", err)
+				}
+			},
+			wantBeta: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
+		},
+		{
+			name: "a write of this instance whose reload failed inside the pause does not either",
+			do: func() {
+				if err := r.Reload(ended); err == nil {
+					t.Error("Reload() under a context that has ended error = nil, want the read's failure")
+				}
+			},
+			wantBeta: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
+		},
+		{
+			name: "the first lookup after the pause tries the table again",
+			wait: time.Nanosecond, fail: true, wantBeta: false, wantReads: 1, wantFailures: 2, wantLogged: 2,
+		},
+		{
+			name: "the lookup after the next pause, with the database back, sees the new tenant",
+			wait: tenantReadPause, wantBeta: true, wantReads: 1, wantFailures: 2, wantLogged: 2,
+		},
 		// The database fails again, and nobody notices: inside the backstop no read is tried.
-		{name: "the lookup after it reads nothing", fail: true, wantBeta: true, wantFailures: 2, wantLogged: 2},
+		{name: "the lookup after it reads nothing", fail: true, wantBeta: true, wantReads: 0, wantFailures: 2, wantLogged: 2},
 	}
 	// One roster's history, so the steps run in order, one lookup each.
 	for _, step := range steps {
+		clock.advance(step.wait)
+		if step.do != nil {
+			step.do()
+		}
 		failing.fail.Store(step.fail)
+		before := held.reads.Load()
 		domains, err := r.Domains(t.Context())
 		if err != nil {
 			t.Fatalf("%s: Domains() error = %v", step.name, err)
@@ -441,6 +486,9 @@ func TestTenantRoster_idleInstance_failedReread(t *testing.T) {
 		}
 		if got := slices.Contains(domains, "beta"); got != step.wantBeta {
 			t.Errorf("%s: the lookup saw beta = %v, want %v", step.name, got, step.wantBeta)
+		}
+		if got := held.reads.Load() - before; got != step.wantReads {
+			t.Errorf("%s: reads the lookup made = %d, want %d", step.name, got, step.wantReads)
 		}
 		if got := failing.failures.Load(); got != step.wantFailures {
 			t.Errorf("%s: failed reads so far = %d, want %d", step.name, got, step.wantFailures)
