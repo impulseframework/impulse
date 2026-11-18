@@ -584,12 +584,20 @@ class SideBuilder {
           // The role a new person gets is chosen where the application has no tenants.
           ...(lists.signUpRoles ? this.columns(resource, [['defaultRole', 'Role a new person gets']]) : []),
           ...this.columns(resource, [['says', 'A person with no invitation']]),
+          // Whether a person may ask for a reset link themselves, where the Auth has a
+          // password to reset: the password method's row says, and the other rows say nothing.
+          ...(methods.setSelfServiceReset
+            ? this.columns(resource, [['selfServiceReset', 'People reset their own password']]).map((column) => ({
+                ...column,
+                valueGetter: ownReset,
+                filterable: false,
+              }))
+            : []),
           // Read with each row and not drawn: what the actions are offered by and filled from.
           ...this.columns(resource, [
             ['name', 'Name'],
             ['directoryGivesRoles', 'Directory gives roles'],
             ['ownRule', 'Decided by its own rule'],
-            ['selfServiceReset', 'People reset their own password'],
           ]).map((column) => ({ ...column, hidden: true })),
         ],
         rowMethods: this.present([
@@ -618,16 +626,30 @@ class SideBuilder {
               successMessage: 'The method is invite only.',
             },
           ],
-          // Whether people may reset their own password is the password method's alone:
-          // the dialog asks the one question, and the sign-in page follows at once.
+          // Whether people may reset their own password is the password method's alone, and
+          // one method says it either way: the page offers the change that is left to make.
           [
             methods.setSelfServiceReset,
             {
-              label: 'Password reset by the person',
+              label: 'Let people reset their own password',
               icon: 'lock_reset',
-              when: (row) => row['name'] === 'password',
-              labels: { on: 'Let people ask for a reset link at the sign-in page' },
-              successMessage: 'Saved. The sign-in page offers "Forgot your password?" only while this is on.',
+              when: (row) => row['name'] === 'password' && row['selfServiceReset'] !== true,
+              fill: () => ({ on: true }),
+              confirm:
+                'The sign-in page will offer "Forgot your password?". A person who asks is mailed a link to the email address on their account.',
+              successMessage: 'People can now ask for a reset link at the sign-in page.',
+            },
+          ],
+          [
+            methods.setSelfServiceReset,
+            {
+              label: 'Stop people resetting their own password',
+              icon: 'lock',
+              when: (row) => row['name'] === 'password' && row['selfServiceReset'] === true,
+              fill: () => ({ on: false }),
+              confirm:
+                'The sign-in page will no longer offer "Forgot your password?". A link already mailed still works, and an administrator can still send one.',
+              successMessage: 'People can no longer ask for a reset link at the sign-in page.',
             },
           ],
         ]),
@@ -1231,6 +1253,14 @@ function signUpChoice(row: RecordData): string {
   return row['openSignUp'] === true ? 'Open' : 'Invite only';
 }
 
+/** Whether people may ask for a link that resets their own password, in the Sign-in page's words: the password method's row says, and no other. */
+function ownReset(row: RecordData): string {
+  if (row['name'] !== 'password') {
+    return '';
+  }
+  return row['selfServiceReset'] === true ? 'Yes' : 'No';
+}
+
 /** The words the server opens an open method's sentence with, which the notice says its own way. */
 const openPrefix = 'Open: ';
 
@@ -1275,7 +1305,8 @@ function mailed(sent: string): (answer: unknown) => { message: string; failed?: 
     if (said.sent === true) {
       return { message: sent };
     }
-    const reason = typeof said.reason === 'string' && said.reason !== '' ? said.reason : 'The message could not be sent.';
+    const reason =
+      typeof said.reason === 'string' && said.reason !== '' ? said.reason : 'The message could not be sent.';
     return { message: reason, failed: true };
   };
 }

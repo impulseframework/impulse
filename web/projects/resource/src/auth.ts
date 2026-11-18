@@ -1281,7 +1281,9 @@ export class AuthClient {
   async requestPasswordReset(email: string): Promise<MailLinkResult> {
     const routes = await this.passwordResetRoutes();
     if (!routes.request) {
-      throw new Error('this server does not let people ask for their own password reset link: ask an administrator to send one');
+      throw new Error(
+        'this server does not let people ask for their own password reset link: ask an administrator to send one',
+      );
     }
     return this.requestLink(routes.request, { email });
   }
@@ -1413,7 +1415,9 @@ export class AuthClient {
   private async passwordResetRoutes(): Promise<PasswordResetRoutes> {
     const list = await this.methods();
     if (!list.passwordReset) {
-      throw new Error('this server names no password reset routes in its methods list: it has no password method, or sends no mail');
+      throw new Error(
+        'this server names no password reset routes in its methods list: it has no password method, or sends no mail',
+      );
     }
     return list.passwordReset;
   }

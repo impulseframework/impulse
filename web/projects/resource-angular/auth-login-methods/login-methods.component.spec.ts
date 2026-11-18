@@ -2464,18 +2464,23 @@ describe('LoginMethodsComponent resets a password', () => {
     passwordReset: { open: resetRoutes.open, complete: resetRoutes.complete },
   };
 
-  it('offers "Forgot your password?" only while the list names where a link is asked for', async () => {
+  it('offers "Forgot your password?" while the list names where a link is asked for', async () => {
+    const on = await pageOver(server({ methods: selfService }));
+    expect(on.element.querySelector('.impulse-login-forgot')?.textContent).toContain('Forgot your password?');
+  });
+
+  it('offers no "Forgot your password?" while the list names no place to ask, and asks for none', async () => {
     const off = await pageOver(server({ methods: administratorOnly }));
     expect(off.element.querySelector('.impulse-login-forgot')).toBeNull();
     off.component.beginReset();
     await off.settle();
     expect(off.component.forgetting()).toBe(false);
+    expect(off.element.querySelector('input[name="resetEmail"]')).toBeNull();
+  });
 
+  it('offers no "Forgot your password?" where the list names no password reset at all', async () => {
     const none = await pageOver(server({ methods: mailingList }));
     expect(none.element.querySelector('.impulse-login-forgot')).toBeNull();
-
-    const on = await pageOver(server({ methods: selfService }));
-    expect(on.element.querySelector('.impulse-login-forgot')?.textContent).toContain('Forgot your password?');
   });
 
   it('asks for a link with the address and says the same whatever the address is', async () => {
@@ -2517,7 +2522,11 @@ describe('LoginMethodsComponent resets a password', () => {
 
   it('a reset link opens the new password form, and completing it sends the person back to sign in', async () => {
     const page = await pageOver(server({ methods: administratorOnly }), { reset: 'tok-reset' });
-    expect(page.transport.requests.some((r) => r.url === resetRoutes.open && (r.body as { token: string }).token === 'tok-reset')).toBe(true);
+    expect(
+      page.transport.requests.some(
+        (r) => r.url === resetRoutes.open && (r.body as { token: string }).token === 'tok-reset',
+      ),
+    ).toBe(true);
     expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain('mate');
     expect(page.element.querySelector('input[name="username"]')).toBeNull();
 
@@ -2533,7 +2542,9 @@ describe('LoginMethodsComponent resets a password', () => {
     await page.settle();
     const completed = page.transport.requests.find((r) => r.url === resetRoutes.complete);
     expect(completed?.body).toEqual({ token: 'tok-reset', password: 'a new password' });
-    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain('you are signed out everywhere');
+    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain(
+      'you are signed out everywhere',
+    );
     expect(page.signedIn).toEqual([]);
 
     page.component.leaveLink();

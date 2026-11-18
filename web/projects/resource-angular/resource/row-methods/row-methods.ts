@@ -108,7 +108,9 @@ export function rowMethods(
  * The methods a row offers that name no target row and are filled from it: the ones the
  * page names with a `fill`, each while the caller holds Execute on the method (the
  * digest's answer; the server gives none for a row the method does not name), less the
- * ones the page hides and the ones whose row predicate says no.
+ * ones the page hides and the ones whose row predicate says no. Each entry is offered as
+ * the page presents it, so a page may present one method twice, with words, a predicate
+ * and a fill of its own each time: turning a setting on, and turning it off.
  */
 export function filledMethods(
   row: RecordData,
@@ -123,7 +125,13 @@ export function filledMethods(
       continue;
     }
     if (granted(presentation.method)) {
-      methods.push(offered(presentation.method, meta, presentations));
+      methods.push({
+        method: presentation.method,
+        meta,
+        label: presentation.label ?? nameInWords(presentation.method),
+        icon: presentation.icon,
+        presentation,
+      });
     }
   }
   return methods;

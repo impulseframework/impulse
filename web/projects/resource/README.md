@@ -671,6 +671,24 @@ an address (400), a mailbox sent five links within fifteen minutes and using non
 address and `usernameIsEmail` for the form; `completeSignUp(token, { password, username? })`
 creates the account with the address verified and signs the person in.
 
+A password reset (`?reset=<token>`), where the server has a password method and sends mail:
+the list's `passwordReset` names `open` and `complete`, and `request` only while the
+application lets people reset their own password, which an administrator turns on and off in
+the running application. A page offers "Forgot your password?" only while `request` is
+there. `requestPasswordReset(email)` asks for the link, answering `sent` whether or not the
+address has an account (one with none is mailed nothing), or the refusal: not an address
+(400), a mailbox sent five reset links within fifteen minutes and using none (429 with
+`too_many_emails` and the wait), or not offered (404). `openPasswordReset(token)` answers
+the username the link resets the password of, for a link the person asked for or one an
+administrator sent; `completePasswordReset(token, password)` sets the new password. Every
+session of the person ends with it, this browser's too, and nobody is signed in by it: the
+person signs in with the new password.
+
+An address an administrator set (`?address=<token>`): `confirmEmail(token)` posts the token
+to the list's `email.confirm`, with or without a session, and answers the address the
+account now holds. A page asks before it posts: a link opened by a program that reads a
+person's mail must confirm nothing.
+
 An address (`?verify=<token>`): `addEmail(email)` asks, for the signed-in person, for a
 confirmation link, answering `sent` the same way, and nothing is written until
 `verifyEmail(token)` posts the token back, which counts for the account that asked and no
