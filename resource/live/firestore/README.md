@@ -167,5 +167,6 @@ wakes that kind's subscriptions on both and no other kind's, the state at the st
 not a signal, a listener ended from the test is reopened and every kind that advanced
 meanwhile wakes once, a burst of signals of one kind is one covering write that every
 one of them waits for and that leaves nothing sending once they have returned, a
-covering write that fails is every waiting caller's failure, and a closed client's
-failure is returned while a fresh client signals again.
+covering write that fails is every waiting caller's failure, a caller that loses its
+context under the covering write fails alone and another makes it, and a closed
+client's failure is returned while a fresh client signals again.

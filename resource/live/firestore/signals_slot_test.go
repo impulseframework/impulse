@@ -24,6 +24,16 @@ func turnIsOffered(covering *coveringWrite) bool {
 	}
 }
 
+// panics reports whether f panicked.
+func panics(f func()) (panicked bool) {
+	defer func() {
+		panicked = recover() != nil
+	}()
+	f()
+
+	return false
+}
+
 // isMade reports whether the covering write has been recorded as made.
 func isMade(covering *coveringWrite) bool {
 	select {
@@ -258,6 +268,51 @@ func TestService_writeSlot(t *testing.T) {
 		}
 		if !s.signalsIdle() {
 			t.Error("signalsIdle() = false: the slot is held for a covering write whose callers have all left")
+		}
+	})
+
+	t.Run("a write that panics frees the slot", func(t *testing.T) {
+		t.Parallel()
+
+		s := slotService()
+		s.observeWrites(func(context.Context, live.Kind) func(error) {
+			panic("the write panicked")
+		})
+		if !panics(func() {
+			_ = s.Signal(t.Context(), kind)
+		}) {
+			t.Fatal("Signal() did not panic with the write")
+		}
+		if !s.signalsIdle() {
+			t.Error("signalsIdle() = false after a write that panicked: every later signal of the kind would wait for a slot nobody holds")
+		}
+	})
+
+	t.Run("a covering write that panics gives its turn back", func(t *testing.T) {
+		t.Parallel()
+
+		s := slotService()
+		s.beginWrite(kind)
+		covering := s.beginWrite(kind)
+		s.beginWrite(kind)
+		s.endWrite(kind)
+		if !turnIsOffered(covering) {
+			t.Fatal("the covering write's turn is not offered")
+		}
+		s.observeWrites(func(context.Context, live.Kind) func(error) {
+			panic("the write panicked")
+		})
+
+		if !panics(func() {
+			_ = s.makeCovering(t.Context(), kind, covering)
+		}) {
+			t.Fatal("makeCovering() did not panic with the write")
+		}
+		if isMade(covering) {
+			t.Error("the covering write is recorded as made, though it panicked")
+		}
+		if !turnIsOffered(covering) {
+			t.Error("the turn of a covering write that panicked is not offered to the caller still waiting")
 		}
 	})
 

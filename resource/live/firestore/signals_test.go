@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -913,6 +914,124 @@ func TestService_Signal_callerWhoseContextEnds(t *testing.T) {
 		}
 		nothingSending(t, writer, writes, 3)
 	})
+}
+
+// TestService_Signal_manyCallers runs many callers signaling one kind at once, some of
+// them under a context that ends within milliseconds, while they wait or under the
+// write they make, and pins what must hold whatever the interleaving: every caller
+// returns; a caller that is answered nil was covered by a write that began after its
+// call, succeeded, and had ended when the caller returned; a caller whose context
+// lasted is answered nil; the writes of the kind never overlap; no call makes more than
+// one write; and nothing is left to send once the last caller has returned.
+func TestService_Signal_manyCallers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		callers = 24
+		rounds  = 15
+	)
+	type write struct {
+		begun, ended int64
+		err          error
+	}
+	type call struct {
+		asked, returned int64
+		// lasting says the call's context was the test's own, which does not end.
+		lasting bool
+		err     error
+	}
+	writer := newServiceIn(t, databaseFor(t))
+	var (
+		// seq orders the calls and the writes: every call takes a number as it is made
+		// and as it returns, every write as it begins and as it ends.
+		seq        atomic.Int64
+		running    atomic.Int64
+		overlapped atomic.Bool
+		mu         sync.Mutex
+		writes     []write
+	)
+	livefirestore.ObserveWrites(writer, func(context.Context, live.Kind) func(error) {
+		if running.Add(1) > 1 {
+			overlapped.Store(true)
+		}
+		begun := seq.Add(1)
+
+		return func(err error) {
+			ended := seq.Add(1)
+			running.Add(-1)
+			mu.Lock()
+			defer mu.Unlock()
+			writes = append(writes, write{begun: begun, ended: ended, err: err})
+		}
+	})
+
+	calls := make(chan call, callers*rounds)
+	var wg sync.WaitGroup
+	for c := range callers {
+		wg.Go(func() {
+			for r := range rounds {
+				ctx, cancel := t.Context(), context.CancelFunc(func() {})
+				lasting := (c+r)%3 != 0
+				if !lasting {
+					ctx, cancel = context.WithTimeout(ctx, time.Duration(1+(c*7+r*3)%8)*time.Millisecond)
+				}
+				asked := seq.Add(1)
+				err := writer.Signal(ctx, live.KindFeatures)
+				returned := seq.Add(1)
+				cancel()
+				calls <- call{asked: asked, returned: returned, lasting: lasting, err: err}
+			}
+		})
+	}
+	returned := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(settle):
+		t.Fatalf("the callers did not all return within %s: a signal is held by a write nobody makes", settle)
+	}
+	close(calls)
+
+	if !livefirestore.SignalsIdle(writer) || running.Load() != 0 {
+		t.Errorf("as the last caller returned: a signal write is in flight or owed (%d being sent), want nothing left to send", running.Load())
+	}
+	if overlapped.Load() {
+		t.Error("two writes of one kind were being sent at once")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(writes) > callers*rounds {
+		t.Errorf("writes = %d for %d calls, want no call to make more than one", len(writes), callers*rounds)
+	}
+	var answered, covered int
+	for made := range calls {
+		answered++
+		if made.err != nil {
+			// The emulator answers a call as already canceled when it rides a connection
+			// on which calls were canceled a moment before (see signal); every other
+			// failure of a call whose context lasted is the service's.
+			if made.lasting && !strings.Contains(made.err.Error(), "already cancel") {
+				t.Errorf("a Signal() whose context lasted error = %v, want it covered by a write", made.err)
+			}
+
+			continue
+		}
+		covered++
+		if !slices.ContainsFunc(writes, func(w write) bool {
+			return w.err == nil && w.begun > made.asked && w.ended < made.returned
+		}) {
+			t.Errorf("a Signal() made at %d and answered nil at %d was covered by no write that began after it, succeeded and had ended by then", made.asked, made.returned)
+		}
+	}
+	if answered != callers*rounds {
+		t.Errorf("calls answered = %d, want %d", answered, callers*rounds)
+	}
+	if covered == 0 || len(writes) >= covered {
+		t.Logf("%d of %d calls were covered by %d writes: the callers did not overlap, so the run proved little", covered, answered, len(writes))
+	}
 }
 
 // TestService_Signal_failure pins the error path: a closed client's write fails and the

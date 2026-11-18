@@ -145,24 +145,30 @@ func (s *Service) signalsDoc() *cloudfirestore.DocumentRef {
 // ends, by one of the callers waiting for it, inside its call and under its context,
 // and each of them returns when it has been made, with its outcome: a covering write
 // that fails is the failure of every caller that waited for it. So a burst of signals
-// costs two writes, and Signal never returns leaving a write to be sent behind it: an
-// instance that gets no CPU once its requests have answered owes nothing.
+// costs two writes where the channel answers, and Signal never returns leaving a write
+// to be sent behind it: an instance that gets no CPU once its requests have answered
+// owes nothing.
 //
-// A caller whose context ends while it waits returns the context's error, and the
-// write stays with the callers still waiting; one whose context ends under the covering
-// write it is making fails alone, and another waiting caller makes the write. A Signal
-// made once the covering write has begun is covered by the next. The error is returned
-// for the caller to log; the caller's contract stays log and never fail the request.
+// No caller's context ends another caller's signal. A caller whose context ends while
+// it waits returns the context's error, and the write stays with the callers still
+// waiting; one whose context ends under the covering write it is making fails alone,
+// and another waiting caller makes the write under its own. So a covering write has
+// what is left of its maker's time, a channel that does not answer is tried by each
+// waiting caller in turn while its own context lasts, and no call makes more than one
+// write or waits past its context. A Signal made once the write in flight has ended is
+// not covered by the write that is then due, which may begin before it: it waits for
+// the next. The error is returned for the caller to log; the caller's contract stays
+// log and never fail the request.
 func (s *Service) Signal(ctx context.Context, kind live.Kind) error {
 	covering := s.beginWrite(kind)
-	if covering == nil {
-		err := s.writeSignal(ctx, kind)
-		s.endWrite(kind)
-
-		return err
+	if covering != nil {
+		return s.awaitCovering(ctx, kind, covering)
 	}
+	// The slot is passed on however the write ends, a panic included: a slot left taken
+	// would hold every later signal of the kind for the length of its context.
+	defer s.endWrite(kind)
 
-	return s.awaitCovering(ctx, kind, covering)
+	return s.writeSignal(ctx, kind)
 }
 
 // awaitCovering waits, as one of the callers the covering write covers, until the write
@@ -230,20 +236,25 @@ func (s *Service) passSlot(kind live.Kind) {
 // makeCovering makes the covering write, as the waiting caller that took its turn and
 // under that caller's context, and hands its outcome to every caller waiting for it.
 // Where the caller's own context has ended, before the write or under it, the failure
-// is the caller's alone and the turn goes back to the callers still waiting.
-func (s *Service) makeCovering(ctx context.Context, kind live.Kind, covering *coveringWrite) error {
-	if ctx.Err() != nil {
-		s.returnTurn(kind, covering)
+// is the caller's alone and the turn goes back to the callers still waiting. The turn is
+// settled however the write ends, a panic included: a turn that was neither used nor
+// given back would hold the slot, and every caller waiting, for good.
+func (s *Service) makeCovering(ctx context.Context, kind live.Kind, covering *coveringWrite) (err error) {
+	made := false
+	defer func() {
+		if made {
+			s.finishCovering(kind, covering, err)
 
+			return
+		}
+		s.returnTurn(kind, covering)
+	}()
+	if ctx.Err() != nil {
 		return errors.Wrap(ctx.Err(), "the context ended before the signal's covering write was made")
 	}
-	err := s.writeSignal(ctx, kind)
-	if err != nil && ctx.Err() != nil {
-		s.returnTurn(kind, covering)
-
-		return err
-	}
-	s.finishCovering(kind, covering, err)
+	err = s.writeSignal(ctx, kind)
+	// A write that failed under a context that has ended is the caller's own failure.
+	made = err == nil || ctx.Err() == nil
 
 	return err
 }

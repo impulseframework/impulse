@@ -98,11 +98,14 @@ type Signaler interface {
 	// is in flight, a later Signal of the kind waits for the one write that covers every
 	// Signal made meanwhile, which one of their callers makes when the write in flight
 	// ends: one write that begins after the last of those calls covers them all, so a
-	// burst costs two writes. A covering write that fails is the failure of every
-	// caller that waited for it; a caller whose context ends returns, and the write
-	// stays with the callers still waiting. The error is returned for the caller to
-	// log; the caller's contract stays log and never fail the request, since every
-	// subscriber also rereads at its own backstop.
+	// burst costs two writes where the channel answers. A covering write that fails is
+	// the failure of every caller that waited for it. No caller's context ends
+	// another's signal: a caller whose context ends returns, and the write stays with
+	// the callers still waiting, each of which makes it in turn where the one before it
+	// lost its context under the write; so no call makes more than one write or waits
+	// past its own context. The error is returned for the caller to log; the caller's
+	// contract stays log and never fail the request, since every subscriber also
+	// rereads at its own backstop.
 	Signal(ctx context.Context, kind Kind) error
 }
 
