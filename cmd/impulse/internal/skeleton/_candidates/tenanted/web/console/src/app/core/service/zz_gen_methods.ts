@@ -662,7 +662,7 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
-/** The body MakeTenantDirectoryOnly takes. The method turns the tenant's directory-only switch on, which closes the tenant to every sign-in but one through its directory; the server refuses it until the tenant has its directory and unless the caller is signed in through it, in a sentence the person can act on. */
+/** The body MakeTenantDirectoryOnly takes. The method turns the tenant's directory-only switch on, which closes the tenant to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the tenant has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on. */
 export interface MakeTenantDirectoryOnlyConfig {}
 export interface MakeTenantDirectoryOnly {}
 

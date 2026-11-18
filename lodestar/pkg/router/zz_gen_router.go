@@ -9,7 +9,7 @@
 //	default (/console/api), sessions of the crew auth (password, google, sign-up, persona):
 //	  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means, GET /console/api/user/google/login, GET /console/api/user/google/callback, GET /console/api/user/sign-up/login, GET /console/api/user/sign-up/callback, GET /console/api/user/persona/login, GET /console/api/user/persona/callback
 //	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete
-//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, POST /console/api/user/first-password/code, POST /console/api/user/first-password, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0): hooks.Default
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0), hooks.Default, EnforceReadOnlyMask: generatedRoutes
 //	droids (/droids), bearer tokens of the crew auth:
@@ -161,6 +161,10 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).
+	FirstPasswordSendCode() http.HandlerFunc
+	// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).
+	FirstPasswordSet() http.HandlerFunc
 	// A sign-up started from an address, which is mailed its link (session.SignUpHandlers.Start).
 	SignUpStart() http.HandlerFunc
 	// The sign-up link opened (session.SignUpHandlers.Open).
@@ -385,6 +389,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			},
 			ChangePassword: "/console/api/user/password/change",
 			RemovePassword: "/console/api/user/password/remove",
+			FirstPassword:  session.FirstPasswordRoutes{SendCode: "/console/api/user/first-password/code", Set: "/console/api/user/first-password"},
 			ForgetBrowser:  "/console/api/user/browser/forget",
 			ChangeName:     "/console/api/user/name",
 			SignInMeans:    "/console/api/user/sign-in-means",
@@ -433,6 +438,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 					"/console/api/user/invitation/accept",
 					"/console/api/user/email",
 					"/console/api/user/email/verify",
+					"/console/api/user/first-password/code",
+					"/console/api/user/first-password",
 					"/console/api/user/tokens",
 					"/console/api/user/tokens",
 					"/console/api/user/tokens/revoke",
@@ -447,7 +454,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 			// The session routes a signed-in person calls on their own account: the
 			// acceptance of an invitation the browser carries, the address they add and
-			// verify, and their tokens and device authorizations where the auth issues
+			// verify, their first password where the auth has passwords and they have
+			// none, and their tokens and device authorizations where the auth issues
 			// tokens. They stand in front of the application's hook, which gates the
 			// generated routes alone: a person reaches their own account whatever the
 			// application asks of them elsewhere. What holds for them is mounted here and
@@ -458,6 +466,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			account.Post("/console/api/user/invitation/accept", h.InvitationAccept())
 			account.Post("/console/api/user/email", h.EmailAdd())
 			account.Post("/console/api/user/email/verify", h.EmailVerify())
+			account.Post("/console/api/user/first-password/code", h.FirstPasswordSendCode())
+			account.Post("/console/api/user/first-password", h.FirstPasswordSet())
 			account.Get("/console/api/user/tokens", h.TokensList())
 			account.Post("/console/api/user/tokens", h.TokensCreate())
 			account.Post("/console/api/user/tokens/revoke", h.TokensRevoke())
@@ -577,7 +587,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 			// The session routes a signed-in person calls on their own account: the
 			// acceptance of an invitation the browser carries, the address they add and
-			// verify, and their tokens and device authorizations where the auth issues
+			// verify, their first password where the auth has passwords and they have
+			// none, and their tokens and device authorizations where the auth issues
 			// tokens. They stand in front of the application's hook, which gates the
 			// generated routes alone: a person reaches their own account whatever the
 			// application asks of them elsewhere. What holds for them is mounted here and

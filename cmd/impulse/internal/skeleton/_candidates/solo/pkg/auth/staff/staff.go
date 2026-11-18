@@ -136,7 +136,8 @@ type Settings struct {
 	// SessionTimeout is the idle timeout of a browser session.
 	SessionTimeout time.Duration
 	// Mail sends the auth's mail: the invitation an administrator sends to an address,
-	// the link that verifies an address a person adds, and the link a sign-up starts from.
+	// the link that verifies an address a person adds, the link a sign-up starts from, and
+	// the code a person who has no password chooses their first one with.
 	// The application's one sender, which the data level opens: the Workspace relay
 	// (session/mail/workspace) where the deployment names a mailbox, and the log (mail.Log)
 	// in development, where nothing is sent and a developer follows the link from the log.
@@ -310,12 +311,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
+	_, tenantAdministrators := AdministratorRoles()
 	accessClient, err := access.New(store,
 		access.WithDefaultRoles(settings.Collection, Roles()),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
 		// What no role file takes from a super administrator: the methods that give and
 		// take the auth's roles, as the generated management names them.
 		access.WithSuperAdministratorMethods(staffidentity.SuperAdministratorMethods()...),
+		// Who administers a tenant: a person holding one of these roles in the tenant
+		// itself, by a membership of their own or through the tenant's own group. A
+		// tenant that admits its people through its directory only still admits them,
+		// with a password and a second factor, so its administrators have a way in when
+		// its directory has a problem; the sign-in rule and each request ask the engine.
+		access.WithTenantAdministratorRoles(tenantAdministrators...),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
@@ -375,7 +383,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// tenant), so a person who removes a role from themselves in a tenant is judged by
 	// the rule on the tenant's last administrator. The application's last administrator
 	// is its last super administrator, kept by the client's own rule.
-	_, tenantAdministrators := AdministratorRoles()
 	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")

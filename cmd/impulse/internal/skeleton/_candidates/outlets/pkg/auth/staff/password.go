@@ -31,6 +31,22 @@ func (h *Handlers) PasswordRemove() http.HandlerFunc {
 	return h.password.RemoveUserPassword()
 }
 
+// FirstPasswordSendCode mails the signed-in person who has no password, because they
+// have only ever signed in through a directory, the code they choose their first one
+// with, at the address their account holds confirmed. A person at a browser someone
+// else left signed in does not read that mailbox, so they add no password to the
+// account.
+func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
+	return h.FirstPassword().SendCode()
+}
+
+// FirstPasswordSet gives the signed-in person who has no password the one they choose,
+// with the code they were mailed. An account that has a password changes it with the
+// old one (PasswordChange).
+func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
+	return h.FirstPassword().Set()
+}
+
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
 // becomes a user under the sign-in name they give, with the
 // address verified by the link, seated in the roles the invitation names.

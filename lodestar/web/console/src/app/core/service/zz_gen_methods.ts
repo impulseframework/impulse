@@ -1105,7 +1105,7 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
-/** The body MakeSectorDirectoryOnly takes. The method turns the sector's directory-only switch on, which closes the sector to every sign-in but one through its directory; the server refuses it until the sector has its directory and unless the caller is signed in through it, in a sentence the person can act on. */
+/** The body MakeSectorDirectoryOnly takes. The method turns the sector's directory-only switch on, which closes the sector to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the sector has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on. */
 export interface MakeSectorDirectoryOnlyConfig {}
 export interface MakeSectorDirectoryOnly {}
 

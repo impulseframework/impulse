@@ -26,11 +26,13 @@ import (
 // administrator holds, and the Sector record's own write paths, which are global, show
 // the flag and never write it.
 //
-// Turning it on closes the sector to every sign-in but one through its directory, so it
-// is held to its rules (resource.TenantDirectoryRules.DirectoryOnly), each refusal a
-// Conflict with a sentence the person can act on: the sector has its directory, and the
-// caller is signed in through it. The grant answers first, so a caller it refuses learns
-// nothing from a rule.
+// Turning it on closes the sector to every sign-in but one through its directory and its
+// own administrators' password with a second factor, so it is held to its rules
+// (resource.TenantDirectoryRules.DirectoryOnly), each refusal a Conflict with a sentence
+// the person can act on: the sector has its directory, the caller is signed in through
+// it, and the caller's own account has a password, the way back in if the directory has
+// a problem, where the caller's auth has a password method at all. The grant answers
+// first, so a caller it refuses learns nothing from a rule.
 //
 // The method declares a warning, which a person types "close" under before the
 // dialog a page runs it through lets them confirm. A request that asks for it
@@ -41,7 +43,9 @@ import (
 // refusal the call itself would answer, in the same words.
 // The people are read through the generated identity client of each auth whose people a
 // sector seats (DirectoryOutsiders): everyone who holds a role in the sector and has no
-// sign-in through its directory, a super administrator left out. Everyone is counted, and
+// sign-in through its directory, a super administrator left out, and the sector's own
+// administrator who has a password, whom the warning says can still sign in with it and
+// a code sent to their email. Everyone else is counted, and
 // a person is named only to a caller who may list them: one who holds List on the
 // sector's list of that auth's people and, on no condition, on the fields of it that name
 // a person.
@@ -62,7 +66,8 @@ func (a *App) MakeSectorDirectoryOnly() http.HandlerFunc {
 // Turning it off is plain: no rule holds it and it declares no warning, so a request
 // that asks for one is refused (400) and never runs the call. While the switch is on,
 // the sector's routes, this one among them, are served to the people the sector admits:
-// a person signed in through its directory, and a super administrator, whom no sector's
+// a person signed in through its directory, the sector's own administrator signed in with a
+// password and a second factor, and a super administrator, whom no sector's
 // sign-in settings shut out. The flag is written, the roster reread and the tenants kind
 // signaled as MakeSectorDirectoryOnly does, and a dry run answers the same way.
 func (a *App) EndSectorDirectoryOnly() http.HandlerFunc {
@@ -78,8 +83,9 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 
 	decoder := resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())
 	// The rules' sentences say the sector's directory as each auth's sign-in
-	// registrations call it, never by its connection.
-	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName)
+	// registrations call it, never by its connection, and the rules ask each auth's
+	// client whether the caller has a password.
+	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -123,8 +129,8 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
 				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
-					resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders},
-					resource.DirectoryPeople{List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders},
+					resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword()},
+					resource.DirectoryPeople{List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword()},
 				)
 				if err != nil {
 					return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnlyWarning()")

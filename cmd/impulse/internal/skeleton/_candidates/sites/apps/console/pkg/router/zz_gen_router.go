@@ -8,7 +8,7 @@
 //	default (/api), sessions (password):
 //	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means
 //	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete
-//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify, POST /api/user/first-password/code, POST /api/user/first-password
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1), hooks.Default, EnforceReadOnlyMask: generatedRoutes
 //
@@ -109,6 +109,10 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).
+	FirstPasswordSendCode() http.HandlerFunc
+	// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).
+	FirstPasswordSet() http.HandlerFunc
 	// A sign-up started from an address, which is mailed its link (session.SignUpHandlers.Start).
 	SignUpStart() http.HandlerFunc
 	// The sign-up link opened (session.SignUpHandlers.Open).
@@ -192,6 +196,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			},
 			ChangePassword: "/api/user/password/change",
 			RemovePassword: "/api/user/password/remove",
+			FirstPassword:  session.FirstPasswordRoutes{SendCode: "/api/user/first-password/code", Set: "/api/user/first-password"},
 			ForgetBrowser:  "/api/user/browser/forget",
 			ChangeName:     "/api/user/name",
 			SignInMeans:    "/api/user/sign-in-means",
@@ -235,12 +240,15 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 					"/api/user/invitation/accept",
 					"/api/user/email",
 					"/api/user/email/verify",
+					"/api/user/first-password/code",
+					"/api/user/first-password",
 				},
 			}))
 
 			// The session routes a signed-in person calls on their own account: the
 			// acceptance of an invitation the browser carries, the address they add and
-			// verify, and their tokens and device authorizations where the auth issues
+			// verify, their first password where the auth has passwords and they have
+			// none, and their tokens and device authorizations where the auth issues
 			// tokens. They stand in front of the application's hook, which gates the
 			// generated routes alone: a person reaches their own account whatever the
 			// application asks of them elsewhere. What holds for them is mounted here and
@@ -251,6 +259,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			account.Post("/api/user/invitation/accept", h.InvitationAccept())
 			account.Post("/api/user/email", h.EmailAdd())
 			account.Post("/api/user/email/verify", h.EmailVerify())
+			account.Post("/api/user/first-password/code", h.FirstPasswordSendCode())
+			account.Post("/api/user/first-password", h.FirstPasswordSet())
 
 			// The generated routes register through the application's hook, behind the
 			// read-only mask, which is mounted here and not by the hook: a write from a

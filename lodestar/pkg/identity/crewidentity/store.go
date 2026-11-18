@@ -772,7 +772,9 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 // DirectoryOutsiders lists the people of the Crew auth who hold a role in the
 // sector, in it or in every sector, and have no sign-in through its directory: the
 // people the sector's directory-only switch keeps out while it is on, and who turning
-// it on would shut out. A super administrator is never one of them. It reads the
+// it on would shut out. A super administrator is never one of them, and neither is the
+// sector's own administrator who has a password, who enters with it and a code mailed to
+// them. It reads the
 // sector's own list of its people (CrewSectorUser, whose OutsideDirectory column is the
 // fact), in the caller's transaction, by username. The warning of the generated method
 // that turns the switch on asks every auth's client
