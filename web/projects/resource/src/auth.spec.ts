@@ -121,7 +121,10 @@ function server(overrides: Partial<Server> = {}): Server {
     enrollEmail: { status: 200, body: codeMailed },
     change: { status: 200, body: undefined },
     remove: { status: 200, body: undefined },
-    firstPasswordCode: { status: 200, body: { codeEmail: 'p•••@fleet.example', codeExpiresAt: '2026-11-17T12:10:00Z' } },
+    firstPasswordCode: {
+      status: 200,
+      body: { codeEmail: 'p•••@fleet.example', codeExpiresAt: '2026-11-17T12:10:00Z' },
+    },
     firstPasswordSet: { status: 200, body: {} },
     means: { status: 200, body: { password: true, directories: [{ name: 'google', label: 'Fleet Google' }] } },
     name: { status: 200, body: { name: 'Nova Example' } },
@@ -986,14 +989,22 @@ describe("choosing the person's first password", () => {
 
   for (const tt of [
     { name: 'an account that already has a password', status: 409, message: 'Your account already has a password.' },
-    { name: 'an account with no confirmed address', status: 409, message: 'Your account has no confirmed email address' },
+    {
+      name: 'an account with no confirmed address',
+      status: 409,
+      message: 'Your account has no confirmed email address',
+    },
     { name: 'a session that acts for someone else', status: 403, message: 'not while impersonating' },
   ]) {
     it(`resolves the refusal of the code for ${tt.name} with the server's words, through no error hook`, async () => {
       const { auth, errors } = authOver(
         choosing({ firstPasswordCode: { status: tt.status, body: { message: tt.message } } }),
       );
-      expect(await auth.sendFirstPasswordCode()).toEqual({ outcome: 'refused', status: tt.status, message: tt.message });
+      expect(await auth.sendFirstPasswordCode()).toEqual({
+        outcome: 'refused',
+        status: tt.status,
+        message: tt.message,
+      });
       expect(errors).toEqual([]);
     });
   }
@@ -1057,7 +1068,9 @@ describe("choosing the person's first password", () => {
   it('throws on a server whose list names no first password paths, sending nothing', async () => {
     const { auth, transport } = authOver(server());
     await expect(auth.sendFirstPasswordCode()).rejects.toThrow(/names no first password paths/);
-    await expect(auth.setFirstPassword('483920', 'a harbor of my own')).rejects.toThrow(/names no first password paths/);
+    await expect(auth.setFirstPassword('483920', 'a harbor of my own')).rejects.toThrow(
+      /names no first password paths/,
+    );
     expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
   });
 });

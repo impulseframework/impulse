@@ -310,8 +310,7 @@ export type PasswordRemovalResult = { readonly outcome: 'removed' } | SignInRefu
  * `too_many_attempts` and the wait), or the session is an impersonation (403).
  */
 export type FirstPasswordCodeResult =
-  | { readonly outcome: 'sent'; readonly codeEmail: string; readonly codeExpiresAt?: string }
-  | SignInRefusal;
+  { readonly outcome: 'sent'; readonly codeEmail: string; readonly codeExpiresAt?: string } | SignInRefusal;
 
 /**
  * What choosing a first password answers: `set`, after which the password signs the
