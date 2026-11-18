@@ -49,6 +49,7 @@ import (
 	_ "embed"
 
 	cloudspanner "cloud.google.com/go/spanner"
+	"example.com/harbor/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -87,7 +88,12 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	}
 	session.PasswordSignIn(s)
 	google.SignIn(s, "google", nil, &google.Config{RoleSync: %s})
+	identityClient, err := staffidentity.NewClient(engine, s.API())
+	if err != nil {
+		return nil, err
+	}
 	s.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
+	s.SetInvitationAccepted(identityClient.InvitationAccepted())
 
 	return &Auth{session: s}, nil
 }

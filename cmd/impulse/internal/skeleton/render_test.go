@@ -190,12 +190,14 @@ func TestRenderAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The first administrator's password is read under the auth's own variable, in the
-	// configuration, the environment template and the migrate command alike.
+	// The first administrator's address is read under the auth's own variable, in the
+	// configuration, the environment template, the auth's foothold and the deploy step
+	// alike, and no password is declared for them anywhere.
 	for rel, want := range map[string]string{
-		"pkg/config/data.go":   "MembersAdministratorPassword string `env:\"APP_MEMBERS_ADMINISTRATOR_PASSWORD\" secret:\"generated\"`",
-		".envrc.template":      "# export APP_MEMBERS_ADMINISTRATOR_PASSWORD=",
-		"pkg/deploy/deploy.go": "members.Auth.SeedAdministrator() with APP_MEMBERS_ADMINISTRATOR_PASSWORD",
+		"pkg/config/data.go":           "MembersAdministrator string `env:\"APP_MEMBERS_ADMINISTRATOR\"`",
+		".envrc.template":              "# export APP_MEMBERS_ADMINISTRATOR=",
+		"pkg/auth/members/foothold.go": "const AdministratorVariable = \"APP_MEMBERS_ADMINISTRATOR\"",
+		"pkg/deploy/deploy.go":         "email: data.MembersAdministrator(), invite: data.Members().InviteAdministrator, reinvite: data.Members().ReinviteAdministrator",
 	} {
 		data, err := root.ReadFile(filepath.FromSlash(rel))
 		if err != nil {

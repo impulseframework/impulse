@@ -167,14 +167,8 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 
 // audienceOf is how wide the registration is, for the page where a method is opened to
 // sign-up: the provider is the one organization, by the application's name for it
-// (cfg.Connection) or, without one, the host of its issuer.
-//
-// The library cannot see behind an issuer, so a provider reads as one organization
-// whatever it serves (signin.Audience.OneOrganization). The rule that links a
-// deployment's seeded first administrator on the name asks that of the registration
-// the account was seeded for, so a seed made for a provider's registration
-// (session.SeedUserIDThrough) is its author's word that the provider is the
-// deployment's own directory; the generated foothold never gives it.
+// (cfg.Connection) or, without one, the host of its issuer. The library cannot see
+// behind an issuer, so a provider reads as one organization whatever it serves.
 //
 // The name is for the page. What the audience is compared by is the provider's issuer,
 // which is the provider's alone: the application's name for the provider can be kept

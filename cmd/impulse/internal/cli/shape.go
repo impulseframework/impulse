@@ -9,7 +9,6 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/shape"
 	transition_ "github.com/impulseframework/impulse/cmd/impulse/internal/transition"
 )
@@ -30,50 +29,6 @@ func (s *startingPoint) write(w io.Writer) {
 		fmt.Fprintf(w, "  - %s\n", line)
 	}
 	fmt.Fprintln(w)
-}
-
-// firstAdministratorCheck is the check that refuses a first administrator the migrate
-// command would seed and nobody could sign in as: where the application's tenants have
-// directories, an auth with no password method whose directory method is open to more
-// than one organization.
-const firstAdministratorCheck = "first-administrator"
-
-// writeHeld says, after the check's report, that the starting point as written into
-// this application fails the first-administrator check, with what the author does next
-// in the check's own words. A starting point writes the choices its shape names
-// whatever the application around them is, and this is the one combination of them the
-// check refuses, so the command says it itself and does not leave it to the report.
-func (s *startingPoint) writeHeld(w io.Writer, results []check.Result) {
-	for i := range results {
-		r := &results[i]
-		if r.Name != firstAdministratorCheck || r.Status != check.Fail {
-			continue
-		}
-		fmt.Fprintf(w, "\nWith the %s starting point written, the migrate command would seed a first administrator who cannot sign in, which impulse check refuses (%s). What to do next, in the check's words:\n", s.shape.Name, r.Name)
-		for _, detail := range r.Details {
-			fmt.Fprintf(w, "  - %s\n", detail)
-		}
-	}
-}
-
-// heldFirstAdministrator refuses, before anything is written, the one starting point of
-// add auth whose first administrator nobody could sign in as: Open sign-up on an auth
-// with no password method, in an application whose tenants have directories
-// (check.DeclaresDirectories, the first-administrator check's own condition). The shape
-// opens every directory method to more than one organization, so the migrate command
-// would seed the administrator for no registration, the sign-in rule would link the
-// seeded account through none, and the check would fail what the command had just
-// written. writeHeld stays for a combination this does not foresee.
-func heldFirstAdministrator(s *shape.Shape, a *app.App, specs []authpkg.Method) error {
-	password := false
-	for i := range specs {
-		password = password || specs[i].Kind == app.MethodPassword
-	}
-	if !s.OpenSignUp() || password || !check.DeclaresDirectories(a) {
-		return nil
-	}
-
-	return errors.Newf("%s: this application's tenants have directories, so the first administrator the migrate command would seed for an auth with no password method, whose directory methods the shape opens to more than one organization, could not sign in, and impulse check refuses it (%s). Give the auth the password method as well (--method password beside the others), so the administrator is seeded with a password; or add the auth without the shape, for one organization, and open another method with impulse add method afterward", s.Flag(), firstAdministratorCheck)
 }
 
 // bindShape gives a command its --shape flag, naming the shapes it offers and what a
@@ -144,9 +99,6 @@ func methodName(m *authpkg.Method) string {
 func authStartingPoint(s *shape.Shape, appDir, outlet string, specs []authpkg.Method) (*startingPoint, error) {
 	a, err := app.Discover(appDir)
 	if err != nil {
-		return nil, err
-	}
-	if err := heldFirstAdministrator(s, a, specs); err != nil {
 		return nil, err
 	}
 	opening := shape.OpensWithRole

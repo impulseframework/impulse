@@ -37,8 +37,8 @@ func TestRename(t *testing.T) {
 		// between underscores.
 		{
 			name: "the upper-case form in an environment variable",
-			text: "export APP_MEMBERS_ADMINISTRATOR_PASSWORD=\n`env:\"APP_MEMBERS_GOOGLE_CLIENT_ID\"`",
-			want: "export APP_PARTNERS_ADMINISTRATOR_PASSWORD=\n`env:\"APP_PARTNERS_GOOGLE_CLIENT_ID\"`",
+			text: "export APP_MEMBERS_ADMINISTRATOR=\n`env:\"APP_MEMBERS_GOOGLE_CLIENT_ID\"`",
+			want: "export APP_PARTNERS_ADMINISTRATOR=\n`env:\"APP_PARTNERS_GOOGLE_CLIENT_ID\"`",
 		},
 		{name: "the upper-case form alone", text: "MEMBERS", want: "PARTNERS"},
 		{name: "an upper-case word that begins or ends with the name", text: "MEMBERSHIP NONMEMBERS MEMBERS2 APP_MEMBERSHIP_FEE", want: "MEMBERSHIP NONMEMBERS MEMBERS2 APP_MEMBERSHIP_FEE"},

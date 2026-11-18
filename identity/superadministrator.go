@@ -48,8 +48,8 @@ import (
 // super administrator is run by someone else, who holds what they hold themselves, and
 // a super administrator who views as someone else is a super administrator still. A
 // method an application runs in a transaction of its own has no caller, and may give
-// the role: that is how a deployment seeds its first administrator, and how an accepted
-// invitation gives what a super administrator wrote into it. No caller at all lifts the
+// the role: that is how a deployment invites its first administrator, and how an
+// accepted invitation gives what was written into it. No caller at all lifts the
 // second rule alone; the third holds for everyone.
 
 // superAdministratorKey is the membership that makes user a super administrator.

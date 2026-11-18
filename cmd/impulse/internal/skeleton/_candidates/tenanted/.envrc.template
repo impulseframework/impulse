@@ -46,11 +46,13 @@ export APP_PUBLIC_URL=http://127.0.0.1:4301
 # export APP_MAIL_MAILBOX=no-reply@example.com
 # export APP_MAIL_FROM=
 # export APP_MAIL_APP_PASSWORD=
-# APP_STAFF_ADMINISTRATOR_PASSWORD is the password of the staff auth's first administrator
-# (pkg/auth/staff, Administrator), which the migrate command seeds while the auth's users
-# table holds no rows; a deployment generates it as a secret, and the bootstrap creates the
-# development logins instead, so it stays unset here.
-# export APP_STAFF_ADMINISTRATOR_PASSWORD=
+# APP_STAFF_ADMINISTRATOR is the email address of the staff auth's first administrator
+# (pkg/auth/staff, InviteAdministrator): while nobody of the auth holds the Super
+# Administrator role the migrate command has an invitation mailed there, and the person
+# signs in from its link. A deployment names it per environment, with the mailbox above,
+# since the link is never written to a log; the bootstrap creates the development logins
+# instead, one of them holding the role, so it stays unset here.
+# export APP_STAFF_ADMINISTRATOR=
 # The staff auth's google registration (pkg/auth/staff/google.go): any Google account, open
 # sign-up, so a stranger signs in and creates their own tenant (the Tenant record's
 # @tenant(creation: both)). The server builds with the session library's skipAuth tag (the

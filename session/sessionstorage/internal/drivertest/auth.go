@@ -292,11 +292,6 @@ type DirectoryAdmission struct {
 	// an application that reads none: the rule on a first link made on a name alone
 	// asks it.
 	OnlyIn func(ctx context.Context, tx HookTx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
-	// Seeded reports whether the account is the deployment's own seed for the
-	// registration named, nil for an application that recognizes none: the same rule
-	// asks it, of the first administrator of an Auth whose people sign in through a
-	// directory.
-	Seeded func(userID impulse.UUID, username, registration string) bool
 }
 
 // AuthInstance is a driver over a freshly prepared users database, with the
@@ -366,7 +361,7 @@ func oneProof(proven []dbtype.PasswordProof) dbtype.PasswordProof {
 func NewLinkConfirmed[Tx any](
 	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
-	directories, seat, _, _ := adaptAdmission(cfg, adapt)
+	directories, seat, _ := adaptAdmission(cfg, adapt)
 
 	return func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
 		if err := signinflow.LinkConfirmed(ctx, d, userID, username, identity, tenant, directories, seat, oneProof(proven)); err != nil {
@@ -382,9 +377,9 @@ func NewLinkConfirmed[Tx any](
 // for none.
 func adaptAdmission[Tx any](
 	cfg AuthConfig, adapt func(tx Tx) HookTx,
-) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx], signinflow.OnlyInTenant[Tx], signinflow.SeededAccount) {
+) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx], signinflow.OnlyInTenant[Tx]) {
 	if cfg.Admission == nil {
-		return nil, nil, nil, nil
+		return nil, nil, nil
 	}
 	lookup := cfg.Admission.Directories
 	directories := func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
@@ -403,7 +398,7 @@ func adaptAdmission[Tx any](
 		}
 	}
 
-	return directories, seat, onlyIn, cfg.Admission.Seeded
+	return directories, seat, onlyIn
 }
 
 // NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
@@ -454,7 +449,7 @@ func NewSignIn[Tx any](
 			return cfg.Policy(ctx, adapt(tx), req)
 		}
 	}
-	directories, seat, onlyIn, seeded := adaptAdmission(cfg, adapt)
+	directories, seat, onlyIn := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
 	signUp := adaptSignUp(cfg, adapt)
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
@@ -464,7 +459,7 @@ func NewSignIn[Tx any](
 		}
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
-			Directories: directories, Seat: seat, OnlyIn: onlyIn, Seeded: seeded, OneOrganization: cfg.Admits.Audience().OneOrganization(), Proven: oneProof(proven),
+			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: oneProof(proven),
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

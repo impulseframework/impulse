@@ -315,9 +315,6 @@ func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
 		decls          []string
 		wantWorkspaces string
 		wantAccounts   bool
-		// wantDomains is whether a Workspace the slot names was given several domains:
-		// read beside the shape, which it leaves as it is.
-		wantDomains bool
 	}{
 		{
 			name:           "one Workspace",
@@ -337,32 +334,28 @@ func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
 			statements:     fallible,
 			decls:          []string{listedWorkspaces},
 			wantWorkspaces: WorkspacesListed,
-			wantDomains:    true,
 		},
 		{
-			name:       "one Workspace of two domains is one Workspace, and several domains",
+			name:       "one Workspace of two domains is one Workspace",
 			statements: infallible,
 			decls: []string{`func workspaceSlot(settings *Settings) google.WorkspaceSet {
 	return google.Workspace("fleet", "fleet.example", "fleet.test")
 }`},
 			wantWorkspaces: WorkspacesOne,
-			wantDomains:    true,
 		},
 		{
-			name:       "one Workspace given a spread of domains is one Workspace, and several domains",
+			name:       "one Workspace given a spread of domains is one Workspace",
 			statements: infallible,
 			decls: []string{`func workspaceSlot(settings *Settings) google.WorkspaceSet {
 	return google.Workspace("fleet", settings.Workspace.Domains...)
 }`},
 			wantWorkspaces: WorkspacesOne,
-			wantDomains:    true,
 		},
 		{
 			name:           "a Workspace of several domains beside any Google account",
 			statements:     `	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: google.Workspaces(google.Workspace("fleet", "fleet.example", "fleet.test"), google.AnyGoogleAccount()), RoleSync: google.DisableRoleSync()})`,
 			wantWorkspaces: WorkspacesOne,
 			wantAccounts:   true,
-			wantDomains:    true,
 		},
 		{
 			name:           "any Workspace",
@@ -424,9 +417,6 @@ func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
 			m := auths[0].Methods[0]
 			if m.Workspaces != tt.wantWorkspaces || m.GoogleAccounts != tt.wantAccounts {
 				t.Errorf("Workspaces = %q, GoogleAccounts = %v; want %q, %v", m.Workspaces, m.GoogleAccounts, tt.wantWorkspaces, tt.wantAccounts)
-			}
-			if m.SeveralDomains != tt.wantDomains {
-				t.Errorf("SeveralDomains = %v, want %v", m.SeveralDomains, tt.wantDomains)
 			}
 		})
 	}

@@ -815,9 +815,6 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 		return err
 	}
 	check.Report(out, results)
-	if f.start != nil {
-		f.start.writeHeld(out, results)
-	}
 	if !check.Failed(results) && left == 0 {
 		if len(ts) == 1 {
 			fmt.Fprintf(out, "\nThe check is clean: the option is wired. Review the diff and open the pull request.\n")
@@ -886,22 +883,27 @@ sign-in tables, cookie, store prefix, and role file from the start, with one fil
 sign-in method. Its session tables are written as migrations under the new prefix and its
 access tables copied from an auth the application has; an empty role file is written in
 the package (the file its Roles() embeds and hands to the permission engine), and the data
-level constructs it beside that auth. The package carries a foothold (foothold.go): the
-first administrator the migrate command seeds while the auth's users table holds no rows,
-a user named administrator with the password the stack generates for a password auth,
-which the first sign-in changes before anything else is served, or a user without a
-password under a sign-in name the placement names, which that person's first sign-in
-links to, for an auth whose roles the application assigns; its roles, its setting in the
-data level and its seeding from pkg/deploy are handed to the agent. Where the
-application's tenants have directories, a name alone links no account that has never
-signed in, so such a user is seeded for the registration its name is believed from. The
-foothold names that registration itself only for an auth whose one directory method is
-of one Microsoft Entra tenant or one Google Workspace; for any other auth (several
-directory methods, a method open to more than one organization, an organization's
-identity provider) it names none and says so, and the first sign-in links nothing until
-its author names the deployment's own directory in the foothold, or gives the auth a
-password method and seeds the administrator with a password; impulse check fails until
-one of the two is done (first-administrator).
+level constructs it beside that auth. The package carries a foothold (foothold.go) for
+an auth whose roles the application assigns, with the password method or without: the
+first administrator the migrate command invites while nobody of the auth holds the
+Super Administrator role, by an invitation mailed to the address the placement names
+for each environment
+(APP_<AUTH>_ADMINISTRATOR). The invitation gives the Super Administrator role and the
+first administrator's roles, and the person accepts it as everyone invited after them
+does, by signing in from the link through a method of the auth: with the password method
+they choose a password there, and through a directory the invitation is what ties the
+sign-in to the roles, however many organizations the method admits. No account is made
+ahead of the person and no password is generated. A release leaves a standing invitation
+as it is, replaces one that ran out, and withdraws one for an address the placement no
+longer names; the migrate command's -reinvite-administrator mails a fresh one on demand;
+and both refuse while nobody holds the role and the application has no mailbox to send
+as, since the link is never written to a log. Once somebody holds the Super Administrator
+role nobody is invited, and an account that holds no such role stops no invitation. The foothold's roles, its setting in the data level and its invitation
+from pkg/deploy are handed to the agent; impulse check holds the package to inviting
+(first-administrator). An auth the application generates no management for
+(generation.GenerateIdentity) invites nobody, since nothing there would give an accepted
+invitation its roles, and impulse check refuses it until the application does: it has no
+way in.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),
@@ -961,14 +963,8 @@ never written: for directory-members and open-sign-up the command says that it i
 chosen on the application's Sign-in page while the application runs. A method or a
 flag given beside --shape that contradicts it is refused, naming both (--shape
 directory-roles with --authority application, --shape open-sign-up with an identity
-provider's method). In an application whose tenants have directories, Open sign-up on
-an auth with no password method would seed a first administrator who cannot sign in,
-since the shape opens every directory method to more than one organization: the command
-refuses it before anything is written and says what to give instead (the password method
-beside the others, or the auth without the shape and impulse add method afterward). Any
-other starting point impulse check refuses for its first administrator is said after the
-check's report, in the check's words (first-administrator). impulse audit reads the
-shape back from the code (its sign-in section).
+provider's method). impulse audit reads the shape back from the code (its sign-in
+section).
 
 Checking the auth's roles in the deploy, the App's handlers the generated router now
 requires for the outlet, its development identities, and the tests that prove its people
@@ -1047,12 +1043,8 @@ written: for directory-members and open-sign-up the command says that it is chos
 the application's Sign-in page while the application runs, and what it does there. A
 method or a flag given beside --shape that contradicts it is refused, naming both
 (--shape directory-members with --slot any, --shape invite-only with --authority
-directory, --shape directory-members with the password method). In an application
-whose tenants have directories, a starting point that leaves the auth with no password
-method and a directory method open to more than one organization seeds a first
-administrator who cannot sign in: the command says so after the check's report, with
-what to do next in the check's words (first-administrator). impulse audit reads the
-shape back from the code (its sign-in section).`
+directory, --shape directory-members with the password method). impulse audit reads
+the shape back from the code (its sign-in section).`
 
 // retiredAccountsFlag is the flag add auth and add method took for a method's standard
 // account rule, and accountsRetired what either says of it now.

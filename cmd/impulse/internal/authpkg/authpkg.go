@@ -645,7 +645,7 @@ func Files(spec *Spec) (map[string][]byte, error) {
 		return nil, err
 	}
 	files[spec.Name+".go"] = main
-	if Foothold(spec) != "" {
+	if Foothold(spec) {
 		foothold, err := render(footholdFile, footholdTemplate, newView(spec))
 		if err != nil {
 			return nil, err
@@ -734,7 +734,7 @@ func CastFile(spec *Spec, m *Method) ([]byte, error) {
 func FileNames(spec *Spec) []string {
 	files := make([]string, 0, 2+len(spec.Methods))
 	files = append(files, spec.Name+".go")
-	if Foothold(spec) != "" {
+	if Foothold(spec) {
 		files = append(files, footholdFile)
 	}
 	for i := range spec.Methods {

@@ -54,36 +54,3 @@ var seedUserNamespace = impulse.UUIDFromName(impulse.NilUUID, "github.com/impuls
 func SeedUserID(auth, username string) impulse.UUID {
 	return impulse.UUIDFromName(seedUserNamespace, auth+"\x00"+attempts.Normalize(username))
 }
-
-// seedThroughNamespace is the namespace the ids of seeded users who sign in through a
-// directory are derived in, apart from seedUserNamespace: no id of one kind is an id of
-// the other.
-var seedThroughNamespace = impulse.UUIDFromName(impulse.NilUUID, "github.com/impulseframework/impulse/session: a seeded user who signs in through a registration")
-
-// SeedUserIDThrough returns the id a seed creates a user under who holds no password
-// and signs in through a directory: the first administrator of an auth whose roles the
-// application gives. It is SeedUserID with the name of the sign-in registration the
-// person comes through, so the account's id carries the deployment's word twice: that
-// the account is a seed's, which no request can make (CreateUserRequest.ID), and which
-// of the Auth's registrations the name is believed from.
-//
-// The second is what the first sign-in needs. Such an account has no password and no
-// link, so nothing but its name ties it to whoever signs in under it, and a directory
-// asserts the names it likes. In an application whose tenants have directories the
-// standard rule therefore links an account created ahead only when something vouches
-// for it (SetDirectoryAdmission), and for this account the deployment does: the Auth's
-// directory admission recognizes the id (DirectorySeatedHook.Seeded) and links the
-// account at its person's first sign-in through that registration, where the
-// registration admits one organization and nobody else. A sign-in under the name
-// through any other registration, a customer's own provider among them, or through a
-// registration open to more than one organization, is refused as a stranger's is.
-//
-// Seeding an account under this id says that whoever the registration's directory
-// presents under the username is the person: it is for the deployment's own directory,
-// whose sign-in names only its administrators give, and never for a provider that lets
-// a person choose a name. The id names the registration and not the organization
-// behind it, so a registration pointed at another organization before the person has
-// signed in believes that organization's word instead.
-func SeedUserIDThrough(auth, registration, username string) impulse.UUID {
-	return impulse.UUIDFromName(seedThroughNamespace, auth+"\x00"+registration+"\x00"+attempts.Normalize(username))
-}
