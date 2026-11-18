@@ -3,9 +3,12 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -284,6 +287,144 @@ func TestUnsubscribeHandler(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantRevoked, fake.Revoked(), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Revoked() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// recordedContexts is the fake service with the context of each call an unsubscribe
+// makes on the record and the identity kept, and with a call refused where its context
+// has ended, as a backend's client refuses one.
+type recordedContexts struct {
+	*Fake
+
+	mu   sync.Mutex
+	seen []context.Context
+}
+
+// note keeps the call's context and answers the context's error where it has ended.
+func (r *recordedContexts) note(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("the call was made under a context that has ended: %w", err)
+	}
+
+	return nil
+}
+
+func (r *recordedContexts) Unsubscribe(ctx context.Context, principal, tab string) error {
+	if err := r.note(ctx); err != nil {
+		return err
+	}
+
+	return r.Fake.Unsubscribe(ctx, principal, tab)
+}
+
+func (r *recordedContexts) UnsubscribeAll(ctx context.Context, principal string) error {
+	if err := r.note(ctx); err != nil {
+		return err
+	}
+
+	return r.Fake.UnsubscribeAll(ctx, principal)
+}
+
+func (r *recordedContexts) Revoke(ctx context.Context, uid string) error {
+	if err := r.note(ctx); err != nil {
+		return err
+	}
+
+	return r.Fake.Revoke(ctx, uid)
+}
+
+// contexts returns the context of each call made so far.
+func (r *recordedContexts) contexts() []context.Context {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return slices.Clone(r.seen)
+}
+
+// TestUnsubscribeHandler_closedPage pins an unsubscribe whose connection ended right
+// after the request arrived, as a closing page's does: what it asked for is done all the
+// same, and the answer is the 204 of a request that went well, so nothing is logged for
+// it. Every call it makes on the record and the identity runs under a context the
+// request's end did not reach, with the handler's own limit on it and the request's
+// values still in it.
+func TestUnsubscribeHandler_closedPage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		body        string
+		wantCalls   int
+		wantLeft    []string // "principal/tab"
+		wantRevoked []string
+	}{
+		{
+			name:      "a tab leaving",
+			body:      `{"tab":"tab-1"}`,
+			wantCalls: 1,
+			wantLeft:  []string{"crew|dispatcher/tab-2", "crew|mechanic/tab-3"},
+		},
+		{
+			name:        "a logout",
+			body:        `{"tab":"tab-1","all":true}`,
+			wantCalls:   2,
+			wantLeft:    []string{"crew|mechanic/tab-3"},
+			wantRevoked: []string{"crew|dispatcher"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := &recordedContexts{Fake: NewFake()}
+			now := time.Now()
+			if err := svc.Register(t.Context(), []Subscription{
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Ships", Domain: "anvil", Expiry: now.Add(time.Minute)},
+				{Principal: "crew|dispatcher", Tab: "tab-2", Resource: "Ships", Key: "s1", Expiry: now.Add(time.Minute)},
+				{Principal: "crew|mechanic", Tab: "tab-3", Resource: "Refits", Domain: "anvil", Expiry: now.Add(time.Minute)},
+			}); err != nil {
+				t.Fatalf("Register() error = %v", err)
+			}
+			// The connection ends once the request has arrived: its context is canceled
+			// before the handler has done anything.
+			closed, closePage := context.WithCancel(withSession(t.Context(), crewAuth, "dispatcher"))
+			closePage()
+			req := httptest.NewRequestWithContext(closed, http.MethodPost, "/api/live/unsubscribe", strings.NewReader(tt.body))
+			rr := httptest.NewRecorder()
+			asked := time.Now()
+			UnsubscribeHandler(svc).ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want %d, the answer of an unsubscribe that went well: %s", rr.Code, http.StatusNoContent, rr.Body.String())
+			}
+			subs := svc.Subscriptions()
+			left := make([]string, 0, len(subs))
+			for _, sub := range subs {
+				left = append(left, sub.Principal+"/"+sub.Tab)
+			}
+			if diff := cmp.Diff(tt.wantLeft, left); diff != "" {
+				t.Errorf("subscriptions left mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantRevoked, svc.Revoked(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Revoked() mismatch (-want +got):\n%s", diff)
+			}
+
+			calls := svc.contexts()
+			if len(calls) != tt.wantCalls {
+				t.Fatalf("calls on the record and the identity = %d, want %d", len(calls), tt.wantCalls)
+			}
+			for i, ctx := range calls {
+				deadline, ok := ctx.Deadline()
+				if !ok || deadline.Before(asked) || deadline.After(time.Now().Add(RecordTimeout)) {
+					t.Errorf("call %d ran under a deadline of %v (set: %v), want the handler's own limit of %s from when the request came", i+1, deadline, ok, RecordTimeout)
+				}
+				if principal, err := PrincipalID(ctx); err != nil || principal != "crew|dispatcher" {
+					t.Errorf("call %d: PrincipalID() of its context = (%q, %v), want the request's values still in it", i+1, principal, err)
+				}
 			}
 		})
 	}

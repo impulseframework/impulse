@@ -3,6 +3,7 @@ package firestore_test
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -264,6 +265,115 @@ func TestService_unsubscribe(t *testing.T) {
 				t.Errorf("subscriptions left mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// processLog collects what the process logs through the standard logger, which is where
+// a request with no logger of its own on its context logs.
+type processLog struct {
+	mu      sync.Mutex
+	written []byte
+}
+
+func (l *processLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.written = append(l.written, p...)
+
+	return len(p), nil
+}
+
+// lines returns what was logged so far.
+func (l *processLog) lines() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return string(l.written)
+}
+
+// captureProcessLog sends the standard logger's output to a processLog until the test
+// ends. A test that calls it runs alone: the standard logger is the whole process's.
+func captureProcessLog(t *testing.T) *processLog {
+	t.Helper()
+
+	logged := &processLog{}
+	previous := log.Writer()
+	log.SetOutput(logged)
+	t.Cleanup(func() {
+		log.SetOutput(previous)
+	})
+
+	return logged
+}
+
+// TestUnsubscribeHandler_closedPage pins an unsubscribe whose connection ended right
+// after the request arrived, as a closing page's does, on the Firestore emulator: the
+// subscriptions it named are deleted all the same, the answer is the 204 of an
+// unsubscribe that went well, and nothing is logged for it. A delete made under the
+// request's context is canceled with the connection: the documents stay behind until
+// their expiry, and the server logs the canceled delete of a page that did nothing but
+// close.
+//
+// The test does not run beside the others, since it reads the process's log.
+func TestUnsubscribeHandler_closedPage(t *testing.T) { //nolint:paralleltest // it reads the standard logger's output, which is the whole process's
+	svc := newService(t, time.Now)
+	res := resourceFor(t)
+	user, other := principalFor(t, "dispatcher"), principalFor(t, "mechanic")
+	principal, otherPrincipal := "crew"+live.AuthSeparator+user, "crew"+live.AuthSeparator+other
+	register(t, svc, time.Now(),
+		live.Subscription{Principal: principal, Tab: "tab-1", Resource: res, Domain: "anvil"},
+		live.Subscription{Principal: principal, Tab: "tab-2", Resource: res, Key: "k1"},
+		live.Subscription{Principal: principal, Tab: "tab-3", Resource: res, Key: "k2"},
+		live.Subscription{Principal: otherPrincipal, Tab: "tab-1", Resource: res, Domain: "anvil"},
+	)
+	stored := func(of string) int {
+		t.Helper()
+		n, err := livefirestore.StoredSubscriptions(t.Context(), svc, of)
+		if err != nil {
+			t.Fatalf("StoredSubscriptions() error = %v", err)
+		}
+
+		return n
+	}
+	if got := stored(principal); got != 3 {
+		t.Fatalf("subscriptions stored before the page closed = %d, want 3", got)
+	}
+
+	steps := []struct {
+		name       string
+		body       string
+		wantStored int
+	}{
+		{name: "a tab's page closes", body: `{"tab":"tab-1"}`, wantStored: 2},
+		{name: "the person logs out and the page is gone before the answer", body: `{"tab":"tab-2","all":true}`, wantStored: 0},
+	}
+	logged := captureProcessLog(t)
+	// One person's history, so the steps run in order.
+	for _, step := range steps {
+		// The connection ends once the request has arrived: its context is canceled
+		// before the handler has done anything.
+		session := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+			SessionInfo: &sessioninfo.SessionInfo{Username: user},
+		})
+		closed, closePage := context.WithCancel(session)
+		closePage()
+		req := httptest.NewRequestWithContext(closed, http.MethodPost, "/api/live/unsubscribe", strings.NewReader(step.body))
+		req.Header.Set(live.SubscribeHeader, "tab-1")
+		rr := httptest.NewRecorder()
+		live.Subscribing("crew")(live.UnsubscribeHandler(svc)).ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusNoContent {
+			t.Errorf("%s: status = %d, want %d, the answer of an unsubscribe that went well: %s", step.name, rr.Code, http.StatusNoContent, rr.Body.String())
+		}
+		if got := stored(principal); got != step.wantStored {
+			t.Errorf("%s: the person's subscriptions stored after it = %d, want %d", step.name, got, step.wantStored)
+		}
+		if got := stored(otherPrincipal); got != 1 {
+			t.Errorf("%s: another person's subscriptions stored after it = %d, want still 1", step.name, got)
+		}
+		if got := logged.lines(); got != "" {
+			t.Errorf("%s: the server logged for a page that closed, want nothing:\n%s", step.name, got)
+		}
 	}
 }
 
