@@ -357,7 +357,9 @@ func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope
 // snapshot like the checks (safe inside transactions; no store read). It is
 // the question a session's reach into a tenant asks of the session's actor:
 // a super administrator enters every tenant, whatever the tenant's sign-in
-// settings say, and nobody else is exempt from them.
+// settings say. The one other person a tenant's sign-in settings do not keep
+// out is that tenant's own administrator (UserAdministersTenant), in that
+// tenant alone.
 func (c *Client) UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

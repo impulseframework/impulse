@@ -325,9 +325,10 @@ func (a *admittedPermissions) administratorsWayIn(ctx context.Context, declarati
 }
 
 // actorIsSuperAdministrator answers, once per value, whether the session's actor
-// holds the Super Administrator role: the one exemption from a tenant's sign-in
-// settings, and the question the sign-in policy asks of the person signing in
-// (accesstypes.RoleCollection.HoldsSuperAdministrator is the test both come to).
+// holds the Super Administrator role: the exemption from a tenant's sign-in
+// settings that holds in every tenant, and the question the sign-in policy asks of
+// the person signing in (accesstypes.RoleCollection.HoldsSuperAdministrator is the
+// test both come to).
 // The caller holds the lock.
 func (a *admittedPermissions) actorIsSuperAdministrator(ctx context.Context) (bool, error) {
 	if a.super != nil {

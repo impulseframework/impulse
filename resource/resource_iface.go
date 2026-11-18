@@ -32,9 +32,11 @@ type UserPermissions interface {
 
 	// Reaches reports whether the session may enter domain: the tenant's
 	// declaration (TenantDeclarations) admits the way the session was
-	// established, its sign-in's method and connection, or the session's
+	// established, its sign-in's method and connection; or the session's
 	// actor is a super administrator, who holds the Super Administrator role
-	// and enters every tenant; nobody else is exempt from a tenant's sign-in
+	// and enters every tenant; or the tenant is directory only and the
+	// session is its own administrator's, established with a password and
+	// carrying a second factor. Nobody else is exempt from a tenant's sign-in
 	// settings. It is the generated domain guard's
 	// question before the foothold, and the attenuation behind every other
 	// answer: in a tenant the session does not reach it holds nothing —
