@@ -33,6 +33,18 @@ var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 // message.
 var ErrPasswordChanged = dbtype.ErrPasswordChanged
 
+// ErrNoAuthEvents is returned by AppendAuthEvent on a store that records no auth
+// events (no WithAuthEvents): there is no table to record the event in. A caller for
+// whom the event is a record beside what it did, not the thing it did, tells this
+// apart from a failure.
+var ErrNoAuthEvents = dbtype.ErrNoAuthEvents
+
+// ErrPasswordHeld is returned by SetFirstUserPassword for a user who holds a password
+// already (a Conflict): a first password is given to an account that has none, and an
+// account that has one changes it with the old one (ChangeUserPassword). Nothing is
+// written.
+var ErrPasswordHeld = dbtype.ErrPasswordHeld
+
 // PasswordProof names the password a sign-in proved, without holding it: a digest of
 // the hash the password was compared against. A session, a pending sign-in or a
 // confirmed link that carries one is inserted only while the user still holds that
@@ -124,6 +136,13 @@ type AuthStore[Tx any] interface {
 	// set meanwhile is not overwritten on proof of the password it replaced. A write with
 	// no proven hash writes nothing, and one with no new hash is refused.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	// SetFirstUserPassword gives a user who holds no password the one they chose, with
+	// the password change mark clear. The write lands only while the row holds no
+	// password, decided by the write itself, so of two that race one lands: a user who
+	// holds one already keeps it (ErrPasswordHeld, a Conflict), and an unknown user is
+	// NotFound. The user's sessions stand: a person who adds a way to sign in gives
+	// nobody a reason to be signed out. A write with no hash is refused.
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
 	// CreateSession inserts a session that has no identity to resolve and returns its
 	// ID: a session the application starts for a user it authenticated itself, or a
 	// regeneration. A configured custom session data resolver runs inside the insert
@@ -422,6 +441,9 @@ const (
 	MailLinkInvitation   = dbtype.MailLinkInvitation
 	MailLinkVerification = dbtype.MailLinkVerification
 	MailLinkSignUp       = dbtype.MailLinkSignUp
+	// MailLinkFirstPassword is the code a signed-in person who has no password is
+	// mailed to choose their first one.
+	MailLinkFirstPassword = dbtype.MailLinkFirstPassword
 )
 
 // SignInMethod is a row of the sign-in methods table: what an administrator chose for
@@ -1012,6 +1034,21 @@ func (a *Auth[Tx]) ChangeUserPassword(ctx context.Context, id impulse.UUID, prov
 	}
 	if err := a.db.ChangeUserPassword(ctx, id, proven, hash); err != nil {
 		return errors.Wrap(err, "db.ChangeUserPassword()")
+	}
+
+	return nil
+}
+
+// SetFirstUserPassword implements AuthStore.
+func (a *Auth[Tx]) SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if hash == nil {
+		return errors.New("SetFirstUserPassword needs the password's hash: a user with no password is given one")
+	}
+	if err := a.db.SetFirstUserPassword(ctx, id, hash); err != nil {
+		return errors.Wrap(err, "db.SetFirstUserPassword()")
 	}
 
 	return nil

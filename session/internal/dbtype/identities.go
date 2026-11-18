@@ -71,6 +71,20 @@ func UnlinkKeepsSignIn(links []*SessionIdentity, unlinked impulse.UUID, signsIn 
 // sessionstorage for its documentation.
 var ErrPasswordChanged = errors.New("sessionstorage: the user's password has changed since it was proved")
 
+// ErrNoAuthEvents is returned when an auth event is appended to a session of a store
+// that records none; see sessionstorage for its documentation.
+var ErrNoAuthEvents = errors.New("auth events are not configured: attach WithAuthEvents")
+
+// ErrPasswordHeld is returned when a user's first password is written for a user who
+// holds a password already; see sessionstorage for its documentation.
+var ErrPasswordHeld = errors.New("sessionstorage: the user already holds a password")
+
+// PasswordHeld is the refusal of a first password for a user who holds one: a Conflict
+// whose cause is ErrPasswordHeld.
+func PasswordHeld() error {
+	return httpio.NewConflictMessageWithError(ErrPasswordHeld, "the user already has a password: it is changed with the old one")
+}
+
 // PasswordProof names the password a sign-in proved, without holding it: the SHA-256
 // of the password hash the password was compared against, in the text the users table
 // stores. Whatever is inserted on the strength of a password just entered (a session, a

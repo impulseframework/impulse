@@ -548,7 +548,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 	defer span.End()
 
 	if s.authEvents == nil {
-		return errors.New("auth events are not configured: attach WithAuthEvents")
+		return dbtype.ErrNoAuthEvents
 	}
 	if event.Method == "" {
 		return httpio.NewBadRequestMessage("an auth event needs a method")

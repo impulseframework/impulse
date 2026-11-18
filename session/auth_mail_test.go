@@ -128,7 +128,7 @@ func expectMailLinks(f *authFixture) *mailLinks {
 		defer links.mu.Unlock()
 		var live []*sessionstorage.MailLink
 		for _, l := range links.rows {
-			if l.Kind == kind && l.ConsumedAt == nil {
+			if l.Kind == kind && l.ConsumedAt == nil && time.Now().Before(l.ExpiresAt) {
 				row := *l
 				live = append(live, &row)
 			}
@@ -292,6 +292,22 @@ Enter it on the sign-in page. The code is good for 10 minutes.
 
 Didn't do this?
 If you did not start a sign-in, ignore this message and change your password: someone else has it.
+
+Keep the code to yourself
+Nobody from Harbor will ask you for it. Don't share it.
+`},
+		},
+		{
+			name: "the code of a first password: the code spaced for reading, where to enter it and how long it is good for, then what to do if they did not ask and to keep the code",
+			got:  m.firstPasswordMessage("pat@lakeside.edu", "483920", 10*time.Minute),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your code to choose a Harbor password is 483 920", Text: `Your code to choose a password for your Harbor account is:
+
+483 920
+
+Enter it on your account page, with the password you want. The code is good for 10 minutes.
+
+Didn't do this?
+If you did not ask to choose a password, ignore this message: without the code nothing changes. Someone asked from a browser where you are signed in, so sign out of the browsers you do not use.
 
 Keep the code to yourself
 Nobody from Harbor will ask you for it. Don't share it.

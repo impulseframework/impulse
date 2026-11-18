@@ -283,6 +283,36 @@ Nobody from %s will ask you for it. Don't share it.
 	}
 }
 
+// firstPasswordMessage is the mail that carries the code of a person's first password:
+// the code, where to enter it and how long it is good for (lifetime), then what to do
+// if they did not ask, which is what the code is for: someone at a browser they left
+// signed in asked, and without the code nothing changes. The code is spaced in the
+// middle for reading.
+func (m *mailSettings) firstPasswordMessage(to, code string, lifetime time.Duration) mail.Message {
+	app := m.settings.Application
+	spaced := code
+	if len(code) == emailCodeLength {
+		spaced = code[:emailCodeLength/2] + " " + code[emailCodeLength/2:]
+	}
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your code to choose a %s password is %s", app, spaced),
+		Text: fmt.Sprintf(`Your code to choose a password for your %s account is:
+
+%s
+
+Enter it on your account page, with the password you want. The code is good for %s.
+
+Didn't do this?
+If you did not ask to choose a password, ignore this message: without the code nothing changes. Someone asked from a browser where you are signed in, so sign out of the browsers you do not use.
+
+Keep the code to yourself
+Nobody from %s will ask you for it. Don't share it.
+`, app, spaced, goodFor(lifetime), app),
+	}
+}
+
 // mailOf returns the Auth's mail settings, or an error for an Auth without mail.
 func (a *Auth[S, U, Tx]) mailOf() (*mailSettings, error) {
 	if a.settings.mail == nil {

@@ -807,6 +807,54 @@ func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID im
 	return s.replaceProvenPassword(ctx, userID, proven, map[string]any{passwordHashColumn: passwordHash, passwordChangeRequiredColumn: false}, s.destroyUserSessionsIn)
 }
 
+// SetFirstUserPassword gives a user who holds no password hash, the one they chose,
+// and clears the password change mark. The row's hash is read in the transaction that
+// writes it, so the write lands only while the row holds none: a user who holds a
+// password keeps it (ErrPasswordHeld, a Conflict), and an unknown user is NotFound. Of
+// two first passwords that race Spanner aborts one, and its rerun finds the other's
+// password held. No session is ended.
+func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("SetFirstUserPassword needs the auth schema: use Auth storage")
+	}
+	passwordHash, err := passwordHashValue(hash)
+	if err != nil {
+		return err
+	}
+	columns := map[string]any{idColumn: userID, passwordHashColumn: passwordHash, passwordChangeRequiredColumn: false}
+
+	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{passwordHashColumn})
+		if err != nil {
+			if spanner.ErrCode(err) == codes.NotFound {
+				return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+			}
+
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+		var held spanner.NullString
+		if err := row.Columns(&held); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		if held.Valid {
+			return dbtype.PasswordHeld()
+		}
+		if err := txn.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, columns)}); err != nil {
+			return errors.Wrap(err, "txn.BufferWrite()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
 // replaceProvenPassword writes columns to userID's row in the transaction that read the
 // row's password hash and found it to be proven. Of this write and another write of the
 // row that race, Spanner aborts one, and its rerun reads what the other wrote. also, nil

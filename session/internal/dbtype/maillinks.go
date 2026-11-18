@@ -21,12 +21,17 @@ const (
 	// MailLinkSignUp finishes a sign-up a person started by giving their address: the
 	// follower sets a password and the account is created, the address verified.
 	MailLinkSignUp MailLinkKind = "sign-up"
+	// MailLinkFirstPassword is the code a signed-in person who has no password is
+	// mailed to choose their first one: UserID names the account, Email is the
+	// account's confirmed address, and TokenHash keeps the code's hash, since the mail
+	// carries a code to type and no link to follow.
+	MailLinkFirstPassword MailLinkKind = "first-password"
 )
 
-// Validate refuses a kind that is not one of the three.
+// Validate refuses a kind that is not one of the four.
 func (k MailLinkKind) Validate() error {
 	switch k {
-	case MailLinkInvitation, MailLinkVerification, MailLinkSignUp:
+	case MailLinkInvitation, MailLinkVerification, MailLinkSignUp, MailLinkFirstPassword:
 		return nil
 	default:
 		return errors.Newf("%q is not a mail link kind", string(k))
@@ -43,8 +48,8 @@ type MailLink struct {
 	Kind      MailLinkKind
 	// Email is the address the link was mailed to, as given.
 	Email string
-	// UserID names the account a verification link belongs to; null for the other
-	// kinds.
+	// UserID names the account a verification link or a first-password code belongs
+	// to; null for the other kinds.
 	UserID impulse.NullUUID
 	// TenantID is the tenant an invitation seats the person in, "" for the application's
 	// global surface or for the other kinds.
