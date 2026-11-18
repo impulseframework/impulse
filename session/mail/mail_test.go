@@ -70,6 +70,30 @@ func TestLog(t *testing.T) {
 	}
 }
 
+func TestDelivers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		sender Sender
+		want   bool
+	}{
+		{name: "a sender over a mail system delivers", sender: &Recorder{}, want: true},
+		{name: "the log writes the message where the log's readers read it", sender: Log{}},
+		{name: "the log by its pointer", sender: &Log{}},
+		{name: "no sender", sender: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := Delivers(tt.sender); got != tt.want {
+				t.Errorf("Delivers() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(sub) <= len(s) && (s == sub || indexOf(s, sub) >= 0)
 }

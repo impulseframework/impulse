@@ -107,3 +107,17 @@ func (Log) Send(ctx context.Context, msg Message) error {
 
 	return nil
 }
+
+// Delivers reports whether sender hands a message to a mail system, so that it reaches
+// its recipient's mailbox and nobody else. Log does not: it writes the message, link
+// included, where whoever reads the log reads it. A flow whose link must reach one person
+// alone asks before it sends, and refuses a sender that does not deliver: the session
+// library's invitation of a deployment's first administrator does.
+func Delivers(sender Sender) bool {
+	switch sender.(type) {
+	case nil, Log, *Log:
+		return false
+	default:
+		return true
+	}
+}
