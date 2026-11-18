@@ -33,7 +33,10 @@ func (d *eventsDriver) InsertSessionIn(ctx context.Context, tx *memTx, id impuls
 // starts; a browser the person asked to be remembered passes the step and the session
 // records it, as it does for any account; so does the directory's attestation, and the
 // completion of the code itself. A person who does not hold the role signs in as the
-// application's rule says.
+// application's rule says. A sign-in through a method that synchronizes roles is not
+// held by the library's rule, since the directory is the authority there: a holder
+// signs in as the application's rule says, which still holds them when it asks a
+// factor of everyone.
 func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 	t.Parallel()
 
@@ -50,6 +53,10 @@ func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 		// reason and events are the sign-in's: a login by password unless set.
 		reason sessioninfo.NewSessionReason
 		events []sessioninfo.AuthEvent
+		// roleNames are the names the method asserted, never nil for a method that
+		// synchronizes roles; unasked says the check is not asked.
+		roleNames []string
+		unasked   bool
 		// wantPending is the wait the sign-in ends in, nil for a session; wantEvents
 		// the methods of the events the session records.
 		wantFactors []sessioninfo.AuthMethod
@@ -92,6 +99,23 @@ func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 			trusted:     true,
 			wantSession: true,
 		},
+		{
+			name:        "through a directory that writes the roles, a super administrator is not held: the directory is the authority",
+			super:       true,
+			roleNames:   []string{"SuperAdministrator"},
+			unasked:     true,
+			wantSession: true,
+		},
+		{
+			name: "through a directory that writes the roles, the application's own rule still holds a super administrator, as anyone",
+			policy: func(context.Context, *memTx, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+				return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
+			},
+			super:       true,
+			roleNames:   []string{"SuperAdministrator"},
+			unasked:     true,
+			wantFactors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,7 +140,7 @@ func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 				reason = sessioninfo.ReasonLogin
 			}
 			req := &sessioninfo.NewSessionRequest{
-				Reason: reason, UserID: userID, Username: "pat", AuthEvents: tt.events,
+				Reason: reason, UserID: userID, Username: "pat", AuthEvents: tt.events, RoleNames: tt.roleNames,
 				Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()},
 			}
 
@@ -147,8 +171,13 @@ func TestSignIn_aSuperAdministratorsSecondFactor(t *testing.T) {
 					t.Errorf("the session's events = %v, want %v", methods, tt.wantEvents)
 				}
 			}
-			// The person is asked for by the id of their account, as the role store names them.
-			if want := []accesstypes.User{accesstypes.User(userID.String())}; !slices.Equal(asked, want) {
+			// The person is asked for by the id of their account, as the role store names
+			// them, and not at all where the directory writes the roles.
+			want := []accesstypes.User{accesstypes.User(userID.String())}
+			if tt.unasked {
+				want = nil
+			}
+			if !slices.Equal(asked, want) {
 				t.Errorf("the check was asked for %v, want %v", asked, want)
 			}
 		})

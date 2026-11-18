@@ -49,6 +49,13 @@ func SuperAdministrators(roles UserRoleManager) SuperAdministratorCheck {
 // remembered, for the period the library remembers one. A decision of the policy that
 // is no plain allow stands as it is: a refusal, and a hold for a factor the policy
 // names itself. The check's error fails the sign-in.
+//
+// The library's rule stands down for a sign-in through a method that synchronizes
+// roles (the request carries the role names the directory asserted, RoleNames, which
+// is never nil for such a method): there the directory is the authority on who is a
+// super administrator, as on every role, and how its people prove who they are is the
+// directory's to say. The application's own rule is asked of that person as of
+// anyone, and what it decides stands; the check is not asked.
 func SuperAdministratorFactor[Tx any](policy Policy[Tx], check SuperAdministratorCheck) Policy[Tx] {
 	if check == nil {
 		panic("signin: SuperAdministratorFactor was given no check: pass SuperAdministrators over the access library's user manager")
@@ -64,6 +71,9 @@ func SuperAdministratorFactor[Tx any](policy Policy[Tx], check SuperAdministrato
 			}
 		}
 		if decision == nil || decision.Outcome() != AllowSignIn {
+			return decision, nil
+		}
+		if req.RoleNames != nil {
 			return decision, nil
 		}
 		super, err := check(ctx, accesstypes.User(req.UserID.String()))

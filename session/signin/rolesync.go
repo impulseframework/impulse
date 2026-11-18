@@ -96,12 +96,16 @@ func writeScopes() []accesstypes.PolicyScope {
 // A ResolveRole error aborts the sync: flattening it to "not found" would land an existing
 // valid role in removeRoles and delete the user's membership on a transient store blip.
 //
-// The Super Administrator role is no directory's to give or take: only a super
-// administrator makes or removes another. A name the directory asserts for it is
-// ignored (wantedRoles), and a membership of it the person holds stays through every
-// login, whatever the directory names. It does not count as a role the directory
-// named: a holder for whom the directory names no recognized role is refused
-// (no_roles) as anyone is, since the method's rule is that the directory admits.
+// The Super Administrator role is the directory's to give and take like any other:
+// where a directory writes an auth's roles it is the authority on them, on who is a
+// super administrator too. A name that resolves to the role is wanted where it
+// resolves, which is the global partition and nowhere else (the role is held there
+// alone, and the store names it in no other place), so the sync writes it there and
+// asks for it nowhere the store would refuse. It counts as a role the directory
+// named: a person the directory names for that role alone signs in. A membership of
+// it the directory does not name is removed at the login as any other is, the last
+// holder's included: such an auth seeds no super administrator, and the directory
+// makes the next one.
 func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.User, roleNames []string) (hasRole bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -129,7 +133,7 @@ func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.Use
 	}
 
 	for _, scope := range heldScopes(existing) {
-		removeRoles := withoutSuperAdministrator(util.Exclude(existing[scope], wanted[scope]))
+		removeRoles := util.Exclude(existing[scope], wanted[scope])
 		if len(removeRoles) > 0 {
 			if err := r.manager.DeleteUserRoles(ctx, scope, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
@@ -148,8 +152,8 @@ func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.Use
 // in both, and a name that resolves in neither is ignored. The directory's name
 // is matched without regard to case, so pilot, Pilot and PILOT are one role,
 // held and written as the store spells it. A name that resolves to the Super
-// Administrator role is ignored too: a directory makes nobody one. A ResolveRole
-// error is returned as is, never read as "missing".
+// Administrator role is wanted like any other, in the global partition, the one
+// place it resolves. A ResolveRole error is returned as is, never read as "missing".
 func (r *RoleReconciler) wantedRoles(ctx context.Context, roleNames []string) (map[accesstypes.PolicyScope][]accesstypes.Role, error) {
 	wanted := make(map[accesstypes.PolicyScope][]accesstypes.Role)
 	for _, name := range roleNames {
@@ -158,21 +162,13 @@ func (r *RoleReconciler) wantedRoles(ctx context.Context, roleNames []string) (m
 			if err != nil {
 				return nil, errors.Wrap(err, "UserRoleManager.ResolveRole()")
 			}
-			if found && role != accesstypes.SuperAdministrator {
+			if found {
 				wanted[scope] = append(wanted[scope], role)
 			}
 		}
 	}
 
 	return wanted, nil
-}
-
-// withoutSuperAdministrator returns roles less the Super Administrator role, which the
-// sync never removes.
-func withoutSuperAdministrator(roles []accesstypes.Role) []accesstypes.Role {
-	return slices.DeleteFunc(slices.Clone(roles), func(role accesstypes.Role) bool {
-		return role == accesstypes.SuperAdministrator
-	})
 }
 
 // heldScopes lists the places the user holds a membership, in a fixed order so

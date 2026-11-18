@@ -122,8 +122,6 @@ type fakeStore struct {
 	// openedFor the audience the last row written was opened for, nil for none.
 	methodRows map[string]SignInMethodRow
 	openedFor  *string
-	// userTokens are the unrevoked tokens of each user.
-	userTokens map[impulse.UUID][]impulse.UUID
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
@@ -276,15 +274,6 @@ func (f *fakeStore) FamilyTokens(_ context.Context, _ resource.ReadWriteTransact
 	}
 
 	return f.families[family], nil
-}
-
-// UserTokens lists the unrevoked tokens the fake holds for the user (userTokens).
-func (f *fakeStore) UserTokens(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
-	if err := f.fail("UserTokens"); err != nil {
-		return nil, err
-	}
-
-	return f.userTokens[userID], nil
 }
 
 func (f *fakeStore) RevokeToken(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, reason string) error {
