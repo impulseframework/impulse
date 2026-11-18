@@ -85,11 +85,14 @@ func subscribe(t *testing.T, svc *livefirestore.Service, kind live.Kind) *counte
 }
 
 // signal writes a signal of the kind through the service, failing the test on an error.
-// One answer is retried: the emulator answers a write as already canceled when it
-// rides the connection whose listener streams were canceled a moment before (the drop
-// in the reopen test), although the document is written and the listeners go on to see
-// it; a real Firestore never cancels a call whose context is alive, so the retry is the
-// test's allowance for the emulator and nothing the service does.
+// Two answers are retried, both the test's allowance for the emulator and nothing the
+// service does. The emulator answers a write as already canceled when it rides the
+// connection whose listener streams were canceled a moment before (the drop in the
+// reopen test), although the document is written and the listeners go on to see it; a
+// real Firestore never cancels a call whose context is alive. And on a loaded runner the
+// emulator has taken longer over a write than the service's own limit on a signal
+// allows, where an application logs the failure and its subscribers reread at their
+// backstop.
 func signal(t *testing.T, svc *livefirestore.Service, kind live.Kind) {
 	t.Helper()
 
@@ -102,10 +105,10 @@ func signal(t *testing.T, svc *livefirestore.Service, kind live.Kind) {
 		if err == nil {
 			return
 		}
-		if !strings.Contains(err.Error(), "already cancel") || t.Context().Err() != nil {
+		if t.Context().Err() != nil || (!strings.Contains(err.Error(), "already cancel") && !errors.Is(err, livefirestore.ErrSignalLimit)) {
 			break
 		}
-		t.Logf("Signal(%s) attempt %d answered the emulator's cancellation; retrying", kind, attempt+1)
+		t.Logf("Signal(%s) attempt %d answered %v; retrying", kind, attempt+1, err)
 	}
 	t.Fatalf("Signal(%s) error = %v", kind, err)
 }
@@ -451,6 +454,14 @@ func TestService_signals_reopen(t *testing.T) {
 	firstPolicy.waitFor(t, "the first instance's policy subscription", 1)
 }
 
+// unhurried is the option of a service whose signals the service's own limit does not
+// end: what the tests take that hold a write in flight while they arrange the callers
+// around it, or that end the callers' own contexts, so that what ends a signal in them
+// is what the test ended.
+func unhurried() livefirestore.Option {
+	return livefirestore.WithSignalLimit(settle)
+}
+
 // writeWatch observes one service's signal writes: it counts the ones begun and the
 // ones ended, keeps the context each was sent under, and holds the ones a test names in
 // flight, before they are sent, until the test lets them go.
@@ -641,7 +652,7 @@ func TestService_Signal_coalesces(t *testing.T) {
 
 	const burst = 10
 	database := databaseFor(t)
-	writer := newServiceIn(t, database)
+	writer := newServiceIn(t, database, unhurried())
 	reader := newServiceIn(t, database)
 	features := subscribe(t, reader, live.KindFeatures)
 	writes := watchWrites(writer)
@@ -688,7 +699,7 @@ func TestService_Signal_coveringWriteFails(t *testing.T) {
 	const burst = 5
 	database := databaseFor(t)
 	refuser := &commitRefuser{}
-	writer := newServiceIn(t, database, livefirestore.WithDialOptions(grpc.WithChainUnaryInterceptor(refuser.unary)))
+	writer := newServiceIn(t, database, unhurried(), livefirestore.WithDialOptions(grpc.WithChainUnaryInterceptor(refuser.unary)))
 	writes := watchWrites(writer)
 	release := writes.hold(t, 1)
 
@@ -728,7 +739,7 @@ func TestService_Signal_duringTheCoveringWrite(t *testing.T) {
 	t.Parallel()
 
 	database := databaseFor(t)
-	writer := newServiceIn(t, database)
+	writer := newServiceIn(t, database, unhurried())
 	writes := watchWrites(writer)
 	releaseFirst := writes.hold(t, 1)
 	releaseCovering := writes.hold(t, 2)
@@ -776,7 +787,7 @@ func TestService_Signal_callerWhoseContextEnds(t *testing.T) {
 	t.Run("a waiting caller leaves, and the write stays with the caller still waiting", func(t *testing.T) {
 		t.Parallel()
 
-		writer := newServiceIn(t, databaseFor(t))
+		writer := newServiceIn(t, databaseFor(t), unhurried())
 		writes := watchWrites(writer)
 		release := writes.hold(t, 1)
 		first := signaling(t.Context(), writer)
@@ -806,7 +817,7 @@ func TestService_Signal_callerWhoseContextEnds(t *testing.T) {
 	t.Run("the only waiting caller leaves, and no covering write is made", func(t *testing.T) {
 		t.Parallel()
 
-		writer := newServiceIn(t, databaseFor(t))
+		writer := newServiceIn(t, databaseFor(t), unhurried())
 		writes := watchWrites(writer)
 		release := writes.hold(t, 1)
 		first := signaling(t.Context(), writer)
@@ -833,7 +844,7 @@ func TestService_Signal_callerWhoseContextEnds(t *testing.T) {
 		t.Parallel()
 
 		database := databaseFor(t)
-		writer := newServiceIn(t, database)
+		writer := newServiceIn(t, database, unhurried())
 		reader := newServiceIn(t, database)
 		features := subscribe(t, reader, live.KindFeatures)
 		writes := watchWrites(writer)
@@ -886,7 +897,7 @@ func TestService_Signal_callerWhoseContextEnds(t *testing.T) {
 	t.Run("the caller making the covering write loses its context with nobody else waiting, and the slot is free", func(t *testing.T) {
 		t.Parallel()
 
-		writer := newServiceIn(t, databaseFor(t))
+		writer := newServiceIn(t, databaseFor(t), unhurried())
 		writes := watchWrites(writer)
 		releaseFirst := writes.hold(t, 1)
 		releaseCovering := writes.hold(t, 2)
@@ -940,7 +951,7 @@ func TestService_Signal_manyCallers(t *testing.T) {
 		lasting bool
 		err     error
 	}
-	writer := newServiceIn(t, databaseFor(t))
+	writer := newServiceIn(t, databaseFor(t), unhurried())
 	var (
 		// seq orders the calls and the writes: every call takes a number as it is made
 		// and as it returns, every write as it begins and as it ends.
@@ -1032,6 +1043,179 @@ func TestService_Signal_manyCallers(t *testing.T) {
 	if covered == 0 || len(writes) >= covered {
 		t.Logf("%d of %d calls were covered by %d writes: the callers did not overlap, so the run proved little", covered, answered, len(writes))
 	}
+}
+
+// hungChannel is a channel that does not answer: every commit a service sends waits for
+// its context to end and fails with the context's error, as a call to a backend that
+// never answers does. It counts the commits tried and keeps the deadline of each.
+type hungChannel struct {
+	mu        sync.Mutex
+	deadlines []time.Time
+}
+
+func (h *hungChannel) unary(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	if !strings.HasSuffix(method, "/Commit") {
+		return invoker(ctx, method, req, reply, conn, opts...)
+	}
+	deadline, _ := ctx.Deadline()
+	h.mu.Lock()
+	h.deadlines = append(h.deadlines, deadline)
+	h.mu.Unlock()
+	<-ctx.Done()
+
+	return status.FromContextError(ctx.Err()).Err() //nolint:wrapcheck // the status is the answer the client is to see, as a call that ran out of time gives it
+}
+
+// tried returns the deadline of each commit tried so far, the zero time for one tried
+// under no deadline.
+func (h *hungChannel) tried() []time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return slices.Clone(h.deadlines)
+}
+
+// hungService is a service on a channel that does not answer, with the service's own
+// limit on a signal as an application runs it: no option of the tests' lengthens it.
+func hungService(t *testing.T) (*livefirestore.Service, *hungChannel) {
+	t.Helper()
+
+	channel := &hungChannel{}
+	svc, err := livefirestore.New(t.Context(), livefirestore.Config{
+		ProjectID:    testProject,
+		DatabaseID:   databaseFor(t),
+		EmulatorHost: firestoreEmulator(t),
+	}, livefirestore.WithDialOptions(grpc.WithChainUnaryInterceptor(channel.unary)))
+	if err != nil {
+		t.Fatalf("firestore.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := svc.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	return svc, channel
+}
+
+// timed is a signal's answer and how long the call took.
+type timed struct {
+	err  error
+	took time.Duration
+}
+
+// timedSignal makes a signal of the features kind on a goroutine of its own and returns
+// where its answer arrives, with how long the call took.
+func timedSignal(ctx context.Context, svc *livefirestore.Service) <-chan timed {
+	answer := make(chan timed, 1)
+	go func() {
+		asked := time.Now()
+		err := svc.Signal(ctx, live.KindFeatures)
+		answer <- timed{err: err, took: time.Since(asked)}
+	}()
+
+	return answer
+}
+
+// atTheLimit waits for a signal's answer, for a few times the service's limit and no
+// longer: a signal that is still out then is held by the channel.
+func atTheLimit(t *testing.T, who string, answer <-chan timed) timed {
+	t.Helper()
+
+	select {
+	case got := <-answer:
+		return got
+	case <-time.After(5 * live.SignalTimeout):
+		t.Fatalf("%s did not return within %s: the channel that does not answer holds it", who, 5*live.SignalTimeout)
+
+		return timed{}
+	}
+}
+
+// TestService_Signal_limit pins the service's own limit on a signal, on a channel that
+// does not answer: a caller that brings no deadline returns at the limit with the
+// limit's error, where it would otherwise wait as long as the channel does; a caller
+// with a shorter deadline of its own returns at that, with its context's error; and a
+// caller that waits for another's write is held to its own limit as the one that writes
+// is, each of them trying the channel once.
+func TestService_Signal_limit(t *testing.T) {
+	t.Parallel()
+
+	// slack is what a loaded runner may add to a call that returns at its time.
+	const slack = 3 * time.Second
+
+	t.Run("a caller with no deadline returns at the limit with the limit's error", func(t *testing.T) {
+		t.Parallel()
+
+		svc, channel := hungService(t)
+		asked := time.Now()
+		got := atTheLimit(t, "the signal", timedSignal(t.Context(), svc))
+
+		if !errors.Is(got.err, livefirestore.ErrSignalLimit) {
+			t.Errorf("Signal() error = %v, want the limit's (%v)", got.err, livefirestore.ErrSignalLimit)
+		}
+		if got.took < live.SignalTimeout-50*time.Millisecond || got.took > live.SignalTimeout+slack {
+			t.Errorf("Signal() took %s, want the limit of %s", got.took, live.SignalTimeout)
+		}
+		tried := channel.tried()
+		if len(tried) != 1 {
+			t.Fatalf("commits tried = %d, want 1", len(tried))
+		}
+		if by := tried[0].Sub(asked); tried[0].IsZero() || by < live.SignalTimeout-50*time.Millisecond || by > live.SignalTimeout+slack {
+			t.Errorf("the write was sent under a deadline %s after the signal was asked for (set: %v), want the limit of %s", by, !tried[0].IsZero(), live.SignalTimeout)
+		}
+		if !livefirestore.SignalsIdle(svc) {
+			t.Error("a signal write is in flight or owed after the signal returned")
+		}
+	})
+
+	t.Run("a caller's shorter deadline still wins, with its context's error", func(t *testing.T) {
+		t.Parallel()
+
+		const own = 100 * time.Millisecond
+		svc, _ := hungService(t)
+		ctx, cancel := context.WithTimeout(t.Context(), own)
+		defer cancel()
+		got := atTheLimit(t, "the signal", timedSignal(ctx, svc))
+
+		if !errors.Is(got.err, context.DeadlineExceeded) || errors.Is(got.err, livefirestore.ErrSignalLimit) {
+			t.Errorf("Signal() error = %v, want the caller's own deadline's and not the limit's", got.err)
+		}
+		if got.took < own-10*time.Millisecond || got.took >= live.SignalTimeout {
+			t.Errorf("Signal() took %s, want the caller's own %s, well short of the limit of %s", got.took, own, live.SignalTimeout)
+		}
+	})
+
+	t.Run("a caller that waits for another's write is held to its own limit too", func(t *testing.T) {
+		t.Parallel()
+
+		svc, channel := hungService(t)
+		first := timedSignal(t.Context(), svc)
+		deadline := time.Now().Add(settle)
+		for len(channel.tried()) == 0 {
+			if time.Now().After(deadline) {
+				t.Fatalf("the first signal's write did not begin within %s", settle)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		second := timedSignal(t.Context(), svc)
+
+		for who, answer := range map[string]<-chan timed{"the signal that wrote": first, "the signal that waited": second} {
+			got := atTheLimit(t, who, answer)
+			if !errors.Is(got.err, livefirestore.ErrSignalLimit) {
+				t.Errorf("%s: Signal() error = %v, want the limit's (%v)", who, got.err, livefirestore.ErrSignalLimit)
+			}
+			if got.took < live.SignalTimeout-50*time.Millisecond || got.took > live.SignalTimeout+slack {
+				t.Errorf("%s: Signal() took %s, want the limit of %s from its own call", who, got.took, live.SignalTimeout)
+			}
+		}
+		if got := len(channel.tried()); got > 2 {
+			t.Errorf("commits tried = %d, want no more than one for each of the two signals", got)
+		}
+		if !livefirestore.SignalsIdle(svc) {
+			t.Error("a signal write is in flight or owed after both signals returned")
+		}
+	})
 }
 
 // TestService_Signal_failure pins the error path: a closed client's write fails and the

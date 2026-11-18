@@ -2346,6 +2346,10 @@ on a loop's (sections 15 and 16: the feature flags and the tenant roster; the pe
 engine's heartbeat interval in the access package). The kinds are `resource.SignalKind`
 (`KindFeatures`, `KindTenants`, `KindPolicy`), re-exported by the live package as
 `live.Kind`; the document needs no index, no time-to-live and no rules exposure, since
+The live service gives every `Signal` its own limit of two seconds
+(`live.SignalTimeout`), for its wait and its write together and on top of the caller's
+context: a caller that brings no deadline, as the tenant write paths do, is not held by
+a channel that does not answer, and a caller whose own deadline is shorter keeps it.
 no client reads it.
 
 **What an application wires.** One method, `LiveService() live.Service`, returning the

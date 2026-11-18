@@ -121,6 +121,15 @@ func withDialOptions(opts ...grpc.DialOption) Option {
 	}
 }
 
+// withSignalLimit sets the service's own limit on one Signal, live.SignalTimeout by
+// default. The tests that hold a write in flight lengthen it, so the limit ends none of
+// the signals they are watching.
+func withSignalLimit(limit time.Duration) Option {
+	return func(s *Service) {
+		s.signals.limit = limit
+	}
+}
+
 // WithReopenBackoff sets how long the subscriber waits before reopening a signals
 // listener Firestore ended, first and at most, the wait doubling from first to most
 // while reopening keeps failing; ReopenFirst and ReopenMost by default. Tests shorten
