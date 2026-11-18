@@ -54,7 +54,9 @@ type Gate struct {
 	// pause is how long the store is left alone after a read of the Gate's own failed:
 	// the requests that come inside it are answered from the copy as it stands, with
 	// the failure, and none of them reads. So a store that refuses at once is read once
-	// a pause and not once a request, and its failure is reported at that rate.
+	// a pause and not once a request, and its failure is reported at that rate. The
+	// pause ends early where the store is known to answer again: a write of this
+	// instance made after the failed read began (Wrote), or a read that has landed.
 	pause time.Duration
 	// clock is the Gate's present.
 	clock func() time.Time
@@ -85,7 +87,7 @@ type Gate struct {
 	// failure is the Gate's own read that failed last, guarded by mu: what answers the
 	// requests that waited on that read, and the ones that come in the pause after it,
 	// in place of a read of their own, unless this instance has written the store since
-	// that read began.
+	// that read began. A read that lands clears it: the store has answered since.
 	failure *failure
 }
 
@@ -234,9 +236,11 @@ func (g *Gate) Freshen() error {
 // pause, for it may be the caller's context that failed and not the store.
 //
 // The caller's change is recorded first, as Wrote records one, so a read that fails
-// leaves the copy owing it: the next request reads the store, pause or no pause, under
-// the Gate's own context, where a caller's context that has ended, or that the store
-// refuses, cannot fail the read a second time.
+// leaves the copy owing it: the next request reads the store under the Gate's own
+// context, where a caller's context that has ended, or that the store refuses, cannot
+// fail the read a second time. It reads inside a pause that a failure from before the
+// caller's change left; a read of the Gate's own that fails after the change begins a
+// pause as any failed read does.
 func (g *Gate) Read(ctx context.Context) error {
 	g.Wrote()
 
@@ -251,17 +255,26 @@ func (g *Gate) Read(ctx context.Context) error {
 }
 
 // land reads the store and, when the read succeeds, records it as the one the copy
-// came from. It returns the read it made: when it began and the announcements it
-// holds, which is the count taken before the read began, so every announcement in it
-// was made before the read and a later one leaves the copy behind it. The writes are
-// counted before the announcements, so a write made between the two is one the read
-// is not said to have begun after. The caller holds mu.
+// came from and ends the pause a failed read left: the store has answered since. It
+// returns the read it made: when it began and the announcements it holds, which is the
+// count taken before the read began, so every announcement in it was made before the
+// read and a later one leaves the copy behind it. The writes are counted before the
+// announcements, so a write made between the two is one the read is not said to have
+// begun after. The caller holds mu.
 func (g *Gate) land(ctx context.Context) (attempt, error) {
-	made := attempt{began: g.clock(), wrote: g.wrote.Load(), nudges: g.nudges.Load()}
+	var made attempt
+	made.began = g.clock()
+	// In this order: Wrote counts a write before it counts the announcement of it.
+	made.wrote = g.wrote.Load()
+	made.nudges = g.nudges.Load()
 	if err := g.read(ctx); err != nil {
 		return made, err
 	}
 	g.landed.Store(&made)
+	// A failure from before this read answers nobody now. Without this a read asked for
+	// outright (Read), whose change was counted before a failed read began and which
+	// landed after it, would leave that failure answering the requests of the pause.
+	g.failure = nil
 
 	return made, nil
 }

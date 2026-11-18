@@ -699,6 +699,54 @@ func TestGate_Wrote_duringARead(t *testing.T) {
 	}
 }
 
+// TestGate_Freshen_pause_endsWithAReadThatLands pins that a read that lands ends the
+// pause a failed read left, whoever made it: the store has answered since. It is the
+// write path whose change was counted before a request's read began and failed, and
+// whose own read (Read) then landed: the failed read holds that change, so the count of
+// writes alone would leave its failure answering the requests of the pause, and a
+// signal from another instance that came next would wait the pause out. The test puts
+// the Gate in that state by its steps: the change counted, the request's read failing
+// after it, and then the write path's own read landing with no further change counted.
+func TestGate_Freshen_pause_endsWithAReadThatLands(t *testing.T) {
+	t.Parallel()
+
+	g, store, _, reports := keptGate(t)
+
+	// The write path's change is counted, as Read counts it before it waits its turn.
+	g.Wrote()
+	// A request reads the store after it, and the store refuses: the pause begins.
+	store.fail(errStoreDown)
+	if err := g.Freshen(); !errors.Is(err, errStoreDown) {
+		t.Fatalf("Freshen() error = %v, want %v", err, errStoreDown)
+	}
+	store.fail(nil)
+	before := store.reads.Load()
+	if err := g.Freshen(); !errors.Is(err, errStoreDown) || store.reads.Load() != before {
+		t.Fatalf("a request inside the pause: Freshen() error = %v with %d reads, want %v and none", err, store.reads.Load()-before, errStoreDown)
+	}
+
+	// The write path's own read takes its turn and lands.
+	g.mu.Lock()
+	_, err := g.land(t.Context())
+	g.mu.Unlock()
+	if err != nil {
+		t.Fatalf("land() error = %v", err)
+	}
+
+	// A signal from another instance arrives inside what was the pause.
+	g.Nudge()
+	before = store.reads.Load()
+	if err := g.Freshen(); err != nil {
+		t.Errorf("the request after a signal, once a read had landed: Freshen() error = %v, want the store read", err)
+	}
+	if got := store.reads.Load() - before; got != 1 {
+		t.Errorf("the request after a signal, once a read had landed: store reads = %d, want 1: the failure from before the read that landed answered it", got)
+	}
+	if got := reports.count.Load(); got != 1 {
+		t.Errorf("failed reads reported = %d, want 1", got)
+	}
+}
+
 // TestGate_Nudge pins what an announcement does inside the bound: the next request
 // reads the store before it is answered, the ones after it do not read again until
 // another announcement or the bound, and announcements made before one read are all
