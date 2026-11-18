@@ -291,7 +291,8 @@ func (b *CollectionBuilder) SetMethodFormerName(scope accesstypes.PermissionScop
 }
 
 // SetActionClasses records the classes an action carries within scope (@class): an RPC
-// method resource, or a resource registered by hand. Classes named twice are kept once.
+// method resource, or a resource registered by hand. Classes named twice are kept once,
+// and a name given classes twice carries them all.
 func (b *CollectionBuilder) SetActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource, classes []accesstypes.ActionClass) {
 	b.g.setActionClasses(scope, action, classes)
 }
@@ -683,8 +684,10 @@ func (g *GeneratedCollection) FormerName(scope accesstypes.PermissionScope, res 
 	return former, ok
 }
 
-// setActionClasses stores the classes an action carries within scope, sorted, each
-// once. An action given no class keeps none.
+// setActionClasses adds classes to the ones an action carries within scope, kept
+// sorted, each once. An action given no class keeps what it has. A name registered
+// twice, by a method and by hand, carries the classes of both: a later registration
+// never takes a class away, which would let the action through a mask that refuses it.
 func (g *GeneratedCollection) setActionClasses(scope accesstypes.PermissionScope, action accesstypes.Resource, classes []accesstypes.ActionClass) {
 	if len(classes) == 0 {
 		return
@@ -692,9 +695,9 @@ func (g *GeneratedCollection) setActionClasses(scope accesstypes.PermissionScope
 	if g.classes[scope] == nil {
 		g.classes[scope] = make(map[accesstypes.Resource][]accesstypes.ActionClass)
 	}
-	sorted := slices.Clone(classes)
-	slices.Sort(sorted)
-	g.classes[scope][action] = slices.Compact(sorted)
+	joined := slices.Concat(g.classes[scope][action], classes)
+	slices.Sort(joined)
+	g.classes[scope][action] = slices.Compact(joined)
 }
 
 // ActionClasses reports the classes the action carries within scope (@class), sorted;

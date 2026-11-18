@@ -294,6 +294,11 @@ func TestNewImpersonationResponse(t *testing.T) {
 			want: &ImpersonationResponse{Actor: "alice", PrincipalKind: "Role", Principal: "Editor", MaskWords: "everything", ExpiresAt: expires},
 		},
 		{
+			name: "a session that keeps nothing: the words say so, where the kinds are omitted as for every kind",
+			imp:  &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), Mask: accesstypes.DenyAll(), ExpiresAt: expires},
+			want: &ImpersonationResponse{Actor: "alice", PrincipalKind: "User", Principal: "bob", Mask: []string{}, MaskWords: "nothing", ExpiresAt: expires},
+		},
+		{
 			name: "every kind kept and a class refused: the refusal and the words say so",
 			imp: &sessioninfo.Impersonation{
 				Actor:     "alice",

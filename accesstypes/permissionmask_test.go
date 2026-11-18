@@ -200,6 +200,39 @@ func TestPermissionMask_Refuses(t *testing.T) {
 	}
 }
 
+// TestPermissionMask_UnknownKinds pins which kinds of a mask are no permission kind:
+// a kind spelled as none is keeps nothing, and whatever takes a mask from a person
+// refuses it rather than start a session that keeps less than was meant.
+func TestPermissionMask_UnknownKinds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		mask PermissionMask
+		want []Permission
+	}{
+		{name: "every kind", mask: AllowAll().Refusing(RefuseClass(ClassCredential))},
+		{name: "no kind", mask: DenyAll()},
+		{name: "the six kinds", mask: MaskPermissions(DenyAll(), PermissionKinds()...)},
+		{name: "kinds spelled in lowercase", mask: MaskPermissions(DenyAll(), "read", List, "list"), want: []Permission{"list", "read"}},
+		{name: "every kind as a name", mask: MaskPermissions(DenyAll(), "*"), want: []Permission{"*"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.mask.UnknownKinds(); !slices.Equal(got, tt.want) {
+				t.Errorf("UnknownKinds() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	if got, want := PermissionKinds(), []Permission{Create, Delete, Execute, List, Read, Update}; !slices.Equal(got, want) {
+		t.Errorf("PermissionKinds() = %v, want %v", got, want)
+	}
+}
+
 // TestPermissionMask_refusalsAreNotUnrestricted pins the two questions a mask that
 // keeps every kind and refuses something answers differently: it is not the
 // unrestricted mask, and it is not read-only.

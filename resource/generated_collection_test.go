@@ -1052,6 +1052,38 @@ func TestGeneratedCollection_actionClasses(t *testing.T) {
 	}
 }
 
+// TestCollectionBuilder_SetActionClasses_joins pins that a name given classes twice
+// carries them all: a method registered with one class, and registered again by hand
+// under another permission with another, answers both, so the later registration takes
+// no class away and a mask that refuses the first still refuses the action.
+func TestCollectionBuilder_SetActionClasses_joins(t *testing.T) {
+	t.Parallel()
+
+	b := NewCollectionBuilder()
+	if err := b.AddMethodResource(accesstypes.GlobalPermissionScope, accesstypes.Execute, "SetPassword"); err != nil {
+		t.Fatalf("AddMethodResource() error = %v", err)
+	}
+	b.SetActionClasses(accesstypes.GlobalPermissionScope, "SetPassword", []accesstypes.ActionClass{accesstypes.ClassCredential})
+	if err := b.AddResource(accesstypes.GlobalPermissionScope, accesstypes.List, "SetPassword"); err != nil {
+		t.Fatalf("AddResource() error = %v", err)
+	}
+	b.SetActionClasses(accesstypes.GlobalPermissionScope, "SetPassword", []accesstypes.ActionClass{"sensitive"})
+	b.SetActionClasses(accesstypes.GlobalPermissionScope, "SetPassword", nil)
+
+	want := []accesstypes.ActionClass{accesstypes.ClassCredential, "sensitive"}
+	if diff := cmp.Diff(want, b.GeneratedCollection().ActionClasses(accesstypes.GlobalPermissionScope, "SetPassword")); diff != "" {
+		t.Errorf("ActionClasses() after two registrations mismatch (-want +got):\n%s", diff)
+	}
+	for _, res := range b.Data().Resources {
+		if res.Name != "SetPassword" {
+			continue
+		}
+		if diff := cmp.Diff(want, res.Classes); diff != "" {
+			t.Errorf("CollectionData classes after two registrations mismatch (-want +got):\n%s", diff)
+		}
+	}
+}
+
 // TestNewGeneratedCollection_actionClassValidation pins what the collection refuses of
 // an action's classes at start-up.
 func TestNewGeneratedCollection_actionClassValidation(t *testing.T) {

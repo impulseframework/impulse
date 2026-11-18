@@ -1,6 +1,7 @@
 package dbtype
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,25 @@ func TestMaskFromColumn_failsClosed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestImpersonation_MaskFault pins that a row whose mask column does not read says
+// why, and that a row whose column reads, or that stores none, says nothing.
+func TestImpersonation_MaskFault(t *testing.T) {
+	t.Parallel()
+
+	unreadable := "*;class:credential"
+	readable := "*;-class:credential"
+
+	if err := (&Impersonation{Mask: &unreadable}).MaskFault(); err == nil || !strings.Contains(err.Error(), `the part "class:credential" is no refusal`) {
+		t.Errorf("MaskFault() of %q = %v, want the part that does not read", unreadable, err)
+	}
+	if err := (&Impersonation{Mask: &readable}).MaskFault(); err != nil {
+		t.Errorf("MaskFault() of %q = %v, want none", readable, err)
+	}
+	if err := (&Impersonation{}).MaskFault(); err != nil {
+		t.Errorf("MaskFault() of no mask = %v, want none", err)
 	}
 }
 

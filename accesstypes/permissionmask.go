@@ -250,6 +250,32 @@ func (m PermissionMask) Permissions() []Permission {
 	return perms
 }
 
+// maskKinds are the permission kinds there are for a mask to keep.
+var maskKinds = []Permission{Create, Delete, Execute, List, Read, Update}
+
+// UnknownKinds returns the kinds the mask keeps that are no permission kind,
+// sorted; none for a mask that keeps every kind. A kind spelled as none is
+// ("read" for Read) keeps nothing, and whoever asked for it would believe
+// otherwise: whatever takes a mask from a person refuses one that names such a
+// kind, with the kinds there are (PermissionKinds).
+func (m PermissionMask) UnknownKinds() []Permission {
+	var unknown []Permission
+	for perm := range m.allowed {
+		if !slices.Contains(maskKinds, perm) {
+			unknown = append(unknown, perm)
+		}
+	}
+	slices.Sort(unknown)
+
+	return unknown
+}
+
+// PermissionKinds returns the permission kinds there are for a mask to keep,
+// sorted.
+func PermissionKinds() []Permission {
+	return slices.Clone(maskKinds)
+}
+
 // Refusals returns what the mask refuses inside the kinds it keeps: the classes
 // first, sorted, then the named resources, sorted by resource and permission.
 func (m PermissionMask) Refusals() []MaskRefusal {

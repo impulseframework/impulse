@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage/internal/postgres"
@@ -128,10 +129,23 @@ func (s *sessionStorage) ActiveImpersonations(ctx context.Context, activeSince t
 
 	imps := make([]*sessioninfo.Impersonation, len(rows))
 	for i, row := range rows {
-		imps[i] = row.ToSessionInfo()
+		imps[i] = impersonationRecord(ctx, row)
 	}
 
 	return imps, nil
+}
+
+// impersonationRecord converts a stored row into the record the library works with. A
+// row whose mask column is no mask's text is read as keeping nothing
+// (dbtype.MaskFromColumn), and the fault is logged here with the session it holds: a
+// session that can do nothing because nobody can read its mask says so on the log,
+// where each of its denials names only a mask that keeps nothing.
+func impersonationRecord(ctx context.Context, row *dbtype.Impersonation) *sessioninfo.Impersonation {
+	if err := row.MaskFault(); err != nil {
+		logger.FromCtx(ctx).Errorf("impersonation: the mask stored for session %s (%q) does not read, so the session is held to nothing: %v", row.SessionID, *row.Mask, err)
+	}
+
+	return row.ToSessionInfo()
 }
 
 // DestroyImpersonatedSession expires one live impersonated session and ends its record

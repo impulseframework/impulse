@@ -45,6 +45,9 @@ mask a request gets under the widest mask its grant gives. A request that names
 no kinds keeps the ceiling's; one that names kinds keeps those, each of which
 the ceiling must keep; the refusals of both are joined. A request for a kind
 the ceiling does not keep is refused with a `*WiderMaskError`, never trimmed.
+`UnknownKinds()` lists the kinds a mask keeps that are no permission kind
+(`read` for `Read`): such a kind keeps nothing, so whatever takes a mask from a
+person refuses it, with the kinds there are (`PermissionKinds()`).
 
 `Text()` is the persistence form and `ParseMask` reads it back: the kinds,
 sorted and joined with commas (`*` for every kind), then each refusal after a

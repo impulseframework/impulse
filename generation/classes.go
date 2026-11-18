@@ -60,6 +60,27 @@ func resolveClasses(annotations genlang.ArgMap, where string) ([]accesstypes.Act
 	return classes, nil
 }
 
+// classWithoutRegistration refuses @class on a generated method the collection
+// registers no action for; why says what leaves it unregistered. The collection is
+// where a mask reads an action's classes, so a class on a method that registers nothing
+// would be dropped without a word, and a session whose mask refuses the class would run
+// the action once a registration made by hand mounts it. The class belongs where the
+// action is registered: on that constant.
+func classWithoutRegistration(method *rpcMethodInfo, why string) error {
+	if len(method.Classes) == 0 {
+		return nil
+	}
+	names := make([]string, len(method.Classes))
+	for i, class := range method.Classes {
+		names[i] = string(class)
+	}
+
+	return errors.Newf(
+		"struct %s: @%s(%s) is carried by the action the generated routes register, and %s; put @%s on the constant that registers the action by hand, beside its @%s, so a mask that refuses the class refuses the action",
+		method.Name(), classKeyword, strings.Join(names, ", "), why, classKeyword, manualAddResourceKeyword,
+	)
+}
+
 // rejectClassAnnotation refuses @class on a struct that declares no action: a class is
 // carried by an action, which a method or a registration made by hand declares.
 func rejectClassAnnotation(pStruct *parser.Struct, annotations genlang.StructAnnotations, kind string) error {

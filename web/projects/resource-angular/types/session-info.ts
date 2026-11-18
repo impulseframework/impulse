@@ -84,7 +84,10 @@ export interface SessionImpersonation {
   /** What the session acts as: a user or a role, and which. */
   principalKind: string;
   principal: string;
-  /** The permission kinds the session keeps; absent on a session that keeps every kind. */
+  /**
+   * The permission kinds the session keeps. Absent on a session that keeps every kind, and
+   * on one that keeps none: maskWords tells the two apart ("nothing" for the second).
+   */
   mask?: string[];
   /** The classes of action the session is refused inside the kinds it keeps; absent when it is refused none. */
   refusedClasses?: string[];

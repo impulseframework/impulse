@@ -271,8 +271,9 @@ type ImpersonationResponse struct {
 	ActorRealm    string `json:"actorRealm,omitempty"`
 	PrincipalKind string `json:"principalKind"`
 	Principal     string `json:"principal"`
-	// Mask lists the permission kinds the session keeps; omitted for a session that
-	// keeps every kind.
+	// Mask lists the permission kinds the session keeps. It is omitted for a session
+	// that keeps every kind, and also for one that keeps none: MaskWords tells the two
+	// apart ("nothing" for the second), and a banner shows that.
 	Mask []string `json:"mask,omitempty"`
 	// RefusedClasses are the classes of action the mask refuses inside the kinds it
 	// keeps, and Refused the permissions it refuses on a named action or record;
@@ -294,8 +295,9 @@ type ImpersonationNamed struct {
 }
 
 // NewImpersonationResponse renders the record for the Authenticated response; nil in,
-// nil out. Mask is omitted for a session that keeps every kind, and the refusals for a
-// mask that refuses nothing inside the kinds it keeps.
+// nil out. Mask is omitted for a session that keeps every kind and for one that keeps
+// none, which MaskWords tells apart, and the refusals for a mask that refuses nothing
+// inside the kinds it keeps.
 func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResponse {
 	if imp == nil {
 		return nil

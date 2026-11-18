@@ -82,7 +82,7 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID impulse.UUID) (*
 	sessData.ProviderSessionID = si.ProviderSessionID
 	sessData.ProviderSessionIssuer = si.ProviderSessionIssuer
 	if si.Impersonation != nil {
-		sessData.Impersonation = si.Impersonation.ToSessionInfo()
+		sessData.Impersonation = impersonationRecord(ctx, si.Impersonation)
 	}
 
 	return sessData, nil

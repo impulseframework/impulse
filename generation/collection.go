@@ -493,13 +493,25 @@ func (r *resourceGenerator) collectComputedRegistrations(b *resource.CollectionB
 }
 
 func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilder) error {
-	// RPC handlers only register when the generated routes invoke them.
+	// RPC handlers only register when the generated routes invoke them. A method's
+	// classes ride its registration, so a method that carries a class and registers
+	// nothing here is refused: its class would be lost without a word.
 	if !r.hasRPC() || !r.genRoutes {
+		for _, method := range r.rpcMethods {
+			if err := classWithoutRegistration(method, "this generation writes no routes (GenerateRoutes), so the method registers no action"); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	}
 
 	for _, method := range r.rpcMethods {
 		if method.SuppressHandler {
+			if err := classWithoutRegistration(method, "@"+suppressKeyword+" leaves the method without the generated handler that registers its action"); err != nil {
+				return err
+			}
+
 			continue
 		}
 

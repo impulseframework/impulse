@@ -83,6 +83,9 @@ type ImpersonationActions interface {
 	HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool
 	// ClassesInUse lists the classes the application's actions carry.
 	ClassesInUse() []accesstypes.ActionClass
+	// TagsRequiring lists the fields of the record res that carry permission
+	// themselves, which are the fields a check asks about one by one.
+	TagsRequiring(res accesstypes.Resource, permission accesstypes.Permission) []accesstypes.Tag
 }
 
 // Impersonations is what an application declares of the impersonation it offers: its
@@ -100,9 +103,9 @@ type Impersonations struct {
 // application offers and holds it to the application's actions, so a declaration that
 // could not mean what it says is refused when the application starts: a kind with no
 // name, a name two kinds share, a grant that is no action of the application or that
-// two kinds share (a grant carries one widest mask), and a mask that refuses a class
-// no action carries or a permission the application does not register on the resource
-// it names.
+// two kinds share (a grant carries one widest mask), and a mask that keeps a kind that
+// is no permission kind, or refuses a class no action carries, or names an action, a
+// record or a field the application does not have.
 func NewImpersonations(actions ImpersonationActions, kinds ...ImpersonationKind) (*Impersonations, error) {
 	if actions == nil {
 		return nil, errors.New("the impersonation an application offers is held to its actions: pass the generated collection (router.Collection())")
@@ -156,11 +159,16 @@ func registered(actions ImpersonationActions, perm accesstypes.Permission, res a
 }
 
 // unknown holds a mask to the application's actions and says, as the rest of a
-// sentence about the mask, what it names that the application does not have: a class
-// no action carries, or a permission the application registers on no resource of the
-// name. It answers "" for a mask whose every refusal names something. A refusal that
-// names nothing would refuse nothing, and whoever wrote it would believe otherwise.
+// sentence about the mask, what it names that the application does not have: a kind
+// that is no permission kind, a class no action carries, or an action, a record or a
+// field of no such name. It answers "" for a mask that names nothing of the sort. A
+// kind or a refusal that names nothing would keep or refuse nothing, and whoever wrote
+// it would believe otherwise.
 func (i *Impersonations) unknown(mask accesstypes.PermissionMask) string {
+	if kinds := mask.UnknownKinds(); len(kinds) > 0 {
+		return fmt.Sprintf("keeps the kind %q, which is no permission kind: the kinds are %s, spelled so", string(kinds[0]), permissionList(accesstypes.PermissionKinds()))
+	}
+
 	inUse := i.actions.ClassesInUse()
 	for _, refusal := range mask.Refusals() {
 		if class, ok := refusal.Class(); ok {
@@ -171,12 +179,54 @@ func (i *Impersonations) unknown(mask accesstypes.PermissionMask) string {
 			continue
 		}
 		perm, res, _ := refusal.Named()
-		if !registered(i.actions, perm, res) {
-			return fmt.Sprintf("refuses %s on %q, and the application registers no %s on a resource of that name", perm, string(res), perm)
+		if problem := i.unknownNamed(perm, res); problem != "" {
+			return problem
 		}
 	}
 
 	return ""
+}
+
+// unknownNamed holds one refusal that names a resource to the application's actions,
+// and answers as unknown does. Three things are something to refuse: a permission the
+// application registers on the name (Execute on an action, Update on a record); a
+// field of a record that carries the permission itself, which a check asks about by
+// its own name (Record.field); and any of the five permissions of a record on a name
+// that is a record, whether or not the application offers that one, so the three
+// writes of a record that is never deleted are refused in one breath
+// (accesstypes.RefuseWrites) and the refusal holds as it reads.
+func (i *Impersonations) unknownNamed(perm accesstypes.Permission, res accesstypes.Resource) string {
+	if registered(i.actions, perm, res) {
+		return ""
+	}
+	if record, field, isField := strings.Cut(string(res), "."); isField {
+		if slices.Contains(i.actions.TagsRequiring(accesstypes.Resource(record), perm), accesstypes.Tag(field)) {
+			return ""
+		}
+
+		return fmt.Sprintf(
+			"refuses %s on the field %q, and the application checks no %s on a field of that name: "+
+				"a field is asked about by itself only when it carries the permission, so name such a field, or name the record to refuse all of it",
+			perm, string(res), perm,
+		)
+	}
+	if perm != accesstypes.Execute && isRecord(i.actions, res) {
+		return ""
+	}
+
+	return fmt.Sprintf("refuses %s on %q, and the application registers no %s on a resource of that name", perm, string(res), perm)
+}
+
+// recordPermissions are the permissions a record is registered with; an action is
+// registered with Execute.
+var recordPermissions = []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Create, accesstypes.Update, accesstypes.Delete}
+
+// isRecord reports whether the application has a record named res: it registers one of
+// a record's permissions on the name, for the whole application or for a tenant.
+func isRecord(actions ImpersonationActions, res accesstypes.Resource) bool {
+	return slices.ContainsFunc(recordPermissions, func(perm accesstypes.Permission) bool {
+		return registered(actions, perm, res)
+	})
 }
 
 // classList renders the classes in use for a refusal.
@@ -238,9 +288,10 @@ type GrantCheck func(ctx context.Context, grant accesstypes.Resource) (bool, err
 // grant gives is refused, never trimmed, so nobody believes they hold what they do not.
 //
 // The answer is refused with a client error a handler passes on as it is: 400 for a
-// kind the application does not offer, for no principal, and for a mask that refuses a
-// class or a resource the application does not have; 403 for a person who does not
-// hold the grant, and for a mask wider than the grant's.
+// kind the application does not offer, for no principal, and for a mask that keeps a
+// kind that is no permission kind or refuses a class or a resource the application
+// does not have; 403 for a person who does not hold the grant, and for a mask wider
+// than the grant's.
 //
 // When ctx carries a validated session, the request names its user as the actor and it
 // as the actor's own session, which is what establishing from a signed-in session

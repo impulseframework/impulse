@@ -3140,11 +3140,22 @@ impersonations, err := session.NewImpersonations(collection,
   says so, `accesstypes.AllowAll()`, where the application is read.
 - **The declaration is checked when the application starts.** `NewImpersonations`
   refuses a kind with no name, a name or a grant two kinds share, a grant that is no
-  Execute action of the application, and a mask that refuses a class no action carries
-  or a permission the application registers on no resource of the name: a refusal that
-  names nothing would refuse nothing, and whoever wrote it would believe otherwise. A
-  mask written with the collection file's own constant (`router.ClassCredential`, one
-  per class in use) does not compile once no action carries the class.
+  Execute action of the application, and a mask that names something the application
+  does not have (below): a kind or a refusal that names nothing would keep or refuse
+  nothing, and whoever wrote it would believe otherwise. A mask written with the
+  collection file's own constant (`router.ClassCredential`, one per class in use) does
+  not compile once no action carries the class.
+
+A mask, the declaration's or a request's, is held to the application's actions. It may
+keep only the six permission kinds, spelled as they are (`Read`, not `read`). What it
+refuses must be something to refuse:
+
+| A refusal of | Is accepted when |
+| --- | --- |
+| A class | Some action carries it |
+| Execute on a name | The name is an action |
+| List, Read, Create, Update or Delete on a name | The name is a record, whether or not the application offers that permission on it: `RefuseWrites` of a record that is never deleted holds as it reads |
+| A permission on `Record.field` | The field carries that permission itself (`perm` on the field), which is when a check asks about the field by name; any other field is refused with its record |
 
 A request names the kind and may name a narrower mask. `Request` turns it into the
 `ImpersonationRequest` the library establishes, or refuses it with nothing started:
@@ -3171,7 +3182,8 @@ The session's mask is the grant's, narrowed by the request and never widened
 | Names permission kinds, each of which the kind gives | Those kinds, and everything the kind refuses inside them |
 | Refuses a class, an action or a record's permission beside what the kind refuses | The kind's kinds (or the ones it named), with both sets of refusals: refusals are joined |
 | Names a kind of permission the grant does not give | **Refused (403), never trimmed**: nobody is left believing they hold what they do not |
-| Refuses a class no action carries, or a permission the application registers on no such resource | Refused (400) |
+| Names a kind that is no permission kind (`read` for `Read`) | Refused (400), with the kinds there are: a session that kept a kind nobody checks would keep nothing |
+| Refuses a class no action carries, or names an action, a record or a field the application does not have | Refused (400) |
 
 Letting the person choose a narrower mask is a safety precaution, theirs to take, and
 not a permission: a support engineer who means only to look asks for reading only under
@@ -3216,13 +3228,23 @@ impersonation: Execute denied by mask (*;-class:credential) for f0000000-0000-40
 The permission digest leaves the same things out, so no page offers them
 (`resource.Masked`, which `resource.SessionPermissions` applies for every request).
 
+A refusal holds wherever the permission is asked: the generated routes, a method's
+handler, and a write a method's body arms against the caller (`Enforce`). It does not
+reach inside a method that is kept: a body's writes run trusted unless the body arms
+them, so a method whose body writes a record trusted, or arms the write against a
+role's permissions (`Caller.As`), still writes it in a session whose mask refuses the
+record's writes. Such a method is refused by its own name (`RefuseAction`) or by a
+class it carries, which is what a class is for.
+
 The mask is kept on the impersonation record in its text form, in the table's one
 `Mask` column on both databases: the kinds it keeps, sorted and joined with commas (`*`
 for every kind), then each refusal after a semicolon, `-class:<class>` or
 `-on:<Permission>:<Resource>`. A read-only mask is `List,Read`; everything except the
 credential actions is `*;-class:credential`; an unrestricted session's column is NULL.
 A column that does not read as a mask holds the session to nothing: a mask is never
-read wider than it was written. For people the mask is said in words
+read wider than it was written, and each time the record is read the log says which
+session's column does not read and why (`impersonation: the mask stored for session
+... does not read, so the session is held to nothing`). For people the mask is said in words
 (`PermissionMask.Words()`): "reading only", "everything except credential actions",
 "everything except the action ScrapShip". The session endpoint carries them
 (`impersonation.maskWords`, beside `mask`, `refusedClasses` and `refused`), and a list

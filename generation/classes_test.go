@@ -174,6 +174,66 @@ func Test_computeCollectionData_classes(t *testing.T) {
 	}
 }
 
+// Test_computeCollectionData_classWithoutRegistration pins that a class is never lost
+// without a word: a method that carries one and registers no action, because its
+// handler is suppressed or because the generation writes no routes, is refused with
+// where the class belongs, and the same method without a class generates as before.
+func Test_computeCollectionData_classWithoutRegistration(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "classfixture"))
+	credential := []accesstypes.ActionClass{accesstypes.ClassCredential}
+
+	tests := []struct {
+		name      string
+		genRoutes bool
+		methods   []*rpcMethodInfo
+		wantErr   string
+	}{
+		{
+			name:      "a suppressed method that carries a class",
+			genRoutes: true,
+			methods:   []*rpcMethodInfo{{Struct: structs["RotateKey"], SuppressHandler: true, Classes: credential}},
+			wantErr:   "struct RotateKey: @class(credential) is carried by the action the generated routes register, and @suppress leaves the method without the generated handler that registers its action; put @class on the constant that registers the action by hand, beside its @manualAddResource, so a mask that refuses the class refuses the action",
+		},
+		{
+			name:    "a method that carries a class where no routes are written",
+			methods: []*rpcMethodInfo{{Struct: structs["WireFunds"], Classes: []accesstypes.ActionClass{"money_movement", "sensitive"}}},
+			wantErr: "struct WireFunds: @class(money_movement, sensitive) is carried by the action the generated routes register, and this generation writes no routes (GenerateRoutes), so the method registers no action; put @class on the constant that registers the action by hand, beside its @manualAddResource, so a mask that refuses the class refuses the action",
+		},
+		{
+			name:      "a suppressed method of no class",
+			genRoutes: true,
+			methods:   []*rpcMethodInfo{{Struct: structs["Launch"], SuppressHandler: true}},
+		},
+		{
+			name:    "a method of no class where no routes are written",
+			methods: []*rpcMethodInfo{{Struct: structs["Launch"]}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{genRPCMethods: true}}
+			r.genRoutes = tt.genRoutes
+			r.rpcMethods = tt.methods
+
+			_, err := r.computeCollectionData()
+			if tt.wantErr != "" {
+				if err == nil || !strings.HasSuffix(err.Error(), tt.wantErr) {
+					t.Fatalf("computeCollectionData() error = %v, want %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("computeCollectionData() error = %v", err)
+			}
+		})
+	}
+}
+
 // Test_collectionTemplate_classes pins the collection file's part in a class: a constant
 // for each class in use, which the collection's own data is written with, so a mask is
 // written against a name the compiler knows; an application whose actions carry no

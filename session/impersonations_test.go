@@ -16,10 +16,12 @@ import (
 )
 
 // stubActions is the application a declaration of impersonation is held to: the
-// permissions it registers by resource, in the global scope, and the classes in use.
+// permissions it registers by resource, in the global scope and in a tenant's, the
+// fields that carry a permission themselves, and the classes in use.
 type stubActions struct {
 	registered map[accesstypes.Resource][]accesstypes.Permission
 	domain     map[accesstypes.Resource][]accesstypes.Permission
+	fields     map[accesstypes.Resource]accesstypes.TagPermissions
 	classes    []accesstypes.ActionClass
 }
 
@@ -35,8 +37,22 @@ func (s stubActions) ClassesInUse() []accesstypes.ActionClass {
 	return s.classes
 }
 
-// impersonationActions is the tests' application: three grants, two actions, a record,
-// a tenant's action and the classes credential and sensitive.
+func (s stubActions) TagsRequiring(res accesstypes.Resource, permission accesstypes.Permission) []accesstypes.Tag {
+	var tags []accesstypes.Tag
+	for tag, permissions := range s.fields[res] {
+		if slices.Contains(permissions, permission) {
+			tags = append(tags, tag)
+		}
+	}
+	slices.Sort(tags)
+
+	return tags
+}
+
+// impersonationActions is the tests' application: three grants, two actions, a record
+// that is listed, read and updated and never created or deleted, with one field that
+// carries Update and one that carries Read alone, a tenant's action and the classes
+// credential and sensitive.
 func impersonationActions() stubActions {
 	return stubActions{
 		registered: map[accesstypes.Resource][]accesstypes.Permission{
@@ -49,6 +65,9 @@ func impersonationActions() stubActions {
 		},
 		domain: map[accesstypes.Resource][]accesstypes.Permission{
 			"ScrapShip": {accesstypes.Execute},
+		},
+		fields: map[accesstypes.Resource]accesstypes.TagPermissions{
+			"Ships": {"name": {accesstypes.Read, accesstypes.Update}, "registry": {accesstypes.Read}},
 		},
 		classes: []accesstypes.ActionClass{accesstypes.ClassCredential, "sensitive"},
 	}
@@ -152,10 +171,50 @@ func TestNewImpersonations(t *testing.T) {
 			wantErr: `the widest mask of the kind "act" refuses Execute on "SetPasword", and the application registers no Execute on a resource of that name`,
 		},
 		{
-			name:    "a mask that refuses a permission a record does not register",
+			name:    "a mask that refuses the three writes of a record that offers one of them",
 			actions: impersonationActions(),
 			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefuseWrites("Ships")...))},
-			wantErr: `the widest mask of the kind "act" refuses Create on "Ships", and the application registers no Create on a resource of that name`,
+		},
+		{
+			name:    "a mask that refuses one field of a record, which carries the permission itself",
+			actions: impersonationActions(),
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefusePermission(accesstypes.Update, "Ships.name")))},
+		},
+		{
+			name:    "a mask that refuses the writes of a record the application does not have",
+			actions: impersonationActions(),
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefuseWrites("Shipz")...))},
+			wantErr: `the widest mask of the kind "act" refuses Create on "Shipz", and the application registers no Create on a resource of that name`,
+		},
+		{
+			name:    "a mask that refuses a record's permission on an action",
+			actions: impersonationActions(),
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefusePermission(accesstypes.Delete, "Launch")))},
+			wantErr: `the widest mask of the kind "act" refuses Delete on "Launch", and the application registers no Delete on a resource of that name`,
+		},
+		{
+			name:    "a mask that refuses a record as an action",
+			actions: impersonationActions(),
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Ships")))},
+			wantErr: `the widest mask of the kind "act" refuses Execute on "Ships", and the application registers no Execute on a resource of that name`,
+		},
+		{
+			name:    "a mask that refuses a field the record does not have",
+			actions: impersonationActions(),
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefusePermission(accesstypes.Update, "Ships.nme")))},
+			wantErr: `the widest mask of the kind "act" refuses Update on the field "Ships.nme", and the application checks no Update on a field of that name: a field is asked about by itself only when it carries the permission, so name such a field, or name the record to refuse all of it`,
+		},
+		{
+			name:    "a mask that refuses a permission a field does not carry",
+			actions: impersonationActions(),
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefusePermission(accesstypes.Update, "Ships.registry")))},
+			wantErr: `the widest mask of the kind "act" refuses Update on the field "Ships.registry", and the application checks no Update on a field of that name`,
+		},
+		{
+			name:    "a mask that keeps a kind spelled as no permission kind is",
+			actions: impersonationActions(),
+			kinds:   []ImpersonationKind{ImpersonatesUser("view", "ViewAsUser", accesstypes.MaskPermissions(accesstypes.DenyAll(), "list", "read"))},
+			wantErr: `the widest mask of the kind "view" keeps the kind "list", which is no permission kind: the kinds are Create, Delete, Execute, List, Read and Update, spelled so`,
 		},
 	}
 
@@ -339,6 +398,30 @@ func TestImpersonations_Request(t *testing.T) {
 			wantStatus:  http.StatusBadRequest,
 			wantMessage: `the mask asked for refuses Execute on "Lunch", and the application registers no Execute on a resource of that name`,
 			wantAsked:   []accesstypes.Resource{"ActAsUser"},
+		},
+		{
+			name:        "act, kinds spelled as no permission kind is: refused, not started keeping nothing",
+			ask:         ImpersonationAsk{Kind: "act", Principal: "bob", Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), "list", "read")},
+			holds:       holdsAll,
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: `the mask asked for keeps the kind "list", which is no permission kind: the kinds are Create, Delete, Execute, List, Read and Update, spelled so`,
+			wantAsked:   []accesstypes.Resource{"ActAsUser"},
+		},
+		{
+			name:        "view, a kind spelled as no permission kind is: told so, not that it is more than the kind gives",
+			ask:         ImpersonationAsk{Kind: "view", Principal: "bob", Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, "read")},
+			holds:       holdsAll,
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: `the mask asked for keeps the kind "read", which is no permission kind: the kinds are Create, Delete, Execute, List, Read and Update, spelled so`,
+			wantAsked:   []accesstypes.Resource{"ViewAsUser"},
+		},
+		{
+			name:          "act, the writes of a record and one field refused: joined to the kind's refusal",
+			ask:           ImpersonationAsk{Kind: "act", Principal: "bob", Mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseWrites("Ships")...).Refusing(accesstypes.RefusePermission(accesstypes.Read, "Ships.registry"))},
+			holds:         holdsAll,
+			wantMask:      exceptCredentialMask.Refusing(accesstypes.RefuseWrites("Ships")...).Refusing(accesstypes.RefusePermission(accesstypes.Read, "Ships.registry")),
+			wantPrincipal: accesstypes.UserPrincipal("bob"),
+			wantAsked:     []accesstypes.Resource{"ActAsUser"},
 		},
 	}
 

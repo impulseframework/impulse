@@ -3,6 +3,7 @@ package dbtype
 import (
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -125,7 +126,7 @@ func MaskColumn(mask accesstypes.PermissionMask) *string {
 // MaskFromColumn parses a mask column: NULL is the unrestricted mask, any other value
 // (the empty string included) is a restricted mask, read by accesstypes.ParseMask. A
 // column that is no mask's text is read as the mask that keeps nothing: the session is
-// held to nothing, never to more than was written.
+// held to nothing, never to more than was written, and the row says why (MaskFault).
 func MaskFromColumn(col *string) accesstypes.PermissionMask {
 	if col == nil {
 		return accesstypes.PermissionMask{}
@@ -137,6 +138,21 @@ func MaskFromColumn(col *string) accesstypes.PermissionMask {
 	}
 
 	return mask
+}
+
+// MaskFault says why the row's mask column is no mask's text, nil for a column that
+// reads. ToSessionInfo reads such a column as the mask that keeps nothing, and the
+// store that loads the row logs the fault: a session held to nothing by a column
+// nobody can read says so where an operator looks.
+func (i *Impersonation) MaskFault() error {
+	if i.Mask == nil {
+		return nil
+	}
+	if _, err := accesstypes.ParseMask(*i.Mask); err != nil {
+		return errors.Wrap(err, "accesstypes.ParseMask()")
+	}
+
+	return nil
 }
 
 func optionalString(s string) *string {

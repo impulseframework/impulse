@@ -267,8 +267,11 @@ func refuseShadowedActor(ctx context.Context, storage UserStore, actor string) e
 // and accepted invitations: everything a person's own-account routes write) is refused
 // in every impersonated session — it would alter the impersonated user's account, and
 // what it changes there outlives the view.
-// Other user-management operations are refused only under a mask, which declares the
-// session read-only. Refusals are evidenced as IdentityOperationBlocked events.
+// Any other operation is refused under any mask, whatever the mask keeps: this guard
+// asks no finer question of it. No handler of the library passes one today; the
+// generated management of people answers to the mask itself, through the permission
+// check (resource.Masked), which refuses what the mask refuses and nothing more.
+// Refusals are evidenced as IdentityOperationBlocked events.
 func RefuseImpersonated(ctx context.Context, base *basesession.BaseSession, operation string, selfOperation bool) error {
 	imp, ok := ImpersonationInCtx(ctx)
 	if !ok {

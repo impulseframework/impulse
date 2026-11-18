@@ -180,6 +180,9 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 
 		return ok
 	}
+	// The credential methods the shipped role file gives no role, the governor
+	// included: the members' methods of a sector. Every other one he holds.
+	nobodyHolds := []accesstypes.Resource{"RenameMembersSectorUser", "SetMembersSectorUserEmail", "UnlinkMembersSectorSessionIdentity"}
 	var held int
 
 	type masked struct {
@@ -238,6 +241,9 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 		// on), never a refusal. One the role file gives nobody is refused by policy,
 		// which names the grant he lacks. Either way no mask is named in the log.
 		holdsIt := holds(action)
+		if holdsIt == slices.Contains(nobodyHolds, action) {
+			t.Errorf("%s: the governor's digest says he holds it = %t, want %t: the comparison with the same person unmasked stands on every credential method the role file gives him", action, holdsIt, !holdsIt)
+		}
 		output.reset()
 		switch status, answer := dryRun(ctx, governor, route, payload); {
 		case holdsIt && status == http.StatusForbidden:
@@ -266,10 +272,10 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 		}
 	}
 
-	// The comparison stands on the methods the governor holds: the crew's twelve, and
-	// the members' three of the whole application.
-	if held < 12 {
-		t.Errorf("the governor was let through %d credential methods unmasked, want the crew's twelve at least: the suite compares a masked session with the same person unmasked", held)
+	// The comparison stands on the methods the governor holds: every credential method
+	// but the ones the role file gives nobody.
+	if want := len(credential) - len(nobodyHolds); held != want {
+		t.Errorf("the governor was let through %d credential methods unmasked, want %d: the suite compares a masked session with the same person unmasked", held, want)
 	}
 
 	// Each session still does what its mask keeps: the two that keep no Execute read,
@@ -357,6 +363,12 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 			body:       fmt.Sprintf(`{"kind":"user","principal":%q}`, account(t, "cadet")),
 			wantStatus: http.StatusBadRequest,
 			says:       "is not a kind of impersonation this application offers: it offers view, act, role",
+		},
+		{
+			name:       "a mask that names a kind spelled as no permission kind is",
+			body:       fmt.Sprintf(`{"kind":"view","principal":%q,"mask":["list","read"]}`, account(t, "cadet")),
+			wantStatus: http.StatusBadRequest,
+			says:       "which is no permission kind: the kinds are Create, Delete, Execute, List, Read and Update, spelled so",
 		},
 		{
 			name:       "a mask that refuses a class no action carries",
