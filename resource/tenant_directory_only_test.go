@@ -27,7 +27,7 @@ func Test_directoryOnlySentence(t *testing.T) {
 		want                string
 	}{
 		{name: "the administrators' way in is said before anyone is counted", administratorsEnter: true, counted: true, outsiders: 3, named: 3, want: only + enters + " 3 people seated here sign in another way and will lose access."},
-		{name: "and where everyone came through the directory", administratorsEnter: true, counted: true, want: only + enters + " Everyone seated here has signed in through it."},
+		{name: "and where the switch keeps nobody out, an administrator who has a password and never came through the directory perhaps among them", administratorsEnter: true, counted: true, want: only + enters + " Nobody seated here will lose access."},
 		{name: "and where nobody read the people", administratorsEnter: true, want: only + enters + " Anyone seated here who signs in another way will lose access."},
 		{name: "nobody read the people: no number, and no word that nobody loses access", counted: false, want: only + " Anyone seated here who signs in another way will lose access."},
 		{name: "the people were read and all of them came through the directory", counted: true, want: only + " Everyone seated here has signed in through it."},

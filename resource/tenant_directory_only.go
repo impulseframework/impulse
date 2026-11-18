@@ -305,7 +305,9 @@ func outsiderName(person DirectoryOutsider) string {
 // (DirectoryWords). administratorsEnter says the tenant's own administrators keep their
 // way in, and the sentence says it before it counts anyone: an administrator who has a
 // password is not among the people who lose access, and the person about to close the
-// tenant is told of the one other way into it.
+// tenant is told of the one other way into it. Where the switch then keeps nobody out,
+// the sentence says that nobody loses access and not that everyone came through the
+// directory, which such an administrator may never have done.
 func directoryOnlySentence(directory, word string, administratorsEnter, counted bool, outsiders, named int) string {
 	only := fmt.Sprintf("Only people who sign in through %s will be able to enter this %s.", directory, word)
 	if administratorsEnter {
@@ -317,6 +319,10 @@ func directoryOnlySentence(directory, word string, administratorsEnter, counted 
 	var lose string
 	switch outsiders {
 	case 0:
+		if administratorsEnter {
+			return only + " Nobody seated here will lose access."
+		}
+
 		return only + " Everyone seated here has signed in through it."
 	case 1:
 		lose = only + " 1 person seated here signs in another way and will lose access."
