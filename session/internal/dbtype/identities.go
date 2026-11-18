@@ -79,12 +79,6 @@ var ErrNoAuthEvents = errors.New("auth events are not configured: attach WithAut
 // holds a password already; see sessionstorage for its documentation.
 var ErrPasswordHeld = errors.New("sessionstorage: the user already holds a password")
 
-// PasswordHeld is the refusal of a first password for a user who holds one: a Conflict
-// whose cause is ErrPasswordHeld.
-func PasswordHeld() error {
-	return httpio.NewConflictMessageWithError(ErrPasswordHeld, "the user already has a password: it is changed with the old one")
-}
-
 // PasswordProof names the password a sign-in proved, without holding it: the SHA-256
 // of the password hash the password was compared against, in the text the users table
 // stores. Whatever is inserted on the strength of a password just entered (a session, a

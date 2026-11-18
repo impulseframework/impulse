@@ -840,7 +840,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		if held.Valid {
-			return dbtype.PasswordHeld()
+			return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, "the user already has a password: it is changed with the old one")
 		}
 		if err := txn.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, columns)}); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")

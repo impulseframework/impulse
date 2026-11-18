@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -432,7 +433,7 @@ func firstPasswordCase10(t *testing.T) {
 	}
 
 	plain := newAuthFixture(t, gomock.NewController(t))
-	if recovered := registrationPanic(func() { plain.auth.FirstPassword() }); recovered == nil || !strings.Contains(recovered.(string), "FirstPassword() needs mail") {
+	if recovered := registrationPanic(func() { plain.auth.FirstPassword() }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "FirstPassword() needs mail") {
 		t.Errorf("FirstPassword() on an Auth without mail panic = %v, want it to say the handlers need mail", recovered)
 	}
 }

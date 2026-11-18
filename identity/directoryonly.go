@@ -70,7 +70,7 @@ func (m *Manager) CallerPassword(ctx context.Context, txn resource.ReadWriteTran
 	if err != nil {
 		// A caller the permission store names by something that is no account's id
 		// holds no account of this auth, and so no password.
-		return false, true, nil
+		return false, true, nil //nolint:nilerr // no account's id names no account: the answer is that the caller has no password
 	}
 	has, found, err := m.store.UserHasPassword(ctx, txn, userID)
 	if err != nil {

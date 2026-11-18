@@ -209,6 +209,7 @@ linters:
       - .RetryableError(
       - sessioninfo.NewLoginRefusal(
       - sessioninfo.NewTooManyAttemptsRefusal(
+      - sessioninfo.NewTooManyAttemptsRefusalSaying(
       - sessioninfo.NewTooManyEmailsRefusal(
       - signinflow.Refusal(
       - .WithDescription(

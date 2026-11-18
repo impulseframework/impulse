@@ -872,7 +872,7 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
-		return dbtype.PasswordHeld()
+		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, "the user already has a password: it is changed with the old one")
 	}
 
 	return nil

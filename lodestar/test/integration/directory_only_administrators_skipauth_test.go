@@ -49,7 +49,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 
 	const (
 		keptOut             = "Has not signed in through this sector's directory, so cannot enter while this sector is directory only"
-		byPassword          = "Bastion admits only people who sign in through its own directory. You signed in with a password."
+		closedToHerSignIn   = "Bastion admits only people who sign in through its own directory. You signed in with a password."
 		throughTheWorkspace = "Bastion admits only people who sign in through its own directory. You signed in through Google Workspace example."
 	)
 	// stands fails the test unless the browser's chart, the reason its chart gives for
@@ -87,7 +87,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	atBastion := map[string]any{"userId": riggerID, "role": "SectorMarshal", "domain": bastion}
 
 	// One of Bastion's crew, with a password and the code: kept out.
-	stands("the rigger, of Bastion's crew", rigger, []string{anvil}, byPassword, keptOut)
+	stands("the rigger, of Bastion's crew", rigger, []string{anvil}, closedToHerSignIn, keptOut)
 
 	// The marshal's role at Bastion from an hour on is not hers yet.
 	fromLater := map[string]any{"startsAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)}
@@ -95,7 +95,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		fromLater[key] = value
 	}
 	give("giving the rigger the marshal's role at Bastion from an hour on", "assign-crew-role", fromLater)
-	stands("the rigger, whose marshal's role at Bastion has not begun", rigger, []string{anvil}, byPassword, keptOut)
+	stands("the rigger, whose marshal's role at Bastion has not begun", rigger, []string{anvil}, closedToHerSignIn, keptOut)
 	give("taking the role that has not begun back", "remove-crew-role", atBastion)
 
 	// A group of Bastion's own holds the marshal's role at Bastion, and the rigger is put
@@ -111,7 +111,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	give("putting the rigger in Bastion's group", "add-crew-group-member", place)
 	stands("the rigger, a marshal of Bastion through a group of Bastion's own", rigger, []string{anvil, bastion}, "", "")
 	give("taking the rigger out of Bastion's group", "remove-crew-group-member", place)
-	stands("the rigger, out of Bastion's group again", rigger, []string{anvil}, byPassword, keptOut)
+	stands("the rigger, out of Bastion's group again", rigger, []string{anvil}, closedToHerSignIn, keptOut)
 
 	// The role is hers at Bastion itself. The session she has enters at its next
 	// request: what a session reaches is decided on each one.
@@ -175,7 +175,7 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	// The role taken away closes the door at the next request of every session she has.
 	give("taking the marshal's role at Bastion back from the rigger", "remove-crew-role", atBastion)
 	for name, b := range map[string]*browser{"the session she had": rigger, "her other browser": another, "her remembered browser": remembered} {
-		stands(fmt.Sprintf("the rigger once the role is taken away, %s", name), b, []string{anvil, cinder}, byPassword, keptOut)
+		stands(fmt.Sprintf("the rigger once the role is taken away, %s", name), b, []string{anvil, cinder}, closedToHerSignIn, keptOut)
 	}
 	stands("the rigger once the role is taken away, through the Workspace", through, []string{anvil, cinder}, throughTheWorkspace, keptOut)
 
