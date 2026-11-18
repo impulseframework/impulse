@@ -414,8 +414,9 @@ func TestTenantRoster_HasPerformsNoRead(t *testing.T) {
 }
 
 // TestTenantRoster_concurrentHas pins the set's safety under the race detector: lookups
-// never wait on, and never tear under, the writers (Add, Remove and the rereads a tight
-// backstop and a stream of signals drive).
+// never tear under the writers (Add, Remove and the rereads a tight backstop and a
+// stream of signals drive), whether a lookup is answered from the copy as it stands or
+// rereads the table first.
 func TestTenantRoster_concurrentHas(t *testing.T) {
 	t.Parallel()
 

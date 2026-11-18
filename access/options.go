@@ -64,17 +64,17 @@ func WithHeartbeatInterval(d time.Duration) Option {
 	}
 }
 
-// WithReloadErrorHandler replaces the hook that receives the failures that
-// fail no request (a policy reload that failed or was refused, whether a
-// check or the background loop made it, and change-signal announce/watch
-// errors) and what a load
-// found in the store that this release cannot use as written: a grant it
-// skipped (*SkippedGrant), a custom role a default shadows (*ShadowedRole),
-// memberships naming a role nothing defines (*OrphanedMembership). While
-// reloads fail the Client keeps serving the last good policy snapshot, so this
-// hook is where persistent staleness and the findings become visible. The
-// default writes each one to the standard log; wire alerting here when the
-// log is not enough.
+// WithReloadErrorHandler replaces the hook that receives every policy reload
+// that failed or was refused, whether a check or the background loop made it,
+// the change-signal announce/watch errors, and what a load found in the store
+// that this release cannot use as written: a grant it skipped (*SkippedGrant),
+// a custom role a default shadows (*ShadowedRole), memberships naming a role
+// nothing defines (*OrphanedMembership). Once a snapshot exists a failed
+// reload fails no request: the Client keeps serving the last good policy
+// snapshot, so this hook is where persistent staleness and the findings
+// become visible. A first load that fails is returned to the check that made
+// it as well. The default writes each one to the standard log; wire alerting
+// here when the log is not enough.
 func WithReloadErrorHandler(f func(error)) Option {
 	return func(o *clientOptions) {
 		if f != nil {

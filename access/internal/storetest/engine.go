@@ -146,8 +146,11 @@ func runEngineHint(t *testing.T, store access.Store, within Transaction) {
 
 // runEngineBound: another instance takes the role away and nothing tells this one; a
 // request of its own is inside its transaction while the heartbeat interval passes,
-// and its check past the interval is answered from a read that began inside the
-// transaction.
+// and its check past the interval sees the role gone, whichever read the store for it:
+// the loop on its tick, or the check itself beside the open transaction. The engine's
+// loop runs here, so this holds on an engine whose loop alone keeps the interval too;
+// that a check keeps it with no loop running is pinned in the access package, on an
+// engine built without its loops.
 func runEngineBound(t *testing.T, store access.Store, within Transaction) {
 	t.Helper()
 	ctx := t.Context()
@@ -162,7 +165,7 @@ func runEngineBound(t *testing.T, store access.Store, within Transaction) {
 
 	within(t, func(txnCtx context.Context) {
 		// Whatever a check is answered from was read no longer ago than the interval:
-		// past the interval, from a read that began after the transaction opened.
+		// past the interval, from a read that began after the role was taken away.
 		time.Sleep(engineBound + 100*time.Millisecond)
 		if readsEmployees(txnCtx, t, client, carol) {
 			t.Errorf("a check made inside an open transaction, past the heartbeat interval, still let %s read employees", carol)

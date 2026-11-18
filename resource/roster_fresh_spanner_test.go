@@ -456,6 +456,46 @@ func TestTenantRoster_idleInstance_failedReread(t *testing.T) {
 	}
 }
 
+// TestTenantRoster_reloadThatFailed pins what a reload that failed leaves behind, on the
+// Spanner emulator: the change the caller reloaded for is recorded, so the next lookup
+// rereads the table under the roster's own context and sees it, inside the backstop and
+// with no signal, and the lookups after it read nothing. It is the instance that made a
+// tenant whose request ended before its handler reread: without the record it would
+// not know its own tenant until the backstop.
+func TestTenantRoster_reloadThatFailed(t *testing.T) {
+	t.Parallel()
+
+	db, client := tenantDatabase(t, "roster-reload-failed", "alpha")
+	held := newHeldClient(client)
+	r, _, logged := idleRoster(t, held)
+
+	// This instance commits beta, and the request that made it has ended by the time
+	// its handler rereads.
+	insertStations(t, db, "beta")
+	ended, end := context.WithCancel(t.Context())
+	end()
+	if err := r.Reload(ended); err == nil {
+		t.Fatal("Reload() under a context that has ended error = nil, want the read's failure")
+	}
+	reads := held.reads.Load()
+
+	if !r.Has("beta") {
+		t.Error("the lookup after a reload that failed did not see the tenant this instance made")
+	}
+	if got := held.reads.Load() - reads; got != 1 {
+		t.Errorf("reads for the lookup after a reload that failed = %d, want 1", got)
+	}
+	if !r.Has("beta") || !r.Has("alpha") {
+		t.Error("the lookups after the reread lost a tenant")
+	}
+	if got := held.reads.Load() - reads; got != 1 {
+		t.Errorf("reads after the lookups behind the reread = %d, want still 1", got)
+	}
+	if got := logged.list(); len(got) != 0 {
+		t.Errorf("failures logged = %q, want none: the caller has the reload's error, and the lookup's reread succeeded", got)
+	}
+}
+
 // TestTenantRoster_tick pins the loop's backstop tick, on the Spanner emulator: every
 // tick rereads the table, whatever the copy's age, so on an instance that is serving it
 // is the loop that rereads as each backstop ends and not the request that finds it
@@ -554,6 +594,9 @@ func TestTenantRoster_servingInstance(t *testing.T) {
 
 		db, client := tenantDatabase(t, "roster-serving-loop-tick", "alpha")
 		r := NewTenantRoster(client, stationsTable, stationsKey, WithTenantBackstop(50*time.Millisecond))
+		// The roster's clock does not move, so the copy never passes its backstop: what
+		// rereads is the tick asking for the read, as the loop's ticker must.
+		r.clock = newMovedClock().now
 		if err := r.Start(t.Context()); err != nil {
 			t.Fatalf("Start() error = %v", err)
 		}

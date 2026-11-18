@@ -36,9 +36,10 @@ type TenantSignals interface {
 // to hear one, is at most this far behind.
 const TenantBackstop = 5 * time.Minute
 
-// tenantReadTimeout bounds one read of the tenant record's table, so a database that does
-// not answer holds the requests waiting on the read no longer than this before they are
-// answered from the copy as it was.
+// tenantReadTimeout bounds one read of the tenant record's table. A lookup that finds the
+// copy due waits for the read in flight when it came, if there is one, and for at most
+// one read after it, so a database that does not answer holds a lookup for less than
+// twice this before it is answered from the copy as it was.
 const tenantReadTimeout = 10 * time.Second
 
 // errTenantRosterUnsupportedDatabase is the answer on a database the roster's read is
@@ -309,8 +310,11 @@ func (r *TenantRoster) tick() {
 // what the tenant record's and the directories record's generated write paths call
 // after their commit, so the instance that wrote serves the change at its next
 // request. It reads under ctx, the caller's, so it is called after a commit and never
-// inside a transaction. A failed read leaves the set as it was. A nil roster reads
-// nothing.
+// inside a transaction. A failed read leaves the set as it was and the change recorded:
+// on a roster that was started, the next lookup rereads the table under the roster's
+// own context, as it does after a signal, so a caller whose context had ended does not
+// leave the instance that wrote behind its own write until the backstop. A nil roster
+// reads nothing.
 func (r *TenantRoster) Reload(ctx context.Context) error {
 	if r == nil || r.fresh == nil {
 		return errors.New("resource: no tenant roster is wired")

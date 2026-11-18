@@ -170,10 +170,16 @@ own context, with its own timeout (ten seconds), whoever asked. A check made
 inside a database transaction is therefore safe: the Spanner client refuses a
 second read under a transaction's context, and the engine's read is not under
 it. A caller that goes away does not cancel a read other checks are waiting on.
+A store that does not answer holds a check for less than twice the timeout: the
+read in flight when the check came, and at most one after it.
 
 **A read that fails** is reported to the reload-error hook, the last good
-snapshot answers, and the next check tries the store again. Only the first load
-has no snapshot to fall back on: its failure is the check's error.
+snapshot answers, and the next check tries the store again. A failed read
+answers the checks that were waiting on it while it could still succeed; a
+check that arrives after the read's time has run out, as the first check does
+on an instance that lost its CPU with a reload in flight, reads the store
+itself. Only the first load has no snapshot to fall back on: its failure is the
+check's error.
 
 The snapshot compiles the release's default roles from the role file beside the
 store's rows, in three parts: the global partition; the policy held in every

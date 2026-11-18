@@ -425,6 +425,9 @@ func Test_snapshotEngine_servingInstance(t *testing.T) {
 		opts := defaultClientOptions()
 		opts.heartbeatInterval = 20 * time.Millisecond
 		e := newSnapshotEngine(store, nil, opts)
+		// The engine's clock does not move, so the snapshot never passes its bound:
+		// what reloads is the tick asking for the read, as the loop's ticker must.
+		e.clock = newMovedClock(noon).now
 		t.Cleanup(func() {
 			if err := e.close(); err != nil {
 				t.Errorf("snapshotEngine.close() error = %v", err)

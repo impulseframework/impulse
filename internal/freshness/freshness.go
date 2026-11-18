@@ -27,11 +27,13 @@ import (
 // wherever its owner keeps it, and the Gate keeps when the last read began and what had
 // been announced by then. It is safe for concurrent use.
 //
-// A request's context never reaches the store through a Gate: Freshen takes none, and
-// reads under the context the Gate was told to keep the copy for (Keep), with the
-// Gate's own timeout. So a caller inside a database transaction, whose context the
-// database's client refuses a second read under, cannot make the read fail, and a
-// caller that goes away cannot cancel a read other requests are waiting on.
+// A request's context never reaches the store through Freshen: it takes none, and reads
+// under the context the Gate was told to keep the copy for (Keep), with the Gate's own
+// timeout. So a caller inside a database transaction, whose context the database's
+// client refuses a second read under, cannot make the read fail, and a caller that goes
+// away cannot cancel a read other requests are waiting on. The one read that runs under
+// a caller's context is the one the caller asks for outright (Read), and what that read
+// fails with is the caller's alone.
 type Gate struct {
 	// read reads the store and replaces the copy. The Gate calls it with its lock held,
 	// one read at a time, and it must not come back through the Gate.
@@ -39,8 +41,12 @@ type Gate struct {
 	// bound is how old the copy may be when a request is answered from it, measured
 	// from the moment the read that filled it began.
 	bound time.Duration
-	// timeout bounds one read of the store, so a store that does not answer holds the
-	// requests waiting on the read no longer than this.
+	// timeout bounds one read of the store. A request that finds the copy due waits for
+	// the read in flight when it arrived, if there is one, and for at most one read of
+	// the Gate's own after it: a read that began after the request arrived answers it,
+	// whether it lands or fails. So a store that does not answer holds a request for
+	// less than twice this, and for one timeout more for each read a caller asked for
+	// outright (Read) that is queued ahead of it and fails.
 	timeout time.Duration
 	// clock is the Gate's present.
 	clock func() time.Time
@@ -58,7 +64,7 @@ type Gate struct {
 	nudges atomic.Int64
 
 	// landed is the last store read that succeeded, nil until the first.
-	landed atomic.Pointer[landing]
+	landed atomic.Pointer[attempt]
 
 	// mu admits one store read at a time. The requests that find the copy due wait on
 	// it, and each looks again once it has it: the read it waited for has most often
@@ -76,18 +82,18 @@ type keeping struct {
 	ctx context.Context
 }
 
-// landing is a store read that succeeded: when it began, and the announcements recorded
-// before it began, which are the ones it is known to hold.
-type landing struct {
+// attempt is one read of the store: when it began, and the announcements recorded before
+// it began, which are the ones it is known to hold once it lands.
+type attempt struct {
 	began  time.Time
 	nudges int64
 }
 
 // failure is one of the Gate's own reads that failed: its place in the count of reads
-// ended, the announcements recorded before it began, and what it failed with.
+// ended, the read that was made, and what it failed with.
 type failure struct {
 	finished int64
-	nudges   int64
+	made     attempt
 	err      error
 }
 
@@ -128,11 +134,13 @@ func (g *Gate) Nudge() {
 // with nothing announced it compares two numbers and returns. Otherwise it reads the
 // store before it returns, or waits for the read another request is making: one read
 // serves every request waiting at that moment, and a request reads again only when the
-// read it waited for began before an announcement the request had already seen.
+// read it waited for began before an announcement the request had already seen, or
+// began before the request arrived and is itself past the bound.
 //
 // A read that fails is told to failed, and its error is returned to the request that
-// made it and to the ones that waited on it. The copy stays as it was, so a caller that
-// holds a copy answers from it; the next request tries the store again.
+// made it and to the ones that waited on it while it could still have succeeded. The
+// copy stays as it was, so a caller that holds a copy answers from it; the next request
+// tries the store again.
 func (g *Gate) Freshen() error {
 	kept := g.kept.Load()
 	if kept == nil || kept.ctx.Err() != nil {
@@ -140,13 +148,14 @@ func (g *Gate) Freshen() error {
 	}
 	// What this request arrives to, taken before it looks at the copy: the reads that
 	// have ended, so a read that fails while it waits is known to have been in flight
-	// then, and the announcements made so far. It owes those announcements and no later
-	// one: a request that chased the live count would read again for every change that
-	// lands while it waits, and under steady writes every waiting request would make a
-	// read of its own.
+	// then; the announcements made so far; and the moment it came. It owes those
+	// announcements and no later one: a request that chased the live count would read
+	// again for every change that lands while it waits, and under steady writes every
+	// waiting request would make a read of its own.
 	finished := g.finished.Load()
 	nudges := g.nudges.Load()
-	if g.current(g.landed.Load(), nudges) {
+	arrived := g.clock()
+	if g.current(g.landed.Load(), nudges, arrived) {
 		return nil
 	}
 
@@ -155,22 +164,21 @@ func (g *Gate) Freshen() error {
 	if kept.ctx.Err() != nil {
 		return nil
 	}
-	if g.current(g.landed.Load(), nudges) {
+	if g.answered(nudges, arrived) {
 		return nil
 	}
-	if f := g.failure; f != nil && f.finished > finished && f.nudges >= nudges {
-		// The read this request waited on would have answered it, and failed.
+	if f := g.failure; f != nil && g.shared(f, finished, nudges, arrived) {
 		return f.err
 	}
 
 	ctx, cancel := context.WithTimeout(kept.ctx, g.timeout)
 	defer cancel()
-	held, err := g.land(ctx)
+	made, err := g.land(ctx)
 	ended := g.finished.Add(1)
 	if err == nil {
 		return nil
 	}
-	g.failure = &failure{finished: ended, nudges: held, err: err}
+	g.failure = &failure{finished: ended, made: made, err: err}
 	if kept.ctx.Err() == nil {
 		g.failed(kept.ctx, err)
 	}
@@ -184,7 +192,14 @@ func (g *Gate) Freshen() error {
 // one in flight may have begun before the caller's write. The read runs under ctx, the
 // caller's, held to the Gate's timeout; its failure is returned to the caller alone,
 // and the copy stays as it was.
+//
+// The caller's change is recorded first, as Nudge records one, so a read that fails
+// leaves the copy owing it: the next request reads the store under the Gate's own
+// context, where a caller's context that has ended, or that the store refuses, cannot
+// fail the read a second time.
 func (g *Gate) Read(ctx context.Context) error {
+	g.Nudge()
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -196,26 +211,53 @@ func (g *Gate) Read(ctx context.Context) error {
 }
 
 // land reads the store and, when the read succeeds, records it as the one the copy
-// came from. It returns the announcements the read holds: the count taken before the
-// read began, so every announcement in it was made before the read and a later one
-// leaves the copy behind it. The caller holds mu.
-func (g *Gate) land(ctx context.Context) (int64, error) {
-	began, held := g.clock(), g.nudges.Load()
+// came from. It returns the read it made: when it began and the announcements it
+// holds, which is the count taken before the read began, so every announcement in it
+// was made before the read and a later one leaves the copy behind it. The caller holds
+// mu.
+func (g *Gate) land(ctx context.Context) (attempt, error) {
+	made := attempt{began: g.clock(), nudges: g.nudges.Load()}
 	if err := g.read(ctx); err != nil {
-		return held, err
+		return made, err
 	}
-	g.landed.Store(&landing{began: began, nudges: held})
+	g.landed.Store(&made)
 
-	return held, nil
+	return made, nil
 }
 
-// current reports whether the read that landed answers a request that had seen the
-// given announcements: the read began after every one of them, and no longer ago than
-// the bound.
-func (g *Gate) current(l *landing, nudges int64) bool {
+// current reports whether the read that landed answers a request that arrives now
+// having seen the given announcements: the read began after every one of them, and no
+// longer ago than the bound.
+func (g *Gate) current(l *attempt, nudges int64, now time.Time) bool {
+	return l != nil && l.nudges >= nudges && now.Sub(l.began) <= g.bound
+}
+
+// answered reports whether the read that landed answers a request that has waited its
+// turn at the store: the read began after every announcement the request had seen, and
+// either after the request arrived or no longer ago than the bound. A read that began
+// after the request arrived is as new as any the request could make, however long it
+// took; so where the store answers slower than the bound, each read still serves every
+// request that was waiting when it began, and the requests do not read one after
+// another. The caller holds mu.
+func (g *Gate) answered(nudges int64, arrived time.Time) bool {
+	l := g.landed.Load()
 	if l == nil || l.nudges < nudges {
 		return false
 	}
+	if !l.began.Before(arrived) {
+		return true
+	}
 
 	return g.clock().Sub(l.began) <= g.bound
+}
+
+// shared reports whether a read that failed answers a request with its failure, in
+// place of a read of the request's own: the read ended while the request waited, it
+// would have held every announcement the request had seen, and it still had time to
+// succeed when the request arrived. A read whose time had run out before the request
+// came was never made for it. That is the read an instance leaves in flight when it
+// loses its CPU: it fails at its timeout the moment the next request wakes the
+// instance, the store was not asked on that request's behalf, and the request reads.
+func (g *Gate) shared(f *failure, finished, nudges int64, arrived time.Time) bool {
+	return f.finished > finished && f.made.nudges >= nudges && arrived.Sub(f.made.began) < g.timeout
 }

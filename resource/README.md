@@ -2431,7 +2431,11 @@ signal and at the backstop interval too, ahead of the requests, so on an instanc
 is serving a lookup finds the copy fresh and reads nothing; nothing depends on the loop,
 so an instance that got no CPU between requests (Cloud Run's default) answers its next
 one from a read no older than the backstop. A failed reread is logged, the copy stays as
-it was, and the next request tries again. A flip therefore reaches every instance that
+it was, and the next request tries again. `Reload`, which a flip's handler calls after
+its commit, records the flip before it reads, so a reload that fails (the request that
+flipped had ended) is made good by the next lookup, under the set's own context. A
+database that does not answer holds a lookup for less than twice the read's timeout
+(ten seconds): the read in flight when the lookup came, and at most one after it. A flip therefore reaches every instance that
 is serving within a moment, and the backstop bounds the rest. The subscriber is the application's live service,
 which every application wires; `Follow` refuses a nil one. The application exposes the
 copy as `FeatureSet() *resource.FeatureSet`, asserted on the application type beside
@@ -2600,7 +2604,11 @@ that is serving a lookup finds the copy fresh; nothing depends on the loop, so a
 instance that got no CPU between requests (Cloud Run's default) answers its next one
 from a read no older than the backstop, and an instance that missed a signal is at most
 that far behind. A failed reread is logged, the set stays as it was, and the next
-request tries again. A role held in every tenant domain reaches a new
+request tries again. `Reload` records the change before it reads, so a reload that fails
+(the request that wrote had ended) is made good by the next lookup, under the roster's
+own context. A database that does not answer holds a lookup for less than twice the
+read's timeout (ten seconds): the read in flight when the lookup came, and at most one
+after it. A role held in every tenant domain reaches a new
 tenant with nothing written for it; the one membership written when a tenant is made is
 its first administrator's. `Add` stays for a test harness that seeds a roster without a
 table; the generated paths never call it.

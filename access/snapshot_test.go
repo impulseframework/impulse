@@ -1275,7 +1275,8 @@ func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 
 	// The check returns once the first load has landed, its own or the loop's, and
 	// nothing reads the store again inside the bound until the engine is told of a
-	// change: no load of the loop's is left to land after the write below.
+	// change (invalidate). Whichever then reloads, the loop on its first pass or the
+	// check, the check after it is answered from that reload.
 	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the write", got, err)
 	}
@@ -1423,6 +1424,10 @@ func Test_snapshotEngine_checkUnderATransactionAfterALocalWrite(t *testing.T) {
 			opts := defaultClientOptions()
 			opts.onReloadError = func(error) { reported.Add(1) }
 			e := testEngine(t, store, opts)
+			// No loop runs, so every read counted below is a check's: a loop whose
+			// first pass came after the write was recorded would make the reload the
+			// test is about.
+			e.noLoops = true
 			widgets := func(ctx context.Context) bool {
 				t.Helper()
 				granted, err := tt.ask(ctx, e)
@@ -1491,6 +1496,9 @@ func Test_snapshotEngine_refusedReloadIsReported(t *testing.T) {
 		reported = append(reported, err)
 	}
 	e := testEngine(t, store, opts)
+	// No loop runs, so every refusal counted below is one a check met: a loop whose
+	// first pass came while the store refused would be refused too.
+	e.noLoops = true
 	widgets := func() bool {
 		t.Helper()
 		got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
@@ -1611,7 +1619,8 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 		t.Fatal("ChangeSignal.Watch was never started")
 	}
 
-	// A hint (not a local invalidate) must reload through the background loop.
+	// A hint (not a local invalidate) reloads: the loop it wakes, or the check that
+	// comes first.
 	grantWidgets(t, store)
 	sig.trigger()
 

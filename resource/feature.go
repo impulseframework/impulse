@@ -70,9 +70,10 @@ const (
 	// arrived, so an instance that missed a signal, or got no CPU to hear one, is at
 	// most this far behind.
 	FeatureBackstop = 5 * time.Minute
-	// featureReadTimeout bounds one read of the table, so a database that does not
-	// answer holds the requests waiting on the read no longer than this before they are
-	// answered from the copy as it was.
+	// featureReadTimeout bounds one read of the table. A lookup that finds the copy due
+	// waits for the read in flight when it came, if there is one, and for at most one
+	// read after it, so a database that does not answer holds a lookup for less than
+	// twice this before it is answered from the copy as it was.
 	featureReadTimeout = 10 * time.Second
 	// FeatureSignalTimeout bounds a flip's signal: past it the failure is logged and
 	// the request answers, since the other instances reload at their backstop.
@@ -468,8 +469,11 @@ func (s *FeatureSet) rereadFailed(ctx context.Context, err error) {
 // Reload rereads the table now: what a flip's handler calls after its commit, so the
 // instance that flipped answers from the flip at once. It reads under ctx, the
 // caller's, so it is called after a commit and never inside a transaction. A failed
-// read leaves the copy as it was; a nil FeatureSet, and one LoadFeatures did not build,
-// has nothing to reread and says so.
+// read leaves the copy as it was and the change recorded: on a set that is followed,
+// the next lookup rereads the table under the set's own context, as it does after a
+// signal, so a caller whose context had ended does not leave the instance that flipped
+// behind its own flip until the backstop. A nil FeatureSet, and one LoadFeatures did
+// not build, has nothing to reread and says so.
 func (s *FeatureSet) Reload(ctx context.Context) error {
 	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")

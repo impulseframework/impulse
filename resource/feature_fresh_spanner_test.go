@@ -311,6 +311,46 @@ func TestFeatureSet_idleInstance_failedReread(t *testing.T) {
 	}
 }
 
+// TestFeatureSet_reloadThatFailed pins what a reload that failed leaves behind, on the
+// Spanner emulator: the flip the caller reloaded for is recorded, so the next lookup
+// rereads the table under the set's own context and sees it, inside the backstop and
+// with no signal, and the lookups after it read nothing. It is the instance that
+// flipped a flag whose request ended before its handler reread: without the record it
+// would not show its own flip until the backstop.
+func TestFeatureSet_reloadThatFailed(t *testing.T) {
+	t.Parallel()
+
+	_, base := featureDatabase(t, "features-reload-failed")
+	held := newHeldClient(base)
+	features, _, logged := idleFeatures(t, base, held, &fakeSignals{})
+
+	// This instance commits the flip, and the request that made it has ended by the
+	// time its handler rereads.
+	flip(t, base, debriefsFlag)
+	ended, end := context.WithCancel(t.Context())
+	end()
+	if err := features.Reload(ended); err == nil {
+		t.Fatal("Reload() under a context that has ended error = nil, want the read's failure")
+	}
+	reads := held.reads.Load()
+
+	if !features.Enabled(debriefsFlag) {
+		t.Error("the lookup after a reload that failed did not see the flip this instance made")
+	}
+	if got := held.reads.Load() - reads; got != 1 {
+		t.Errorf("reads for the lookup after a reload that failed = %d, want 1", got)
+	}
+	if !features.Enabled(debriefsFlag) || features.Enabled(beaconsFlag) {
+		t.Error("the lookups after the reread did not answer from it")
+	}
+	if got := held.reads.Load() - reads; got != 1 {
+		t.Errorf("reads after the lookups behind the reread = %d, want still 1", got)
+	}
+	if got := logged.list(); len(got) != 0 {
+		t.Errorf("failures logged = %q, want none: the caller has the reload's error, and the lookup's reread succeeded", got)
+	}
+}
+
 // TestFeatureSet_keptLife pins the life a copy is kept fresh for, on the Spanner
 // emulator: a set that was loaded and never followed stays as it was read, whatever its
 // age, and one whose Follow has ended rereads no more.
@@ -403,7 +443,9 @@ func TestFeatureSet_servingInstance(t *testing.T) {
 
 		return features.flags[name].Enabled
 	}
-	served := func(t *testing.T, name string, client func(base Client) Client, backstop time.Duration) (base Client, features *FeatureSet, signals *fakeSignals) {
+	served := func(
+		t *testing.T, name string, client func(base Client) Client, backstop time.Duration, opts ...FeatureOption,
+	) (base Client, features *FeatureSet, signals *fakeSignals) {
 		t.Helper()
 		ctx := t.Context()
 
@@ -411,7 +453,7 @@ func TestFeatureSet_servingInstance(t *testing.T) {
 		if err := MigrateFeatures(ctx, base, []FeatureDeclaration{{Name: debriefsFlag, Description: "Debriefs.", Constant: "Debriefs"}}); err != nil {
 			t.Fatalf("MigrateFeatures() error = %v", err)
 		}
-		features, err := LoadFeatures(ctx, client(base), WithFeatureBackstop(backstop))
+		features, err := LoadFeatures(ctx, client(base), append(opts, WithFeatureBackstop(backstop))...)
 		if err != nil {
 			t.Fatalf("LoadFeatures() error = %v", err)
 		}
@@ -467,7 +509,12 @@ func TestFeatureSet_servingInstance(t *testing.T) {
 	t.Run("the loop rereads on its tick with no lookup asking", func(t *testing.T) {
 		t.Parallel()
 
-		base, features, _ := served(t, "features-serving-loop-tick", plain, 50*time.Millisecond)
+		// The set's clock does not move, so the copy never passes its backstop: what
+		// rereads is the tick asking for the read, as the loop's ticker must.
+		still := newMovedClock()
+		base, features, _ := served(t, "features-serving-loop-tick", plain, 50*time.Millisecond, func(s *FeatureSet) {
+			s.clock = still.now
+		})
 		flip(t, base, debriefsFlag)
 		if !eventually(t, 5*time.Second, func() bool { return copyHolds(features, debriefsFlag) }) {
 			t.Error("the loop never reread the table on its tick")

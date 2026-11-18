@@ -24,9 +24,11 @@ const (
 	defaultHeartbeatInterval = time.Minute
 
 	// reloadTimeout is the engine's own bound on one read of the policy
-	// store. Every read runs under it, the ones a check waits on included, so
-	// a store that does not answer holds a check no longer than this before
-	// the check is answered from the last good snapshot.
+	// store. Every read runs under it, the ones a check waits on included. A
+	// check that finds the snapshot due waits for the read in flight when it
+	// came, if there is one, and for at most one read after it, so a store
+	// that does not answer holds a check for less than twice this before the
+	// check is answered from the last good snapshot.
 	reloadTimeout = 10 * time.Second
 
 	// watchRetryDelay is how long the engine waits before re-invoking
