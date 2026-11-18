@@ -427,7 +427,7 @@ func (h *Handlers) PasswordLogin() http.HandlerFunc {
 	return h.password.Login()
 }
 
-// PasswordChange is the password method's change: {"currentPassword", "newPassword"} in
+// PasswordChange is the password method's change: {"oldPassword", "newPassword"} in
 // from a signed-in person, who may be one whose operator-set password must change before
 // anything else is served. It validates the session itself, so the generated router
 // mounts it outside ValidateSession, behind the XSRF guard.
@@ -443,6 +443,26 @@ func (h *Handlers) PasswordChange() http.HandlerFunc {
 // the XSRF guard.
 func (h *Handlers) PasswordRemove() http.HandlerFunc {
 	return h.password.RemoveUserPassword()
+}
+
+// FirstPasswordSendCode mails the signed-in person who has no password, because they
+// have only ever signed in through the fleet's directory, the code they choose their
+// first one with, at the address their login holds confirmed (no body in). It is how a
+// sector's marshal who came in through the directory gets the password a directory-only
+// sector asks of whoever turns the switch on, and keeps a way in if the directory fails.
+// A person at a browser someone else left signed in does not read that mailbox, so they
+// add no password to the login.
+//
+// Demonstrates: tenancy.directory-only.
+func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
+	return h.FirstPassword().SendCode()
+}
+
+// FirstPasswordSet gives the signed-in person who has no password the one they choose,
+// with the code they were mailed ({"code", "password"}). A login that has a password
+// changes it with the old one (PasswordChange).
+func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
+	return h.FirstPassword().Set()
 }
 
 // GoogleLogin sends the browser to the fleet's Google directory.
