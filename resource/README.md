@@ -2478,9 +2478,10 @@ struct or a manual registration that would take the name `FeatureFlags` is refus
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
 one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
-signals the other instances through the live service (`Signal(ctx,
-resource.KindFeatures)`, bounded by two seconds, a failure logged), reloads this
-instance's copy, and answers the flag as written. An `@rpc` struct named `SetFeature`
+reloads this instance's copy, then signals the other instances through the live
+service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
+logged), and answers the flag as written. The reload comes first, so this instance
+answers from the flip while the signal is being sent. An `@rpc` struct named `SetFeature`
 is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and

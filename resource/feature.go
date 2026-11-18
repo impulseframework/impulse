@@ -579,7 +579,8 @@ func (s *FeatureSet) EnabledNames() []string {
 // copy answers only while the table cannot be read. The subscriber is the application's
 // live service, which every application wires; nil is refused. A failed reread is
 // logged and the copy stays as it was; the table is left alone for a moment
-// (featureReadPause), and the first request after that tries again.
+// (featureReadPause), and the first request after that tries again, or the next one
+// after a flip of this instance.
 func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error {
 	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")
@@ -872,10 +873,12 @@ type SetFeatureResult struct {
 
 // SetFeatureHandler flips a flag, to an Execute grant on SetFeature: the row takes the
 // value with the commit timestamp and the principal, the audit table gains the flip's
-// row in the same transaction, KindFeatures is signaled after the commit and before the
-// answer (bounded by FeatureSignalTimeout; a failure is logged, since the other
-// instances reload at their backstop), this instance's copy reloads, and the answer is
-// the flag from the reloaded copy. An unknown name is 404. A dry run (X-Dry-Run: true)
+// row in the same transaction, this instance's copy reloads after the commit, then
+// KindFeatures is signaled, before the answer (bounded by FeatureSignalTimeout; a
+// failure is logged, since the other instances reload at their backstop), and the
+// answer is the flag from the reloaded copy. The reload comes first so that this
+// instance answers from the flip while the signal is being sent, which waits for the
+// channel. An unknown name is 404. A dry run (X-Dry-Run: true)
 // runs the frame and rolls back, as every transaction-form method does. The signaler is
 // the application's live service, which every application wires; the handler refuses
 // to be built without one. The generated router registers it at
@@ -931,9 +934,14 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
+		// This instance first: the flip is on its copy, or recorded for its next lookup
+		// to read, before the other instances are told, so a request that comes while the
+		// signal is being sent is answered from the flip. The signal is sent whatever
+		// became of the reload.
+		reloadErr := features.Reload(ctx)
 		signalFeatures(ctx, signals)
-		if err := features.Reload(ctx); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.FeatureSet.Reload()"))
+		if reloadErr != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(reloadErr, "resource.FeatureSet.Reload()"))
 		}
 		flag, ok := features.Flag(name)
 		if !ok {
