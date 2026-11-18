@@ -133,8 +133,9 @@ func (g *Gate) Keep(ctx context.Context) {
 // wrote the store itself. It is recorded at once, before any read is tried, and from
 // then every read of the copy reads the store first, exactly as one past the bound
 // does, until a store read that began after the announcement has landed. So a change
-// that was announced is never answered from the old copy on an instance that heard the
-// announcement, whether or not its loop got to reread.
+// that was announced waits for no loop on an instance that heard the announcement: the
+// old copy answers only while the store cannot be read, when a read has failed and
+// through the pause after it, and the announcement stays recorded meanwhile.
 func (g *Gate) Nudge() {
 	g.nudges.Add(1)
 }
@@ -209,7 +210,8 @@ func (g *Gate) Freshen() error {
 // the caller's context that failed and not the store.
 //
 // The caller's change is recorded first, as Nudge records one, so a read that fails
-// leaves the copy owing it: the next request reads the store under the Gate's own
+// leaves the copy owing it: the next request, or the first after the pause where a
+// read of the Gate's own has just failed, reads the store under the Gate's own
 // context, where a caller's context that has ended, or that the store refuses, cannot
 // fail the read a second time.
 func (g *Gate) Read(ctx context.Context) error {

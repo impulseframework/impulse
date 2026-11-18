@@ -193,8 +193,10 @@ func TestClient_policyWrite_announcesBeforeItReturns(t *testing.T) {
 			if announced.Value(callKey{}) != nil {
 				t.Error("the announcement ran under the caller's context")
 			}
-			if deadline, ok := announced.Deadline(); !ok || deadline.Sub(asked) > defaultAnnounceTimeout+time.Second {
-				t.Errorf("the announcement's deadline = %v (set %v), want within %s of the write", deadline, ok, defaultAnnounceTimeout)
+			// The announcement began after the write was asked for, so its deadline is no
+			// sooner than the timeout after that moment, and little later.
+			if deadline, ok := announced.Deadline(); !ok || deadline.Sub(asked) < defaultAnnounceTimeout || deadline.Sub(asked) > defaultAnnounceTimeout+time.Second {
+				t.Errorf("the announcement's deadline = %v (set %v), %s after the write was asked for, want the engine's own %s", deadline, ok, deadline.Sub(asked), defaultAnnounceTimeout)
 			}
 
 			release()
@@ -216,10 +218,10 @@ func TestClient_policyWrite_announcesBeforeItReturns(t *testing.T) {
 	}
 }
 
-// TestClient_policyWrite_nothingIsLeftPublishing pins that no announcement outlives the
-// write it follows: the moment a write has returned, every announcement begun has ended,
-// though each takes a while. An announcement made on a goroutine of its own would still
-// be running, or not yet begun.
+// TestClient_policyWrite_nothingIsLeftPublishing pins that no announcement of the
+// engine's outlives the write it follows: the moment a write has returned, every call
+// the engine made to the signal has returned, though each takes a while. An announcement
+// made on a goroutine of its own would still be running, or not yet begun.
 func TestClient_policyWrite_nothingIsLeftPublishing(t *testing.T) {
 	t.Parallel()
 
@@ -291,6 +293,20 @@ func TestClient_policyWrite_failedAnnouncement(t *testing.T) {
 			client, reported := announcingClient(t, signal)
 			tt.prepare(signal, client.snapEngine)
 			ctx := t.Context()
+			listsWidgets := func() bool {
+				t.Helper()
+				decided, err := client.snapEngine.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
+				if err != nil {
+					t.Fatalf("checkUserResources() error = %v", err)
+				}
+
+				return decided[0].granted
+			}
+			// The snapshot is loaded before the write, so the check after the write sees
+			// it only because the write told the engine before it announced.
+			if listsWidgets() {
+				t.Fatal("widgets granted before the write")
+			}
 
 			written := make(chan error, 1)
 			go func() {
@@ -317,11 +333,7 @@ func TestClient_policyWrite_failedAnnouncement(t *testing.T) {
 			}
 
 			// The write is committed, and this instance's next check sees it.
-			decided, err := client.snapEngine.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
-			if err != nil {
-				t.Fatalf("checkUserResources() error = %v", err)
-			}
-			if !decided[0].granted {
+			if !listsWidgets() {
 				t.Error("the check after the write did not see it, though only its announcement failed")
 			}
 		})

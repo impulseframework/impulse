@@ -246,9 +246,9 @@ func logErrorf(ctx context.Context, format string, v ...any) {
 // request's context; and a goroutine does the same ahead of the requests, on every
 // tenants signal (when a channel is wired) and at the backstop interval regardless. A
 // signal is recorded the moment it arrives, before any reread is tried, so a change
-// that was announced to this instance is never answered from the old copy, whether or
-// not the goroutine got to reread. A failed reread is logged and the copy stays as it
-// was; the table is left alone for a moment (tenantReadPause), and the first request
+// that was announced to this instance waits for no goroutine: the old copy answers
+// only while the table cannot be read. A failed reread is logged and the copy stays as
+// it was; the table is left alone for a moment (tenantReadPause), and the first request
 // after that tries again.
 func (r *TenantRoster) Start(ctx context.Context) error {
 	if r == nil {
@@ -320,9 +320,10 @@ func (r *TenantRoster) tick() {
 // request. It reads under ctx, the caller's, so it is called after a commit and never
 // inside a transaction. A failed read leaves the set as it was and the change recorded:
 // on a roster that was started, the next lookup rereads the table under the roster's
-// own context, as it does after a signal, so a caller whose context had ended does not
-// leave the instance that wrote behind its own write until the backstop. A nil roster
-// reads nothing.
+// own context, as it does after a signal (the first lookup after the pause, where a
+// reread of the roster's own has just failed), so a caller whose context had ended does
+// not leave the instance that wrote behind its own write until the backstop. A nil
+// roster reads nothing.
 func (r *TenantRoster) Reload(ctx context.Context) error {
 	if r == nil || r.fresh == nil {
 		return errors.New("resource: no tenant roster is wired")

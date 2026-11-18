@@ -477,7 +477,8 @@ func (s *FeatureSet) rereadFailed(ctx context.Context, err error) {
 // caller's, so it is called after a commit and never inside a transaction. A failed
 // read leaves the copy as it was and the change recorded: on a set that is followed,
 // the next lookup rereads the table under the set's own context, as it does after a
-// signal, so a caller whose context had ended does not leave the instance that flipped
+// signal (the first lookup after the pause, where a reread of the set's own has just
+// failed), so a caller whose context had ended does not leave the instance that flipped
 // behind its own flip until the backstop. A nil FeatureSet, and one LoadFeatures did
 // not build, has nothing to reread and says so.
 func (s *FeatureSet) Reload(ctx context.Context) error {
@@ -572,8 +573,8 @@ func (s *FeatureSet) EnabledNames() []string {
 // answers, under ctx and never under a request's context; and a goroutine does the same
 // ahead of the requests, on every signal the subscriber delivers and at the backstop
 // interval regardless. A signal is recorded the moment it arrives, before any reread is
-// tried, so a flip that was announced to this instance is never answered from the old
-// copy, whether or not the goroutine got to reread. The subscriber is the application's
+// tried, so a flip that was announced to this instance waits for no goroutine: the old
+// copy answers only while the table cannot be read. The subscriber is the application's
 // live service, which every application wires; nil is refused. A failed reread is
 // logged and the copy stays as it was; the table is left alone for a moment
 // (featureReadPause), and the first request after that tries again.

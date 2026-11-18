@@ -101,9 +101,10 @@ func (u *userManager) Membership(ctx context.Context, scope accesstypes.PolicySc
 
 // PolicyChanged tells the engine that policy rows were committed outside its own write
 // path: an application wrote a membership inside a transaction of its own and committed
-// it. The next check on this instance reloads the policy before it answers, as after the
-// manager's own writes, wherever that check is made, inside another request's open
-// transaction included; the background loop is nudged, and the other instances are hinted
+// it. The next check on this instance reloads the policy before it answers (the first
+// check after the pause, in the second after a reload failed), as after the manager's
+// own writes, wherever that check is made, inside another request's open transaction
+// included; the background loop is nudged, and the other instances are hinted
 // through the change signal before PolicyChanged returns (bounded by two seconds; a
 // failed announcement is reported to the reload-error hook). Called when nothing changed,
 // it costs one read of the policy store.

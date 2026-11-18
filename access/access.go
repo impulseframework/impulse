@@ -42,8 +42,9 @@ type Client struct {
 // is safe inside a database transaction. A background heartbeat and the push
 // hint do the same ahead of the checks; nothing depends on them, so an
 // instance that got no CPU between requests is no staler than the interval.
-// All policy writes (user management) go through the same store and refresh
-// the snapshot immediately on this instance.
+// All policy writes (user management) go through the same store and are read
+// by the next check on this instance (by the first check after the pause, in
+// the second after a reload failed).
 //
 // The store's values — domains, users, resources — are opaque labels to
 // access: referential validity belongs to the callers that write them, and
@@ -112,11 +113,12 @@ func (c *Client) WaitReady(ctx context.Context) error {
 }
 
 // Close stops the Client's policy reloading, the background loop's and the
-// checks' own, and its change-signal watch. A policy write announces its
-// change before it returns, so a write made before Close has reached the
-// other instances already, and the application closes the channel the signal
-// rides on after it. Permission checks keep answering from the last loaded
-// snapshot, and read the store no more.
+// checks' own, and its change-signal watch. A policy write hands its
+// announcement to the change signal before it returns, so a write that has
+// returned before Close has announced already, and the application closes
+// the channel the signal rides on after Close. Close does not wait for a
+// write still running on another goroutine. Permission checks keep answering
+// from the last loaded snapshot, and read the store no more.
 func (c *Client) Close() error {
 	return c.snapEngine.close()
 }

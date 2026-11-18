@@ -39,7 +39,8 @@ func logReloadError(err error) {
 
 // WithChangeSignal wires a push hint that propagates policy changes between
 // instances in near-realtime: an instance that receives a hint reads the
-// policy store before its next check answers. This is the intended
+// policy store before its next check answers (before the first check after
+// the pause, where a reload has just failed). This is the intended
 // configuration: the application adapts its one signal channel through
 // ChangeSignalFunc. Without it, changes propagate within one heartbeat
 // interval.
