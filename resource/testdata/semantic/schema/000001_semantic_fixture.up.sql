@@ -70,3 +70,44 @@ CREATE TABLE Profiles (
   HomeHubId STRING(36),
   CONSTRAINT FK_Profiles_Hub FOREIGN KEY (HomeHubId) REFERENCES Hubs (Id),
 ) PRIMARY KEY (UserId);
+
+-- The anchors of the subject sets that write a who: or a where: part. Circles
+-- sits outside every partition: a row puts a person in a circle, or nests one
+-- circle in another, and a row counts until its ValidUntil. Passes is
+-- partitioned: a pass names a person or a circle and admits them to a team at
+-- a level, with a column of every comparison type for a where: to read. Badges
+-- sits outside every partition and names a team, so its set builds on the
+-- partitioned Memberships.
+
+CREATE TABLE Circles (
+  Id STRING(36) NOT NULL,
+  Circle STRING(MAX),
+  UserId STRING(MAX),
+  InnerCircle STRING(MAX),
+  ValidUntil TIMESTAMP,
+) PRIMARY KEY (Id);
+
+CREATE INDEX CirclesByUser ON Circles(UserId, Circle);
+
+CREATE TABLE Passes (
+  Id STRING(36) NOT NULL,
+  Depot STRING(MAX) NOT NULL,
+  UserId STRING(MAX),
+  Circle STRING(MAX),
+  Team STRING(MAX),
+  Level STRING(MAX),
+  Tier INT64,
+  Mass FLOAT64,
+  Stake NUMERIC,
+  Sealed BOOL,
+  IssuedOn DATE,
+  ExpiresAt TIMESTAMP,
+) PRIMARY KEY (Id);
+
+CREATE INDEX PassesByUser ON Passes(Depot, UserId, Team);
+
+CREATE TABLE Badges (
+  Id STRING(36) NOT NULL,
+  Team STRING(MAX),
+  Badge STRING(MAX),
+) PRIMARY KEY (Id);

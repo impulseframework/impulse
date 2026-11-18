@@ -17,7 +17,12 @@ import { NotificationService } from '@impulseframework/resource-angular/ui-notif
 import { of } from 'rxjs';
 
 import packageJson from '../package.json';
-import { LoginMethodsComponent, PAGE_OLDER_THAN_SERVER, PASSWORDS_DIFFER, SIGN_IN_STEPS } from './login-methods.component';
+import {
+  LoginMethodsComponent,
+  PAGE_OLDER_THAN_SERVER,
+  PASSWORDS_DIFFER,
+  SIGN_IN_STEPS,
+} from './login-methods.component';
 
 // The component renders the login page's methods from the server's list, in every shape
 // the list takes, drives the password form and the redirect buttons from it, renders a
@@ -576,6 +581,8 @@ describe('LoginMethodsComponent signs in with the password', () => {
       // The arrival's session read alone: a refused sign-in checks no session.
       expect(sent(page.transport).filter((request) => request === 'GET /console/api/user/session')).toHaveLength(1);
       expect(page.element.querySelector('input[name="password"]')).not.toBeNull();
+      // The form stays as typed, for the person to correct.
+      expect([page.component.username, page.component.password]).toEqual(['overseer', 'wrong']);
       expect(page.component.busy()).toBe(false);
       // The refusal is rendered in place and raises no notice.
       expect(TestBed.inject(NotificationService).notifications()).toEqual([]);
@@ -941,7 +948,9 @@ describe('LoginMethodsComponent renders the pending step', () => {
       const page = await pageOver(server({ status: { status: 200, body } }), { pending: body.reason });
       expect(page.element.querySelector('input[name="confirmation"]')).toBeNull();
       expect(page.element.querySelector('input[name="code"]')).toBeNull();
-      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).toBe(PAGE_OLDER_THAN_SERVER);
+      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).toBe(
+        PAGE_OLDER_THAN_SERVER,
+      );
       expect(page.element.querySelector('button.impulse-login-cancel')).not.toBeNull();
     });
   }
@@ -958,7 +967,9 @@ describe('LoginMethodsComponent renders the pending step', () => {
           ? { ...waiting, reason, factors: [factor], emailCode: { ...codeMailed } }
           : { ...waiting, reason };
       const page = await pageOver(server({ status: { status: 200, body } }), { pending: reason });
-      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).not.toBe(PAGE_OLDER_THAN_SERVER);
+      expect(page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim()).not.toBe(
+        PAGE_OLDER_THAN_SERVER,
+      );
       expect(page.element.querySelector(factor ? 'input[name="code"]' : 'input[name="confirmation"]')).not.toBeNull();
     });
   }
@@ -1116,7 +1127,12 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
   const standing = { ...codeStep, emailCode: codeMailed };
   /** The account holds no address: one is asked for before a code can be sent. */
   const noAddress = { ...codeStep, emailCode: { enrollEmail: true, codeSent: false } };
-  const mailed = { codeEmail: 'n•••@fleet.example', enrollEmail: false, codeSent: true, codeExpiresAt: '2026-10-17T12:10:00Z' };
+  const mailed = {
+    codeEmail: 'n•••@fleet.example',
+    enrollEmail: false,
+    codeSent: true,
+    codeExpiresAt: '2026-10-17T12:10:00Z',
+  };
   const noteOf = (page: Page): string | null =>
     page.element.querySelector('.impulse-login-pending-note')?.textContent?.trim() ?? null;
   const resendOf = (page: Page): string | null =>
@@ -1164,7 +1180,7 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     expect(page.signedIn).toEqual([]);
   });
 
-  it('a sending the server refuses shows its sentence with the wait, and the send button in the form\'s place', async () => {
+  it("a sending the server refuses shows its sentence with the wait, and the send button in the form's place", async () => {
     const page = await pageOver(
       server({
         status: { status: 200, body: codeStep },
@@ -1208,7 +1224,7 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     }
   });
 
-  it('an address the server will not mail yet keeps the enrollment\'s Send code off while the wait lasts', async () => {
+  it("an address the server will not mail yet keeps the enrollment's Send code off while the wait lasts", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const page = await pageOver(
@@ -1237,11 +1253,16 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/pending']);
     expect(page.element.querySelector('input[name="codeEmail"]')).not.toBeNull();
     expect(page.element.querySelector('input[name="code"]')).toBeNull();
-    expect(noteOf(page)).toBe('Your account has no email address yet. Enter one and we will send a sign-in code to it.');
+    expect(noteOf(page)).toBe(
+      'Your account has no email address yet. Enter one and we will send a sign-in code to it.',
+    );
     page.component.codeEmail = 'nova@fleet.example';
     await page.component.enrollEmail();
     await page.settle();
-    expect(sent(page.transport).slice(2)).toEqual(['GET /console/api/user/methods', 'POST /console/api/user/pending/email']);
+    expect(sent(page.transport).slice(2)).toEqual([
+      'GET /console/api/user/methods',
+      'POST /console/api/user/pending/email',
+    ]);
     expect(page.transport.requests[3].body).toEqual({ email: 'nova@fleet.example' });
     expect(page.component.pending()?.emailCode).toEqual(mailed);
     expect(page.element.querySelector('input[name="codeEmail"]')).toBeNull();
@@ -1335,7 +1356,10 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     },
     {
       name: "a sign-in that does not wait for the code returns to the list with the server's words",
-      answer: { status: 409, body: { message: 'the pending sign-in waits for a password confirmation, not a second factor' } },
+      answer: {
+        status: 409,
+        body: { message: 'the pending sign-in waits for a password confirmation, not a second factor' },
+      },
       want: 'the pending sign-in waits for a password confirmation, not a second factor',
     },
   ];
@@ -1356,7 +1380,10 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     page.component.signInCode = '12';
     await page.component.sendCode();
     await page.settle();
-    expect(sent(page.transport).slice(2)).toEqual(['GET /console/api/user/methods', 'POST /console/api/user/pending/code']);
+    expect(sent(page.transport).slice(2)).toEqual([
+      'GET /console/api/user/methods',
+      'POST /console/api/user/pending/code',
+    ]);
     expect(page.component.signInCode).toBe('');
     expect(page.component.pending()?.emailCode).toEqual(mailed);
     expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
@@ -1377,6 +1404,81 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     expect(page.component.signInCode).toBe('');
     expect(page.component.rememberDevice).toBe(false);
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  /** What the sign-in form's boxes show: the username, then the password. */
+  const formOf = (page: Page): (string | undefined)[] =>
+    ['username', 'password'].map(
+      (name) => page.element.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value,
+    );
+
+  /** Signs in with the password as far as the code step, which the server holds the sign-in for. */
+  async function heldForCode(answers: Parameters<typeof server>[0] = {}): Promise<Page> {
+    const page = await pageOver(
+      server({
+        login: { status: 200, body: { mfaIsRequired: true } },
+        status: { status: 200, body: standing },
+        ...answers,
+      }),
+    );
+    page.component.username = 'nova';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+
+    return page;
+  }
+
+  it('holds the password no longer once the server took it and asked for the code', async () => {
+    const page = await heldForCode();
+    expect(page.component.password).toBe('');
+  });
+
+  it('canceled after a password sign-in, returns to an empty sign-in form', async () => {
+    const page = await heldForCode();
+    await page.component.cancel();
+    await page.settle();
+    expect(page.component.pending()).toBeUndefined();
+    expect([page.component.username, page.component.password]).toEqual(['', '']);
+    expect(formOf(page)).toEqual(['', '']);
+  });
+
+  for (const tt of endings) {
+    it(`after a password sign-in, ${tt.name}, the sign-in form empty`, async () => {
+      const page = await heldForCode({ verifyCode: tt.answer });
+      await enterCode(page, '123456');
+      expect(messageOf(page)).toBe(tt.want);
+      expect(page.component.pending()).toBeUndefined();
+      expect([page.component.username, page.component.password]).toEqual(['', '']);
+      expect(formOf(page)).toEqual(['', '']);
+    });
+  }
+
+  it('a code that cannot be sent because the sign-in ran out returns to an empty sign-in form', async () => {
+    const page = await heldForCode({
+      sendCode: { status: 401, body: { message: 'the pending sign-in has expired', code: 'pending_expired' } },
+    });
+    await page.component.sendCode();
+    await page.settle();
+    expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['pending_expired']);
+    expect(page.component.pending()).toBeUndefined();
+    expect([page.component.username, page.component.password]).toEqual(['', '']);
+  });
+
+  it('a step that is gone before the page can read it returns to the list with no username kept', async () => {
+    const page = await pageOver(
+      server({
+        login: { status: 200, body: { mfaIsRequired: true } },
+        status: { status: 401, body: { message: 'the pending sign-in has expired', code: 'pending_expired' } },
+      }),
+    );
+    page.component.username = 'nova';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['pending_expired']);
+    expect([page.component.username, page.component.password]).toEqual(['', '']);
   });
 });
 
@@ -1528,7 +1630,11 @@ describe('LoginMethodsComponent opens an invitation', () => {
 
   it('offers the account last, under the password form and the redirect buttons, where the open sign-up stands without an invitation', async () => {
     const invited = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
-    expect(orderOf(invited)).toEqual(['impulse-login-submit', 'impulse-login-redirect', 'impulse-login-create-account']);
+    expect(orderOf(invited)).toEqual([
+      'impulse-login-submit',
+      'impulse-login-redirect',
+      'impulse-login-create-account',
+    ]);
     TestBed.resetTestingModule();
     const signedIn = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { invitation: 'tok-1' });
     expect(orderOf(signedIn)).toEqual([
@@ -1547,7 +1653,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
     ]);
   });
 
-  it("names the tenant by the name the server gives and never by its id: a tenant it names none for is no tenant on the screen", async () => {
+  it('names the tenant by the name the server gives and never by its id: a tenant it names none for is no tenant on the screen', async () => {
     const page = await pageOver(
       server({ methods: mailingList, invitationOpen: { status: 200, body: { ...invited, tenantName: '' } } }),
       { invitation: 'tok-1' },
@@ -1633,7 +1739,9 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(holder.element.querySelector('.impulse-login-accept')?.textContent?.trim()).toBe('Accept as overseer');
     expect(holder.element.querySelector('.impulse-login-signed-in-other')).toBeNull();
     TestBed.resetTestingModule();
-    const addressless = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { invitation: 'tok-1' });
+    const addressless = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), {
+      invitation: 'tok-1',
+    });
     expect(addressless.component.acceptOffered()).toBe(true);
     expect(addressless.element.querySelector('.impulse-login-accept')).not.toBeNull();
   });
@@ -1859,6 +1967,200 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.element.querySelector('input[name="username"]')).toBeNull();
     expect(buttonsOf(page)).toEqual([]);
     expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent opens an invitation that makes a tenant', () => {
+  const noteOf = (page: Page): string | null =>
+    page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim() ?? null;
+  const titleOf = (page: Page): string | null =>
+    page.element.querySelector('.impulse-login-invitation-title')?.textContent?.trim() ?? null;
+  /** What opening the invitation answers: no tenant exists yet, and the name is the one it will have. */
+  const founding = {
+    email: 'founder@dawn.example',
+    tenantId: '',
+    tenantName: 'Dawn',
+    newTenant: true,
+    directoryOnly: false,
+    expiresAt: '2026-10-30T12:00:00Z',
+    signUp: true,
+    usernameIsEmail: false,
+  };
+  /** The same invitation, for a tenant entered through its directory only: the server offers no account with a password. */
+  const closed = { ...founding, directoryOnly: true, signUp: false };
+  const organizationSentence =
+    "To accept it, sign in with your organization's account, not with a password or a personal account.";
+
+  it("shows the tenant's name as what the person is invited to set up, and the invited address, before the sign-in", async () => {
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...founding, methods: [], accountExists: false, hasPassword: false } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(page.component.invitation()).toEqual({ ...founding, methods: [], accountExists: false, hasPassword: false });
+    expect(titleOf(page)).toBe("You're invited to set up Dawn");
+    // No account holds the address and no directory could admit it: the account form opened by itself, under the heading.
+    expect(page.component.account()).toEqual({ source: 'invitation', email: founding.email, usernameIsEmail: false });
+    page.component.cancelAccount();
+    await page.settle();
+    expect(noteOf(page)).toBe('The invitation is for founder@dawn.example.');
+  });
+
+  it('keeps the heading of an invitation into a tenant that exists', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
+    expect(titleOf(page)).toBe("You're invited to Anvil");
+  });
+
+  it("for a tenant entered through its directory only, says to sign in with the organization's account and offers the directory alone: no password form, no account", async () => {
+    // An account with a password holds the address: its password form is still not offered.
+    const holder = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: {
+          status: 200,
+          body: { ...closed, methods: ['google'], accountExists: true, hasPassword: true },
+        },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(titleOf(holder)).toBe("You're invited to set up Dawn");
+    expect(noteOf(holder)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+    expect(holder.component.invitationPaths()).toEqual({
+      known: true,
+      redirects: [google],
+      password: false,
+      create: false,
+    });
+    expect(holder.element.querySelector('input[name="username"]')).toBeNull();
+    expect(holder.element.querySelector('.impulse-login-password-note')).toBeNull();
+    expect(holder.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(buttonsOf(holder)).toEqual(['Continue with Google as founder@dawn.example']);
+    TestBed.resetTestingModule();
+    // Nobody holds the address and no directory could admit it: the account form does not open by itself.
+    const stranger = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...closed, methods: [], accountExists: false, hasPassword: false } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(stranger.component.account()).toBeUndefined();
+    expect(noteOf(stranger)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+    expect(stranger.element.querySelector('input[name="username"]')).toBeNull();
+    expect(buttonsOf(stranger)).toEqual([]);
+    TestBed.resetTestingModule();
+    // An older answer that says nothing of the account offers every path for any other
+    // invitation, and here the directory alone.
+    const unknown = await pageOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...closed, signUp: true } } }),
+      { invitation: 'tok-1' },
+    );
+    expect(unknown.element.querySelector('input[name="username"]')).toBeNull();
+    expect(unknown.element.querySelector('.impulse-login-create-account')).toBeNull();
+    unknown.component.openAccountForm();
+    await unknown.settle();
+    expect(unknown.component.account()).toBeUndefined();
+    expect(noteOf(unknown)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+  });
+
+  it('found carried by the browser after a refused sign-in, stands again with the refusal under it and still offers no password', async () => {
+    const standing = {
+      email: closed.email,
+      tenantId: '',
+      tenantName: 'Dawn',
+      newTenant: true,
+      directoryOnly: true,
+      expiresAt: closed.expiresAt,
+      usernameIsEmail: false,
+      methods: ['google'],
+      accountExists: false,
+      hasPassword: false,
+    };
+    // The block still names the sign-up route, which serves every other invitation.
+    const carrying: LoginMethods = { ...mailingList, invitation: { ...invitationRoutes, standing } };
+    for (const code of ['organization_has_tenant', 'organization_account_required']) {
+      const page = await pageOver(server({ methods: carrying }), { code });
+      expect(page.component.invitation()).toEqual({
+        ...closed,
+        methods: ['google'],
+        accountExists: false,
+        hasPassword: false,
+      });
+      expect(titleOf(page)).toBe("You're invited to set up Dawn");
+      expect(noteOf(page)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+      expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES[code]);
+      expect(page.element.querySelector('input[name="username"]')).toBeNull();
+      expect(page.component.account()).toBeUndefined();
+      expect(buttonsOf(page)).toEqual(['Continue with Google as founder@dawn.example']);
+      TestBed.resetTestingModule();
+    }
+  });
+
+  it("an acceptance by hand the server refuses shows the server's sentence and keeps the invitation standing", async () => {
+    const sentence =
+      "This invitation is accepted with your organization's account, not with a password or a personal account. Sign in with your organization's account (Google Workspace or Microsoft Entra).";
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: {
+          status: 200,
+          body: { ...closed, methods: ['google'], accountExists: true, hasPassword: true },
+        },
+        invitationAccept: { status: 403, body: { message: sentence } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(page.element.querySelector('.impulse-login-accept')?.textContent?.trim()).toBe('Accept as overseer');
+    await page.component.accept();
+    await page.settle();
+    expect(messageOf(page)).toBe(sentence);
+    expect(page.component.invitation()?.tenantName).toBe('Dawn');
+    expect(titleOf(page)).toBe("You're invited to set up Dawn");
+    expect(page.signedIn).toEqual([]);
+  });
+
+  it('an acceptance by hand refused because what the invitation carries cannot be made keeps the invitation standing too', async () => {
+    const sentence = 'a sector with the name Dawn already exists: give the new one another';
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: {
+          status: 200,
+          body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true },
+        },
+        invitationAccept: { status: 409, body: { message: sentence } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    await page.component.accept();
+    await page.settle();
+    expect(messageOf(page)).toBe(sentence);
+    expect(page.component.invitation()?.tenantName).toBe('Dawn');
+    expect(titleOf(page)).toBe("You're invited to set up Dawn");
+    expect(page.signedIn).toEqual([]);
+  });
+
+  it('an acceptance by hand of an invitation that is gone drops it from the page', async () => {
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: {
+          status: 200,
+          body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true },
+        },
+        invitationAccept: { status: 404, body: { message: 'the browser carries no live invitation' } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    await page.component.accept();
+    await page.settle();
+    expect(page.component.invitation()).toBeUndefined();
+    expect(page.signedIn).toEqual([]);
   });
 });
 
@@ -2359,7 +2661,8 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
   }
 
   /** Nothing of the component is on screen: no bar, no text, while the arrival's reads are in flight. */
-  const heldBack = (page: Page): boolean => page.element.querySelector('mat-progress-bar') === null && (page.element.textContent?.trim() ?? '') === '';
+  const heldBack = (page: Page): boolean =>
+    page.element.querySelector('mat-progress-bar') === null && (page.element.textContent?.trim() ?? '') === '';
 
   it('with ?verify=, the password form is not in the DOM before the session read answers; nothing renders', async () => {
     const held = holdingSession(server({ methods: mailingList }));
@@ -2474,7 +2777,9 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.component.arriving()).toBe(false);
     expect(forms()).toBe(0);
     expect(page.element.querySelector('form')).toBeNull();
-    expect(page.element.querySelector('.impulse-login-signed-in-note')?.textContent?.trim()).toBe('You are signed in as overseer.');
+    expect(page.element.querySelector('.impulse-login-signed-in-note')?.textContent?.trim()).toBe(
+      'You are signed in as overseer.',
+    );
     expect(page.element.querySelector('.impulse-login-continue')?.textContent?.trim()).toBe('Continue');
     expect(page.element.querySelector('.impulse-login-sign-out')?.textContent?.trim()).toBe('Sign out');
   });

@@ -96,19 +96,33 @@ type authFixture struct {
 	attemptWrites int
 	attemptClears int
 	clock         time.Time
+	// afterFailure, when set, is called with a failure's context once the store counted
+	// it, before the store answers: where a test holds guesses made at once.
+	afterFailure func(ctx context.Context)
+	// afterRead, when set, is called with a read's context and name once the store read
+	// the name's record, before the store answers: where a test holds requests made at
+	// once that would read a record before they count against it.
+	afterRead func(ctx context.Context, name string)
 	// signedInCalls records the SignedInHook's calls, and signedInErr is what it answers.
 	signedInCalls []*SignedIn
 	signedInErr   error
 }
 
-// storeSignIn is one call of the mocked store's SignIn: the request, the account rules
-// of the identity's registration and the Auth's policy, as the store received them.
+// storeSignIn is one call of the mocked store's SignIn: the request, the account rule
+// of the identity's registration with the name it is registered under, by which the
+// store reads what was chosen for it, and the Auth's policy, as the store received
+// them.
 type storeSignIn struct {
-	req      *sessioninfo.NewSessionRequest
-	rule     signin.AccountRule[mockTx]
-	standard signin.StandardAccountRule
-	policy   signin.Policy[mockTx]
-	accept   signinflow.InvitationAcceptor[mockTx]
+	req    *sessioninfo.NewSessionRequest
+	rule   signin.AccountRule[mockTx]
+	method string
+	policy signin.Policy[mockTx]
+	accept signinflow.InvitationAcceptor[mockTx]
+	signUp signinflow.SignUpSeater[mockTx]
+	// proven is the password proof the sign-in was handed to the store with.
+	proven sessionstorage.PasswordProof
+	// oneOrganization is what the store was told of the registration's width.
+	oneOrganization bool
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -159,7 +173,7 @@ func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, 
 
 		return signin.Allow(), nil
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, NoSuperAdministrators(), append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -190,23 +204,48 @@ func (f *authFixture) advance(d time.Duration) {
 }
 
 // attemptsOf answers the store's read of a name's attempts as the table would.
-func (f *authFixture) attemptsOf(_ context.Context, name string) (*sessionstorage.SignInAttempts, error) {
+func (f *authFixture) attemptsOf(ctx context.Context, name string) (*sessionstorage.SignInAttempts, error) {
+	copied := f.readAttempts(name)
+	if f.afterRead != nil {
+		f.afterRead(ctx, name)
+	}
+	if copied == nil {
+		return nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")
+	}
+
+	return copied, nil
+}
+
+// readAttempts reads a name's record in the fixture's table and returns a copy of it,
+// nil for none.
+func (f *authFixture) readAttempts(name string) *sessionstorage.SignInAttempts {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.attemptReads++
 	r, found := f.attempts[name]
 	if !found {
-		return nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")
+		return nil
 	}
 	copied := *r
 
-	return &copied, nil
+	return &copied
 }
 
 // recordFailure answers the store's record of a failure as the table would, under
 // the fixture's clock.
-func (f *authFixture) recordFailure(_ context.Context, name string, limit sessionstorage.SignInAttemptLimit) (*sessionstorage.SignInAttempts, error) {
+func (f *authFixture) recordFailure(ctx context.Context, name string, limit sessionstorage.SignInAttemptLimit) (*sessionstorage.SignInAttempts, error) {
+	copied := f.countFailure(name, limit)
+	if f.afterFailure != nil {
+		f.afterFailure(ctx)
+	}
+
+	return copied, nil
+}
+
+// countFailure counts a failure of name in the fixture's table, in one step as the
+// store's transaction does, and returns a copy of the record as written.
+func (f *authFixture) countFailure(name string, limit sessionstorage.SignInAttemptLimit) *sessionstorage.SignInAttempts {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -216,7 +255,7 @@ func (f *authFixture) recordFailure(_ context.Context, name string, limit sessio
 	f.attempts[name] = next
 	copied := *next
 
-	return &copied, nil
+	return &copied
 }
 
 // clearAttempts answers the store's reset of a name as the table would.
@@ -419,10 +458,10 @@ func createSession(store *mock_sessionstorage.MockAuthStore[mockTx], id impulse.
 func (f *authFixture) expectSignIn(id impulse.UUID, prepare func(req *sessioninfo.NewSessionRequest), stop func(req *sessioninfo.NewSessionRequest) error) {
 	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
-			rule, standard, policy, accept := rules.Account, rules.Standard, rules.Policy, rules.Accept
-			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy, accept: accept}
-			if external := !namesItsUser(req.Identity); (rule != nil || standard != "") != external {
-				f.t.Errorf("SignIn() given account rules = %v, %q; want some only for an external identity, not a %s one", rule != nil, standard, req.Identity.Method)
+			rule, method, policy, accept := rules.Account, rules.Method, rules.Policy, rules.Accept
+			f.signedIn = &storeSignIn{req: req, rule: rule, method: method, policy: policy, accept: accept, signUp: rules.SignUp, proven: rules.Proven, oneOrganization: rules.OneOrganization}
+			if external := !namesItsUser(req.Identity); (method != "") != external || (rule != nil && !external) {
+				f.t.Errorf("SignIn() given the account rule %v and the method %q; want a method's name only for an external identity, not a %s one", rule != nil, method, req.Identity.Method)
 			}
 			if policy == nil {
 				f.t.Error("SignIn() given no policy, want the Auth's")
@@ -517,7 +556,7 @@ func TestNewAuth(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, tt.options...)
+			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, NoSuperAdministrators(), tt.options...)
 			switch {
 			case tt.wantErrHas != "":
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrHas) {
@@ -536,7 +575,7 @@ func TestNewAuth(t *testing.T) {
 func newBareAuth(t *testing.T, ctrl *gomock.Controller) *Auth[NoCustomData, NoCustomData, mockTx] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -636,8 +675,8 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		}
 		external := a.registered().external
 		if len(external) != 2 || external["lakeside"] == nil || external["riverside"] == nil || external["lakeside"].rule == nil || external["riverside"].rule == nil ||
-			external["lakeside"].standard != signin.MembersOfDirectory || external["riverside"].standard != signin.MembersOfDirectory {
-			t.Errorf("registered external methods = %v, want lakeside and riverside, each with its rule and the standard rule", slices.Sorted(maps.Keys(external)))
+			external["lakeside"].name != "lakeside" || external["riverside"].name != "riverside" {
+			t.Errorf("registered external methods = %v, want lakeside and riverside, each with its rule under its own name", slices.Sorted(maps.Keys(external)))
 		}
 	})
 
@@ -748,7 +787,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a method registered after the Auth hashed a password through its API",
 			before: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				pw := "pw"
+				pw := "a password"
 				store, ok := a.storage.(*mock_sessionstorage.MockAuthStore[mockTx])
 				if !ok {
 					panic("the Auth's storage is not the mock")
@@ -792,40 +831,6 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 				workos.SignIn(a, "workos", nil, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 			},
 			wantHas: "rule is required",
-		},
-		{
-			name: "a registration with neither a standard account rule nor a custom one",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				a.RegisterExternal(&signin.Registration[mockTx]{
-					Name: "bare", Method: sessioninfo.AuthMethod("bare"),
-					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
-				})
-			},
-			wantHas: "needs an account rule: it has no standard rule",
-		},
-		{
-			name: "a registration naming a standard account rule that does not exist",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				a.RegisterExternal(&signin.Registration[mockTx]{
-					Name: "bare", Method: sessioninfo.AuthMethod("bare"), StandardRule: "everyone-welcome",
-					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
-				})
-			},
-			wantHas: `"everyone-welcome" is not a standard account rule: use signin.MembersOfDirectory`,
-		},
-		{
-			name: "the Azure method with open sign-up, which one tenant cannot take",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any tenant or personal accounts",
-		},
-		{
-			name: "the Google method with open sign-up, which one Workspace cannot take",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com"), Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any Workspace or any Google account; a registration naming its Workspaces",
 		},
 		{
 			name:   "a registration name used twice, by the same method",
@@ -901,16 +906,9 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "an Azure method synchronizing roles across any tenant",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
-		},
-		{
-			name: "an Azure method admitting any tenant as members of the directory with no rule of its own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
-			},
-			wantHas: "Accounts: members of the directory with any tenant or personal accounts would sign up the world",
 		},
 		{
 			name: "an Azure tenant list with no tenant",
@@ -936,30 +934,16 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "an Azure method synchronizing roles across listed tenants",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
 		},
 		{
 			name: "an Azure method synchronizing roles for personal accounts",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
-		},
-		{
-			name: "the Azure method with open sign-up on listed tenants",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any tenant or personal accounts",
-		},
-		{
-			name: "an Azure method admitting personal accounts as members of the directory with no rule of its own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
-			},
-			wantHas: "Accounts: members of the directory with any tenant or personal accounts would sign up the world",
 		},
 		{
 			name: "an Azure role sync slot without a manager",
@@ -999,16 +983,9 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a Google method synchronizing roles across any Workspace",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace(), Accounts: signin.InvitedUsersOnly})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace()})
 			},
 			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
-		},
-		{
-			name: "a Google method admitting any Google account as members of the directory, with no rule of the application's own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount()})
-			},
-			wantHas: "would sign up the world",
 		},
 		{
 			name: "a Google Workspace list with no Workspace",
@@ -1034,30 +1011,16 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a Google method synchronizing roles across listed Workspaces",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org")), Accounts: signin.InvitedUsersOnly})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org"))})
 			},
 			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
 		},
 		{
 			name: "a Google method synchronizing roles for any Google account",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount(), Accounts: signin.InvitedUsersOnly})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount()})
 			},
 			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
-		},
-		{
-			name: "the Google method with open sign-up on listed Workspaces",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org")), Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any Workspace or any Google account",
-		},
-		{
-			name: "a Google method admitting any Workspace as members of the directory with no rule of its own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace()})
-			},
-			wantHas: "Accounts: members of the directory with any Workspace or any Google account would sign up the world",
 		},
 		{
 			name: "a Google method without its role sync slot",
@@ -2065,7 +2028,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn"}, {Method: sessioninfo.MethodLinkConfirmation}}
 					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonIdentityLinked || !cmp.Equal(req.Identity, identity) {
@@ -2087,7 +2050,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
 				})
@@ -2111,7 +2074,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
 				f.expectConsume(pendingID)
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(nil, httpio.NewConflictMessage("already linked"))
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(httpio.NewConflictMessage("already linked"))
 				f.store.EXPECT().Identity(gomock.Any(), identity.Method, identity.Connection, identity.Subject).Return(&sessionstorage.SessionIdentity{UserID: otherID}, nil)
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -2177,6 +2140,63 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			}
 			if c := cookieNamed(rr, defaultPendingCookieName); (c != nil && c.Value != "") != tt.wantReplaced {
 				t.Errorf("pending cookie replaced = %v, want %v", c != nil && c.Value != "", tt.wantReplaced)
+			}
+		})
+	}
+}
+
+// TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat pins what a password
+// confirmation hands the store with the link: the Auth's directory admission, its
+// reader and its seat hook, so the store gives the person the default seat of the
+// tenant whose directory the identity came through in the transaction that makes the
+// link; an Auth with no admission hands none.
+func TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat(t *testing.T) {
+	t.Parallel()
+
+	userID := impulse.Must(impulse.NewUUID())
+	sessionID := impulse.Must(impulse.NewUUID())
+	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp", Email: "pat@lakeside.edu"}
+	confirmation := &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"}
+
+	tests := []struct {
+		name      string
+		admission bool
+	}{
+		{name: "an Auth with a directory admission hands its reader and its seat hook to the link", admission: true},
+		{name: "an Auth with none hands none"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			f := newAuthFixture(t, ctrl)
+			workos.SignIn(f.auth, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			handed := gomock.Nil()
+			if tt.admission {
+				f.auth.SetDirectoryAdmission(
+					func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
+					DirectorySeatedHook[mockTx]{
+						Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+							return nil, nil
+						},
+						OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) { return false, nil },
+					},
+				)
+				handed = gomock.Not(gomock.Nil())
+			}
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}, nil).AnyTimes()
+			cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos"}, confirmation)
+			f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", handed, handed, gomock.Any()).Return(nil)
+			f.expectSignIn(sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
+				req.UserID, req.Username = userID, "pat"
+
+				return nil
+			})
+			f.expectConsume(pendingID)
+
+			rr := f.serve(f.auth.Pending().ConfirmWithPassword(), http.MethodPost, "/pending/confirm", map[string]string{"password": "pw"}, cookies)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
 			}
 		})
 	}
@@ -2457,9 +2477,13 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 	}
 }
 
-// TestAuth_AccountRulesGivenToTheStore proves a registration hands the store the account
-// rules it was configured with: the standard rule, members of the directory unless
-// Accounts says otherwise, and the application's own rule only when one was given.
+// TestAuth_AccountRulesGivenToTheStore proves a registration hands the store what decides
+// a person it has no account for: the name it is registered under, by which the store
+// reads what an administrator chose for it, the application's own rule only when
+// one was given, and how wide the registration is: whether it admits exactly one
+// organization and nobody else, which is the width at which the deployment's seeded
+// account is linked on its name. The width is counted as the registration lists its
+// organizations, so two tenants that read alike are two.
 func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 	t.Parallel()
 
@@ -2467,17 +2491,24 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 	custom := func(context.Context, mockTx, *azure.Identity) (*signin.Resolution, error) {
 		return signin.Standard(), nil
 	}
-
 	tests := []struct {
-		name         string
-		rule         azure.AccountRule[mockTx]
-		accounts     signin.StandardAccountRule
-		wantStandard signin.StandardAccountRule
-		wantRule     bool
+		name     string
+		rule     azure.AccountRule[mockTx]
+		wantRule bool
+		// tenants is the registration's organization slot, one tenant where it is not
+		// set, and wantWide that the store is told it admits more than one organization.
+		tenants  *azure.TenantSet
+		wantWide bool
 	}{
-		{name: "no rule and no Accounts: members of the directory, by the library", wantStandard: signin.MembersOfDirectory},
-		{name: "no rule, invited users only", accounts: signin.InvitedUsersOnly, wantStandard: signin.InvitedUsersOnly},
-		{name: "a custom rule beside the standard one", rule: custom, accounts: signin.InvitedUsersOnly, wantStandard: signin.InvitedUsersOnly, wantRule: true},
+		{name: "no rule: the method's name alone, for the library's standard rule"},
+		{name: "a custom rule beside the method's name", rule: custom, wantRule: true},
+		{name: "a registration of two tenants is wider than one organization", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantOther))), wantWide: true},
+		{name: "a registration of one tenant and any other is wider", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.AnyTenant())), wantWide: true},
+		{name: "a registration of one tenant and personal accounts is wider", tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.PersonalAccounts())), wantWide: true},
+		{
+			name:    "two tenants that read alike, one named as the other is labeled, are two",
+			tenants: new(azure.Tenants(azure.Tenant(tenantLake), azure.NamedTenant(tenantOther, "the Microsoft Entra tenant "+tenantLake))), wantWide: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2494,7 +2525,11 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 
 					return "/next", "", nil
 				})
-			entra := azure.SignIn(f.auth, "azure", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Accounts: tt.accounts, Authenticator: authn})
+			tenants := azure.Tenant(tenantLake)
+			if tt.tenants != nil {
+				tenants = *tt.tenants
+			}
+			entra := azure.SignIn(f.auth, "staff-directory", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: tenants, Authenticator: authn})
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 				req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "p.lee@lakeside.edu"
 			}, nil)
@@ -2504,8 +2539,11 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/next" {
 				t.Fatalf("response = %d %q, want 302 /next", rr.Code, rr.Header().Get("Location"))
 			}
-			if f.signedIn.standard != tt.wantStandard || (f.signedIn.rule != nil) != tt.wantRule {
-				t.Errorf("SignIn() given standard rule %q and a custom rule = %v, want %q and %v", f.signedIn.standard, f.signedIn.rule != nil, tt.wantStandard, tt.wantRule)
+			if f.signedIn.method != "staff-directory" || (f.signedIn.rule != nil) != tt.wantRule {
+				t.Errorf("SignIn() given the method %q and a custom rule = %v, want the registration's name and %v", f.signedIn.method, f.signedIn.rule != nil, tt.wantRule)
+			}
+			if f.signedIn.oneOrganization == tt.wantWide {
+				t.Errorf("SignIn() told the registration admits one organization alone = %v, want %v", f.signedIn.oneOrganization, !tt.wantWide)
 			}
 			if tt.wantRule {
 				res, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req)
@@ -2524,7 +2562,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	store := newAuthStoreMock(ctrl)
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -2533,7 +2571,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
 	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
-			if rules.Account != nil || rules.Standard != "" || rules.Policy != nil || rules.Accept != nil || rules.Directories != nil || rules.Seat != nil {
+			if rules.Account != nil || rules.Method != "" || rules.Policy != nil || rules.Accept != nil || rules.SignUp != nil || rules.Directories != nil || rules.Seat != nil {
 				t.Errorf("SignIn() given rules = %+v, want none: the Auth has no policy and no hooks", rules)
 			}
 
@@ -2546,6 +2584,81 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	got, err := a.API().StartAuthenticatedSession(context.Background(), rr, userID, []sessioninfo.AuthEvent{{Method: "api-key"}})
 	if err != nil || got != sessionID || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("StartAuthenticatedSession() = %s, %v; want %s with its cookies", got, err, sessionID)
+	}
+}
+
+// TestAuth_SetDirectoryAdmission_seeded pins that the directory admission's word on a
+// seeded account reaches the sign-in: the store is handed the hook's Seeded as it was
+// given, which the rule on a first link made on a name alone asks of the deployment's
+// first administrator, and none where the hook names none.
+func TestAuth_SetDirectoryAdmission_seeded(t *testing.T) {
+	t.Parallel()
+
+	seedID := SeedUserIDThrough("members", "directory", "ada@lakeside.edu")
+	tests := []struct {
+		name   string
+		seeded func(userID impulse.UUID, username, registration string) bool
+	}{
+		{
+			name: "a hook that recognizes its seed is asked by the sign-in",
+			seeded: func(userID impulse.UUID, username, registration string) bool {
+				return userID == SeedUserIDThrough("members", registration, username)
+			},
+		},
+		{name: "a hook that names no seed hands the sign-in none"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			store := newAuthStoreMock(ctrl)
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+			if err != nil {
+				t.Fatalf("NewAuth() error = %v", err)
+			}
+			a.SetDirectoryAdmission(
+				func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
+				DirectorySeatedHook[mockTx]{
+					Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+						return nil, nil
+					},
+					OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) { return false, nil },
+					Seeded: tt.seeded,
+				},
+			)
+			userID := impulse.Must(impulse.NewUUID())
+			sessionID := impulse.Must(impulse.NewUUID())
+			store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+			store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
+					if rules.Directories == nil || rules.OnlyIn == nil {
+						t.Error("SignIn() given no directory reader or no OnlyIn, want the admission's")
+					}
+					if rules.OneOrganization {
+						t.Error("SignIn() told a session that came through no registration that its registration admits one organization")
+					}
+					if (rules.Seeded != nil) != (tt.seeded != nil) {
+						t.Fatalf("SignIn() given a Seeded = %v, want %v", rules.Seeded != nil, tt.seeded != nil)
+					}
+					if rules.Seeded == nil {
+						return sessionID, nil
+					}
+					if !rules.Seeded(seedID, "Ada@Lakeside.edu", "directory") {
+						t.Error("the Seeded the sign-in was handed does not recognize the account seeded for the registration")
+					}
+					if rules.Seeded(seedID, "ada@lakeside.edu", "okta") || rules.Seeded(userID, "ada@lakeside.edu", "directory") {
+						t.Error("the Seeded the sign-in was handed recognizes an account seeded for another registration, or one under another id")
+					}
+
+					return sessionID, nil
+				})
+			store.EXPECT().TouchUserSignIn(gomock.Any(), userID).Return(nil)
+
+			if _, err := a.API().StartAuthenticatedSession(context.Background(), httptest.NewRecorder(), userID, []sessioninfo.AuthEvent{{Method: "api-key"}}); err != nil {
+				t.Fatalf("StartAuthenticatedSession() error = %v", err)
+			}
+		})
 	}
 }
 
@@ -2577,6 +2690,9 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		wantActorID     impulse.NullUUID
 		wantProviderSID string
 		wantBadRequest  bool
+		wantForbidden   bool
+		// wantErr is a failure that is neither refusal: no session is created.
+		wantErr bool
 		// wantPrincipal is the principal the record carries, where it is not the
 		// request's own text.
 		wantPrincipal accesstypes.Principal
@@ -2639,6 +2755,41 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 			},
 		},
+		// A role principal's session carries the actor's own name. An actor from another
+		// application whose name is a user's here would hold a session under that
+		// user's name, so the name is looked up and the session refused when it is taken.
+		{
+			name:    "a role principal for an actor from another application whose name is a user's username is refused, and no session is created",
+			ctx:     context.Background,
+			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&sessionstorage.SessionUser{ID: aliceID, Username: "alice"}, nil)
+			},
+			wantForbidden: true,
+		},
+		{
+			name:    "a role principal for an actor from another application whose name cannot be looked up fails, and no session is created",
+			ctx:     context.Background,
+			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, errors.New("the store is down"))
+			},
+			wantErr: true,
+		},
+		// An actor of this application holds the role session under their own name,
+		// which is their own user's: nobody is looked up by it.
+		{
+			name: "a role principal for an actor of this application is not held to the rule, and its record names the actor's account",
+			ctx: func() context.Context {
+				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
+			},
+			request: &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
+			},
+			wantActorID:     impulse.NullUUIDFromUUID(aliceID),
+			wantProviderSID: "sid-1",
+		},
 		{
 			name: "an impersonation started on a validated session keeps its provider session id, so a provider-initiated logout reaches it, and its record names the actor's account",
 			ctx: func() context.Context {
@@ -2661,11 +2812,16 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			f := newAuthFixture(t, ctrl)
 			f.store.EXPECT().ImpersonationEnabled().Return(true)
 			tt.prepare(f.store)
-			if tt.wantBadRequest {
+			if tt.wantBadRequest || tt.wantForbidden || tt.wantErr {
 				// No CreateImpersonatedSession is expected: the mock fails the test on one.
 				_, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request)
-				if !httpio.HasBadRequest(err) {
+				switch {
+				case tt.wantBadRequest && !httpio.HasBadRequest(err):
 					t.Errorf("StartImpersonatedSession() error = %v, want a bad request", err)
+				case tt.wantForbidden && !httpio.HasForbidden(err):
+					t.Errorf("StartImpersonatedSession() error = %v, want a forbidden", err)
+				case tt.wantErr && (err == nil || httpio.HasForbidden(err) || httpio.HasBadRequest(err)):
+					t.Errorf("StartImpersonatedSession() error = %v, want a failure that is no refusal", err)
 				}
 
 				return
@@ -2879,8 +3035,9 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 
 	userID := impulse.Must(impulse.NewUUID())
 	sessionID := impulse.Must(impulse.NewUUID())
+	temporary := hashed(t, "temporary")
 	marked := func() *sessionstorage.SessionUser {
-		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "temporary"), PasswordChangeRequired: true}
+		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: temporary, PasswordChangeRequired: true}
 	}
 	request := func(method string, body any) *http.Request {
 		var payload *strings.Reader
@@ -2924,10 +3081,9 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 		f := newAuthFixture(t, ctrl)
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil).Times(2)
-		gomock.InOrder(
-			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
-		)
+		// The one store call ends the user's sessions with the write; the mock refuses
+		// a destruction of its own.
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, temporary, gomock.Not(gomock.Nil())).Return(nil)
 		createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID {
 				t.Errorf("CreateSession() request = %+v", req)
@@ -2935,7 +3091,7 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 		})
 
 		rr := httptest.NewRecorder()
-		f.password.ChangeUserPassword().ServeHTTP(rr, request(http.MethodPost, map[string]string{"oldPassword": "temporary", "newPassword": "chosen"}))
+		f.password.ChangeUserPassword().ServeHTTP(rr, request(http.MethodPost, map[string]string{"oldPassword": "temporary", "newPassword": "chosen well"}))
 		if rr.Code != http.StatusOK {
 			t.Errorf("ChangeUserPassword() = %d %s, want 200", rr.Code, rr.Body.String())
 		}
@@ -2943,7 +3099,7 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 
 	t.Run("a wrong old password or the same password changes nothing", func(t *testing.T) {
 		t.Parallel()
-		for _, body := range []map[string]string{{"oldPassword": "nope", "newPassword": "chosen"}, {"oldPassword": "temporary", "newPassword": "temporary"}} {
+		for _, body := range []map[string]string{{"oldPassword": "nope", "newPassword": "chosen well"}, {"oldPassword": "temporary", "newPassword": "temporary"}} {
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
 			f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
@@ -2977,23 +3133,71 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 
 	userID := impulse.Must(impulse.NewUUID())
 
-	t.Run("changing the password destroys the user's sessions by UserId, clears the mark and continues in a new session that records the password", func(t *testing.T) {
+	t.Run("changing the password writes the new one on proof of the hash the old one matched and destroys the user's sessions in the one store call, then continues in a new session that records the password", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old"), PasswordChangeRequired: true}, nil)
+		old := hashed(t, "old")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old, PasswordChangeRequired: true}, nil)
+		// The store is handed the hash the old password was compared against, and clears
+		// the mark and ends the user's sessions with the write, in its one transaction;
+		// the mock refuses the write that names the user alone, and a destruction of the
+		// sessions as a call of its own, whose failure would leave the password changed
+		// and every session alive.
 		gomock.InOrder(
-			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
-		)
-		createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
-			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID || !cmp.Equal(req.AuthEvents, []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}) {
-				t.Errorf("CreateSession() request = %+v", req)
-			}
-		})
+			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil),
+			f.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
+				if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID || !cmp.Equal(req.AuthEvents, []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}) {
+					t.Errorf("CreateSession() request = %+v", req)
+				}
 
-		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "new"}); err != nil {
+				return impulse.Must(impulse.NewUUID()), nil
+			}),
+		)
+
+		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password"}); err != nil {
 			t.Errorf("ChangeSessionUserPassword() error = %v", err)
+		}
+	})
+
+	t.Run("a change the store fails starts no session: the store wrote the password and ended the sessions together, or did neither", func(t *testing.T) {
+		t.Parallel()
+		f := newAuthFixture(t, gomock.NewController(t))
+		old := hashed(t, "old")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
+		// The mock refuses a call it was not told of: nothing follows the failed write.
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(errors.New("the database is away"))
+
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password"})
+		if err == nil || httpio.HasConflict(err) {
+			t.Errorf("ChangeSessionUserPassword() error = %v, want the store's failure", err)
+		}
+		// The old password matched and gave its attempt back; the change that was not
+		// made clears nothing more.
+		if _, _, clears := f.counts(); clears != 1 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once, by the old password's match: nothing was changed", clears)
+		}
+	})
+
+	t.Run("a password that changed after the old one was compared is not changed again: no session is destroyed or started, the name's attempts stay, and the caller is told to try again", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		old := hashed(t, "old")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
+		// The mock refuses a call it was not told of: no session is destroyed or created.
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).
+			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry"))
+
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password"})
+		want := "Your password has changed since you entered it, so this change was not made: try again with your current password"
+		if !errors.Is(err, sessionstorage.ErrPasswordChanged) || !httpio.HasConflict(err) || httpio.Message(err) != want {
+			t.Errorf("ChangeSessionUserPassword() error = %v (message %q), want ErrPasswordChanged as a Conflict saying %q", err, httpio.Message(err), want)
+		}
+		// The old password matched and gave its attempt back; the change that was not
+		// made clears nothing more.
+		if _, _, clears := f.counts(); clears != 1 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once, by the old password's match: nothing was changed", clears)
 		}
 	})
 
@@ -3003,7 +3207,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		f := newAuthFixture(t, ctrl)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old")}, nil)
 
-		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "nope", NewPassword: "new"})
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "nope", NewPassword: "a new password"})
 		if !httpio.HasBadRequest(err) {
 			t.Errorf("ChangeSessionUserPassword() error = %v, want BadRequest", err)
 		}
@@ -3021,22 +3225,56 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("resetting the password marks the user and destroys its sessions; setting one the user chose clears the mark", func(t *testing.T) {
+	t.Run("resetting the password marks the user and ends its sessions in the store's one write; setting one the user chose clears the mark", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).Times(2)
+		// The store writes the password and ends the sessions in one transaction
+		// (ReplaceUserPassword). The mock refuses a call it was not told of: the sessions
+		// are not ended by a second call, which a failure could come before.
+		replaced := func(password string) func(context.Context, impulse.UUID, *securehash.Hash, bool) error {
+			return func(_ context.Context, _ impulse.UUID, hash *securehash.Hash, _ bool) error {
+				if hash == nil {
+					t.Errorf("ReplaceUserPassword() was handed no hash, want the hash of %q", password)
+
+					return nil
+				}
+				if _, err := securehash.New(securehash.Argon2()).Compare(hash, password); err != nil {
+					t.Errorf("ReplaceUserPassword() was handed a hash %q does not match: %v", password, err)
+				}
+
+				return nil
+			}
+		}
 		gomock.InOrder(
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(nil),
-			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
-			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
+			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).DoAndReturn(replaced("temporary")),
+			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).DoAndReturn(replaced("chosen well")),
 		)
 		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); err != nil {
 			t.Errorf("ResetSessionUserPassword() error = %v", err)
 		}
-		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen"); err != nil {
+		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); err != nil {
 			t.Errorf("SetSessionUserPassword() error = %v", err)
+		}
+		if _, _, clears := f.counts(); clears != 2 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once per password", clears)
+		}
+	})
+
+	t.Run("a reset the store could not make resets nothing: the failure is the caller's, and the name's attempts stay", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		failed := errors.New("the sessions could not be ended")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(failed)
+
+		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); !errors.Is(err, failed) {
+			t.Errorf("ResetSessionUserPassword() error = %v, want the store's failure", err)
+		}
+		if _, _, clears := f.counts(); clears != 0 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was written", clears)
 		}
 	})
 
@@ -3112,7 +3350,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		identityID := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
+		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Any()).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
 
 		if err := f.auth.API().UnlinkIdentity(context.Background(), identityID); !errors.Is(err, sessionstorage.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 			t.Errorf("UnlinkIdentity() error = %v, want ErrLastSignInMethod (Conflict)", err)
@@ -3237,7 +3475,7 @@ func TestAuth_CallbackFromUndeclaredIssuer(t *testing.T) {
 	t.Parallel()
 	f := newAuthFixture(t, gomock.NewController(t))
 	h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
-		Name: "bare", Method: sessioninfo.AuthMethod("bare"), StandardRule: signin.MembersOfDirectory,
+		Name: "bare", Method: sessioninfo.AuthMethod("bare"),
 		Issuers: signin.IssuerList("https://issuer"),
 		Build: func(signin.StateCookies) (*signin.Method, error) {
 			return &signin.Method{

@@ -53,6 +53,12 @@ type SourceTable struct {
 // Expand include the derived resources whose root rows they are under the same keys, and
 // the derived resources the commit changed wholesale through a table they read.
 type Writes struct {
+	// ID names the write the rows belong to: minted once per request (Publish) and
+	// carried by every change document the publish writes, so the tab whose request it
+	// was knows its own change when its change set reports it. A publish made with no
+	// id writes documents that name no write, which every tab takes for somebody
+	// else's change.
+	ID    string
 	Rows  map[accesstypes.Resource][]resource.RowChange
 	Whole []WholeChange
 }

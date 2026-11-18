@@ -77,7 +77,7 @@ func TestStore_isolation(t *testing.T) {
 	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor", "Edits the records of the tenant."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor"); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -90,6 +90,48 @@ func TestStore_isolation(t *testing.T) {
 	}
 	if len(records.Roles) != 0 || len(records.Grants) != 0 || len(records.Memberships) != 0 {
 		t.Errorf("ReadPolicy() on sibling store returned rows: %+v", records)
+	}
+}
+
+// TestStore_readsWhileATransactionIsOpen pins what the store's reads do while a
+// transaction of the application's is open on the same pool, under the same context:
+// they succeed. The store reads on a connection of its own, and the PostgreSQL client
+// marks no context, so nothing refuses the read as the Spanner client refuses one
+// under a transaction's context. The permission engine's reload on the check path
+// therefore works inside a transaction here, and a check made right after a local
+// policy write sees the write.
+func TestStore_readsWhileATransactionIsOpen(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	store, db := prepareStore(ctx, t)
+	scope := accesstypes.DomainPolicyScope("tenant1")
+	if err := store.InsertRole(ctx, scope, "Editor", "Edits the records of the tenant."); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("pgxpool.Pool.Begin() error = %v", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			t.Errorf("pgx.Tx.Rollback() error = %v", err)
+		}
+	}()
+	if _, err := tx.Exec(ctx, "SELECT 1"); err != nil {
+		t.Fatalf("pgx.Tx.Exec() error = %v", err)
+	}
+
+	records, err := store.ReadPolicy(ctx)
+	if err != nil {
+		t.Fatalf("ReadPolicy() while a transaction is open error = %v, want the policy", err)
+	}
+	if len(records.Roles) != 1 {
+		t.Errorf("ReadPolicy() while a transaction is open read %d roles, want the one committed", len(records.Roles))
+	}
+	if roles, err := store.ListRoles(ctx, scope); err != nil || len(roles) != 1 {
+		t.Errorf("ListRoles() while a transaction is open = (%v, %v), want the one role", roles, err)
 	}
 }
 
@@ -132,6 +174,23 @@ func TestDDL_keys(t *testing.T) {
 			`PRIMARY KEY ("Kind", "Axis", "DomainId", "Role", "Permission", "Resource", "Field", "Condition")`,
 			`FOREIGN KEY ("Kind", "Axis", "DomainId", "Role") REFERENCES "AccessRoles" ("Kind", "Axis", "DomainId", "Role") ON DELETE CASCADE`,
 		}},
+		{name: "groups are kept globally or in one domain", stmt: 4, want: []string{
+			`"Id" TEXT NOT NULL`, `"Name" TEXT NOT NULL`, `"Description" TEXT NOT NULL`,
+			`CONSTRAINT "AccessGroupsKind" CHECK ("Kind" IN ('global', 'domain'))`,
+			`PRIMARY KEY ("Id")`,
+		}},
+		{name: "a group's name is one group's where it is kept", stmt: 5, want: []string{`CREATE UNIQUE INDEX "AccessGroupsByName" ON "AccessGroups" ("Kind", "Axis", "DomainId", "Name")`}},
+		{name: "a member needs the group", stmt: 6, want: []string{
+			`CONSTRAINT "AccessGroupMembersGroup" FOREIGN KEY ("GroupId") REFERENCES "AccessGroups" ("Id")`,
+			`PRIMARY KEY ("GroupId", "UserId")`,
+		}},
+		{name: "group members by user", stmt: 7, want: []string{`CREATE INDEX "AccessGroupMembersByUserId" ON "AccessGroupMembers" ("UserId", "GroupId")`}},
+		{name: "a group's role needs the group", stmt: 8, want: []string{
+			`CONSTRAINT "AccessGroupRolesKind" CHECK ("Kind" IN ('global', 'domain', 'every'))`,
+			`CONSTRAINT "AccessGroupRolesGroup" FOREIGN KEY ("GroupId") REFERENCES "AccessGroups" ("Id")`,
+			`PRIMARY KEY ("GroupId", "Kind", "Axis", "DomainId", "Role")`,
+		}},
+		{name: "group roles by where they are held", stmt: 9, want: []string{`CREATE INDEX "AccessGroupRolesByScope" ON "AccessGroupRoles" ("Kind", "Axis", "DomainId", "Role")`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

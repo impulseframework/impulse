@@ -22,6 +22,7 @@ import (
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // TablePrefix is the prefix of the auth's tables the package was generated from: the
@@ -51,17 +52,38 @@ type Client struct {
 // store: a role a method assigns is held to its rule, and it is told once a membership
 // is committed. sessions is the API of the session library's Auth that signs the
 // auth's people in (its API method): a password a method writes is hashed by that
-// Auth's password method. The options are the identity package's: the administrator
-// roles (identity.WithAdministratorRoles), which the rule on a person removing a role
-// from themselves reads, and one tenant per person (identity.WithOneTenantPerPerson),
-// which every role given in a tenant is then held to.
+// Auth's password method. The options are the identity package's: a tenant's
+// administrator roles (identity.WithAdministratorRoles), which the rule on a person
+// removing a role from themselves in a tenant reads, and one tenant per person
+// (identity.WithOneTenantPerPerson), which every role given in a tenant is then held to.
+//
+// The engine is the one built with the methods a super administrator always executes
+// (access.WithSuperAdministratorMethods(SuperAdministratorMethods()...)): the client
+// refuses one built without them.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
+	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	// What gives a person a role without naming them is judged as giving the role
+	// directly, by the grants of the methods that give a role and take one away
+	// (grants.go): a change to a group, as the role changes it makes, and the default
+	// role of a sign-in method opened to sign-up, which every person who signs up is
+	// given.
+	opts = append(opts, identity.WithRoleGrants(grants{}))
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
 
 	return &Client{manager: manager}, nil
+}
+
+// SuperAdministratorMethods are the methods that give and take the Staff auth's
+// roles for the whole application, in the global scope, in one domain or in every
+// domain. The auth's package hands them to its permission engine where it builds it
+// (access.WithSuperAdministratorMethods), and the Super Administrator role, which the
+// framework defines in every auth, then holds Execute on each whatever the role file
+// grants: a super administrator gives and takes any role of the auth for any person.
+func SuperAdministratorMethods() []accesstypes.Resource {
+	return []accesstypes.Resource{AssignStaffRole{}.Method(), RemoveStaffRole{}.Method()}
 }
 
 // AssignRole buffers the membership of user in role, held in scope, in the caller's
@@ -108,6 +130,43 @@ func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransact
 	return nil
 }
 
+// DirectoryName answers what the Staff auth's sign-in registrations call a
+// directory, for a sentence that names it to a person: the name a registration that
+// takes its connection gives it (a listed Workspace or tenant, a provider), and the
+// label of the button a person signs in to it with, each "" where the registrations
+// have none (identity.Manager.DirectoryName). It is a resource.DirectoryNamer: the
+// generated frames of a tenant's directory and the tenant list say a directory by it,
+// "Lakeside" or "your organization's Microsoft directory", and never by its
+// connection, which for a Microsoft Entra tenant is an id.
+func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {
+	return c.manager.DirectoryName(directory)
+}
+
+// CallerPassword answers whether the person behind the request holds a password in the
+// Staff auth, and whether the question applies to them at all: it does not where
+// the request came through another auth, or where this auth has no password method
+// (identity.Manager.CallerPassword). It is a resource.CallerPassword: the generated frame
+// of the method that makes a tenant directory only hands it to the rule that the switch
+// is turned on by a person who has a password, their way back in
+// (resource.TenantDirectoryRules.PasswordsBy).
+func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {
+	has, applies, err = c.manager.CallerPassword(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.CallerPassword()")
+	}
+
+	return has, applies, nil
+}
+
+// AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
+// Staff auth keep a way into a tenant that is directory only: the auth registers
+// the password method and its permission engine names the roles that administer a
+// tenant (identity.Manager.AdministratorsEnterWithPassword). The warning of the method
+// that makes a tenant directory only says so (resource.DirectoryPeople).
+func (c *Client) AdministratorsEnterWithPassword() bool {
+	return c.manager.AdministratorsEnterWithPassword()
+}
+
 // InvitationAccepted answers the session library's hook for an accepted invitation
 // (session.Auth.SetInvitationAccepted) over the Staff auth's tables: the roles the
 // invitation carries are given to the person in the transaction that consumes the
@@ -126,4 +185,52 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 // sets it where it sets the invitation's.
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("Staff")
+}
+
+// DirectoryRole holds the role a tenant is opened to its directory's people with to its
+// rules over the Staff auth's tables, in the caller's transaction, and writes
+// nothing: the role exists in the tenant, and the request's caller could give it there
+// directly, by the grant of the method that gives a role in a tenant
+// (identity.Manager.DirectoryRole). The generated method that opens a tenant to its
+// directory asks it before it writes the role.
+func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, role accesstypes.Role) error {
+	if err := c.manager.DirectoryRole(ctx, txn, tenant, role); err != nil {
+		return errors.Wrap(err, "identity.Manager.DirectoryRole()")
+	}
+
+	return nil
+}
+
+// SignedIn answers the session library's hook for a sign-in that stands
+// (session.Auth.SetSignedInHook) over the Staff auth's tables: the person's roles
+// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
+// in a transaction of the hook's own on db, the application's database. Nothing else
+// removes them: no job runs on a schedule. The session library calls the hook once the
+// session is committed and logs an error it answers, so the removal neither fails a
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
+// package sets it where it sets the invitation's.
+func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
+	return c.manager.SignedIn("Staff", db)
+}
+
+// SignedUp answers the session library's hook for a sign-up through an open sign-in
+// method (session.Auth.SetSignUpSeated) over the Staff auth's tables: the default
+// role the method's row names is given to the person in the transaction that makes
+// their account, so no account is left holding nothing (identity.Manager.SignedUp). The
+// auth's package sets it where it sets the invitation's.
+func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransaction] {
+	return c.manager.SignedUp("Staff")
+}
+
+// AnySignInMethodOpen reports whether an administrator has a sign-in method of the
+// Staff auth open to sign-up now, read through reader: the caller's transaction,
+// or the application's client (identity.Manager.AnyMethodOpen). The generated
+// create-your-tenant route asks it in the transaction that writes the tenant's row.
+func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	open, err := c.manager.AnyMethodOpen(ctx, reader)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.Manager.AnyMethodOpen()")
+	}
+
+	return open, nil
 }

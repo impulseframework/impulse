@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -66,6 +67,19 @@ const (
 	TenantsPersonal = "personal"
 )
 
+// The Workspace shapes of a Google registration, read from the building blocks its
+// configuration's Workspaces slot is made of: one Workspace (google.Workspace alone),
+// listed Workspaces (google.Workspaces of several, or a Workspace built in a loop), any
+// Workspace (google.AnyWorkspace, alone or beside listed Workspaces) and any Google
+// account alone (google.AnyGoogleAccount). Any Google account beside Workspaces is
+// Method.GoogleAccounts.
+const (
+	WorkspacesOne      = "one"
+	WorkspacesListed   = "listed"
+	WorkspacesAny      = "any"
+	WorkspacesAccounts = "accounts"
+)
+
 // The session library's default table names for an Auth, which the library's schema sets
 // create under those names (schema/spanner/migrations and schema/spanner/auth/migrations).
 const (
@@ -75,6 +89,9 @@ const (
 	DefaultPendingTable    = "SessionPendingSignIns"
 	DefaultAttemptsTable   = "SessionSignInAttempts"
 	DefaultMailLinksTable  = "SessionMailLinks"
+	// DefaultSignInMethodsTable is the table an administrator's choice for each sign-in
+	// method is kept in (open to sign-up, or invite only), which every sign-in reads.
+	DefaultSignInMethodsTable = "SessionSignInMethods"
 	// The tokens and device codes tables, read when a machine outlet names the Auth as
 	// the issuer of its tokens (Tokens in the generator program).
 	DefaultTokensTable      = "SessionTokens"
@@ -111,8 +128,10 @@ const signInConstructor = "SignIn"
 
 // parseAuths returns every session Auth construction in the file with the methods the
 // file registers on it, and the methods registered on an Auth the file does not
-// construct (attached at the package level).
-func parseAuths(rel string, src []byte) (auths []Auth, unattached []Method, err error) {
+// construct (attached at the package level). ownPkg is the file's package import path,
+// which an unqualified Roles() names where the construction's engine is handed its role
+// file.
+func parseAuths(rel string, src []byte, ownPkg string) (auths []Auth, unattached []Method, err error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
 	if err != nil {
@@ -159,12 +178,15 @@ func parseAuths(rel string, src []byte) (auths []Auth, unattached []Method, err 
 					File: rel, Line: fset.Position(call.Pos()).Line, Var: assignedName(call, body),
 					SessionTable: DefaultSessionTable, UserTable: DefaultUserTable,
 					IdentitiesTable: DefaultIdentitiesTable, PendingTable: DefaultPendingTable,
-					AttemptsTable: DefaultAttemptsTable, MailLinksTable: DefaultMailLinksTable,
+					AttemptsTable: DefaultAttemptsTable, SignInMethodsTable: DefaultSignInMethodsTable, MailLinksTable: DefaultMailLinksTable,
 					TokensTable: DefaultTokensTable, DeviceCodesTable: DefaultDeviceCodesTable,
 					FactorCodesTable: DefaultFactorCodesTable, TrustedDevicesTable: DefaultTrustedDevicesTable, OptionsForwarded: call.Ellipsis.IsValid(),
 				}
 				for _, arg := range call.Args {
 					readAuthArg(&auth, arg, pkg, storage, consts, body)
+				}
+				if len(call.Args) > superAdministratorsArg {
+					auth.SuperAdministrators = readSuperAdministrators(call.Args[superAdministratorsArg], fset, f, pkg, ownPkg, body)
 				}
 				auths = append(auths, auth)
 			case methodPkgs[local] != "" && methodConstructors[methodPkgs[local]][name] != "":
@@ -183,8 +205,8 @@ func parseAuths(rel string, src []byte) (auths []Auth, unattached []Method, err 
 // (the first argument's identifier), its registration name (the second argument, a
 // literal or a constant of the file; the password method is always "password") and, for
 // a directory method, its authority from the configuration (the fourth argument), with
-// the tenant shape of a Microsoft registration; for the password method, the options
-// after the Auth (session.OpenSignUp(), session.UsernameIsEmail()).
+// the tenant shape of a Microsoft registration and the Workspace shape of a Google one;
+// for the password method, the option after the Auth (session.UsernameIsEmail()).
 func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.FileSet, consts map[string]string, body *ast.BlockStmt, f *ast.File) Method {
 	m := Method{File: rel, Line: fset.Position(call.Pos()).Line, Kind: kind, Name: PasswordRegistration}
 	if len(call.Args) > 0 {
@@ -198,10 +220,7 @@ func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.Fil
 			if !ok {
 				continue
 			}
-			switch name, _ := qualifiedName(option.Fun, local); name {
-			case "OpenSignUp":
-				m.OpenSignUp = true
-			case "UsernameIsEmail":
+			if name, _ := qualifiedName(option.Fun, local); name == "UsernameIsEmail" {
 				m.UsernameIsEmail = true
 			}
 		}
@@ -219,6 +238,9 @@ func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.Fil
 		m.Authority = readAuthority(cfg, local, f)
 		if kind == MethodAzure {
 			m.Tenants, m.PersonalAccounts = readTenants(configField(cfg, "Tenants"), body, local, f)
+		}
+		if kind == MethodGoogle {
+			m.Workspaces, m.GoogleAccounts, m.SeveralDomains = readWorkspaces(configField(cfg, "Workspaces"), body, local, f)
 		}
 		if kind == MethodPersona {
 			m.Kind = oidcKind(cfg)
@@ -245,22 +267,23 @@ func oidcKind(cfg *ast.CompositeLit) string {
 // attachMethods gives each method to the Auth its first argument names, and to the only
 // Auth of the set when the identifier does not resolve; it returns the methods left over.
 func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
-	for _, m := range methods {
+	for j := range methods {
+		m := &methods[j]
 		placed := false
 		for i := range auths {
 			if auths[i].Var != "" && auths[i].Var == m.AuthVar {
-				auths[i].Methods = append(auths[i].Methods, m)
+				auths[i].Methods = append(auths[i].Methods, *m)
 				placed = true
 
 				break
 			}
 		}
 		if !placed && len(auths) == 1 {
-			auths[0].Methods = append(auths[0].Methods, m)
+			auths[0].Methods = append(auths[0].Methods, *m)
 			placed = true
 		}
 		if !placed {
-			unattached = append(unattached, m)
+			unattached = append(unattached, *m)
 		}
 	}
 
@@ -272,7 +295,8 @@ func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
 // UnattachedMethods for the session-tables check to report.
 func (a *App) attachPackageMethods() {
 	var left []Method
-	for _, m := range a.unattached {
+	for j := range a.unattached {
+		m := &a.unattached[j]
 		var same []int
 		for i := range a.Auths {
 			if path.Dir(a.Auths[i].File) == path.Dir(m.File) {
@@ -280,11 +304,11 @@ func (a *App) attachPackageMethods() {
 			}
 		}
 		if len(same) == 1 {
-			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, m)
+			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, *m)
 
 			continue
 		}
-		left = append(left, m)
+		left = append(left, *m)
 	}
 	a.UnattachedMethods = left
 }
@@ -376,7 +400,7 @@ func readTenants(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.Fi
 		return "", false
 	}
 	var s tenantShape
-	collectTenantBlocks(fn.Body, false, methodPkg, f, 0, &s)
+	collectTenantBlocks(fn.Body, false, methodPkg, f, 0, azureBlocks, &s)
 	switch {
 	case s.any:
 		return TenantsAny, s.personal
@@ -390,6 +414,55 @@ func readTenants(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.Fi
 		// A function building no block the scan reads, or azure.Tenants() of nothing,
 		// which the library refuses at registration.
 		return "", false
+	}
+}
+
+// readWorkspaces reads the Workspaces slot of a Google registration's configuration into
+// the shape it builds and whether it admits any Google account. The slot is read from
+// the google building blocks it is made of: google.Workspace lists one Workspace,
+// google.AnyWorkspace admits any, google.AnyGoogleAccount admits any Google account, and
+// google.Workspaces unites. They are found in the registration's slot function, the
+// function of the file an identifier in the slot was assigned from a call to
+// (workspaces, err := workspaceSlot(settings)), as impulse add method writes it, or in
+// the slot's own expression where the registering function builds it in place
+// (Workspaces: google.AnyGoogleAccount(), or a name it assigned such a value). A
+// Workspace reached inside a loop counts as several, and Attesting() on a block keeps its
+// shape. A slot written any other way (a method of the settings, a value built in
+// another file) is not read, and all three are empty.
+//
+// severalDomains says a Workspace the slot names was given more than one domain, or a
+// spread of them. It is told apart from the shape and changes nothing of it: one
+// Workspace of two domains is one Workspace (WorkspacesOne), and it is several
+// organizations to the sign-in rule, which lists a Workspace by each of its domains
+// (signin.Audience.OneOrganization).
+func readWorkspaces(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.File) (workspaces string, accounts, severalDomains bool) {
+	if slot == nil {
+		return "", false, false
+	}
+	var s tenantShape
+	if fn := slotFunction(slot, body, f); fn != nil && fn.Body != nil {
+		collectTenantBlocks(fn.Body, false, methodPkg, f, 0, googleBlocks, &s)
+	} else {
+		// The slot built in place, or the value the function assigned the name it gives.
+		built := slot
+		if id, ok := slot.(*ast.Ident); ok {
+			if value := assignedValue(id, body); value != nil {
+				built = value
+			}
+		}
+		collectTenantBlocks(built, false, methodPkg, f, 0, googleBlocks, &s)
+	}
+	switch {
+	case s.any:
+		return WorkspacesAny, s.personal, s.domains
+	case s.several || s.listed > 1:
+		return WorkspacesListed, s.personal, s.domains
+	case s.listed == 1:
+		return WorkspacesOne, s.personal, s.domains
+	case s.personal:
+		return WorkspacesAccounts, true, false
+	default:
+		return "", false, false
 	}
 }
 
@@ -432,43 +505,70 @@ func fileFunction(f *ast.File, name string) *ast.FuncDecl {
 	return nil
 }
 
-// tenantShape is what the scan reads of a slot function: how many tenants it lists
-// outside loops, whether it lists tenants inside one, and whether it admits any tenant
-// or personal accounts.
+// tenantShape is what the scan reads of an organization slot: how many organizations it
+// lists outside loops, whether it lists organizations inside one, whether it admits any
+// organization, or the accounts outside every organization (Microsoft personal accounts,
+// any Google account), and whether a block that lists one organization was given several
+// domains for it (a Google Workspace of more than one domain).
 type tenantShape struct {
 	listed   int
 	several  bool
 	any      bool
 	personal bool
+	domains  bool
 }
 
-// collectTenantBlocks adds the azure building blocks under n to the shape: a block in a
-// loop's body is read with inLoop set, and a call to another function of the file is
-// read through, one level down, so the listed slot's parser counts. Attesting() and the
-// other calls on a block are walked into, so the block under them is read.
-func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File, depth int, s *tenantShape) {
+// slotBlocks names the building blocks a directory method's package makes an
+// organization slot of: the ones that list one organization each, the one that admits
+// any organization, and the one that admits the accounts outside every organization.
+// domains names the listed block that takes the organization's name and then its
+// domains, one or more ("" where the package has none): given more than one, or a
+// spread of them, the block still lists one organization, and the shape notes it.
+type slotBlocks struct {
+	listed   []string
+	any      string
+	accounts string
+	domains  string
+}
+
+// The building blocks of a Microsoft registration's Tenants slot and of a Google
+// registration's Workspaces slot.
+var (
+	azureBlocks  = slotBlocks{listed: []string{"Tenant", "NamedTenant"}, any: "AnyTenant", accounts: "PersonalAccounts", domains: ""}
+	googleBlocks = slotBlocks{listed: []string{"Workspace"}, any: "AnyWorkspace", accounts: "AnyGoogleAccount", domains: "Workspace"}
+)
+
+// collectTenantBlocks adds the method package's building blocks under n to the shape: a
+// block in a loop's body is read with inLoop set, and a call to another function of the
+// file is read through, one level down, so the listed slot's parser counts. Attesting()
+// and the other calls on a block are walked into, so the block under them is read.
+func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File, depth int, blocks slotBlocks, s *tenantShape) {
 	ast.Inspect(n, func(node ast.Node) bool {
 		switch e := node.(type) {
 		case *ast.ForStmt:
-			collectTenantBlocks(e.Body, true, methodPkg, f, depth, s)
+			collectTenantBlocks(e.Body, true, methodPkg, f, depth, blocks, s)
 
 			return false
 		case *ast.RangeStmt:
-			collectTenantBlocks(e.Body, true, methodPkg, f, depth, s)
+			collectTenantBlocks(e.Body, true, methodPkg, f, depth, blocks, s)
 
 			return false
 		case *ast.CallExpr:
 			if name, ok := qualifiedName(e.Fun, methodPkg); ok {
-				switch name {
-				case "Tenant", "NamedTenant":
+				switch {
+				case slices.Contains(blocks.listed, name):
 					if inLoop {
 						s.several = true
 					} else {
 						s.listed++
 					}
-				case "AnyTenant":
+					// The name, then the domains: more than one, or a spread of them.
+					if name == blocks.domains && (len(e.Args) > 2 || e.Ellipsis.IsValid()) {
+						s.domains = true
+					}
+				case name == blocks.any:
 					s.any = true
-				case "PersonalAccounts":
+				case name == blocks.accounts:
 					s.personal = true
 				}
 
@@ -476,7 +576,7 @@ func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File,
 			}
 			if id, ok := e.Fun.(*ast.Ident); ok && depth == 0 {
 				if fn := fileFunction(f, id.Name); fn != nil && fn.Body != nil {
-					collectTenantBlocks(fn.Body, inLoop, methodPkg, f, depth+1, s)
+					collectTenantBlocks(fn.Body, inLoop, methodPkg, f, depth+1, blocks, s)
 				}
 			}
 
@@ -529,7 +629,8 @@ func compositeOf(expr ast.Expr, body *ast.BlockStmt) *ast.CompositeLit {
 
 // assignedValue returns the value the identifier was last assigned before its use in the
 // body: x := <value> or x = <value>, with x the only name on the left or the first of
-// two (x, err := ...), or nil.
+// two (x, err := ...), or nil. An assignment the use stands inside (x = x.With(...)) is
+// not before it: the x on its right is the value assigned earlier.
 func assignedValue(id *ast.Ident, body *ast.BlockStmt) ast.Expr {
 	if body == nil {
 		return nil
@@ -537,7 +638,7 @@ func assignedValue(id *ast.Ident, body *ast.BlockStmt) ast.Expr {
 	var value ast.Expr
 	ast.Inspect(body, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
-		if !ok || assign.Pos() >= id.Pos() || len(assign.Rhs) != 1 || (assign.Tok != token.DEFINE && assign.Tok != token.ASSIGN) {
+		if !ok || assign.End() > id.Pos() || len(assign.Rhs) != 1 || (assign.Tok != token.DEFINE && assign.Tok != token.ASSIGN) {
 			return true
 		}
 		if l, ok := assign.Lhs[0].(*ast.Ident); ok && l.Name == id.Name {
@@ -551,11 +652,134 @@ func assignedValue(id *ast.Ident, body *ast.BlockStmt) ast.Expr {
 	return value
 }
 
+// superAdministratorsArg is where session.NewAuth takes its word on the super
+// administrators: after the storage and the cookie key.
+const superAdministratorsArg = 2
+
+// maxCheckSteps bounds how many assignments the reader follows from a super
+// administrators check back to the engine behind it.
+const maxCheckSteps = 8
+
+// readSuperAdministrators reads the argument that tells an Auth who its super
+// administrators are, written in the call or assigned to the identifier the call takes:
+// session.NoSuperAdministrators(), or session.SuperAdministratorsBy over a check, whose
+// expression it follows to the permission engine the enclosing function opens and the
+// role file that engine is handed. Anything else reads as no form.
+func readSuperAdministrators(arg ast.Expr, fset *token.FileSet, f *ast.File, pkg, ownPkg string, body *ast.BlockStmt) SuperAdministrators {
+	if id, ok := arg.(*ast.Ident); ok {
+		arg = assignedValue(id, body)
+	}
+	call, ok := arg.(*ast.CallExpr)
+	if !ok {
+		return SuperAdministrators{}
+	}
+	switch name, _ := qualifiedName(call.Fun, pkg); name {
+	case "NoSuperAdministrators":
+		return SuperAdministrators{Form: SuperAdministratorsNone}
+	case "SuperAdministratorsBy":
+	default:
+		return SuperAdministrators{}
+	}
+
+	r := checkReader{imports: fileImports(f), access: localImportName(f, accessImportPath), body: body, packages: map[string]bool{}}
+	r.read(call, 0)
+	read := SuperAdministrators{Form: SuperAdministratorsChecked}
+	for p := range r.packages {
+		read.Packages = append(read.Packages, p)
+	}
+	sort.Strings(read.Packages)
+	if r.engine == nil {
+		return read
+	}
+	read.EngineLine = fset.Position(r.engine.Pos()).Line
+	for _, option := range r.engine.Args {
+		if roles, ok := option.(*ast.CallExpr); ok && isQualified(roles.Fun, r.access, defaultRolesFunc) && len(roles.Args) == 2 {
+			read.RolesPackage = rolesCallPackage(roles.Args[1], r.imports, ownPkg)
+		}
+	}
+
+	return read
+}
+
+// checkReader follows the expression a super administrators check is built from, through
+// the identifiers the enclosing function assigns, to the permission engine behind it.
+type checkReader struct {
+	// imports are the file's imports by local name, and access the name the access
+	// library is imported under, or empty.
+	imports map[string]string
+	access  string
+	// body is the enclosing function's body, where the identifiers are assigned.
+	body *ast.BlockStmt
+	// engine is the first access.New call the expression leads to, and packages the
+	// import paths of the packages it names on the way there.
+	engine   *ast.CallExpr
+	packages map[string]bool
+}
+
+// read walks one expression: a package named before a selector is recorded, an
+// identifier the function assigned is followed into its value, and the walk stops at an
+// engine's construction, whose own arguments say nothing about the check. A function
+// written in place is not entered: what its body names says nothing of what it answers,
+// so a check written by hand leads to no engine.
+func (r *checkReader) read(expr ast.Expr, steps int) {
+	if expr == nil || steps > maxCheckSteps {
+		return
+	}
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch e := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			if r.access != "" && isQualified(e.Fun, r.access, engineNewFunc) {
+				if r.engine == nil {
+					r.engine = e
+				}
+
+				return false
+			}
+		case *ast.SelectorExpr:
+			// The selected name is a field or a method, never a variable of the function.
+			if id, ok := e.X.(*ast.Ident); ok {
+				if !r.follow(id, steps) {
+					if p, ok := r.imports[id.Name]; ok {
+						r.packages[p] = true
+					}
+				}
+			} else {
+				r.read(e.X, steps)
+			}
+
+			return false
+		case *ast.Ident:
+			r.follow(e, steps)
+		}
+
+		return true
+	})
+}
+
+// follow reads the value the function last assigned the identifier before its use, and
+// reports whether it assigned one.
+func (r *checkReader) follow(id *ast.Ident, steps int) bool {
+	value := assignedValue(id, r.body)
+	if value == nil {
+		return false
+	}
+	r.read(value, steps+1)
+
+	return true
+}
+
 // readAuthArg applies one constructor argument to the construction: a session option
 // naming a table or cookie, the mail option, or a storage constructed with
 // impersonation, auth events, or custom data tables. body is the enclosing function's
-// body, where an identifier the storage's options take is defined.
+// body, where a name is defined: an argument given by a name the function assigned
+// reads as the value it was assigned, so a storage built on its own line is read as
+// one built in place.
 func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[string]string, body *ast.BlockStmt) {
+	if id, ok := arg.(*ast.Ident); ok {
+		arg = assignedValue(id, body)
+	}
 	call, ok := arg.(*ast.CallExpr)
 	if !ok {
 		return
@@ -578,6 +802,8 @@ func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[strin
 				auth.PendingTable = s
 			case "WithSignInAttemptsTableName":
 				auth.AttemptsTable = s
+			case "WithSignInMethodsTableName":
+				auth.SignInMethodsTable = s
 			case "WithMailLinksTableName":
 				auth.MailLinksTable = s
 			case "WithTokensTableName":
@@ -602,15 +828,44 @@ func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[strin
 	if storage == "" {
 		return
 	}
-	readStorageArg(auth, call, storage, consts, body)
+	readStorageArg(auth, call, storage, consts, body, 0)
 }
 
-// readStorageArg looks inside a storage constructor for the options that attach tables.
-func readStorageArg(auth *Auth, call *ast.CallExpr, storage string, consts map[string]string, body *ast.BlockStmt) {
-	ast.Inspect(call, func(n ast.Node) bool {
+// maxStorageSteps bounds how many assignments the reader follows from a storage to the
+// names it was built from.
+const maxStorageSteps = 8
+
+// customDataOptions are the storage's methods that attach a custom data configuration.
+var customDataOptions = map[string]bool{"WithCustomSessionData": true, "WithCustomUserData": true}
+
+// readStorageArg looks inside a storage's construction for the options that attach
+// tables. Two names the function assigned read as their values, the way a caller
+// writes them to check a constructor's error: the storage a method is called on
+// (store.WithCustomSessionData(...)), and the configuration a custom data option takes
+// (WithCustomSessionData(sessionData)).
+func readStorageArg(auth *Auth, expr ast.Expr, storage string, consts map[string]string, body *ast.BlockStmt, steps int) {
+	if steps > maxStorageSteps {
+		return
+	}
+	follow := func(e ast.Expr) {
+		id, ok := e.(*ast.Ident)
+		if !ok || id.Name == storage {
+			return
+		}
+		if value := assignedValue(id, body); value != nil {
+			readStorageArg(auth, value, storage, consts, body, steps+1)
+		}
+	}
+	ast.Inspect(expr, func(n ast.Node) bool {
 		c, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
+		}
+		if sel, isMethod := c.Fun.(*ast.SelectorExpr); isMethod {
+			follow(sel.X)
+			if customDataOptions[sel.Sel.Name] && len(c.Args) == 1 {
+				follow(c.Args[0])
+			}
 		}
 		name, _ := qualifiedName(c.Fun, storage)
 		switch name {
@@ -636,7 +891,7 @@ func readStorageArg(auth *Auth, call *ast.CallExpr, storage string, consts map[s
 					auth.AuthEventsTable = s
 				}
 			}
-		case "NewCustomSessionData", "NewCustomUserData", "NewSpannerCustomSessionData", "NewPostgresCustomSessionData", "NewSpannerCustomUserData", "NewPostgresCustomUserData":
+		case "NewCustomSessionData", "NewCustomUserData":
 			if len(c.Args) >= 1 {
 				if s, ok := constString(c.Args[0], consts); ok {
 					auth.ExtraTables = append(auth.ExtraTables, s)

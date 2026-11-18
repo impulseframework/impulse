@@ -32,11 +32,14 @@ const (
 
 // Reserved named parameters the lowered SQL binds. The statement builder
 // supplies their values: the checked user's identity, the request's decision
-// instant (the same value the check folded with), and the request partition.
+// instant (the same value the check folded with), and the request partition:
+// the one tenant of a tenant's own request, or the tenants a list across
+// tenants reads (across_tenants.go), as an array.
 const (
 	subjectParamName = "subject"
 	nowParamName     = "now"
 	domainParamName  = "domain"
+	domainsParamName = "domains"
 )
 
 // paramRegistry is the statement-scoped parameter and alias namespace. Bound
@@ -49,6 +52,9 @@ type paramRegistry struct {
 	aliasCount int
 	params     []QueryParam
 	named      map[string]struct{}
+	// shared holds the placeholders of the values several fragments of the
+	// statement read, by the key they were bound under (bindShared).
+	shared map[string]string
 }
 
 func newParamRegistry() *paramRegistry {
@@ -62,6 +68,22 @@ func (r *paramRegistry) bind(value any) string {
 	r.params = append(r.params, QueryParam{Name: name, Value: paramValue(value)})
 
 	return "@" + name
+}
+
+// bindShared allocates a placeholder for a value several fragments of the
+// statement read, once: the first call under a key binds the value, and every
+// later call under the key returns the same placeholder.
+func (r *paramRegistry) bindShared(key string, value any) string {
+	if placeholder, ok := r.shared[key]; ok {
+		return placeholder
+	}
+	if r.shared == nil {
+		r.shared = make(map[string]string)
+	}
+	placeholder := r.bind(value)
+	r.shared[key] = placeholder
+
+	return placeholder
 }
 
 // paramValue normalizes a value for query-parameter typing. Spanner types a query
@@ -142,10 +164,12 @@ const (
 	comparandValue
 	comparandNamed
 	comparandSubquery
+	comparandBound
 )
 
 // comparand is one side of a lowered comparison: a column reference, a bound
-// literal value, a fixed named parameter, or a scalar subquery.
+// literal value, a fixed named parameter, a scalar subquery, or a value the
+// statement bound already, named by its placeholder.
 type comparand struct {
 	kind     comparandKind
 	column   columnRef
@@ -168,6 +192,13 @@ func namedComparand(name string) comparand {
 
 func subqueryComparand(subquery *scalarSubqueryNode) comparand {
 	return comparand{kind: comparandSubquery, subquery: subquery}
+}
+
+// boundComparand names a value the statement's registry bound earlier, by the
+// placeholder bind returned: a value several fragments of one statement share
+// binds once and is named wherever it is read.
+func boundComparand(placeholder string) comparand {
+	return comparand{kind: comparandBound, named: strings.TrimPrefix(placeholder, "@")}
 }
 
 // loweredComparisonNode relates two comparands with a relational operator.
@@ -200,6 +231,18 @@ type loweredNullTestNode struct {
 
 func (n *loweredNullTestNode) String() string {
 	return fmt.Sprintf("lowered(%v is null, negated=%v)", n.left, n.negated)
+}
+
+// loweredMemberNode tests a value for membership in an array parameter: a
+// row's tenant against the tenants a list across tenants reads. The array is a
+// reserved named parameter or a value the statement bound already.
+type loweredMemberNode struct {
+	left  comparand
+	array comparand
+}
+
+func (n *loweredMemberNode) String() string {
+	return fmt.Sprintf("lowered(%v member of %v)", n.left, n.array)
 }
 
 // notNode negates its expression.
@@ -305,6 +348,20 @@ func (s *sqlGenerator) generateLowered(node ExpressionNode, registry *paramRegis
 	return sql, nil
 }
 
+// generateLoweredComparand renders one comparand under the statement's registry:
+// a select item that is a lowered value, the tenant a row of a list across
+// tenants is in.
+func (s *sqlGenerator) generateLoweredComparand(c *comparand, registry *paramRegistry) (string, error) {
+	if registry == nil {
+		return "", errors.New("lowered SQL generation requires a statement registry")
+	}
+	prev := s.registry
+	s.registry = registry
+	defer func() { s.registry = prev }()
+
+	return s.renderComparand(c)
+}
+
 func (s *sqlGenerator) generateLoweredComparisonSQL(n *loweredComparisonNode) (string, error) {
 	left, err := s.renderComparand(&n.left)
 	if err != nil {
@@ -328,6 +385,8 @@ func (s *sqlGenerator) renderComparand(c *comparand) (string, error) {
 		return s.registry.reference(c.named), nil
 	case comparandSubquery:
 		return s.renderScalarSubquery(c.subquery)
+	case comparandBound:
+		return "@" + c.named, nil
 	default:
 		return "", errors.Newf("unsupported comparand kind %d", c.kind)
 	}
@@ -356,6 +415,24 @@ func (s *sqlGenerator) generateLoweredInSQL(n *loweredInNode) (string, error) {
 	}
 
 	return fmt.Sprintf("%s %s (%s)", left, op, strings.Join(placeholders, ", ")), nil
+}
+
+// generateLoweredMemberSQL renders membership in an array parameter: IN UNNEST
+// on Spanner, = ANY on PostgreSQL. Both seek an index led by the tested column.
+func (s *sqlGenerator) generateLoweredMemberSQL(n *loweredMemberNode) (string, error) {
+	left, err := s.renderComparand(&n.left)
+	if err != nil {
+		return "", err
+	}
+	array, err := s.renderComparand(&n.array)
+	if err != nil {
+		return "", err
+	}
+	if s.dialect == Spanner {
+		return fmt.Sprintf("%s IN UNNEST(%s)", left, array), nil
+	}
+
+	return fmt.Sprintf("%s = ANY(%s)", left, array), nil
 }
 
 func (s *sqlGenerator) generateLoweredNullTestSQL(n *loweredNullTestNode) (string, error) {

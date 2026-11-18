@@ -366,7 +366,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
 	recorder := &mail.Recorder{}
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
 		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
 	if err != nil {
@@ -385,6 +385,9 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 		// The password change validates the session itself: outside ValidateSession,
 		// behind the XSRF token, as the README prescribes.
 		r.With(auth.ValidateXSRFToken).Post("/password", password.ChangeUserPassword())
+		// The removal of a person's own password validates the session itself too, and
+		// sits beside the change.
+		r.With(auth.ValidateXSRFToken).Post("/password/remove", password.RemoveUserPassword())
 		// The login page's list: the two methods at the paths above, the pending
 		// routes mountAuth mounts and the password change route.
 		r.Get("/methods", auth.Methods(&session.MethodList{
@@ -397,6 +400,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 				SendCode: "/pending/code/send", VerifyCode: "/pending/code/verify", EnrollEmail: "/pending/email",
 			},
 			ChangePassword: "/password",
+			RemovePassword: "/password/remove",
 		}))
 	})
 
@@ -740,6 +744,18 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamEmailCodeLimits[Tx],
 		},
 		{
+			name: "a dozen wrong codes entered at once each take an attempt, four told the code is wrong and the rest that none stands; a dozen copies of the right code entered at once sign one browser in",
+			run:  seamEmailCodeGuessesAtOnce[Tx],
+		},
+		{
+			name: "a dozen codes asked for at once for one sign-in: five are mailed, the address's limit, and the rest are refused with too_many_emails; one of the five signs the person in",
+			run:  seamEmailCodesAskedAtOnce[Tx],
+		},
+		{
+			name: "a dozen codes recorded at once for one sign-in, each mailed to another address: one stands, so five wrong guesses end it and no code mailed is left to be guessed at",
+			run:  seamEmailCodesRecordedAtOnce[Tx],
+		},
+		{
 			name: "a person who signs in with each code sent is mailed one every time: a used code resets the address's mail count",
 			run:  seamEmailCodeUsedResetsLimit[Tx],
 		},
@@ -764,6 +780,15 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamForcedPasswordChange[Tx],
 		},
 		{
+			name:     "a person with a directory link removes their password: it no longer signs them in, the link does, their sessions stand and the name's failed attempts start over; a person with no link keeps it",
+			run:      seamPasswordRemoval[Tx],
+			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
+		},
+		{
+			name: "a password sign-in held for the email code completes only while the password it proved is the person's: after their own change, an operator's temporary password or a removal the right code is refused as a wrong password is",
+			run:  seamHeldSignInRestsOnItsPassword[Tx],
+		},
+		{
 			name: "the store's one custom session data configuration resolves each session's row in the sign-in's transaction, and custom user data is written with the user and read on demand",
 			run:  seamCustomData[Tx],
 		},
@@ -771,6 +796,11 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name:     "failed password attempts on a name are limited: the attempt past the limit is refused with 429 and the wait from any browser, known or unknown name alike, the lock passes, and a matching password resets the count",
 			run:      seamPasswordAttemptLimit[Tx],
 			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
+		},
+		{
+			name:     "a dozen wrong passwords for one name entered at once each ask for an attempt: three are compared, the limit, and the rest are refused unjudged; a dozen copies of the right password entered at once sign the person in",
+			run:      seamPasswordGuessesAtOnce[Tx],
+			password: []session.PasswordOption{session.AttemptLimit(3, time.Minute, 2*time.Second)},
 		},
 		{
 			name: "the after-sign-in hook is told of every session a sign-in establishes, once, and of no refused or held sign-in",
@@ -828,6 +858,7 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 			"sendCode": "/pending/code/send", "verifyCode": "/pending/code/verify", "enrollEmail": "/pending/email",
 		},
 		"changePassword": "/password",
+		"removePassword": "/password/remove",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("GET /methods mismatch (-want +got):\n%s", diff)

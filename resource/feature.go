@@ -787,7 +787,19 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 
 		name := Feature(req.Name)
 		eventSource := UserEvent(ctx)
-		dryRun := IsDryRun(r)
+		// SetFeature declares no warning: a request that asks for one is refused as a
+		// method's frame refuses it, and never sets the flag.
+		asksWarning, err := AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if asksWarning {
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("SetFeature declares no warning: send the call without the %s header", WarningHeader))
+		}
+		dryRun, err := IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 			if err := bufferFeatureWrite(ctx, txn, name, req.Enabled, eventSource); err != nil {
 				return err

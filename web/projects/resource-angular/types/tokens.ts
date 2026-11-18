@@ -254,6 +254,12 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   invitation_only: 'Your organization signs people in by invitation. Ask your administrator to invite you.',
   other_tenant:
     'This account already belongs to another organization in this application, so it cannot join a second one.',
+  // An invitation that makes an organization entered through its directory only, met with a password or a personal account.
+  organization_account_required:
+    "This invitation is accepted with your organization's account. Sign in with that account, not with a password or a personal account.",
+  // Says nothing of the other organization but that it is there: no name, no id.
+  organization_has_tenant:
+    'Your organization is already set up in this application. Ask its administrator to invite you.',
 };
 
 /**

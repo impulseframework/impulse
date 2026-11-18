@@ -3,10 +3,12 @@ package identity
 import (
 	"context"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
@@ -20,10 +22,11 @@ import (
 // The roles a sign-in gives.
 //
 // A person comes to hold a role at a sign-in, with no administrator signed in, in two
-// ways: they accept an invitation, which names roles, and they are a stranger from a
-// directory a tenant declares with a default role. Each role is written in the
-// transaction of the step that causes it: the invitation is spent and its roles given
-// together, or neither; the account is made and given its role together, or neither.
+// ways: they accept an invitation, which names roles, and they sign in for the first
+// time through the directory of a tenant that names a default role. Each role is
+// written in the transaction of the step that causes it: the invitation is spent and
+// its roles given together, or neither; the person's identity is linked to their
+// account and the account given its role together, or neither.
 // The session library runs a hook inside that transaction and hands it the transaction
 // (session.InvitationAcceptedHook, session.DirectorySeatedHook); the two functions here
 // answer those hooks over the manager's own membership write (AssignRole), so a role a
@@ -55,11 +58,16 @@ import (
 // kind and every tenant for one of the domain kind, as Invite checked when it wrote the
 // invitation. A role that can no longer be given (the role file changed since) fails
 // the transaction: the invitation stands, and a person the sign-in would have created
-// is not created.
+// is not created. An invitation that makes a tenant carries no role: its acceptance
+// makes the tenant and seats the person as its first administrator
+// (acceptTenantInvitation).
 //
 // auth names the Auth in the log line a given role leaves.
 func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+		if inv.NewTenant != nil {
+			return m.tenantInvitationAccepted(ctx, auth, tx, userID, username, inv)
+		}
 		txn := resource.NewSpannerReadWriteTransaction(tx)
 		if err := m.giveInvitedRoles(m.oneTenant.within(ctx, tx), txn, userID, username, inv); err != nil {
 			return nil, err
@@ -74,27 +82,72 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 }
 
 // DirectorySeated answers the session library's hook for a directory's default role
-// (session.Auth.SetDirectoryAdmission): each default role the tenants' directory rows
-// name is buffered as a membership of the person in its tenant, in the transaction that
-// creates the person. A role that cannot be given fails the transaction, so no account
-// is left holding nothing.
+// (session.Auth.SetDirectoryAdmission): the default role of the tenant whose directory
+// the person signed in through is buffered as a membership of the person in the tenant,
+// in the transaction that links the person's identity to their account, which is their
+// first sign-in through the directory whether the account is made in it or stood
+// before. The role is given to a person who holds no role in the tenant: one who holds
+// a role there, by an invitation or by an administrator's hand, keeps what they hold
+// and is given nothing, so a link that is deleted and made again does not add the
+// default role beside the role the person was given since. A role that cannot be given
+// fails the transaction, so no account is left holding nothing and no link is left
+// that gave nothing.
 //
 // auth names the Auth in the log line a given role leaves.
+//
+// The hook's other half answers whether a tenant is the only place a person holds
+// anything, read in the same transaction: the session library asks it before it links
+// an identity, on its sign-in name alone, to an account that has no password and has
+// never signed in, which a tenant's directory vouches for only when the account is the
+// tenant's alone. It reads what places a person anywhere (holds): the roles of their
+// own and their places in groups, one whose period has not begun counted where it will
+// count and one whose period has ended left out. The account is the tenant's alone when
+// all of it is held in the tenant itself and some of it is: a role in another tenant, in
+// every tenant or outside the tenants, or a place in a group kept anywhere else, makes
+// it more than one tenant's, and the link would hand the tenant's directory all of it.
+// It is the fact a tenant's own methods are held to before they change a person's name,
+// address or password (the list's heldElsewhere and heldGlobally).
+//
+// The hook's third part answers for the deployment's own seed: whether an account is
+// the one a seed created, with no password, for a person who signs in through the
+// registration named, which is the first administrator of an auth whose people sign in
+// through a directory. That person holds roles for the whole application and belongs to
+// no tenant, so no tenant's directory vouches for the account; the deployment does, by
+// the id it seeded the account under (session.SeedUserIDThrough, over the auth's name,
+// the registration and the username), which no request can give an account and which
+// is derived again here. The session library links such an account on its name at the
+// person's first sign-in through that registration, where the registration admits one
+// organization and nobody else.
 func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
-	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+	seat := func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
-		if err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, userID, username, seats); err != nil {
+		given, err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, userID, username, seats)
+		if err != nil {
 			return nil, err
 		}
 
 		return func(ctx context.Context) {
 			m.oneTenant.forget(tx)
 			txn.Committed(ctx)
-			for _, seat := range seats {
+			for _, seat := range given {
 				logger.FromCtx(ctx).Infof("%s: %q entered %s through its directory and holds %s", auth, username, seat.Tenant, seat.Role)
 			}
 		}, nil
 	}
+	onlyIn := func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
+		held, err := m.holds(ctx, resource.NewSpannerReadWriteTransaction(tx), userID)
+		if err != nil {
+			return false, err
+		}
+
+		return onlyInTenant(held, accesstypes.DomainPolicyScope(tenant)), nil
+	}
+
+	seeded := func(userID impulse.UUID, username, registration string) bool {
+		return userID == session.SeedUserIDThrough(m.auth, registration, username)
+	}
+
+	return session.DirectorySeatedHook[*spanner.ReadWriteTransaction]{Seat: seat, OnlyIn: onlyIn, Seeded: seeded}
 }
 
 // giveInvitedRoles buffers the memberships an accepted invitation gives the person:
@@ -116,41 +169,113 @@ func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTr
 // for an invitation into the application, in the global scope for a role that exists
 // there and in every tenant otherwise. The membership write answers NotFound for a
 // role that does not exist where it is asked for, with nothing written, which is how
-// the kind is told.
+// the kind is told. A role the person holds there already is left as it stands
+// (giveUnlessHeld).
 func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation, role accesstypes.Role) error {
 	if inv.TenantID != "" {
-		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), userID, role); err != nil {
+		if err := m.giveUnlessHeld(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), userID, role); err != nil {
 			return errors.Wrapf(err, "the invitation to %s gives %q the role %s in %s", inv.Email, username, role, inv.TenantID)
 		}
 
 		return nil
 	}
-	err := m.AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userID, role)
+	err := m.giveUnlessHeld(ctx, txn, accesstypes.GlobalPolicyScope(), userID, role)
 	if err == nil {
 		return nil
 	}
 	if !httpio.HasNotFound(err) {
 		return errors.Wrapf(err, "the invitation to %s gives %q the role %s", inv.Email, username, role)
 	}
-	if err := m.AssignRole(ctx, txn, accesstypes.EveryDomainPolicyScope(), userID, role); err != nil {
+	if err := m.giveUnlessHeld(ctx, txn, accesstypes.EveryDomainPolicyScope(), userID, role); err != nil {
 		return errors.Wrapf(err, "the invitation to %s gives %q the role %s, which exists neither globally nor in every tenant", inv.Email, username, role)
 	}
 
 	return nil
 }
 
-// giveDirectoryRoles buffers the memberships the tenants' directory rows give a person
-// at their first sign-in, each a role in a tenant: userID is who holds them, and
-// username what an error reads.
-func (m *Manager) giveDirectoryRoles(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	for _, seat := range seats {
-		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(seat.Tenant), userID, seat.Role); err != nil {
-			return errors.Wrapf(err, "the directory's default role gives %q the role %s in %s", username, seat.Role, seat.Tenant)
+// giveUnlessHeld buffers the membership an accepted invitation gives, with no period,
+// unless the person holds the role in the scope already: a membership whose period has
+// not ended is left exactly as it is, its period included. An invitation gives a person
+// what they do not hold; it does not turn a role an administrator gave until Friday
+// into one that stands for good, nor one given from next month into one held today. A
+// role whose period has ended is nothing the person holds, whether or not its row still
+// stands, and is given afresh. The membership is read as committed.
+func (m *Manager) giveUnlessHeld(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
+	key := access.NewMembershipKey(scope, User(userID), role)
+	held, err := m.store.HasMembership(ctx, txn, &key)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.HasMembership()")
+	}
+	if held {
+		periods, err := m.store.UserPeriods(ctx, txn, userID)
+		if err != nil {
+			return errors.Wrap(err, "identity.Store.UserPeriods()")
+		}
+		if !periods.Memberships[key].Ended(time.Now()) {
+			return nil
 		}
 	}
 
-	return nil
+	return m.AssignRole(ctx, txn, scope, userID, role)
+}
+
+// giveDirectoryRoles buffers the memberships a tenant's directory row gives a person at
+// their first sign-in through the directory, each a role in a tenant, and answers the
+// seats it gave: userID is who holds them, and username what an error reads. A seat in
+// a tenant where the person holds a role already is not given: what the person holds
+// is read as committed, in the caller's transaction, once for the call. A role whose
+// period has ended is nothing the person holds, whether or not its row still stands: a
+// person whose only role in the tenant has ended is given the seat, as one who holds
+// none, and no reader waits for the row to be removed. A role that has not begun is one
+// the person will hold, and is not given a seat beside it.
+func (m *Manager) giveDirectoryRoles(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat,
+) (given []signin.DirectorySeat, err error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if len(seats) == 0 {
+		return nil, nil
+	}
+	held, _, err := m.standing(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, seat := range seats {
+		scope := accesstypes.DomainPolicyScope(seat.Tenant)
+		if inTenant(held, scope) {
+			continue
+		}
+		if err := m.AssignRole(ctx, txn, scope, userID, seat.Role); err != nil {
+			return nil, errors.Wrapf(err, "the directory's default role gives %q the role %s in %s", username, seat.Role, seat.Tenant)
+		}
+		given = append(given, seat)
+	}
+
+	return given, nil
+}
+
+// onlyInTenant reports whether everything held is held in the tenant scope names, and
+// something is.
+func onlyInTenant(held []access.MembershipKey, scope accesstypes.PolicyScope) bool {
+	want := access.NewMembershipKey(scope, "", "")
+	for i := range held {
+		if held[i].Kind != want.Kind || held[i].Axis != want.Axis || held[i].Domain != want.Domain {
+			return false
+		}
+	}
+
+	return len(held) > 0
+}
+
+// inTenant reports whether one of the memberships is held in the tenant scope names.
+func inTenant(held []access.MembershipKey, scope accesstypes.PolicyScope) bool {
+	want := access.NewMembershipKey(scope, "", "")
+	for i := range held {
+		if held[i].Kind == want.Kind && held[i].Axis == want.Axis && held[i].Domain == want.Domain {
+			return true
+		}
+	}
+
+	return false
 }

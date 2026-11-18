@@ -272,16 +272,20 @@ export namespace MembersSectorUserRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     createdAt: 'MembersSectorUserRoles.createdAt' as Resource,
     domainId: 'MembersSectorUserRoles.domainId' as Resource,
+    endsAt: 'MembersSectorUserRoles.endsAt' as Resource,
     everyDomain: 'MembersSectorUserRoles.everyDomain' as Resource,
     role: 'MembersSectorUserRoles.role' as Resource,
+    startsAt: 'MembersSectorUserRoles.startsAt' as Resource,
     userId: 'MembersSectorUserRoles.userId' as Resource,
     username: 'MembersSectorUserRoles.username' as Resource,
   };
@@ -289,6 +293,7 @@ export namespace MembersSectorUserRoles {
 
 export namespace MembersSectorUsers {
   export const fieldName = {
+    cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
     domainId: 'domainId' as FieldName,
@@ -299,10 +304,12 @@ export namespace MembersSectorUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
+    outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
+    cannotEnter: 'MembersSectorUsers.cannotEnter' as Resource,
     createdAt: 'MembersSectorUsers.createdAt' as Resource,
     disabled: 'MembersSectorUsers.disabled' as Resource,
     domainId: 'MembersSectorUsers.domainId' as Resource,
@@ -313,6 +320,7 @@ export namespace MembersSectorUsers {
     id: 'MembersSectorUsers.id' as Resource,
     lastSignInAt: 'MembersSectorUsers.lastSignInAt' as Resource,
     name: 'MembersSectorUsers.name' as Resource,
+    outsideDirectory: 'MembersSectorUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'MembersSectorUsers.passwordChangeRequired' as Resource,
     username: 'MembersSectorUsers.username' as Resource,
   };
@@ -478,16 +486,20 @@ export namespace MembersUserRoles {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
     axis: 'MembersUserRoles.axis' as Resource,
     createdAt: 'MembersUserRoles.createdAt' as Resource,
     domainId: 'MembersUserRoles.domainId' as Resource,
+    endsAt: 'MembersUserRoles.endsAt' as Resource,
     kind: 'MembersUserRoles.kind' as Resource,
     role: 'MembersUserRoles.role' as Resource,
+    startsAt: 'MembersUserRoles.startsAt' as Resource,
     userId: 'MembersUserRoles.userId' as Resource,
   };
 }

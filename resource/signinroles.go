@@ -15,14 +15,15 @@ import (
 // the manager handed to the policy directly fails every sign-in the policy decides.
 // The adapter reads the memberships outside the transaction, under the sign-in's
 // deadline and cancellation and nothing else of its context, as the committed
-// memberships, which is what the policy decides over on PostgreSQL too. The
-// manager's other operations pass through unchanged.
+// memberships, which is what the policy decides over on PostgreSQL too, and it
+// reads which tenants the person administers the same way. The manager's other
+// operations pass through unchanged.
 func SignInRoles(manager signin.UserRoleManager) signin.UserRoleManager {
 	return &signInRoles{UserRoleManager: manager}
 }
 
-// signInRoles is SignInRoles's adapter: the manager, with UserRoles read outside the
-// calling context's transaction.
+// signInRoles is SignInRoles's adapter: the manager, with UserRoles and
+// TenantsAdministered read outside the calling context's transaction.
 type signInRoles struct {
 	signin.UserRoleManager
 }
@@ -38,6 +39,20 @@ func (r *signInRoles) UserRoles(ctx context.Context, user accesstypes.User, scop
 	}
 
 	return held, nil
+}
+
+// TenantsAdministered lists the tenants the user administers outside the context's
+// transaction.
+func (r *signInRoles) TenantsAdministered(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	outside, done := outsideTransaction(ctx)
+	defer done()
+
+	tenants, err := r.UserRoleManager.TenantsAdministered(outside, user)
+	if err != nil {
+		return nil, errors.Wrap(err, "signin.UserRoleManager.TenantsAdministered()")
+	}
+
+	return tenants, nil
 }
 
 // outsideTransaction derives a context that carries ctx's deadline and cancellation

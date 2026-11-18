@@ -16,7 +16,7 @@ prompt. The root alone redirects to `/console/`; every other unmatched path is 4
 Tenancy as data: the `Tenant` record (`@tenant`) over the `Tenants` table is the domain
 universe, tenant-scoped routes live under `/console/api/tenants/{tenantID}/` (and under each
 outlet's prefix), the data level's tenant roster keeps the tenants current on every
-instance (a tenant created through the API is usable at once, without a restart), and
+instance (a tenant is usable the moment it is made, without a restart), and
 tenant existence is concealed from logins that hold nothing there. `Announcement` is the first tenant-scoped resource — a login's tenant list
 is where it holds a grant, and a grant needs a tenant-scoped resource to land on, so the
 application ships one. `Reading` is devices-only. The console and the portal each mirror
@@ -33,38 +33,109 @@ answer. The dashboard is every place's first page, and each application manages 
 auth's people in both places the same way: the whole application's accounts
 (`/staff-accounts` on the console, `/members-accounts` on the portal), a tenant's people
 under the tenant (`/tenants/{tenantID}/staff-people`, `/tenants/{tenantID}/members-people`).
-The library draws them from the API description (`identityRoutes` in each application's
+Groups of people are kept beside them (`/staff-groups` on the console,
+`/tenants/{tenantID}/staff-groups` and `/tenants/{tenantID}/members-groups` under the
+tenant): a group holds roles the way a person does, a person in it holds the group's
+roles, and each auth's role file gives a place's groups, their members and their roles to
+whoever manages its people (`Administrator` for the whole application,
+`TenantAdministrator` in a tenant). A group gives
+nobody a power that giving the role directly would not: who is in a group, and what it
+holds, is changed by someone who may give or take those roles directly, and a tenant puts
+its own people in its groups, while an account from outside the tenant is put there from
+the whole application's accounts. The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
-(`app.menus.ts`) shows Tenants (All tenants and New tenant…) and System (the staff's
-accounts and Feature flags…) in Configuration, and People and Tenant (Sign-in settings)
+(`app.menus.ts`) shows Tenants (All tenants) and System (the staff's accounts, the
+Invited tenants page and Feature flags…) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
 person's own menu holds Your account (the console's: the email address, Change your
 password, Forget this browser), Your API keys on the console, Appearance and Sign out; a
 portal member signs in through their company's directory and has nothing of their sign-in
 to change there. Help ends with About, which carries the release.
 
+How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
+directly: the record's create is refused, with a sentence that says so. An administrator
+brings an organization in by inviting one person, on the console's Invited tenants page
+(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+`StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
+`Administrator` role's Create grant on the record, and a name a tenant holds is refused
+there. No tenant exists while the invitation waits; the invited person's first sign-in
+makes it under an id the server generates, gives them the roles the App names in
+`TenantAdministratorRoles` (`TenantAdministrator`) and hands the tenant to the roster, so
+their next request stands in it. An invitation that still waits is withdrawn on the same
+page. The staff auth is handed what makes the tenant by the data level
+(`staff.Settings.TenantMaker`, the generated `app.NewTenantMaker` over the roster, built before the
+auth), and refuses to start without it. A person who signed up and holds no tenant
+creates their own through the generated create-your-tenant route, which the dashboard
+offers while an administrator has a sign-in method open to sign-up.
+
 Who may enter a tenant is the record's declaration, data of the application rather than
-deploy configuration: the directories the tenant admits its people through
-(`TenantDirectory`, one row each under `/console/api/tenants/{tenantID}/tenant-directories`:
+deploy configuration: the tenant's directory, the organization its people sign in
+through (`TenantDirectory`, one row at most under `/console/api/tenants/{tenantID}/tenant-directories`:
 a sign-in method and the connection its identities carry, a Microsoft Entra tenant by its
-tenant id or a Google Workspace by its domain) and whether its people enter through them
-only (`Tenant.DirectoryOnly`, which closes passwords). Both auths' sign-in rules are the
+tenant id or a Google Workspace by its domain) and whether its people enter through it
+only (`Tenant.DirectoryOnly`, which closes the tenant to every sign-in but one through
+its directory). A tenant has one directory and a
+directory belongs to one tenant: the table's two unique indexes hold both, and the
+generated write paths refuse first, each with a sentence the person can act on. Both
+auths' sign-in rules are the
 library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
-transaction): a sign-in through a directory is admitted when one of the person's tenants
-declares that directory (the portal's members come through the Entra directory the
-members auth registers, which the development seed declares on both tenants), a password
-unless every one of their tenants is directory only, staff (a global role) on the
-library's checks, and a person holding no tenant is refused. Which tenants the session
-then reaches is decided again per tenant where its tenant list is computed: the data
+transaction): a tenant's declaration restricts its own door alone, so a tenant that is
+not directory only admits everyone it seats, however they signed in, a directory-only
+tenant admits a sign-in through its own directory and, of its own administrators alone, a
+password with a code sent to their email, and nothing else, and a person is
+refused only when every tenant that seats them is closed to the way they signed in (the
+portal's members come through the Entra directory the members auth registers, which the
+development seed makes North's, and reach South as well while South is not directory
+only). A super administrator is admitted whatever a tenant declares, an administrator of a
+directory-only tenant (a holder of `TenantAdministrator` in that tenant itself, by a role
+of their own or through one of the tenant's own groups, never one held in every tenant)
+who signs in with a password is held for the code sent to their email and then enters
+that tenant, which is the tenant's way back in when its directory has a problem (who
+holds that role in a directory-only tenant, and the account of a person who does, is
+changed only by a caller whose own session the tenant admits or by a super administrator,
+so the application's own staff do not give themselves the way in), a person
+holding a
+role outside any one tenant (a global role, or one held in every tenant) is admitted and
+then enters a tenant only where its declaration admits their session, and a person
+holding no tenant is refused. Which tenants the session
+then reaches is decided again per tenant where its tenant list is computed, and a tenant
+that seats the person and is closed to their session stays in the list marked closed,
+with the reason: the data
 level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the
 records' write paths reload it after their commit and signal the other instances, so a
 declaration decides the next request, and the records' change events are the audit of
 every edit. The console's tenant pages carry the declaration at
-`/tenants/{tenantID}/sign-in`: the tenant's administrator declares and withdraws
-directories there, the application's administrator sets directory only.
+`/tenants/{tenantID}/sign-in`: the tenant's administrator sees the tenant's directory
+there and removes it, and changes everything else with the tenant's own generated
+methods, which `TenantAdministrator` holds and the page runs through the library's
+method dialog: `OpenTenantToDirectory`
+(`POST /console/api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
+the directory's people is given at their first sign-in through it, a role the caller
+could give directly, picked from the list of the roles they may give
+(`StaffTenantDirectoryRoles`), and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
+(`POST /console/api/tenants/{tenantID}/make-tenant-directory-only`) and
+`EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
+takes no write of it), which the server turns on only once the tenant has its directory
+and only for a person signed in through it who has a password of their own, their way
+back in if the directory has a problem. Opening the tenant and making it directory
+only each warn first: the dialog shows the server's sentence (who will enter and with
+what role; the count of the people it would keep out and, to a person who may list the
+tenant's people, their names as a list) and holds its button until the person has typed
+the method's word; the other two are plain confirmations. Every sentence names the
+directory in words a person knows, never by its connection, which for a Microsoft Entra
+tenant is an id: the name the members auth's registration gives the tenant where it
+lists it with one (`azure.NamedTenant` in `pkg/auth/members`), and otherwise the label
+of the portal's sign-in button, "your organization's Microsoft directory", which is
+what this application says until its registration names its tenant. Nobody types a directory in: it is set from a sign-in, by an
+administrator who is signed in through their organization's directory, whom the page
+offers to make it the tenant's. The staff auth signs in by password until a directory
+method joins it (`impulse add method`), so until then the page offers no such action, a
+call is refused with how a directory is set, the directory a tenant has is the one
+the seed gave it, and directory only cannot be turned on, since that takes a person who
+is signed in through the tenant's directory.
 
 The release ships a program for the devices: the sensor, `cmd/sensor`, declared on the
 devices outlet in `cmd/generate/resourcegenerator/generator.go` with
@@ -177,7 +248,16 @@ generated router test proves the route sits behind the token check.
   administrator's roles; the members auth's user without a password under the
   sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), holding the administrator
   roles in every domain, which that person's first sign-in through the directory links to.
-  A user that exists stops the seed; the auth's management
+  The tenants here have directories, where a name alone links no account that has never
+  signed in, so the seed creates this one for the `directory` registration
+  (`session.SeedUserIDThrough`): the id is the deployment's word on which registration
+  the name is believed from, and the sign-in rule links the account at the person's
+  first sign-in through it while it admits one organization alone (`azure.Tenant`).
+  The staff auth's generated password is for the first sign-in alone: sign in as
+  `administrator` with it, give an email address and confirm it with the sign-in code
+  mailed there (the account starts with no address), then choose a new password, which
+  the login page asks for before it opens anything else; the generated password signs
+  nobody in after that. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development
@@ -195,8 +275,15 @@ generated router test proves the route sits behind the token check.
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
+  every stored secret field that names the version again under the current one, confirms
+  none is left and exits 0 only then, so the deployment disables the version only when no
+  stored value needs it (see "Secret fields").
 - `test/authz` is the generated authorization matrix over the generated test router;
   `test/integration` drives the served stack (real router, session, engine) end to end.
+  How a tenant comes to exist is held in both: `test/integration/invited_tenant_test.go`
+  plays the invitation that makes a tenant from the sending to the first sign-in, and
+  `test/authz/invited_tenant_test.go` holds the sending to the Create grant on the record.
 - `web/` is the Angular workspace, one project per browser application (`console`,
   `portal`); each has its own generated client (`GenerateTypescript` per outlet).
   `web/go.mod` exists only to keep Go tooling out of `node_modules`.
@@ -258,6 +345,34 @@ through `CursorKey()`. In the browser, `@impulseframework/resource` follows the 
 surface; their List function may take the conditions, sort, or page it pushes down and the
 generated handler applies the rest.
 
+## Secret fields
+
+A field that holds a secret the application must use itself (an API key, a signing key) is
+declared `conditions:"secret"` and typed `resource.Secret`, on a `BYTES` column with room
+for the 42 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(106)` takes a key
+of up to 64 bytes. The field is never served, the form masks it, a change record names it
+without its values, and the database holds it encrypted: the resource client seals the
+value when it is written, and code that needs it opens it with the row's generated method
+(`row.OpenAPIKey(conf.SecretKeys())`, or `row.OpenAPIKeyIn(ctx, txn)` inside a
+transaction). The generator refuses a `secret` field typed a plain `string`.
+
+The key is the application secret, which `pkg/config` declares
+(`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
+keys. It is kept in versions, each in a variable of its own. `.envrc.template` makes
+`APP_SECRET_KEY_1` for the checkout: 32 random bytes, written to `.app-secret-key.dev` the
+first time the file is sourced from the application's root and read from it from then on,
+with `.gitignore` keeping that file out of git, so no key is written in a tracked file
+and deleting the file leaves the development database's secrets unreadable. A deployment
+generates the secret and hands the service every enabled version (`APP_SECRET_KEY_1`,
+`APP_SECRET_KEY_2`), the highest the current one. An application with a secret field
+refuses to start without a version, naming the variable. A
+version is retired, before the deployment disables it, by the migrate command
+(`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
+under the current version. It reads the resources packages `pkg/deploy` hands it
+(`SecretHolders()`, which the generator writes into each), and `impulse check`
+(`secret-holders`) fails when a package is left out of that call. The framework's
+`resource/README.md`, "Secrets at rest", has the whole of it.
+
 ## Running it
 
     cp .envrc.template .envrc && direnv allow
@@ -301,6 +416,11 @@ http://127.0.0.1:4301/console/ (sign in as `admin` / `password`) and the portal 
 http://127.0.0.1:4303/portal/ (the sign-in button signs in as the simulated directory's
 `client`).
 
+The browser files are held to the prettier the workspace pins (`.prettierrc`): `impulse
+check` names a file prettier would change, and `impulse check --only prettier --fix` formats
+it. Run that once after the first install: the files were written under this application's
+names before the formatter was there to wrap their lines.
+
 After a change in the framework's web packages, push the rebuilt packages, restart the dev
 server, and reload the page:
 
@@ -312,13 +432,30 @@ The packages are bundled with the application code rather than prebundled by Vit
 `prebundle` exclusion in `angular.json`), so a plain reload shows the new build in any
 browser profile: nothing is held behind an immutable URL, and no cache needs clearing.
 
-The console and the portal install as a progressive web app. The production build emits a service worker
-(`@angular/service-worker`, configured by `web/ngsw-config.json`) that keeps the files of the
-build an open tab loaded, so a release never breaks a tab still running the previous build,
-and the library's update notice offers Reload when a new build is ready; the worker is off
-under `ng serve`. The manifest and the icons sit in each project's `public/` directory
-(`manifest.webmanifest`, `icons/`), a placeholder set to replace with the application's own
-mark. The server serves every bundle through the resource package's `BrowserApp`, which sets
+The console and the portal install as a progressive web app. The production build emits a
+service worker (`@angular/service-worker`, configured by `web/ngsw-config.json`) that keeps the
+files of the build an open tab loaded, so a release never breaks a tab still running the
+previous build, and the library's update notice offers Reload when a new build is ready; the
+worker is off under `ng serve`. The manifest and the icons sit in each project's `public/`
+directory (`manifest.webmanifest`, `icons/`): a placeholder set, the skeleton's mark, until the
+application's own logo is in place.
+
+The brand is declared once, in each project's `brand.json` (`web/console/brand.json`,
+`web/portal/brand.json`: the console and the portal carry a brand each): the application's name,
+its logo (`logo.png` beside the declaration, a square PNG at least 512 pixels a side; `logoSvg`
+names the same logo as an SVG, which then is the favicon as it is), a primary color and,
+optionally, a background color. `impulse brand` writes from it the favicon and the app icons,
+the manifest's names and colors, the page's title and `theme-color`, the name the frame draws,
+the theme's first palette (generated from the primary color by Angular Material's own generator,
+once the workspace's packages are installed, into `src/_theme-colors.scss`), and what the server
+says: `pkg/brand`, the name and the logo `main.go` hands to the maintenance page, and the name
+the mail says, the `Application` constant of the auth whose people sign in to it
+(`pkg/auth/staff` for the console, `pkg/auth/members` for the portal). The declaration the
+skeleton carries names the placeholder: put the application's own logo in its place, set the
+name and the colors, and run `impulse brand`, then again whenever the declaration changes;
+`impulse check` (`brand`) reminds while the placeholder is still there.
+
+The server serves every bundle through the resource package's `BrowserApp`, which sets
 the cache headers a worker needs; a build deployed without `ngsw.json` makes every installed
 worker unregister itself and drop its caches. `impulse check` (`installable`) holds the wiring.
 

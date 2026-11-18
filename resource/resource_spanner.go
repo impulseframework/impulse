@@ -26,16 +26,28 @@ type SpannerClient struct {
 	// stream, the file routes open, and a committed transaction's released objects are
 	// deleted from.
 	stores *fileStores
+	// secrets are the application's secret keys, which every transaction of the client
+	// seals a patch's secret fields with; nil when the client was built with none.
+	secrets *SecretKeys
 }
 
 // NewSpannerClient creates a new Client. WithFileStore and WithNamedFileStore hand it
 // the stores the frames drive and a committed transaction's released file objects are
 // deleted from; a store wired twice, or two stores on one location, panics here.
+// WithSecretKeys hands it the keys its transactions seal a patch's secret fields with.
 func NewSpannerClient(db *spanner.Client, opts ...ClientOption) *SpannerClient {
+	stores, secrets := applyClientOptions(opts)
+
 	return &SpannerClient{
 		spanner: db,
-		stores:  applyClientOptions(opts),
+		stores:  stores,
+		secrets: secrets,
 	}
+}
+
+// secretKeys returns the application's secret keys, nil when the client holds none.
+func (c *SpannerClient) secretKeys() *SecretKeys {
+	return c.secrets
 }
 
 // DBType returns the database type.
@@ -85,7 +97,7 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		touched = newTouchedRows()
 		committed = newAfterCommit()
 		funcFailed = false
-		if err := f(ctx, newSpannerReadWriteTransaction(txn, buffered, released, touched, committed)); err != nil {
+		if err := f(ctx, newSpannerReadWriteTransaction(txn, buffered, released, touched, committed).WithSecretKeys(c.secrets)); err != nil {
 			funcFailed = true
 
 			return errors.Wrap(err, "f()")
@@ -142,7 +154,7 @@ func (c *spannerReader[Resource]) DBType() DBType {
 // an assembly plan, requiring the lenient per-row scan instead of the plain
 // spxscan path.
 func envelopeScan(stmt *Statement) bool {
-	return stmt.maskedNamesColumn != "" || stmt.capabilityPlan != nil || len(stmt.cursorColumns) > 0
+	return stmt.maskedNamesColumn != "" || stmt.capabilityPlan != nil || len(stmt.cursorColumns) > 0 || stmt.tenantColumn != ""
 }
 
 // querier returns the transaction a statement runs on. A statement that names a query
@@ -241,7 +253,7 @@ func (c *spannerReader[Resource]) List(ctx context.Context, stmt *Statement) ite
 
 				return
 			}
-			if !yield(&Row[Resource]{Data: *r}, nil) {
+			if !yield(&Row[Resource]{Data: *r, tenant: stmt.tenant}, nil) {
 				return
 			}
 		}
@@ -305,6 +317,14 @@ func scanEnvelopeRow[Resource Resourcer](spannerRow *spanner.Row, stmt *Statemen
 	row := new(Row[Resource])
 	if err := spannerRow.ToStructLenient(&row.Data); err != nil {
 		return nil, errors.Wrap(err, "spanner.Row.ToStructLenient()")
+	}
+	row.tenant = stmt.tenant
+	if stmt.tenantColumn != "" {
+		var tenant spanner.NullString
+		if err := spannerRow.ColumnByName(stmt.tenantColumn, &tenant); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		row.tenant = accesstypes.Domain(tenant.StringVal)
 	}
 	if stmt.maskedNamesColumn != "" {
 		if err := spannerRow.ColumnByName(stmt.maskedNamesColumn, &row.masked); err != nil {
@@ -423,6 +443,12 @@ type SpannerReadWriteTransaction struct {
 	released         *releasedKeys
 	touchedRows      *touchedRows
 	committed        *afterCommit
+	// secrets are the secret keys of the client the transaction runs on, nil when it
+	// holds none: a patch that sets a secret field is then refused.
+	secrets *SecretKeys
+	// directories notes what the transaction's writes do to tenants' directories and
+	// directory-only switches, which its own reads do not see (TenantDirectoryRules).
+	directories *directoryWrites
 }
 
 // NewSpannerReadWriteTransaction creates a new SpannerReadWriteTransaction from a
@@ -432,7 +458,8 @@ type SpannerReadWriteTransaction struct {
 // store yourself. It also has no executor to hand the rows it wrote to the request's
 // collector, so nothing it writes reaches the live pages, and none to run what its
 // writes registered for after the commit (AfterCommit): call Committed once the commit
-// has landed.
+// has landed. And it has no client to take the application's secret keys from: a
+// transaction whose patches set a secret field is given them with WithSecretKeys.
 func NewSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction) *SpannerReadWriteTransaction {
 	return newSpannerReadWriteTransaction(txn, newBufferedPatches(), newReleasedKeys(), newTouchedRows(), newAfterCommit())
 }
@@ -448,7 +475,30 @@ func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered 
 		released:         released,
 		touchedRows:      touched,
 		committed:        committed,
+		secrets:          nil,
+		directories:      newDirectoryWrites(),
 	}
+}
+
+// directoryWrites answers the transaction's note of what its writes do to tenants'
+// directories and directory-only switches.
+func (c *SpannerReadWriteTransaction) directoryWrites() *directoryWrites {
+	return c.directories
+}
+
+// WithSecretKeys gives the transaction the application's secret keys, which it seals a
+// patch's secret fields with, and returns the transaction. ExecuteFunc gives a
+// transaction its client's; this is for one an application wraps itself
+// (NewSpannerReadWriteTransaction).
+func (c *SpannerReadWriteTransaction) WithSecretKeys(keys *SecretKeys) *SpannerReadWriteTransaction {
+	c.secrets = keys
+
+	return c
+}
+
+// secretKeys returns the secret keys the transaction seals with, nil when it holds none.
+func (c *SpannerReadWriteTransaction) secretKeys() *SecretKeys {
+	return c.secrets
 }
 
 // recordAfterCommit notes a function to run once the transaction has committed.

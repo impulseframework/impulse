@@ -27,6 +27,10 @@ const (
 	userInvitationSuffix = "/user/invitation"
 	userEmailSuffix      = "/user/email"
 	userSignUpSuffix     = "/user/sign-up"
+	// userFirstPasswordSuffix is where a signed-in person who has no password chooses
+	// one (session.Auth.FirstPassword): the code is asked for under /code, and the
+	// password is set, with the code, at the suffix itself.
+	userFirstPasswordSuffix = "/user/first-password"
 	// userForgetBrowserSuffix is where a signed-in person's account page forgets the
 	// browser the second factor remembered for them (session.Auth.ForgetBrowser).
 	userForgetBrowserSuffix = "/user/browser/forget"
@@ -35,6 +39,11 @@ const (
 	// (session.Auth.ChangeName).
 	userNameSuffix    = "/user/name"
 	changeNameHandler = "ChangeName"
+	// userSignInMeansSuffix is where a signed-in person's account page reads what they
+	// sign in with: a password or none, and the directory sign-ins linked to them
+	// (session.Auth.SignInMeans).
+	userSignInMeansSuffix = "/user/sign-in-means"
+	signInMeansHandler    = "SignInMeans"
 	// userLookSuffix is where a signed-in person's pages keep the look the person chose
 	// (session.Auth.ChangeLook).
 	userLookSuffix    = "/user/look"
@@ -64,6 +73,10 @@ const (
 	signUpStartHandler      = "SignUpStart"
 	signUpOpenHandler       = "SignUpOpen"
 	signUpCompleteHandler   = "SignUpComplete"
+	// The first password's handlers on a session outlet's surface whose auth declares
+	// the password method (session.FirstPasswordHandlers).
+	firstPasswordSendCodeHandler = "FirstPasswordSendCode"
+	firstPasswordSetHandler      = "FirstPasswordSet"
 	// The device flow's and the token page's handlers on an issuing session outlet's
 	// surface (session.DeviceHandlers, ApplicationTokenHandlers).
 	deviceAuthorizeHandler = "DeviceAuthorize"
@@ -137,13 +150,21 @@ type servedEmail struct {
 	Verify string
 }
 
-// servedSignUp are the sign-up routes of a session outlet whose password method
-// declares open sign-up: start from an address, open the mailed link, complete with a
+// servedSignUp are the sign-up routes of a session outlet whose auth declares the
+// password method: start from an address, open the mailed link, complete with a
 // password.
 type servedSignUp struct {
 	Start    string
 	Open     string
 	Complete string
+}
+
+// servedFirstPassword are the first password routes of a session outlet whose auth
+// declares the password method: where a signed-in person who has no password is mailed
+// a code, and where they set the password with it.
+type servedFirstPassword struct {
+	SendCode string
+	Set      string
 }
 
 // servedSessionHandler is one handler of the session surface beyond the methods' and
@@ -415,6 +436,10 @@ type servedRouterData struct {
 	// packages the named stores' types are declared in.
 	FileStores   []servedFileStore
 	StoreImports []string
+	// SecretFields are the application's stored secrets, as Struct.Field: New requires
+	// the resource client's secret keys for them before the server starts. None for an
+	// application that stores no secret, and then the router asks for none.
+	SecretFields []string
 	// ScheduledRoutes are the scheduled methods' routes, mounted under ScheduledPrefix
 	// behind SchedulerAuth; none without a scheduled method, and then the router carries
 	// no scheduled group.
@@ -599,22 +624,30 @@ type servedOutlet struct {
 	// ChangePassword is where the password change is mounted, told to the login page
 	// beside the methods; empty without a password method.
 	ChangePassword string
+	// RemovePassword is where the account page removes the person's own password, told
+	// to the browser beside the methods; empty without a password method.
+	RemovePassword string
 	// ForgetBrowser is where the account page forgets the remembered browser, told to
 	// the browser beside the methods.
 	ForgetBrowser string
 	// ChangeName is where the account page writes the person's own name, told to the
 	// browser beside the methods.
 	ChangeName string
+	// SignInMeans is where the account page reads what the person signs in with, told
+	// to the browser beside the methods.
+	SignInMeans string
 	// ChangeLook is where the person's pages keep the look the person chose, told to
 	// the browser beside the methods.
 	ChangeLook string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
-	// password method, SignUp when the password method declares open sign-up (nil
-	// otherwise).
+	// password method, SignUp with a password method too (nil otherwise).
 	Invitation servedInvitation
 	Email      servedEmail
 	SignUp     *servedSignUp
+	// FirstPassword are the first password routes the account page is told beside the
+	// methods, with a password method (nil otherwise).
+	FirstPassword *servedFirstPassword
 	// Routes are the session routes under the prefix, in mount order: OpenRoutes, the
 	// ones outside the XSRF guard, GuardedRoutes, the POSTs behind it, then
 	// ValidatedRoutes, the ones a signed-in person calls, inside the validated group
@@ -886,6 +919,7 @@ func (r *resourceGenerator) servedRouterData(outlets []*routerOutlet, negativeTe
 		RequestLog:          r.requestLog,
 	}
 	data.FileStores, data.StoreImports = r.servedFileStores()
+	data.SecretFields = r.servedSecretFields()
 	if multiAuth {
 		for path := range authPaths {
 			data.AuthImports = append(data.AuthImports, path)
@@ -1113,6 +1147,17 @@ func linkTokenIssuers(data *servedRouterData) {
 	}
 }
 
+// servedAccountPathsOf names the routes of the signed-in person's account page under
+// the outlet's prefix, as the router tells them to the browser beside the methods:
+// forgetting the remembered browser, the person's own name, what the person signs in
+// with, and the look the person chose.
+func servedAccountPathsOf(so *servedOutlet, prefix string) {
+	so.ForgetBrowser = prefix + userForgetBrowserSuffix
+	so.ChangeName = prefix + userNameSuffix
+	so.SignInMeans = prefix + userSignInMeansSuffix
+	so.ChangeLook = prefix + userLookSuffix
+}
+
 // servedSessionOf fills a session outlet's methods and routes from its auth's methods:
 // the session's own routes, then each method's login (and callback and front-channel
 // logout) under the registration's name, the ones outside the XSRF guard first and the
@@ -1132,6 +1177,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodGet, userSessionSuffix, "Authenticated", false),
 		route(http.MethodDelete, userSessionSuffix, "Logout", false),
 		route(http.MethodGet, userPendingSuffix, pendingStatusHandler, false),
+		route(http.MethodGet, userSignInMeansSuffix, signInMeansHandler, false),
 	}
 	var guarded []servedRoute
 	kinds := make([]string, 0, len(o.auth.methods))
@@ -1141,13 +1187,15 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		switch m.kind {
 		case methodPassword:
 			sm.LoginPath = prefix + base + "/login"
-			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change"}
-			sm.Description = "The password method's login and password change (session.PasswordMethod); the change validates the session itself, outside ValidateSession"
+			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change", sm.Accessor + "Remove"}
+			sm.Description = "The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession"
 			guarded = append(guarded,
 				route(http.MethodPost, base+"/login", sm.Accessor+"Login", true),
 				route(http.MethodPost, base+"/change", sm.Accessor+"Change", true),
+				route(http.MethodPost, base+"/remove", sm.Accessor+"Remove", true),
 			)
 			so.ChangePassword = prefix + base + "/change"
+			so.RemovePassword = prefix + base + "/remove"
 		case methodGoogle, methodWorkOS, methodAzure, methodOIDC:
 			sm.LoginPath = prefix + base + "/login"
 			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Callback"}
@@ -1192,9 +1240,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodPost, userNameSuffix, changeNameHandler, true),
 		route(http.MethodPost, userLookSuffix, changeLookHandler, true),
 	)
-	so.ForgetBrowser = prefix + userForgetBrowserSuffix
-	so.ChangeName = prefix + userNameSuffix
-	so.ChangeLook = prefix + userLookSuffix
+	servedAccountPathsOf(so, prefix)
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
 	so.OpenRoutes, so.GuardedRoutes, so.ValidatedRoutes = open, guarded, validatedRoutes
 	so.Routes = slices.Concat(open, guarded, validatedRoutes)
@@ -1205,11 +1251,12 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 	so.AuthLabel += " (" + strings.Join(kinds, ", ") + ")"
 }
 
-// servedMailRoutesOf adds the invitation, email address and sign-up routes
-// (session.Auth.Invitation, Email and SignUp) to the outlet: the login page opens an
-// invitation and, with a password method, an invited stranger signs up at it, behind
-// the XSRF guard alone; a signed-in person accepts it and adds or verifies an address
-// inside the validated group; open sign-up, when the password method declares it,
+// servedMailRoutesOf adds the invitation, email address, sign-up and first password
+// routes (session.Auth.Invitation, Email, SignUp and FirstPassword) to the outlet: the
+// login page opens an invitation and, with a password method, an invited stranger
+// signs up at it, behind the XSRF guard alone; a signed-in person accepts it, adds or
+// verifies an address and, with a password method, chooses their first password where
+// they have none, inside the validated group; a sign-up, with a password method,
 // starts, opens and completes behind the XSRF guard alone. It answers the guarded
 // routes with the mail ones appended, and the validated routes.
 func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute, route func(method, suffix, handler string, xsrf bool) servedRoute) (guardedRoutes, validatedRoutes []servedRoute) {
@@ -1220,12 +1267,10 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 
 		return r
 	}
-	hasPassword, openSignUp := false, false
-	for _, m := range o.auth.methods {
-		if m.kind == methodPassword {
-			hasPassword, openSignUp = true, m.openSignUp
-		}
-	}
+	// Every auth with the password method mounts the sign-up routes: whether anyone
+	// may sign up is an administrator's choice in the running application, and the
+	// handlers answer 404 while the method is invite only.
+	hasPassword := slices.ContainsFunc(o.auth.methods, func(m AuthMethod) bool { return m.kind == methodPassword })
 	so.Invitation = servedInvitation{Open: prefix + userInvitationSuffix, Accept: prefix + userInvitationSuffix + "/accept"}
 	so.Email = servedEmail{Add: prefix + userEmailSuffix, Verify: prefix + userEmailSuffix + "/verify"}
 	guarded = append(guarded, route(http.MethodPost, userInvitationSuffix, invitationOpenHandler, true))
@@ -1247,7 +1292,16 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 		validated(userEmailSuffix, emailAddHandler),
 		validated(userEmailSuffix+"/verify", emailVerifyHandler),
 	}
-	if openSignUp {
+	if hasPassword {
+		so.FirstPassword = &servedFirstPassword{SendCode: prefix + userFirstPasswordSuffix + "/code", Set: prefix + userFirstPasswordSuffix}
+		validatedRoutes = append(validatedRoutes,
+			validated(userFirstPasswordSuffix+"/code", firstPasswordSendCodeHandler),
+			validated(userFirstPasswordSuffix, firstPasswordSetHandler),
+		)
+		so.SessionHandlers = append(so.SessionHandlers,
+			servedSessionHandler{Name: firstPasswordSendCodeHandler, Description: "The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode)"},
+			servedSessionHandler{Name: firstPasswordSetHandler, Description: "The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set)"},
+		)
 		so.SignUp = &servedSignUp{Start: prefix + userSignUpSuffix, Open: prefix + userSignUpSuffix + "/open", Complete: prefix + userSignUpSuffix + "/complete"}
 		guarded = append(guarded,
 			route(http.MethodPost, userSignUpSuffix, signUpStartHandler, true),
@@ -1444,8 +1498,9 @@ var (
 //	{{ .Name }} (/{{ .Prefix }}), {{ .AuthLabel }}{{ with .Words }}, {{ . }}{{ end }}:
 //	  {{ if .AuthPackage }}BindAuth({{ .AuthPackage }}.Name), {{ end }}NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: {{ range $i, $route := .OpenRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
 //	  + ValidateXSRFToken: {{ range $i, $route := .GuardedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
-//	  + ValidateSession, ValidateXSRFToken: {{ range $i, $route := .ValidatedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
-//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion{{ .OldestAnsweredNote }}: hooks.{{ .HookField }}, {{ .RoutesFunc }}
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: {{ range $i, $route := .ValidatedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion{{ .OldestAnsweredNote }}: hooks.{{ .HookField }}
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion{{ .OldestAnsweredNote }}, hooks.{{ .HookField }}, EnforceReadOnlyMask: {{ .RoutesFunc }}
 {{- end }}
 {{- range .MountedBeneath }}
 //	  by hand under {{ .Prefix }}: {{ .Words }}
@@ -1516,10 +1571,16 @@ type Handlers interface {
 {{- if .ScheduledRoutes }}
 	GeneratedScheduledHandlers
 {{- end }}
-{{- if .FileStores }}
-	// ResourceClient is the client the generated handlers run against. The file
+{{- if or .FileStores .SecretFields }}
+	// ResourceClient is the client the generated handlers run against.
+{{- if .FileStores }} The file
 	// stores the generated code reads and writes are wired on it, and New refuses to
 	// start without them (resource.RequireFileStores).
+{{- end }}
+{{- if .SecretFields }} The application's
+	// secret keys are wired on it, which seal every stored secret, and New refuses to
+	// start without them (resource.RequireSecretKeys).
+{{- end }}
 	ResourceClient() resource.Client
 {{- end }}
 {{- range .SessionOutlets }}
@@ -1588,6 +1649,12 @@ type {{ .SessionInterface }} interface {
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	// EnforceReadOnlyMask refuses a write from a session that views as someone else
+	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
+	// of the routes a signed-in person calls on their own account and of the outlet's
+	// generated routes, so it holds wherever the application's hook registers those and
+	// whether or not the hook mounts it.
+	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -1611,6 +1678,10 @@ type {{ .SessionInterface }} interface {
 	// ChangeName writes the signed-in person's own name, from their account page
 	// (session.Auth.ChangeName); it validates the session itself.
 	ChangeName() http.HandlerFunc
+	// SignInMeans answers what the signed-in person signs in with, a password or none
+	// and the directory sign-ins linked to them, to their account page
+	// (session.Auth.SignInMeans); it validates the session itself.
+	SignInMeans() http.HandlerFunc
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
@@ -1657,7 +1728,11 @@ type Hooks struct {
 {{- else }}
 	// {{ .HookField }} runs inside the {{ .Name }} outlet's authenticated group: r already sits behind
 	// {{ if .AuthPackage }}BindAuth({{ .AuthPackage }}.Name), {{ end }}session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes. Nil registers them directly.
+	// the outlet's generated routes, behind the read-only mask the router mounts for
+	// them. The session routes a signed-in person calls on their own account stand in
+	// front of the hook: what it adds gates the application's routes alone. A route the
+	// hook registers by hand carries what the hook gives it and nothing more. Nil
+	// registers the generated routes directly.
 {{- end }}
 	{{ .HookField }} func(r chi.Router, generated func(chi.Router))
 {{- end }}
@@ -1672,6 +1747,14 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	// client, or the server does not start: an unwired store would otherwise surface
 	// on the first upload, file request or releasing delete.
 	if err := resource.RequireFileStores(h.ResourceClient(){{ range .FileStores }}, {{ .NameExpr }}{{ end }}); err != nil {
+		panic(fmt.Sprintf("router.New: %v", err))
+	}
+{{- end }}
+{{- if .SecretFields }}
+	// The application stores secrets, which the resource client seals with the
+	// application's secret keys, or the server does not start: a client built without
+	// them would otherwise surface on the first write of a secret.
+	if err := resource.RequireSecretKeys(h.ResourceClient(){{ range .SecretFields }}, "{{ . }}"{{ end }}); err != nil {
 		panic(fmt.Sprintf("router.New: %v", err))
 	}
 {{- end }}
@@ -1754,7 +1837,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		r.Use(h.CompressionMiddleware())
 		r.Use(resource.ReleaseHeader(serverVersion))
 {{ $outlet := . }}
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 {{- range .DeviceRoutes }}
 		bounded.{{ Pascal .Method }}("{{ .Path }}", {{ $outlet.IssuerExpr }}.{{ .Handler }}())
 {{- end }}
@@ -1793,8 +1876,10 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{ $outlet := . }}
 		// The session routes are bounded at BodyLimit, as the generated routes are. The
 		// login page reads what the outlet offers from the method list, at the paths
-		// mounted below; the sign-in's POSTs sit behind the XSRF guard.
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		// mounted below; the sign-in's POSTs sit behind the XSRF guard. None of them has
+		// a dry run or a warning, so a request that asks for either (X-Dry-Run,
+		// X-Warning) is refused naming the header, and nothing runs.
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 		guarded := bounded.With({{ .Receiver }}.ValidateXSRFToken)
 {{- if $outlet.OptionalMethods }}
 		// A method the Auth registers only where its provider is configured ({{ range $i, $m := $outlet.OptionalMethods }}{{ if $i }}, {{ end }}{{ $m.Name }}{{ end }}): the
@@ -1837,8 +1922,15 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- if $outlet.ChangePassword }}
 			ChangePassword: "{{ $outlet.ChangePassword }}",
 {{- end }}
+{{- if $outlet.RemovePassword }}
+			RemovePassword: "{{ $outlet.RemovePassword }}",
+{{- end }}
+{{- if $outlet.FirstPassword }}
+			FirstPassword: session.FirstPasswordRoutes{SendCode: "{{ $outlet.FirstPassword.SendCode }}", Set: "{{ $outlet.FirstPassword.Set }}"},
+{{- end }}
 			ForgetBrowser: "{{ $outlet.ForgetBrowser }}",
 			ChangeName: "{{ $outlet.ChangeName }}",
+			SignInMeans: "{{ $outlet.SignInMeans }}",
 			ChangeLook: "{{ $outlet.ChangeLook }}",
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
 			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}"},
@@ -1874,14 +1966,32 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			// The session routes a signed-in person calls: the acceptance of an invitation
-			// the browser carries, and the address they add and verify.
+			// The session routes a signed-in person calls on their own account: the
+			// acceptance of an invitation the browser carries, the address they add and
+			// verify, their first password where the auth has passwords and they have
+			// none, and their tokens and device authorizations where the auth issues
+			// tokens. They stand in front of the application's hook, which gates the
+			// generated routes alone: a person reaches their own account whatever the
+			// application asks of them elsewhere. What holds for them is mounted here and
+			// in the handlers: the read-only mask of a session that views as someone else,
+			// and each one that writes refuses an impersonated session itself. None has a
+			// dry run or a warning, and a request that asks for either is refused.
+			account := r.With({{ .Receiver }}.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 {{- range .ValidatedRoutes }}
-			r.With(resource.BodyLimit(BodyLimit)).{{ Pascal .Method }}("{{ .Path }}", {{ $outlet.Receiver }}.{{ .Handler }}())
+			account.{{ Pascal .Method }}("{{ .Path }}", {{ $outlet.Receiver }}.{{ .Handler }}())
 {{- end }}
 
+			// The generated routes register through the application's hook, behind the
+			// read-only mask, which is mounted here and not by the hook: a write from a
+			// session that views as someone else read-only is refused before any generated
+			// handler runs, wherever the hook puts the routes and whether or not one is
+			// written.
 			registerGenerated(r, hooks.{{ .HookField }}, "{{ .HookField }}", func(r chi.Router) {
-				{{ .RoutesFunc }}(r, h)
+				r.Group(func(r chi.Router) {
+					r.Use({{ .Receiver }}.EnforceReadOnlyMask)
+
+					{{ .RoutesFunc }}(r, h)
+				})
 			})
 		})
 	})
@@ -2040,10 +2150,13 @@ var routerRootChain = []string{"LogExporter", "SecurityHeaders"}
 
 // routerOutletChain is one outlet's middleware in order: group runs in front of the
 // outlet's session routes, or a machine outlet's device-flow endpoints; guards
-// additionally in front of its generated routes.
+// additionally in front of its hook and its generated routes; and mask, a session
+// outlet's read-only mask, last in front of the routes a signed-in person calls on
+// their own account and, behind the hook, in front of the generated routes.
 type routerOutletChain struct {
 	group  []string
 	guards []string
+	mask   []string
 }
 
 // routerOutletChains keys each outlet's chain by the prefix its routes sit under.
@@ -2058,6 +2171,7 @@ var routerOutletChains = map[string]routerOutletChain{
 	"{{ .NotFoundPrefix }}": {
 		group:  []string{ {{- if .AuthPackage }}"BindAuth(" + {{ .AuthPackage }}.Name + ")", {{ end }}"NoCaching", "CompressionMiddleware", "{{ .StubPrefix }}StartSession", "{{ .StubPrefix }}SetXSRFToken"},
 		guards: []string{"{{ .StubPrefix }}ValidateSession", "{{ .StubPrefix }}ValidateXSRFToken"},
+		mask:   []string{"{{ .StubPrefix }}EnforceReadOnlyMask"},
 	},
 {{- end }}
 {{- end }}
@@ -2134,8 +2248,8 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 
 // TestGeneratedRouter drives every generated route through New: each request answers
 // 200 from exactly its own handler with its route parameters resolved, having passed the
-// every-request chain, its outlet's group, and its outlet's guards, in that order and
-// nothing else.
+// every-request chain, its outlet's group, its outlet's guards and, on a session outlet,
+// the read-only mask the router mounts for it, in that order and nothing else.
 func TestGeneratedRouter(t *testing.T) {
 	t.Parallel()
 
@@ -2162,7 +2276,7 @@ func TestGeneratedRouter(t *testing.T) {
 			}
 
 			chain := routerChainFor(t, tt.url)
-			want := slices.Concat(routerRootChain, chain.group, chain.guards)
+			want := slices.Concat(routerRootChain, chain.group, chain.guards, chain.mask)
 			if !slices.Equal(rec.chain, want) {
 				t.Errorf("middleware chain = %v, want %v", rec.chain, want)
 			}
@@ -2175,8 +2289,9 @@ func TestGeneratedRouter(t *testing.T) {
 // pending and sign-in routes answer behind the outlet's group and before its session
 // guard, a sign-in's POSTs behind the XSRF guard alone: a browser reaches them without
 // a validated session; the routes a signed-in person calls (an invitation's acceptance,
-// the address, the token page) answer behind both guards; and a machine outlet's
-// device-flow endpoints answer behind its group and before its token check.
+// the address, the token page) answer behind both guards and the read-only mask; and a
+// machine outlet's device-flow endpoints answer behind its group and before its token
+// check.
 func TestGeneratedRouterSessionRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -2201,7 +2316,7 @@ func TestGeneratedRouterSessionRoutes(t *testing.T) {
 			want := slices.Concat(routerRootChain, chain.group)
 			switch {
 			case tt.validated:
-				want = append(want, chain.guards...)
+				want = slices.Concat(want, chain.guards, chain.mask)
 			case tt.xsrf:
 				want = append(want, chain.guards[1])
 			}
@@ -2473,7 +2588,9 @@ func TestGeneratedRouterScheduled(t *testing.T) {
 // TestGeneratedRouterHooks proves the seams sit where the chain comment says: Outermost
 // runs ahead of the logger, Root's routes sit behind the every-request chain alone, each
 // outlet's hook runs inside the outlet's guards with the generated routes registering
-// through it, and a hook that skips the generated registration is refused.
+// through it, behind the read-only mask the router mounts for them on a session outlet
+// whatever middleware the hook adds, and a hook that skips the generated registration is
+// refused.
 func TestGeneratedRouterHooks(t *testing.T) {
 	t.Parallel()
 
@@ -2511,7 +2628,7 @@ func TestGeneratedRouterHooks(t *testing.T) {
 {{- end }}
 	}
 	// Every generated route registers through its outlet's hook, so it passes the
-	// hook's middleware too.
+	// hook's middleware too, and then the mask, which the hook does not mount.
 	for _, route := range generatedRouterTests() {
 		for prefix, chain := range routerOutletChains {
 			if !strings.HasPrefix(route.url, prefix) {
@@ -2520,7 +2637,7 @@ func TestGeneratedRouterHooks(t *testing.T) {
 			hook := prefixHookFields[prefix]
 			tests = append(tests, hookCase{
 				name: "a generated route registered through " + hook, url: route.url, method: route.method, handler: route.handlerFunc,
-				chain: slices.Concat(outermost, chain.group, chain.guards, []string{hook + "Hook"}),
+				chain: slices.Concat(outermost, chain.group, chain.guards, []string{hook + "Hook"}, chain.mask),
 			})
 
 			break
@@ -2561,6 +2678,81 @@ func TestGeneratedRouterHooks(t *testing.T) {
 	})
 }
 
+{{ if .SessionOutlets -}}
+// TestGeneratedRouterAccountRoutes proves the routes a signed-in person calls on their
+// own account stand in front of the application's hook. Under a hook that refuses every
+// request, as one that lets nobody through without a tenant or a role does, each of
+// them still answers from its own handler, behind the outlet's guards and the read-only
+// mask alone; and the outlet's generated routes are refused by the hook, before the
+// mask and before any handler.
+func TestGeneratedRouterAccountRoutes(t *testing.T) {
+	t.Parallel()
+
+	// refusing is a hook that gates everything registered through it: it records that
+	// it ran and answers 403.
+	refusing := func(rec *routerCallRecorder, name string) func(chi.Router, func(chi.Router)) {
+		return func(r chi.Router, generated func(chi.Router)) {
+			r.Use(func(http.Handler) http.Handler {
+				return rec.Middleware(name)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					http.Error(w, "no tenant", http.StatusForbidden)
+				}))
+			})
+			generated(r)
+		}
+	}
+	hooksFor := func(rec *routerCallRecorder) Hooks {
+		return Hooks{
+{{- range .SessionOutlets }}
+			{{ .HookField }}: refusing(rec, "{{ .HookField }}Hook"),
+{{- end }}
+		}
+	}
+
+	for _, tt := range routerSessionRoutes() {
+		if !tt.validated {
+			continue
+		}
+		t.Run("in front of the hook "+tt.method+"-url"+strings.ReplaceAll(tt.url, "/", "-"), func(t *testing.T) {
+			t.Parallel()
+
+			rec := newRouterCallRecorder()
+			rr := serveGeneratedRouter(t, rec, hooksFor(rec), tt.method, tt.url)
+
+			if got := rr.Code; got != http.StatusOK {
+				t.Errorf("response.Code = %v, want %v: the hook gates the generated routes alone", got, http.StatusOK)
+			}
+			if cnt := rec.handlers[tt.handler]; cnt != 1 || len(rec.handlers) != 1 {
+				t.Fatalf("handler %s, expected 1 call, got: %v", tt.handler, rec.handlers)
+			}
+			chain := routerChainFor(t, tt.url)
+			if want := slices.Concat(routerRootChain, chain.group, chain.guards, chain.mask); !slices.Equal(rec.chain, want) {
+				t.Errorf("middleware chain = %v, want %v", rec.chain, want)
+			}
+		})
+	}
+	for _, probe := range routerVersionProbes() {
+		url := probe.prefix + "permission-digest"
+		t.Run("a generated route behind the hook GET-url"+strings.ReplaceAll(url, "/", "-"), func(t *testing.T) {
+			t.Parallel()
+
+			rec := newRouterCallRecorder()
+			rr := serveGeneratedRouter(t, rec, hooksFor(rec), http.MethodGet, url)
+
+			if got := rr.Code; got != http.StatusForbidden {
+				t.Errorf("response.Code = %v, want %v from the hook", got, http.StatusForbidden)
+			}
+			if cnt := len(rec.handlers); cnt != 0 {
+				t.Errorf("expected no handler called, got: %v", rec.handlers)
+			}
+			chain := routerChainFor(t, url)
+			if want := slices.Concat(routerRootChain, chain.group, chain.guards, []string{prefixHookFields[probe.prefix] + "Hook"}); !slices.Equal(rec.chain, want) {
+				t.Errorf("middleware chain = %v, want %v", rec.chain, want)
+			}
+		})
+	}
+}
+
+{{ end -}}
 // prefixHookFields names each outlet's hook by the prefix its routes sit under.
 var prefixHookFields = map[string]string{
 {{- range .Outlets }}
@@ -2924,6 +3116,10 @@ func (s *{{ $stub }}) ValidateSession(next http.Handler) http.Handler {
 func (s *{{ $stub }}) ValidateXSRFToken(next http.Handler) http.Handler {
 	return s.rec.Middleware(s.prefix + "ValidateXSRFToken")(next)
 }
+
+func (s *{{ $stub }}) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return s.rec.Middleware(s.prefix + "EnforceReadOnlyMask")(next)
+}
 {{ end }}
 {{- range .MachineOutlets }}
 // {{ .StubType }} records the {{ .Name }} outlet's token check under a name prefix, so a chain
@@ -2975,13 +3171,29 @@ type routerHandlersStub struct {
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
 }
-{{- if .FileStores }}
+{{- if or .FileStores .SecretFields }}
 
-// ResourceClient answers with a mock client carrying every file store New requires,
-// each a stub: the router test never reaches a store.
+// ResourceClient answers with a mock client carrying what New requires: every file
+// store, each a stub, and the secret keys of an application that stores a secret, built
+// from fixed bytes. The router test never reaches a store and never seals a value.
 func (s *routerHandlersStub) ResourceClient() resource.Client {
-	return resource.NewMockClient(nil, nil, nil{{ range .FileStores }}, {{ .OptionExpr }}{{ end }})
+	return resource.NewMockClient(nil, nil, nil{{ range .FileStores }}, {{ .OptionExpr }}{{ end }}{{ if .SecretFields }}, resource.WithSecretKeys(stubSecretKeys()){{ end }})
 }
+{{- end }}
+{{- if .SecretFields }}
+
+// stubSecretKeys builds the secret keys the router test's client carries, from fixed
+// bytes.
+func stubSecretKeys() *resource.SecretKeys {
+	keys, err := resource.NewSecretKeys(map[int][]byte{1: bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		panic(err)
+	}
+
+	return keys
+}
+{{- end }}
+{{- if .FileStores }}
 
 // stubFileStore satisfies resource.FileStore for the router test.
 type stubFileStore struct{}

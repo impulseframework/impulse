@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -13,7 +14,10 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/lodestar/pkg/resources"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // The emulator's own project and instance: db-initiator creates the instance when the
@@ -99,32 +103,7 @@ func stopFirestore(ctx context.Context, f *initiator.FirestoreContainer) {
 // cases run one at a time, from the module root, where the migrations are read from as
 // they are in the image.
 func TestExecute(t *testing.T) {
-	ctx := context.Background()
-	t.Chdir(filepath.Join("..", "..", ".."))
-	host, err := container.Host(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	port, err := container.MappedPort(ctx, "9010/tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SPANNER_EMULATOR_HOST", host+":"+port.Port())
-	t.Setenv("GOOGLE_CLOUD_SPANNER_PROJECT", containerProjectID)
-	t.Setenv("GOOGLE_CLOUD_SPANNER_INSTANCE_ID", containerInstanceID)
-	// The migration run opens the data level, which reads the core level's service name
-	// and opens the live service, required, over the Firestore emulator.
-	t.Setenv("APP_SERVICE_NAME", serviceName)
-	t.Setenv("FIRESTORE_EMULATOR_HOST", firestoreEmulator.Host())
-	// The data level opens the members auth too, whose Google sign-in refuses to start
-	// without the Workspace domain logins are restricted to and the prefix of the groups
-	// that carry roles; nothing signs in here, so any values serve.
-	t.Setenv("APP_MEMBERS_OIDC_CONNECTION", "example")
-	t.Setenv("APP_MEMBERS_OIDC_HOSTED_DOMAIN", "example.com")
-	t.Setenv("APP_MEMBERS_OIDC_GROUP_PREFIX", "members-")
-	t.Setenv("APP_CREW_OIDC_CONNECTION", "example")
-	t.Setenv("APP_CREW_OIDC_HOSTED_DOMAIN", "example.com")
-	t.Setenv("APP_PUBLIC_URL", "http://lodestar.test")
+	commandEnvironment(t)
 	last := lastMigration(t)
 
 	tests := []struct {
@@ -234,6 +213,20 @@ func TestExecute(t *testing.T) {
 			wantErr:  `"-2" is not a version`,
 		},
 		{
+			name:     "a retirement with another flag is refused before the database is touched",
+			missing:  true,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_1", "-seed"},
+			wantCode: exitRefused,
+			wantErr:  "-retire-secret applies no migration and reports no version: it goes with no other flag",
+		},
+		{
+			name:     "a retirement without its variable is refused",
+			missing:  true,
+			args:     []string{"-retire-secret"},
+			wantCode: exitRefused,
+			wantErr:  "flag needs an argument: -retire-secret",
+		},
+		{
 			name:     "a stray argument is refused",
 			missing:  true,
 			args:     []string{"-version", "extra"},
@@ -286,6 +279,173 @@ func TestExecute(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestExecute_retireSecret runs a retirement of a version of the application secret as
+// the deployment runs it, against the emulators: ships are given transponder keys while
+// version 1 is the only version, version 2 is added, and -retire-secret
+// APP_SECRET_KEY_1 writes every key again under version 2, reports how many, and exits 0;
+// every key then names version 2 and opens to what it was set to under version 2 alone;
+// a second run writes nothing; retiring the current version fails; after a later
+// rotation to version 300, past the last number one byte could name, version 2 is
+// retired the same way; a variable whose number no stored value can name is refused with
+// the range; and no run prints a key.
+//
+// Demonstrates: secret.rotation.
+func TestExecute_retireSecret(t *testing.T) {
+	commandEnvironment(t)
+	ctx := t.Context()
+	db := database(t)
+	t.Setenv("GOOGLE_CLOUD_SPANNER_DATABASE_NAME", path.Base(db.DatabaseName()))
+	// secretVersion is one version of a test application secret: 32 bytes that say which.
+	secretVersion := func(version int) []byte {
+		return fmt.Appendf(nil, "%032d", version)
+	}
+	run := func(wantCode int, args ...string) (stdout, stderr string) {
+		t.Helper()
+
+		var out, errs bytes.Buffer
+		if code := execute(ctx, args, &out, &errs); code != wantCode {
+			t.Fatalf("execute(%v) = %d, want %d; stdout:\n%s\nstderr:\n%s", args, code, wantCode, out.String(), errs.String())
+		}
+
+		return out.String(), errs.String()
+	}
+
+	// Version 1 is the only version: the release migrates and seeds the demo world, and
+	// three of its ships are given keys, which the write path seals under version 1.
+	t.Setenv("APP_SECRET_KEY_1", base64.StdEncoding.EncodeToString(secretVersion(1)))
+	run(0, "-seed")
+	first, err := resource.NewSecretKeys(map[int][]byte{1: secretVersion(1)})
+	if err != nil {
+		t.Fatalf("resource.NewSecretKeys() error = %v", err)
+	}
+	keys := map[string]string{
+		"70000000-0000-4000-8000-000000000001": "kf-7741-open-sesame",
+		"70000000-0000-4000-8000-000000000002": "sm-2020-heave-ho",
+		"70000000-0000-4000-8000-000000000003": "ln-3030-lights-out",
+	}
+	before := resource.NewSpannerClient(db.Client, resource.WithSecretKeys(first))
+	for id, key := range keys {
+		if err := resources.NewShipUpdatePatch(impulse.Must(impulse.UUIDFromString(id))).SetTransponderKey(&key).Apply(ctx, before, "the retirement test"); err != nil {
+			t.Fatalf("setting the key of ship %s: %v", id, err)
+		}
+	}
+	// named asserts every key's stored bytes name the version and open, on their own
+	// ship, to what the key was set to, with the keys of a service handed the versions.
+	named := func(version int, held *resource.SecretKeys) {
+		t.Helper()
+
+		client := resource.NewSpannerClient(db.Client)
+		for id, want := range keys {
+			ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().TransponderKey()).
+				SetID(impulse.Must(impulse.UUIDFromString(id))).Read(ctx, client)
+			if err != nil {
+				t.Fatalf("reading ship %s: %v", id, err)
+			}
+			if ship.Data.TransponderKey == nil || ship.Data.TransponderKey.KeyVersion() != version {
+				t.Fatalf("the key of ship %s does not name version %d", id, version)
+			}
+			if got, err := ship.Data.OpenTransponderKey(held); err != nil || got == nil || *got != want {
+				t.Fatalf("the key of ship %s does not open to what it was set to: error %v", id, err)
+			}
+		}
+	}
+	named(1, first)
+
+	// The rotation hands the service version 2 beside version 1. Retiring version 2, the
+	// current one, fails and writes nothing.
+	t.Setenv("APP_SECRET_KEY_2", base64.StdEncoding.EncodeToString(secretVersion(2)))
+	second, err := resource.NewSecretKeys(map[int][]byte{2: secretVersion(2)})
+	if err != nil {
+		t.Fatalf("resource.NewSecretKeys() error = %v", err)
+	}
+	stdout, stderr := run(exitFailed, "-retire-secret", "APP_SECRET_KEY_2")
+	if stdout != "" || !strings.Contains(stderr, "APP_SECRET_KEY_2 is the current version of the application secret") {
+		t.Errorf("retiring the current version: stdout %q, stderr %q; want a refusal and nothing written", stdout, stderr)
+	}
+	named(1, first)
+
+	// Retiring version 1 writes the three keys again under version 2 and says so.
+	const retired = "Retired APP_SECRET_KEY_1: no stored value names version 1\n"
+	stdout, stderr = run(0, "-retire-secret", "APP_SECRET_KEY_1")
+	if want := "Ships.TransponderKey: 3 value(s) written again under version 2\n" + retired; stdout != want || stderr != "" {
+		t.Errorf("the retirement: stdout %q, stderr %q; want %q and nothing on stderr", stdout, stderr, want)
+	}
+	// Every key opens under version 2 alone: version 1 can be disabled.
+	named(2, second)
+
+	// A second run finds nothing to write and passes.
+	again, stderr := run(0, "-retire-secret", "APP_SECRET_KEY_1")
+	if want := "Ships.TransponderKey: 0 value(s) written again under version 2\n" + retired; again != want || stderr != "" {
+		t.Errorf("the second retirement: stdout %q, stderr %q; want %q and nothing on stderr", again, stderr, want)
+	}
+	named(2, second)
+
+	// A deployment's version numbers never repeat, and a rotation that fails uses one up,
+	// so in time a secret's versions pass 255. The next rotation hands the service
+	// version 300: retiring version 2 writes the keys again under it, and they open
+	// under version 300 alone.
+	t.Setenv("APP_SECRET_KEY_300", base64.StdEncoding.EncodeToString(secretVersion(300)))
+	third, err := resource.NewSecretKeys(map[int][]byte{300: secretVersion(300)})
+	if err != nil {
+		t.Fatalf("resource.NewSecretKeys() error = %v", err)
+	}
+	past, stderr := run(0, "-retire-secret", "APP_SECRET_KEY_2")
+	if want := "Ships.TransponderKey: 3 value(s) written again under version 300\nRetired APP_SECRET_KEY_2: no stored value names version 2\n"; past != want || stderr != "" {
+		t.Errorf("the retirement under version 300: stdout %q, stderr %q; want %q and nothing on stderr", past, stderr, want)
+	}
+	named(300, third)
+
+	// A variable whose number no stored value can name, 0 or one past the last, is
+	// refused with the range a version's number takes, and writes nothing.
+	for _, variable := range []string{"APP_SECRET_KEY_0", "APP_SECRET_KEY_65536"} {
+		out, refusal := run(exitFailed, "-retire-secret", variable)
+		if out != "" || !strings.Contains(refusal, variable) || !strings.Contains(refusal, "the version's number, 1 to 65535") {
+			t.Errorf("retiring %s: stdout %q, stderr %q; want a refusal that says the range and nothing written", variable, out, refusal)
+		}
+	}
+	named(300, third)
+
+	for _, key := range keys {
+		if strings.Contains(stdout+again+past, key) {
+			t.Errorf("a retirement printed a key")
+		}
+	}
+}
+
+// commandEnvironment readies what the command reads for every case: the module root,
+// where the migrations are read from as they are in the image, and the emulators and the
+// data level's settings in the environment.
+func commandEnvironment(t *testing.T) {
+	t.Helper()
+
+	ctx := context.Background()
+	t.Chdir(filepath.Join("..", "..", ".."))
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := container.MappedPort(ctx, "9010/tcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SPANNER_EMULATOR_HOST", host+":"+port.Port())
+	t.Setenv("GOOGLE_CLOUD_SPANNER_PROJECT", containerProjectID)
+	t.Setenv("GOOGLE_CLOUD_SPANNER_INSTANCE_ID", containerInstanceID)
+	// The migration run opens the data level, which reads the core level's service name
+	// and opens the live service, required, over the Firestore emulator.
+	t.Setenv("APP_SERVICE_NAME", serviceName)
+	t.Setenv("FIRESTORE_EMULATOR_HOST", firestoreEmulator.Host())
+	// The data level opens the members auth too, whose Google sign-in refuses to start
+	// without the Workspace domain logins are restricted to and the prefix of the groups
+	// that carry roles; nothing signs in here, so any values serve.
+	t.Setenv("APP_MEMBERS_OIDC_CONNECTION", "example")
+	t.Setenv("APP_MEMBERS_OIDC_HOSTED_DOMAIN", "example.com")
+	t.Setenv("APP_MEMBERS_OIDC_GROUP_PREFIX", "members-")
+	t.Setenv("APP_CREW_OIDC_CONNECTION", "example")
+	t.Setenv("APP_CREW_OIDC_HOSTED_DOMAIN", "example.com")
+	t.Setenv("APP_PUBLIC_URL", "http://lodestar.test")
 }
 
 // database creates a fresh database for the case and drops it when the case ends.

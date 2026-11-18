@@ -106,8 +106,8 @@ func claimsOf(t *testing.T, c map[string]any) json.RawMessage {
 }
 
 // TestSignIn_registration proves what SignIn asks the core to register: the method, the
-// standard rule with its default, the issuer, no front-channel logout, and no account
-// rule unless the application gave one.
+// issuer, no front-channel logout, and no account rule unless the application gave one,
+// which leaves a person with no account to the library's standard rule.
 func TestSignIn_registration(t *testing.T) {
 	t.Parallel()
 
@@ -115,17 +115,157 @@ func TestSignIn_registration(t *testing.T) {
 	if reg.Err != nil {
 		t.Fatalf("registration refused: %v", reg.Err)
 	}
-	if reg.Name != "gateway" || reg.Method != sessioninfo.MethodOIDC || reg.StandardRule != signin.MembersOfDirectory || reg.AccountRule != nil || reg.FrontChannelLogout {
-		t.Errorf("registration = {Name %q, Method %q, StandardRule %q, AccountRule nil %v, FrontChannelLogout %v}", reg.Name, reg.Method, reg.StandardRule, reg.AccountRule == nil, reg.FrontChannelLogout)
+	if reg.Name != "gateway" || reg.Method != sessioninfo.MethodOIDC || reg.AccountRule != nil || reg.FrontChannelLogout {
+		t.Errorf("registration = {Name %q, Method %q, AccountRule nil %v, FrontChannelLogout %v}", reg.Name, reg.Method, reg.AccountRule == nil, reg.FrontChannelLogout)
 	}
 	if only, ok := reg.Issuers.Only(); !ok || only != issuer || !reg.Issuers.Contains(issuer) || reg.Issuers.Contains("https://other.example.com") {
 		t.Errorf("Issuers = %v, want exactly %q", reg.Issuers, issuer)
 	}
+}
 
-	cfg := baseConfig(nil)
-	cfg.Accounts = signin.InvitedUsersOnly
-	if reg := register(t, nil, cfg); reg.StandardRule != signin.InvitedUsersOnly {
-		t.Errorf("StandardRule = %q, want the configured %q", reg.StandardRule, signin.InvitedUsersOnly)
+// TestAudienceOf proves how wide a registration says it is, for the page where it is
+// opened to sign-up: the provider is the one organization, by the application's name
+// for it or the host of its issuer.
+func TestAudienceOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		connection string
+		want       string
+	}{
+		{name: "the host of the issuer when the application names no connection", want: "anyone with an account at id.example.com"},
+		{name: "the application's name for the provider", connection: "Lakeside", want: "anyone with an account at Lakeside"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := baseConfig(nil)
+			cfg.Connection = tt.connection
+
+			got := audienceOf(cfg)
+
+			if got.Words() != tt.want || !got.Limited() {
+				t.Errorf("audienceOf() = %q (limited %v), want %q, limited to the provider", got.Words(), got.Limited(), tt.want)
+			}
+			// A provider reads as one organization whatever its issuer serves: a seed made
+			// for its registration is its author's word that it is the deployment's own.
+			if !got.OneOrganization() {
+				t.Error("audienceOf().OneOrganization() = false, want the provider read as the one organization")
+			}
+		})
+	}
+}
+
+// TestMethod_AdmitsConnection proves the method says which links are its own: the ones
+// that carry the registration's connection, the issuer unless the configuration names
+// one, so a link left by another provider's registration is not taken for one this
+// registration signs in.
+func TestMethod_AdmitsConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		connection string
+		linked     string
+		want       bool
+	}{
+		{name: "the registration's own connection, the issuer by default", linked: issuer, want: true},
+		{name: "another registration's connection", linked: "okta"},
+		{name: "no connection", linked: ""},
+		{name: "the connection the configuration names", connection: "lanterns-idp", linked: "lanterns-idp", want: true},
+		{name: "the issuer, once the configuration names a connection", connection: "lanterns-idp", linked: issuer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := baseConfig(&fakeAuthenticator{})
+			cfg.Connection = tt.connection
+			m := build(t, cfg)
+			if m.AdmitsConnection == nil {
+				t.Fatal("AdmitsConnection = nil, want the method to tell its links from another's")
+			}
+			if got := m.AdmitsConnection(tt.linked); got != tt.want {
+				t.Errorf("AdmitsConnection(%q) = %v, want %v", tt.linked, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAudienceOf_key pins what a registration's row of the sign-in methods table is
+// compared by: the provider's issuer, which is the provider's alone, never the name the
+// application gives it or the host its issuer is served from. An administrator opens a
+// method to sign-up for the people its provider signs in then: a later release that
+// points the registration at another provider under the same name, or at another issuer
+// of the same host, admits other people, and the row must not count for them.
+func TestAudienceOf_key(t *testing.T) {
+	t.Parallel()
+
+	registration := func(issuer, connection string) *Config {
+		cfg := baseConfig(nil)
+		cfg.Issuer, cfg.Connection = issuer, connection
+
+		return cfg
+	}
+	tests := []struct {
+		name        string
+		opened, now *Config
+		same        bool
+	}{
+		{name: "another provider under the first one's name", opened: registration("https://id.lakeside.example", "Lakeside"), now: registration("https://id.riverside.example", "Lakeside")},
+		{name: "another issuer of the same host, with no name given", opened: registration("https://id.example.com/realms/lakeside", ""), now: registration("https://id.example.com/realms/riverside", "")},
+		{name: "the same provider given a name", opened: registration("https://id.lakeside.example", ""), now: registration("https://id.lakeside.example", "Lakeside"), same: true},
+		{name: "the same provider given another name", opened: registration("https://id.lakeside.example", "Lakeside"), now: registration("https://id.lakeside.example", "Lakeside University"), same: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opened, now := audienceOf(tt.opened).Key(), audienceOf(tt.now).Key()
+			if got := opened == now; got != tt.same {
+				t.Errorf("the keys of the two registrations are equal = %v, want %v (%s, %s)", got, tt.same, opened, now)
+			}
+		})
+	}
+}
+
+// TestMethod_ConnectionName proves the method says its provider in words a person
+// knows: the application's name for it, or the host of its issuer where it gave none,
+// and nothing for a link that is another registration's.
+func TestMethod_ConnectionName(t *testing.T) {
+	t.Parallel()
+
+	host := audienceOf(baseConfig(&fakeAuthenticator{})).Organizations[0]
+	tests := []struct {
+		name       string
+		connection string
+		linked     string
+		want       string
+	}{
+		{name: "the registration's own connection, the issuer by default, is the issuer's host", linked: issuer, want: host},
+		{name: "the connection the configuration names is the name", connection: "lanterns-idp", linked: "lanterns-idp", want: "lanterns-idp"},
+		{name: "another registration's connection has no name here", linked: "okta"},
+		{name: "the issuer, once the configuration names a connection", connection: "lanterns-idp", linked: issuer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := baseConfig(&fakeAuthenticator{})
+			cfg.Connection = tt.connection
+			m := build(t, cfg)
+			if m.ConnectionName == nil {
+				t.Fatal("ConnectionName = nil, want the method to name its provider")
+			}
+			if got := m.ConnectionName(tt.linked); got != tt.want {
+				t.Errorf("ConnectionName(%q) = %q, want %q", tt.linked, got, tt.want)
+			}
+		})
+	}
+	if strings.Contains(host, "/") || host == issuer {
+		t.Errorf("the issuer's host = %q, want the host alone, never the URL", host)
 	}
 }
 

@@ -195,7 +195,7 @@ func (g Grant) expand() []accesstypes.Resource {
 // Warning), with no store client involved. A project test or a tool gets
 // the answer the release's start would.
 func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]Warning, error) {
-	defaults, err := compileDefaultRoles(store, roleConfig)
+	defaults, err := compileDefaultRoles(store, roleConfig, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -207,8 +207,10 @@ func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]Warnin
 // default roles, each kind's roles beside their descriptions and grant sets,
 // the warnings the configuration raises, and the grants as policy records
 // the snapshot compiles — global roles held in the global partition, domain
-// roles held in every domain. A nil *defaultRoles is a release with no
-// default roles.
+// roles held in every domain. The Super Administrator role is among the
+// global ones in every Client, whatever the file declares (see
+// superAdministratorRole). A nil *defaultRoles is no roles at all, which only
+// a test builds.
 type defaultRoles struct {
 	global   map[accesstypes.Role]defaultRole
 	domain   map[accesstypes.Role]defaultRole
@@ -223,8 +225,12 @@ type defaultRole struct {
 	grants      grantSet
 }
 
-// compileDefaultRoles validates and expands the configuration.
-func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig) (*defaultRoles, error) {
+// compileDefaultRoles validates and expands the configuration, and adds the
+// role the framework defines beside the file's: Super Administrator, a
+// global role holding Execute on methods, the methods that give and take the
+// auth's roles (WithSuperAdministratorMethods). store may be nil for a
+// configuration that declares no role, a Client built without a role file.
+func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, methods []accesstypes.Resource) (*defaultRoles, error) {
 	if err := validateRoleNames(roleConfig.Roles); err != nil {
 		return nil, err
 	}
@@ -233,9 +239,15 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig) (*d
 	}
 
 	d := &defaultRoles{
-		global: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Global)),
+		global: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Global)+1),
 		domain: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Domain)),
 	}
+	super, err := superAdministratorRole(store, methods)
+	if err != nil {
+		return nil, err
+	}
+	d.global[accesstypes.SuperAdministrator] = super
+	d.grants = append(d.grants, grantRecords(accesstypes.GlobalPolicyScope(), accesstypes.SuperAdministrator, super.grants)...)
 	globalGrants, globalWarnings, err := expandAllRoleGrants(store, roleConfig.Roles.Global, accesstypes.GlobalPermissionScope)
 	if err != nil {
 		return nil, err
@@ -336,6 +348,51 @@ func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]
 	return d.domain
 }
 
+// superAdministratorDescription is what the listing says the Super
+// Administrator role is for, beside its name.
+const superAdministratorDescription = "The way back in when everything else is broken. Signs in whatever a tenant's sign-in settings say and gives or takes any role for any person. " +
+	"Where the application gives the roles, a super administrator signs in with a second factor, only a super administrator makes or removes another, and the last one cannot be removed. " +
+	"Where the roles come from the directory, the directory decides who is a super administrator."
+
+// superAdministratorReserved is the rule a role of the reserved name is
+// refused with, in the file and at AddRole alike, after "role NAME: ".
+const superAdministratorReserved = "the name is reserved: every auth has the Super Administrator role, which the framework defines, and an application defines no role of that name"
+
+// isSuperAdministratorName reports whether name is the reserved name in any
+// case: a directory names roles without regard to case, so no spelling of it
+// is another role's.
+func isSuperAdministratorName(name accesstypes.Role) bool {
+	return strings.EqualFold(string(name), string(accesstypes.SuperAdministrator))
+}
+
+// superAdministratorRole compiles the role the framework defines in every
+// auth: Super Administrator, a global role whose one fixed power is Execute,
+// under no condition, on methods, the methods that give and take the auth's
+// roles, so no role file takes from its holder the means to give any role to
+// anyone. With a collection, each method must be one the release declares at
+// the global scope with Execute: the methods give a role wherever it is held,
+// and the role is held in the global partition alone.
+func superAdministratorRole(store PermissionCollection, methods []accesstypes.Resource) (defaultRole, error) {
+	role := defaultRole{description: superAdministratorDescription, grants: make(grantSet)}
+	var executable []accesstypes.Resource
+	if store != nil {
+		executable = store.List()[accesstypes.Execute]
+	}
+	for _, method := range methods {
+		if method == "" {
+			return defaultRole{}, errors.New("WithSuperAdministratorMethods names an empty method: pass the methods that give and take the auth's roles")
+		}
+		if store != nil {
+			if scope := store.Scope(method); scope != accesstypes.GlobalPermissionScope || !slices.Contains(executable, method) {
+				return defaultRole{}, errors.Newf("WithSuperAdministratorMethods names %s, which the release does not declare as a method of the global scope: pass the methods that give and take the auth's roles for the whole application, as the auth's generated management names them", method)
+			}
+		}
+		role.grants.add(accesstypes.Execute, method, "")
+	}
+
+	return role, nil
+}
+
 // roleNamePattern is the one grammar every role name follows, a default
 // role's in the file and a custom role's at AddRole alike: letters and
 // digits starting with a capital letter.
@@ -380,8 +437,9 @@ func validateRoleShape(config *RoleConfig) error {
 // every role name is letters and digits starting with a capital letter, is
 // declared once, at exactly one scope, and no two names differ only in case,
 // since a directory names roles without regard to case (a Google group is an
-// email address) and ResolveRole could never tell the pair apart. No name is
-// reserved or provisioned outside the configuration.
+// email address) and ResolveRole could never tell the pair apart. One name is
+// reserved: Super Administrator is the framework's role in every auth, and a
+// file that declares it, in any case and at either scope, is refused.
 func validateRoleNames(roles ScopedRoles) error {
 	seen := make(map[accesstypes.Role]string)
 	folded := make(map[string]accesstypes.Role)
@@ -389,6 +447,9 @@ func validateRoleNames(roles ScopedRoles) error {
 		for _, r := range list {
 			if !roleNamePattern.MatchString(string(r.Name)) {
 				return errors.Newf("role %s: %s", r.Name, roleNameRule)
+			}
+			if isSuperAdministratorName(r.Name) {
+				return errors.Newf("role %s: %s; remove it from the %s roles and give what it grants to a role of another name", r.Name, superAdministratorReserved, kind)
 			}
 			if prev, taken := seen[r.Name]; taken {
 				if prev == kind {

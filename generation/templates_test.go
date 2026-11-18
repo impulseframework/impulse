@@ -422,6 +422,27 @@ func Test_routerTestTemplate_selfContained(t *testing.T) {
 			wantNotContains: []string{"DomainGuard", "PatchResources", "mock_router"},
 		},
 		{
+			name: "the test holds every route to the refusal of a dry run and a warning, but the ones whose frames answer the headers",
+			data: routerFileData{
+				ServesSessions: true,
+				Package:        "router",
+				RoutesMap:      map[string][]*generatedRoute{},
+				RouterTestRoutes: []*generatedRoute{
+					{Method: "POST", TestURL: "/api/retire-widget", HandlerFunc: "RetireWidget", SelfBounded: true, ReadsDryRunAndWarning: true},
+					{Method: "POST", TestURL: "/api/set-feature", HandlerFunc: "SetFeature", ReadsDryRunAndWarning: true},
+					{Method: "GET", TestURL: "/api/widgets", HandlerFunc: "Widgets"},
+				},
+			},
+			wantContains: []string{
+				"func TestGeneratedDryRunAndWarning(t *testing.T) {",
+				"for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {",
+				"if got, want := rec.handlers[tt.handlerFunc] == 1, tt.readsDryRunAndWarning; got != want {",
+				"handlerFunc: \"RetireWidget\", selfBounded: true, readsDryRunAndWarning: true,",
+				"handlerFunc: \"SetFeature\", readsDryRunAndWarning: true,",
+				"handlerFunc: \"Widgets\",\n",
+			},
+		},
+		{
 			name: "under the application's own router the test names each session outlet's auth after the outlet",
 			data: routerFileData{
 				ServesSessions: true,
@@ -717,6 +738,73 @@ func Test_routesTemplate_outlets(t *testing.T) {
 			},
 		},
 		{
+			name: "a route whose frame answers a dry run and a warning itself registers before the refusal, and every other route after it",
+			data: routerFileData{
+				ServesSessions: true,
+				Package:        "router",
+				RoutePrefix:    "api",
+				AuthName:       "crew.Name",
+				HasAskedRoutes: true,
+				RoutesMap: map[string][]*generatedRoute{
+					"RetireWidget": {{Method: "POST", Path: "/api/retire-widget", HandlerFunc: "RetireWidget", SelfBounded: true, ReadsDryRunAndWarning: true}},
+					"SetFeature":   {{Method: "POST", Path: "/api/set-feature", HandlerFunc: "SetFeature", ReadsDryRunAndWarning: true}},
+					"Widget":       {{Method: "GET", Path: "/api/widgets", HandlerFunc: "Widgets", HandlerType: ListHandler}},
+				},
+				HasConsolidatedHandler: true,
+				ConsolidatedRoute:      "resources",
+				ScheduledRoutes:        []*scheduledRoute{{Path: "/_scheduled/sweep-widgets", HandlerFunc: "SweepWidgets"}},
+				ExtraOutlets: []*outletRouteData{{
+					Name:           "machines",
+					Suffix:         "Machines",
+					Prefix:         "machines",
+					HasAskedRoutes: true,
+					RoutesMap: map[string][]*generatedRoute{
+						"CountWidgets": {{Method: "POST", Path: "/machines/count-widgets", HandlerFunc: "CountWidgets", SelfBounded: true, ReadsDryRunAndWarning: true}},
+						"Widget":       {{Method: "GET", Path: "/machines/widgets", HandlerFunc: "Widgets", HandlerType: ListHandler}},
+					},
+				}},
+			},
+			wantContains: []string{
+				// The refusal follows the subscribe middleware, and the router before it is
+				// kept for the frames that answer the two headers themselves.
+				"r = r.With(live.Subscribing(crew.Name))\n\t// A request that asks a call for a dry run (X-Dry-Run) or for its warning",
+				"register on asked, the router\n\t// before the refusal.\n\tasked := r\n\tr = r.With(resource.NoDryRunOrWarning())\n",
+				// A method's route and SetFeature's are left off the refusal, the second
+				// under the body limit it does not set for itself.
+				`asked.Post("/api/retire-widget", h.RetireWidget())`,
+				`asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())`,
+				// Every other route is under it: the resource routes and the batch on the
+				// bounded group, the live routes on r, and a scheduled call.
+				"bounded := r.With(resource.BodyLimit(BodyLimit))",
+				`bounded.Get("/api/widgets", widgetsHandler)`,
+				`bounded.Patch("/api/resources", h.PatchResources())`,
+				`r.Post("/api/live/renew", h.LiveRenew())`,
+				"r = r.With(live.Refusing(), resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())",
+				// An outlet of machine clients is held to it as well.
+				"r = r.With(live.Refusing())\n\t// A request that asks a call for a dry run",
+				`asked.Post("/machines/count-widgets", h.CountWidgets())`,
+				`bounded.Get("/machines/widgets", widgetsHandler)`,
+			},
+			wantNotContains: []string{`r.Post("/api/retire-widget"`, `bounded.Post("/api/set-feature"`, `r.Post("/machines/count-widgets"`},
+		},
+		{
+			name: "an outlet none of whose frames answers the two headers keeps no router before the refusal",
+			data: routerFileData{
+				ServesSessions: true,
+				Package:        "router",
+				RoutePrefix:    "api",
+				AuthName:       "crew.Name",
+				RoutesMap: map[string][]*generatedRoute{
+					"Widget": {{Method: "GET", Path: "/api/widgets", HandlerFunc: "Widgets", HandlerType: ListHandler}},
+				},
+			},
+			wantContains: []string{
+				"and nothing runs.\n\tr = r.With(resource.NoDryRunOrWarning())\n",
+				`bounded.Get("/api/widgets", widgetsHandler)`,
+			},
+			wantNotContains: []string{"asked"},
+		},
+		{
 			name: "no extra outlets renders the single-outlet file",
 			data: routerFileData{
 				ServesSessions: true,
@@ -777,7 +865,18 @@ func Test_permissionsTemplate_sessionOutlets(t *testing.T) {
 				"GET /api/user-domains.",
 				"resource.WithFeatureGates(resources.FeatureGates(), a.FeatureSet()), resource.WithFormerNames(router.Collection())",
 			},
-			wantNotContains: []string{"additional session-serving", "WithDomainNames"},
+			wantNotContains: []string{"additional session-serving", "WithDomainNames", "WithDirectoryNames"},
+		},
+		{
+			name: "a package that declares a tenant's directories has the session's directory named in a closed tenant's reason",
+			data: permissionsData{
+				Package: "app", ApplicationName: "App", ReceiverName: "a", RoutePrefix: "api", DefaultServesSessions: true, ResourcePackage: "resources", RouterPackage: "router", TenantNames: true,
+				DirectoryNamers: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
+			},
+			wantContains: []string{
+				"// A tenant that is closed to the session says why, and names the directory the session",
+				"return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()), resource.WithDirectoryNames(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName))",
+			},
 		},
 		{
 			name: "a record that marks its name has the tenant list named from the roster",
@@ -870,7 +969,8 @@ func Test_routesTemplate_sessionOutletHandlers(t *testing.T) {
 // Test_handlerTemplates_live pins the live-page lines of the generated handlers: the
 // list and read handlers register before the query and set the cache header before the
 // answer, the mutation handlers collect what their transaction wrote and publish after
-// the commit, and the live routes delegate to the library's handlers.
+// the commit, handing the publish the answer they have yet to write so it names the
+// write's changes on it, and the live routes delegate to the library's handlers.
 func Test_handlerTemplates_live(t *testing.T) {
 	t.Parallel()
 
@@ -911,7 +1011,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
 				// What a handler publishes with is its home's to say: the application's
 				// assembly, or the field an auth's handlers keep the same value in.
-				`live.Publish(ctx, {{ .ReceiverName }}.LiveService(), {{ .Home.LiveDerivations }}, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
+				`live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), {{ .Home.LiveDerivations }}, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
 			},
 		},
 		{
@@ -919,7 +1019,15 @@ func Test_handlerTemplates_live(t *testing.T) {
 			template: consolidatedPatchTemplate,
 			want: []string{
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
-				`live.Publish(ctx, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)`,
+				`live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)`,
+			},
+		},
+		{
+			name:     "tenant creation",
+			template: tenantCreationTemplate,
+			want: []string{
+				"ctx, touched := resource.CollectTouchedRows(ctx)",
+				`live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)`,
 			},
 		},
 		{
@@ -929,7 +1037,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 				`{{- template "rpcCollectTouched" $ }}`,
 				`{{- template "rpcPublish" $ }}`,
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
-				`live.Publish(ctx, {{ $.ReceiverName }}.LiveService(), {{ $.Home.LiveDerivations }}, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
+				`live.Publish(ctx, w, {{ $.ReceiverName }}.LiveService(), {{ $.Home.LiveDerivations }}, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
 			},
 		},
 		{
@@ -952,7 +1060,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "live routes",
 			template: liveTemplate,
 			want: []string{
-				"return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions)",
+				"return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions{{ if .ListsAcrossTenants }}, live.WithListsAcrossTenants({{ .RouterPackage }}.Collection()){{ end }})",
 				"return live.UnsubscribeHandler({{ .ReceiverName }}.LiveService())",
 				"return live.TokenHandler({{ .ReceiverName }}.LiveService())",
 			},

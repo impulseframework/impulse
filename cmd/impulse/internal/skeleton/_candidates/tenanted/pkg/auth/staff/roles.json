@@ -3,7 +3,7 @@
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's tenants and people: creates tenants, creates accounts and invites people, gives and takes roles, and sets temporary passwords.",
+        "description": "Manages the application's tenants and people: brings a tenant in by inviting the person who will administer it, creates accounts and invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
         "permissions": {
           "Create": [
             {
@@ -47,6 +47,9 @@
               "resource": "UnlinkStaffSessionIdentity"
             },
             {
+              "resource": "RemoveStaffPassword"
+            },
+            {
               "resource": "RevokeStaffSessionToken"
             },
             {
@@ -65,16 +68,49 @@
               "resource": "UnlockStaffSignIn"
             },
             {
+              "resource": "OpenStaffSignUp"
+            },
+            {
+              "resource": "MakeStaffInviteOnly"
+            },
+            {
               "resource": "InviteStaffUser"
             },
             {
               "resource": "WithdrawStaffInvitation"
             },
             {
+              "resource": "InviteStaffTenant"
+            },
+            {
+              "resource": "WithdrawStaffInvitedTenant"
+            },
+            {
               "resource": "SetStaffUserEmail"
             },
             {
               "resource": "SetStaffUserName"
+            },
+            {
+              "resource": "CreateStaffGroup"
+            },
+            {
+              "resource": "DescribeStaffGroup"
+            },
+            {
+              "resource": "DeleteStaffGroup"
+            },
+            {
+              "resource": "AddStaffGroupMember"
+            },
+            {
+              "resource": "RemoveStaffGroupMember"
+            },
+            {
+              "resource": "GiveStaffGroupRole"
+            },
+            {
+              "resource": "TakeStaffGroupRole"
             }
           ],
           "List": [
@@ -112,7 +148,9 @@
             {
               "resource": "StaffUserRoles",
               "fields": [
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -126,6 +164,15 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "StaffSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through"
               ]
             },
             {
@@ -160,12 +207,37 @@
               ]
             },
             {
+              "resource": "StaffInvitedTenants",
+              "fields": [
+                "createdAt",
+                "defaultRole",
+                "email",
+                "expiresAt",
+                "invitedByUserId",
+                "name",
+                "tenantDirectoryOnly",
+                "tenantName"
+              ]
+            },
+            {
               "resource": "StaffSessionSignInAttempts",
               "fields": [
                 "failures",
                 "lockedUntil",
                 "updatedAt",
                 "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "StaffSignInMethods",
+              "fields": [
+                "admits",
+                "defaultRole",
+                "directoryGivesRoles",
+                "label",
+                "openSignUp",
+                "ownRule",
+                "says"
               ]
             },
             {
@@ -198,6 +270,45 @@
                 "lastUsedAt",
                 "revokedAt",
                 "userId"
+              ]
+            },
+            {
+              "resource": "StaffGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "startsAt",
+                "endsAt"
               ]
             }
           ],
@@ -286,13 +397,23 @@
                 "revokedAt",
                 "userId"
               ]
+            },
+            {
+              "resource": "StaffGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
             }
           ],
           "Update": [
             {
               "resource": "Tenants",
               "fields": [
-                "directoryOnly",
                 "name"
               ]
             }
@@ -336,7 +457,7 @@
     "domain": [
       {
         "name": "TenantAdministrator",
-        "description": "Runs one tenant: manages its people and the roles they hold there, declares the directories they sign in through, and posts its announcements.",
+        "description": "Runs one tenant: manages its people, their groups and the roles they hold there, declares the directories they sign in through, and posts its announcements.",
         "permissions": {
           "Create": [
             {
@@ -347,12 +468,7 @@
               ]
             },
             {
-              "resource": "TenantDirectories",
-              "fields": [
-                "connection",
-                "defaultSeat",
-                "method"
-              ]
+              "resource": "TenantDirectories"
             }
           ],
           "Delete": [
@@ -424,6 +540,43 @@
             {
               "resource": "UnlinkStaffTenantSessionIdentity",
               "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RemoveStaffTenantPassword",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "CreateStaffTenantGroup"
+            },
+            {
+              "resource": "DescribeStaffTenantGroup"
+            },
+            {
+              "resource": "DeleteStaffTenantGroup"
+            },
+            {
+              "resource": "AddStaffTenantGroupMember"
+            },
+            {
+              "resource": "RemoveStaffTenantGroupMember"
+            },
+            {
+              "resource": "GiveStaffTenantGroupRole"
+            },
+            {
+              "resource": "TakeStaffTenantGroupRole"
+            },
+            {
+              "resource": "MakeTenantDirectoryOnly"
+            },
+            {
+              "resource": "EndTenantDirectoryOnly"
+            },
+            {
+              "resource": "OpenTenantToDirectory"
+            },
+            {
+              "resource": "MakeTenantInviteOnly"
             }
           ],
           "List": [
@@ -453,7 +606,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "cannotEnter"
               ]
             },
             {
@@ -470,7 +624,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -509,9 +665,66 @@
               "condition": "heldElsewhere = false"
             },
             {
+              "resource": "StaffTenantSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through",
+                "heldElsewhere",
+                "heldGlobally"
+              ],
+              "condition": "password = false OR heldElsewhere = false"
+            },
+            {
               "resource": "StaffTenantRoles",
               "fields": [
                 "description"
+              ]
+            },
+            {
+              "resource": "StaffTenantDirectoryRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
+              "resource": "StaffTenantGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantGroupRoles",
+              "fields": [
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "globalGroup",
+                "everyDomain",
+                "startsAt",
+                "endsAt"
               ]
             }
           ],
@@ -542,7 +755,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "cannotEnter"
               ]
             },
             {
@@ -559,7 +773,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -596,6 +812,14 @@
                 "emailAtLink"
               ],
               "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "StaffTenantGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
             }
           ],
           "Update": [
@@ -604,12 +828,6 @@
               "fields": [
                 "body",
                 "title"
-              ]
-            },
-            {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
               ]
             }
           ]

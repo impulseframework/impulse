@@ -5,6 +5,16 @@
 // change them; each method's body is one call into this package, so the rules are
 // compiled and tested once and are the same for every auth of every application.
 //
+// How a tenant comes to exist is among the rules. Nobody creates a tenant directly: staff
+// of the auth a tenant is made through invite one person with the tenant's details
+// (Manager.InviteTenant, the details held to the tenant record's own create for the
+// sender by Manager.CheckInvitedTenant), and that person's first sign-in makes the
+// tenant through the application's generated maker (TenantMaker), seats them with the
+// roles that administer a tenant and, where they came through their organization's
+// directory, makes it the tenant's own, in the transaction that consumes the invitation.
+// Manager.InvitedTenants lists the invitations that still stand, and
+// Manager.WithdrawTenantInvitation withdraws one.
+//
 // Every rule runs inside the caller's transaction (resource.ReadWriteTransaction): a
 // generated handler's, or one an application opened to create a person beside its own
 // rows and commit them together. Nothing here commits, and nothing reads a row a sibling
@@ -20,6 +30,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -28,6 +39,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // Store is what the rules need of one auth's tables: single reads and single buffered
@@ -43,18 +55,24 @@ type Store interface {
 	// rendered it, and whether the person must change the password before anything
 	// else is served. An auth with no password method has no such write.
 	SetPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error
+	// RemovePassword buffers the removal of a user's password, and with it the mark that
+	// the person must change it. An auth with no password method has no such write.
+	RemovePassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 	// ClearAttempts buffers the removal of the count of failed sign-ins kept under a
 	// name (session.SignInAttemptName); a name with no count is no error.
 	ClearAttempts(ctx context.Context, txn resource.ReadWriteTransaction, name string) error
 	// UserHasPassword reads whether a user holds a password; found is false where no
-	// user holds the id. The hash itself is read by nothing.
-	UserHasPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error)
+	// user holds the id. The hash itself is read by nothing. It writes nothing, so a
+	// read outside a write asks it too (SignInWays).
+	UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error)
 
 	// IdentityUser reads the user an identity links to; found is false where no
 	// identity holds the id. An auth that keeps no identities finds none.
 	IdentityUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (userID impulse.UUID, found bool, err error)
-	// Identities lists the identities linked to a user.
-	Identities(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
+	// Identities lists the identities linked to a user, each with the sign-in method
+	// and the connection it came through, which say whether it can still sign the
+	// person in. It writes nothing, so a read outside a write asks it too (SignInWays).
+	Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]Link, error)
 	// DeleteIdentity buffers the removal of an identity.
 	DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 
@@ -68,6 +86,10 @@ type Store interface {
 
 	// Username reads a user's username; found is false where no user holds the id.
 	Username(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (username string, found bool, err error)
+	// UserDisabled reads whether a user is disabled; found is false where no user holds
+	// the id. The rule on the last super administrator reads it: a holder of the role
+	// who cannot sign in is nobody's way back in.
+	UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error)
 	// UserID reads the id of the user who holds a username, compared as the auth
 	// compares names at a sign-in; found is false where none does. It is how a new
 	// name is found taken. The permission store names a person by the id of their
@@ -143,12 +165,34 @@ type Store interface {
 	// TenantInvitations lists the invitations into one tenant that are not consumed:
 	// neither accepted nor withdrawn. An auth that mails no links answers none.
 	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
+	// InvitedTenants lists the invitations that make a tenant and are not consumed,
+	// neither accepted nor withdrawn, oldest first, each with the document its
+	// NewTenant column holds. reader is the caller's transaction or the application's
+	// client. An auth that mails no links answers none.
+	InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransaction) ([]InvitedTenantRow, error)
+
+	// SignInMethodRows lists the rows of the sign-in methods table: what an
+	// administrator chose for each method that has a row. reader is the caller's
+	// transaction or the application's client. A schema that holds no such table
+	// answers none, which is every method invite only.
+	SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]SignInMethodRow, error)
+	// SetSignInMethod buffers the row of the method it names, written whole: created
+	// where the method has none, replaced where it has one. The write keeps who made
+	// it and when (the table's change events).
+	SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *SignInMethodRow) error
 
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.
 	TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
 	// RevokeTrustedDevice buffers the revocation of one remembered browser.
 	RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+
+	// GroupStore is the auth's groups of people, their members and the roles they hold
+	// (groups.go).
+	GroupStore
+	// PeriodStore is the period of an assignment: a person's role, a person's place in
+	// a group and a group's role (periods.go).
+	PeriodStore
 }
 
 // SessionAPI is what the rules take from the session library's Auth, the one that signs
@@ -163,6 +207,33 @@ type SessionAPI interface {
 	// the row to store, and the step that mails its link once the row is committed.
 	// The token, the message and the sender stay in the session library.
 	PrepareInvitation(ctx context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error)
+	// SignInMethods lists the sign-in methods the Auth registers, in the login page's
+	// order: each with how wide it is and whether its directory gives the roles.
+	SignInMethods() []session.RegisteredMethod
+	// SignsInThrough names the sign-in registrations of the Auth's login page that an
+	// identity of this method and connection can sign its person in through, and none
+	// for an identity that signs nobody in: its method is no registration the page
+	// offers any more, or no registration of the method takes its connection. It is the
+	// one judgment of which links count as a means of sign-in, the session library's
+	// own (session.AuthAPI.SignsInThrough): the removal of a password is refused, and
+	// offered, by it.
+	SignsInThrough(method sessioninfo.AuthMethod, connection string) []string
+	// DirectoryName answers what the Auth's sign-in registrations call the directory an
+	// identity of this method and connection came through: the name a registration that
+	// takes the connection gives it, and the label of the button a person signs in to
+	// it with, each "" where the registrations have none
+	// (session.AuthAPI.DirectoryName). A sentence that names a directory to a person
+	// says it by them, never by the connection.
+	DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string)
+}
+
+// Link is one identity linked to a user, as the rules read it: its id, and the sign-in
+// method and the connection it came through (the identities table's Method and
+// Connection), which say whether a sign-in through it is still possible.
+type Link struct {
+	ID         impulse.UUID
+	Method     sessioninfo.AuthMethod
+	Connection string
 }
 
 // MailLink is a link the auth mailed, as the rules read it.
@@ -238,9 +309,14 @@ type Manager struct {
 	store    Store
 	access   access.Controller
 	sessions SessionAPI
-	// administrators are the roles whose holders administer the application and a
-	// tenant, nil where the application named none (WithAdministratorRoles).
+	// administrators are the roles whose holders administer a tenant, nil where the
+	// application named none (WithAdministratorRoles). The application as a whole is
+	// administered by the holders of the Super Administrator role, which needs no naming.
 	administrators *administratorRoles
+	// superMethods are the methods that give and take the auth's roles for the whole
+	// application, which the permission engine must let a super administrator execute
+	// (WithSuperAdministratorMethods); New holds the engine to it.
+	superMethods []accesstypes.Resource
 	// oneTenant is set where a person belongs to one tenant (WithOneTenantPerPerson),
 	// and holds what the hooks of a sign-in have given so far; nil where a person may
 	// hold roles in several tenants.
@@ -248,28 +324,54 @@ type Manager struct {
 	// tenantWord is what the application calls one tenant, as a sentence a person reads
 	// says it ("customer"); "tenant" where the application named none (WithTenantWord).
 	tenantWord string
+	// grants answer what the request's caller may do to a person's role, which the
+	// rules of a group ask (WithRoleGrants); nil where the manager was built without
+	// them.
+	grants RoleGrants
+	// tenants makes a tenant from an accepted invitation (WithTenantMaker); nil where
+	// the auth's people create none that way.
+	tenants TenantMaker
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
 }
 
-// administratorRoles are the roles whose holders administer, by where they are held.
+// administratorRoles are the roles whose holders administer a tenant.
 type administratorRoles struct {
-	global []accesstypes.Role
 	domain []accesstypes.Role
 }
 
 // Option configures a manager.
 type Option func(*Manager)
 
-// WithAdministratorRoles names the roles whose holders administer: global, the ones
-// held in the global scope, and domain, the ones held in a tenant. The rule on a
-// person removing a role from themselves reads them (RemoveRole): nobody gives up an
-// administrator role nobody else would hold. Without them a person removes no role
-// from themselves at all.
-func WithAdministratorRoles(global, domain []accesstypes.Role) Option {
+// WithAdministratorRoles names the roles whose holders administer a tenant: the domain
+// roles a person holds in the tenant, or in every tenant. The rule on a person removing
+// a role from themselves in a tenant reads them (RemoveRole): nobody gives up a tenant's
+// administrator role nobody else would hold there. Without them a person removes no
+// role from themselves in a tenant at all.
+//
+// The application as a whole needs no such list: its last administrator is the last
+// super administrator, the holder of the role the framework defines
+// (accesstypes.SuperAdministrator), who is protected whoever asks. A person gives up any
+// other role they hold in the global partition, since a super administrator gives it
+// back.
+func WithAdministratorRoles(domain []accesstypes.Role) Option {
 	return func(m *Manager) {
-		m.administrators = &administratorRoles{global: global, domain: domain}
+		m.administrators = &administratorRoles{domain: domain}
+	}
+}
+
+// WithSuperAdministratorMethods names the methods that give and take the auth's roles
+// for the whole application, the ones the auth's generated management serves. A super
+// administrator gives and takes any role whatever the role file grants, which the
+// permission engine provides when it is built with the same methods
+// (access.WithSuperAdministratorMethods). New holds the access library's engine to it
+// and refuses one built without them, so an application that forgot the option does not
+// start with a super administrator who can be locked out of the roles. The generated
+// client passes the methods; an application does not.
+func WithSuperAdministratorMethods(methods ...accesstypes.Resource) Option {
+	return func(m *Manager) {
+		m.superMethods = methods
 	}
 }
 
@@ -305,10 +407,45 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	if sessions == nil {
 		return nil, errors.New("identity.New(): the session API is nil; pass the API of the Auth that signs the auth's people in (session.Auth.API), whose hasher a password written here is checked by")
 	}
-	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, oneTenant: nil, tenantWord: "tenant", now: time.Now}
+	m := &Manager{
+		auth: auth, store: store, access: controller, sessions: sessions,
+		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
+	}
 	for _, opt := range opts {
 		opt(m)
 	}
+	if err := m.requireSuperAdministratorMethods(); err != nil {
+		return nil, err
+	}
 
 	return m, nil
+}
+
+// superAdministratorEngine is the access library's own engine as New holds it to the
+// methods: it says which methods it was built to let a super administrator execute
+// (access.Client.SuperAdministratorMethods). A controller that does not say, such as the
+// scripted one a test stands in for the engine, answers its checks as scripted and is
+// held to nothing.
+type superAdministratorEngine interface {
+	SuperAdministratorMethods() []accesstypes.Resource
+}
+
+// requireSuperAdministratorMethods refuses a permission engine that was not built to let
+// a super administrator execute the methods that give and take the auth's roles
+// (WithSuperAdministratorMethods): the engine says what it was built with, so nothing is
+// read from the database.
+func (m *Manager) requireSuperAdministratorMethods() error {
+	engine, says := m.access.(superAdministratorEngine)
+	if !says {
+		return nil
+	}
+	built := engine.SuperAdministratorMethods()
+	for _, method := range m.superMethods {
+		if !slices.Contains(built, method) {
+			return errors.Newf("identity.New(): the permission engine of the %s auth does not let a super administrator execute %s, a method that gives or takes the auth's roles; %s",
+				m.auth, method, "build the engine with access.WithSuperAdministratorMethods and the methods the auth's generated management names (its SuperAdministratorMethods)")
+		}
+	}
+
+	return nil
 }

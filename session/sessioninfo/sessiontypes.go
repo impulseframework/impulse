@@ -40,8 +40,8 @@ type SessionData struct {
 	Impersonation *Impersonation
 	Principal     accesstypes.Principal
 	// UserID is the user (SessionUsers.Id) the session belongs to. For a
-	// user-principal impersonation it is the impersonated user. It is null for the
-	// legacy session types, preauth sessions, and role-principal impersonations.
+	// user-principal impersonation it is the impersonated user. It is null for preauth
+	// sessions and role-principal impersonations.
 	// It is what the permission store names the person by (User).
 	UserID impulse.NullUUID
 	// AuthenticatedAt is when the session's most recent authentication step completed.
@@ -85,13 +85,33 @@ func (s *SessionData) User() accesstypes.User {
 // impersonation; the application's own first event of a session it started itself).
 // It is what a tenant's declaration admits or refuses when the session reaches the
 // tenant (signin.TenantDeclaration.Admits). ok is false for a session that records no
-// events: a legacy or preauth session, or a storage without an auth events table.
+// events: a session Preauth's Login starts, or one on a storage without an auth events
+// table.
 func (s *SessionData) EstablishedBy() (event AuthEvent, ok bool) {
 	if s == nil || len(s.AuthEvents) == 0 {
 		return AuthEvent{}, false
 	}
 
 	return s.AuthEvents[0], true
+}
+
+// SecondFactor returns the second factor the session carries: the first auth event
+// after the one that established it that records one (AuthMethod.SecondFactor), such as
+// the mailed code or a remembered browser standing in for it. It is what the
+// administrators' way into a directory-only tenant asks for beside the password
+// (signin.TenantDeclaration.AdmitsAdministrator). ok is false for a session whose
+// sign-in was all there was, and for one that records no events.
+func (s *SessionData) SecondFactor() (event AuthEvent, ok bool) {
+	if s == nil || len(s.AuthEvents) < 2 {
+		return AuthEvent{}, false
+	}
+	for _, e := range s.AuthEvents[1:] {
+		if e.Method.SecondFactor() {
+			return e, true
+		}
+	}
+
+	return AuthEvent{}, false
 }
 
 // UserInfo struct contains information about a user

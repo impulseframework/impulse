@@ -115,6 +115,19 @@ describe('PlaceService', () => {
     expect(places.places().map((place) => place.label)).toEqual(['Acme', 'Zenith']);
   });
 
+  it('keeps a tenant that is closed to this sign-in out of the places and where the person lands, and lists it apart with the reason', async () => {
+    const reason = 'Aardvark admits only people who sign in through its own directory. You signed in with a password.';
+    const transport = specTransport({
+      digests: { '': holdsNothing },
+      domains: [...domains, { domain: 'c-id', name: 'Aardvark', closed: reason }],
+    });
+    TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, { menus }, routes)] });
+    await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
+    const places = TestBed.inject(PlaceService);
+    expect(places.places().map((place) => place.label)).toEqual(['Acme', 'Zenith']);
+    expect(places.closed()).toEqual([{ id: 'c-id', label: 'Aardvark', reason }]);
+  });
+
   it('lists only the tenants for a person whose grant outside them no menu entry answers to', async () => {
     const places = await signIn(holdsUnplaced);
     expect(places.holdsOutside()).toBe(false);

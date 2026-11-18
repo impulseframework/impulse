@@ -7,6 +7,7 @@ package resource
 // own model of them and a computed list judged under conditions that read them.
 
 import (
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -112,7 +113,7 @@ func TestSubjectFactStatement(t *testing.T) {
 func TestReadSubjectFacts_otherDatabase(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := readSubjectFacts(t.Context(), postgresFactSource{}, semanticCollection(t), testScope, "u1", []string{"teams"}, nil)
+	_, _, err := readSubjectFacts(t.Context(), postgresFactSource{}, semanticCollection(t), testScope, accesstypes.NewEnvironment(), "u1", []string{"teams"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "reading one is implemented for spanner alone") {
 		t.Fatalf("readSubjectFacts() error = %v, want the refusal naming the database it is implemented for", err)
 	}
@@ -153,6 +154,13 @@ type semanticFactRequest struct {
 // semanticFactConditions pairs each of the fixture's subject sets and values with a
 // field of its comparison type, as deploy validation admits them.
 var semanticFactConditions = []string{
+	"team IN subject.editTeams",
+	"team IN subject.viewTeams AND team NOT IN subject.editTeams",
+	"team IN subject.farTeams OR region IN subject.circles",
+	"region NOT IN subject.widerCircles",
+	"team IN subject.drawnTeams",
+	"tier IN subject.passTiers",
+	"team IN subject.badges",
 	"team IN subject.teams",
 	"team NOT IN subject.teams",
 	"tier IN subject.tiers",
@@ -170,11 +178,11 @@ var semanticFactConditions = []string{
 }
 
 // semanticFactCollection is the semantic fixture's collection with the computed
-// resource beside its anchors.
-func semanticFactCollection(t *testing.T) *GeneratedCollection {
+// resource beside its anchors, the drawnTeams set under the where: given.
+func semanticFactCollection(t *testing.T, drawnWhere string) *GeneratedCollection {
 	t.Helper()
 
-	resources := append(semanticResources(), CollectionResource{
+	resources := append(semanticResourcesWith(drawnWhere), CollectionResource{
 		Name:        semanticFactResource,
 		Scope:       accesstypes.DomainPermissionScope,
 		Computed:    true,
@@ -214,9 +222,9 @@ func (h *semanticHarness) checkSubjectFacts(t *testing.T, c *semanticCase, colle
 	model := w.image(&semanticParcel{}, nil)
 	client := NewSpannerClient(h.client)
 
-	setNames := []string{"teams", "tiers", "regions"}
+	setNames := slices.Concat([]string{"teams", "tiers", "regions"}, semanticPartSetNames)
 	valueNames := []string{"nickname", "quota", "rate", "allowance", "active", "clearedUntil", "startDate", "homeRegion"}
-	sets, values, err := readSubjectFacts(t.Context(), client, collection, w.scope(), accesstypes.User(w.requester), setNames, valueNames)
+	sets, values, err := readSubjectFacts(t.Context(), client, collection, w.scope(), w.env(), accesstypes.User(w.requester), setNames, valueNames)
 	if err != nil {
 		t.Fatalf("%s\nreadSubjectFacts() error = %v", c.report(), err)
 	}
@@ -242,6 +250,18 @@ func (h *semanticHarness) checkSubjectFacts(t *testing.T, c *semanticCase, colle
 	// A computed list of rows drawn from the same pools the anchors' values come
 	// from, so a row meets the caller's facts often enough to be decided both ways.
 	rows := h.drawFactRows(w.index)
+
+	// partSetsAt is the model's sets with those that write a who: or a where:
+	// part read at the instant given.
+	partSetsAt := func(at time.Time) map[string][]any {
+		reference := newSetReference(collection, w.setRows(), w.requester, at, w.scope())
+		sets := maps.Clone(model.SubjectSets)
+		for _, name := range semanticPartSetNames {
+			sets[name] = reference.values(t, name)
+		}
+
+		return sets
+	}
 
 	decoder := MustNewComputedQueryDecoder[semanticFactRow, semanticFactRequest](SpannerDBType, accesstypes.List).
 		WithCollection(collection).
@@ -274,6 +294,15 @@ func (h *semanticHarness) checkSubjectFacts(t *testing.T, c *semanticCase, colle
 			got = append(got, row.Name)
 		}
 
+		// A computed decoder samples the request's decision instant itself, and a
+		// set whose where: reads now is read at that instant: the reference reads
+		// the sets at the same one.
+		at, ok := qSet.env.Now()
+		if !ok {
+			t.Fatalf("%s\n%s: the decoded request carries no decision instant", c.report(), source)
+		}
+		sets := partSetsAt(at)
+
 		var want []string
 		for _, row := range rows {
 			truth, err := condition.Evaluate(expr, &condition.Image{
@@ -282,7 +311,8 @@ func (h *semanticHarness) checkSubjectFacts(t *testing.T, c *semanticCase, colle
 					"active": row.Active, "at": row.At.UTC(), "day": semanticDate(row.Day),
 				},
 				Subject:       w.requester,
-				SubjectSets:   model.SubjectSets,
+				Now:           at,
+				SubjectSets:   sets,
 				SubjectValues: model.SubjectValues,
 			})
 			if err != nil {

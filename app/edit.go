@@ -285,7 +285,7 @@ func declaresMethod(arg ast.Expr, pkg, name string) bool {
 }
 
 // declaredMethod reads the registration name an Auth option's argument declares, with
-// the flags chained on it (InvitedUsers, SyncsRoles, OpenSignUp, UsernameIsEmail): a
+// the flags chained on it (SyncsRoles, UsernameIsEmail): a
 // method constructor taking the name as its one string literal, or PasswordMethod() for
 // password, under .Labeled(label) and the flags in any order. Anything else is not a
 // declaration.
@@ -330,9 +330,9 @@ func declaredMethod(arg ast.Expr, pkg string) (name string, flags map[string]boo
 // the result is formatted.
 func ChainMethodFlag(rel string, src []byte, importPath, name, flag string) (out []byte, edited int, err error) {
 	switch flag {
-	case invitedUsersMethod, syncsRolesMethod, openSignUpMethod, usernameIsEmailMethod:
+	case syncsRolesMethod, usernameIsEmailMethod:
 	default:
-		return nil, 0, errors.Newf("%q is not a flag a method declaration chains: %s, %s, %s or %s", flag, invitedUsersMethod, syncsRolesMethod, openSignUpMethod, usernameIsEmailMethod)
+		return nil, 0, errors.Newf("%q is not a flag a method declaration chains: %s or %s", flag, syncsRolesMethod, usernameIsEmailMethod)
 	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.ParseComments)

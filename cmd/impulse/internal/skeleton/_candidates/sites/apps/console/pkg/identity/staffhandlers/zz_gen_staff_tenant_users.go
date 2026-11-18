@@ -32,6 +32,8 @@ func (h *Handlers) StaffTenantUsers() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		HeldElsewhere          bool         `json:"heldElsewhere"          index:"true"`
 		HeldGlobally           bool         `json:"heldGlobally"           index:"true"`
+		OutsideDirectory       bool         `json:"outsideDirectory"       index:"true"`
+		CannotEnter            *string      `json:"cannotEnter"`
 	}
 
 	type response []map[string]any
@@ -122,6 +124,14 @@ func (h *Handlers) StaffTenantUsers() http.HandlerFunc {
 					if !row.Masked("heldGlobally") {
 						rmap["heldGlobally"] = rec.HeldGlobally
 					}
+				case "OutsideDirectory":
+					if !row.Masked("outsideDirectory") {
+						rmap["outsideDirectory"] = rec.OutsideDirectory
+					}
+				case "CannotEnter":
+					if !row.Masked("cannotEnter") {
+						rmap["cannotEnter"] = rec.CannotEnter
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -157,6 +167,8 @@ func (h *Handlers) StaffTenantUser() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		HeldElsewhere          bool         `json:"heldElsewhere"`
 		HeldGlobally           bool         `json:"heldGlobally"`
+		OutsideDirectory       bool         `json:"outsideDirectory"`
+		CannotEnter            *string      `json:"cannotEnter"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffTenantUser, response](h, accesstypes.Read)
@@ -234,6 +246,14 @@ func (h *Handlers) StaffTenantUser() http.HandlerFunc {
 			case "HeldGlobally":
 				if !row.Masked("heldGlobally") {
 					rmap["heldGlobally"] = rec.HeldGlobally
+				}
+			case "OutsideDirectory":
+				if !row.Masked("outsideDirectory") {
+					rmap["outsideDirectory"] = rec.OutsideDirectory
+				}
+			case "CannotEnter":
+				if !row.Masked("cannotEnter") {
+					rmap["cannotEnter"] = rec.CannotEnter
 				}
 			}
 		}

@@ -60,12 +60,20 @@ func newIdentityWorld(t *testing.T) *identityWorld {
 // the test makes and nobody else.
 func buildIdentityWorld(t *testing.T, castAccounts bool) *identityWorld {
 	t.Helper()
+
+	return buildIdentityWorldOver(t, castAccounts, crew.Roles())
+}
+
+// buildIdentityWorldOver builds the world over the crew's role file as given: the one
+// the release ships, or a suite's variant of it.
+func buildIdentityWorldOver(t *testing.T, castAccounts bool, crewRoles access.RoleFile) *identityWorld {
+	t.Helper()
 	ctx := t.Context()
 	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	crewEngine, err := openEngine(db, crew.TablePrefix, crew.Roles())
+	crewEngine, err := openEngine(db, crew.TablePrefix, crewRoles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,10 +651,10 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 }
 
 // TestGeneratedIdentityRules holds the rules the user management keeps, on the generated
-// methods' routes: nobody disables their own account; a person who removes a role from
-// themselves keeps an administrator role nobody else would hold where it is held (the
-// crew's are headquarters and, in a sector, the marshal, which a marshal of every sector
-// holds there too); and the removal of a person's
+// methods' routes: nobody disables their own account; the service's last super
+// administrator keeps the role; a person who removes a role from themselves in a sector
+// keeps an administrator role nobody else would hold there (the marshal's, which a
+// marshal of every sector holds there too); and the removal of a person's
 // last role anywhere deletes the account in the same transaction.
 func TestGeneratedIdentityRules(t *testing.T) {
 	t.Parallel()
@@ -662,19 +670,19 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	}
 	sector := rules.String()
 
-	// The last administrator of the application: the governor is headquarters' one
-	// holder and may not give the role up.
+	// The last administrator of the application is its last super administrator: the
+	// governor is the one holder of the role who can sign in and may not give it up.
 	// The methods name a person by the id of their account: user is that id, as text.
-	headquarters := func(user accesstypes.User) string {
-		return `{"userId":"` + string(user) + `","role":"Headquarters"}`
+	superAdministrator := func(user accesstypes.User) string {
+		return `{"userId":"` + string(user) + `","role":"SuperAdministrator"}`
 	}
 	governor := account(t, "governor")
-	status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", headquarters(governor))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "last administrator") {
-		t.Errorf("the governor giving up the last headquarters role: status %d, want 403 naming the last administrator: %s", status, body)
+	status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", superAdministrator(governor))
+	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last super administrator who can sign in") {
+		t.Errorf("the governor giving up the last Super Administrator role: status %d, want 403 naming the last super administrator: %s", status, body)
 	}
-	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("Headquarters", governor), "UserId"); got != string(governor) {
-		t.Errorf("the governor's headquarters membership after the refusal: user = %q, want it kept", got)
+	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("SuperAdministrator", governor), "UserId"); got != string(governor) {
+		t.Errorf("the governor's Super Administrator membership after the refusal: user = %q, want it kept", got)
 	}
 
 	// create makes the person and tells the harness whose account it is, so a request
@@ -752,7 +760,7 @@ func TestGeneratedIdentityRules(t *testing.T) {
 
 	// Hana's own last role: she gives up headquarters, which the governor holds too,
 	// and the account goes with it, as anyone's does.
-	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", headquarters(hanaUser))
+	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+hanaID+`","role":"Headquarters"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+hanaID, "")
 	if status != http.StatusNotFound {
@@ -1200,8 +1208,9 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 		t.Errorf("require-crew-password-change of a person with no password: status %d, want 400: %s", status, body)
 	}
 
-	// Identities, written as a directory sign-in writes them: two for the person with
-	// no password, one for the marshal, who holds a password.
+	// Identities, written as a sign-in through the fleet's directory writes them, under
+	// the connection the crew's Google sign-in takes, so each is a way in: two for the
+	// person with no password, one for the marshal, who holds a password.
 	marshalID := crewAccountID(ctx, t, hq, "marshal")
 	link := func(userID, subject string) string {
 		id, err := impulse.NewUUID()
@@ -1209,7 +1218,7 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
-			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": "google", "Subject": subject,
+			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": "example", "Subject": subject,
 			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 		})}); err != nil {
 			t.Fatalf("writing an identity of %s: %v", userID, err)

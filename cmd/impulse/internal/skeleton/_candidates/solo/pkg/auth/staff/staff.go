@@ -17,7 +17,9 @@
 //
 // The auth mails: an administrator invites a person by address, with the roles the
 // invitation seats, and the invitee follows the link to accept it; a signed-in person
-// adds an address and proves it by following the link sent to it.
+// adds an address and proves it by following the link sent to it; and, while an
+// administrator has the password method open to sign-up, a stranger signs up from a link
+// mailed to the address they give.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -72,21 +74,24 @@ const (
 	// Auth session (a person is one user whichever way they sign in; an identity the
 	// directory verifies links to its user through the identities table), the auth events
 	// each session records, the pending sign-ins that wait for a confirmation, the
-	// sign-in attempts the password method's attempt limiter counts per sign-in name, and
-	// the mail links: the invitations, address verifications and sign-ups the auth mails,
-	// each a single-use token its follower proves; the tokens: the bearer credentials of
-	// the machine outlets whose tokens this auth issues (the application tokens its people
-	// issue and the access and refresh tokens of the device grants they approve); the
-	// device codes: the device authorizations command-line clients wait on; and the second
-	// factor's tables: the sign-in codes mailed to people and the browsers they asked to
-	// be remembered. The names are spelled out in full so the tool's session-tables
-	// check, which reads the literals, finds their migrations.
+	// sign-in attempts the password method's attempt limiter counts per sign-in name, the
+	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
+	// only, which a method with no row is), and the mail links: the invitations, address
+	// verifications and sign-ups the auth mails, each a single-use token its follower
+	// proves; the tokens: the bearer credentials of the machine outlets whose tokens this
+	// auth issues (the application tokens its people issue and the access and refresh
+	// tokens of the device grants they approve); the device codes: the device
+	// authorizations command-line clients wait on; and the second factor's tables: the
+	// sign-in codes mailed to people and the browsers they asked to be remembered. The
+	// names are spelled out in full so the tool's session-tables check, which reads the
+	// literals, finds their migrations.
 	sessionsTable       = "StaffSessions"
 	usersTable          = "StaffSessionUsers"
 	identitiesTable     = "StaffSessionIdentities"
 	eventsTable         = "StaffSessionAuthEvents"
 	pendingTable        = "StaffSessionPendingSignIns"
 	attemptsTable       = "StaffSessionSignInAttempts"
+	methodsTable        = "StaffSessionSignInMethods"
 	mailLinksTable      = "StaffSessionMailLinks"
 	tokensTable         = "StaffSessionTokens"
 	deviceCodesTable    = "StaffSessionDeviceCodes"
@@ -130,8 +135,9 @@ type Settings struct {
 	CookieKey string
 	// SessionTimeout is the idle timeout of a browser session.
 	SessionTimeout time.Duration
-	// Mail sends the auth's mail: the invitation an administrator sends to an address
-	// and the link that verifies an address a person adds.
+	// Mail sends the auth's mail: the invitation an administrator sends to an address,
+	// the link that verifies an address a person adds, the link a sign-up starts from, and
+	// the code a person who has no password chooses their first one with.
 	// The application's one sender, which the data level opens: the Workspace relay
 	// (session/mail/workspace) where the deployment names a mailbox, and the log (mail.Log)
 	// in development, where nothing is sent and a developer follows the link from the log.
@@ -290,21 +296,34 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // against the collection before it opens, so a release whose default roles are wrong does
 // not start, blocks until its first policy snapshot is loaded, and signals its policy
 // writes through the live service (access.WithChangeSignal over the policy kind), which it
-// refuses to open without.
+// refuses to open without. Beside the role file's roles the engine defines one of the
+// framework's in every auth, Super Administrator (accesstypes.SuperAdministrator), held
+// for the whole application alone: its holder gives and takes any role of the auth, enters
+// every tenant, and signs in with a second factor whatever the sign-in rule asks.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if settings.Signals == nil {
 		return nil, errors.New("staff.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
 	}
 	if settings.Mail == nil {
-		return nil, errors.New("staff.Settings.Mail is nil: the auth mails its invitations and address verifications through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
+		return nil, errors.New("staff.Settings.Mail is nil: the auth mails its invitations and address verifications and its sign-up links through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
 	}
 	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
+	_, tenantAdministrators := AdministratorRoles()
 	accessClient, err := access.New(store,
 		access.WithDefaultRoles(settings.Collection, Roles()),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
+		// What no role file takes from a super administrator: the methods that give and
+		// take the auth's roles, as the generated management names them.
+		access.WithSuperAdministratorMethods(staffidentity.SuperAdministratorMethods()...),
+		// Who administers a tenant: a person holding one of these roles in the tenant
+		// itself, by a membership of their own or through the tenant's own group. A
+		// tenant that admits its people through its directory only still admits them,
+		// with a password and a second factor, so its administrators have a way in when
+		// its directory has a problem; the sign-in rule and each request ask the engine.
+		access.WithTenantAdministratorRoles(tenantAdministrators...),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
@@ -320,14 +339,21 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// One Auth session every method establishes: one cookie, one session table, one
 	// middleware chain. The methods are registered on it below, before the first request.
+	// The Auth is built knowing who holds the Super Administrator role, which is why the
+	// permission engine opens first: a holder signs in with a second factor whatever the
+	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
+	// the library's own after the application's. The memberships are read outside the
+	// sign-in's transaction (resource.SignInRoles).
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -352,13 +378,23 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The auth's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
 	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets. The client knows the roles that count as an
-	// administrator's (identity.WithAdministratorRoles), so a person who removes a role
-	// from themselves is judged by the rule on the last administrator.
-	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
+	// of its methods sets. The client knows the roles that count as a
+	// tenant's administrator's (identity.WithAdministratorRoles, the ones held in every
+	// tenant), so a person who removes a role from themselves in a tenant is judged by
+	// the rule on the tenant's last administrator. The application's last administrator
+	// is its last super administrator, kept by the client's own rule.
+	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")
 	}
+
+	// A role, a place in a group and a group's role may each be given for a period, and
+	// count inside it alone. A row whose period has ended goes when its person next signs
+	// in: the session library calls the identity client's SignedIn once the session is
+	// committed, apart from the sign-in, so a failure is logged and the session stands.
+	// It removes the person's ended roles and places and nothing else, never the
+	// account, and no job runs on a schedule.
+	authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
 	// An accepted invitation gives its roles, in the tenant it names or for the whole
 	// application, in the transaction that consumes the invitation (the identity
@@ -366,6 +402,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// invitation is spent and its roles given together or neither is, and the sign-in
 	// rule that follows finds the memberships.
 	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+
+	// A person who signs up through a sign-in method an administrator opened is given
+	// the method's default role in the transaction that makes their account (the
+	// identity client's SignedUp, which the session library runs inside it), so no
+	// account is left holding nothing.
+	authSession.SetSignUpSeated(identityClient.SignedUp())
 
 	return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil
 }

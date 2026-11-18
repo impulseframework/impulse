@@ -11,12 +11,19 @@ import (
 
 type Resourcer interface {
 	resource.Resourcer
-	staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
+	staffresources.StaffGroup | staffresources.StaffGroupMember |
+		staffresources.StaffGroupRole | staffresources.StaffGroupUser |
+		staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
-		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
-		staffresources.StaffSessionUser | staffresources.StaffTenantIdentity |
+		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
+		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
+		staffresources.StaffTenantGroup | staffresources.StaffTenantGroupRole |
+		staffresources.StaffTenantGroupUser | staffresources.StaffTenantIdentity |
 		staffresources.StaffTenantInvitation | staffresources.StaffTenantUser |
-		staffresources.StaffTenantUserRole | staffresources.StaffUserRole |
-		staffidentity.StaffTenantRole
+		staffresources.StaffTenantUserGroupRole | staffresources.StaffTenantUserRole |
+		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
+		staffidentity.StaffInvitedTenant | staffidentity.StaffSignInMethod |
+		staffidentity.StaffSignInWay | staffidentity.StaffTenantDirectoryRole |
+		staffidentity.StaffTenantRole | staffidentity.StaffTenantSignInWay
 }

@@ -45,6 +45,7 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // The suites run against the shipped demo world: schema/devseed is the fixture, so the
@@ -109,7 +110,7 @@ const (
 	wingForgeID = "40000000-0000-4000-8000-000000000001" // anvil
 
 	squadronHammerID     = "50000000-0000-4000-8000-000000000001" // Forge Wing, anvil: lead, veteran, wingco, dispatcher
-	squadronTongsID      = "50000000-0000-4000-8000-000000000002" // Forge Wing, anvil: dispatcher, pilot
+	squadronTongsID      = "50000000-0000-4000-8000-000000000002" // Forge Wing, anvil: dispatcher, pilot, armorer
 	squadronPortcullisID = "50000000-0000-4000-8000-000000000003" // Rampart Wing, bastion: dispatcher, pilot
 	squadronAshfallID    = "50000000-0000-4000-8000-000000000004" // Ember Wing, cinder
 
@@ -187,6 +188,28 @@ var testCursorKey = func() *resource.CursorKey {
 	return key
 }()
 
+// testSecretKeys are the secret keys the suites' resource clients seal the stored secret
+// fields with (a ship's transponder key), standing where production's data level reads
+// the application secret's versions from the environment: version 1 alone, built from
+// fixed bytes.
+var testSecretKeys = newTestSecretKeys(1)
+
+// newTestSecretKeys builds the key holder over the given versions of a test application
+// secret, each version's 32 bytes its own number repeated; the highest is the current
+// one, as it is for a deployment's.
+func newTestSecretKeys(versions ...byte) *resource.SecretKeys {
+	secrets := make(map[int][]byte, len(versions))
+	for _, version := range versions {
+		secrets[int(version)] = bytes.Repeat([]byte{version}, 32)
+	}
+	keys, err := resource.NewSecretKeys(secrets)
+	if err != nil {
+		panic(err)
+	}
+
+	return keys
+}
+
 // testCookieKey signs session cookies in the suites; any 32 bytes will do.
 const testCookieKey = "dGVzdC1jb29raWUta2V5LXRlc3QtY29va2llLWtleS0xMjM0NTY="
 
@@ -207,6 +230,15 @@ func (s *staticAccess) ForUser(user accesstypes.User) *access.UserChecker {
 
 func (s *staticAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(s, role)
+}
+
+// TenantAdministratorRoles answers what the crew's generated identity client asks where
+// it is built, the roles whose holders administer a sector: the crew's own, as its
+// engine is told them (sectorAdministratorRoles). The list of a sector's people keeps
+// one value of them for the process, so this table names the roles a real engine in the
+// same process does.
+func (s *staticAccess) TenantAdministratorRoles() []accesstypes.Role {
+	return sectorAdministratorRoles(crew.TablePrefix)
 }
 
 // UserHasGrants answers the concealed-tenancy foothold question over the static grant
@@ -268,7 +300,8 @@ type testConfigurer struct {
 
 // noSessionAPI stands where a suite serves no session manager: the methods that need
 // one (a temporary password's hash) are driven on the served stack, which has the
-// real one.
+// real one. It still says which identities sign a person in, since the removal of a
+// password and the list of how a person signs in are judged by it.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -279,6 +312,36 @@ func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationReques
 	return nil, fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
 }
 
+// SignInMethods answers the two methods of the crew auth a person signs up through, as
+// the crew auth registers them: a suite that charts a sector through the create-sector
+// route opens one to sign-up first, and the route reads that choice against this list.
+func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return []session.RegisteredMethod{
+		{Name: "password", Method: sessioninfo.MethodPassword, Label: "Password", Audience: signin.Audience{Accounts: "an email address"}},
+		{Name: crew.SignUpRegistration, Method: sessioninfo.MethodGoogle, Label: "Google", Audience: signin.Audience{Accounts: "a Google account"}},
+	}
+}
+
+// SignsInThrough judges an identity as an Auth that offers the fleet's Google sign-in
+// alone would, under the name the crew registers it ("google"): an identity of any other
+// method signs nobody in. The crew auth's own judgment, over its registrations and the
+// connections each takes, is driven on the served stack.
+func (noSessionAPI) SignsInThrough(method sessioninfo.AuthMethod, _ string) []string {
+	if method != sessioninfo.MethodGoogle {
+		return nil
+	}
+
+	return []string{"google"}
+}
+
+// DirectoryName names no directory, so a sentence that speaks of one reads what the
+// directory alone says: a Workspace by its connection, a Microsoft Entra tenant by its
+// kind and never by its id. The names the crew auth's own registrations give are
+// driven on the served stack.
+func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
+	return "", ""
+}
+
 // CrewIdentity is the crew auth's identity client: on the served stack the one the crew
 // auth built when it opened, as production's is; in a suite that serves no session
 // manager, one over the suite's crew engine.
@@ -286,7 +349,8 @@ func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
 	if c.crewAuth != nil {
 		return c.crewAuth.Identity()
 	}
-	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, identity.WithAdministratorRoles(crew.AdministratorRoles()))
+	_, sectorAdministrators := crew.AdministratorRoles()
+	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(sectorAdministrators))
 	if err != nil {
 		panic(err)
 	}
@@ -367,11 +431,12 @@ func (s *testStores) options() []resource.ClientOption {
 // every suite's requests go through the same App.
 func (c *testConfigurer) CursorKey() *resource.CursorKey { return testCursorKey }
 
-// ResourceClient is the client over the test database and the two stores, as
-// production's is: the generated frames read each store off it, and a committed
-// transaction's released objects are deleted from their store.
+// ResourceClient is the client over the test database, the two stores and the secret
+// keys, as production's is: the generated frames read each store off it, a committed
+// transaction's released objects are deleted from their store, and a write of a secret
+// field is sealed with the keys.
 func (c *testConfigurer) ResourceClient() resource.Client {
-	return resource.NewSpannerClient(c.db.Client, c.Stores().options()...)
+	return resource.NewSpannerClient(c.db.Client, append(c.Stores().options(), resource.WithSecretKeys(testSecretKeys))...)
 }
 
 func (c *testConfigurer) Access() access.Controller { return c.access }
@@ -834,6 +899,12 @@ type served struct {
 	scheduler *scheduled.Fake
 	// jobs is the job process's fake starter: what the scheduled cleanup started.
 	jobs *jobs.Fake
+	// live is the stack's one live service, in memory: it records every signal the
+	// engines announce, the policy kind among them.
+	live *live.Fake
+	// tenants is the stack's tenant roster, started over the seeded sectors: a sector
+	// an accepted invitation makes reaches it after the commit.
+	tenants *resource.TenantRoster
 	// mail records every message the two auths send (an invitation, an address
 	// verification, a sign-up link, a sign-in code), so a suite follows the link or
 	// enters the code the way a person does.
@@ -930,6 +1001,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		ChangeSignal:       policySignal,
 		TenantDeclarations: app.NewSectorDeclarationReader(),
 		TenantDirectories:  app.NewSectorDirectoryReader(),
+		TenantMaker:        app.NewSectorMaker(roster, fake),
 		Mail:               auth.Mail{Sender: sent, LoginURL: origin + consoleLogin},
 	})
 	if err != nil {
@@ -974,7 +1046,8 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		t.Fatal(err)
 	}
 	crewAPI := crewAuth.Session().API()
-	for _, user := range identities.Users {
+	for i := range identities.Users {
+		user := &identities.Users[i]
 		password := user.Password
 		if _, err := crewAPI.CreateSessionUser(ctx, &session.CreateUserRequest{ID: impulse.NullUUIDFromUUID(user.ID), Username: string(user.User), Password: &password}); err != nil {
 			t.Fatalf("CreateSessionUser(%s) error = %v", user.User, err)
@@ -1019,7 +1092,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	server.Config.Handler = router.New(a, router.AppHooks(a))
 	server.Start()
 
-	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, live: fake, tenants: roster, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // personaSettings is the crew auth's persona settings for the stack: none when no

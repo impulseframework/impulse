@@ -2,6 +2,8 @@ package drivertest
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,10 +17,10 @@ import (
 // The factor codes table holds the codes the library mails for a pending sign-in's
 // second factor, and the trusted devices table the browsers a person asked to be
 // remembered after one. These cases pin, on both backends, that a code is read back by
-// its pending sign-in while it is live and one code stands at a time, that wrong codes
-// are counted against it and it is consumed once, that a device is read back by its
-// hash while it is live and revoked by its token or with every device of its user, and
-// that both go with the row they belong to.
+// its pending sign-in while it is live and one code stands at a time, that the guesses
+// made at it are counted against it, each in one step, and it is consumed once, that a
+// device is read back by its hash while it is live and revoked by its token or with
+// every device of its user, and that both go with the row they belong to.
 
 // factorCodeOpts compares factor codes leaving out the times the database writes.
 var factorCodeOpts = cmp.Options{cmpopts.EquateEmpty(), cmpopts.IgnoreFields(dbtype.FactorCode{}, "CreatedAt", "ConsumedAt")}
@@ -192,6 +194,106 @@ func testFactorCodeAttemptsAndConsume(ctx context.Context, t *testing.T, h *Auth
 	}
 	if err := in.Driver.ConsumeFactorCode(ctx, expired.ID, time.Now()); !httpio.HasNotFound(err) {
 		t.Errorf("ConsumeFactorCode() of an expired code error = %v, want NotFound", err)
+	}
+}
+
+// testFactorCodeAttemptsAtOnce counts a dozen attempts against one code at once and
+// checks that each is counted and answered in one step: every call succeeds, the
+// counts answered are one to twelve with none answered twice, and the row holds
+// twelve. A caller that judges a guess only when its count is within the code's
+// attempts so judges no more than those, however many guesses arrive together.
+func testFactorCodeAttemptsAtOnce(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	user := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	pending := insertPending(ctx, t, in.Driver, user.ID, tokenHash(1))
+	code := newFactorCode(pending.ID, tokenHash(2))
+	if err := in.Driver.InsertFactorCode(ctx, code, time.Now()); err != nil {
+		t.Fatalf("InsertFactorCode() error = %v", err)
+	}
+
+	const racers = 12
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		failed   []error
+		answered []int
+	)
+	for range racers {
+		wg.Go(func() {
+			attempts, err := in.Driver.RecordFactorCodeAttempt(ctx, code.ID, time.Now())
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				failed = append(failed, err)
+
+				return
+			}
+			answered = append(answered, attempts)
+		})
+	}
+	wg.Wait()
+
+	if len(failed) != 0 {
+		t.Fatalf("%d concurrent RecordFactorCodeAttempt() calls: errors %v", racers, failed)
+	}
+	slices.Sort(answered)
+	want := make([]int, racers)
+	for i := range want {
+		want[i] = i + 1
+	}
+	if diff := cmp.Diff(want, answered); diff != "" {
+		t.Errorf("the counts %d attempts at once were answered mismatch (-want +got):\n%s", racers, diff)
+	}
+	if got, err := in.Driver.FactorCodeByPending(ctx, pending.ID, time.Now()); err != nil || got.Attempts != racers {
+		t.Errorf("FactorCodeByPending() after %d attempts at once = %+v, %v; want Attempts %d", racers, got, err, racers)
+	}
+}
+
+// testFactorCodesInsertedAtOnce inserts a dozen codes for one pending sign-in at once,
+// for several pending sign-ins in turn, and checks that one code stands for each: every
+// insert succeeds, eleven of the twelve codes are consumed, and the one that is live is
+// the one read back by the pending sign-in. A code asked for over and over at once so
+// leaves no second code to be guessed at with attempts of its own.
+func testFactorCodesInsertedAtOnce(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	user := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
+
+	const (
+		racers = 12
+		rounds = 5
+	)
+	for round := range rounds {
+		pending := insertPending(ctx, t, in.Driver, user.ID, tokenHash(byte(round+1)))
+		codes := make([]*dbtype.FactorCode, racers)
+		for i := range codes {
+			codes[i] = newFactorCode(pending.ID, tokenHash(byte(i+1)))
+		}
+		failed := make([]error, racers)
+		var wg sync.WaitGroup
+		for i, code := range codes {
+			wg.Go(func() {
+				failed[i] = in.Driver.InsertFactorCode(ctx, code, time.Now())
+			})
+		}
+		wg.Wait()
+
+		for i, err := range failed {
+			if err != nil {
+				t.Fatalf("round %d: InsertFactorCode() %d of %d at once error = %v", round, i, racers, err)
+			}
+		}
+		var live []impulse.UUID
+		for _, code := range codes {
+			if factorCodeState(ctx, t, in.Driver, code.ID).ConsumedAt == nil {
+				live = append(live, code.ID)
+			}
+		}
+		if len(live) != 1 {
+			t.Fatalf("round %d: %d of %d codes inserted at once for one pending sign-in are live, want one", round, len(live), racers)
+		}
+		if got, err := in.Driver.FactorCodeByPending(ctx, pending.ID, time.Now()); err != nil || got.ID != live[0] {
+			t.Errorf("round %d: FactorCodeByPending() after %d inserts at once = %+v, %v; want the one live code, %s", round, racers, got, err, live[0])
+		}
 	}
 }
 

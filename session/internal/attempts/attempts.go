@@ -1,14 +1,19 @@
-// Package attempts limits the failed password attempts of an Auth. It runs in memory,
-// per instance, before any store access and before the password hash, over a durable
-// record the store keeps by the submitted name. The memory holds three kinds of key: the
-// name, the client's address and the login's XSRF cookie token. A name is held by its
-// store record, cached here for a few seconds (readTTL), a lock like any other record,
-// so an attempt during the lock is refused the moment it arrives with nothing written
-// or hashed and the store read at most once in that time, and a lock an administrator
-// cleared in the store is gone from every instance within it. The client's keys
-// are counted here alone: every failure and every refused attempt counts against them,
-// and a client that keeps trying during a wait extends its own lock while the name's
-// stays as it was. The memory is bounded; the store is the truth for the name.
+// Package attempts limits the password attempts of an Auth. It runs in memory, per
+// instance, before any store access and before the password hash, over a durable record
+// the store keeps by the submitted name. The memory holds three kinds of key: the name,
+// the client's address and the login's XSRF cookie token. A name is held by its store
+// record: an attempt takes its place in the record before its password is compared
+// (Take), in the store's one transaction, which says whether it was counted, so of
+// attempts made at once no more than the limit are ever compared; one that was not
+// counted is refused, and a right password gives the attempt back and resets the name
+// (Succeeded). The record the store answered is cached here for a few seconds (readTTL),
+// so an attempt during a lock is refused the moment it arrives with nothing hashed and
+// the store asked at most once in that time, and a lock an administrator cleared in the
+// store is gone from every instance within it. The client's keys are counted here alone:
+// an attempt takes its place under them in the step that finds them free, every wrong
+// and every refused attempt counts against them, and a client that keeps trying during
+// a wait extends its own lock while the name's stays as it was. The memory is bounded;
+// the store is the truth for the name.
 package attempts
 
 import (
@@ -19,7 +24,6 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
@@ -27,9 +31,8 @@ import (
 
 // Store keeps the durable record of a name's attempts.
 type Store interface {
-	// SignInAttempts returns name's record, or NotFound when there is none.
-	SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error)
-	// RecordSignInFailure records a failure on name under limit and returns the record.
+	// RecordSignInFailure records a failure on name under limit, in one transaction, and
+	// returns the record, which says whether the failure was counted (Counted).
 	RecordSignInFailure(ctx context.Context, name string, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error)
 	// ClearSignInAttempts deletes name's record.
 	ClearSignInAttempts(ctx context.Context, name string) error
@@ -47,13 +50,18 @@ const (
 	// least recently used entry goes when it is full, so a flood of names grows nothing
 	// without limit. A name's lock evicted from memory is still the store's.
 	cacheSize = 16384
-	// readTTL is how long a name's store record is trusted before the next attempt
-	// reads it again: one window for every record, a lock included. A lock was once
-	// trusted until it passed, which left no way to clear one: the row deleted in the
-	// store, every instance that had seen the lock went on refusing the name. Read
-	// again after the window, a cleared lock is gone from every instance within it,
-	// and a name still locked costs one read of its row per instance per window.
+	// readTTL is how long a lock in a name's store record is trusted before the next
+	// attempt asks the store again. A lock was once trusted until it passed, which left
+	// no way to clear one: the row deleted in the store, every instance that had seen
+	// the lock went on refusing the name. Asked again after the window, a cleared lock
+	// is gone from every instance within it, and a name still locked costs one
+	// transaction on its row per instance per window, which changes nothing in it but
+	// the time it was written.
 	readTTL = 5 * time.Second
+	// giveBackTimeout bounds the store's clear of a name whose attempt is given back. The
+	// clear runs to its end though the request that entered the right password was
+	// canceled meanwhile, so it is held to a time of its own.
+	giveBackTimeout = 30 * time.Second
 	// ClientMultiple is how many times the name limit's failures a client's address or
 	// cookie may fail, across names, within the window before the client is locked for
 	// the lock period.
@@ -71,9 +79,11 @@ type Limiter struct {
 	order   *list.List
 }
 
-// entry is one key's state. A name's entry caches the store's record, nil for none, and
-// when it was read. A client's entry is its counter: failures in the window ending at
-// windowEnds, and the lock they earned.
+// entry is one key's state. A name's entry caches the record the store last answered,
+// and when. A client's entry is its counter: the attempts counted in the window ending
+// at windowEnds, the lock they earned, and the attempt whose place earned it when it was
+// one whose password was not compared yet (lockedBy), which lifts the lock when its
+// password proves right.
 type entry struct {
 	key         string
 	record      *dbtype.SignInAttempts
@@ -81,6 +91,7 @@ type entry struct {
 	failures    int
 	windowEnds  time.Time
 	lockedUntil time.Time
+	lockedBy    *Attempt
 }
 
 // New returns a limiter under limit over store.
@@ -108,52 +119,72 @@ func Normalize(name string) string {
 	return cases.Fold().String(norm.NFC.String(name))
 }
 
-// Check decides whether an attempt on name by client goes on to the user lookup and the
-// hash: wait is zero when it does, and otherwise how long the caller is to wait. The
-// name's lock answers from memory while its record is cached (readTTL) and from the
-// store when it is not,
-// the client's locks from memory alone, and a refused attempt counts against the
-// client's keys and never against the name. err is a store failure.
-func (l *Limiter) Check(ctx context.Context, name string, client Client) (wait time.Duration, err error) {
+// Attempt is an attempt whose place under the limit was taken before its password was
+// compared (Limiter.Take): what the limiter gives back when the password proves right.
+type Attempt struct {
+	// Lock is how long the name is held now that the attempt was counted: zero unless
+	// the attempt is the one that reached the limit.
+	Lock time.Duration
+
+	key    string
+	client map[string]time.Time
+}
+
+// Take takes an attempt on name by client before its password is compared. The attempt
+// answered is nil when it was refused, and wait is then how long the caller is to wait;
+// otherwise the password may be compared, and a right one hands the attempt to
+// Succeeded.
+//
+// The name's lock answers from memory while a record that holds it is cached (readTTL),
+// the client's locks from memory alone, and an attempt refused there asks the store
+// nothing. An attempt that goes on is counted first: against the client's keys in the
+// step that found them free, and against the name in the store's one transaction, which
+// says whether it was counted. Of attempts made at once, as many as the limit are so
+// counted and go on, and every other is refused, uncompared; the one that reaches the
+// limit locks the name and goes on itself. A refused attempt counts against the client's
+// keys and never against the name. err is a store failure, which leaves nothing counted
+// against the client.
+func (l *Limiter) Take(ctx context.Context, name string, client Client) (taken *Attempt, wait time.Duration, err error) {
 	key := Normalize(name)
 
 	l.mu.Lock()
 	now := l.now()
-	nameWait, cached := l.nameHeld(key, now)
-	clientWait := l.clientHeld(client, now)
-	if nameWait > 0 || clientWait > 0 {
+	nameWait := l.nameHeld(key, now)
+	if clientWait := l.clientHeld(client, now); nameWait > 0 || clientWait > 0 {
 		defer l.mu.Unlock()
 
-		return max(nameWait, l.countClient(client, now)), nil
+		return nil, max(nameWait, l.countClient(client, now)), nil
 	}
-	if cached {
-		l.mu.Unlock()
-
-		return 0, nil
-	}
+	taken = &Attempt{key: key}
+	l.takeClient(taken, client, now)
 	l.mu.Unlock()
 
-	record, err := l.read(ctx, key)
-	if err != nil {
-		return 0, err
-	}
+	record, err := l.store.RecordSignInFailure(ctx, key, l.limit)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now = l.now()
+	if err != nil {
+		l.giveBackClient(taken)
+
+		return nil, 0, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
 	e := l.entry(nameKey(key))
 	e.record, e.readAt = record, now
-	if nameWait, locked := record.Locked(now); locked {
-		return max(nameWait, l.countClient(client, now)), nil
+	lock, _ := record.Locked(now)
+	if !record.Counted {
+		return nil, max(lock, l.clientHeld(client, now)), nil
 	}
+	taken.Lock = lock
 
-	return 0, nil
+	return taken, 0, nil
 }
 
-// Failed records a failed attempt on name by client: in the store under the limit, and
-// against the client's keys in memory. The record the store answers is kept in memory,
-// and lock is how long it now holds the name, zero while it does not.
+// Failed records a failed attempt on name by client that took no place beforehand: a
+// failure learned after the attempt's own was given back. It is counted in the store
+// under the limit and against the client's keys in memory. The record the store answers
+// is kept in memory, and lock is how long it now holds the name, zero while it does not.
 func (l *Limiter) Failed(ctx context.Context, name string, client Client) (lock time.Duration, err error) {
 	key := Normalize(name)
 	record, err := l.store.RecordSignInFailure(ctx, key, l.limit)
@@ -173,22 +204,27 @@ func (l *Limiter) Failed(ctx context.Context, name string, client Client) (lock 
 	return lock, nil
 }
 
-// Succeeded resets name after a successful password check: the store's record is
-// deleted when the attempt saw one, and the name leaves memory.
-func (l *Limiter) Succeeded(ctx context.Context, name string) error {
-	key := Normalize(name)
+// Succeeded gives taken back after its password proved right: the name's record is
+// deleted in the store, the attempt's own count and every other with it, the failures
+// before it and the places of attempts still being compared, the name leaves memory,
+// and the client's keys are given the attempt's count back. The clear does not end with
+// the request (giveBackTimeout): a person whose request was canceled once their right
+// password was compared keeps no count for it. The store is cleared before memory is,
+// so a lock another attempt cached while the clear was on its way goes with it; one an
+// attempt caches after that, from an answer the store gave before the clear, is trusted
+// for readTTL at most, as a lock cleared by another instance is.
+func (l *Limiter) Succeeded(ctx context.Context, taken *Attempt) error {
+	clearCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), giveBackTimeout)
+	defer cancel()
+	err := l.clear(clearCtx, taken.key)
 
 	l.mu.Lock()
-	el, found := l.entries[nameKey(key)]
-	seen := found && valueOf(el).record != nil && valueOf(el).record.Failures > 0
-	l.drop(nameKey(key))
-	l.mu.Unlock()
+	defer l.mu.Unlock()
 
-	if !seen {
-		return nil
-	}
+	l.drop(nameKey(taken.key))
+	l.giveBackClient(taken)
 
-	return l.clear(ctx, key)
+	return err
 }
 
 // Clear resets name whatever memory holds: an MFA completion or a password change.
@@ -210,38 +246,23 @@ func (l *Limiter) clear(ctx context.Context, key string) error {
 	return nil
 }
 
-// read reads key's record from the store. A name with no record answers the zero
-// record, which holds nothing, so the cache remembers that the store was asked.
-func (l *Limiter) read(ctx context.Context, key string) (*dbtype.SignInAttempts, error) {
-	record, err := l.store.SignInAttempts(ctx, key)
-	if err != nil {
-		if httpio.HasNotFound(err) {
-			return &dbtype.SignInAttempts{Name: key}, nil
-		}
-
-		return nil, errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
-	}
-
-	return record, nil
-}
-
-// nameHeld answers from memory: the wait while the cached record locks the name, and
-// whether the cache answers at all. A record answers for readTTL from its read, a lock
-// like any other: past it the store is asked again, so a lock cleared there is not
+// nameHeld answers from memory: the wait while the cached record locks the name, zero
+// when it does not or no record is cached. A record answers for readTTL from when the
+// store answered it: past it the store is asked again, so a lock cleared there is not
 // held here.
-func (l *Limiter) nameHeld(key string, now time.Time) (wait time.Duration, cached bool) {
+func (l *Limiter) nameHeld(key string, now time.Time) time.Duration {
 	el, found := l.entries[nameKey(key)]
 	if !found {
-		return 0, false
+		return 0
 	}
 	e := valueOf(el)
 	l.order.MoveToFront(el)
 	if !now.Before(e.readAt.Add(readTTL)) {
-		return 0, false
+		return 0
 	}
-	wait, _ = e.record.Locked(now)
+	wait, _ := e.record.Locked(now)
 
-	return wait, true
+	return wait
 }
 
 // clientHeld is the longest wait the client's keys hold.
@@ -258,9 +279,9 @@ func (l *Limiter) clientHeld(client Client, now time.Time) time.Duration {
 	return max(wait, 0)
 }
 
-// countClient counts one failed or refused attempt against the client's keys and
-// returns the longest wait they then hold: a key in its lock is extended by the lock
-// period, one past its window starts a new one, and the failure that reaches the
+// countClient counts one attempt against the client's keys, taken, failed or refused,
+// and returns the longest wait they then hold: a key in its lock is extended by the
+// lock period, one past its window starts a new one, and the attempt that reaches the
 // client's limit locks it.
 func (l *Limiter) countClient(client Client, now time.Time) time.Duration {
 	var wait time.Duration
@@ -275,13 +296,60 @@ func (l *Limiter) countClient(client Client, now time.Time) time.Duration {
 			}
 			e.failures++
 			if e.failures >= ClientMultiple*l.limit.Failures {
-				e.lockedUntil = now.Add(l.limit.Lock)
+				e.lockedUntil, e.lockedBy = now.Add(l.limit.Lock), nil
 			}
 		}
 		wait = max(wait, e.lockedUntil.Sub(now))
 	}
 
 	return max(wait, 0)
+}
+
+// takeClient counts taken against the client's keys before its password is compared,
+// and keeps in it the window each key counted it in, for giveBackClient. It is called in
+// the step that found none of the keys locked, so of attempts made at once as many as
+// the client's limit are counted before a key locks, and the rest find it locked. A key
+// the count locks remembers that taken locked it.
+func (l *Limiter) takeClient(taken *Attempt, client Client, now time.Time) {
+	keys := clientKeys(client)
+	if len(keys) == 0 {
+		return
+	}
+	l.countClient(client, now)
+	taken.client = make(map[string]time.Time, len(keys))
+	for _, key := range keys {
+		e := l.entry(key)
+		taken.client[key] = e.windowEnds
+		if e.lockedUntil.After(now) {
+			e.lockedBy = taken
+		}
+	}
+}
+
+// giveBackClient takes the count of taken off the client's keys: its password proved
+// right, or the store failed before it was compared. The keys are left as they would be
+// had the attempt never been made: a lock its place earned is lifted, however often
+// refused attempts extended it meanwhile; a key gives the count back only in the window
+// it was counted in; and a lock the remaining count does not earn is lifted. Right
+// passwords so leave nothing held against an address people share.
+func (l *Limiter) giveBackClient(taken *Attempt) {
+	for key, window := range taken.client {
+		el, found := l.entries[key]
+		if !found {
+			continue
+		}
+		e := valueOf(el)
+		if e.lockedBy == taken {
+			e.lockedUntil, e.lockedBy = time.Time{}, nil
+		}
+		if e.failures == 0 || !e.windowEnds.Equal(window) {
+			continue
+		}
+		e.failures--
+		if e.failures < ClientMultiple*l.limit.Failures {
+			e.lockedUntil, e.lockedBy = time.Time{}, nil
+		}
+	}
 }
 
 // entry returns key's entry, making one when there is none and evicting the least

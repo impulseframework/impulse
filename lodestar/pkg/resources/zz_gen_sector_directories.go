@@ -41,9 +41,9 @@ var sectorDirectoryReadSets resource.SetCache[SectorDirectory, sectorDirectoryRe
 type sectorDirectoryWrite struct {
 	ID          impulse.UUID `json:"-"`
 	SectorID    impulse.UUID `json:"-"`
-	Method      string       `json:"method"      sqltype:"STRING(16)"`
-	Connection  string       `json:"connection"`
-	DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
+	Method      string       `json:"-"`
+	Connection  string       `json:"-"`
+	DefaultSeat *string      `json:"-"`
 }
 
 var sectorDirectoryWriteSets resource.SetCache[SectorDirectory, sectorDirectoryWrite]
@@ -70,6 +70,18 @@ func (q *SectorDirectoryQuery) SetID(v impulse.UUID) *SectorDirectoryQuery {
 
 func (q *SectorDirectoryQuery) ID() impulse.UUID {
 	v, _ := q.qSet.Key("ID").(impulse.UUID)
+
+	return v
+}
+
+func (q *SectorDirectoryQuery) SetSectorID(v impulse.UUID) *SectorDirectoryQuery {
+	q.qSet.SetKey("SectorID", v)
+
+	return q
+}
+
+func (q *SectorDirectoryQuery) SectorID() impulse.UUID {
+	v, _ := q.qSet.Key("SectorID").(impulse.UUID)
 
 	return v
 }

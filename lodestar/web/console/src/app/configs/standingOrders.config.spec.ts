@@ -52,7 +52,13 @@ describe('the Standing Orders page', () => {
         { provide: RESOURCE_META, useValue: resourceMeta },
         {
           provide: ActivatedRoute,
-          useValue: { snapshot: { data: { config: rootConfig({ ...standingOrdersConfig, parentConfig: config }) }, params: {}, queryParams: {} } },
+          useValue: {
+            snapshot: {
+              data: { config: rootConfig({ ...standingOrdersConfig, parentConfig: config }) },
+              params: {},
+              queryParams: {},
+            },
+          },
         },
       ],
     }).compileComponents();
@@ -92,12 +98,16 @@ describe('the Standing Orders page', () => {
       ]);
     });
 
-    it('draws the six lines as one page, in the book\'s order, with the turns disabled', () => {
+    it("draws the six lines as one page, in the book's order, with the turns disabled", () => {
       const element: HTMLElement = fixture.nativeElement;
       const rows = Array.from(element.querySelectorAll('tr.impulse-row'));
-      expect(rows.map((row) => row.querySelector('td.data-col')?.textContent?.trim())).toEqual(book.map((line) => line.section));
+      expect(rows.map((row) => row.querySelector('td.data-col')?.textContent?.trim())).toEqual(
+        book.map((line) => line.section),
+      );
       expect(element.querySelector('.impulse-grid-pager .pager-rows')?.textContent?.trim()).toBe('1–6 of 6');
-      const turns = Array.from(element.querySelectorAll<HTMLButtonElement>('.impulse-grid-pager .pager-buttons button'));
+      const turns = Array.from(
+        element.querySelectorAll<HTMLButtonElement>('.impulse-grid-pager .pager-buttons button'),
+      );
       expect(turns.length).toBe(3);
       expect(turns.every((button) => button.disabled)).toBe(true);
     });
@@ -106,7 +116,10 @@ describe('the Standing Orders page', () => {
       const element: HTMLElement = fixture.nativeElement;
       expect(element.querySelectorAll('td.action-col').length).toBe(0);
       expect(element.querySelectorAll('th.data-col').length).toBe(2);
-      expect(Array.from(element.querySelectorAll('th .col-header')).map((th) => th.textContent?.trim())).toEqual(['Section', 'Directive']);
+      expect(Array.from(element.querySelectorAll('th .col-header')).map((th) => th.textContent?.trim())).toEqual([
+        'Section',
+        'Directive',
+      ]);
       expect(element.querySelector('.create-button')).toBeNull();
       const component = fixture.componentInstance;
       expect(component.keyless()).toBe(true);

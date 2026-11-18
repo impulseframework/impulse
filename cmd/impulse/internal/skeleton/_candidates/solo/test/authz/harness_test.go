@@ -63,6 +63,23 @@ func (f *fakeAccess) decide(perm accesstypes.Permission, resources []accesstypes
 	return decisions
 }
 
+// UserManager answers the engine's roles as the matrix registers them: none. The list a
+// default role is picked from asks the engine which roles a person who signs up may be
+// given, and a granted case of the matrix reads it.
+func (f *fakeAccess) UserManager() access.UserManager {
+	return noRoles{}
+}
+
+// noRoles stands for the engine's user manager where no role is registered. Every other
+// method panics through the embedded nil interface, as the fake's own do.
+type noRoles struct {
+	access.UserManager
+}
+
+func (noRoles) Roles(context.Context, accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+	return nil, nil
+}
+
 // testConfigurer implements app.Configurer over the test dependencies, so the App is
 // assembled through the same seam main assembles it through. Session is nil: the App
 // owns no router, these suites compose the API surface through router.NewTestRouter,
@@ -94,7 +111,8 @@ func (c *testConfigurer) Access() access.Controller {
 func (c *testConfigurer) Staff() *staff.Auth { return nil }
 
 // noSessionAPI stands where the matrix serves no session manager: a denied case is
-// answered before any method runs, so nothing here is ever hashed or mailed.
+// answered before any method runs, so nothing here is ever hashed or mailed, and the
+// one list it is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -103,6 +121,20 @@ func (noSessionAPI) HashPassword(string) (string, error) {
 
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, errors.New("the authorization matrix serves no session manager")
+}
+
+// SignInMethods names no method: the matrix registers none, and a denied case reads none.
+func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return nil
+}
+
+func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
+	return nil
+}
+
+// DirectoryName names no directory: the matrix registers no sign-in method.
+func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
+	return "", ""
 }
 
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix

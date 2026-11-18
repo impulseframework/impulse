@@ -572,7 +572,7 @@ func Test_rpcHandlerTemplate_dryRun(t *testing.T) {
 			name:   "transaction form rolls back after the body",
 			method: fixtureAnsweringMethod(t, structs, "Inspect"),
 			wantContains: []string{
-				"dryRun := resource.IsDryRun(r)",
+				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif err := a.ResourceClient().ExecuteFunc(",
 				"result = answer\n\t\t\tif dryRun {\n\t\t\t\treturn resource.ErrDryRun\n\t\t\t}",
 				"if dryRun && resource.DryRunRolledBack(err) {\n\t\t\t\treturn httpio.NewEncoder(w).Ok(nil)\n\t\t\t}",
 			},
@@ -582,11 +582,11 @@ func Test_rpcHandlerTemplate_dryRun(t *testing.T) {
 			name:   "client form refuses the header",
 			method: fixtureClientMethod(t, structs, "Notify"),
 			wantContains: []string{
-				"if resource.IsDryRun(r) {",
+				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif dryRun {",
 				`httpio.NewBadRequestMessage("dry run is not supported: Notify runs outside a transaction")`,
 				"p.Execute(ctx, a.ResourceClient(), a.RPCClient())",
 			},
-			wantNotContains: []string{"dryRun :=", "ErrDryRun"},
+			wantNotContains: []string{"ErrDryRun"},
 		},
 	}
 	for _, tt := range tests {

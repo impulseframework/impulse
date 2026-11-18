@@ -29,6 +29,11 @@ func tenantCreationFixtureGenerator(t *testing.T, record string, mutate func(r *
 	if mutate != nil {
 		mutate(r)
 	}
+	// The route is generated where it can serve, as the run decides once the outlets
+	// are known (validateTenantCreation, which a case that tests it runs itself).
+	if r.tenantCreationServes(r.resources[0]) {
+		r.resources[0].TenantCreation = tenantCreationBoth
+	}
 
 	return r
 }
@@ -75,115 +80,81 @@ func Test_tenantClears(t *testing.T) {
 	}
 }
 
-// openAuth is an outlet auth with a registration admitting open sign-up.
+// openAuth is an outlet auth whose roles the application assigns: the password method
+// beside a registration. Whether either admits a person with no invitation is chosen in
+// the running application.
 func openAuth(importPath string) *outletAuth {
-	return &outletAuth{importPath: importPath, methods: []AuthMethod{PasswordMethod(), GoogleMethod("sign-up").OpenSignUp()}}
+	return &outletAuth{importPath: importPath, methods: []AuthMethod{PasswordMethod(), GoogleMethod("sign-up")}}
 }
 
-// closedAuth is an outlet auth whose registrations admit invited users alone.
-func closedAuth(importPath string) *outletAuth {
-	return &outletAuth{importPath: importPath, methods: []AuthMethod{PasswordMethod(), GoogleMethod("google").InvitedUsers()}}
+// syncedAuth is an outlet auth whose one registration's directory writes the roles.
+func syncedAuth(importPath string) *outletAuth {
+	return &outletAuth{importPath: importPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
 }
 
-// Test_tenantCreation_shapes pins what each shape allows: the administrator's create
-// path under the default and both, the self-service route under self-service and both.
-func Test_tenantCreation_shapes(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name                     string
-		shape                    tenantCreation
-		wantAdministratorCreates bool
-		wantSelfService          bool
-		wantString               string
-	}{
-		{name: "unset is the administrator alone", shape: "", wantAdministratorCreates: true, wantString: "administrator"},
-		{name: "administrator", shape: tenantCreationAdministrator, wantAdministratorCreates: true, wantString: "administrator"},
-		{name: "self-service", shape: tenantCreationSelfService, wantSelfService: true, wantString: "self-service"},
-		{name: "both", shape: tenantCreationBoth, wantAdministratorCreates: true, wantSelfService: true, wantString: "both"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := tt.shape.AdministratorCreates(); got != tt.wantAdministratorCreates {
-				t.Errorf("AdministratorCreates() = %v, want %v", got, tt.wantAdministratorCreates)
-			}
-			if got := tt.shape.SelfService(); got != tt.wantSelfService {
-				t.Errorf("SelfService() = %v, want %v", got, tt.wantSelfService)
-			}
-			if got := tt.shape.String(); got != tt.wantString {
-				t.Errorf("String() = %q, want %q", got, tt.wantString)
-			}
-		})
-	}
-}
-
-// Test_validateTenantCreation pins the rules a self-service record is held to: a
-// session outlet with an Auth, one auth across the record's outlets, a registration
-// with the open sign-up rule on it, and the handler's name free; an administrator-only
-// record is held to none of them.
+// Test_validateTenantCreation pins where the invitation that makes a tenant and the
+// create-your-tenant route are generated: on a record session outlets of one auth serve,
+// whose management the program generates and whose roles no directory writes. Nothing
+// declares it, and a record neither can serve has neither: the application makes its
+// tenants in its own code. Where the route is generated its handler's name must be free.
 func Test_validateTenantCreation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		record  string
-		mutate  func(r *resourceGenerator)
-		wantErr string
+		name   string
+		record string
+		mutate func(r *resourceGenerator)
+		// wantRoute says the invitation and the route are generated.
+		wantRoute bool
+		wantErr   string
 	}{
 		{
-			name:   "an administrator-only record needs no auth",
-			record: "Sector",
+			name:      "a record on the default outlet, whose auth the application assigns the roles of",
+			record:    "Station",
+			mutate:    func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
+			wantRoute: true,
 		},
 		{
-			name:   "a self-service record on the default outlet with open sign-up",
-			record: "Station",
-			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-		},
-		{
-			name:   "a both record on an extra session outlet with open sign-up",
+			name:   "a record on an extra session outlet",
 			record: "Colony",
 			mutate: func(r *resourceGenerator) {
 				r.resources[0].OutletNames = []string{"members"}
 				r.extraOutlets = []routerOutlet{{name: "members", prefix: "members", servesSessions: true, auth: openAuth("example.com/app/pkg/auth/members")}}
 			},
+			wantRoute: true,
 		},
 		{
-			name:    "a self-service record on an API-key outlet alone is refused",
-			record:  "Station",
-			mutate:  func(r *resourceGenerator) { r.defaultOutlet.apiKey = true },
-			wantErr: "struct Station: @tenant(creation: self-service) on a record no session-serving outlet serves; the create-your-station route is reached by a signed-in person, so declare the record on an outlet with a session Auth",
+			name:   "a record on an API-key outlet alone has neither: nobody signs in there",
+			record: "Station",
+			mutate: func(r *resourceGenerator) { r.defaultOutlet.apiKey = true },
 		},
 		{
-			name:    "a self-service record on an outlet without an Auth is refused",
-			record:  "Station",
-			wantErr: `struct Station: @tenant(creation: self-service), but outlet "default" declares no Auth; the create-your-station route seats the person in the outlet's auth, so declare it (Auth(<package>, ...)) with a registration admitting open sign-up (GoogleMethod(name).OpenSignUp() or AzureMethod(name).OpenSignUp()), or keep the administrator shape`,
+			name:   "a record on an outlet without an Auth has neither",
+			record: "Station",
 		},
 		{
-			name:   "a self-service record served by outlets bound to different auths is refused",
+			name:   "a record whose auth's roles a directory writes has neither: the directory decides who holds a role",
+			record: "Station",
+			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff") },
+		},
+		{
+			name:   "a record served by outlets bound to different auths is refused: one auth's people are invited and seated",
 			record: "Station",
 			mutate: func(r *resourceGenerator) {
 				r.resources[0].OutletNames = []string{defaultOutletName, "members"}
 				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
 				r.extraOutlets = []routerOutlet{{name: "members", prefix: "members", servesSessions: true, auth: openAuth("example.com/app/pkg/auth/members")}}
 			},
-			wantErr: `struct Station: @tenant(creation: self-service) on a record served by outlets bound to different auths ("example.com/app/pkg/auth/staff" and "example.com/app/pkg/auth/members"); the create-your-station route seats the person in one auth, so serve the record on the outlets of one (@outlet), or keep the administrator shape`,
+			wantErr: `struct Station: the record is served by outlets bound to different auths ("example.com/app/pkg/auth/staff" and "example.com/app/pkg/auth/members")`,
 		},
 		{
-			name:    "a self-service record without an open sign-up registration is refused",
-			record:  "Station",
-			mutate:  func(r *resourceGenerator) { r.defaultOutlet.auth = closedAuth("example.com/app/pkg/auth/staff") },
-			wantErr: "struct Station: @tenant(creation: self-service) needs a registration with the open sign-up rule on the staff auth, since a stranger signs in before creating a station and only open sign-up admits one; declare it on the outlet's Auth (GoogleMethod(name).OpenSignUp() or AzureMethod(name).OpenSignUp(), the registration's Accounts being signin.OpenSignUp), or keep the administrator shape",
-		},
-		{
-			name:   "a self-service record whose auth's management the program does not generate is refused",
+			name:   "a record whose auth's management the program does not generate is refused: the invitation and the seat are part of it",
 			record: "Station",
 			mutate: func(r *resourceGenerator) {
 				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
 				r.identity = nil
 			},
-			wantErr: `struct Station: the person who creates a station is made its first administrator through the generated management of Auth("example.com/app/pkg/auth/staff"), which this program does not generate; add GenerateIdentity to the generator program`,
+			wantErr: `struct Station: a station is made by an invitation, and its first administrator seated, through the generated management of Auth("example.com/app/pkg/auth/staff"), which this program does not generate; add GenerateIdentity to the generator program`,
 		},
 		{
 			name:   "a method named as the handler is refused",
@@ -193,7 +164,7 @@ func Test_validateTenantCreation(t *testing.T) {
 				structs := fixtureStructs(loadFixture(t, "tenantfixture"))
 				r.rpcMethods = []*rpcMethodInfo{{Struct: structs["CreateStation"]}}
 			},
-			wantErr: "struct Station: @tenant(creation: self-service) generates the handler CreateStation, the name of the RPC method CreateStation; rename the method",
+			wantErr: "struct Station: the create-your-station route generates the handler CreateStation, the name of the RPC method CreateStation; rename the method",
 		},
 	}
 	for _, tt := range tests {
@@ -212,43 +183,40 @@ func Test_validateTenantCreation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("validateTenantCreation() error = %v", err)
 			}
+			if got := r.resources[0].TenantCreation.SelfService(); got != tt.wantRoute {
+				t.Errorf("the create-your-tenant route is generated = %v, want %v", got, tt.wantRoute)
+			}
+			if got := r.resources[0].TenantCreation.Invites(); got != tt.wantRoute {
+				t.Errorf("the invitation that makes a tenant is generated = %v, want %v", got, tt.wantRoute)
+			}
+			if want := map[bool]tenantCreation{true: tenantCreationBoth, false: tenantCreationNone}[tt.wantRoute]; r.resources[0].TenantCreation != want {
+				t.Errorf("TenantCreation = %q, want %q", r.resources[0].TenantCreation, want)
+			}
 		})
 	}
 }
 
-// Test_tenantSeatData pins what the record's create path seats its creator with: the
-// accessors over the auth of the session outlets serving the record; nothing for a
-// record created through its route alone, one whose handlers are suppressed, or one
-// served by no session auth; a refusal where the record's outlets bind to different
-// auths.
-func Test_tenantSeatData(t *testing.T) {
+// Test_tenantAuth pins the auth a tenant is made through, by an invitation or on the
+// create-your-tenant page: the auth of the session outlets serving the record; none for
+// a record whose handlers are suppressed or one served by no session auth; a refusal
+// where the record's outlets bind to different auths, and where the program does not
+// generate the auth's management.
+func Test_tenantAuth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		creation tenantCreation
-		mutate   func(r *resourceGenerator)
-		want     *tenantSeatData
-		wantErr  string
+		name    string
+		mutate  func(r *resourceGenerator)
+		want    string
+		wantErr string
 	}{
 		{
-			name:   "the default outlet's auth seats the creator",
+			name:   "the default outlet's auth makes the tenants",
 			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-			want:   &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
+			want:   "example.com/app/pkg/auth/staff",
 		},
 		{
-			name:     "the both shape seats the creator of an administrator's create too",
-			creation: tenantCreationBoth,
-			mutate:   func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-			want:     &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
-		},
-		{
-			name:     "a self-service record has no create path to seat through",
-			creation: tenantCreationSelfService,
-			mutate:   func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-		},
-		{
-			name: "a record whose handlers are suppressed has no create path here, and the program is asked for no management",
+			name: "a record whose handlers are suppressed is made elsewhere, and the program is asked for no management",
 			mutate: func(r *resourceGenerator) {
 				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
 				r.resources[0].SuppressedHandlers = []HandlerType{ListHandler, ReadHandler, PatchHandler}
@@ -256,7 +224,7 @@ func Test_tenantSeatData(t *testing.T) {
 			},
 		},
 		{
-			name: "no session auth, no seat",
+			name: "no session auth, no auth to make a tenant through",
 		},
 		{
 			name: "outlets bound to different auths are refused",
@@ -265,7 +233,15 @@ func Test_tenantSeatData(t *testing.T) {
 				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
 				r.extraOutlets = []routerOutlet{{name: "members", prefix: "members", servesSessions: true, auth: openAuth("example.com/app/pkg/auth/members")}}
 			},
-			wantErr: `struct Station: the record is served by outlets bound to different auths ("example.com/app/pkg/auth/staff" and "example.com/app/pkg/auth/members"); its create makes the creator the station's first administrator through one auth's generated identity client, so serve the record on the outlets of one auth (@outlet)`,
+			wantErr: `struct Station: the record is served by outlets bound to different auths ("example.com/app/pkg/auth/staff" and "example.com/app/pkg/auth/members"); a station is made by an invitation of one auth, whose generated identity client seats its first administrator, so serve the record on the outlets of one auth (@outlet)`,
+		},
+		{
+			name: "an auth whose management the program does not generate is refused",
+			mutate: func(r *resourceGenerator) {
+				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+				r.identity = nil
+			},
+			wantErr: `struct Station: a station is made by an invitation, and its first administrator seated, through the generated management of Auth("example.com/app/pkg/auth/staff"), which this program does not generate; add GenerateIdentity to the generator program`,
 		},
 	}
 
@@ -274,24 +250,27 @@ func Test_tenantSeatData(t *testing.T) {
 			t.Parallel()
 
 			r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
-				r.resources[0].TenantCreation = tt.creation
 				if tt.mutate != nil {
 					tt.mutate(r)
 				}
 			})
-			got, err := r.tenantSeatData(r.resources[0])
+			got, err := r.tenantAuth(r.resources[0])
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("tenantSeatData() error = %v, want it to contain %q", err, tt.wantErr)
+					t.Fatalf("tenantAuth() error = %v, want it to contain %q", err, tt.wantErr)
 				}
 
 				return
 			}
 			if err != nil {
-				t.Fatalf("tenantSeatData() error = %v", err)
+				t.Fatalf("tenantAuth() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("tenantSeatData() mismatch (-want +got):\n%s", diff)
+			path := ""
+			if got != nil {
+				path = got.importPath
+			}
+			if path != tt.want {
+				t.Errorf("tenantAuth() = %q, want %q", path, tt.want)
 			}
 		})
 	}
@@ -377,8 +356,8 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		RouterPackage:       "router",
 		Record:              "Station",
 		RecordLower:         "station",
-		Shape:               "self-service",
 		HandlerFunc:         "CreateStation",
+		OfferedHandlerFunc:  "CreateStationOffered",
 		RoutePath:           "/api/create-station",
 		Auth:                "Staff",
 		IdentityAccessor:    "StaffIdentity",
@@ -387,6 +366,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		Fields:              fields,
 		Setters:             setters,
 		Refusal:             tenantCreationRefusal("Station"),
+		ClosedRefusal:       tenantCreationClosedRefusal("Station"),
 	})
 	if err != nil {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
@@ -409,6 +389,10 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"identity := a.StaffIdentity()",
 		"held, err := userPermissions.Domains(ctx)",
 		`httpio.NewForbiddenMessage("the session already holds a station; a person creates one station and becomes its administrator")`,
+		// Whether sign-up is open is read in the transaction that writes the row, and a
+		// person is refused in plain words while no sign-in method is open.
+		"open, err := identity.AnySignInMethodOpen(ctx, txn)",
+		`return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a station of your own: ask an administrator of the application to create one for you, or to invite you to one")`,
 		// The create generates the id, the id's text is the tenant's domain, and the
 		// membership is written under it.
 		"var id impulse.UUID",
@@ -425,6 +409,14 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
 		// The answer carries the generated id.
 		"return httpio.NewEncoder(w).Ok(response{ID: id})",
+		// The route's GET answers whether the caller may create one now, by the two
+		// facts the POST refuses on, read as committed, and writes nothing.
+		"func (a *App) CreateStationOffered() http.HandlerFunc {",
+		"Offered bool `json:\"offered\"`",
+		"held, err := a.UserPermissions(r).Domains(ctx)",
+		"if len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
+		"open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())",
+		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
 		// Nothing is removed after the commit: the row and the administrator's
@@ -444,13 +436,15 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		t.Errorf("the response struct = %q; want the generated id alone", response)
 	}
 
-	// The gate before the body, the id generated inside the transaction before the
-	// row is buffered, the membership after the row and before the commit, the commit
+	// The gate before the body, whether sign-up is open asked inside the transaction
+	// before anything is made, the id generated before the row is buffered, the membership after the row and before the commit, the commit
 	// before the roster, the roster before the wait, the wait before the signal, the
 	// signal before the answer.
 	gate := strings.Index(s, "if len(held) > 0 {")
 	decode := strings.Index(s, "req, err := decoder.Decode(r)")
 	begin := strings.Index(s, "ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {")
+	admitted := strings.Index(s, "if !open {")
+	created := strings.Index(s, "resources.NewStationCreatePatch()")
 	generated := strings.Index(s, "id = patch.ID()")
 	row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 	commit := strings.Index(s, "}); err != nil {")
@@ -459,6 +453,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	seat := strings.Index(s, "resource.AwaitFirstAdministrator(")
 	signal := strings.Index(s, "Signal(ctx, resource.KindTenants)")
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")
+	if begin >= admitted || admitted >= created || created >= generated {
+		t.Errorf("order: transaction %d, the check that sign-up is open %d, the create patch %d, generated id %d; want ascending:\n%s", begin, admitted, created, generated, out)
+	}
 	if gate >= decode || decode >= begin || begin >= generated || generated >= row || row >= given || given >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
 		t.Errorf("order: gate %d, decode %d, transaction %d, generated id %d, row %d, membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", gate, decode, begin, generated, row, given, commit, roster, seat, signal, answer, out)
 	}
@@ -483,7 +480,7 @@ func structBody(t *testing.T, source, name string) string {
 
 // Test_accumulateTenantCreationRoute pins the route's registration: a POST under the
 // prefix of every session outlet the record is on, none on an API-key outlet, and none
-// at all for an administrator-only record.
+// at all for a record whose auth's roles a directory writes.
 func Test_accumulateTenantCreationRoute(t *testing.T) {
 	t.Parallel()
 
@@ -494,13 +491,13 @@ func Test_accumulateTenantCreationRoute(t *testing.T) {
 		wantRoutes map[string]*generatedRoute
 	}{
 		{
-			name:       "an administrator-only record registers no route",
-			record:     "Sector",
-			mutate:     func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
+			name:       "a record whose auth's roles a directory writes registers no route",
+			record:     "Station",
+			mutate:     func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff") },
 			wantRoutes: map[string]*generatedRoute{},
 		},
 		{
-			name:   "a self-service record on every session outlet it is on",
+			name:   "a record on every session outlet it is on",
 			record: "Station",
 			mutate: func(r *resourceGenerator) {
 				r.resources[0].OutletNames = []string{defaultOutletName, "members", "machines"}
@@ -528,29 +525,41 @@ func Test_accumulateTenantCreationRoute(t *testing.T) {
 			}
 			testRoutes := r.accumulateTenantCreationRoute(outlets, outletRoutes)
 
-			gotRoutes := map[string]*generatedRoute{}
-			for _, outlet := range outletRoutes {
-				routes := outlet.RoutesMap["CreateStation"]
-				if len(routes) == 0 {
-					continue
+			gotRoutes, gotOffered := map[string]*generatedRoute{}, map[string]*generatedRoute{}
+			for handler, got := range map[string]map[string]*generatedRoute{"CreateStation": gotRoutes, "CreateStationOffered": gotOffered} {
+				for _, outlet := range outletRoutes {
+					routes := outlet.RoutesMap[handler]
+					if len(routes) == 0 {
+						continue
+					}
+					if len(routes) != 1 {
+						t.Errorf("outlet %s registers %d routes under %s, want 1", outlet.Name, len(routes), handler)
+					}
+					got[outlet.Name] = routes[0]
 				}
-				if len(routes) != 1 {
-					t.Errorf("outlet %s registers %d routes, want 1", outlet.Name, len(routes))
-				}
-				gotRoutes[outlet.Name] = routes[0]
 			}
 			if diff := cmp.Diff(tt.wantRoutes, gotRoutes, cmp.AllowUnexported(generatedRoute{})); diff != "" {
 				t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
 			}
-			if got, want := len(testRoutes), len(tt.wantRoutes); got != want {
-				t.Errorf("dispatch test routes = %d, want %d", got, want)
+			// Wherever the route is, its GET is beside it: the page asks it before it
+			// offers the route.
+			wantOffered := map[string]*generatedRoute{}
+			for outlet, route := range tt.wantRoutes {
+				wantOffered[outlet] = &generatedRoute{Method: "GET", Path: route.Path, HandlerFunc: "CreateStationOffered", TestURL: route.TestURL}
+			}
+			if diff := cmp.Diff(wantOffered, gotOffered, cmp.AllowUnexported(generatedRoute{})); diff != "" {
+				t.Errorf("registered routes of the GET mismatch (-want +got):\n%s", diff)
+			}
+			if got, want := len(testRoutes), 2*len(tt.wantRoutes); got != want {
+				t.Errorf("dispatch test routes = %d, want %d: the POST and the GET of each outlet", got, want)
 			}
 		})
 	}
 }
 
 // Test_tenantCreationAuthzCases pins the matrix's cases for the route: one no-grant
-// case per session outlet the record is on, named for the outlet off the default.
+// case per session outlet the record is on, named for the outlet off the default, and
+// beside each the route's GET, which anyone signed in may ask.
 func Test_tenantCreationAuthzCases(t *testing.T) {
 	t.Parallel()
 
@@ -561,13 +570,15 @@ func Test_tenantCreationAuthzCases(t *testing.T) {
 	})
 	want := []authzCase{
 		{Name: "CreateStation", Method: "http.MethodPost", URL: "/api/create-station", Body: tenantCreationRefusedBody, NoGrant: true},
+		{Name: "CreateStationOffered", Method: "http.MethodGet", URL: "/api/create-station", Open: true},
 		{Name: "CreateStation (members)", Method: "http.MethodPost", URL: "/members/create-station", Body: tenantCreationRefusedBody, NoGrant: true},
+		{Name: "CreateStationOffered (members)", Method: "http.MethodGet", URL: "/members/create-station", Open: true},
 	}
 	if diff := cmp.Diff(want, r.tenantCreationAuthzCases(), cmp.AllowUnexported(authzCase{})); diff != "" {
 		t.Errorf("tenantCreationAuthzCases() mismatch (-want +got):\n%s", diff)
 	}
 	if cases := tenantCreationFixtureGenerator(t, "Sector", nil).tenantCreationAuthzCases(); cases != nil {
-		t.Errorf("an administrator-only record has cases %v, want none", cases)
+		t.Errorf("a record no session auth serves has cases %v, want none", cases)
 	}
 }
 
@@ -602,41 +613,49 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		record          string
+		name   string
+		record string
+		// served gives the default outlet an auth, so the route is generated.
+		served          bool
 		outlet          string
 		wantContains    []string
 		wantNotContains []string
 	}{
 		{
-			name:   "a both record on the client's outlet",
+			name:   "a record on the client's outlet",
 			record: "Colony",
+			served: true,
 			wantContains: []string{
-				"The create-your-colony route (@tenant(creation: both)): POST create-colony under the API",
+				"The create-your-colony route: POST create-colony under the API",
 				"export const createColonyRoute = 'create-colony';",
 				"The route generates the new colony's id and answers it.",
 				"export interface CreateColony {\n  name: string;\n}",
 				"export interface CreateColonyAnswer {\n  id: string;\n}",
+				// What the page reads before it offers the route.
+				"export interface CreateColonyOffered {\n  offered: boolean;\n}",
 			},
 		},
 		{
-			name:   "a self-service record's nullable column is optional and takes null",
+			name:   "a record's nullable column is optional and takes null",
 			record: "Station",
+			served: true,
 			wantContains: []string{
 				"export const createStationRoute = 'create-station';",
 				"export interface CreateStation {\n  name: string;\n  motto?: string | null;\n  opened: string;\n}",
 				"export interface CreateStationAnswer {\n  id: string;\n}",
+				"export interface CreateStationOffered {\n  offered: boolean;\n}",
 			},
 			wantNotContains: []string{"derived"},
 		},
 		{
-			name:            "an administrator-only record has no block",
+			name:            "a record no session auth serves has no block",
 			record:          "Sector",
 			wantNotContains: []string{"createSectorRoute", "CreateSector"},
 		},
 		{
 			name:            "a client for an outlet the record is off has no block",
 			record:          "Station",
+			served:          true,
 			outlet:          "members",
 			wantNotContains: []string{"createStationRoute", "CreateStation"},
 		},
@@ -645,11 +664,28 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := tenantCreationFixtureGenerator(t, tt.record, nil)
-			for _, f := range r.resources[0].Fields {
+			r := tenantCreationFixtureGenerator(t, tt.record, func(r *resourceGenerator) {
+				if tt.served {
+					r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+				}
+			})
+			target := typescriptTarget{destination: "ui/src"}
+			if tt.outlet != "" {
+				target.options = []TSOption{ForOutlet(tt.outlet)}
+			}
+			gen, err := r.buildUnifiedTypescriptGenerator(nil, nil, target)
+			if err != nil {
+				t.Fatalf("buildUnifiedTypescriptGenerator() error = %v", err)
+			}
+			// A target parses the resources for itself, so its record is the annotation's
+			// alone and carries no decision: the run hands the target the one it made.
+			gen.resources = tenantCreationFixtureGenerator(t, tt.record, nil).resources
+			if gen.resources[0].TenantCreation.SelfService() {
+				t.Fatal("the fixture's own parse of the record carries the decision; the case proves nothing")
+			}
+			for _, f := range gen.resources[0].Fields {
 				f.typescriptType = "string"
 			}
-			gen := &typescriptGenerator{client: r.client, outletName: tt.outlet}
 			out, err := gen.generateTemplateOutput("typescriptAPITemplate", typescriptAPITemplate, gen.apiClientData())
 			if err != nil {
 				t.Fatalf("generateTemplateOutput() error = %v", err)

@@ -60,9 +60,30 @@ type tenantRoles struct {
 // once that transaction has committed (seat), which is when an application's engine is
 // told that the rows the hook wrote have landed.
 func seatIn[Tx any](r *tenantRoles) session.DirectorySeatedHook[Tx] {
-	return func(_ context.Context, _ Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
-		return func(context.Context) { r.seat(userID, username, seats) }, nil
+	return session.DirectorySeatedHook[Tx]{
+		Seat: func(_ context.Context, _ Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+			return func(context.Context) { r.seat(userID, username, seats) }, nil
+		},
+		OnlyIn: func(_ context.Context, _ Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
+			return r.onlyIn(accesstypes.User(userID.String()), tenant), nil
+		},
 	}
+}
+
+// onlyIn reports whether tenant is the only place the user holds anything: a role in
+// tenant itself, and none in another tenant, in every tenant or outside the tenants.
+func (r *tenantRoles) onlyIn(user accesstypes.User, tenant accesstypes.Domain) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	own := accesstypes.DomainPolicyScope(tenant)
+	for scope, roles := range r.held[user] {
+		if len(roles) > 0 && scope != own {
+			return false
+		}
+	}
+
+	return len(r.held[user][own]) > 0
 }
 
 // seat grants each seat as a membership in its tenant, held by the user's account, and
@@ -113,6 +134,12 @@ func (r *tenantRoles) UserRoles(_ context.Context, user accesstypes.User, scopes
 	return r.held[user], nil
 }
 
+// TenantsAdministered answers that nobody administers a tenant: the cases here are of
+// members.
+func (r *tenantRoles) TenantsAdministered(context.Context, accesstypes.User) ([]accesstypes.Domain, error) {
+	return nil, nil
+}
+
 func (r *tenantRoles) ResolveRole(context.Context, accesstypes.PolicyScope, string) (accesstypes.Role, bool, error) {
 	return "", false, errors.New("the tenant policy never resolves a role")
 }
@@ -144,7 +171,7 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	entraIDP := oidctest.NewFakeEntra(t, "entra-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
@@ -155,18 +182,22 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	password := session.PasswordSignIn(auth)
 	entra := azure.SignIn(auth, "entra", nil, &azure.Config{
 		RoleSync: signin.DisableRoleSync(), Authority: entraIDP.Server.URL,
-		Tenants: azure.Tenants(azure.NamedTenant(azureTenant, tenantLakeside), azure.Tenant(riversideTenant)), Accounts: signin.MembersOfDirectory,
+		Tenants:  azure.Tenants(azure.NamedTenant(azureTenant, tenantLakeside), azure.Tenant(riversideTenant)),
 		ClientID: "entra-client", ClientSecret: "secret", RedirectURL: "https://app.example/entra/callback",
 	})
 	googleIssuerMu.Lock()
 	issuer := google.IssuerURL
 	google.IssuerURL = googleIDP.Server.URL
 	workspace := google.SignIn(auth, "google", nil, &google.Config{
-		RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("lakeside", hostedDomain), Accounts: signin.MembersOfDirectory,
+		RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("lakeside", hostedDomain),
 		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
 	})
 	google.IssuerURL = issuer
 	googleIssuerMu.Unlock()
+	// An administrator opened both directories to sign-up: a person no tenant's
+	// declaration decides gets an account.
+	openMethod(ctx, t, store, auth.API(), "entra", "")
+	openMethod(ctx, t, store, auth.API(), "google", "")
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
@@ -187,8 +218,8 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 
 // grant gives the person of username the roles in scope. A role is held by an account,
 // so a person given one ahead of their first sign-in has a user: the one under the
-// name, or one created here without a password, which their first sign-in through a
-// directory links.
+// name, or one created here without a password, which their first sign-in through the
+// directory of the one tenant they belong to links.
 func (a *tenantApp[Tx]) grant(ctx context.Context, t *testing.T, username string, scope accesstypes.PolicyScope, roles ...accesstypes.Role) {
 	t.Helper()
 
@@ -267,7 +298,7 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTenantAdmitted[Tx],
 		},
 		{
-			name: "a sign-in through a directory no tenant of the person declares is refused with connection_not_in_tenant, from the Workspace and from the other Entra tenant, and the account the rule made stays",
+			name: "a sign-in through a directory is refused with connection_not_in_tenant when every tenant of the person is directory only and none has it, from the Workspace and from the other Entra tenant, and the account the rule made stays; a second tenant that sets nothing admits it",
 			run:  seamTenantConnectionNotInTenant[Tx],
 		},
 		{
@@ -287,6 +318,10 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTenantStaff[Tx],
 		},
 		{
+			name: "an account created ahead that has never signed in is linked through the directory of the one tenant it belongs to and through no other: its name through another directory is refused as a stranger's, a global role's holder included",
+			run:  seamTenantFirstLink[Tx],
+		},
+		{
 			name: "the application's own rule is asked after the tenant policy allows, and its answer is the decision; it is not asked after the tenant policy denies",
 			run:  seamTenantChainedRule[Tx],
 		},
@@ -295,7 +330,7 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamDirectoryDefaultSeat[Tx],
 		},
 		{
-			name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and no account is created, though the registration admits members of the directory; a directory no tenant declares falls to the registration's rule",
+			name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and no account is created, though the method is open to sign-up; a directory no tenant declares falls to what was chosen for the method",
 			run:  seamDirectoryInvitationOnly[Tx],
 		},
 	}
@@ -347,7 +382,7 @@ func seamDirectoryInvitationOnly[Tx any](ctx context.Context, t *testing.T, be b
 	a := newTenantApp(ctx, t, be)
 	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideWorkspace)
 
-	// The registration admits members of the directory; the tenant's declaration
+	// The method is open to sign-up; the tenant's declaration
 	// decides first, and writes nothing.
 	stranger := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, stranger, googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"invitation_only"}})
@@ -387,13 +422,23 @@ func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx
 	a.assertPasswordSignIn(ctx, t, "kim@lakeside.edu", http.StatusOK, "")
 }
 
-// seamTenantConnectionNotInTenant is the scenario "a sign-in through a directory no tenant of the person declares is refused".
+// seamTenantConnectionNotInTenant is the scenario "a sign-in through a directory is refused only when every tenant of the person is directory only and none has it".
 func seamTenantConnectionNotInTenant[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
-	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
+	a.db.declareTenant(ctx, t, tenantLakeside, true, lakesideEntra)
+	// Each person signed in once before any tenant seated them, through the directory
+	// they come through below, which no tenant has: the registration's rule made the
+	// account and its link, and the policy refused a member of no tenant.
+	assertRedirect(t, a.googleSignIn(ctx, a.browser(t), googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"no_tenant"}})
+	assertRedirect(t, a.entraSignIn(ctx, a.browser(t), azureClaims(riversideTenant, "oid-sam", "sam@riverside.edu")), "/login", url.Values{"code": {"no_tenant"}})
+	assertRedirect(t, a.entraSignIn(ctx, a.browser(t), azureClaims(riversideTenant, "oid-lee", "lee@riverside.edu")), "/login", url.Values{"code": {"no_tenant"}})
 	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 	a.grant(ctx, t, "sam@riverside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "lee@riverside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "lee@riverside.edu", accesstypes.DomainPolicyScope(tenantRiverside), member...)
 
+	// Lakeside is directory only and is all that seats Pat and Sam: a sign-in through
+	// the Workspace, or through another Entra tenant, reaches nothing and is refused.
 	workspace := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, workspace, googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"connection_not_in_tenant"}})
 	workspace.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
@@ -404,6 +449,12 @@ func seamTenantConnectionNotInTenant[Tx any](ctx context.Context, t *testing.T, 
 	other := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, other, azureClaims(riversideTenant, "oid-sam", "sam@riverside.edu")), "/login", url.Values{"code": {"connection_not_in_tenant"}})
 	other.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+
+	// Lee is seated in Riverside too, which sets nothing: Lakeside's switch closes
+	// Lakeside alone, and the same sign-in through the other Entra tenant is admitted.
+	seated := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, seated, azureClaims(riversideTenant, "oid-lee", "lee@riverside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, seated, "lee@riverside.edu")
 }
 
 // seamTenantNoTenant is the scenario "a person who is a member of no tenant is refused with no_tenant".
@@ -446,12 +497,50 @@ func seamTenantDirectoryOnly[Tx any](ctx context.Context, t *testing.T, be backe
 // seamTenantStaff is the scenario "a person holding a global role is the application's staff".
 func seamTenantStaff[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
+	// The person signed in once before the role was given, through the Workspace no
+	// tenant has: the registration's rule made the account and its link, and the policy
+	// refused a member of no tenant.
+	assertRedirect(t, a.googleSignIn(ctx, a.browser(t), googleClaims("sub-ops", "ops@lakeside.edu")), "/login", url.Values{"code": {"no_tenant"}})
 	a.grant(ctx, t, "ops@lakeside.edu", accesstypes.GlobalPolicyScope(), "Administrator")
 
 	b := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("sub-ops", "ops@lakeside.edu")), "/home", url.Values{})
 	v := signedInAs(ctx, t, b, "ops@lakeside.edu")
 	assertEventsSeen(t, v, "google:lakeside")
+}
+
+// seamTenantFirstLink is the scenario "an account created ahead that has never signed in is linked through the directory of the one tenant it belongs to and through no other".
+func seamTenantFirstLink[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantApp(ctx, t, be)
+	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
+	// Pat is created ahead, with no password, and seated in Lakeside, which is not
+	// directory only: it admits everyone it seats, however they signed in.
+	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	// Ops is the application's own staff, created ahead with a global role.
+	a.grant(ctx, t, "ops@lakeside.edu", accesstypes.GlobalPolicyScope(), "Administrator")
+
+	// Pat's name through a directory that is not Lakeside's links nothing: nothing but
+	// the name ties the account to whoever signs in, and a directory asserts the names
+	// it likes. The refusal is a stranger's, and the session reaches nothing.
+	workspace := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, workspace, googleClaims("sub-claimed", "pat@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	workspace.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	other := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, other, azureClaims(riversideTenant, "oid-claimed", "pat@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	other.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+
+	// Staff hold no role in any one tenant, so no tenant's directory vouches for them:
+	// an account created ahead for one, with no password, is not linked by its name.
+	staff := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, staff, googleClaims("sub-ops", "ops@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	staff.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+
+	// Lakeside's own directory vouches for Lakeside's own people: Pat's first sign-in
+	// through it is linked to the account, and the refused sign-ins left nothing that
+	// stands in its way.
+	b := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, b, "pat@lakeside.edu")
 }
 
 // seamTenantChainedRule is the scenario "the application's own rule is asked after the tenant policy allows".

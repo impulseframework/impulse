@@ -213,9 +213,14 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 		return resource.CollectionData{}, err
 	}
 
+	if err := r.collectDirectoryOnlyRegistrations(b); err != nil {
+		return resource.CollectionData{}, err
+	}
+
 	r.collectBindingRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
 	r.collectRequiredRegistrations(b)
+	r.collectAcrossTenantsRegistrations(b)
 
 	data := b.Data()
 	if err := r.validateStateEnumTables(data); err != nil {
@@ -223,6 +228,27 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	}
 
 	return data, nil
+}
+
+// collectAcrossTenantsRegistrations marks every resource declared for listing across
+// tenants (@listAcrossTenants). The running application reads the mark where it must
+// know the declaration: the decode of a list across tenants, the permission digest's
+// answer for the list's page, and the renewal of a live subscription over a set of
+// tenants.
+func (r *resourceGenerator) collectAcrossTenantsRegistrations(b *resource.CollectionBuilder) {
+	for _, res := range r.resources {
+		if res.ListsAcrossTenants {
+			b.SetResourceListsAcrossTenants(accesstypes.Resource(r.pluralize(res.Name())))
+		}
+	}
+}
+
+// listsAcrossTenants reports whether the application declares any resource for listing
+// across tenants.
+func (r *resourceGenerator) listsAcrossTenants() bool {
+	return slices.ContainsFunc(r.resources, func(res *resourceInfo) bool {
+		return res.ListsAcrossTenants
+	})
 }
 
 // collectRequiredRegistrations registers, for every table-backed resource, the fields

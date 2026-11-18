@@ -35,6 +35,14 @@ const (
 	// ValueKindDecimal is decimal.Decimal, a pointer to one, decimal.NullDecimal, or
 	// spanner.NullNumeric, sized by digit against NUMERIC.
 	ValueKindDecimal
+	// ValueKindSecret is the value of a secret field as a request carries it: text,
+	// sized by byte against the BYTES(n) column its sealed form is stored in, less the
+	// bytes sealing adds (SecretOverhead). The generator classifies a source field typed
+	// Secret as this kind; the runtime meets it as a string-kinded request field and
+	// takes it for a secret only where the resource declares the field one
+	// (conditions:"secret"). A string-kinded field on a BYTES column that is no secret,
+	// a named string type with an encoding of its own, has no rule.
+	ValueKindSecret
 )
 
 // GoogleSQL NUMERIC holds 38 digits of precision with 9 of scale: at most 29 digits
@@ -150,6 +158,16 @@ func newValueLimit(sqltype string, kind ValueKind, slice bool) (valueLimit, erro
 	}
 
 	switch kind {
+	case ValueKindSecret:
+		// A secret's text on the column that stores it sealed.
+		if ct.name != columnTypeBytes || ct.array {
+			return valueLimit{}, errors.Newf("column type %q has no rule for a secret: a stored secret's column is BYTES(n)", sqltype)
+		}
+		if ct.max <= SecretOverhead {
+			return valueLimit{}, errors.Newf("column type %q has no rule for a secret: sealing adds %d bytes to the value", sqltype, SecretOverhead)
+		}
+
+		return valueLimit{kind: ValueKindSecret, max: ct.max - SecretOverhead, perElement: false, jsonField: ""}, nil
 	case ValueKindString:
 		if ct.name != columnTypeString || ct.max == 0 {
 			return valueLimit{}, errors.Newf("column type %q has no rule for a string-kinded field", sqltype)
@@ -223,8 +241,10 @@ func scalarValueKind(t reflect.Type) ValueKind {
 // valueLimitsOf reads the sqltype tags of a request struct into per-field limits, keyed
 // by struct field; nil when the struct carries none. A tag the package cannot pair with
 // the field's type fails construction: the generator writes the tag only where a rule
-// exists, so the struct is stale.
-func valueLimitsOf(t reflect.Type) (map[accesstypes.Field]valueLimit, error) {
+// exists, so the struct is stale. secret reports the fields the resource declares a
+// secret (Metadata.secret), whose text a request carries in a string-kinded field; nil
+// for a struct of no resource, which holds none.
+func valueLimitsOf(t reflect.Type, secret func(accesstypes.Field) bool) (map[accesstypes.Field]valueLimit, error) {
 	var limits map[accesstypes.Field]valueLimit
 	for field := range t.Fields() {
 		ft := FieldTagsFromStructTag(accesstypes.Field(field.Name), field.Tag)
@@ -233,6 +253,9 @@ func valueLimitsOf(t reflect.Type) (map[accesstypes.Field]valueLimit, error) {
 		}
 
 		kind, slice := valueKindOf(field.Type)
+		if kind == ValueKindString && !slice && secret != nil && secret(accesstypes.Field(field.Name)) {
+			kind = ValueKindSecret
+		}
 		limit, err := newValueLimit(ft.SQLType, kind, slice)
 		if err != nil {
 			return nil, errors.Wrapf(err, "sqltype:%q on field %s is not supported: regenerate this struct — the generator writes it only onto a field whose type the decoder sizes against that column type", ft.SQLType, field.Name)
@@ -309,6 +332,8 @@ func (l valueLimit) scalarExceeded(v reflect.Value) bool {
 		return utf8.RuneCountInString(v.String()) > l.max
 	case ValueKindBytes:
 		return v.Len() > l.max
+	case ValueKindSecret:
+		return len(v.String()) > l.max
 	case ValueKindDecimal:
 		switch d := v.Interface().(type) {
 		case decimal.Decimal:
@@ -384,7 +409,7 @@ func (l valueLimit) message() string {
 	switch l.kind {
 	case ValueKindString:
 		rule = fmt.Sprintf("limited to %s", plural(l.max, "character"))
-	case ValueKindBytes:
+	case ValueKindBytes, ValueKindSecret:
 		rule = fmt.Sprintf("limited to %s", plural(l.max, "byte"))
 	case ValueKindDecimal:
 		rule = fmt.Sprintf("limited to %d digits before the decimal point and %d after", numericIntegerDigits, numericScale)

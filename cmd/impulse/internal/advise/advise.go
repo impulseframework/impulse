@@ -231,7 +231,7 @@ type kind struct {
 }
 
 // kinds are the warning and finding kinds the framework raises today: the generator's
-// three schema warnings, the audit pass's one finding, and the deploy-time validation's
+// four schema warnings, the audit pass's one finding, and the deploy-time validation's
 // two role warnings.
 var kinds = []kind{
 	{
@@ -247,6 +247,13 @@ var kinds = []kind{
 		reading:   "A listed resource finds its tenant through `@domain(via: ...)`, a path of foreign keys, so no column on its own row names the tenant: every list scans the whole table across every tenant with a lookup per row up the path, and no index on the table changes that. The way out is a tenant column on the row (`@domain` on it), which is a schema change: a column, a backfill, and the annotation.",
 		question:  "Whether the table will grow, and whether the tenant-column migration is worth doing now, while the table is small and the backfill is trivial, or the scan is acceptable for the table's expected size.",
 		edits:     "the tenant column and its backfill migration, with `@domain` moved onto it; or the pinned acceptance for a table that stays small.",
+	},
+	{
+		name:      "Subject set index warning",
+		recognize: "`Warning: <Resource> declares subject.<set>, which finds the requester's rows by <column> with no index leading with <columns> ...; wanted: CREATE INDEX ...`",
+		reading:   "A `@subjectSet` finds the requester's rows of its table by the column the line names: the column the annotation sits on, or one of the columns its `who:` names, and a set whose `who:` names several columns raises a line for each. The lookup binds the tenant column where the row carries one, that column, and the value the set yields, and no index of the table leads with them, so every check of a condition that tests membership in the set reads the whole table. The primary key counts, and so does a secondary index with the key columns Spanner appends to it; a null-filtered index and a search index do not.",
+		question:  "Whether the set's table grows. A table of a few rows a tenant never feels the read; a table of memberships or assignments, which grows with the people and with what they are assigned, does, on every request that checks the set.",
+		edits:     "the migration with the `CREATE INDEX` from the line; or the pinned acceptance in the program's warnings test for a table that stays small, said so in its doc.",
 	},
 	{
 		name:      "Enumeration size warning",

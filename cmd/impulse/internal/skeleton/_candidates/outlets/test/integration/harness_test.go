@@ -58,6 +58,10 @@ const (
 	// The browser outlets' API prefixes.
 	consoleAPI = "/console/api"
 	portalAPI  = "/portal/api"
+
+	// directoryTenant is the Microsoft tenant the portal's directory registration admits
+	// in the served suites, by its tenant id: the connection of a member's identity link.
+	directoryTenant = "00000000-0000-0000-0000-000000000000"
 )
 
 // servedConfigurer implements app.Configurer over the real dependencies: the test
@@ -142,9 +146,14 @@ func (c *servedConfigurer) LiveOrigins() []string {
 // served is one running instance of the application under test.
 type served struct {
 	server *httptest.Server
-	// access is the staff auth's engine, members the members auth's.
-	access  *access.Client
-	members *access.Client
+	// access is the staff auth's engine, members the members auth's, and membersAuth
+	// the members auth itself, for a suite that creates a member as an operator would;
+	// staffAuth is the staff auth, for a suite that creates a staff login of its own
+	// beside the development ones.
+	access      *access.Client
+	members     *access.Client
+	membersAuth *members.Auth
+	staffAuth   *staff.Auth
 	// adminID and memberID are the ids of the staff logins' accounts, and clientID the
 	// id of the portal's client's account in the members auth: what each auth's
 	// permission store holds their roles under and what the methods of the auth's
@@ -152,6 +161,9 @@ type served struct {
 	adminID, memberID, clientID string
 	// db is the test database, for the suites that read a table directly.
 	db *initiator.SpannerDB
+	// tenants is the roster the stack serves from, for a suite that writes what a
+	// tenant declares in code, as a sign-in would, and reloads it as a write path does.
+	tenants *resource.TenantRoster
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
 	// sign-in code a sign-in waits for.
 	mail *mail.Recorder
@@ -172,6 +184,16 @@ type served struct {
 func newServed(ctx context.Context, t *testing.T) *served {
 	t.Helper()
 
+	return newServedSeeding(ctx, t, "")
+}
+
+// newServedSeeding is newServed with the members auth's first administrator seeded
+// under membersAdministrator before anything else of the auth exists, as the migrate
+// command seeds one into the auth's empty users table (members.Auth.SeedAdministrator);
+// "" seeds none.
+func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator string) *served {
+	t.Helper()
+
 	db, err := prepareDatabase(ctx, t, migrationsSource, devSeedSource)
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +203,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	// feature flags from, and the tenant roster reloads on: in-memory in the suites.
 	svc := live.NewFake()
 	// The tenant roster, started over the seeded tenants as production's data level
-	// starts it; a tenant the suites create through the API reaches it after the commit.
+	// starts it; a tenant an invitation makes in a suite reaches it after the commit.
 	roster := app.NewTenantRoster(resource.NewSpannerClient(db.Client), resource.WithTenantSignals(svc))
 	if err := roster.Start(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
@@ -198,6 +220,9 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		DevicePage:         "/console/device",
 		TenantDeclarations: app.NewTenantDeclarationReader(),
 		TenantDirectories:  app.NewTenantDirectoryReader(),
+		// What makes a tenant from an accepted invitation, over the stack's roster and
+		// live service, as production's data level hands it in.
+		TenantMaker: app.NewTenantMaker(roster, svc),
 	})
 	if err != nil {
 		t.Fatalf("staff.New() error = %v", err)
@@ -227,9 +252,9 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		Mail:           &mail.Recorder{},
 		MailLoginURL:   "http://outlets.test/portal/login",
 		LoginURL:       "/portal/login",
-		Directory:      members.DirectorySettings{TenantID: "00000000-0000-0000-0000-000000000000", AdministeredTenants: "00000000-0000-0000-0000-000000000000", RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
+		Directory:      members.DirectorySettings{TenantID: directoryTenant, AdministeredTenants: directoryTenant, RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
 		// The declaration reader the sign-in rule reads with; the development seed
-		// declares the directory above on both tenants.
+		// makes the directory above north's.
 		TenantDeclarations: app.NewTenantDeclarationReader(),
 		TenantDirectories:  app.NewTenantDirectoryReader(),
 	})
@@ -242,6 +267,13 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		}
 	})
 	membersAccess := membersAuth.Access()
+	// The deployment's seed runs while the members auth's users table is empty.
+	if membersAdministrator != "" {
+		seeded, err := membersAuth.SeedAdministrator(ctx, membersAdministrator)
+		if err != nil || !seeded {
+			t.Fatalf("members.Auth.SeedAdministrator(%s) = %v, %v, want the first administrator seeded", membersAdministrator, seeded, err)
+		}
+	}
 	// The portal's client is a member: the directory proves who they are, so they hold
 	// no password here. A role is held by an account, so the client is created as the
 	// bootstrap creates a member: a user without a password under the name the directory
@@ -276,6 +308,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		scope accesstypes.PolicyScope
 		role  accesstypes.Role
 	}{
+		{adminUser, accesstypes.GlobalPolicyScope(), accesstypes.SuperAdministrator},
 		{adminUser, accesstypes.GlobalPolicyScope(), "Administrator"},
 		{adminUser, accesstypes.EveryDomainPolicyScope(), "TenantAdministrator"},
 		{memberUser, accesstypes.DomainPolicyScope(north), "TenantAdministrator"},
@@ -301,7 +334,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	server.Config.Handler = router.New(a, router.Hooks{})
 	server.Start()
 
-	return &served{server: server, access: accessClient, members: membersAccess, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, membersAuth: membersAuth, staffAuth: staffAuth, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in
@@ -432,6 +465,14 @@ func machine(ctx context.Context, t *testing.T, s *served, token, method, path s
 func (b *browser) do(ctx context.Context, method, path string, body []byte) (status int, respBody []byte) {
 	b.t.Helper()
 
+	return b.doWith(ctx, method, path, body, nil)
+}
+
+// doWith is do with headers of the request's own: a method asked for its warning
+// (X-Warning), which answers what the call would do and saves nothing.
+func (b *browser) doWith(ctx context.Context, method, path string, body []byte, headers map[string]string) (status int, respBody []byte) {
+	b.t.Helper()
+
 	req, err := http.NewRequestWithContext(ctx, method, b.base+path, bytes.NewReader(body))
 	if err != nil {
 		b.t.Fatal(err)
@@ -439,6 +480,9 @@ func (b *browser) do(ctx context.Context, method, path string, body []byte) (sta
 	req.Header.Set("Content-Type", "application/json")
 	if token := b.xsrfToken(); token != "" {
 		req.Header.Set("X-XSRF-TOKEN", token)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 
 	resp, err := b.client.Do(req)
@@ -533,19 +577,52 @@ func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, per
 }
 
 // unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
-// its name, into the tenants' domains alone, in the order listed.
+// its name, into the domains of the tenants the session reaches, in the order listed. A
+// tenant the answer marks closed to the session is left out: the person holds a seat in
+// it, and the session cannot enter it (closedDomains reads those).
 func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	var listed []struct {
 		Domain string `json:"domain"`
+		Closed string `json:"closed"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		return errors.Wrap(err, "json.Unmarshal()")
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
+		if entry.Closed != "" {
+			continue
+		}
 		out = append(out, T(entry.Domain))
 	}
 	*domains = out
 
 	return nil
+}
+
+// closedDomains reads the tenants the user-domains answer at path marks closed to the
+// browser's session: each tenant's domain with the reason the server gives, a sentence.
+// Empty, never nil, when the answer marks none.
+func closedDomains(ctx context.Context, t *testing.T, b *browser, path string) map[string]string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, path, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s: status %d: %s", path, status, body)
+	}
+	var listed []struct {
+		Domain string `json:"domain"`
+		Closed string `json:"closed"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatalf("user-domains is not a list: %v: %s", err, body)
+	}
+	closed := map[string]string{}
+	for _, entry := range listed {
+		if entry.Closed != "" {
+			closed[entry.Domain] = entry.Closed
+		}
+	}
+
+	return closed
 }

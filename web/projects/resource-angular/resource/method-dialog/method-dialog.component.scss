@@ -13,3 +13,50 @@
   margin: 12px 0 0;
   color: var(--mat-sys-error, #b3261e);
 }
+
+// A method that warns before it runs: the server's words in the library's warning
+// colors (the notice tokens an application's theme sets), under a warning icon.
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--impulse-alert-warn-border);
+  border-radius: 5px;
+  background-color: var(--impulse-alert-warn-bg);
+}
+
+.warning-icon {
+  flex: none;
+  color: var(--impulse-alert-warn-border);
+}
+
+.warning-words {
+  min-width: 0;
+}
+
+.warning-consequence {
+  margin: 0;
+  white-space: pre-line;
+}
+
+// The names the consequence speaks of, where the server lists them: a list of their
+// own under the sentences, which scrolls where it is long.
+.warning-names {
+  max-height: 12em;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  overflow-y: auto;
+}
+
+.typed-word {
+  display: block;
+  margin: 12px 0 0;
+}
+
+// The button that confirms a warning is the warning's color while it can be pressed.
+.run.warns:not(:disabled) {
+  background-color: var(--impulse-alert-warn-border);
+  color: var(--impulse-surface);
+}

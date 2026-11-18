@@ -1,6 +1,9 @@
 package generation
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // A tenant's methods of an auth's generated management. Beside the lists one tenant
 // keeps of an auth's people (identity_lists.go), the generated management writes the
@@ -30,6 +33,12 @@ func (i *identityInstance) subject(tenant bool) string {
 // (CrewSectorRole, the roles one Sector gives).
 const tenantRoleChoiceSuffix = "Role"
 
+// directoryRoleChoiceSuffix is the suffix of the computed resource that lists the roles
+// a tenant may be opened to its directory's people with, after the auth's name and the
+// tenant record's (CrewSectorDirectoryRole): the roles of the tenant the caller could
+// give there directly, which the role of the method that opens a tenant is picked from.
+const directoryRoleChoiceSuffix = "DirectoryRole"
+
 // unlinkIdentityMethod names the method that unlinks a sign-in identity: the whole
 // application's is named for the declaration over the identities table
 // (UnlinkCrewSessionIdentity), and a tenant's is that name with the tenant record's
@@ -43,11 +52,83 @@ func (d *identitySourceData) UnlinkIdentity() string {
 	return d.unlinkIdentityMethod(d.ForTenant)
 }
 
+// removePasswordMethod names the method that removes a person's password: the act, then
+// whose it is, as every method on a person is named (RemoveCrewPassword, and a tenant's
+// RemoveCrewSectorPassword). It is written beside the method that unlinks an identity,
+// for an auth that declares the password method.
+func (i *identityInstance) removePasswordMethod(tenant bool) string {
+	return "Remove" + i.subject(tenant) + "Password"
+}
+
 // picksRoles reports whether the instance declares the roles that exist in one tenant:
 // where there is a tenant record and the roles are given by hand. The roles of an auth
 // whose directory writes them are picked by nobody.
 func (i *identityInstance) picksRoles() bool {
 	return i.tenant != nil && !i.rolesSynced && i.has(identityMemberships)
+}
+
+// tenantGiving is one method a person gives a role with by hand in one tenant, whose
+// role field picks from the roles that exist in the tenant: the method's struct, and
+// the fields its request names the role in, as Go writes them.
+type tenantGiving struct {
+	Method string
+	Fields string
+}
+
+// tenantGivings are the methods of one tenant whose role field picks from the tenant's
+// roles, each where the instance writes it: the one that gives a person a role, the
+// create and the invitation that start a person with one, and the one that gives a
+// group a role. The list a role is picked from offers the roles one of them takes from
+// the caller (the generated CouldGive), so it reads the same sources the methods are
+// written from and names none the instance does not hold.
+func (i *identityInstance) tenantGivings() []tenantGiving {
+	if i.tenant == nil {
+		return nil
+	}
+	subject := i.subject(true)
+	sources := slices.Concat(i.tenantMethodSources(), i.groupMethodSources())
+	var givings []tenantGiving
+	for _, giving := range []tenantGiving{
+		{Method: "Assign" + subject + "Role", Fields: "Role: string(role)"},
+		{Method: "Create" + subject + "User", Fields: "Roles: []string{string(role)}"},
+		{Method: "Invite" + subject + "User", Fields: "Roles: []string{string(role)}"},
+		{Method: "Give" + subject + "GroupRole", Fields: "Role: string(role)"},
+	} {
+		written := slices.ContainsFunc(sources, func(file identitySourceFile) bool {
+			return file.tenant && file.name == fileStem(giving.Method) &&
+				!slices.ContainsFunc(file.needs, func(kind identityTable) bool { return !i.has(kind) })
+		})
+		if written {
+			givings = append(givings, giving)
+		}
+	}
+
+	return givings
+}
+
+// TenantGivings are the methods of one tenant whose role field picks from the tenant's
+// roles (tenantGivings).
+func (d *identitySourceData) TenantGivings() []tenantGiving {
+	return d.tenantGivings()
+}
+
+// OffersRolesToGive reports whether the list a tenant's role is picked from offers the
+// roles the caller could give and no other: the instance's package answers the role
+// file's grants (grants.go), and a method of the tenant picks from the list. Without
+// either the list is every role of the tenant, limited by its own grant alone.
+func (d *identitySourceData) OffersRolesToGive() bool {
+	return d.judgesRoleChanges() && len(d.tenantGivings()) > 0
+}
+
+// GivingMethods names the methods of TenantGivings as a comment reads them.
+func (d *identitySourceData) GivingMethods() string {
+	givings := d.tenantGivings()
+	names := make([]string, 0, len(givings))
+	for _, giving := range givings {
+		names = append(names, giving.Method)
+	}
+
+	return strings.Join(names, ", ")
 }
 
 // tenantComputedSources are the source files of the computed resources one tenant
@@ -57,18 +138,37 @@ func (r *resourceGenerator) tenantComputedSources(inst *identityInstance) []iden
 		return nil
 	}
 
-	return []identitySourceFile{{
+	files := []identitySourceFile{{
 		dir:      inst.methods,
 		name:     fileStem(r.pluralize(inst.auth + inst.tenant.name + tenantRoleChoiceSuffix)),
 		template: identityTenantRoleChoicesTemplate,
 		needs:    []identityTable{identityMemberships},
 		tenant:   true,
 	}}
+	// The roles a tenant may be opened to its directory's people with, for the auth
+	// whose management judges the role (identityOpensToDirectory).
+	if inst.opensToDirectory {
+		files = append(files, identitySourceFile{
+			dir:      inst.methods,
+			name:     fileStem(r.pluralize(inst.auth + inst.tenant.name + directoryRoleChoiceSuffix)),
+			template: identityDirectoryRoleChoicesTemplate,
+			needs:    []identityTable{identityMemberships},
+			tenant:   true,
+		})
+	}
+
+	return files
 }
 
 // TenantRoleChoice is the struct of the roles that exist in a tenant.
 func (d *identitySourceData) TenantRoleChoice() string {
 	return d.auth + d.tenant.name + tenantRoleChoiceSuffix
+}
+
+// DirectoryRoleChoice is the struct of the roles a tenant may be opened to its
+// directory's people with.
+func (d *identitySourceData) DirectoryRoleChoice() string {
+	return d.auth + d.tenant.name + directoryRoleChoiceSuffix
 }
 
 // hasList reports whether the instance carries the tenant's list of the suffix.
@@ -119,6 +219,12 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 	}
 	if i.hasList(listIdentitiesSuffix) {
 		files = append(files, method(i.unlinkIdentityMethod(true), identityUnlinkIdentityTemplate, identityIdentities))
+		// A password is removed where an identity is unlinked, for an auth whose people
+		// may hold one. The method names a person, a row of the tenant's people, which a
+		// tenant that lists its people's identities lists too.
+		if i.password {
+			files = append(files, method(i.removePasswordMethod(true), identityRemovePasswordTemplate, identityUsers, identityIdentities))
+		}
 	}
 	if !i.rolesSynced && i.hasList(listRolesSuffix) {
 		files = append(files, method("Remove"+subject+"Role", identityTenantRemoveRoleTemplate, identityMemberships))

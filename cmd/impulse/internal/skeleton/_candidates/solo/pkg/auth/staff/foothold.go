@@ -19,17 +19,21 @@ import (
 const Administrator = "administrator"
 
 // AdministratorRoles are the roles that count as an administrator's, by where they are
-// held: the ones whose holder can give a role back. A person removes one from themselves
-// only while another person holds one where it is held (identity.WithAdministratorRoles),
-// so nobody is the last to leave and the auth always has someone who manages its people.
-// A role that manages nothing of people is not among them, whoever holds it.
+// held: the ones whose holder can give a role back. A person removes one held in a tenant
+// from themselves only while another person holds one there
+// (identity.WithAdministratorRoles), so nobody is the last to leave and a tenant always
+// has someone who manages its people. The application as a whole is kept by the Super
+// Administrator role instead (accesstypes.SuperAdministrator), whose last holder keeps it
+// whoever asks. A role that manages nothing of people is not among them, whoever holds it.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return []accesstypes.Role{"Administrator"}, nil
 }
 
-// FirstAdministratorRoles are the roles the first administrator is seeded with, by where
-// they are held: the administrator's roles and what else the development identities hold
-// (cmd/bootstrap/users.json), so the foothold can do what the development logins can.
+// FirstAdministratorRoles are the application's roles the first administrator is seeded
+// with, by where they are held, beside the Super Administrator role every first
+// administrator holds (assignAdministrator): the administrator's roles and what else the
+// development identities hold (cmd/bootstrap/users.json), so the foothold can do what the
+// development logins can.
 func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return []accesstypes.Role{"Administrator", "FeatureAdministrator"}, nil
 }
@@ -38,7 +42,11 @@ func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 // rows and reports whether it did: the roles first, then the user who holds them
 // (seedFoothold). Once a user exists nothing is seeded. An empty password is refused
 // while the table is empty: a deployment carries the generated one, and nothing seeds a
-// user without a password.
+// user without a password. The password is the one the deployment generated, known to
+// whoever can read that secret, so the user is created marked to change it
+// (session.CreateUserRequest.PasswordChangeRequired): the person signs in with it once,
+// is served nothing but the password change until they have chosen one of their own, and
+// the generated one signs nobody in after that.
 func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, error) {
 	empty, err := a.usersTableEmpty(ctx)
 	if err != nil {
@@ -50,7 +58,7 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 	if password == "" {
 		return false, errors.Newf("the %s auth's users table holds no rows and no administrator password was given: a deployment generates one as a secret, and the migrate command seeds nothing without it", Name)
 	}
-	if err := a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password}); err != nil {
+	if err := a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password, PasswordChangeRequired: true}); err != nil {
 		return false, err
 	}
 
@@ -59,12 +67,13 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 
 // seedFoothold seeds the first administrator into an empty users table: the roles first,
 // then the user who holds them. A role is held by the id of an account, so the seed
-// chooses the id (session.SeedUserID, the same on every run), writes the administrator
-// roles under it, and creates the user under it last. The user's row is what says the
-// seed is done: a run that stops before it leaves the table empty, and the next deploy
-// writes the same memberships again, each left as it is where it exists, and creates the
-// user. Once a user exists nothing is seeded, whoever that user is and whatever it holds:
-// the seed never gives a role to an account it did not create.
+// chooses the id (session.SeedUserID, the same on every run), writes the Super
+// Administrator role and the administrator roles under it, and creates the user under it
+// last. The user's row is what says the seed is done: a run that stops before it leaves
+// the table empty, and the next deploy writes the same memberships again, each left as it
+// is where it exists, and creates the user. Once a user exists nothing is seeded, whoever
+// that user is and whatever it holds: the seed never gives a role to an account it did
+// not create.
 func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest) error {
 	id := session.SeedUserID(Name, req.Username)
 	if err := a.assignAdministrator(ctx, id); err != nil {
@@ -80,14 +89,17 @@ func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest)
 
 // assignAdministrator writes the first administrator's memberships, held by the id of the
 // user's account, each where its roles are held; a membership that exists is left as it is.
+// The first administrator is the deployment's first super administrator: the role the
+// framework defines in every auth (accesstypes.SuperAdministrator), held for the whole
+// application, whose holder alone makes another, is written beside the application's own
+// roles (FirstAdministratorRoles).
 func (a *Auth) assignAdministrator(ctx context.Context, userID impulse.UUID) error {
 	global, everyDomain := FirstAdministratorRoles()
+	global = append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)
 	manager := a.access.UserManager()
 	user := accesstypes.User(userID.String())
-	if len(global) > 0 {
-		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, global...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in the global partition", userID)
-		}
+	if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, global...); err != nil {
+		return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in the global partition", userID)
 	}
 	if len(everyDomain) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), user, everyDomain...); err != nil {

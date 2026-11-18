@@ -7,11 +7,18 @@ import (
 
 type keywordFlag int
 
-// If a flag's requirement is violated the scanner will return an error.
+// The first three flags are requirements: if one is violated the scanner will return an
+// error. Expressions says how a keyword's arguments are read.
 const (
 	ArgsRequired keywordFlag = 1 << iota // ArgsRequired requires a keyword to have an accompanying argument.
 	NoArgs                               // NoArgs requires a keyword to be called without arguments.
 	Exclusive                            // Exclusive limits the keyword to a single use per instance of field or struct.
+
+	// Expressions marks a keyword whose arguments may hold an expression of the condition
+	// language. In them a single quote opens and closes a string; in any other keyword's
+	// arguments it is an apostrophe. A keyword parsed with an ArgSpec takes the flag from
+	// the spec (ArgSpec.ScanFlags), which splits the arguments by the same reading.
+	Expressions
 )
 
 // KeywordOpts is used to configure the flags for keywords based on the scan mode (struct, field, named type, or constant).

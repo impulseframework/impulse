@@ -1,6 +1,6 @@
 <div class="impulse-grid-host">
   <div class="impulse-grid-scroll" #scrollContainer (scroll)="onScroll($event)">
-    <table class="impulse-grid-table">
+    <table class="impulse-grid-table" #table>
       <thead>
         <tr class="impulse-grid-header-row">
           @if (selectionType() !== 'none') {
@@ -54,7 +54,12 @@
                     }
                     @case ('needsIndexed') {
                       <span class="filter-trigger-wrap" [matTooltip]="companionHint">
-                        <button type="button" mat-icon-button class="filter-trigger" disabled aria-label="Filter column">
+                        <button
+                          type="button"
+                          mat-icon-button
+                          class="filter-trigger"
+                          disabled
+                          aria-label="Filter column">
                           <mat-icon>filter_alt_off</mat-icon>
                         </button>
                       </span>
@@ -81,7 +86,11 @@
                   @if (operatorTakesValue(col)) {
                     @switch (valueInput(col)) {
                       @case ('date') {
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter-date" (click)="$event.stopPropagation()">
+                        <mat-form-field
+                          appearance="outline"
+                          subscriptSizing="dynamic"
+                          class="filter-date"
+                          (click)="$event.stopPropagation()">
                           <input
                             matInput
                             type="date"
@@ -94,7 +103,11 @@
                         </mat-form-field>
                       }
                       @case ('datetime') {
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter-date" (click)="$event.stopPropagation()">
+                        <mat-form-field
+                          appearance="outline"
+                          subscriptSizing="dynamic"
+                          class="filter-date"
+                          (click)="$event.stopPropagation()">
                           <input
                             matInput
                             type="date"
@@ -105,7 +118,11 @@
                             (keydown.enter)="commitFilter(col)"
                             (keydown)="keepTyping($event)" />
                         </mat-form-field>
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter-time" (click)="$event.stopPropagation()">
+                        <mat-form-field
+                          appearance="outline"
+                          subscriptSizing="dynamic"
+                          class="filter-time"
+                          (click)="$event.stopPropagation()">
                           <input
                             matInput
                             type="time"
@@ -118,7 +135,10 @@
                         </mat-form-field>
                       }
                       @default {
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic" (click)="$event.stopPropagation()">
+                        <mat-form-field
+                          appearance="outline"
+                          subscriptSizing="dynamic"
+                          (click)="$event.stopPropagation()">
                           <input
                             matInput
                             [placeholder]="valuePlaceholder(col)"
@@ -201,10 +221,22 @@
                         }
                       </mat-menu>
                     }
+                  } @else if (col.buttonConfig.actionType === 'link' && col.buttonConfig.linkField) {
+                    @if (row[col.buttonConfig.linkField]; as link) {
+                      <a
+                        mat-icon-button
+                        [routerLink]="link"
+                        [attr.aria-label]="col.buttonConfig.label"
+                        [matTooltip]="col.buttonConfig.label || ''"
+                        [matTooltipPosition]="col.tooltipPosition || 'above'">
+                        <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
+                      </a>
+                    }
                   } @else if (col.buttonConfig.actionType === 'link' && col.buttonConfig.viewRoute) {
                     <a
                       mat-icon-button
                       [routerLink]="'/' + col.buttonConfig.viewRoute + '/' + row[col.buttonConfig.keyField ?? 'id']"
+                      [attr.aria-label]="col.buttonConfig.label"
                       [matTooltip]="col.buttonConfig.label || ''"
                       [matTooltipPosition]="col.tooltipPosition || 'above'">
                       <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
@@ -271,6 +303,7 @@
       </div>
     }
   </div>
+  <span class="cut-short-anchor" [impulseCutShortTooltip]="table"></span>
 
   @if (page(); as position) {
     <div class="impulse-grid-pager">

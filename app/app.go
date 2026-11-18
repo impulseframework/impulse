@@ -12,6 +12,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -102,6 +103,12 @@ type App struct {
 	// Engines are the permission engine constructions outside tests: every access.New
 	// call, with whether it hands the engine a change signal (access.WithChangeSignal).
 	Engines []Engine
+	// SecretHolders are the packages carrying a generated list of the resources that
+	// store a secret (zz_gen_secret_holders.go), and SecretRetirements the calls outside
+	// tests that retire a version of the application secret
+	// (resource.RetireSecretVersion), each with the packages whose list it is handed.
+	SecretHolders     []SecretHolders
+	SecretRetirements []SecretRetirement
 
 	// goFiles are the non-test Go files scanned, for the passes that follow the walk.
 	goFiles []string
@@ -138,6 +145,10 @@ type Auth struct {
 	// AttemptsTable is the sign-in attempts table the password method's attempt limiter
 	// counts in: WithSignInAttemptsTableName or the library default.
 	AttemptsTable string
+	// SignInMethodsTable is the table that keeps what an administrator chose for each
+	// sign-in method, open to sign-up or invite only, which every sign-in reads:
+	// WithSignInMethodsTableName or the library default.
+	SignInMethodsTable string
 	// MailLinksTable is the mail links table the Auth's invitations, address
 	// verifications and sign-ups are kept in: WithMailLinksTableName or the library
 	// default. Read when the Auth sends mail (Mail).
@@ -187,11 +198,47 @@ type Auth struct {
 	// the callers add are not visible here, so the tables are the defaults as far as
 	// this construction shows.
 	OptionsForwarded bool
+	// SuperAdministrators is what the construction tells the Auth about its super
+	// administrators: the argument session.NewAuth takes after the cookie key.
+	SuperAdministrators SuperAdministrators
 	// Methods are the sign-in methods registered on the Auth, in source order: the
 	// password method (session.PasswordSignIn) and the redirect methods (azure.SignIn,
 	// google.SignIn, workos.SignIn, and oidc.SignIn, the persona method) whose first
 	// argument names this construction.
 	Methods []Method
+}
+
+// The forms of the argument that tells an Auth who its super administrators are:
+// session.NoSuperAdministrators(), which says the application has none, and
+// session.SuperAdministratorsBy(...), which hands the Auth a check that answers who
+// holds the role.
+const (
+	SuperAdministratorsNone    = "none"
+	SuperAdministratorsChecked = "checked"
+)
+
+// SuperAdministrators is what one Auth construction is told about its super
+// administrators, read from the argument session.NewAuth takes after the cookie key,
+// written in the call or assigned to the identifier the call takes.
+type SuperAdministrators struct {
+	// Form is SuperAdministratorsNone or SuperAdministratorsChecked, or empty when the
+	// argument reads some other way (a parameter of the enclosing function, say).
+	Form string
+	// EngineLine is the line of the permission engine's construction (access.New) the
+	// check is built over, when the enclosing function opens the engine itself and the
+	// check takes its user manager (x.UserManager(), with x, err := access.New(...)
+	// before it); zero when the engine is opened somewhere the function does not show.
+	EngineLine int
+	// RolesPackage is the import path of the package whose Roles() that engine is
+	// handed (access.WithDefaultRoles among the construction's arguments), which says
+	// whose engine it is: the file's own package for Roles() unqualified, the imported
+	// package for <auth>.Roles(). Empty when no engine reads or its roles read some
+	// other way.
+	RolesPackage string
+	// Packages are the import paths of the packages the check's expression names up
+	// to the engine, sorted and without repeats: the session library's own, and
+	// another auth package's when the check is taken from one.
+	Packages []string
 }
 
 // Method is one sign-in method registered on an Auth.
@@ -219,14 +266,30 @@ type Method struct {
 	// accounts (azure.PersonalAccounts), alone (TenantsPersonal) or beside the tenants
 	// Tenants describes.
 	PersonalAccounts bool
+	// Workspaces is the Workspace shape of a Google registration, read from the building
+	// blocks its configuration's Workspaces slot is made of (readWorkspaces):
+	// WorkspacesOne for google.Workspace alone, WorkspacesListed for google.Workspaces of
+	// several Workspaces or a Workspace built in a loop, WorkspacesAny for
+	// google.AnyWorkspace (alone or beside listed Workspaces) and WorkspacesAccounts for
+	// google.AnyGoogleAccount alone. Empty for another method, and for a slot written any
+	// other way.
+	Workspaces string
+	// GoogleAccounts reports a Google registration admitting any Google account
+	// (google.AnyGoogleAccount), alone (WorkspacesAccounts) or beside the Workspaces
+	// Workspaces describes.
+	GoogleAccounts bool
+	// SeveralDomains reports a Google registration that names a Workspace with more
+	// than one domain, or with a spread of them (google.Workspace(name, domains...)).
+	// It changes nothing of Workspaces, which counts Workspaces: such a registration
+	// may still read WorkspacesOne. It is for a rule that counts organizations as the
+	// sign-in does, which lists a Workspace by each of its domains
+	// (signin.Audience.OneOrganization), so one Workspace of two domains is not one
+	// organization to it.
+	SeveralDomains bool
 	// AuthVar is the identifier the registration's first argument names: the Auth it is
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.
 	AuthVar string
-	// OpenSignUp reports a password method registered with session.OpenSignUp(): a
-	// stranger signs up from a link mailed to their address, and the outlet's declaration
-	// chains .OpenSignUp() so the router serves the sign-up routes.
-	OpenSignUp bool
 	// UsernameIsEmail reports a password method registered with
 	// session.UsernameIsEmail(): the sign-in name is the person's email address, and the
 	// outlet's declaration chains .UsernameIsEmail() so the generated management says so.
@@ -296,28 +359,6 @@ type TenantRecord struct {
 	File string
 	Line int
 	Name string
-	// Creation is the record's creation shape as the annotation names it
-	// (@tenant(creation: self-service)): TenantCreationAdministrator (the default, an
-	// administrator alone creates tenants), TenantCreationSelfService (the person who
-	// becomes a tenant's administrator creates it) or TenantCreationBoth; empty when
-	// the annotation names none.
-	Creation string
-}
-
-// The creation shapes a tenant record declares (@tenant(creation: ...)), as the
-// resource generator spells them, and the argument's key.
-const (
-	TenantCreationArg           = "creation"
-	TenantCreationAdministrator = "administrator"
-	TenantCreationSelfService   = "self-service"
-	TenantCreationBoth          = "both"
-)
-
-// SelfService reports a record whose tenants are created by their own people
-// (self-service or both): a person signs in before holding a tenant, so the auths'
-// sign-in rule admits a person who holds none (signin.AdmitWithoutTenant).
-func (r *TenantRecord) SelfService() bool {
-	return r.Creation == TenantCreationSelfService || r.Creation == TenantCreationBoth
 }
 
 // DirectoryRecord is one struct annotated @tenantDirectory: the directories record, the
@@ -375,6 +416,30 @@ type PolicyCheck struct {
 	Line int
 }
 
+// SecretHolders is one resources package's generated list of the resources that store a
+// secret: the SecretHolders() the generator writes into zz_gen_secret_holders.go.
+type SecretHolders struct {
+	// File is the generated file, root-relative, and Package the import path of the
+	// package it is in.
+	File    string
+	Package string
+	// Stored reports that the list names a resource: the package stores a secret.
+	Stored bool
+}
+
+// SecretRetirement is one call to resource.RetireSecretVersion outside tests: where a
+// version of the application secret is retired, and what it reads.
+type SecretRetirement struct {
+	File string
+	Line int
+	// Packages are the import paths of the packages whose SecretHolders() the call is
+	// handed, in the call or through a variable of its function, sorted.
+	Packages []string
+	// Unread reports holders the call takes from where the scan does not read: a
+	// parameter, a function of the application's own, a list written by hand.
+	Unread bool
+}
+
 // Engine is one construction of a permission engine outside tests: a call to access.New.
 type Engine struct {
 	File string
@@ -420,16 +485,27 @@ type EnvTag struct {
 	Name       string
 	Required   bool
 	HasDefault bool
-	// Secret reports the field's secret tag, secret:"true" or secret:"generated": the
-	// variable holds a credential that the infrastructure mounts from a secret store.
-	// Generated reports the second: a value the tooling makes and nobody types.
+	// Secret reports the field's secret tag, secret:"true", secret:"generated" or
+	// secret:"versioned": the variable holds a credential that the infrastructure mounts
+	// from a secret store. Generated reports the last two: a value the tooling makes and
+	// nobody types. Versioned reports the last: a generated secret kept in versions,
+	// every enabled one of which is handed to the service, each in a variable of its own
+	// named by Name, an underscore and the version's number (VersionedName); no variable
+	// is named Name itself.
 	Secret    bool
 	Generated bool
+	Versioned bool
 	// Origin names the framework settings struct that declares the variable when the
 	// application embeds one instead of declaring the field itself, as import path and
 	// type name (github.com/impulseframework/impulse/cloud/gcp.Settings); the tag stands at the
 	// embedding's line. Empty for a field the application declares.
 	Origin string
+}
+
+// VersionedName is the variable one version of a versioned secret is handed over in:
+// the declared name, an underscore and the version's number (APP_SECRET_KEY_2).
+func (t EnvTag) VersionedName(version int) string {
+	return t.Name + "_" + strconv.Itoa(version)
 }
 
 // Discover reads the application rooted at dir. dir must hold a go.mod.

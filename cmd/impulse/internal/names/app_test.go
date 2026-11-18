@@ -113,9 +113,15 @@ func TestRenameApp(t *testing.T) {
 		{name: "a Go file", rel: "main.go", text: "// main serves solo.\n", want: "// main serves solo.\n"},
 		{name: "the auth package's application constant", rel: "pkg/auth/staff/staff.go", text: "\tName = \"staff\"\n\tApplication = \"Solo\"\n", want: "\tName = \"staff\"\n\tApplication = \"Beacon\"\n"},
 		{name: "a second auth's constant", rel: "pkg/auth/members/members.go", text: "\tApplication = \"Solo\"\n", want: "\tApplication = \"Beacon\"\n"},
+		{name: "the portal's auth keeps its suffix", rel: "pkg/auth/members/members.go", text: "\tApplication = \"Solo Portal\"\n", want: "\tApplication = \"Beacon Portal\"\n"},
 		{name: "an application constant that is not the candidate's name keeps its text", rel: "pkg/auth/staff/staff.go", text: "\tApplication = \"Solomon\"\n", want: "\tApplication = \"Solomon\"\n"},
 		{name: "a Go file outside the auth packages keeps the constant", rel: "pkg/config/data.go", text: "\tApplication = \"Solo\"\n", want: "\tApplication = \"Solo\"\n"},
 		{name: "angular.json", rel: "web/angular.json", text: `"name": "solo-web"`, want: `"name": "solo-web"`},
+		{name: "the brand declaration's name", rel: "web/console/brand.json", text: "{\n  \"name\": \"Solo\",\n  \"logo\": \"logo.png\",\n  \"primaryColor\": \"#005cbb\"\n}\n", want: "{\n  \"name\": \"Beacon\",\n  \"logo\": \"logo.png\",\n  \"primaryColor\": \"#005cbb\"\n}\n"},
+		{name: "the portal's brand declaration keeps its suffix", rel: "apps/portal/web/brand.json", text: `"name": "Solo Portal",`, want: `"name": "Beacon Portal",`},
+		{name: "a brand name that only starts with the title is not the application's", rel: "web/console/brand.json", text: `"name": "Solomon",`, want: `"name": "Solomon",`},
+		{name: "the server's brands package", rel: "pkg/brand/brand.go", text: "// ConsoleName is the name web/console/brand.json declares.\nconst ConsoleName = \"Solo\"\n\nconst PortalName = \"Solo Portal\"\n", want: "// ConsoleName is the name web/console/brand.json declares.\nconst ConsoleName = \"Beacon\"\n\nconst PortalName = \"Beacon Portal\"\n"},
+		{name: "a name constant of another package keeps its text", rel: "pkg/config/brand.go", text: "const ConsoleName = \"Solo\"\n", want: "const ConsoleName = \"Solo\"\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

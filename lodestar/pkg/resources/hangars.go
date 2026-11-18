@@ -18,6 +18,10 @@ type (
 	// that index with the sector bound, case-folded, and the field answers nothing else;
 	// Hangars has no search index, so no box.
 	//
+	// The hangar attribute is the hangar itself, its key: the Armorer's grants test it
+	// against the two sets the hangar passes yield (hangar IN subject.hangarsOpen, hangar
+	// IN subject.hangarsRun; HangarPass).
+	//
 	// Demonstrates: @domain, consolidation.exclusion, commit.referential-refusal, search.prefix.
 	//
 	// @resource
@@ -25,6 +29,7 @@ type (
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Hangar struct {
+		// @attribute(hangar)
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
 		SectorID impulse.UUID `spanner:"SectorId"`

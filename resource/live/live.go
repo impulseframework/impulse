@@ -11,10 +11,13 @@
 // per subscriber into that user's change set, which the browser listens to and
 // answers with a refetch carrying the change's timestamp as the version parameter
 // (_v); a list or read response to such a request carries Cache-Control so a remount
-// inside the window is the browser's own. Subscriptions expire unless the tab renews
-// them through the renew route, where the server re-checks each against the user's
-// grants; a tab unsubscribes when it leaves, and a logout unsubscribes everything and
-// revokes the browser's identity.
+// inside the window is the browser's own. Every document a write publishes carries
+// the write's id, and the write's answer names the id and the documents that went
+// into the caller's own change set (ChangesHeader), so the tab that wrote fetches at
+// once and knows its own change when the change set reports it. Subscriptions expire
+// unless the tab renews them through the renew route, where the server re-checks each
+// against the user's grants; a tab unsubscribes when it leaves, and a logout
+// unsubscribes everything and revokes the browser's identity.
 //
 // A subscription and a change set belong to a principal id (PrincipalID): the name of the
 // auth the request came through, the separator "|", and the session principal's user name
@@ -49,7 +52,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -72,6 +77,13 @@ const (
 	TokenRoute       = "live/token"
 	// LogAttribute is the request-log attribute every subscribing request carries.
 	LogAttribute = "subscribe"
+	// ChangesHeader is the response header a write's answer carries when the write
+	// changed something the caller holds live: the write's id and the change documents it
+	// published into the caller's own change set (Answer), as JSON, percent-encoded so a
+	// key or a domain outside ASCII travels in a header. The tab that wrote fetches what
+	// the header names at once and does nothing when its change set reports the same
+	// write.
+	ChangesHeader = "X-Changes"
 )
 
 // The principal id: what joins the auth's name to the principal, and how long it may be.
@@ -100,6 +112,17 @@ const (
 	// CacheControl is the header value a list or read response carries when its request
 	// carried the version parameter.
 	CacheControl = "private, max-age=300"
+	// MaxSubscriptionTenants is the most tenants one subscription holds: the ceiling on
+	// the set of a live list across tenants. The record keeps the set on the
+	// subscription's one document, and Firestore allows a document 40,000 index entries.
+	// Each tenant of the set costs two, the automatic array-contains entry of the domains
+	// field and the entry of the (resource, domains, expiry) index the publisher's lookup
+	// reads, so the write of a document fails near 20,000 tenants. The ceiling is half of
+	// that: a set at the ceiling is written with room to spare, and a larger one is never
+	// tried. A list across more tenants is served plain (SubscribeAcrossTenants), and a
+	// subscription whose set has grown past the ceiling is dropped at its renewal
+	// (RenewHandler).
+	MaxSubscriptionTenants = 10_000
 	// BulkThreshold is the number of touched rows per resource in one request above
 	// which the publisher stops looking subscribers up row by row and writes one
 	// resource document per subscribed user instead.
@@ -111,6 +134,12 @@ const (
 	// (register, renew, unsubscribe, revoke, token): past it the call fails as any
 	// failure of it does, so a backend that stops answering never holds a request open.
 	RecordTimeout = 5 * time.Second
+	// MaxChangesHeaderLength is the longest ChangesHeader value a write's answer
+	// carries, in bytes. A write that reached more of the caller's subscriptions than
+	// fit answers the write's id with All set, and the tab fetches everything it holds
+	// live, so the header never outgrows what a proxy in front of the application
+	// accepts in a response.
+	MaxChangesHeaderLength = 2048
 )
 
 // tabPattern is the shape of a tab id.
@@ -127,13 +156,34 @@ func ValidTab(tab string) bool {
 // form, a compound key's parts joined with "/" in route order (resource.RowKey). Domain
 // is never a permission concept in the record: it says which list a list subscription
 // is of, and nothing else.
+//
+// A list is held over a set of tenants. One tenant's list is the set of that one tenant,
+// its Domain. A list across tenants (Across) is one subscription over the set the
+// server worked out for the person: the tenants the session reaches in which the
+// person may list the resource, narrowed by the page's filter on the tenant. It is one
+// record per tab and list however many tenants the set holds, up to
+// MaxSubscriptionTenants, and the same record again at each renewal, with the set as the
+// renewal worked it out. The publisher asks who is
+// subscribed to the list in the tenant a write was made in, and the record answers from
+// the sets (InTenant).
 type Subscription struct {
 	Principal string
 	Tab       string
 	Resource  accesstypes.Resource
 	Key       string
 	Domain    accesstypes.Domain
-	Expiry    time.Time
+	// Across is set on the subscription of a list across tenants, and holds its set.
+	Across *TenantSet
+	Expiry time.Time
+}
+
+// TenantSet is what the subscription of a list across tenants is held over. Narrowed
+// is the page's filter on the tenant, nil when the page asked for every tenant: with
+// the resource it says which list the subscription is of. Domains is the set of tenants
+// the subscription covers, as the server worked it out.
+type TenantSet struct {
+	Narrowed []accesstypes.Domain
+	Domains  []accesstypes.Domain
 }
 
 // RowSubscription is the subscription a read registers: the row by resource and key.
@@ -147,30 +197,133 @@ func ListSubscription(res accesstypes.Resource, domain accesstypes.Domain) *Subs
 	return &Subscription{Resource: res, Domain: domain}
 }
 
+// AcrossTenantsSubscription is the subscription a list across tenants registers: the
+// resource's list over the set of tenants the server worked out for the person, and the
+// page's filter on the tenant (nil for every tenant), which says which list it is.
+func AcrossTenantsSubscription(res accesstypes.Resource, set, narrowed []accesstypes.Domain) *Subscription {
+	return &Subscription{Resource: res, Across: &TenantSet{Narrowed: narrowed, Domains: set}}
+}
+
 // IsRow reports whether the subscription names a row.
 func (s *Subscription) IsRow() bool {
 	return s.Key != ""
 }
 
 // Normalized returns the subscription as the record keeps it: a row subscription
-// carries no domain.
+// carries no domain, and only a list across tenants carries a set of its own, sorted,
+// each tenant once, under no one domain.
 func (s *Subscription) Normalized() Subscription {
 	normalized := *s
 	if normalized.IsRow() {
 		normalized.Domain = ""
 	}
+	if normalized.IsRow() || normalized.Across == nil {
+		normalized.Across = nil
+
+		return normalized
+	}
+	normalized.Domain = ""
+	set := &TenantSet{Domains: sortedSet(normalized.Across.Domains)}
+	if normalized.Across.Narrowed != nil {
+		set.Narrowed = sortedSet(normalized.Across.Narrowed)
+	}
+	normalized.Across = set
 
 	return normalized
 }
 
+// sortedSet returns the tenants sorted, each once, never nil.
+func sortedSet(domains []accesstypes.Domain) []accesstypes.Domain {
+	set := slices.Clone(domains)
+	if set == nil {
+		set = []accesstypes.Domain{}
+	}
+	slices.Sort(set)
+
+	return slices.Compact(set)
+}
+
+// Tenants is the set of tenants the record keeps the subscription under: the set of a
+// list across tenants, the one tenant of a tenant's list, and the empty domain alone
+// for a global resource's list and for a row.
+func (s *Subscription) Tenants() []accesstypes.Domain {
+	normalized := s.Normalized()
+	if normalized.Across != nil {
+		return normalized.Across.Domains
+	}
+
+	return []accesstypes.Domain{normalized.Domain}
+}
+
+// InTenant returns the subscription as the publisher is answered for one tenant: a row
+// or one tenant's list as the record keeps it, and a list across tenants as that
+// tenant's list, which is what a change in the tenant names. ok is false when the
+// tenant is not in the subscription's set.
+func (s *Subscription) InTenant(domain accesstypes.Domain) (sub Subscription, ok bool) {
+	normalized := s.Normalized()
+	if !slices.Contains(normalized.Tenants(), domain) {
+		return Subscription{}, false
+	}
+
+	return Subscription{
+		Principal: normalized.Principal,
+		Tab:       normalized.Tab,
+		Resource:  normalized.Resource,
+		Key:       normalized.Key,
+		Domain:    domain,
+		Expiry:    normalized.Expiry,
+	}, true
+}
+
+// PerTenant returns the subscription once for each tenant of its set (InTenant): what
+// the record answers the publisher's question about a whole resource with.
+func (s *Subscription) PerTenant() []Subscription {
+	tenants := s.Tenants()
+	subs := make([]Subscription, 0, len(tenants))
+	for _, domain := range tenants {
+		if sub, ok := s.InTenant(domain); ok {
+			subs = append(subs, sub)
+		}
+	}
+
+	return subs
+}
+
+// The words a list across tenants is named by in a subscription's id.
+const (
+	everyTenant  = "every tenant"
+	onlyTenants  = "only:"
+	acrossMarker = "\x00across tenants\x00"
+)
+
 // ID is the subscription's document id: the first 32 hex characters of
 // sha256("principal|tab|resource|key|domain"), so the same interest of the same tab is
-// one document however often it is written.
+// one document however often it is written. A list across tenants is named by its
+// resource and the page's filter on the tenant, never by the set the server worked out,
+// so a renewal that comes to another set writes the same document.
 func (s *Subscription) ID() string {
 	normalized := s.Normalized()
-	sum := sha256.Sum256([]byte(normalized.Principal + "|" + normalized.Tab + "|" + string(normalized.Resource) + "|" + normalized.Key + "|" + string(normalized.Domain)))
+	name := normalized.Principal + "|" + normalized.Tab + "|" + string(normalized.Resource) + "|" + normalized.Key + "|" + string(normalized.Domain)
+	if normalized.Across != nil {
+		name += acrossMarker + narrowingName(normalized.Across.Narrowed)
+	}
+	sum := sha256.Sum256([]byte(name))
 
 	return hex.EncodeToString(sum[:])[:32]
+}
+
+// narrowingName names the page's filter on the tenant in a subscription's id: every
+// tenant for a page that sent none, the tenants it named otherwise.
+func narrowingName(narrowed []accesstypes.Domain) string {
+	if narrowed == nil {
+		return everyTenant
+	}
+	names := make([]string, 0, len(narrowed))
+	for _, domain := range narrowed {
+		names = append(names, string(domain))
+	}
+
+	return onlyTenants + strings.Join(names, ",")
 }
 
 // TokenPayload is what the token route answers: how the browser connects to the
@@ -198,13 +351,16 @@ const (
 // ChangeDocument is one entry of a user's change set, as the publisher writes it and
 // the browser reads it: a row document carries the key and whether the row was
 // deleted, a list document the domain and no key, a resource document neither. The
-// implementation adds the server timestamp (at) and the expiry (expires).
+// implementation adds the server timestamp (at), the expiry (expires) and the id of
+// the write that published it (write, Writes.ID); a document several writes within one
+// second became carries the last one's. The JSON form is how a write's answer names a
+// document (Answer).
 type ChangeDocument struct {
-	Kind     ChangeKind
-	Resource accesstypes.Resource
-	Key      string
-	Domain   accesstypes.Domain
-	Deleted  bool
+	Kind     ChangeKind           `json:"kind"`
+	Resource accesstypes.Resource `json:"resource"`
+	Key      string               `json:"key,omitempty"`
+	Domain   accesstypes.Domain   `json:"domain,omitempty"`
+	Deleted  bool                 `json:"deleted,omitempty"`
 }
 
 // ID is the document's id for the given unix second: row|<resource>|<key>|<second>,

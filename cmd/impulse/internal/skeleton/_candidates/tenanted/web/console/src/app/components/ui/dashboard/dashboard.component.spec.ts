@@ -1,6 +1,8 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
-import { createApi } from '@app/service/zz_gen_api';
+import { createApi, createTenantRoute } from '@app/service/zz_gen_api';
 import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { provideFrame, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
@@ -35,10 +37,14 @@ const member: Grants = {
 /** A login that holds nothing anywhere. */
 const stranger: Grants = { domains: [], global: {}, tenants: {} };
 
+/** Where the page asks whether the person may create a tenant of their own now. */
+const offerUrl = `${environment.apiUrl}/${createTenantRoute}`;
+
 /**
  * The server as the spec plays it: the session, the digest of the tenant asked for (the
  * global one when none is), the user's domains and the enabled feature flags (none here).
- * Anything else is a 404 the request log would show.
+ * Anything else is a 404 the request log would show. Whether a tenant can be created is
+ * asked through HttpClient, which the testing controller answers in each spec.
  */
 function server(grants: Grants): (request: TransportRequest) => TransportResponse {
   return (request) => {
@@ -65,6 +71,7 @@ function server(grants: Grants): (request: TransportRequest) => TransportRespons
 
 describe('DashboardComponent', () => {
   let transport: ScriptedTransport;
+  let http: HttpTestingController;
 
   /**
    * Signs in against the scripted server and renders the dashboard. The client is the
@@ -73,7 +80,8 @@ describe('DashboardComponent', () => {
    * it is accepted (the session, the global digest, the domains, the enabled feature flags),
    * and entering a tenant loads its digest, here loaded ahead so the card renders from it
    * at once. The tenant is entered as the tenant guard does for a page under it; a session
-   * with no tenant renders the dashboard outside one.
+   * with no tenant renders the dashboard outside one, and its question of whether a tenant
+   * can be created is left for the spec to answer.
    */
   async function render(grants: Grants): Promise<ComponentFixture<DashboardComponent>> {
     transport = scriptedTransport(server(grants));
@@ -82,8 +90,11 @@ describe('DashboardComponent', () => {
       providers: [
         provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
         provideFrame({ home: 'dashboard', menus: [] }),
+        provideHttpClient(),
+        provideHttpClientTesting(),
       ],
     }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     for (const { domain } of grants.domains) {
       await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest(domain as Domain);
@@ -96,6 +107,8 @@ describe('DashboardComponent', () => {
     fixture.detectChanges();
     return fixture;
   }
+
+  afterEach(() => http.verify());
 
   /** The state class of each cell in a row: the columns are List, Read, Create, Update, Delete, Execute. */
   function states(row: Element | undefined): (string | undefined)[] {
@@ -129,7 +142,7 @@ describe('DashboardComponent', () => {
     ]);
   });
 
-  it('says so when the session holds nothing, and offers to create their own tenant', async () => {
+  it('says so when the session holds nothing, and offers to create their own tenant once the server says one can be created', async () => {
     const fixture = await render(stranger);
     const element: HTMLElement = fixture.nativeElement;
     // The dialog itself is the new-tenant spec's; here only that the card opens it.
@@ -138,18 +151,38 @@ describe('DashboardComponent', () => {
     expect(element.querySelector('p strong')?.textContent).toBe('no tenant');
     expect(element.querySelectorAll('tbody tr')).toHaveLength(1);
     expect(element.querySelector('td.empty')?.textContent).toContain('You hold nothing here');
+    // Nothing is offered on a guess: the card waits for the server's answer.
+    expect(element.querySelector('.create-tenant-card')).toBeNull();
+    const asked = http.expectOne(offerUrl);
+    expect(asked.request.method).toBe('GET');
+    asked.flush({ offered: true });
+    fixture.detectChanges();
+
     const offer = element.querySelector<HTMLButtonElement>('.create-tenant-card button');
     expect(offer?.textContent).toContain('Create your tenant');
     offer?.click();
-    // The new-tenant dialog on its self-service path: the person becomes the administrator.
-    expect(opened).toHaveBeenCalledWith(
-      NewTenantDialogComponent,
-      expect.objectContaining({ data: { selfService: true } }),
-    );
+    // The new-tenant dialog: the person names their tenant and becomes its administrator.
+    expect(opened).toHaveBeenCalledWith(NewTenantDialogComponent, expect.objectContaining({ width: '480px' }));
   });
 
-  it('offers no tenant of their own to a session holding a tenant', async () => {
+  it('offers no tenant of their own while the server would refuse to create one', async () => {
+    // Every sign-in method is invite only: the server says no tenant can be created now.
+    const fixture = await render(stranger);
+    http.expectOne(offerUrl).flush({ offered: false });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.create-tenant-card')).toBeNull();
+  });
+
+  it('offers no tenant of their own where the server does not answer', async () => {
+    const fixture = await render(stranger);
+    http.expectOne(offerUrl).flush({ message: 'unavailable' }, { status: 503, statusText: 'Service Unavailable' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.create-tenant-card')).toBeNull();
+  });
+
+  it('offers no tenant of their own to a session holding a tenant, and does not ask the server', async () => {
     const fixture = await render(member);
+    http.expectNone(offerUrl);
     expect((fixture.nativeElement as HTMLElement).querySelector('.create-tenant-card')).toBeNull();
   });
 });

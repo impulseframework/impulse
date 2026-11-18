@@ -15,9 +15,9 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The trusted device cookie's shapes: one entry per user, read for the signing-in user
-// alone; the one-token shape of earlier releases; the cap; and what a held sign-in
-// drops. The rows are not involved: these are the cookie's own rules.
+// The trusted device cookie's shape: one entry per user, read for the signing-in user
+// alone; a cookie that holds anything else is no remembered browser; the cap; and what
+// a held sign-in drops. The rows are not involved: these are the cookie's own rules.
 
 // trustedCookieHarness is an Auth over a mock store with the helpers the trusted device
 // cookie tests share.
@@ -29,7 +29,7 @@ type trustedCookieHarness struct {
 func newTrustedCookieHarness(t *testing.T) *trustedCookieHarness {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -120,14 +120,26 @@ func TestTrustedDeviceCookie_Shapes(t *testing.T) {
 	h := newTrustedCookieHarness(t)
 	newUser, newToken, written, ctxWith := h.newUser, h.newToken, h.written, h.ctxWith
 
-	t.Run("the one-token shape of earlier releases stands for whichever user's device its row names", func(t *testing.T) {
+	t.Run("a cookie that holds one bare token in place of the entries is no remembered browser: the sign-in's check answers no for everyone and reads no row", func(t *testing.T) {
 		t.Parallel()
 
-		hash, token := newToken()
-		ctx := ctxWith(written(cookie.NewValues().SetString(trustedCookieKey, token)))
+		// A well-formed device token under a key of its own, with no entries.
+		_, token := newToken()
+		ctx := ctxWith(written(cookie.NewValues().SetString("trusted", token)))
+		if d, ok := trustedDevicesOf(ctx); ok {
+			t.Errorf("trustedDevicesOf() = %v, %v; want none: the cookie holds no entry", d, ok)
+		}
 		for _, u := range []impulse.UUID{newUser(), newUser()} {
-			if got, ok := trustedHashFor(ctx, u); !ok || !bytes.Equal(got, hash) {
-				t.Errorf("trustedHashFor(%s) = %x, %v; want the bare token's hash", u, got, ok)
+			if got, ok := trustedHashFor(ctx, u); ok {
+				t.Errorf("trustedHashFor(%s) = %x, %v; want none", u, got, ok)
+			}
+			// The mocked store expects no TrustedDevice read and fails the test on one:
+			// with this answer the sign-in asks the person for the factor.
+			if trusted, err := h.a.trustedDeviceOf(ctx, u); trusted || err != nil {
+				t.Errorf("trustedDeviceOf(%s) = %v, %v; want false and no error", u, trusted, err)
+			}
+			if browserRemembered(ctx, u) {
+				t.Errorf("browserRemembered(%s) = true; want false", u)
 			}
 		}
 	})
@@ -231,14 +243,6 @@ func TestTrustedDeviceCookie_HeldSignIn(t *testing.T) {
 		a.dropTrustedEntry(ctxWith(rr.Result().Cookies()), rr2, impulse.NullUUID{UUID: sam, Valid: true})
 		if _, deleted, _ := entriesOf(rr2.Result().Cookies()); !deleted {
 			t.Error("the last entry's held sign-in left the cookie standing")
-		}
-
-		// The old shape: a held sign-in drops the bare token, as before.
-		_, legacy := newToken()
-		rr3 := httptest.NewRecorder()
-		a.dropTrustedEntry(ctxWith(written(cookie.NewValues().SetString(trustedCookieKey, legacy))), rr3, impulse.NullUUID{UUID: pat, Valid: true})
-		if _, deleted, _ := entriesOf(rr3.Result().Cookies()); !deleted {
-			t.Error("a held sign-in left the one-token cookie standing")
 		}
 	})
 }

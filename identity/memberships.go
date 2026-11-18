@@ -59,12 +59,42 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // refused for a person who holds a role in another one, as a Conflict that never says
 // which (refuseSecondTenant). A role for the whole application or in every tenant is
 // given whatever the person holds, and its holder is given a role in any tenant.
-func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
+//
+// The Super Administrator role is given in the global scope alone, and by a caller who
+// holds it (requireSuperAdministrator): only a super administrator makes another. A
+// call outside any request is the application's own act and gives it. Giving it ends
+// nothing: the sessions the person holds, their bearer tokens and the browsers
+// remembered for their second factor stand, and the session they are signed in with
+// acts with the role at its next request. A person who is signed in when the role is
+// given is no risk for being signed in; the account is what the role guards, and a
+// second factor is asked for at every sign-in from then on. What an administrator set
+// on the account before the role, a password or an address, is left as it is too: the
+// super administrator who gives the role chooses whom to trust.
+//
+// The membership is given for the period: it counts from the period's start, where it
+// has one, until its end, where it has one, and a membership the person holds already
+// is given the period handed in place of the one it had (periods.go). Whoever may give
+// the role gives it a period, and the Super Administrator role takes none
+// (access.ValidatePeriod). AssignRole gives the membership with no period. Nobody
+// lengthens their own holding: a caller who may give the role does not give their own
+// membership a period that lasts longer than the one it has, and someone else who may
+// give it does (refuseLongerForOneself).
+func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
+	}
+	if err := access.ValidatePeriod(role, period); err != nil {
+		return errors.Wrap(err, "access.ValidatePeriod()")
+	}
+	if err := refuseEnded(period, "the role"); err != nil {
+		return err
+	}
+	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
+		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named",
+			string(role), m.tenantWord, m.tenantWord, m.tenantWord)
 	}
 	key, err := m.access.UserManager().Membership(ctx, scope, User(userID), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
 		held, err := m.store.HasRole(ctx, txn, &key)
@@ -77,6 +107,14 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return errors.Wrap(err, "access.UserManager.Membership()")
 	}
+	if role == accesstypes.SuperAdministrator {
+		if err := m.requireSuperAdministrator(ctx, txn, "gives the Super Administrator role"); err != nil {
+			return err
+		}
+	}
+	if err := m.requireEnteringToChange(ctx, scope, role, nil); err != nil {
+		return err
+	}
 	if err := m.refuseSecondTenant(ctx, txn, scope, userID); err != nil {
 		return err
 	}
@@ -84,7 +122,11 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
 	}
-	if !inserted {
+	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, period, inserted, m.callerIs(ctx, userID))
+	if err != nil {
+		return err
+	}
+	if !inserted && !changed {
 		return nil
 	}
 
@@ -98,9 +140,12 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 // like any other.
 //
 // Two rules of the user management are held here. A person who removes a role from
-// themselves is held to the rule on the last administrator (refuseLastAdministrator).
-// And a person left with no role anywhere is deleted with their identity links and
-// sessions in the same transaction (deleteWithLastRole), whoever removed the role.
+// themselves in a tenant is held to the rule on the tenant's last administrator
+// (refuseLastAdministrator). And a person left with no role anywhere and no place in a
+// group is deleted with their identity links and sessions in the same transaction
+// (deleteWithLastRole), whoever removed the role. The Super Administrator role has its own: it is taken away
+// by a caller who holds it, and never from the last holder who can sign in, whoever
+// asks (requireSuperAdministrator, refuseLastSuperAdministrator).
 // Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
 // last role a person holds outside the tenants stays while they hold roles in more than
 // one tenant (refuseLeavingSeveralTenants).
@@ -125,23 +170,50 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 	return m.removeMembership(ctx, txn, scope, userID, &key)
 }
 
-// removeMembership buffers the removal of a membership the person holds, under the two
+// removeMembership buffers the removal of a membership the person holds, under the
 // rules of RemoveRole, and has the permission engine told once the transaction has
 // committed. key is the membership, read as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
-	if m.callerIs(ctx, userID) {
-		if err := m.refuseLastAdministrator(ctx, txn, scope, key); err != nil {
+	// A membership whose period is over makes nobody a tenant's administrator, and its
+	// removal is not the directory-only tenant's to hold.
+	ended, err := m.membershipEnded(ctx, txn, userID, key)
+	if err != nil {
+		return err
+	}
+	if !ended {
+		if err := m.requireEnteringToChange(ctx, scope, key.Role, nil); err != nil {
 			return err
 		}
 	}
-	all, err := m.store.Memberships(ctx, txn, userID)
+	switch {
+	case scope.IsGlobal() && key.Role == accesstypes.SuperAdministrator:
+		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super Administrator role away"); err != nil {
+			return err
+		}
+		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "take the role from them"); err != nil {
+			return err
+		}
+	case m.callerIs(ctx, userID):
+		gone := &removal{user: key.User, role: key.Role, group: "", wholeGroup: false, unnamed: "you cannot remove a role from yourself", before: "remove your own"}
+		if err := m.refuseLastAdministrator(ctx, txn, scope, gone); err != nil {
+			return err
+		}
+	}
+	// What the person holds beside the membership: the roles of their own and the
+	// groups they are in. Where they belong is read from what has not ended (holds);
+	// the account is kept by every row that stands in the tables, ended or not (keeps).
+	all, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return err
 	}
 	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
 		return err
 	}
-	if err := m.deleteWithLastRole(ctx, txn, userID, all, key); err != nil {
+	kept, err := m.keeps(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	if err := m.deleteWithLastRole(ctx, txn, userID, kept, key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {

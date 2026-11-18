@@ -20,6 +20,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // TablePrefix is the prefix of the auth's tables the package was generated from: the
@@ -49,20 +50,36 @@ type Client struct {
 // store: a role a method assigns is held to its rule, and it is told once a membership
 // is committed. sessions is the API of the session library's Auth that signs the
 // auth's people in (its API method): a password a method writes is hashed by that
-// Auth's password method. The options are the identity package's: the administrator
-// roles (identity.WithAdministratorRoles), which the rule on a person removing a role
-// from themselves reads, and one tenant per person (identity.WithOneTenantPerPerson),
-// which every role given in a tenant is then held to.
+// Auth's password method. The options are the identity package's: a tenant's
+// administrator roles (identity.WithAdministratorRoles), which the rule on a person
+// removing a role from themselves in a tenant reads, and one tenant per person
+// (identity.WithOneTenantPerPerson), which every role given in a tenant is then held to.
+//
+// The engine is the one built with the methods a super administrator always executes
+// (access.WithSuperAdministratorMethods(SuperAdministratorMethods()...)): the client
+// refuses one built without them.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
 	// A refusal that speaks of a tenant says the application's word for one, the tenant
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord("sector")}, opts...)
+	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
 
 	return &Client{manager: manager}, nil
+}
+
+// SuperAdministratorMethods are the methods that give and take the Members auth's
+// roles for the whole application, in the global scope, in one domain or in every
+// domain. The auth's package hands them to its permission engine where it builds it
+// (access.WithSuperAdministratorMethods), and the Super Administrator role, which the
+// framework defines in every auth, then holds Execute on each whatever the role file
+// grants: a super administrator gives and takes any role of the auth for any person.
+// The auth's roles are not given by hand here, so there are none.
+func SuperAdministratorMethods() []accesstypes.Resource {
+	return nil
 }
 
 // AssignRole buffers the membership of user in role, held in scope, in the caller's
@@ -107,4 +124,41 @@ func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransact
 	}
 
 	return nil
+}
+
+// DirectoryName answers what the Members auth's sign-in registrations call a
+// directory, for a sentence that names it to a person: the name a registration that
+// takes its connection gives it (a listed Workspace or tenant, a provider), and the
+// label of the button a person signs in to it with, each "" where the registrations
+// have none (identity.Manager.DirectoryName). It is a resource.DirectoryNamer: the
+// generated frames of a tenant's directory and the tenant list say a directory by it,
+// "Lakeside" or "your organization's Microsoft directory", and never by its
+// connection, which for a Microsoft Entra tenant is an id.
+func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {
+	return c.manager.DirectoryName(directory)
+}
+
+// CallerPassword answers whether the person behind the request holds a password in the
+// Members auth, and whether the question applies to them at all: it does not where
+// the request came through another auth, or where this auth has no password method
+// (identity.Manager.CallerPassword). It is a resource.CallerPassword: the generated frame
+// of the method that makes a tenant directory only hands it to the rule that the switch
+// is turned on by a person who has a password, their way back in
+// (resource.TenantDirectoryRules.PasswordsBy).
+func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {
+	has, applies, err = c.manager.CallerPassword(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.CallerPassword()")
+	}
+
+	return has, applies, nil
+}
+
+// AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
+// Members auth keep a way into a tenant that is directory only: the auth registers
+// the password method and its permission engine names the roles that administer a
+// tenant (identity.Manager.AdministratorsEnterWithPassword). The warning of the method
+// that makes a tenant directory only says so (resource.DirectoryPeople).
+func (c *Client) AdministratorsEnterWithPassword() bool {
+	return c.manager.AdministratorsEnterWithPassword()
 }

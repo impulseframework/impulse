@@ -6,15 +6,17 @@
 //
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
 //	default (/console/api), sessions of the staff auth (password):
-//	  BindAuth(staff.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending
-//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up
-//	  + ValidateSession, ValidateXSRFToken: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
-//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
+//	  BindAuth(staff.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means
+//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, POST /console/api/user/first-password/code, POST /console/api/user/first-password, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1), hooks.Default, EnforceReadOnlyMask: generatedRoutes
 //	portal (/portal/api), sessions of the members auth (directory):
-//	  BindAuth(members.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /portal/api/user/methods, GET /portal/api/user/session, DELETE /portal/api/user/session, GET /portal/api/user/pending, GET /portal/api/user/directory/login, GET /portal/api/user/directory/callback, GET /portal/api/user/directory/logout
+//	  BindAuth(members.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /portal/api/user/methods, GET /portal/api/user/session, DELETE /portal/api/user/session, GET /portal/api/user/pending, GET /portal/api/user/sign-in-means, GET /portal/api/user/directory/login, GET /portal/api/user/directory/callback, GET /portal/api/user/directory/logout
 //	  + ValidateXSRFToken: POST /portal/api/user/pending/confirm, POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/invitation
-//	  + ValidateSession, ValidateXSRFToken: POST /portal/api/user/invitation/accept, POST /portal/api/user/email, POST /portal/api/user/email/verify
-//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Portal, generatedPortalRoutes
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /portal/api/user/invitation/accept, POST /portal/api/user/email, POST /portal/api/user/email/verify
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Portal
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1), hooks.Portal, EnforceReadOnlyMask: generatedPortalRoutes
 //	devices (/devices), bearer tokens of the staff auth:
 //	  BindAuth(staff.Name), NoCaching, CompressionMiddleware, ReleaseHeader: POST /devices/oauth/device/authorize, POST /devices/oauth/token
 //	  + ValidateToken: hooks.Devices, generatedDevicesRoutes, GET /devices/programs/*
@@ -90,6 +92,12 @@ type DefaultSession interface {
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	// EnforceReadOnlyMask refuses a write from a session that views as someone else
+	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
+	// of the routes a signed-in person calls on their own account and of the outlet's
+	// generated routes, so it holds wherever the application's hook registers those and
+	// whether or not the hook mounts it.
+	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -113,6 +121,10 @@ type DefaultSession interface {
 	// ChangeName writes the signed-in person's own name, from their account page
 	// (session.Auth.ChangeName); it validates the session itself.
 	ChangeName() http.HandlerFunc
+	// SignInMeans answers what the signed-in person signs in with, a password or none
+	// and the directory sign-ins linked to them, to their account page
+	// (session.Auth.SignInMeans); it validates the session itself.
+	SignInMeans() http.HandlerFunc
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
@@ -126,6 +138,16 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).
+	FirstPasswordSendCode() http.HandlerFunc
+	// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).
+	FirstPasswordSet() http.HandlerFunc
+	// A sign-up started from an address, which is mailed its link (session.SignUpHandlers.Start).
+	SignUpStart() http.HandlerFunc
+	// The sign-up link opened (session.SignUpHandlers.Open).
+	SignUpOpen() http.HandlerFunc
+	// The sign-up completed with a password: the account created and signed in (session.SignUpHandlers.Complete).
+	SignUpComplete() http.HandlerFunc
 	// A command-line client's device authorization started (session.DeviceHandlers.Authorize): the client is told the code the person types; mounted under each machine outlet the auth issues tokens for.
 	DeviceAuthorize() http.HandlerFunc
 	// The device flow's token endpoint (session.DeviceHandlers.Token): the client's polls for its pair, and the refresh grant; mounted under each machine outlet the auth issues tokens for.
@@ -142,9 +164,10 @@ type DefaultSession interface {
 	TokensCreate() http.HandlerFunc
 	// A token of the signed-in person's revoked (session.ApplicationTokenHandlers.Revoke).
 	TokensRevoke() http.HandlerFunc
-	// The password method's login and password change (session.PasswordMethod); the change validates the session itself, outside ValidateSession.
+	// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.
 	PasswordLogin() http.HandlerFunc
 	PasswordChange() http.HandlerFunc
+	PasswordRemove() http.HandlerFunc
 }
 
 // PortalSession is the portal outlet's session surface: the Auth's middleware and
@@ -155,6 +178,12 @@ type PortalSession interface {
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	// EnforceReadOnlyMask refuses a write from a session that views as someone else
+	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
+	// of the routes a signed-in person calls on their own account and of the outlet's
+	// generated routes, so it holds wherever the application's hook registers those and
+	// whether or not the hook mounts it.
+	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -178,6 +207,10 @@ type PortalSession interface {
 	// ChangeName writes the signed-in person's own name, from their account page
 	// (session.Auth.ChangeName); it validates the session itself.
 	ChangeName() http.HandlerFunc
+	// SignInMeans answers what the signed-in person signs in with, a password or none
+	// and the directory sign-ins linked to them, to their account page
+	// (session.Auth.SignInMeans); it validates the session itself.
+	SignInMeans() http.HandlerFunc
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
@@ -217,11 +250,19 @@ type Hooks struct {
 	Root func(r chi.Router)
 	// Default runs inside the default outlet's authenticated group: r already sits behind
 	// BindAuth(staff.Name), session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes. Nil registers them directly.
+	// the outlet's generated routes, behind the read-only mask the router mounts for
+	// them. The session routes a signed-in person calls on their own account stand in
+	// front of the hook: what it adds gates the application's routes alone. A route the
+	// hook registers by hand carries what the hook gives it and nothing more. Nil
+	// registers the generated routes directly.
 	Default func(r chi.Router, generated func(chi.Router))
 	// Portal runs inside the portal outlet's authenticated group: r already sits behind
 	// BindAuth(members.Name), session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes. Nil registers them directly.
+	// the outlet's generated routes, behind the read-only mask the router mounts for
+	// them. The session routes a signed-in person calls on their own account stand in
+	// front of the hook: what it adds gates the application's routes alone. A route the
+	// hook registers by hand carries what the hook gives it and nothing more. Nil
+	// registers the generated routes directly.
 	Portal func(r chi.Router, generated func(chi.Router))
 	// Devices runs inside the devices outlet's token group: r already sits behind
 	// BindAuth(staff.Name) and the token check, and generated registers the outlet's generated
@@ -266,8 +307,10 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 		// The session routes are bounded at BodyLimit, as the generated routes are. The
 		// login page reads what the outlet offers from the method list, at the paths
-		// mounted below; the sign-in's POSTs sit behind the XSRF guard.
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		// mounted below; the sign-in's POSTs sit behind the XSRF guard. None of them has
+		// a dry run or a warning, so a request that asks for either (X-Dry-Run,
+		// X-Warning) is refused naming the header, and nothing runs.
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 		guarded := bounded.With(h.ValidateXSRFToken)
 		bounded.Get("/console/api/user/methods", h.Methods(&session.MethodList{
 			Methods: []session.AdvertisedMethod{
@@ -278,17 +321,23 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				SendCode: "/console/api/user/pending/code", VerifyCode: "/console/api/user/pending/code/verify", EnrollEmail: "/console/api/user/pending/email",
 			},
 			ChangePassword: "/console/api/user/password/change",
+			RemovePassword: "/console/api/user/password/remove",
+			FirstPassword:  session.FirstPasswordRoutes{SendCode: "/console/api/user/first-password/code", Set: "/console/api/user/first-password"},
 			ForgetBrowser:  "/console/api/user/browser/forget",
 			ChangeName:     "/console/api/user/name",
+			SignInMeans:    "/console/api/user/sign-in-means",
 			ChangeLook:     "/console/api/user/look",
 			Invitation:     session.InvitationRoutes{Open: "/console/api/user/invitation", Accept: "/console/api/user/invitation/accept", SignUp: "/console/api/user/invitation/sign-up"},
 			Email:          session.EmailRoutes{Add: "/console/api/user/email", Verify: "/console/api/user/email/verify"},
+			SignUp:         session.SignUpRoutes{Start: "/console/api/user/sign-up", Open: "/console/api/user/sign-up/open", Complete: "/console/api/user/sign-up/complete"},
 		}))
 		bounded.Get("/console/api/user/session", h.Authenticated())
 		bounded.Delete("/console/api/user/session", h.Logout())
 		bounded.Get("/console/api/user/pending", h.PendingStatus())
+		bounded.Get("/console/api/user/sign-in-means", h.SignInMeans())
 		guarded.Post("/console/api/user/password/login", h.PasswordLogin())
 		guarded.Post("/console/api/user/password/change", h.PasswordChange())
+		guarded.Post("/console/api/user/password/remove", h.PasswordRemove())
 		guarded.Post("/console/api/user/pending/confirm", h.PendingConfirmWithPassword())
 		guarded.Post("/console/api/user/pending/cancel", h.PendingCancel())
 		guarded.Post("/console/api/user/pending/code", h.PendingSendCode())
@@ -299,6 +348,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/console/api/user/look", h.ChangeLook())
 		guarded.Post("/console/api/user/invitation", h.InvitationOpen())
 		guarded.Post("/console/api/user/invitation/sign-up", h.InvitationSignUp())
+		guarded.Post("/console/api/user/sign-up", h.SignUpStart())
+		guarded.Post("/console/api/user/sign-up/open", h.SignUpOpen())
+		guarded.Post("/console/api/user/sign-up/complete", h.SignUpComplete())
 
 		r.Group(func(r chi.Router) {
 			r.Use(h.ValidateSession)
@@ -314,6 +366,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 					"/console/api/user/invitation/accept",
 					"/console/api/user/email",
 					"/console/api/user/email/verify",
+					"/console/api/user/first-password/code",
+					"/console/api/user/first-password",
 					"/console/api/user/tokens",
 					"/console/api/user/tokens",
 					"/console/api/user/tokens/revoke",
@@ -323,20 +377,40 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			// The session routes a signed-in person calls: the acceptance of an invitation
-			// the browser carries, and the address they add and verify.
-			r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/invitation/accept", h.InvitationAccept())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/email", h.EmailAdd())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/email/verify", h.EmailVerify())
-			r.With(resource.BodyLimit(BodyLimit)).Get("/console/api/user/tokens", h.TokensList())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/tokens", h.TokensCreate())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/tokens/revoke", h.TokensRevoke())
-			r.With(resource.BodyLimit(BodyLimit)).Get("/console/api/user/device", h.DeviceLookup())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/device/approve", h.DeviceApprove())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/device/deny", h.DeviceDeny())
+			// The session routes a signed-in person calls on their own account: the
+			// acceptance of an invitation the browser carries, the address they add and
+			// verify, their first password where the auth has passwords and they have
+			// none, and their tokens and device authorizations where the auth issues
+			// tokens. They stand in front of the application's hook, which gates the
+			// generated routes alone: a person reaches their own account whatever the
+			// application asks of them elsewhere. What holds for them is mounted here and
+			// in the handlers: the read-only mask of a session that views as someone else,
+			// and each one that writes refuses an impersonated session itself. None has a
+			// dry run or a warning, and a request that asks for either is refused.
+			account := r.With(h.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
+			account.Post("/console/api/user/invitation/accept", h.InvitationAccept())
+			account.Post("/console/api/user/email", h.EmailAdd())
+			account.Post("/console/api/user/email/verify", h.EmailVerify())
+			account.Post("/console/api/user/first-password/code", h.FirstPasswordSendCode())
+			account.Post("/console/api/user/first-password", h.FirstPasswordSet())
+			account.Get("/console/api/user/tokens", h.TokensList())
+			account.Post("/console/api/user/tokens", h.TokensCreate())
+			account.Post("/console/api/user/tokens/revoke", h.TokensRevoke())
+			account.Get("/console/api/user/device", h.DeviceLookup())
+			account.Post("/console/api/user/device/approve", h.DeviceApprove())
+			account.Post("/console/api/user/device/deny", h.DeviceDeny())
 
+			// The generated routes register through the application's hook, behind the
+			// read-only mask, which is mounted here and not by the hook: a write from a
+			// session that views as someone else read-only is refused before any generated
+			// handler runs, wherever the hook puts the routes and whether or not one is
+			// written.
 			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
-				generatedRoutes(r, h)
+				r.Group(func(r chi.Router) {
+					r.Use(h.EnforceReadOnlyMask)
+
+					generatedRoutes(r, h)
+				})
 			})
 		})
 	})
@@ -353,8 +427,10 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 		// The session routes are bounded at BodyLimit, as the generated routes are. The
 		// login page reads what the outlet offers from the method list, at the paths
-		// mounted below; the sign-in's POSTs sit behind the XSRF guard.
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		// mounted below; the sign-in's POSTs sit behind the XSRF guard. None of them has
+		// a dry run or a warning, so a request that asks for either (X-Dry-Run,
+		// X-Warning) is refused naming the header, and nothing runs.
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 		guarded := bounded.With(portalSession.ValidateXSRFToken)
 		bounded.Get("/portal/api/user/methods", portalSession.Methods(&session.MethodList{
 			Methods: []session.AdvertisedMethod{
@@ -366,6 +442,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			},
 			ForgetBrowser: "/portal/api/user/browser/forget",
 			ChangeName:    "/portal/api/user/name",
+			SignInMeans:   "/portal/api/user/sign-in-means",
 			ChangeLook:    "/portal/api/user/look",
 			Invitation:    session.InvitationRoutes{Open: "/portal/api/user/invitation", Accept: "/portal/api/user/invitation/accept"},
 			Email:         session.EmailRoutes{Add: "/portal/api/user/email", Verify: "/portal/api/user/email/verify"},
@@ -373,6 +450,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/portal/api/user/session", portalSession.Authenticated())
 		bounded.Delete("/portal/api/user/session", portalSession.Logout())
 		bounded.Get("/portal/api/user/pending", portalSession.PendingStatus())
+		bounded.Get("/portal/api/user/sign-in-means", portalSession.SignInMeans())
 		bounded.Get("/portal/api/user/directory/login", portalSession.DirectoryLogin())
 		bounded.Get("/portal/api/user/directory/callback", portalSession.DirectoryCallback())
 		bounded.Get("/portal/api/user/directory/logout", portalSession.DirectoryFrontChannelLogout())
@@ -403,14 +481,32 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			// The session routes a signed-in person calls: the acceptance of an invitation
-			// the browser carries, and the address they add and verify.
-			r.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/user/invitation/accept", portalSession.InvitationAccept())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/user/email", portalSession.EmailAdd())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/user/email/verify", portalSession.EmailVerify())
+			// The session routes a signed-in person calls on their own account: the
+			// acceptance of an invitation the browser carries, the address they add and
+			// verify, their first password where the auth has passwords and they have
+			// none, and their tokens and device authorizations where the auth issues
+			// tokens. They stand in front of the application's hook, which gates the
+			// generated routes alone: a person reaches their own account whatever the
+			// application asks of them elsewhere. What holds for them is mounted here and
+			// in the handlers: the read-only mask of a session that views as someone else,
+			// and each one that writes refuses an impersonated session itself. None has a
+			// dry run or a warning, and a request that asks for either is refused.
+			account := r.With(portalSession.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
+			account.Post("/portal/api/user/invitation/accept", portalSession.InvitationAccept())
+			account.Post("/portal/api/user/email", portalSession.EmailAdd())
+			account.Post("/portal/api/user/email/verify", portalSession.EmailVerify())
 
+			// The generated routes register through the application's hook, behind the
+			// read-only mask, which is mounted here and not by the hook: a write from a
+			// session that views as someone else read-only is refused before any generated
+			// handler runs, wherever the hook puts the routes and whether or not one is
+			// written.
 			registerGenerated(r, hooks.Portal, "Portal", func(r chi.Router) {
-				generatedPortalRoutes(r, h)
+				r.Group(func(r chi.Router) {
+					r.Use(portalSession.EnforceReadOnlyMask)
+
+					generatedPortalRoutes(r, h)
+				})
 			})
 		})
 	})
@@ -425,7 +521,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		r.Use(h.CompressionMiddleware())
 		r.Use(resource.ReleaseHeader(serverVersion))
 
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 		bounded.Post("/devices/oauth/device/authorize", h.DeviceAuthorize())
 		bounded.Post("/devices/oauth/token", h.DeviceToken())
 

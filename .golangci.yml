@@ -138,6 +138,7 @@ linters:
           - go/types
           - golang.org/x/crypto/argon2
           - golang.org/x/crypto/bcrypt
+          - golang.org/x/crypto/chacha20poly1305
           - golang.org/x/crypto/hkdf
           - golang.org/x/crypto/pbkdf2
           - golang.org/x/mod
@@ -208,6 +209,7 @@ linters:
       - .RetryableError(
       - sessioninfo.NewLoginRefusal(
       - sessioninfo.NewTooManyAttemptsRefusal(
+      - sessioninfo.NewTooManyAttemptsRefusalSaying(
       - sessioninfo.NewTooManyEmailsRefusal(
       - signinflow.Refusal(
       - .WithDescription(
@@ -338,19 +340,6 @@ linters:
       path: tracer/(.*/)?tracing_test\.go
       text: unlambda
     - linters:
-      - gochecknoglobals
-      path: cloud/(.*/)?tracing\.go
-      text: traceCache
-    - linters:
-      - paralleltest
-      - tparallel
-      path: cloud/(.*/)?tracing_test\.go
-      text: TestStartTrace
-    - linters:
-      - gocritic
-      path: cloud/(.*/)?tracing_test\.go
-      text: unlambda
-    - linters:
       - funlen
       - gochecknoglobals
       - gochecknoinits
@@ -388,6 +377,18 @@ linters:
       path: generation/identity_test\.go
       text: Test_prepareIdentity
     - linters:
+      - paralleltest
+      path: generation/identity_signup_test\.go
+      text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      path: generation/identity_(groups|periods)_test\.go
+      text: Test_prepareIdentity
+    - linters:
+      - paralleltest
+      path: generation/identity_invitedtenant_test\.go
+      text: Test_prepareIdentity
+    - linters:
       - funlen
       path: resource/(.*/)?resourceset\.go
       text: permissionsFromTags
@@ -416,10 +417,6 @@ linters:
       - funlen
       path: resource/(.*/)?patchset\.go
       text: match
-    - linters:
-      - gocognit
-      path: resource/(.*/)?parser\.go
-      text: ParsePackage
     - linters:
       - funlen
       path: resource/(.*/)?filterparser\.go
@@ -588,61 +585,12 @@ linters:
       - prealloc
       path: _test\.go
     - linters:
-      - paralleltest
-      path: spxscan/(.*/)?pkg/communication/communication_emailer_test\.go|spxscan/(.*/)?pkg/communication/communication_texter_test\.go
-    - linters:
       - errcheck
       text: Rollback
     - linters:
       - gomoddirectives
       path: go\.mod
       text: replacement are not allowed
-    - linters:
-      - funlen
-      path: spxscan/(.*/)?pkg/router/router\.go
-    - linters:
-      - misspell
-      path: spxscan/(.*/)?pkg/resources/resources\.go
-      source: Cancelled
-    - linters:
-      - gocognit
-      - funlen
-      path: spxscan/(.*/)?pkg/contacts/contacts_file_upload\.go
-    - linters:
-      - tagliatelle
-      path: spxscan/(.*/)?apps/portal/pkg/contentmanagement/contentful/lesson_details\.go
-      text: got '__typename' want 'typeName'
-    - linters:
-      - tagliatelle
-      path: spxscan/(.*/)?apps/portal/pkg/contentmanagement/contentful/four_option_questionnaire_details\.go
-      text: got '__typename' want 'typeName'
-    - linters:
-      - gosec
-      path: spxscan/(.*/)?pkg/password/password_test\.go
-    - linters:
-      - gosec
-      text: G704
-      path: spxscan/(.*/)?apps/portal/pkg/contentmanagement/contentful/contentful\.go
-    - linters:
-      - gosec
-      text: G117
-      path: spxscan/(.*/)?apps/portal/app/change_password\.go|spxscan/(.*/)?apps/portal/app/create_learner_account\.go|spxscan/(.*/)?apps/portal/pkg/rpc/create_learner_account\.go
-    - linters:
-      - gosec
-      text: G117
-      path: spxscan/(.*/)?pkg/config/admin_config\.go
-    - linters:
-      - gosec
-      text: G704
-      path: spxscan/(.*/)?pkg/communication/emailapi/client\.go
-    - linters:
-      - gosec
-      text: G703
-      path: spxscan/(.*/)?cmd/bootstrap/main\.go
-    - linters:
-      - gosec
-      text: G703
-      path: spxscan/(.*/)?cmd/deployment/migrate/migrate\.go
     - linters:
       - funlen
       - gochecknoglobals
@@ -653,10 +601,6 @@ linters:
       - nlreturn
       - scopelint
       path: _test\.go
-    - linters:
-      - gocognit
-      path: access/(.*/)?migrate\.go
-      text: bootstrapRoles
     - linters:
       - gocritic
       path: access/(.*/)?(internal/policy/policy|snapshot)\.go
@@ -686,7 +630,7 @@ linters:
       path: session/(.*/)?sessionstorage/internal/drivertest/|session/(.*/)?internal/oidctest/
     - linters:
       - tagliatelle
-      path: session/(.*/)?legacy/oidc_azure\.go|session/(.*/)?azure/verifier(_skipAuth)?(_test)?\.go|session/(.*/)?azure/method\.go
+      path: session/(.*/)?azure/verifier(_skipAuth)?(_test)?\.go|session/(.*/)?azure/method\.go
       text: preferred_username
     - linters:
       - tagliatelle
@@ -708,10 +652,6 @@ linters:
       text: G124
     - linters:
       - gosec
-      path: session/(.*/)?legacy/oidc_core\.go
-      text: G710
-    - linters:
-      - gosec
       path: session/(.*/)?internal/workos/client\.go
       text: G117
     - linters:
@@ -726,10 +666,6 @@ linters:
       - gosec
       path: session/(.*/)?deviceflow/store\.go
       text: G117
-    - linters:
-      - staticcheck
-      path: session/(.*/)?legacy/
-      text: SA1019
     - linters:
       - revive
       text: avoid meaningless package names

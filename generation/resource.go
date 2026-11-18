@@ -375,7 +375,7 @@ func (r *resourceGenerator) Generate() error {
 	if err := r.validateStores(); err != nil {
 		return err
 	}
-	if err := r.generateFileHolders(); err != nil {
+	if err := r.generateHolders(); err != nil {
 		return err
 	}
 
@@ -433,7 +433,9 @@ func (r *resourceGenerator) Generate() error {
 // segment and parameter derive from the tenant record (@tenant), with a tenant-scoped
 // resource and no record refused, so the record resolves before any domain route
 // renders. (The RPC methods are extracted later and checked against the record then:
-// requireTenantRecordForMethods.)
+// requireTenantRecordForMethods.) With the record's declaration whole, the tenant's
+// list of its people, whose source was written before the load, is held to it
+// (holdIdentityTenantDirectory).
 func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveFieldEnumerations(r.resources, r.computedResources); err != nil {
 		return err
@@ -444,8 +446,19 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveViewDeclarations(r.resources, r.computedResources); err != nil {
 		return err
 	}
+	if err := r.resolveTenantRecord(); err != nil {
+		return err
+	}
 
-	return r.resolveTenantRecord()
+	if err := r.holdIdentityTenantDirectory(); err != nil {
+		return err
+	}
+
+	if err := r.holdIdentityDirectoryRole(); err != nil {
+		return err
+	}
+
+	return r.holdIdentityTenantInvitation()
 }
 
 // finishGeneration closes the run once everything is written. The previous run's
@@ -569,7 +582,7 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 		sortResources(r.resources)
 	}
 
-	return nil
+	return r.resolveRunSubjectSets(r.resources)
 }
 
 // extractAndGenerateRPC parses the RPC package into rpcMethods, the scheduled methods
@@ -704,6 +717,10 @@ func (r *resourceGenerator) buildUnifiedTypescriptGenerator(gc *resource.Generat
 	t.domainRouteSegment = r.domainRouteSegment
 	t.domainRouteParam = r.domainRouteParam
 	t.domainWord = r.domainWord
+	if record := r.tenantRecord(); record != nil {
+		t.tenantCreation = record.TenantCreation
+	}
+	t.directoryRolePicker = r.directoryRolePicker()
 
 	return t, nil
 }

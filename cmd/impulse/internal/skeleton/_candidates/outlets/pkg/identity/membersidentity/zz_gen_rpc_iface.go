@@ -7,14 +7,20 @@ import "github.com/impulseframework/impulse/accesstypes"
 
 type Method interface {
 	Method() accesstypes.Resource
-	AssignMembersRole | AssignMembersTenantRole | DeleteMembersTenantUser | DeleteMembersUser |
-		DisableMembersTenantUser | DisableMembersUser | EnableMembersTenantUser |
-		EnableMembersUser | EndMembersSession | EndMembersTenantUserSessions |
-		EndMembersUserSessions | InviteMembersTenantUser | InviteMembersUser | RemoveMembersRole |
+	AddMembersGroupMember | AddMembersTenantGroupMember | AssignMembersRole |
+		AssignMembersTenantRole | CreateMembersGroup | CreateMembersTenantGroup |
+		CreateMembersTenantUser | CreateMembersUser | DeleteMembersGroup |
+		DeleteMembersTenantGroup | DeleteMembersTenantUser | DeleteMembersUser |
+		DescribeMembersGroup | DescribeMembersTenantGroup | DisableMembersTenantUser |
+		DisableMembersUser | EnableMembersTenantUser | EnableMembersUser | EndMembersSession |
+		EndMembersTenantUserSessions | EndMembersUserSessions | GiveMembersGroupRole |
+		GiveMembersTenantGroupRole | InviteMembersTenantUser | InviteMembersUser |
+		RemoveMembersGroupMember | RemoveMembersRole | RemoveMembersTenantGroupMember |
 		RemoveMembersTenantRole | RenameMembersTenantUser | RenameMembersUser |
 		RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
 		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersTenantUserName |
-		SetMembersUserEmail | SetMembersUserName | UnlinkMembersSessionIdentity |
+		SetMembersUserEmail | SetMembersUserName | TakeMembersGroupRole |
+		TakeMembersTenantGroupRole | UnlinkMembersSessionIdentity |
 		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |
 		WithdrawMembersTenantInvitation
 }

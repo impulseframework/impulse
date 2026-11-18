@@ -12,15 +12,15 @@ type (
 	// and its key is the domain in every tenant-scoped URL. The generator derives the
 	// segment from it and emits NewTenantRoster, the constructor of the tenant roster the
 	// data level builds and starts: the tenants as the generated guard knows them, kept
-	// current on every instance by this record's generated write paths (a create or a
-	// delete reaches the roster after its commit and publishes the tenants signal), so
-	// a tenant created here is usable at once, without a restart. The application thus
+	// current on every instance by what writes this record (a tenant an invitation's
+	// first sign-in makes, a rename or a delete reaches the roster after its commit and
+	// publishes the tenants signal), so a new tenant is usable at once, without a restart. The application thus
 	// derives its domain universe from this table rather than a fixed in-code list, and
 	// a session's tenant list is the roster filtered by the engine's foothold answer
 	// (resource.SessionPermissions). The roles need no row per tenant: a domain role is
 	// held in every tenant domain.
 	//
-	// The primary key is an id the create path generates, as every record's is, and the
+	// The primary key is an id generated when the tenant is made, as every record's is, and the
 	// generator refuses any other key on the tenant record: the id is written into
 	// every row the tenant owns and is the domain of every role held in it, so it never
 	// changes and is never used twice. What people call the tenant is its name, an
@@ -31,29 +31,38 @@ type (
 	// Tenant itself is a GLOBAL resource — administering the tenant list is a global
 	// concern. Its list comes in name order (@order) when the request names no sort.
 	//
-	// Who may create a tenant is declared here, apart from who may enter one
-	// (@tenant(creation: ...)): an administrator alone (@tenant, the default: the create
-	// path above under the Administrator role's Create grant), the person who
-	// becomes its administrator (self-service), or both, as here. Self-service is one
-	// generated route, POST /api/create-tenant: a stranger signs in first, through the
-	// staff auth's google registration (any Google account, open sign-up), holds no
-	// tenant, and names theirs; the route writes the row, seats the person with the
-	// roles TenantAdministratorRoles names (app) and hands the tenant to the roster, so
-	// their next request stands in it. A person who already holds a tenant is refused:
-	// one tenant per person, and an administrator of one never creates another.
+	// How a tenant comes to exist is apart from who may enter one. Nobody creates a
+	// tenant directly: the record's create is refused, saying so. An administrator
+	// brings an organization in by inviting one person (the staff auth's generated
+	// InviteStaffTenant, on the console's Invited tenants page): the invitation carries
+	// the tenant's details as the administrator entered them, held to this record's own
+	// create under the Administrator role's Create grant when it is sent, and the
+	// invited person's first sign-in makes the tenant, seats them as its administrator
+	// and, where they came through their organization's directory, makes that directory
+	// the tenant's. A person who signed up creates their own
+	// through one generated route, POST /api/create-tenant, while an administrator has a
+	// sign-in method of the staff auth open to sign-up (the console's Sign-in page): a
+	// stranger signs in first, through the staff auth's google registration (any Google
+	// account) once it is open, holds no tenant, and names theirs; the route reads
+	// whether sign-up is open in the transaction that writes the row, refuses while
+	// every method is invite only, writes the row, seats the person with the roles
+	// TenantAdministratorRoles names (app) and hands the tenant to the roster, so their
+	// next request stands in it. A person who already holds a tenant is refused: one
+	// tenant per person, and an administrator of one never creates another.
 	//
 	// Who may enter a tenant is the record's declaration, data of the application
-	// rather than deploy configuration: the directories the tenant admits its people
-	// through (TenantDirectory, one row each) and whether its people enter through them
-	// only (DirectoryOnly). The sign-in policy reads it in the sign-in's own transaction
-	// (NewTenantDeclarationReader, handed to the staff auth) and every instance's roster
-	// keeps a copy beside the keys (NewTenantRoster, Declarations), which the record's
-	// and the directories' generated write paths reload after their commit; a tenant is
-	// offered to a session only when the session may enter it. The record's change
-	// events (DataChangeEvents, Config) are the audit of every edit.
+	// rather than deploy configuration: the directory its people sign in through
+	// (TenantDirectory, one row at most, set from a sign-in through the directory and
+	// never typed in) and whether its people enter through it only (DirectoryOnly). The
+	// sign-in policy reads it in the sign-in's own transaction
+	// (NewTenantDeclarationReader, handed to the staff auth) and every instance's
+	// roster keeps a copy beside the keys (NewTenantRoster, Declarations), which the
+	// record's and the directories' generated write paths reload after their commit; a
+	// tenant is offered to a session only when the session may enter it. The record's
+	// change events (DataChangeEvents, Config) are the audit of every edit.
 	//
 	// @resource
-	// @tenant(creation: both)
+	// @tenant
 	// @order(Name asc)
 	Tenant struct {
 		ID impulse.UUID `spanner:"Id"`
@@ -61,10 +70,15 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `spanner:"Name"`
-		// DirectoryOnly says the tenant's people enter through its directories only: a
-		// password does not reach the tenant. Set by whoever holds the record's Update
-		// grant on the column (Administrator), never at creation: a new tenant
-		// declares nothing beyond its creator's directory.
+		// DirectoryOnly says the tenant's people enter through its directory only: no
+		// other sign-in reaches the tenant, and the flag closes this tenant alone. The
+		// switch is the tenant's own: the tenant's administrator (TenantAdministrator)
+		// turns it with the generated methods of the tenant's scope: MakeTenantDirectoryOnly,
+		// which refuses turning it on until the tenant has its directory, and unless the
+		// caller is signed in through it, and EndTenantDirectoryOnly. The record shows the
+		// flag and its own write paths never write it. A tenant is directory only from the
+		// start where the invitation that makes it says so: that invitation is accepted
+		// through the directory the tenant will be only of and no other way.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

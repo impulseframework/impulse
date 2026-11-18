@@ -162,7 +162,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	// feature flags from, and the tenant roster reloads on: in-memory in the suites.
 	svc := live.NewFake()
 	// The tenant roster, started over the seeded tenants as production's data level
-	// starts it; a tenant the suites create through the API reaches it after the commit.
+	// starts it; a tenant an invitation makes in a suite reaches it after the commit.
 	roster := app.NewTenantRoster(resource.NewSpannerClient(db.Client), resource.WithTenantSignals(svc))
 	if err := roster.Start(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
@@ -186,6 +186,9 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		// through the generated reader, as production does.
 		TenantDeclarations: app.NewTenantDeclarationReader(),
 		TenantDirectories:  app.NewTenantDirectoryReader(),
+		// What makes a tenant from an accepted invitation, over the stack's roster and
+		// live service, as production's data level hands it in.
+		TenantMaker: app.NewTenantMaker(roster, svc),
 	})
 	if err != nil {
 		t.Fatalf("staff.New() error = %v", err)
@@ -217,6 +220,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		scope accesstypes.PolicyScope
 		role  accesstypes.Role
 	}{
+		{adminUser, accesstypes.GlobalPolicyScope(), accesstypes.SuperAdministrator},
 		{adminUser, accesstypes.GlobalPolicyScope(), "Administrator"},
 		{adminUser, accesstypes.GlobalPolicyScope(), "FeatureAdministrator"},
 		{adminUser, accesstypes.EveryDomainPolicyScope(), "TenantAdministrator"},
@@ -322,6 +326,14 @@ func (b *browser) login(ctx context.Context, user, password string) (status int,
 func (b *browser) do(ctx context.Context, method, path string, body []byte) (status int, respBody []byte) {
 	b.t.Helper()
 
+	return b.doWith(ctx, method, path, body, nil)
+}
+
+// doWith is do with headers of the request's own: a method asked for its warning
+// (X-Warning), which answers what the call would do and saves nothing.
+func (b *browser) doWith(ctx context.Context, method, path string, body []byte, headers map[string]string) (status int, respBody []byte) {
+	b.t.Helper()
+
 	req, err := http.NewRequestWithContext(ctx, method, b.base+path, bytes.NewReader(body))
 	if err != nil {
 		b.t.Fatal(err)
@@ -329,6 +341,9 @@ func (b *browser) do(ctx context.Context, method, path string, body []byte) (sta
 	req.Header.Set("Content-Type", "application/json")
 	if token := b.xsrfToken(); token != "" {
 		req.Header.Set("X-XSRF-TOKEN", token)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 
 	resp, err := b.client.Do(req)
@@ -424,19 +439,52 @@ func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, per
 }
 
 // unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
-// its name, into the tenants' domains alone, in the order listed.
+// its name, into the domains of the tenants the session reaches, in the order listed. A
+// tenant the answer marks closed to the session is left out: the person holds a seat in
+// it, and the session cannot enter it (closedDomains reads those).
 func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	var listed []struct {
 		Domain string `json:"domain"`
+		Closed string `json:"closed"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		return errors.Wrap(err, "json.Unmarshal()")
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
+		if entry.Closed != "" {
+			continue
+		}
 		out = append(out, T(entry.Domain))
 	}
 	*domains = out
 
 	return nil
+}
+
+// closedDomains reads the tenants the user-domains answer at path marks closed to the
+// browser's session: each tenant's domain with the reason the server gives, a sentence.
+// Empty, never nil, when the answer marks none.
+func closedDomains(ctx context.Context, t *testing.T, b *browser, path string) map[string]string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, path, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s: status %d: %s", path, status, body)
+	}
+	var listed []struct {
+		Domain string `json:"domain"`
+		Closed string `json:"closed"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatalf("user-domains is not a list: %v: %s", err, body)
+	}
+	closed := map[string]string{}
+	for _, entry := range listed {
+		if entry.Closed != "" {
+			closed[entry.Domain] = entry.Closed
+		}
+	}
+
+	return closed
 }

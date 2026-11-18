@@ -1,5 +1,12 @@
 import { EnumeratedConfig } from '@impulseframework/resource-angular/types';
-import { ApiError, matchesSearch, quoteFilterValue, ResourceMeta, searchBox, serializeFilter } from '@impulseframework/resource';
+import {
+  ApiError,
+  matchesSearch,
+  quoteFilterValue,
+  ResourceMeta,
+  searchBox,
+  serializeFilter,
+} from '@impulseframework/resource';
 
 /** An option of an enumerated picker: the id it stores and the text shown for it. */
 export interface PickerOption {
@@ -88,7 +95,8 @@ export function narrowedFilter(
   if (typed === '' || narrowing === undefined) {
     return base;
   }
-  const clause = narrowing === 'box' ? serializeFilter(searchBox(typed)) : `${display}:startswith:${quoteFilterValue(typed)}`;
+  const clause =
+    narrowing === 'box' ? serializeFilter(searchBox(typed)) : `${display}:startswith:${quoteFilterValue(typed)}`;
   return base === '' ? clause : `(${base}),${clause}`;
 }
 
@@ -128,18 +136,41 @@ export function withChosen(page: readonly PickerOption[], chosen: PickerOption |
   return [chosen, ...page];
 }
 
+/** Whether a picker's request failed because the server refused it as not permitted: its 403. */
+export function notPermitted(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
+
 /**
- * What a picker says when its request failed: the server's own words for a refusal (a
- * 403 on the listed resource; a 400 on the request, a bounded source with no order and
+ * What a picker says under its field when its source is closed to the person: they may
+ * not list it, so there is nothing to pick from and no name to show for what is stored.
+ * One sentence of the library's own, as a person would say it: the server's answer names
+ * ids, a permission and a resource, and none of them is shown. `stored` says whether the
+ * field holds a value, which then shows as its id; with none, nothing can be chosen.
+ */
+export function closedSourceText(stored: boolean): string {
+  return stored
+    ? 'You do not have access to this list, so only the id is shown.'
+    : 'You do not have access to this list, so nothing can be chosen here.';
+}
+
+/**
+ * What a picker says under its field when its source is open to the person and the row
+ * the field holds is not theirs to read: a row a condition keeps from them, say.
+ */
+export const closedRecordText = 'You do not have access to this record, so only its id is shown.';
+
+/**
+ * What a picker says when its request failed for a reason that is no permission's: the
+ * server's own words for a request it refused (a 400: a bounded source with no order and
  * no configured sort, say), a plain sentence for any other failure, nothing while it
- * works. A refused picker must never read as an empty list.
+ * works. A request refused as not permitted (notPermitted) is not said here: the picker
+ * says a sentence of its own for it (closedSourceText, closedRecordText), never the
+ * server's words. A failed picker must never read as an empty list.
  */
 export function pickerRefusal(error: unknown): string | undefined {
-  if (error === undefined || error === null) {
+  if (error === undefined || error === null || notPermitted(error)) {
     return undefined;
-  }
-  if (error instanceof ApiError && error.status === 403) {
-    return `This picker is not available to you: ${error.message}`;
   }
   if (error instanceof ApiError && error.status === 400) {
     return `The server refused this picker's request: ${error.message}`;

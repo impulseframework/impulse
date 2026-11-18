@@ -55,7 +55,12 @@ export class SalvageHoldComponent {
   // A typed filter over the allow_filter column, combined with the indexed bond code
   // prefix so the server's filter contract (one indexed field per group) holds.
   heavy = this.sectors.sectorList((sector) => sector.consignments, {
-    filter: { and: [{ field: 'bondCode', op: 'isnotnull' }, { field: 'mass', op: 'gte', value: 100 }] },
+    filter: {
+      and: [
+        { field: 'bondCode', op: 'isnotnull' },
+        { field: 'mass', op: 'gte', value: 100 },
+      ],
+    },
   });
 
   clientName(id: string | undefined): string {

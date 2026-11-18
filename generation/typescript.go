@@ -39,6 +39,18 @@ type typescriptGenerator struct {
 	// domainWord mirrors the resourceGenerator's word for a tenant, which the client's
 	// descriptor carries beside the route pair (domainRoute.word).
 	domainWord tenantWordData
+	// tenantCreation mirrors the resourceGenerator's decision whether the create-your-tenant
+	// route is generated (validateTenantCreation). The target's own parse of the tenant
+	// record cannot make it: the decision reads the outlets' auths, which this generator
+	// does not know.
+	tenantCreation tenantCreation
+	// directoryRolePicker mirrors the resourceGenerator's choice of the list the role of
+	// the method that opens a tenant to its directory is picked from: the roles that
+	// exist in one tenant, of the auth whose generated identity client judges the role
+	// (directoryRolePicker). The target's own parse cannot make the choice: it reads
+	// the outlets' auths. Empty where the program writes no such method, and in a
+	// generator built on its own, whose client then takes the role as text.
+	directoryRolePicker string
 	// outletName is the router outlet this target serves (ForOutlet): every emitted
 	// file is filtered to the outlet's members. Empty means the default outlet
 	// (resolveOptions fills the name in; targetOutlet covers directly constructed
@@ -136,6 +148,27 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 // is a statement about the field and fails generation instead.
 func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, computedResources []*computedResource) ([]*resourceInfo, []*computedResource, error) {
 	t.outletExcludedTables = make(map[string]struct{})
+	// The methods that turn the tenant record's directory-only switch are served with
+	// the record, and the ones that say how a tenant admits its directory's people with
+	// the directories record, so each leaves the outlet's constants with its record.
+	var tenant *resourceInfo
+	for _, res := range resources {
+		if res.IsTenant {
+			tenant = res
+		}
+	}
+	for _, res := range resources {
+		if res.declaresDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
+			for _, method := range directoryOnlyMethodsOf(res.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
+		}
+		if tenant != nil && res.IsTenantDirectory && res.DirectoryDefaultSeatField != nil && !res.OnOutlet(t.targetOutlet()) {
+			for _, method := range directoryRoleMethodsOf(tenant.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
+		}
+	}
 	resources = slices.DeleteFunc(resources, func(res *resourceInfo) bool {
 		return t.excludeFromOutlet(&res.outletMembership, t.pluralize(res.Name()), true)
 	})
@@ -224,6 +257,9 @@ func (t *typescriptGenerator) parseResources(packageMap map[string]*packages.Pac
 
 	identityResources, err := t.identityResources(packageMap, pkg)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := t.resolveRunSubjectSets(slices.Concat(resources, identityResources)); err != nil {
 		return nil, nil, err
 	}
 	// A declaration of an auth's generated management that serves no route has nothing
@@ -538,6 +574,7 @@ func (t *typescriptGenerator) generateMethodMetadata() error {
 		RPCMethods:   t.rpcMethods,
 		GenPrefix:    genPrefix,
 		FeatureFlags: t.servesFeatureFlags(),
+		TenantOwn:    t.tenantOwnClientData(),
 	})
 	if err != nil {
 		return errors.Wrap(err, "generateTemplateOutput()")
@@ -869,6 +906,13 @@ func (t *typescriptGenerator) apiClientData() *tsAPIData {
 		data.Resources = append(data.Resources, featureFlagsAPIResource())
 		data.Methods = append(data.Methods, setFeatureAPIMethod())
 	}
+	// The methods the generator writes in the tenant's scope beside the tenant record's
+	// declaration (the directory-only switch's, and the ones that say how a tenant
+	// admits its directory's people), served where the outlet serves their record,
+	// carried as a generated one is.
+	for _, own := range t.tenantOwnClientData() {
+		data.Methods = append(data.Methods, tenantOwnAPIMethod(own.Name))
+	}
 	// The generated management of the auths the outlet serves it for, named from the
 	// resources and the methods gathered above.
 	data.Identity = t.identityOn(data)
@@ -879,6 +923,9 @@ func (t *typescriptGenerator) apiClientData() *tsAPIData {
 	for _, res := range data.Resources {
 		if res.Consolidated {
 			data.ConsolidatedRoute = t.ConsolidatedRoute
+		}
+		if res.AcrossTenants {
+			data.HasAcrossTenants = true
 		}
 		data.noteScope(res.Scope)
 	}
@@ -911,6 +958,8 @@ func (t *typescriptGenerator) apiResource(res *resourceInfo) *tsAPIResource {
 		Order:        apiOrder(res.DeclaredOrder),
 		Files:        fileSegments(res.Files, res.ReadHandlerDisabled()),
 		Feature:      featureNameOf(res.Feature),
+
+		AcrossTenants: res.ListsAcrossTenants,
 	}
 
 	for _, field := range res.PrimaryKeys() {
@@ -928,7 +977,7 @@ func (t *typescriptGenerator) apiResource(res *resourceInfo) *tsAPIResource {
 		return out
 	}
 
-	if !res.CreateHandlerDisabled() {
+	if !res.ClientCreateDisabled() {
 		out.Operations = append(out.Operations, opCreate)
 		out.HasCreate = true
 		for _, field := range res.Fields {

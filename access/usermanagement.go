@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/tracer"
@@ -23,25 +24,34 @@ type userManager struct {
 	store     policyStore
 	defaults  *defaultRoles
 	evaluator evaluator
+	// tenantAdministrators are the roles whose holders administer a tenant
+	// (WithTenantAdministratorRoles), which TenantsAdministered reads the
+	// store by.
+	tenantAdministrators []accesstypes.Role
 }
 
 // newUserManager creates a userManager over the policy store, the release's
-// default roles (nil for none) and the evaluator the effective-permission
-// listings answer from.
-func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluator) *userManager {
+// default roles (nil for none), the evaluator the effective-permission
+// listings answer from and the roles whose holders administer a tenant (none
+// where the application named none).
+func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluator, tenantAdministrators []accesstypes.Role) *userManager {
 	return &userManager{
-		store:     store,
-		defaults:  defaults,
-		evaluator: evaluator,
+		store:                store,
+		defaults:             defaults,
+		evaluator:            evaluator,
+		tenantAdministrators: slices.Clone(tenantAdministrators),
 	}
 }
 
-// AddRoleUsers assigns role to users, the memberships held in scope. Errors
-// if role doesn't exist in scope.
+// AddRoleUsers assigns role to users, the memberships held in scope, each with
+// no period. Errors if role doesn't exist in scope.
 func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
+		return err
+	}
 	roleFound, err := u.roleExists(ctx, scope, role)
 	if err != nil {
 		return err
@@ -55,7 +65,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 			return httpio.NewBadRequestMessage("user cannot be empty string")
 		}
 
-		if err := u.store.addUserRole(ctx, scope, user, role); err != nil {
+		if err := u.store.addUserRole(ctx, scope, user, role, accesstypes.Period{}); err != nil {
 			return err
 		}
 	}
@@ -63,13 +73,26 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 	return nil
 }
 
-// AddUserRoles assigns roles to user, the memberships held in scope. Errors
-// if any role doesn't exist in scope.
+// AddUserRoles assigns roles to user, the memberships held in scope, each with
+// no period: a role the user holds for a period is theirs until it is removed.
+// Errors if any role doesn't exist in scope.
 func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, roles...)
+}
+
+// assignUserRoles gives user each role in scope for the period, once every role
+// is one the user may be given there for it.
+func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, roles ...accesstypes.Role) error {
 	for _, role := range roles {
+		if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
+			return err
+		}
+		if err := ValidatePeriod(role, period); err != nil {
+			return err
+		}
 		roleFound, err := u.roleExists(ctx, scope, role)
 		if err != nil {
 			return err
@@ -84,7 +107,7 @@ func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.Policy
 	}
 
 	for _, role := range roles {
-		if err := u.store.addUserRole(ctx, scope, user, role); err != nil {
+		if err := u.store.addUserRole(ctx, scope, user, role, period); err != nil {
 			return err
 		}
 	}
@@ -162,9 +185,10 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, scope accesstypes.Pol
 	return nil
 }
 
-// UserRoles returns user's memberships as stored, keyed by where each is
-// held: every membership with no scopes given, the memberships held in each
-// given scope otherwise.
+// UserRoles returns the roles user holds now, keyed by where each is held: the
+// memberships of their own and the roles of every group they are in
+// (heldThroughGroups), less the ones outside their period. Every place with no
+// scopes given, the roles held in each given scope otherwise.
 func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -175,11 +199,9 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scop
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range memberships {
-			userRoles[m.Scope] = append(userRoles[m.Scope], m.Role)
+		for i := range memberships {
+			userRoles[memberships[i].Scope] = append(userRoles[memberships[i].Scope], memberships[i].Role)
 		}
-
-		return userRoles, nil
 	}
 
 	for _, scope := range scopes {
@@ -189,6 +211,9 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scop
 		}
 
 		userRoles[scope] = roles
+	}
+	if err := u.heldThroughGroups(ctx, user, userRoles, scopes); err != nil {
+		return nil, err
 	}
 
 	return userRoles, nil
@@ -236,6 +261,9 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 	}
 	if strings.TrimSpace(description) == "" {
 		return httpio.NewBadRequestMessagef("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role))
+	}
+	if isSuperAdministratorName(role) {
+		return httpio.NewConflictMessagef("role %s: %s; choose another name", string(role), superAdministratorReserved)
 	}
 	if u.defaults.exists(scope, role) {
 		return httpio.NewConflictMessagef("role %q is one of the release's default roles; a custom role cannot take its name", string(role))
@@ -307,7 +335,11 @@ func listedOnce(roles []RoleInfo) []RoleInfo {
 }
 
 // DeleteRole removes a custom role held in scope with its grants. It refuses
-// a default role, and a role users are still assigned to in scope.
+// a default role, a role users are assigned to in scope, and a role a group
+// holds there, each now or for a period that has not begun; assignments of it
+// that have ended, a person's and a group's, go with it. A role deleted from
+// under a group would leave the group's row behind, and a role of the name
+// made again would at once be held by everyone in the group.
 func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -323,6 +355,14 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 	}
 
 	deleted, err := u.store.deleteRole(ctx, scope, role)
+	if errors.Is(err, policy.ErrHeldByGroup) {
+		return false, httpio.NewBadRequestMessagef("A group holds the role, now or for a period that has not begun yet. You cannot delete a role a group holds: take it away from the group first")
+	}
+	if errors.Is(err, policy.ErrStillAssigned) {
+		// The listing above reads who holds the role now: what stands in the way
+		// is an assignment whose period has not begun.
+		return false, httpio.NewBadRequestMessagef("Users are assigned to the role for a period that has not begun yet. You cannot delete a role that has users assigned")
+	}
 	if err != nil {
 		return false, err
 	}
@@ -496,17 +536,73 @@ func (u *userManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.Pol
 	return nil
 }
 
-// RoleUsers returns the users whose membership of role is held in scope.
+// RoleUsers returns the users who hold role in scope now, each once, sorted: by
+// a membership of their own held there, and through a group that holds the
+// role there (RoleHolders says which way).
 func (u *userManager) RoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	users, err := u.store.roleUsers(ctx, scope, role)
+	holders, err := u.RoleHolders(ctx, scope, role)
 	if err != nil {
 		return nil, err
 	}
+	users := make([]accesstypes.User, 0, len(holders))
+	for i := range holders {
+		users = append(users, holders[i].User)
+	}
 
 	return users, nil
+}
+
+// RoleHolders returns who holds role in scope now, sorted by user, each with
+// how they hold it: by a membership of their own held there (Own), through
+// the groups they are in that hold it there (Groups, sorted by name), or
+// both. A group's role its members do not hold (groupRoleRefusal) makes
+// nobody a holder.
+func (u *userManager) RoleHolders(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]RoleHolder, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	own, err := u.store.roleUsers(ctx, scope, role)
+	if err != nil {
+		return nil, err
+	}
+	byUser := make(map[accesstypes.User]*RoleHolder, len(own))
+	holder := func(user accesstypes.User) *RoleHolder {
+		if _, listed := byUser[user]; !listed {
+			byUser[user] = &RoleHolder{User: user, Own: false, Groups: nil}
+		}
+
+		return byUser[user]
+	}
+	for _, user := range own {
+		holder(user).Own = true
+	}
+	groups, err := u.store.roleGroups(ctx, scope, role)
+	if err != nil {
+		return nil, err
+	}
+	for _, group := range groupInfos(groups) {
+		if groupRoleRefusal(group.Scope, scope, role) != "" {
+			continue
+		}
+		members, err := u.store.groupUsers(ctx, group.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range members {
+			h := holder(user)
+			h.Groups = append(h.Groups, group)
+		}
+	}
+	holders := make([]RoleHolder, 0, len(byUser))
+	for _, h := range byUser {
+		holders = append(holders, *h)
+	}
+	slices.SortFunc(holders, func(a, b RoleHolder) int { return strings.Compare(string(a.User), string(b.User)) })
+
+	return holders, nil
 }
 
 // RolePermissions returns the permissions role holds in scope, answered from
@@ -590,6 +686,19 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 	default:
 		return "", false, httpio.NewConflictMessagef("role %q matches %d roles in scope %s that differ only in case (%v); a directory names roles without regard to case, so rename all but one", name, len(matches), scope, matches)
 	}
+}
+
+// refuseSuperAdministratorOutsideGlobal refuses a membership of the Super
+// Administrator role held anywhere but the global partition: a tenant has no
+// super administrator, and the role is no tenant's to give. Every write of a
+// membership asks it first, so the refusal says the rule instead of answering
+// that the role does not exist there.
+func refuseSuperAdministratorOutsideGlobal(scope accesstypes.PolicyScope, role accesstypes.Role) error {
+	if role != accesstypes.SuperAdministrator || scope.IsGlobal() {
+		return nil
+	}
+
+	return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a tenant or in every tenant: give it with no tenant named", string(role))
 }
 
 // roleExists reports whether role exists in scope under exactly that spelling:

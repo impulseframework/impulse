@@ -74,8 +74,6 @@ type BaseStore interface {
 	SetUserTableName(name string) error
 }
 
-var _ PreauthStore = (*Preauth)(nil)
-
 // PreauthStore defines an interface for managing pre-authenticated session storage.
 type PreauthStore interface {
 	// NewSession creates a new session in the database, returning its id. customData
@@ -105,8 +103,14 @@ type UserStore interface {
 	// SetUserUsername updates the user username and, atomically, the Username
 	// on every active session row for that user.
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
-	// SetUserPasswordHash updates the user password hash
-	SetUserPasswordHash(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
+	// UpgradeUserPasswordHash replaces the password hash a sign-in proved with hash, the
+	// same password hashed under the hasher's current parameters, leaving the password
+	// change mark as it is. proven is the hash the sign-in compared the password
+	// against, and the write lands only while the row still holds it: a password
+	// changed, reset or removed since the sign-in read it stands as it is
+	// (ErrPasswordChanged), so an upgrade never puts an old password back. A write with
+	// no proven hash writes nothing, and one with no new hash is refused.
+	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user. customData is nil or *U for the configured custom
@@ -185,6 +189,12 @@ type db interface {
 	ClearSignInAttempts(ctx context.Context, name string) error
 	// SetMailLinksTableName sets the name of the mail links table.
 	SetMailLinksTableName(name string) error
+	// SetSignInMethodsTableName sets the name of the sign-in methods table.
+	SetSignInMethodsTableName(name string) error
+	// SignInMethods lists every row of the sign-in methods table, by name.
+	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
+	// SetSignInMethod writes the row of the sign-in method m names, replacing the one it had.
+	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
 	// InsertMailLink inserts a mail link.
 	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
 	// MailLinkByToken returns the mail link holding tokenHash that is live at now, or NotFound.
@@ -233,7 +243,7 @@ type db interface {
 	InsertFactorCode(ctx context.Context, c *dbtype.FactorCode, now time.Time) error
 	// FactorCodeByPending returns the newest code of pendingID that is live at now, or NotFound.
 	FactorCodeByPending(ctx context.Context, pendingID impulse.UUID, now time.Time) (*dbtype.FactorCode, error)
-	// RecordFactorCodeAttempt counts a wrong code against the code id that is live at now and returns the count; NotFound when it is not live.
+	// RecordFactorCodeAttempt counts an attempt against the code id that is live at now and returns the count, in one step; NotFound when it is not live.
 	RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID, now time.Time) (int, error)
 	// ConsumeFactorCode marks the live code id consumed at now by a conditional update; NotFound when it is not live.
 	ConsumeFactorCode(ctx context.Context, id impulse.UUID, now time.Time) error
@@ -299,10 +309,17 @@ type db interface {
 	// SetUserUsername updates the user username and, atomically, the Username
 	// on every active session row for that user.
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
-	// SetUserPasswordHash updates the user password hash, leaving the password change mark as it is.
-	SetUserPasswordHash(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
-	// SetUserPassword updates the user password hash and the password change mark in one write.
-	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// UpgradeUserPasswordHash replaces the proven password hash with hash while the row still holds it, leaving the password change mark as it is.
+	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	// ReplaceUserPassword updates the user password hash and the password change mark, whatever the row holds, and expires
+	// the user's sessions, in one transaction.
+	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ChangeUserPassword replaces the proven password hash with hash, clears the password change mark and expires the user's
+	// sessions, in one transaction, while the row still holds the proven hash.
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	// SetFirstUserPassword writes hash and clears the password change mark while the row holds no password hash, and leaves
+	// the user's sessions as they are.
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.
@@ -326,8 +343,17 @@ type db interface {
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
 	// LinkIdentity links an identity to a user outside the sign-in flow.
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
-	// UnlinkIdentity removes a link, refusing to remove a user's last means of sign-in.
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	// UnlinkIdentity removes a link, refusing to remove the last means of sign-in of a
+	// user that has no password: another identity linked to the user must be one signsIn
+	// judges a means of sign-in, read in the transaction that unlinks.
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
+	// RemoveUserPassword removes a user's password and its change mark while one of the
+	// identities standing names is still linked to the user, refusing to remove a
+	// user's last means of sign-in otherwise.
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
+	// RemoveProvenUserPassword removes a user's password and its change mark as
+	// RemoveUserPassword does, while the row still holds the proven hash.
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	// TouchUserSignIn moves a user's LastSignInAt to the database's time, as its own write.

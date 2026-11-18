@@ -632,6 +632,71 @@ func TestPatchSet_fork_armed_refusedBeforeTheRead(t *testing.T) {
 	}
 }
 
+// TestPatchSet_Permitted proves the gate a write passes before a rule that reads the
+// database answers it: a caller who holds no grant for the write is refused there, with
+// the same 403 Buffer answers, and nothing is read or buffered; a caller who holds it
+// passes, and so does a patch that is not armed, which runs trusted.
+func TestPatchSet_Permitted(t *testing.T) {
+	t.Parallel()
+
+	createSet, err := NewSet[tenancyResource, tenancyCreateRequest](accesstypes.Create)
+	if err != nil {
+		t.Fatalf("NewSet(Create) error = %v", err)
+	}
+	id := mustUUIDFromString("8a6570c8-1e51-4870-9def-3f68d0447d09")
+
+	// A delete is armed with the record's one Set, as a decoder arms it: Delete is asked
+	// of the resource alone.
+	tests := []struct {
+		name      string
+		patchType PatchType
+		required  accesstypes.Permission
+		// denied is the permission the caller holds nowhere on the resource; every
+		// other is granted whole.
+		denied      accesstypes.Permission
+		unarmed     bool
+		wantRefused bool
+	}{
+		{name: "a create by a caller who may not create is refused", patchType: CreatePatchType, required: accesstypes.Create, denied: accesstypes.Create, wantRefused: true},
+		{name: "a delete by a caller who may not delete is refused", patchType: DeletePatchType, required: accesstypes.Delete, denied: accesstypes.Delete, wantRefused: true},
+		{name: "a create by a caller who may create passes", patchType: CreatePatchType, required: accesstypes.Create, denied: accesstypes.Delete},
+		{name: "a delete by a caller who may delete passes", patchType: DeletePatchType, required: accesstypes.Delete, denied: accesstypes.Create},
+		{name: "a patch that is not armed passes: it runs trusted", patchType: CreatePatchType, denied: accesstypes.Create, unarmed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// The reader expects no read and the transaction no write.
+			txn := NewMockReadWriteTransaction(&bufferingTxn{}, NewMockReader[tenancyResource](gomock.NewController(t)))
+			permissions := capStubPermissions{byPerm: map[accesstypes.Permission]accesstypes.Decisions{tt.denied: {}}}
+			p := NewPatchSet(NewMetadata[tenancyResource]()).SetKey("ID", id).SetPatchType(tt.patchType)
+			if tt.patchType == CreatePatchType {
+				p.Set("Name", "dock four")
+			}
+			if !tt.unarmed {
+				p.EnableUserPermissionEnforcement(createSet, permissions, accesstypes.GlobalScope(), tt.required)
+			}
+
+			err := p.Permitted(t.Context(), txn)
+			if !tt.wantRefused {
+				if err != nil {
+					t.Fatalf("Permitted() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !httpio.HasForbidden(err) {
+				t.Fatalf("Permitted() error = %v, want a 403", err)
+			}
+			if msg := httpio.Message(err); !strings.Contains(msg, string(tt.denied)) {
+				t.Errorf("the refusal = %q, want it to name %s", msg, tt.denied)
+			}
+		})
+	}
+}
+
 // Inside a tenant the read is held to the tenant: a row of another tenant under the same
 // key reads as not there, and the create that follows is refused at commit as any create
 // of a taken key is.

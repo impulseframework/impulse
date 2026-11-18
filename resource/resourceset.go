@@ -105,7 +105,8 @@ func (r *Set[Resource]) hiddenFields(features *FeatureSet) map[accesstypes.Field
 // except fields carrying the perm:"-" primary-key exemption, whose readability follows
 // the resource-level grant.
 func NewSet[Resource Resourcer, Request any](permissions ...accesstypes.Permission) (*Set[Resource], error) {
-	reg, err := permissionsFromTags(reflect.TypeFor[Request](), permissions)
+	rMeta := NewMetadata[Resource]()
+	reg, err := permissionsFromTags(reflect.TypeFor[Request](), permissions, rMeta.secret)
 	if err != nil {
 		return nil, errors.Wrap(err, "permissionsFromTags()")
 	}
@@ -123,7 +124,7 @@ func NewSet[Resource Resourcer, Request any](permissions ...accesstypes.Permissi
 		valueLimits:      reg.valueLimits,
 		nullableFields:   reg.nullableFields,
 		gatedFields:      reg.gatedFields,
-		rMeta:            NewMetadata[Resource](),
+		rMeta:            rMeta,
 	}, nil
 }
 
@@ -144,7 +145,8 @@ func newUnenforcedSet[Resource Resourcer, Request any]() (*Set[Resource], error)
 		}
 	}
 
-	valueLimits, err := valueLimitsOf(t)
+	rMeta := NewMetadata[Resource]()
+	valueLimits, err := valueLimitsOf(t, rMeta.secret)
 	if err != nil {
 		return nil, errors.Wrap(err, "valueLimitsOf()")
 	}
@@ -160,7 +162,7 @@ func newUnenforcedSet[Resource Resourcer, Request any]() (*Set[Resource], error)
 		immutableFields: immutableFields,
 		valueLimits:     valueLimits,
 		nullableFields:  nullableFields,
-		rMeta:           NewMetadata[Resource](),
+		rMeta:           rMeta,
 	}, nil
 }
 
@@ -260,7 +262,7 @@ func (r *setRegistration) recordFeature(field *FieldTags) error {
 	return nil
 }
 
-func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission) (*setRegistration, error) {
+func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission, secret func(accesstypes.Field) bool) (*setRegistration, error) {
 	if t.Kind() != reflect.Struct {
 		return nil, errors.Newf("expected a struct, got %s", t.Kind())
 	}
@@ -283,7 +285,7 @@ func permissionsFromTags(t reflect.Type, perms []accesstypes.Permission) (*setRe
 
 	// The sqltype tags pair with the fields' Go types, which only this reflecting path
 	// has; a tag the runtime cannot pair is the stale-struct guard, like a stale perm.
-	reg.valueLimits, err = valueLimitsOf(t)
+	reg.valueLimits, err = valueLimitsOf(t, secret)
 	if err != nil {
 		return nil, errors.Wrap(err, "valueLimitsOf()")
 	}
@@ -440,9 +442,14 @@ type Metadata[Resource Resourcer] struct {
 	// searchBranches are the resource's @searchAlso declarations (the generated
 	// SearchBranches): the child text its search box also searches.
 	searchBranches []SearchBranch
-	// secrets are the fields the resource struct declares conditions:"secret": a change
-	// record names one as changed and keeps neither of its values.
+	// secrets are the fields the resource struct declares conditions:"secret": the write
+	// path seals one where it turns a patch's fields into columns, and a change record
+	// names one as changed and keeps neither of its values.
 	secrets map[accesstypes.Field]struct{}
+	// secretContext is what a secret of the resource is bound to (the generated
+	// SecretContext): the primary key's fields in key order. Empty for a resource struct
+	// written by hand, whose secrets are bound to the key as it is given.
+	secretContext []accesstypes.Field
 }
 
 // secret reports whether the resource struct declares the field a secret.
@@ -466,6 +473,7 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 		fileKeys:            c.fileKeys,
 		searchBranches:      c.searchBranches,
 		secrets:             c.secrets,
+		secretContext:       c.secretContext,
 	}
 }
 
@@ -497,6 +505,7 @@ type resourceMetadataCacheEntry struct {
 	fileKeys       []FileKey
 	searchBranches []SearchBranch
 	secrets        map[accesstypes.Field]struct{}
+	secretContext  []accesstypes.Field
 }
 
 type resourceMetadataCache struct {
@@ -548,6 +557,11 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		searchBranches = b.SearchBranches()
 	}
 
+	var secretContext []accesstypes.Field
+	if s, ok := res.(secretContexter); ok {
+		secretContext = s.SecretContext()
+	}
+
 	dbMap := make(map[DBType]map[accesstypes.Field]dbFieldMetadata)
 	dbFields := make(map[DBType][]accesstypes.Field)
 	for _, dbType := range dbTypes() {
@@ -563,6 +577,7 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		fileKeys:       fileKeys,
 		searchBranches: searchBranches,
 		secrets:        secretFields(t),
+		secretContext:  secretContext,
 	}
 
 	return c.cache[t]

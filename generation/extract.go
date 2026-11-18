@@ -103,6 +103,12 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 		return nil, err
 	}
 
+	// A subject set's who: may name another resource's set, so the sets it
+	// names are checked once every resource is extracted.
+	if err := c.resolveExtractedSubjectSets(resources); err != nil {
+		return nil, err
+	}
+
 	// Workflow chains cross resources, so they resolve — and the uniform
 	// state bindings synthesize — only once every resource is extracted.
 	if err := c.resolveWorkflows(resources); err != nil {
@@ -202,6 +208,10 @@ func resolveVirtualAnnotations(resource *resourceInfo, pStruct *parser.Struct, a
 		return err
 	}
 
+	if err := resolveListAcrossTenants(resource, annotations); err != nil {
+		return err
+	}
+
 	// The read route is known only now, and a file hangs under it.
 	return resolveResourceFiles(resource, pStruct, annotations)
 }
@@ -279,7 +289,8 @@ func resolveResourceAnnotations(res *resourceInfo, annotations genlang.StructAnn
 		res.ValidateUpdateType = string(annotations.Struct.Get(validateUpdateTypeKeyword))
 	}
 
-	return nil
+	// The list across tenants reads the scope and the suppressions resolved above.
+	return resolveListAcrossTenants(res, annotations)
 }
 
 // resolveStructAnnotations applies a table-backed struct's annotations and then the
@@ -795,7 +806,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -860,9 +871,9 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 }
 
 // resolveRPCDeclarations applies a method's struct-level declarations in order: its
-// permission scope, its outlets, its transition, its answers, its upload, its body limit
-// and its words, its feature gate, its former names and its schedule, which reads the
-// others off the method.
+// permission scope, its outlets, its transition, its answers, its upload, its warning,
+// its body limit and its words, its feature gate, its former names and its schedule,
+// which reads the others off the method.
 func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Struct, annotations genlang.StructAnnotations, structsByName map[string]*parser.Struct) error {
 	if err := resolvePermissionScope(annotations, &rpcMethod.PermissionScope); err != nil {
 		return errors.Wrapf(err, "on %s", s.Name())
@@ -881,6 +892,10 @@ func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Stru
 	}
 
 	if err := resolveUpload(rpcMethod, s, annotations); err != nil {
+		return err
+	}
+
+	if err := resolveWarning(rpcMethod, s, annotations); err != nil {
 		return err
 	}
 
@@ -1014,7 +1029,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -1237,13 +1252,13 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 // generatedSetMethods are the methods the generated set may declare on a resource's
 // struct (resourceFileTemplate), which no field of it may be named.
 func generatedSetMethods() []string {
-	return []string{"Resource", "DefaultConfig", "FileKeys", "SearchBranches"}
+	return []string{"Resource", "DefaultConfig", "FileKeys", "SearchBranches", "SecretContext"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of
 // the row envelope's reserved names, returning the name it collides with.
 func reservedRowName(spannerTag, fieldName string) (string, bool) {
-	for _, reserved := range []string{reservedMaskedNamesColumn, reservedCapabilitiesProperty, reservedCapabilityChecksColumn} {
+	for _, reserved := range []string{reservedMaskedNamesColumn, reservedCapabilitiesProperty, reservedCapabilityChecksColumn, reservedTenantColumn} {
 		if strings.EqualFold(spannerTag, reserved) || strings.EqualFold(fieldName, reserved) {
 			return reserved, true
 		}
@@ -1386,17 +1401,24 @@ func rejectMaskingTags(s *parser.Struct, kind string) error {
 // is set by the client and never returned, so it has no place on a primary key, which
 // is in every route and every row; on a field the server owns (output_only, a state
 // column, the tenant key, a @file key, a generated column), which no client sets; or on
-// a view, which takes no writes at all. And a secret is typed: a form masks text as it
-// is typed and draws no control over bytes, so the column is a STRING or a BYTES, and
+// a view, which takes no writes at all. A secret is typed as text into a masked box, so
 // it is neither a key into another table, whose value that table's rows carry, nor a
-// field with a picker, whose values the page lists.
+// field with a picker, whose values the page lists. And every stored secret is kept
+// encrypted: the field is typed resource.Secret on a BYTES column with room for what
+// sealing adds, and a secret declared on a plain string or on bytes, which would be
+// stored as it was given, is refused with the type to give it (secretFieldRefusal). The
+// type without the declaration is refused too.
 func checkSecretDeclarations(res *resourceInfo) error {
 	var errs []error
 	for _, field := range res.Fields {
+		path := res.Name() + "." + field.Name()
 		if !field.IsSecret() {
+			if isSecretType(field.GoType()) {
+				errs = append(errs, errors.New(undeclaredSecretRefusal(path, field)))
+			}
+
 			continue
 		}
-		path := res.Name() + "." + field.Name()
 		switch {
 		case res.IsVirtual:
 			errs = append(errs, errors.Newf("%s: conditions:%q on a field of a view: a view takes no writes, so no client ever sets the field; declare the secret on the table's resource", path, secretCondition))
@@ -1408,8 +1430,16 @@ func checkSecretDeclarations(res *resourceInfo) error {
 			errs = append(errs, errors.Newf("%s: conditions:%q on a foreign key: the value is the key of a row of %s, which that table's rows carry, so it cannot be kept secret", path, secretCondition, field.ReferencedResource))
 		case field.HasDeclaredEnumeration():
 			errs = append(errs, errors.Newf("%s: conditions:%q on a field with a picker (@%s): a secret is typed, and a page that lists the values to pick from keeps none of them secret", path, secretCondition, enumerateKeyword))
-		case !secretColumnType(field.SpannerType):
-			errs = append(errs, errors.Newf("%s: conditions:%q on a %s column: a secret is text or bytes (a STRING or a BYTES column), since a form masks text as it is typed and would draw this field in the open", path, secretCondition, field.SpannerType))
+		default:
+			if refusal := secretFieldRefusal(path, field); refusal != "" {
+				errs = append(errs, errors.New(refusal))
+			}
+			// The generated set gives the struct two methods that open the field.
+			for _, other := range res.Fields {
+				if other.Name() == "Open"+field.Name() || other.Name() == "Open"+field.Name()+"In" {
+					errs = append(errs, errors.Newf("%s: the generated set declares the method %s on %s, which opens the secret %s; rename the field %s", path, other.Name(), res.Name(), field.Name(), other.Name()))
+				}
+			}
 		}
 	}
 
@@ -1420,17 +1450,14 @@ func checkSecretDeclarations(res *resourceInfo) error {
 	return nil
 }
 
-// secretColumnType reports whether a column of the declared type can hold a secret: one
-// STRING or one BYTES value, and no list of either.
-func secretColumnType(spannerType string) bool {
-	return strings.HasPrefix(spannerType, "STRING(") || strings.HasPrefix(spannerType, "BYTES(")
-}
-
 // secretRequestRefusal is the refusal of a conditions:"secret" a method's request field
 // cannot honor, and empty for a field that declares none or honors it. A method's dialog
 // masks what is typed into a text box (a string, a uuid) and draws no control over
 // bytes; every other field it would draw in the open, and a picker lists its values.
 func secretRequestRefusal(field *rpcField) string {
+	if isSecretType(field.GoType()) {
+		return fmt.Sprintf("typed %s: the type is a stored field's, and holds the bytes its column stores; a method's request carries a secret as text, so type the field string and declare it conditions:%q", field.Type(), secretCondition)
+	}
 	if !field.IsSecret() {
 		return ""
 	}

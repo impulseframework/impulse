@@ -43,16 +43,6 @@ type Config struct {
 	// follows one tenant's application roles: it is refused with several tenants, any
 	// tenant or personal accounts.
 	RoleSync signin.RoleSyncConfig
-	// Accounts is the standard account rule for an account that signs in for the first
-	// time: signin.MembersOfDirectory (the default) provisions an account under the
-	// user principal name, signin.InvitedUsersOnly links only a pre-created user under
-	// that name and refuses anyone else, signin.OpenSignUp provisions anyone. A guest
-	// of the tenant is refused by every standard rule (guest_account). With one or
-	// several listed tenants open sign-up is refused at registration; with any tenant
-	// or personal accounts members of the directory is refused unless a rule is given
-	// to SignIn, since it would sign up the world. A rule given to SignIn runs first
-	// and may leave the decision to this one with signin.Standard.
-	Accounts signin.StandardAccountRule
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
 	// Authenticator replaces the verifier built from the fields above. Tests inject a
@@ -73,7 +63,7 @@ type Identity struct {
 	Email string
 	// PreferredUsername and Name are the preferred_username and name claims. The
 	// preferred username is the user principal name of a member of the tenant, which
-	// the standard account rules use as the username; a guest's is an address the
+	// the standard account rule uses as the username; a guest's is an address the
 	// tenant did not verify.
 	PreferredUsername string
 	Name              string
@@ -95,7 +85,8 @@ type Identity struct {
 
 // AccountRule is the application's own rule for an Entra ID identity that is not
 // linked to any user yet, given to SignIn; nil leaves every such identity to the
-// standard rule in Config.Accounts. See signin.AccountRule for when it runs and what it
+// standard rule, which reads what an administrator chose for the registration in the
+// running application. See signin.AccountRule for when it runs and what it
 // may do. Tx is the Auth's storage transaction type.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
 
@@ -110,31 +101,27 @@ type Method struct {
 // name and returns its handlers. name identifies the registration on auth, so one Auth
 // can offer several registrations of the method. The identity key is (tid, oid) under
 // every shape of cfg.Tenants. An identity that is not linked yet is decided by rule
-// when one is given and by the standard rule in cfg.Accounts otherwise, or when rule
-// answers signin.Standard; nil is the usual value.
+// when one is given and by the library's standard rule otherwise, or when rule answers
+// signin.Standard; nil is the usual value. The standard rule admits a person with no
+// account by invitation only, until an administrator opens the registration to sign-up
+// in the running application: how wide the registration is (cfg.Tenants) is whom that
+// opens it to. A guest of the tenant is refused by the standard rule (guest_account).
 //
 // It panics when name is empty or already used on auth, when auth has served a
 // request, when cfg.RoleSync or cfg.Tenants is missing or malformed, when
-// cfg.Authority is not a base URL, when role synchronization is asked for with other
-// than one tenant, and when cfg.Accounts does not fit the slot: open sign-up with
-// listed tenants only, members of the directory with any tenant or personal accounts
-// and no rule, or no standard rule.
+// cfg.Authority is not a base URL, and when role synchronization is asked for with
+// other than one tenant.
 func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-	accounts := cfg.Accounts
-	if accounts == "" {
-		accounts = signin.MembersOfDirectory
-	}
 	authority, misuse := authorityOf(cfg.Authority)
 	if misuse == nil {
-		misuse = refuseShape(cfg.Tenants, cfg.RoleSync, accounts, rule == nil)
+		misuse = refuseShape(cfg.Tenants, cfg.RoleSync)
 	}
 	reg := &signin.Registration[Tx]{
 		Name:               name,
 		Method:             sessioninfo.MethodAzure,
-		StandardRule:       accounts,
 		AccountRule:        accountRule(rule),
 		FrontChannelLogout: true,
 		Issuers:            cfg.Tenants.issuers(authority),
@@ -163,11 +150,9 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 }
 
 // refuseShape is the registration's startup check of the organization slot against the
-// role sync slot and the account rules, each refusal naming its field: the slot's own
-// rules (validate), role synchronization with other than one tenant, open sign-up with
-// listed tenants only, and members of the directory with an open slot and no rule of
-// the application's own.
-func refuseShape(tenants TenantSet, roleSync signin.RoleSyncConfig, accounts signin.StandardAccountRule, noRule bool) error {
+// role sync slot, each refusal naming its field: the slot's own rules (validate), and
+// role synchronization with other than one tenant.
+func refuseShape(tenants TenantSet, roleSync signin.RoleSyncConfig) error {
 	if err := tenants.validate(); err != nil {
 		return err
 	}
@@ -177,13 +162,6 @@ func refuseShape(tenants TenantSet, roleSync signin.RoleSyncConfig, accounts sig
 	}
 	if _, one := tenants.one(); !one && roles != nil {
 		return errors.New("RoleSync: role synchronization follows one tenant's application roles; a registration serving several tenants, any tenant or personal accounts takes signin.DisableRoleSync()")
-	}
-	switch {
-	case accounts == signin.OpenSignUp && !tenants.open():
-		return errors.New("Accounts: open sign-up is for any tenant or personal accounts; a registration listing its tenants takes members of the directory or invited users only")
-	case accounts == signin.MembersOfDirectory && tenants.open() && noRule:
-		return errors.New("Accounts: members of the directory with any tenant or personal accounts would sign up the world; " +
-			"use signin.InvitedUsersOnly, signin.OpenSignUp, or give SignIn a rule of the application's own")
 	}
 
 	return nil
@@ -239,7 +217,7 @@ type claims struct {
 const guestMarker = "#EXT#"
 
 // identityOf decodes the ID token's claims into the identity. A token without tid and
-// oid, or whose claims do not decode, is refused (claims_parse).
+// oid, or whose claims do not decode, is refused (parse_claims_failed).
 func identityOf(rawClaims json.RawMessage) (*Identity, error) {
 	c, err := oidc.DecodeClaims[claims](rawClaims)
 	if err != nil {
@@ -301,14 +279,24 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 // authenticator checks the token's issuer against its tenant and the tenant against
 // the slot; both are checked here again, so an authenticator that did not cannot admit
 // a tenant outside it. When roles is set, the token's roles claim is reconciled. An
-// address is admitted unless it is a personal account's and the slot admits none.
+// address is admitted unless it is a personal account's and the slot admits none, and
+// a link's connection, the tenant id, when the slot admits that tenant.
 func method(authn Authenticator, roles *signin.RoleReconciler, authority string, tenants TenantSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodAzure,
 		LoginURL: authn.LoginURL,
+		Audience: tenants.audience(),
 		AdmitsAddress: func(email string) bool {
 			return tenants.admitsAddress(signin.AddressDomain(email))
 		},
+		// A link's connection is the tenant id of the token that made it.
+		AdmitsConnection: func(connection string) bool {
+			_, admitted := tenants.admits(connection)
+
+			return admitted
+		},
+		// A tenant is said by the application's name for it, where it gave one.
+		ConnectionName: tenants.nameOf,
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			chooser, err := signin.SelectAccount(r)
 			if err != nil {

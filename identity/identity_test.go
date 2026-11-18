@@ -2,6 +2,8 @@ package identity
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
@@ -50,7 +53,23 @@ func (stubTxn) DataChangeEventIndex(accesstypes.Resource, string) int {
 func inTransaction(t *testing.T, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
 	t.Helper()
 
-	if err := resource.NewMockClient(stubTxn{}, nil, nil).ExecuteFunc(t.Context(), f); err != nil {
+	return fakeDatabase{}.ExecuteFunc(t.Context(), f)
+}
+
+// inTransactionKey marks the context a transaction's function runs under.
+type inTransactionKey struct{}
+
+// fakeDatabase runs a function in a transaction as the application's database does (a
+// resource.Executor), and marks the context the function runs under as the Spanner
+// client marks it. A read on another client under such a context is one the database
+// refuses ("Cloud Spanner does not support nested transactions"), and the permission
+// engine's listings read on the engine's own client, so the fake engine refuses a
+// listing asked under the mark (fakeUserManager.Roles).
+type fakeDatabase struct{}
+
+func (fakeDatabase) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+	marked := context.WithValue(ctx, inTransactionKey{}, true)
+	if err := resource.NewMockClient(stubTxn{}, nil, nil).ExecuteFunc(marked, f); err != nil {
 		return errors.Wrap(err, "resource.MockClient.ExecuteFunc()")
 	}
 
@@ -71,6 +90,8 @@ type fakeStore struct {
 	// impersonation records by session, true while one stands, and heldBy the sessions
 	// whose standing record names a username as its local actor.
 	usernames map[impulse.UUID]string
+	// disabled are the users that exist and cannot sign in.
+	disabled map[impulse.UUID]bool
 	// emails are the accounts of the users who have confirmed an address, by address.
 	emails  map[string]impulse.UUID
 	ended   map[impulse.UUID]bool
@@ -85,13 +106,25 @@ type fakeStore struct {
 	// each tenant.
 	links       map[impulse.UUID]*MailLink
 	invitations map[accesstypes.Domain][]impulse.UUID
+	// invited are the unconsumed invitations that make a tenant.
+	invited []InvitedTenantRow
 	// passwords are the users that exist for the password rule, true where one holds a
 	// password; identities the user each identity links to; tokens the tokens by id,
 	// and families the unrevoked tokens of each family.
 	passwords  map[impulse.UUID]bool
 	identities map[impulse.UUID]impulse.UUID
-	tokens     map[impulse.UUID]*Token
-	families   map[impulse.UUID][]impulse.UUID
+	// cameThrough is the method and the connection an identity came through, for the
+	// identities a test says it of; every other came through google's lakeside.
+	cameThrough map[impulse.UUID]Link
+	tokens      map[impulse.UUID]*Token
+	families    map[impulse.UUID][]impulse.UUID
+	// methodRows are the rows of the sign-in methods table, by the method's name, and
+	// openedFor the audience the last row written was opened for, nil for none.
+	methodRows map[string]SignInMethodRow
+	openedFor  *string
+	// fakeGroupTables are the groups of people, their members and the roles they hold
+	// (groups_test.go).
+	fakeGroupTables
 	// nextID is the id InsertUser answers.
 	nextID impulse.UUID
 	// failOn names a call that fails.
@@ -179,7 +212,7 @@ func (f *fakeStore) EndSession(_ context.Context, _ resource.ReadWriteTransactio
 	return nil
 }
 
-func (f *fakeStore) UserHasPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error) {
+func (f *fakeStore) UserHasPassword(_ context.Context, _ resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {
 	if err := f.fail("UserHasPassword"); err != nil {
 		return false, false, err
 	}
@@ -197,19 +230,24 @@ func (f *fakeStore) IdentityUser(_ context.Context, _ resource.ReadWriteTransact
 	return userID, found, nil
 }
 
-func (f *fakeStore) Identities(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+func (f *fakeStore) Identities(_ context.Context, _ resource.ReadOnlyTransaction, userID impulse.UUID) ([]Link, error) {
 	if err := f.fail("Identities"); err != nil {
 		return nil, err
 	}
-	var ids []impulse.UUID
+	var links []Link
 	for id, linked := range f.identities {
-		if linked == userID {
-			ids = append(ids, id)
+		if linked != userID {
+			continue
 		}
+		link := Link{ID: id, Method: sessioninfo.MethodGoogle, Connection: "lakeside"}
+		if through, said := f.cameThrough[id]; said {
+			link.Method, link.Connection = through.Method, through.Connection
+		}
+		links = append(links, link)
 	}
-	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
+	slices.SortFunc(links, func(a, b Link) int { return strings.Compare(a.ID.String(), b.ID.String()) })
 
-	return ids, nil
+	return links, nil
 }
 
 func (f *fakeStore) DeleteIdentity(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -254,6 +292,15 @@ func (f *fakeStore) Username(_ context.Context, _ resource.ReadWriteTransaction,
 	username, found = f.usernames[id]
 
 	return username, found, nil
+}
+
+func (f *fakeStore) UserDisabled(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {
+	if err := f.fail("UserDisabled"); err != nil {
+		return false, false, err
+	}
+	_, found = f.usernames[id]
+
+	return f.disabled[id], found, nil
 }
 
 func (f *fakeStore) UserID(_ context.Context, _ resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
@@ -346,6 +393,15 @@ func (f *fakeStore) SetPassword(_ context.Context, _ resource.ReadWriteTransacti
 	return nil
 }
 
+func (f *fakeStore) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	if err := f.fail("RemovePassword"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, "remove password "+id.String())
+
+	return nil
+}
+
 func (f *fakeStore) ClearAttempts(_ context.Context, _ resource.ReadWriteTransaction, name string) error {
 	if err := f.fail("ClearAttempts"); err != nil {
 		return err
@@ -367,6 +423,9 @@ func (f *fakeStore) InsertInvitation(_ context.Context, _ resource.ReadWriteTran
 	if row.Name != "" {
 		line += " name=" + row.Name
 	}
+	if row.NewTenant != nil {
+		line += " new-tenant=" + row.NewTenant.Name + " directory-only=" + boolText(row.NewTenant.DirectoryOnly) + " details=" + string(row.NewTenant.Details)
+	}
 	f.writes = append(f.writes, line)
 
 	return nil
@@ -386,6 +445,32 @@ func (f *fakeStore) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTrans
 		return err
 	}
 	f.writes = append(f.writes, "consume mail link "+id.String())
+
+	return nil
+}
+
+func (f *fakeStore) SignInMethodRows(context.Context, resource.ReadOnlyTransaction) ([]SignInMethodRow, error) {
+	if err := f.fail("SignInMethodRows"); err != nil {
+		return nil, err
+	}
+	rows := make([]SignInMethodRow, 0, len(f.methodRows))
+	for _, name := range slices.Sorted(maps.Keys(f.methodRows)) {
+		rows = append(rows, f.methodRows[name])
+	}
+
+	return rows, nil
+}
+
+func (f *fakeStore) SetSignInMethod(_ context.Context, _ resource.ReadWriteTransaction, row *SignInMethodRow) error {
+	if err := f.fail("SetSignInMethod"); err != nil {
+		return err
+	}
+	role := "<none>"
+	if row.DefaultRole != nil {
+		role = *row.DefaultRole
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set sign-in method %s open=%t role=%s", row.Name, row.OpenSignUp, role))
+	f.openedFor = row.OpenedFor
 
 	return nil
 }
@@ -530,6 +615,14 @@ func (f *fakeStore) TenantInvitations(_ context.Context, _ resource.ReadWriteTra
 	return f.invitations[domain], nil
 }
 
+func (f *fakeStore) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]InvitedTenantRow, error) {
+	if err := f.fail("InvitedTenants"); err != nil {
+		return nil, err
+	}
+
+	return f.invited, nil
+}
+
 func boolText(b bool) string {
 	if b {
 		return "true"
@@ -551,6 +644,14 @@ type fakeEngine struct {
 	changed int
 	// rolesErr is the failure the engine answers a listing of a scope's roles with.
 	rolesErr error
+	// tenantAdministrators are the roles the engine answers who administers a tenant by,
+	// none unless a test names them.
+	tenantAdministrators []accesstypes.Role
+}
+
+// TenantAdministratorRoles answers the roles a test named as a tenant's administrators'.
+func (e *fakeEngine) TenantAdministratorRoles() []accesstypes.Role {
+	return e.tenantAdministrators
 }
 
 func (e *fakeEngine) UserManager() access.UserManager {
@@ -588,7 +689,13 @@ func (u *fakeUserManager) Membership(ctx context.Context, scope accesstypes.Poli
 }
 
 // Roles lists the roles of the scope as the library does, each described by its name.
-func (u *fakeUserManager) Roles(_ context.Context, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+// The library reads the custom ones on the engine's own client, which the database
+// refuses under a transaction's context (fakeDatabase), so a listing asked inside a
+// transaction fails here as it does against a database.
+func (u *fakeUserManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+	if ctx.Value(inTransactionKey{}) != nil {
+		return nil, errors.New("the roles of a scope were listed inside a transaction: the engine reads them on a client of its own, which the database refuses under a transaction's context")
+	}
 	if u.engine.rolesErr != nil {
 		return nil, u.engine.rolesErr
 	}
@@ -605,6 +712,34 @@ func (u *fakeUserManager) Roles(_ context.Context, scope accesstypes.PolicyScope
 // takes prepared invitations.
 type fakeSessions struct {
 	mail *fakeMail
+	// methods are the sign-in methods the Auth registers.
+	methods []session.RegisteredMethod
+	// unoffered are the sign-in methods the Auth's login page offers no registration of,
+	// and untaken the connections no registration takes: an identity of either signs
+	// nobody in. Every other identity signs in through the registration named for its
+	// method.
+	unoffered map[sessioninfo.AuthMethod]bool
+	untaken   map[string]bool
+	// named are the names the registrations give a connection, and labels the labels of
+	// the buttons a person signs in to a method's directories with.
+	named  map[string]string
+	labels map[sessioninfo.AuthMethod]string
+}
+
+func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
+	return s.named[connection], s.labels[method]
+}
+
+func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
+	return s.methods
+}
+
+func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
+	if s.unoffered[method] || s.untaken[connection] {
+		return nil
+	}
+
+	return []string{string(method)}
 }
 
 func (fakeSessions) HashPassword(password string) (string, error) {
@@ -627,7 +762,7 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 		mail: s.mail,
 		row: session.InvitationRow{
 			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID,
-			ExpiresAt: time.Time{},
+			ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
 		},
 	}, nil
 }

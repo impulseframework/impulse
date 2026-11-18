@@ -163,6 +163,14 @@ func TestHasValueLimit(t *testing.T) {
 		{name: "a bytes slice on ARRAY<BYTES(n)>", sqltype: "ARRAY<BYTES(4)>", kind: ValueKindBytes, slice: true, want: true},
 		{name: "an integer column has no rule", sqltype: "INT64", kind: ValueKindOther, want: false},
 		{name: "an unparseable type has no rule", sqltype: "STRING(", kind: ValueKindString, want: false},
+		// A secret's text is sized against the BYTES(n) its sealed form is stored in.
+		{name: "a secret on BYTES(n) with room for a value", sqltype: "BYTES(106)", kind: ValueKindSecret, want: true},
+		{name: "a string on BYTES(n) is no secret, and has no rule", sqltype: "BYTES(106)", kind: ValueKindString, want: false},
+		{name: "a secret on the smallest column with room", sqltype: "BYTES(43)", kind: ValueKindSecret, want: true},
+		{name: "a secret on a column sealing alone fills has no rule", sqltype: "BYTES(42)", kind: ValueKindSecret, want: false},
+		{name: "a secret on BYTES(MAX) has no rule", sqltype: "BYTES(MAX)", kind: ValueKindSecret, want: false},
+		{name: "a secret on STRING(n) has no rule", sqltype: "STRING(64)", kind: ValueKindSecret, want: false},
+		{name: "a list of secrets has no rule", sqltype: "ARRAY<BYTES(106)>", kind: ValueKindSecret, slice: true, want: false},
 	}
 
 	for _, tt := range tests {
@@ -173,6 +181,32 @@ func TestHasValueLimit(t *testing.T) {
 				t.Errorf("HasValueLimit(%q, %d, %v) = %v, want %v", tt.sqltype, tt.kind, tt.slice, got, tt.want)
 			}
 		})
+	}
+}
+
+// A secret's limit is the room its column leaves for the value itself: the declared
+// length less the bytes sealing adds, counted in bytes. The rule is a secret's alone: a
+// string-kinded field on a BYTES(n) column that is no secret (a named string type with
+// an encoding of its own) is not sized as one.
+func Test_newValueLimit_secret(t *testing.T) {
+	t.Parallel()
+
+	limit, err := newValueLimit("BYTES(106)", ValueKindSecret, false)
+	if err != nil {
+		t.Fatalf("newValueLimit(BYTES(106), a secret) error = %v", err)
+	}
+	if limit.kind != ValueKindSecret || limit.max != 64 {
+		t.Errorf("newValueLimit(BYTES(106), a secret) = kind %d, max %d; want a secret's, max 64: the column's 106 less the 42 sealing adds", limit.kind, limit.max)
+	}
+	// The longest value that fits, and one byte more; a character of two bytes counts
+	// as two.
+	fits, over := strings.Repeat("k", 64), strings.Repeat("k", 63)+"é"
+	if limit.exceeded(reflect.ValueOf(fits)) || !limit.exceeded(reflect.ValueOf(over)) {
+		t.Errorf("newValueLimit(BYTES(106), a secret): 64 bytes exceeded = %v, 65 bytes exceeded = %v; want false and true", limit.exceeded(reflect.ValueOf(fits)), limit.exceeded(reflect.ValueOf(over)))
+	}
+
+	if limit, err := newValueLimit("BYTES(106)", ValueKindString, false); err == nil {
+		t.Errorf("newValueLimit(BYTES(106), a string) = kind %d, max %d; want no rule: the field is no secret", limit.kind, limit.max)
 	}
 }
 
@@ -230,6 +264,7 @@ func Test_valueLimit_exceeded(t *testing.T) {
 	byteSlices4 := valueLimit{kind: ValueKindBytes, max: 4, perElement: true}
 	numeric := valueLimit{kind: ValueKindDecimal}
 	numerics := valueLimit{kind: ValueKindDecimal, perElement: true}
+	secret4 := valueLimit{kind: ValueKindSecret, max: 4}
 
 	tests := []struct {
 		name  string
@@ -256,6 +291,12 @@ func Test_valueLimit_exceeded(t *testing.T) {
 		{name: "four bytes fit BYTES(4)", limit: bytes4, value: []byte("ABCD"), want: false},
 		{name: "five bytes exceed BYTES(4)", limit: bytes4, value: []byte("ABCDE"), want: true},
 		{name: "a nil byte slice fits", limit: bytes4, value: []byte(nil), want: false},
+		// A secret's text counts bytes, since its column does.
+		{name: "four bytes of text fit a secret's four", limit: secret4, value: "ABCD", want: false},
+		{name: "five bytes of text exceed a secret's four", limit: secret4, value: "ABCDE", want: true},
+		{name: "two CJK characters (six bytes) exceed a secret's four", limit: secret4, value: "日本", want: true},
+		{name: "a pointer to a long secret exceeds", limit: secret4, value: stringPtr("ABCDE"), want: true},
+		{name: "no secret has nothing to size", limit: secret4, value: (*string)(nil), want: false},
 		// Arrays are checked per element.
 		{name: "every element within the limit fits", limit: strs4, value: []string{"AB", "ABCD"}, want: false},
 		{name: "one element over the limit exceeds", limit: strs4, value: []string{"AB", "ABCDE"}, want: true},
@@ -310,6 +351,7 @@ func Test_valueLimit_message(t *testing.T) {
 		{name: "a one-character string", limit: valueLimit{kind: ValueKindString, max: 1, jsonField: "code"}, want: "code is limited to 1 character"},
 		{name: "a string array names each value", limit: valueLimit{kind: ValueKindString, max: 4, perElement: true, jsonField: "codes"}, want: "codes: each value is limited to 4 characters"},
 		{name: "sized bytes", limit: valueLimit{kind: ValueKindBytes, max: 4, jsonField: "blob"}, want: "blob is limited to 4 bytes"},
+		{name: "a secret", limit: valueLimit{kind: ValueKindSecret, max: 64, jsonField: "accessCode"}, want: "accessCode is limited to 64 bytes"},
 		{name: "a numeric", limit: valueLimit{kind: ValueKindDecimal, jsonField: "fee"}, want: "fee is limited to 29 digits before the decimal point and 9 after"},
 		{name: "a numeric array names each value", limit: valueLimit{kind: ValueKindDecimal, perElement: true, jsonField: "fees"}, want: "fees: each value is limited to 29 digits before the decimal point and 9 after"},
 	}
@@ -328,7 +370,7 @@ func Test_valueLimit_message(t *testing.T) {
 func Test_valueLimitsOf(t *testing.T) {
 	t.Parallel()
 
-	got, err := valueLimitsOf(reflect.TypeFor[limitRequest]())
+	got, err := valueLimitsOf(reflect.TypeFor[limitRequest](), nil)
 	if err != nil {
 		t.Fatalf("valueLimitsOf() error = %v", err)
 	}

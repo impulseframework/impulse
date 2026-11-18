@@ -2,12 +2,15 @@ package generation
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
 	"github.com/impulseframework/impulse/resource"
@@ -20,10 +23,22 @@ import (
 // field-level and anchored — the annotation sits on the column or FK field
 // that anchors it, so the local anchor is never a spelled name; only remote
 // path segments are spelled, and every hop is validated many-to-one against
-// the FK metadata loaded from the emulator.
+// the FK metadata loaded from the emulator. A @subjectSet may also write the
+// two parts of its definition, who: and where:, each a condition over the
+// fields of the same struct (resolveSubjectParts); with a who: written, the
+// annotation sits on one of the columns the who: names.
 
 // bindingViaArgKey names the join path of an @attribute or a @domain binding.
 const bindingViaArgKey = "via"
+
+// The named arguments of a subject binding: the column a set or a value yields,
+// and the two parts a set's definition may add, which rows are the requester's
+// (who:) and which of those rows count (where:).
+const (
+	subjectValueArgKey = "value"
+	subjectWhoArgKey   = "who"
+	subjectWhereArgKey = "where"
+)
 
 // bindingName pins the attribute-name charset, agreed jointly with the
 // condition expression language: identifiers are case-sensitive,
@@ -101,6 +116,54 @@ type subjectBinding struct {
 	// Scalar marks a @subjectValue (threshold comparisons, unique-anchored);
 	// false is a @subjectSet (IN membership, no cardinality claim).
 	Scalar bool
+
+	// Who is a @subjectSet's who: part: the tests that make a row the
+	// requester's, joined by OR, Anchor being the field of one of them. Nil
+	// when the annotation writes none: the one test is then Anchor equal to the
+	// requester.
+	Who []*subjectWho
+
+	// Where is a @subjectSet's where: part, the filter over the row's own
+	// columns that says which of the requester's rows count; nil when the
+	// annotation writes none.
+	Where *subjectWhere
+}
+
+// subjectWho is one resolved test of a who: part: Field holds the requester
+// (Set empty), or a value of the subject set Set names. Type is Field's
+// comparison type, which the set it names must yield.
+type subjectWho struct {
+	Field *resourceField
+	Set   string
+	Type  string
+}
+
+// test is the test as the condition language writes it, over the field's name.
+func (w *subjectWho) test() condition.WhoTest {
+	return condition.WhoTest{Column: w.Field.Name(), Set: w.Set}
+}
+
+// subjectWhere is a resolved where: part: the condition as the annotation
+// writes it, and the fields it reads with their comparison types, in name order.
+type subjectWhere struct {
+	Expr   condition.Expr
+	Fields []subjectWhereField
+}
+
+// subjectWhereField is one field a where: part reads.
+type subjectWhereField struct {
+	Field *resourceField
+	Type  string
+}
+
+// whoTests returns the tests that make a row of the set's table the
+// requester's: the written who:, or the one a set that writes none has.
+func (s *subjectBinding) whoTests() []*subjectWho {
+	if len(s.Who) > 0 {
+		return s.Who
+	}
+
+	return []*subjectWho{{Field: s.Anchor, Type: string(resource.AttributeTypeString)}}
 }
 
 // resolveBindingAnnotations extracts and validates every binding annotation
@@ -319,6 +382,19 @@ func (c *client) resolveDomain(anchor *resourceField, arg genlang.Arg, structsBy
 	return binding, nil
 }
 
+// subjectBindingArgSpec is the argument shape of @subjectSet and @subjectValue: the
+// name, the value: field, and the two parts a set may write, each an expression of
+// the condition language. The keyword table takes the two keywords' scan flags
+// from it, so their annotations end by the quotes their arguments are split by.
+func subjectBindingArgSpec() *genlang.ArgSpec {
+	return &genlang.ArgSpec{
+		Positional:  1,
+		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey},
+		Required:    []string{subjectValueArgKey},
+		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
+	}
+}
+
 // resolveSubjectBindings compiles the (repeatable) @subjectSet / @subjectValue
 // annotations on one user-id anchor. value: names the sibling Go field the
 // set or value yields, dotted to continue through remote hops; the yielded
@@ -334,7 +410,7 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 		return nil, errors.Newf("@%s requires its anchor column alone to identify a row, as a single-column primary key or a unique index on exactly that column, so the database enforces one row per user; a column of a composite key or composite unique index does not", subjectValueKeyword)
 	}
 
-	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Positional: 1, Keys: []string{"value"}, Required: []string{"value"}})
+	invocations, err := arg.ParseInvocations(subjectBindingArgSpec())
 	if err != nil {
 		return nil, errors.Wrapf(err, "@%s", keyword)
 	}
@@ -346,7 +422,7 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 
 	bindings := make([]*subjectBinding, 0, len(invocations))
 	for _, invocation := range invocations {
-		value, _ := invocation.Named("value")
+		value, _ := invocation.Named(subjectValueArgKey)
 		segments := splitPathSegments(value)
 
 		local, ok := fieldByName[segments[0]]
@@ -371,10 +447,332 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 		if err != nil {
 			return nil, errors.Wrapf(err, "@%s(%s)", keyword, binding.Name)
 		}
+		if err := c.resolveSubjectParts(binding, &invocation, fieldByName); err != nil {
+			return nil, errors.Wrapf(err, "@%s(%s)", keyword, binding.Name)
+		}
 		bindings = append(bindings, binding)
 	}
 
 	return bindings, nil
+}
+
+// resolveSubjectParts compiles the two parts a @subjectSet's definition may
+// write, who: and where:, each against the fields of the same struct. A
+// @subjectValue takes neither: its one row is the requester's by the unique
+// anchor, and a filter over it would be a second way to have no value.
+func (c *client) resolveSubjectParts(binding *subjectBinding, invocation *genlang.NamedArgs, fieldByName map[string]*resourceField) error {
+	who, hasWho := invocation.Named(subjectWhoArgKey)
+	where, hasWhere := invocation.Named(subjectWhereArgKey)
+	if binding.Scalar && (hasWho || hasWhere) {
+		return errors.Newf("@%s takes the name and %s: alone; %s: and %s: are the parts of a @%s, which a value has none of", subjectValueKeyword, subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey, subjectSetKeyword)
+	}
+
+	if hasWho {
+		tests, err := resolveSubjectWho(binding.Anchor, who, fieldByName)
+		if err != nil {
+			return err
+		}
+		binding.Who = tests
+	}
+	if hasWhere {
+		filter, err := c.resolveSubjectWhere(where, fieldByName)
+		if err != nil {
+			return err
+		}
+		binding.Where = filter
+	}
+
+	return nil
+}
+
+// resolveSubjectWho compiles a who: part: the tests that make a row the
+// requester's. The condition package holds the part to its shape (one test or
+// several joined by OR, each tying a column to the requester); here each test's
+// column resolves to a field of the struct, a column compared to the requester
+// holds a user id, and the annotation sits on one of the columns the who:
+// names, as every annotation that ties a row to the requester or the tenant
+// sits on the column it reads. The set a test names is checked once every
+// resource is extracted (resolveSubjectSetReferences).
+func resolveSubjectWho(anchor *resourceField, source string, fieldByName map[string]*resourceField) ([]*subjectWho, error) {
+	parsed, err := condition.ParseWho(source)
+	if err != nil {
+		return nil, errors.Wrap(err, "condition.ParseWho()")
+	}
+
+	tests := make([]*subjectWho, 0, len(parsed))
+	var names []string
+	for _, test := range parsed {
+		field, ok := fieldByName[test.Column]
+		if !ok {
+			return nil, errors.Newf("%s: names %s, which is not a field of the resource; a %s: test reads a column of the same row, named by its Go field", subjectWhoArgKey, test.Column, subjectWhoArgKey)
+		}
+		if slices.ContainsFunc(tests, func(w *subjectWho) bool { return w.Field == field && w.Set == test.Set }) {
+			return nil, errors.Newf("%s: writes the test %q twice; write it once", subjectWhoArgKey, test.Expr().String())
+		}
+		columnType, err := attributeTypeFor(&field.TypeInfo)
+		if err != nil {
+			return nil, errors.Wrapf(err, "%s: %s cannot be tested", subjectWhoArgKey, field.Name())
+		}
+		if test.Set == "" && columnType != string(resource.AttributeTypeString) {
+			return nil, errors.Newf("%s: %q compares a %s column to the requester, who is named by a user id, a string; name the column that holds the user's id", subjectWhoArgKey, test.Expr().String(), columnType)
+		}
+		tests = append(tests, &subjectWho{Field: field, Set: test.Set, Type: columnType})
+		if !slices.Contains(names, field.Name()) {
+			names = append(names, field.Name())
+		}
+	}
+
+	if !slices.Contains(names, anchor.Name()) {
+		return nil, errors.Newf("the annotation sits on %s, a column its %s: does not name; with a %s: written, the annotation sits on one of the columns it names (%s)", anchor.Name(), subjectWhoArgKey, subjectWhoArgKey, strings.Join(names, ", "))
+	}
+
+	return tests, nil
+}
+
+// resolveSubjectWhere compiles a where: part: the filter that says which of the
+// requester's rows count. The condition package holds the part to its shape (a
+// condition over the row's columns, compared to literals and to now, naming
+// nothing of the requester and no proposed value); here each name resolves to a
+// field of the struct whose column a condition can compare, each literal fits
+// the type of the column it is compared to, and a literal compared to an
+// enumerated column is one of the enumeration's values.
+func (c *client) resolveSubjectWhere(source string, fieldByName map[string]*resourceField) (*subjectWhere, error) {
+	expr, err := condition.ParseWhere(source)
+	if err != nil {
+		return nil, errors.Wrap(err, "condition.ParseWhere()")
+	}
+
+	filter := &subjectWhere{Expr: expr}
+	types := make(map[string]string)
+	for _, name := range condition.Bindings(expr) {
+		field, ok := fieldByName[name]
+		if !ok {
+			return nil, errors.Newf("%s: names %s, which is not a field of the resource; a %s: reads the columns of the same row, each named by its Go field", subjectWhereArgKey, name, subjectWhereArgKey)
+		}
+		columnType, err := attributeTypeFor(&field.TypeInfo)
+		if err != nil {
+			return nil, errors.Wrapf(err, "%s: %s cannot be compared", subjectWhereArgKey, name)
+		}
+		types[name] = columnType
+		filter.Fields = append(filter.Fields, subjectWhereField{Field: field, Type: columnType})
+	}
+
+	if err := c.checkSubjectWhereOperands(expr, types, fieldByName); err != nil {
+		return nil, err
+	}
+
+	return filter, nil
+}
+
+// checkSubjectWhereOperands holds every comparison of a where: part to the type
+// of the column it reads: a literal of the column's comparison type, now only
+// beside a timestamp column, and beside an enumerated column only the
+// enumeration's own values.
+func (c *client) checkSubjectWhereOperands(expr condition.Expr, types map[string]string, fieldByName map[string]*resourceField) error {
+	switch n := expr.(type) {
+	case condition.And:
+		for _, operand := range n.Operands {
+			if err := c.checkSubjectWhereOperands(operand, types, fieldByName); err != nil {
+				return err
+			}
+		}
+	case condition.Or:
+		for _, operand := range n.Operands {
+			if err := c.checkSubjectWhereOperands(operand, types, fieldByName); err != nil {
+				return err
+			}
+		}
+	case condition.Not:
+		return c.checkSubjectWhereOperands(n.Operand, types, fieldByName)
+	case condition.Comparison:
+		if _, ok := n.Right.(condition.Now); ok {
+			if types[n.Left.Name] != string(resource.AttributeTypeTimestamp) {
+				return errors.Newf("%s: %s is a %s column and cannot be compared to now, a timestamp", subjectWhereArgKey, n.Left.Name, types[n.Left.Name])
+			}
+
+			return nil
+		}
+		if literal, ok := n.Right.(condition.Literal); ok {
+			return c.checkSubjectWhereLiteral(fieldByName[n.Left.Name], types[n.Left.Name], literal)
+		}
+	case condition.In:
+		for _, literal := range n.Literals {
+			if err := c.checkSubjectWhereLiteral(fieldByName[n.Left.Name], types[n.Left.Name], literal); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// checkSubjectWhereLiteral holds one literal of a where: part to the column it
+// is compared to: a string against a string column, a timestamp column (an
+// RFC 3339 instant) or a date column (YYYY-MM-DD), a number against a number
+// column, a boolean against a bool column; and against an enumerated column,
+// one of the enumeration's values.
+func (c *client) checkSubjectWhereLiteral(field *resourceField, columnType string, literal condition.Literal) error {
+	name := field.Name()
+	switch l := literal.(type) {
+	case condition.StringLiteral:
+		switch resource.AttributeType(columnType) {
+		case resource.AttributeTypeString:
+			values, source, enumerated := c.enumeratedValues(field)
+			if !enumerated || slices.ContainsFunc(values, func(v *enumData) bool { return v.ID == l.Value }) {
+				return nil
+			}
+			ids := make([]string, 0, len(values))
+			for _, v := range values {
+				ids = append(ids, v.ID)
+			}
+
+			return errors.Newf("%s: %s is enumerated by %s, and %s is not one of its values (%s)", subjectWhereArgKey, name, source, l.String(), strings.Join(ids, ", "))
+		case resource.AttributeTypeTimestamp:
+			if _, err := time.Parse(time.RFC3339, l.Value); err != nil {
+				return errors.Newf("%s: %s is a timestamp column, and %s is not an RFC 3339 timestamp such as '2026-10-01T00:00:00Z'", subjectWhereArgKey, name, l.String())
+			}
+
+			return nil
+		case resource.AttributeTypeDate:
+			if _, err := time.Parse(time.DateOnly, l.Value); err != nil {
+				return errors.Newf("%s: %s is a date column, and %s is not a date written YYYY-MM-DD", subjectWhereArgKey, name, l.String())
+			}
+
+			return nil
+		default:
+			return errors.Newf("%s: %s is a %s column and cannot be compared to the string %s", subjectWhereArgKey, name, columnType, l.String())
+		}
+	case condition.NumberLiteral:
+		if columnType != string(resource.AttributeTypeNumber) {
+			return errors.Newf("%s: %s is a %s column and cannot be compared to the number %s", subjectWhereArgKey, name, columnType, l.Text)
+		}
+	case condition.BoolLiteral:
+		if columnType != string(resource.AttributeTypeBool) {
+			return errors.Newf("%s: %s is a %s column and cannot be compared to %s, a boolean", subjectWhereArgKey, name, columnType, l.String())
+		}
+	}
+
+	return nil
+}
+
+// enumeratedValues returns the values an enumerated column may hold, with the
+// name of what enumerates it: a foreign key into an @enumerate table holds one
+// of that table's rows, and a field-scope @enumerate naming such a table says
+// the same of a plain column. ok is false for every other column.
+func (c *client) enumeratedValues(field *resourceField) (values []*enumData, source string, ok bool) {
+	if field.IsForeignKey {
+		if typeName, enumerated := c.enumerationOf(field.ReferencedResource); enumerated {
+			return c.enumValues[field.ReferencedResource], typeName, true
+		}
+	}
+	if field.enumerateArg != nil {
+		if src, problem := c.enumerationSourceOf(*field.enumerateArg); problem == "" && src.IsInline() {
+			return src.Values, src.Enumeration, true
+		}
+	}
+
+	return nil, "", false
+}
+
+// resolveExtractedSubjectSets checks the sets of the resources one extraction holds,
+// where they are all the run's. A run that generates an auth's management extracts the
+// application's resources and the management's apart, and the management declares a
+// set an application's who: may name (the groups a person is in), so that run checks
+// its sets once it holds both (resolveRunSubjectSets) and not here.
+func (c *client) resolveExtractedSubjectSets(resources []*resourceInfo) error {
+	if len(c.identity) != 0 {
+		return nil
+	}
+
+	return resolveSubjectSetReferences(resources)
+}
+
+// resolveRunSubjectSets checks the sets of a run that generates an auth's management,
+// once the application's resources and the management's are both extracted: the
+// management's declarations are resources of the run like any other, and the set one
+// of them declares is one an application's who: may name. A run with no generated
+// management has checked its sets where it extracted them (resolveExtractedSubjectSets).
+func (c *client) resolveRunSubjectSets(resources []*resourceInfo) error {
+	if len(c.identity) == 0 {
+		return nil
+	}
+
+	return resolveSubjectSetReferences(resources)
+}
+
+// resolveSubjectSetReferences checks what a who: part says of other sets, once
+// every resource is extracted and every set is known: a test names a declared
+// @subjectSet, one that yields values of the tested column's own type, and sets
+// never build on each other in a loop, which no statement could render.
+func resolveSubjectSetReferences(resources []*resourceInfo) error {
+	type declared struct {
+		res *resourceInfo
+		set *subjectBinding
+	}
+	sets := make(map[string]declared)
+	values := make(map[string]*resourceInfo)
+	for _, res := range resources {
+		for _, set := range res.SubjectSets {
+			sets[set.Name] = declared{res: res, set: set}
+		}
+		for _, value := range res.SubjectValues {
+			values[value.Name] = res
+		}
+	}
+	names := slices.Sorted(maps.Keys(sets))
+
+	var errs []error
+	for _, name := range names {
+		owner := sets[name]
+		for _, test := range owner.set.Who {
+			if test.Set == "" {
+				continue
+			}
+			where := fmt.Sprintf("struct %s field %s: @%s(%s): %s:", owner.res.Name(), owner.set.Anchor.Name(), subjectSetKeyword, name, subjectWhoArgKey)
+			target, ok := sets[test.Set]
+			switch {
+			case !ok && values[test.Set] != nil:
+				errs = append(errs, errors.Newf("%s tests %s against subject.%s, which %s declares as a @%s, one value; a %s: tests a column for membership in a @%s", where, test.Field.Name(), test.Set, values[test.Set].Name(), subjectValueKeyword, subjectWhoArgKey, subjectSetKeyword))
+			case !ok:
+				errs = append(errs, errors.Newf("%s tests %s against subject.%s, which no @%s declares; the sets declared are: %s", where, test.Field.Name(), test.Set, subjectSetKeyword, strings.Join(names, ", ")))
+			case target.set.Type != test.Type:
+				errs = append(errs, errors.Newf("%s %s is a %s column and subject.%s (declared on %s) is a set of %s values; a column is tested against a set of its own type", where, test.Field.Name(), test.Type, test.Set, target.res.Name(), target.set.Type))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Wrap(errors.Join(errs...), "subject set error")
+	}
+
+	var follow func(name string, path []string) []string
+	follow = func(name string, path []string) []string {
+		if at := slices.Index(path, name); at >= 0 {
+			return append(slices.Clone(path[at:]), name)
+		}
+		path = append(path, name)
+		for _, test := range sets[name].set.Who {
+			if test.Set == "" {
+				continue
+			}
+			if loop := follow(test.Set, path); loop != nil {
+				return loop
+			}
+		}
+
+		return nil
+	}
+	for _, name := range names {
+		if loop := follow(name, nil); loop != nil {
+			steps := make([]string, 0, len(loop))
+			for _, step := range loop {
+				steps = append(steps, fmt.Sprintf("%s (%s)", step, sets[step].res.Name()))
+			}
+
+			return errors.Newf("subject sets build on each other in a loop: %s; a set's %s: may name only sets that do not come back to it", strings.Join(steps, " → "), subjectWhoArgKey)
+		}
+	}
+
+	return nil
 }
 
 // resolveRemotePath resolves dotted remote segments (Go field names on each
@@ -666,13 +1064,24 @@ func collectionBindings(res *resourceInfo) *resource.Bindings {
 }
 
 func collectionSubjectBinding(subject *subjectBinding) resource.SubjectBindingData {
-	return resource.SubjectBindingData{
+	data := resource.SubjectBindingData{
 		Name:       subject.Name,
 		UserColumn: fieldColumn(subject.Anchor),
 		Column:     fieldColumn(subject.ValueField),
 		Type:       resource.AttributeType(subject.Type),
 		Path:       collectionHops(subject.Path),
 	}
+	for _, test := range subject.Who {
+		data.Who = append(data.Who, resource.SubjectWhoData{Column: fieldColumn(test.Field), Set: test.Set})
+	}
+	if subject.Where != nil {
+		data.Where = &resource.SubjectWhereData{Condition: subject.Where.Expr.String()}
+		for _, read := range subject.Where.Fields {
+			data.Where.Columns = append(data.Where.Columns, resource.SubjectColumnData{Name: read.Field.Name(), Column: fieldColumn(read.Field), Type: resource.AttributeType(read.Type)})
+		}
+	}
+
+	return data
 }
 
 func collectionHops(path []bindingHop) []resource.BindingHop {

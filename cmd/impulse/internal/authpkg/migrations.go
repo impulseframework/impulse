@@ -19,9 +19,8 @@ const guidCheck = `r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // Migrations renders the Auth session tables of an auth under its table prefix, for
 // Spanner, in the order they apply: the users first, since the sessions reference them,
 // then the sessions with the identities, auth events, pending sign-ins, sign-in attempts,
-// mail links, tokens, device codes, sign-in codes and trusted devices in one migration,
-// since a session set is one thing. The DDL is the
-// session library's base and auth schema sets (schema/spanner/migrations,
+// sign-in methods, mail links, tokens, device codes, sign-in codes and trusted devices in
+// one migration, since a session set is one thing. The DDL is the session library's base and auth schema sets (schema/spanner/migrations,
 // schema/spanner/auth/migrations) with the commit-timestamp options written inline. who
 // names the population for the comments. usernameIsEmail renders the users of a password
 // auth whose sign-in name is the address: the normalized address derives from the
@@ -167,8 +166,8 @@ CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) ST
 `, p, who, guidCheck) + eventsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
 }
 
-// eventsUp creates the auth events, pending sign-ins and sign-in attempts tables, the
-// second part of the sessions migration; mailLinksUp follows it.
+// eventsUp creates the auth events, pending sign-ins, sign-in attempts and sign-in
+// methods tables, the second part of the sessions migration; mailLinksUp follows it.
 func eventsUp(p, who string) string {
 	return fmt.Sprintf(`CREATE TABLE %[1]sSessionAuthEvents (
     SessionId  STRING(36) NOT NULL,
@@ -184,7 +183,10 @@ func eventsUp(p, who string) string {
 -- application's MFA step, held server-side. The browser's pending cookie carries only an
 -- opaque token; TokenHash is its SHA-256. A row is live until ExpiresAt or until a
 -- completion, cancellation or replacement consumes it (ConsumedAt), once. ExpiresAt is
--- the library's deadline, written as given.
+-- the library's deadline, written as given. PasswordProof is the SHA-256 of the
+-- password hash a password sign-in was compared against, never the hash itself, null
+-- for a sign-in no password proved: a row that carries one is inserted only while its
+-- user still holds that password, and completes only while they do.
 CREATE TABLE %[1]sSessionPendingSignIns (
     Id                    STRING(36) NOT NULL,
     TokenHash             BYTES(32) NOT NULL,
@@ -203,6 +205,7 @@ CREATE TABLE %[1]sSessionPendingSignIns (
     Organization          STRING(MAX) NOT NULL,
     UserId                STRING(36),
     Username              STRING(MAX) NOT NULL,
+    PasswordProof         BYTES(32),
     Tenant                STRING(MAX) NOT NULL,
     Events                BYTES(MAX) NOT NULL,
     RoleNames             ARRAY<STRING(MAX)>,
@@ -234,6 +237,23 @@ CREATE TABLE %[1]sSessionSignInAttempts (
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
+-- The sign-in methods: what an administrator chose, in the running application, for one
+-- sign-in method of the auth, keyed by the name the method is registered under. OpenSignUp
+-- says the method admits a person who holds no account and no invitation, and OpenedFor
+-- whom the method admitted when it was opened, as its registration spells its audience:
+-- the row opens the method for that audience alone, so a registration widened in code
+-- since is invite only until it is opened again. DefaultRole names the role such a
+-- person is given with their account, and holds nothing in an application whose people
+-- get their roles in a tenant. A method with no row is invite
+-- only, so the table starts empty and every method starts invite only.
+CREATE TABLE %[1]sSessionSignInMethods (
+    Name        STRING(MAX) NOT NULL,
+    OpenSignUp  BOOL NOT NULL,
+    OpenedFor   STRING(MAX),
+    DefaultRole STRING(MAX),
+    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Name);
+
 `, p, who, guidCheck)
 }
 
@@ -242,14 +262,19 @@ CREATE TABLE %[1]sSessionSignInAttempts (
 func mailLinksUp(p, who string) string {
 	return fmt.Sprintf(`-- The mail links: the single-use links the auth mails. A row is one link: an invitation
 -- to an address, carrying the tenant and the roles its acceptance seats, the name its
--- sender gave the person (Name, null for none) and who sent it;
+-- sender gave the person (Name, null for none) and who sent it, or, for an invitation
+-- that brings an organization in, the tenant its first sign-in makes (NewTenant, a JSON
+-- document: the tenant's name, whether it is entered through its directory only, and
+-- its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
--- Email the address); or a sign-up a person starts by giving their address. The mail
--- carries an opaque token and the row keeps its hash; the row is accepted only while it
--- is live, not expired and not consumed, and is consumed by a conditional update so one
--- link completes once. A revoked invitation is consumed by hand. A verification link
--- goes with its user. CreatedAt and ConsumedAt take the commit time; ExpiresAt is the
--- library's deadline, written as given.
+-- Email the address); a sign-up a person starts by giving their address; or the code a
+-- signed-in person who has no password is mailed to choose their first one (UserId
+-- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- The mail carries an opaque token and the row keeps its hash; the row is accepted only
+-- while it is live, not expired and not consumed, and is consumed by a conditional
+-- update so one link completes once. A revoked invitation is consumed by hand. A
+-- verification link and a first-password code go with their user. CreatedAt and
+-- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE %[1]sSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -259,12 +284,13 @@ CREATE TABLE %[1]sSessionMailLinks (
     UserId     STRING(36),
     TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
+    NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up')),
+    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
     CONSTRAINT FK_%[1]sSessionMailLinks_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -417,6 +443,7 @@ func sessionsDown(p string) string {
 		"DROP INDEX %[1]sSessionMailLinksByKind;",
 		"DROP INDEX %[1]sSessionMailLinksByTokenHash;",
 		"DROP TABLE %[1]sSessionMailLinks;",
+		"DROP TABLE %[1]sSessionSignInMethods;",
 		"DROP TABLE %[1]sSessionSignInAttempts;",
 		"DROP INDEX %[1]sSessionPendingSignInsByExpiresAt;",
 		"DROP INDEX %[1]sSessionPendingSignInsByTokenHash;",

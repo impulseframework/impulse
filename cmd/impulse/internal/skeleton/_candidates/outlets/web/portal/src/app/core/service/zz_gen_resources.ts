@@ -9,6 +9,46 @@ export interface Announcements {
   body?: string;
 }
 
+export interface MembersGroups {
+  id: string;
+  kind?: string;
+  axis?: string;
+  domainId?: string;
+  name?: string;
+  description?: string;
+  updatedAt?: Date;
+}
+
+export interface MembersGroupMembers {
+  groupId: string;
+  userId: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface MembersGroupRoles {
+  groupId: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface MembersGroupUsers {
+  groupId: string;
+  userId: string;
+  username?: string;
+  name?: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface MembersRoles {
   kind: string;
   axis: string;
@@ -119,6 +159,36 @@ export interface MembersSessionUsers {
   lastSignInAt?: Date;
 }
 
+export interface MembersTenantGroups {
+  id: string;
+  domainId?: string;
+  name?: string;
+  description?: string;
+  updatedAt?: Date;
+}
+
+export interface MembersTenantGroupRoles {
+  domainId?: string;
+  groupId: string;
+  groupName?: string;
+  role: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface MembersTenantGroupUsers {
+  domainId?: string;
+  groupId: string;
+  userId: string;
+  username?: string;
+  name?: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface MembersTenantIdentities {
   id: string;
   domainId?: string;
@@ -161,6 +231,21 @@ export interface MembersTenantUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  outsideDirectory?: boolean;
+  cannotEnter?: string;
+}
+
+export interface MembersTenantUserGroupRoles {
+  domainId?: string;
+  userId: string;
+  username?: string;
+  groupId: string;
+  groupName?: string;
+  role: string;
+  globalGroup?: boolean;
+  everyDomain?: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface MembersTenantUserRoles {
@@ -170,6 +255,21 @@ export interface MembersTenantUserRoles {
   role: string;
   everyDomain?: boolean;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface MembersUserGroupRoles {
+  userId: string;
+  username?: string;
+  groupId: string;
+  groupName?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface MembersUserRoles {
@@ -179,6 +279,8 @@ export interface MembersUserRoles {
   role: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface MembersTenantRoles {
@@ -217,6 +319,69 @@ const resourceMap = defineResourceMap({
       { fieldName: 'tenantId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },
+    ],
+  },
+  [Resources.MembersGroups]: {
+    route: 'members-groups',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
+      { fieldName: 'axis', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.MembersGroupMembers]: {
+    route: 'members-group-members',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersGroups },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersGroupRoles]: {
+    route: 'members-group-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersGroups },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersGroupUsers]: {
+    route: 'members-group-users',
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersRoles]: {
@@ -393,6 +558,45 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersTenantGroups]: {
+    route: 'tenants/{tenantID}/members-tenant-groups',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.MembersTenantGroupRoles]: {
+    route: 'tenants/{tenantID}/members-tenant-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersTenantGroupUsers]: {
+    route: 'tenants/{tenantID}/members-tenant-group-users',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
   [Resources.MembersTenantIdentities]: {
     route: 'tenants/{tenantID}/members-tenant-identities',
     live: true,
@@ -444,6 +648,24 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersTenantUserGroupRoles]: {
+    route: 'tenants/{tenantID}/members-tenant-user-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersTenantUserRoles]: {
@@ -456,6 +678,24 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.MembersUserGroupRoles]: {
+    route: 'members-user-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersUserRoles]: {
@@ -472,6 +712,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersTenantRoles]: {
@@ -522,6 +764,10 @@ export const DomainRoutePath = 'tenants/:tenantID';
 
 export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Announcements]: PermissionScopes.domain,
+  [Resources.MembersGroups]: PermissionScopes.global,
+  [Resources.MembersGroupMembers]: PermissionScopes.global,
+  [Resources.MembersGroupRoles]: PermissionScopes.global,
+  [Resources.MembersGroupUsers]: PermissionScopes.global,
   [Resources.MembersRoles]: PermissionScopes.global,
   [Resources.MembersRoleGrants]: PermissionScopes.global,
   [Resources.MembersSessions]: PermissionScopes.global,
@@ -532,10 +778,15 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.MembersSessionTokens]: PermissionScopes.global,
   [Resources.MembersSessionTrustedDevices]: PermissionScopes.global,
   [Resources.MembersSessionUsers]: PermissionScopes.global,
+  [Resources.MembersTenantGroups]: PermissionScopes.domain,
+  [Resources.MembersTenantGroupRoles]: PermissionScopes.domain,
+  [Resources.MembersTenantGroupUsers]: PermissionScopes.domain,
   [Resources.MembersTenantIdentities]: PermissionScopes.domain,
   [Resources.MembersTenantInvitations]: PermissionScopes.domain,
   [Resources.MembersTenantUsers]: PermissionScopes.domain,
+  [Resources.MembersTenantUserGroupRoles]: PermissionScopes.domain,
   [Resources.MembersTenantUserRoles]: PermissionScopes.domain,
+  [Resources.MembersUserGroupRoles]: PermissionScopes.global,
   [Resources.MembersUserRoles]: PermissionScopes.global,
   [Resources.MembersTenantRoles]: PermissionScopes.domain,
   [Resources.FeatureFlags]: PermissionScopes.global,

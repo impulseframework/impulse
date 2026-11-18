@@ -4,6 +4,7 @@ import {
   CHANGE_FEED,
   Domain,
   FRONTEND_LOGIN_PATH,
+  ListAcrossTenantsPermission,
   LOGIN_REDIRECT_URL,
   LOGOUT_ACTION,
   Method,
@@ -15,7 +16,13 @@ import {
   SESSION_PATH,
   SessionInfo,
 } from '@impulseframework/resource-angular/types';
-import { ClientBase, FeatureState, fieldPermissionStates, permissionState, PermissionStore } from '@impulseframework/resource';
+import {
+  ClientBase,
+  FeatureState,
+  fieldPermissionStates,
+  permissionState,
+  PermissionStore,
+} from '@impulseframework/resource';
 import { from, map, Observable, of, switchMap, tap } from 'rxjs';
 
 /**
@@ -93,6 +100,14 @@ export class AuthService {
   domains = computed<readonly Domain[]>(() => this.snapshot().domains);
 
   /**
+   * The domains the person holds a seat in and this session cannot enter, each with the
+   * server's reason: a tenant that admits only people who sign in through its own
+   * directory, when the person signed in another way. Never among `domains`; the tenant
+   * picker shows them marked, with the reason. Empty until the session authenticates.
+   */
+  closedDomains = computed<ReadonlyMap<Domain, string>>(() => this.snapshot().closed ?? new Map<Domain, string>());
+
+  /**
    * The names of the feature flags that are on in this environment, as loaded when the
    * session authenticated and reloaded after the session user flipped one. Empty until
    * the session authenticates.
@@ -124,9 +139,14 @@ export class AuthService {
    * naming none is asked in the selected tenant (RESOURCE_DOMAIN) when the client's
    * descriptor places the target in the domain scope, else in the global digest; a
    * domain-scoped target with no tenant selected stays global-keyed and answers false,
-   * since no domain digest holds it.
+   * since no domain digest holds it. Whether a resource may be listed across tenants
+   * (ListAcrossTenantsPermission) is asked in the global digest whatever tenant is
+   * selected or named: the server answers it there, for the session's every tenant.
    */
   private scoped(scope: PermissionScope): PermissionScope {
+    if (scope.permission === ListAcrossTenantsPermission) {
+      return { resource: scope.resource, permission: scope.permission };
+    }
     if (scope.domain !== undefined) {
       return scope;
     }

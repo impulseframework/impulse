@@ -39,6 +39,11 @@ const (
 	// a positional key whose cell is masked; resource columns must not begin
 	// with it.
 	reservedCursorColumnPrefix = "zzCursor"
+
+	// reservedTenantColumn is the reserved output column a list across tenants
+	// selects each row's tenant under, and the reserved per-row JSON property that
+	// carries it (resource.TenantProperty); resource columns must not collide with it.
+	reservedTenantColumn = "zzTenant"
 )
 
 // Generator provides methods for generating Go or Typescript for a resource-driven web application.
@@ -83,6 +88,11 @@ const (
 	// declared segment. It is derived from the declaration, never named by an author
 	// (no @suppress argument), so it stays out of handlerTypes.
 	fileHandler HandlerType = "fileHandler"
+	// acrossTenantsHandler is the handler of a tenant-scoped resource's list asked
+	// without the tenant's segment (@listAcrossTenants). It is derived from the
+	// declaration and follows the list handler, never named by an author (no @suppress
+	// argument), so it stays out of handlerTypes.
+	acrossTenantsHandler HandlerType = "acrossTenantsHandler"
 )
 
 // RouteType describes a route or set of routes for a resource-driven API.
@@ -171,7 +181,7 @@ func (h HandlerType) template() string {
 // method returns the proper http method type for a HandlerType
 func (h HandlerType) method() string {
 	switch h {
-	case ReadHandler, ListHandler, fileHandler:
+	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler:
 		return http.MethodGet
 	case PatchHandler:
 		return http.MethodPatch
@@ -233,7 +243,16 @@ const (
 	// tenantCreationOutputName names the handler package's file carrying the tenant
 	// record's create-your-tenant handler (Create<Record>), written where the record's
 	// creation shape admits self-service; a singular stem like the roster's.
-	tenantCreationOutputName      = "tenant_creation"
+	tenantCreationOutputName = "tenant_creation"
+	// tenantDirectoryOnlyOutputName names the handler package's file carrying the
+	// tenant record's directory-only switch: the method that turns it and its two
+	// reads, written where the record declares the switch; a singular stem like the
+	// roster's.
+	tenantDirectoryOnlyOutputName = "tenant_directory_only"
+	// tenantDirectoryRoleOutputName names the handler package's file carrying the two
+	// methods that say how a tenant admits its directory's people, written where the
+	// directories record carries a default seat; a singular stem like the roster's.
+	tenantDirectoryRoleOutputName = "tenant_directory_role"
 	permissionsOutputName         = "permissions"
 	liveOutputName                = "live"
 	liveDerivationsOutputName     = "live_derivations"
@@ -256,6 +275,10 @@ const (
 	// fileHoldersOutputName names the resources package's file holders file: every
 	// resource recording stored files' keys, for the orphaned-file cleanup.
 	fileHoldersOutputName = "file_holders"
+	// secretHoldersOutputName names the resources package's secret holders file: every
+	// resource storing a secret, for the retirement of a version of the application
+	// secret.
+	secretHoldersOutputName = "secret_holders"
 )
 
 // reservedOutput is one file the generator writes for itself: its name and what it
@@ -278,6 +301,8 @@ var reservedOutputStems = map[string]reservedOutput{
 	domainGuardOutputName:         {file: generatedGoFileName(domainGuardOutputName), carries: "the domain guard"},
 	tenantRosterOutputName:        {file: generatedGoFileName(tenantRosterOutputName), carries: "the tenant roster constructor"},
 	tenantCreationOutputName:      {file: generatedGoFileName(tenantCreationOutputName), carries: "the create-your-tenant handler"},
+	tenantDirectoryOnlyOutputName: {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
+	tenantDirectoryRoleOutputName: {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
 	permissionsOutputName:         {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
 	liveOutputName:                {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
 	decodersOutputName:            {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},
@@ -285,6 +310,7 @@ var reservedOutputStems = map[string]reservedOutput{
 	consolidatedHandlerOutputName: {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
 	featuresOutputName:            {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
 	fileHoldersOutputName:         {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
+	secretHoldersOutputName:       {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
 	releaseOutputName:             {file: resource.ReleaseFileName, carries: "the release file"},
 }
 
@@ -437,6 +463,12 @@ type generatedRoute struct {
 	// declared maximum): the generated route registration leaves it off the bounded
 	// group, since a limit outside the handler's own could only tighten it.
 	SelfBounded bool
+	// ReadsDryRunAndWarning marks a route whose frame answers a request that asks for a
+	// dry run (X-Dry-Run) or for a warning (X-Warning) itself: a method's, an upload's,
+	// SetFeature's. The generated route registration mounts every other route under the
+	// refusal of the two headers (resource.NoDryRunOrWarning), since a frame that never
+	// reads a header would run for real the call the request asked be held back.
+	ReadsDryRunAndWarning bool
 	// RequestLog is the route's own request log word (@rpc(log:), @file(log:)), which
 	// the registration sets with logger.WithPolicy ahead of the handler, and Traces its
 	// own trace setting (@rpc(trace:), @file(trace:)), which the served router's surface
@@ -452,10 +484,29 @@ func (g *generatedRoute) DeclaresWords() bool {
 	return g.RequestLog.Declared() || g.Traces.Declared()
 }
 
+// Registrar is the router of the generated route function the route registers on. The
+// function's r refuses a request that asks for a dry run or a warning, and bounded,
+// drawn from it, holds the resource routes and the other JSON routes at BodyLimit
+// besides: a route registers on bounded, or on r where it bounds its own body. A route
+// whose frame answers the two headers itself registers on asked, the router before the
+// refusal, under the body limit where it does not bound its own.
+func (g *generatedRoute) Registrar() string {
+	switch {
+	case g.ReadsDryRunAndWarning && g.SelfBounded:
+		return "asked"
+	case g.ReadsDryRunAndWarning:
+		return "asked.With(resource.BodyLimit(BodyLimit))"
+	case g.SelfBounded:
+		return "r"
+	default:
+		return "bounded"
+	}
+}
+
 // SharedHandler reports whether the route's handler is additionally registered
 // for POST requests at the same path (read and list handlers accept POST bodies).
 func (g *generatedRoute) SharedHandler() bool {
-	return g.HandlerType == ReadHandler || g.HandlerType == ListHandler
+	return g.HandlerType == ReadHandler || g.HandlerType == ListHandler || g.HandlerType == acrossTenantsHandler
 }
 
 // appendParamsToPaths appends each test parameter to the route's paths: the
@@ -552,6 +603,11 @@ type rpcMethodInfo struct {
 	// filesStore is S for the typed form, nil for resource.Files.
 	takesFiles bool
 	filesStore *types.Named
+	// Warning is the method's validated @warning declaration: the warning its Warning
+	// method writes for a call is answered before the call is run, and the dialog a
+	// page runs the method through holds its confirm button for the typed word. Nil
+	// for a method that declares none.
+	Warning *rpcWarning
 	// Feature is the method's @feature: the flag its route and its digest entry are
 	// gated behind; nil when the method is not gated.
 	Feature *featureGate
@@ -1305,8 +1361,9 @@ type resourceInfo struct {
 	// route parameter the domain route parameter, and its generated write paths keep
 	// the application's TenantRoster current after their commit.
 	IsTenant bool
-	// TenantCreation is the tenant record's creation shape (@tenant(creation: ...)):
-	// who may create a tenant. The zero value is the default, an administrator alone.
+	// TenantCreation says whether the create-your-tenant route is generated for the
+	// tenant record, beside the administrator's create (validateTenantCreation). The
+	// zero value is no route: an administrator alone creates tenants.
 	TenantCreation tenantCreation
 	// TenantLabel is the word the tenant record's people use for one tenant where it is
 	// not the record's name (@tenant(label: ...)): an application in production changes
@@ -1321,14 +1378,15 @@ type resourceInfo struct {
 	// declares none, and every tenant admits a password.
 	DirectoryOnlyField *resourceField
 	// IsTenantDirectory marks the directories record (@tenantDirectory): the
-	// tenant-scoped resource whose rows are the directories a tenant admits its people
-	// through, one per declaration, with DirectoryMethodField (@directoryMethod) and
-	// DirectoryConnectionField (@directoryConnection) as its two columns, and
-	// DirectoryDefaultSeatField (@directoryDefaultSeat) as the column naming the role
-	// a stranger the directory vouches for is seated with at their first sign-in, nil
-	// where the record carries none and every tenant admits such strangers by
-	// invitation only. Its generated write paths keep every instance's tenant roster
-	// current, as the record's do.
+	// tenant-scoped resource whose row is the directory a tenant admits its people
+	// through, one for a tenant and one tenant's, with DirectoryMethodField
+	// (@directoryMethod) and DirectoryConnectionField (@directoryConnection) as its two
+	// columns, and DirectoryDefaultSeatField (@directoryDefaultSeat) as the column
+	// naming the role a person is seated with at their first sign-in through the
+	// directory, nil where the record carries none and every tenant admits a stranger
+	// from its directory by invitation only. Its generated write paths hold a row to the
+	// rules of a tenant's directory (resource.TenantDirectoryRules) and keep every
+	// instance's tenant roster current, as the record's do.
 	IsTenantDirectory         bool
 	DirectoryMethodField      *resourceField
 	DirectoryConnectionField  *resourceField
@@ -1337,6 +1395,19 @@ type resourceInfo struct {
 	// once the directories record is known to belong to it (validateTenantDeclaration);
 	// nil on every other resource and on a record whose package declares none.
 	declaration *tenantDeclaration
+	// directoryOf is the tenant record the directories record belongs to, set with the
+	// record's declaration; nil on every other resource. The directories record's
+	// generated write paths name the record's directory rules by it, and
+	// directoryRules is the expression that builds those rules in a generated frame of
+	// the handler package (resourceGenerator.namedDirectoryRules), set with it.
+	directoryOf    *resourceInfo
+	directoryRules string
+
+	// ListsAcrossTenants marks a tenant-scoped resource whose list is also served
+	// without the tenant's segment (@listAcrossTenants): one request reads its rows in
+	// every tenant the session reaches in which the person may list it, each row
+	// checked in its own tenant and naming it.
+	ListsAcrossTenants bool
 }
 
 // IsDomainScoped reports whether the resource's @permissionScope resolves to the
@@ -1413,15 +1484,10 @@ func (r *resourceInfo) CreateHandlerDisabled() bool {
 
 // CreateDisabled reports whether the resource's rows come in some other way than a
 // create under a Create grant: a @file whose key column is NOT NULL (a row is added by
-// the @upload method that stores its file), or a tenant record whose creation shape is
-// self-service alone (a tenant is created through the generated create-your-tenant
-// route by the person who becomes its administrator). Create is then not registered
+// the @upload method that stores its file). Create is then not registered
 // and the patch handlers refuse a create op naming the way in (CreateRefusal). A
 // nullable @file key leaves Create ordinary: a row may exist before its file does.
 func (r *resourceInfo) CreateDisabled() bool {
-	if r.IsTenant && !r.TenantCreation.AdministratorCreates() {
-		return true
-	}
 	for _, file := range r.Files {
 		if file.Key != nil && !file.Key.Nullable {
 			return true
@@ -1431,14 +1497,36 @@ func (r *resourceInfo) CreateDisabled() bool {
 	return false
 }
 
+// RefusesCreate reports whether the patch handlers refuse a create op on the resource,
+// naming the way a row comes in (CreateRefusal): CreateDisabled, and the tenant record.
+// A tenant is made by an invitation's first sign-in, or by a person who signs up on the
+// create-your-tenant page, and never by a create op: staff create no tenant directly.
+// The tenant record keeps its Create permission registered (PatchPermissions): it is
+// the grant that sends an invitation, and the one the invitation's details are checked
+// under, field by field, as a create's would be.
+func (r *resourceInfo) RefusesCreate() bool {
+	return r.CreateDisabled() || r.IsTenant
+}
+
+// ClientCreateDisabled reports whether the browser client is offered no create of the
+// resource: CreateHandlerDisabled, and the tenant record, whose create op is refused
+// (RefusesCreate).
+func (r *resourceInfo) ClientCreateDisabled() bool {
+	return r.CreateHandlerDisabled() || r.IsTenant
+}
+
 // CreateRefusal is the sentence the patch handlers answer a create op with where
-// CreateDisabled: the way a row of the resource comes in instead.
+// RefusesCreate: the way a row of the resource comes in instead.
 func (r *resourceInfo) CreateRefusal() string {
-	if r.IsTenant && !r.TenantCreation.AdministratorCreates() {
-		return fmt.Sprintf("a %s is created by the person who becomes its administrator, through the %s route (@tenant(creation: self-service)); no administrator creates one", r.Name(), tenantCreationRoute(r.Name()))
+	if r.CreateDisabled() {
+		return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
+	}
+	word := strings.ToLower(strcase.ToCase(r.Name(), strcase.LowerCase, ' '))
+	if !r.TenantCreation.Invites() {
+		return fmt.Sprintf("%s is not created directly: the application makes one in its own code", withArticle(word))
 	}
 
-	return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
+	return fmt.Sprintf("%s is not created directly: invite one person, and the %s is made when that person first signs in", withArticle(word), word)
 }
 
 // PatchOrAddRefusal is the sentence the patch handlers answer a patch-or-add with on a
@@ -1717,6 +1805,28 @@ type resourceField struct {
 	// name, declared on the member's anchoring FK field (the field IS the
 	// hop). Empty for fields outside any workflow.
 	WorkflowRoot string
+
+	// IsDirectoryKey marks the directories record's method and connection columns
+	// (@directoryMethod, @directoryConnection): they decode output-only, on create and
+	// on update, since a directory is never typed in. The record's generated create
+	// stamps both from the directory the caller is signed in through.
+	IsDirectoryKey bool
+
+	// IsDirectoryOnly marks the tenant record's directory-only switch (@directoryOnly):
+	// it decodes output-only, on create and on update, since the switch is the tenant's
+	// own and is turned by the methods the generator writes for it in the tenant's scope
+	// (Make<Record>DirectoryOnly and End<Record>DirectoryOnly), which hold it to its
+	// rules. The record's own write paths, which are global, show the switch and never
+	// write it.
+	IsDirectoryOnly bool
+
+	// IsDirectoryDefaultSeat marks the directories record's default seat column
+	// (@directoryDefaultSeat): it decodes output-only, on create and on update, since
+	// how a tenant admits its directory's people is said with the two methods the
+	// generator writes in the tenant's scope (Open<Record>ToDirectory, which warns and
+	// holds the role to what giving it by hand needs, and Make<Record>InviteOnly). The
+	// record's own write paths show the column and never write it.
+	IsDirectoryDefaultSeat bool
 
 	// IsFileKey marks the store-key column of a @file declaration: off the wire in
 	// both directions (json:"-" on the read and the patch structs, absent from the
@@ -2041,8 +2151,15 @@ func (f *resourceField) IsOutputOnly() bool {
 	// tenant-key column is the same shape: the framework stamps it from the
 	// request's domain partition, so the wire cannot write it. A @file key
 	// column too: only Go code writes it, as an @upload body does. And a
-	// generated column: the database computes it, and refuses a write.
-	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated {
+	// generated column: the database computes it, and refuses a write. The
+	// directories record's method and connection are the same shape as the
+	// tenant key: the generated create stamps them from the caller's sign-in,
+	// so the wire cannot type a directory in. And the tenant record's
+	// directory-only switch: the tenant's own method turns it, held to its
+	// rules, so the record's global write paths cannot. And the directories
+	// record's default seat: the tenant's own methods set and clear it, the
+	// one that sets it behind a warning and the rule of who may give the role.
+	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey || f.IsDirectoryOnly || f.IsDirectoryDefaultSeat {
 		return true
 	}
 
@@ -2129,8 +2246,9 @@ func (f *resourceField) ImmutableTag() string {
 
 // SqltypeTag renders sqltype:"<column type>" onto a patch request-struct field whose
 // value the decoder sizes against its column's declared type (resource.HasValueLimit): a
-// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, and a
-// slice of one of those, named or not, on the matching ARRAY. The tag consults the Go
+// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, a slice of
+// one of those, named or not, on the matching ARRAY, and a stored secret on the BYTES(n)
+// its sealed form is stored in. The tag consults the Go
 // type and the column alone: a @typescript declaration on the type changes the
 // interface, never the limit. A field hidden from the patch wire (a key, an output-only
 // field), a view's field, and every other pair carry no tag, so the structs stay quiet
@@ -2161,11 +2279,17 @@ func (f *resourceField) TypescriptMaxLength() int {
 	if f.SqltypeTag() == "" {
 		return 0
 	}
-	if kind, _ := valueKindOf(f.GoType()); kind != resource.ValueKindString {
+	kind, _ := valueKindOf(f.GoType())
+	if kind != resource.ValueKindString && kind != resource.ValueKindSecret {
 		return 0
 	}
 	if !slices.Contains(maxLengthDisplayTypes, displayType(strings.ToLower(f.TypescriptDisplayType()))) {
 		return 0
+	}
+	if kind == resource.ValueKindSecret {
+		// The column holds the value sealed: the form is told the room left for the
+		// value itself. The decoder counts bytes, which a character is one or more of.
+		return resource.DeclaredLength(f.SpannerType) - resource.SecretOverhead
 	}
 
 	return resource.DeclaredLength(f.SpannerType)
@@ -2289,7 +2413,7 @@ const (
 	pageKeyword                 string = "page"                 // Declares the default and maximum page size of a list
 	attributeKeyword            string = "attribute"            // Declares an attribute binding on its anchor field: a column binding, or a join-path binding via a FK
 	domainKeyword               string = "domain"               // Declares the structural tenancy binding on its anchor field (bare, or via: a FK path to the tenant key)
-	subjectSetKeyword           string = "subjectSet"           // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column
+	subjectSetKeyword           string = "subjectSet"           // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column, or on a column its who: part names
 	subjectValueKeyword         string = "subjectValue"         // Declares subject-side scalar vocabulary (threshold comparisons) anchored on a unique user-id column
 	stateKeyword                string = "state"                // Marks a resource's state column (FK to its state enum table) and declares the initial state
 	stateRootKeyword            string = "stateRoot"            // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct
@@ -2297,6 +2421,7 @@ const (
 	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
 	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
+	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed
 	rowsOfKeyword               string = "rowsOf"               // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
 	changedByKeyword            string = "changedBy"            // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
 	typescriptKeyword           string = "typescript"           // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
@@ -2312,6 +2437,7 @@ const (
 	formerlyKeyword             string = "formerly"             // Declares a field's or a method's former name, answered beside the current one while older applications still send it: @formerly(Title)
 	scheduleKeyword             string = "schedule"             // Declares an RPC method a scheduled route Cloud Scheduler calls: @schedule("0 3 * * *"[, zone: "America/Denver", log: onEvent])
 	searchAlsoKeyword           string = "searchAlso"           // Declares a child table's text a table-backed resource's search box also searches, one hop down a foreign key: @searchAlso(ClientContact.DisplayName[, via: ClientId])
+	listAcrossTenantsKeyword    string = "listAcrossTenants"    // Declares that a tenant-scoped resource's list is also served without the tenant's segment, reading every tenant the session reaches in which the person may list it
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
@@ -2335,14 +2461,15 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		pageKeyword:                 {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		attributeKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		domainKeyword:               {genlang.ScanField: genlang.Exclusive},
-		subjectSetKeyword:           {genlang.ScanField: genlang.ArgsRequired},
-		subjectValueKeyword:         {genlang.ScanField: genlang.ArgsRequired},
+		subjectSetKeyword:           {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
+		subjectValueKeyword:         {genlang.ScanField: genlang.ArgsRequired | subjectBindingArgSpec().ScanFlags()},
 		stateKeyword:                {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		stateRootKeyword:            {genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		transitionKeyword:           {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		targetKeyword:               {genlang.ScanField: genlang.Exclusive},
 		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		warningKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		rowsOfKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		changedByKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		typescriptKeyword:           {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
@@ -2358,6 +2485,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		formerlyKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		scheduleKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		searchAlsoKeyword:           {genlang.ScanStruct: genlang.ArgsRequired},
+		listAcrossTenantsKeyword:    {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 	}
 }
 

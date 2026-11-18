@@ -152,6 +152,9 @@ func scheduleInputErrors(rpcMethod *rpcMethodInfo, pStruct *parser.Struct, annot
 	if rpcMethod.Upload != nil {
 		errs = append(errs, errors.Newf("struct %s: @%s with @%s: a scheduled call carries no body, so it uploads nothing", name, scheduleKeyword, uploadKeyword))
 	}
+	if rpcMethod.Warning != nil {
+		errs = append(errs, errors.Newf("struct %s: @%s with @%s: a warning is read by a person before they confirm the call, and nobody confirms a scheduled one; drop the warning", name, scheduleKeyword, warningKeyword))
+	}
 	if annotations.Struct.Has(permissionScopeKeyword) {
 		if rpcMethod.IsDomainScoped() {
 			errs = append(errs, errors.Newf("struct %s: @%s with @%s(domain): a domain-scoped method takes the tenant as a path parameter, and a scheduled call names none; run over every tenant inside Execute", name, scheduleKeyword, permissionScopeKeyword))

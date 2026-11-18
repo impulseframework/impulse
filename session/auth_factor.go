@@ -56,7 +56,8 @@ const (
 	// emailCodeLength is the digits of a code: six, a million codes, guessed at most
 	// emailCodeAttempts times before the code dies.
 	emailCodeLength = 6
-	// emailCodeAttempts is how many wrong codes kill the code sent.
+	// emailCodeAttempts is how many guesses the code sent is given: the wrong code that
+	// takes the last one kills it, and a guess past them is not judged.
 	emailCodeAttempts = 5
 	// trustedTokenSize is the trusted device token's size in bytes.
 	trustedTokenSize = 32
@@ -118,7 +119,11 @@ func (a *Auth[S, U, Tx]) emailCodeState(ctx context.Context, p *pendingState) (*
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
 	}
 	answer := &emailCodeAnswer{}
-	if code != nil {
+	// A code whose attempts are spent does not stand, though its row is live until the
+	// guess that took the last one consumes it: no guess is judged against it any more
+	// (verifyEmailCode), so the page asks for a new one, as it does where that guess's
+	// request ended before it consumed the code.
+	if code != nil && code.Attempts < emailCodeAttempts {
 		answer.CodeSent, answer.CodeExpiresAt, answer.CodeEmail = true, &code.ExpiresAt, maskAddress(code.Email)
 
 		return answer, nil
@@ -305,6 +310,13 @@ func errCodeExpired() error {
 // code counts, and the code that took its last attempt is consumed. A code entered
 // while none stands, because none was sent or the one sent expired or died, is
 // refused as expired. It returns the address the code went to.
+//
+// A guess takes its attempt before it is judged: the store counts it on the code's row
+// in one statement and answers which attempt it was, and a guess past the limit is not
+// compared with the code at all, nor does it touch the code. Guesses made at once are
+// each counted, so no more than the limit are ever judged, however many arrive
+// together; the right code spends an attempt like any other, on a code it then
+// consumes, and of several right guesses within the limit one is accepted.
 func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, code string) (string, error) {
 	standing, err := a.storage.FactorCode(ctx, p.ID)
 	if err != nil {
@@ -314,16 +326,22 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, c
 
 		return "", errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
 	}
+	attempts, err := a.storage.RecordFactorCodeAttempt(ctx, standing.ID)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return "", errCodeExpired()
+		}
+
+		return "", errors.Wrap(err, "sessionstorage.AuthStore.RecordFactorCodeAttempt()")
+	}
+	if attempts > emailCodeAttempts {
+		// Past the limit: the guess is not judged and touches nothing. The guess that
+		// took the last attempt consumes the code, right or wrong, and a consume from
+		// here would race the right code of a guess within the limit.
+		return "", errCodeExpired()
+	}
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
 	if subtle.ConstantTimeCompare(standing.CodeHash, hashEmailCode(p.ID, code)) != 1 {
-		attempts, err := a.storage.RecordFactorCodeAttempt(ctx, standing.ID)
-		if err != nil {
-			if httpio.HasNotFound(err) {
-				return "", errCodeExpired()
-			}
-
-			return "", errors.Wrap(err, "sessionstorage.AuthStore.RecordFactorCodeAttempt()")
-		}
 		if attempts >= emailCodeAttempts {
 			if err := a.storage.ConsumeFactorCode(ctx, standing.ID); err != nil && !httpio.HasNotFound(err) {
 				return "", errors.Wrap(err, "sessionstorage.AuthStore.ConsumeFactorCode()")
@@ -409,14 +427,10 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, userID impulse.UU
 // are each remembered: a sign-in reads the signing-in user's entry alone and a held
 // sign-in drops that user's entry alone, so one person's remembering never forgets
 // another's. The browser holds at most trustedDevicesPerBrowser entries; remembering
-// one more drops the oldest. Releases before 0.13.17 wrote one bare token under
-// trustedCookieKey: such a cookie is still read, its token standing for whichever
-// user's device the row names, and it is rewritten in the new shape at the next
-// remembering or held sign-in.
+// one more drops the oldest.
 const (
 	trustedDevicesKey        cookie.Key = "devices"
-	trustedCookieKey         cookie.Key = "trusted"
-	trustedDevicesPerBrowser            = 5
+	trustedDevicesPerBrowser int        = 5
 )
 
 // trustedEntry is one user's token in the trusted device cookie: the token, and when
@@ -427,10 +441,9 @@ type trustedEntry struct {
 }
 
 // trustedDevices is what the browser's trusted device cookie carries, as StartSession
-// read it: the entries by user id, and the bare token of the old shape, "" for none.
+// read it: the entries by user id.
 type trustedDevices struct {
 	entries map[string]trustedEntry
-	legacy  string
 }
 
 // trustedCtxKey is the context key for the browser's trusted devices, set by
@@ -448,10 +461,7 @@ func (a *Auth[S, U, Tx]) withTrustedDeviceCookie(ctx context.Context, r *http.Re
 	if err := cval.Get(trustedDevicesKey, &devices.entries); err != nil {
 		devices.entries = map[string]trustedEntry{}
 	}
-	if token, err := cval.GetString(trustedCookieKey); err == nil {
-		devices.legacy = token
-	}
-	if len(devices.entries) == 0 && devices.legacy == "" {
+	if len(devices.entries) == 0 {
 		return ctx
 	}
 
@@ -477,8 +487,7 @@ func trustedTokenHash(token string) []byte {
 }
 
 // trustedHashFor returns the hash of the token the browser carries for userID: the
-// user's entry, else the bare token of the old shape, whose user the row names and
-// trustedDeviceOf checks.
+// user's entry, whose row trustedDeviceOf checks is that user's.
 func trustedHashFor(ctx context.Context, userID impulse.UUID) ([]byte, bool) {
 	d, ok := trustedDevicesOf(ctx)
 	if !ok {
@@ -489,18 +498,13 @@ func trustedHashFor(ctx context.Context, userID impulse.UUID) ([]byte, bool) {
 			return h, true
 		}
 	}
-	if d.legacy != "" {
-		if h := trustedTokenHash(d.legacy); h != nil {
-			return h, true
-		}
-	}
 
 	return nil, false
 }
 
 // trustedDeviceOf is the sign-in flow's trusted device check: whether the browser
 // carries, for userID, the token of a live trusted device of theirs. An entry naming a
-// dead device, or a bare token of another user's, is no device.
+// dead device, or another user's, is no device.
 func (a *Auth[S, U, Tx]) trustedDeviceOf(ctx context.Context, userID impulse.UUID) (bool, error) {
 	hash, ok := trustedHashFor(ctx, userID)
 	if !ok {
@@ -539,10 +543,8 @@ func (a *Auth[S, U, Tx]) touchTrustedDevice(ctx context.Context, userID impulse.
 
 // rememberDevice makes the browser a trusted device of userID for the trusted device
 // period: a row with the token's hash, and the user's entry in the cookie, beside the
-// other users' entries the browser carries (the oldest dropped at the cap; a bare token
-// of the old shape dropped, since the row it names is not this user's or is being
-// replaced). A failure is logged; the session stands and the next sign-in asks for the
-// factor again.
+// other users' entries the browser carries (the oldest dropped at the cap). A failure
+// is logged; the session stands and the next sign-in asks for the factor again.
 func (a *Auth[S, U, Tx]) rememberDevice(ctx context.Context, w http.ResponseWriter, userID impulse.UUID) {
 	raw := make([]byte, trustedTokenSize)
 	if _, err := rand.Read(raw); err != nil {
@@ -599,9 +601,9 @@ func (a *Auth[S, U, Tx]) writeTrustedCookie(ctx context.Context, w http.Response
 }
 
 // dropTrustedEntry takes userID's entry out of the trusted device cookie the browser
-// carries, and a bare token of the old shape with it, leaving the other users' entries
-// as they are: the cookie is rewritten without them, or deleted when nothing is left.
-// A browser carrying no entry for the user, and no bare token, is left alone.
+// carries, leaving the other users' entries as they are: the cookie is rewritten
+// without it, or deleted when nothing is left. A browser carrying no entry for the
+// user is left alone.
 func (a *Auth[S, U, Tx]) dropTrustedEntry(ctx context.Context, w http.ResponseWriter, userID impulse.NullUUID) {
 	d, ok := trustedDevicesOf(ctx)
 	if !ok {
@@ -611,7 +613,7 @@ func (a *Auth[S, U, Tx]) dropTrustedEntry(ctx context.Context, w http.ResponseWr
 	if userID.Valid {
 		delete(entries, userID.String())
 	}
-	if len(entries) == len(d.entries) && d.legacy == "" {
+	if len(entries) == len(d.entries) {
 		return
 	}
 	if len(entries) == 0 {

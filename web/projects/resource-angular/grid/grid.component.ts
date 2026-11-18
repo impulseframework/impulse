@@ -20,7 +20,14 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterModule } from '@angular/router';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
-import { ColumnConfig, iconCellKey, RecordData, RowAction, rowActionsKey } from '@impulseframework/resource-angular/types';
+import {
+  ColumnConfig,
+  iconCellKey,
+  RecordData,
+  RowAction,
+  rowActionsKey,
+} from '@impulseframework/resource-angular/types';
+import { CutShortTooltipDirective } from './cut-short-tooltip.directive';
 import {
   dateTimeParts,
   filterControlFor,
@@ -71,7 +78,8 @@ export const COMPANION_FILTER_HINT =
  * in the page when the caller passes none: the track expression, the selection, and the
  * expansion are keyed by it, and nothing here assumes a field called `id`. Selection is
  * held as rows, so it spans pages. Virtual scroll renders the one page it is given; row
- * expansion is as before.
+ * expansion is as before. A cell is one line, and a text or a header wider than its column
+ * is cut with an ellipsis and offered whole in a tooltip (CutShortTooltipDirective).
  */
 @Component({
   selector: 'impulse-grid',
@@ -79,6 +87,7 @@ export const COMPANION_FILTER_HINT =
   imports: [
     CommonModule,
     TableButtonComponent,
+    CutShortTooltipDirective,
     CamelCaseToTitlePipe,
     RouterModule,
     MatButtonModule,
@@ -160,7 +169,13 @@ export class AppGridComponent {
 
   /** Whether the request already carries a filter the server indexes, so companion columns may join. */
   indexedFilterActive = computed(() =>
-    indexedFilterActive(this.filters(), this.filterability(), this.externalFilterFields(), this.searches(), this.boxActive()),
+    indexedFilterActive(
+      this.filters(),
+      this.filterability(),
+      this.externalFilterFields(),
+      this.searches(),
+      this.boxActive(),
+    ),
   );
 
   private readonly scrollContainer = viewChild<ElementRef<HTMLDivElement>>('scrollContainer');

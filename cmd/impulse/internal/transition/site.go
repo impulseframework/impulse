@@ -23,6 +23,7 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/ci"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/brand"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
 )
@@ -1384,12 +1385,28 @@ func (s Site) copyWorkspace(a *app.App, from, to string, managed bool, ch *Chang
 	if old.Name != s.Name && old.Root != "" && old.Root != "." && s.renameProject(a, to, &old, port) {
 		project = s.Name
 	}
-	ch.didf("%s: the %s site's browser workspace, a copy of %s with its project named %s on port %d; its titles and API prefix still say what the %s site's do", to, s.Name, from, project, port, old.Name)
+	still := "its titles and API prefix"
+	if declaresBrand(a, to) {
+		still = fmt.Sprintf("its titles, its brand declaration (%s) and its API prefix", brand.DeclarationFile)
+	}
+	ch.didf("%s: the %s site's browser workspace, a copy of %s with its project named %s on port %d; %s still say what the %s site's do", to, s.Name, from, project, port, still, old.Name)
 	if managed {
 		s.dropIdentityPages(a, to, ch)
 	}
 
 	return project, port
+}
+
+// declaresBrand reports whether a browser workspace carries a brand declaration: in the
+// workspace's own directory, where its one project sits at its root, or in the directory
+// of a project of it.
+func declaresBrand(a *app.App, webDir string) bool {
+	if exists(a, path.Join(webDir, brand.DeclarationFile)) {
+		return true
+	}
+	inProjects, err := filepath.Glob(filepath.Join(a.Abs(webDir), "*", brand.DeclarationFile))
+
+	return err == nil && len(inProjects) > 0
 }
 
 // dropIdentityPages takes the pages of the auths' generated management out of the copied
@@ -1727,7 +1744,7 @@ func (s Site) Meaning() string {
 	items := []string{
 		fmt.Sprintf("Give the %s site its resources. Declare what it serves in `apps/%s/pkg/resources` (a resource another site serves too is declared identically in both; a type every site's pages spell the same way moves to `pkg/sharedresources`), and regenerate.", s.Name, s.Name),
 		fmt.Sprintf("Serve it in the integration suite: `test/integration` serves the first site only; serve the %s site beside it over the same database, as the reference's harness does, and prove that a login on one site opens the other only where the auth is shared.", s.Name),
-		fmt.Sprintf("Make the %s site's browser application its own: its titles, its pages, and the API prefix it proxies still say what the first site's do.", s.Name),
+		fmt.Sprintf("Make the %s site's browser application its own: its titles, its pages, and the API prefix it proxies still say what the first site's do. Where it carries a brand declaration (`brand.json`), that is the first site's too: give it the site's own name, logo and colors and run `impulse brand`, which writes them into `pkg/brand` and names the line that hands the site's brand to the maintenance page in its main (`maintenance.Brands`).", s.Name),
 		fmt.Sprintf("Register it outside the repository: the deployment's build (Cloud Build path filters, Cloud Run source directories) has `apps/%s` to build and a host for the %s site to serve%s. The CI workflow needs nothing: it is rendered from the code, and its `angular-%s` job builds, lints and tests the site's browser workspace.", s.Name, s.Name, s.deployNote(), s.Name),
 	}
 	for i, item := range items {

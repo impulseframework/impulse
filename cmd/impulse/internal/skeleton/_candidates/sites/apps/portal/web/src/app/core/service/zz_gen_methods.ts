@@ -86,6 +86,12 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
+  /**
+   * Set on a method that warns before it runs (@warning): the server writes what the
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
+   * warning style and holds its confirm button until the person has typed the word.
+   */
+  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 

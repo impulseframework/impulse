@@ -30,7 +30,8 @@ import {
   SortRule,
   withoutOrphanedCompanions,
 } from '@impulseframework/resource-angular/grid';
-import { pageRouteResolver, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
+import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
+import { Domain, TenantProperty } from '@impulseframework/resource';
 import {
   AlertType,
   ChildResourceConfig,
@@ -68,7 +69,7 @@ import { applyFormatting, formatByDisplayType, formatDateString } from '../forma
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
-import { filledMethods, offered, OfferedMethod, rowMethods } from '../row-methods/row-methods';
+import { filledMethods, offered, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -89,6 +90,7 @@ import {
   searchEligibility,
 } from './list-request';
 import { listableColumns, sameColumns } from './listable-columns';
+import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
 
 @Component({
   standalone: true,
@@ -137,6 +139,10 @@ export class ResourceListComponent implements OnInit {
 
   showCreateButton = computed(() => {
     const config = this.config();
+    // A list across tenants reads alone: a row is created inside one tenant.
+    if (this.across()) {
+      return false;
+    }
     if (config.createTitle !== '' && !config.collapsible && !this.hideCreateButton()) {
       return true;
     }
@@ -206,6 +212,12 @@ export class ResourceListComponent implements OnInit {
     return total !== undefined && total > 0 ? `${title} (${total})` : title;
   });
 
+  /**
+   * The page's standing notice, said from the rows the page holds; empty where the
+   * page gives none, or where its rows give it nothing to say.
+   */
+  notice = computed(() => this.config()?.notice?.(this.store.page().rows) ?? '');
+
   indentTitle = computed(() => {
     if (this.config() === undefined) {
       return false;
@@ -231,9 +243,27 @@ export class ResourceListComponent implements OnInit {
    * single key; undefined when a compound key has no rowRoute. A rowRoute naming a
    * field with no target in the metadata throws here, naming the field.
    */
-  rowTarget = computed(() => rowRouteTarget(this.config().primaryResource, this.config().rowRoute, this.resourceMeta, resourcePageRoute));
+  rowTarget = computed(() =>
+    rowRouteTarget(this.config().primaryResource, this.config().rowRoute, this.resourceMeta, resourcePageRoute),
+  );
   /** Puts the page's tenant into a registered route a row link is built from, where the route names the tenant parameter. */
   private readonly resolvePageRoute = pageRouteResolver();
+  /**
+   * Whether the page lists the resource across tenants (ListViewConfigOptions.acrossTenants):
+   * the rows come from every tenant the person reaches, each naming its tenant, the page
+   * is bound to no tenant, and it reads alone.
+   */
+  across = computed(() => this.config().acrossTenants === true);
+  /**
+   * The page a row of a list across tenants opens on: where the application mounts a row
+   * route for the record a row opens (rowPageRoute), as its config wrote the route.
+   * Undefined when the application mounts none, and then the rows draw no link: a link
+   * leads to the row itself in its tenant or it is not drawn.
+   */
+  acrossRowRoute = computed(() => {
+    const target = this.across() ? this.rowTarget() : undefined;
+    return target ? rowPageRoute(target.resource) : undefined;
+  });
   /**
    * Whether rows are deleted from the list: the write resource's key is compound, so a
    * row has no page of its own to delete from, and the digest grants Delete on it. A
@@ -241,7 +271,8 @@ export class ResourceListComponent implements OnInit {
    */
   deletesFromList = computed(() => {
     const meta = this.writeMeta();
-    if (!meta || meta.deleteDisabled || keyFields(meta).length < 2) {
+    // A list across tenants reads alone: a row is deleted on its page inside its tenant.
+    if (this.across() || !meta || meta.deleteDisabled || keyFields(meta).length < 2) {
       return false;
     }
     return this.auth.hasPermission({ resource: this.writeResourceName(), permission: DeletePermission });
@@ -253,7 +284,9 @@ export class ResourceListComponent implements OnInit {
    */
   rowMethodNames = computed<string[]>(() => {
     const config = this.config();
-    if (config.rowMethods === false || !config.primaryResource) {
+    // A method runs inside one tenant, so a list across tenants offers none: the
+    // row's page inside its tenant does.
+    if (config.rowMethods === false || !config.primaryResource || this.across()) {
       return [];
     }
     return this.store.methodsTargeting(config.primaryResource);
@@ -265,9 +298,14 @@ export class ResourceListComponent implements OnInit {
    * does not name.
    */
   filledMethodNames = computed<string[]>(() =>
-    (this.methodPresentations() ?? [])
-      .filter((presentation) => presentation.fill && !presentation.hidden && !this.store.methodMeta(presentation.method)?.target)
-      .filter((presentation) => this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }))
+    (this.across() ? [] : (this.methodPresentations() ?? []))
+      .filter(
+        (presentation) =>
+          presentation.fill && !presentation.hidden && !this.store.methodMeta(presentation.method)?.target,
+      )
+      .filter((presentation) =>
+        this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
+      )
       .map((presentation) => presentation.method),
   );
   /** How the page presents the methods it names; undefined where it names none. */
@@ -276,15 +314,21 @@ export class ResourceListComponent implements OnInit {
     return rowMethodsConfig === false ? undefined : rowMethodsConfig;
   });
   /**
-   * The methods offered above the list: the ones the page names (`listMethods`), each
-   * drawn when the digest grants the caller Execute on it in the selected tenant.
+   * The methods offered above the list: the ones the page names (`listMethods`). One
+   * that names no row is drawn when the digest grants the caller Execute on it in the
+   * selected tenant. One that names a row (`@target`) runs against the row the list sits
+   * under, so it is drawn when the server's answer for that row lists it: the page
+   * offers it only where the caller may run it on that row, and where the page's own
+   * predicate, told the rows the list shows, does not say no.
    */
   listMethods = computed<OfferedMethod[]>(() => {
-    const presentations = this.config().listMethods ?? [];
+    const presentations = this.across() ? [] : (this.config().listMethods ?? []);
     return presentations
       .filter((presentation) => !presentation.hidden)
       .filter((presentation) =>
-        this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
+        this.store.methodMeta(presentation.method)?.target
+          ? parentOffers(this.relatedData(), presentation, this.store.page().rows)
+          : this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
       )
       .map((presentation) => offered(presentation.method, this.store.methodMeta(presentation.method), presentations));
   });
@@ -326,6 +370,11 @@ export class ResourceListComponent implements OnInit {
    */
   listableFields = computed<ReadonlySet<string> | undefined>(() => {
     const resource = this.config().primaryResource;
+    // Across tenants no one digest speaks for the rows: the server decides, tenant by
+    // tenant, which of the page's columns a row shows, and nothing narrows here.
+    if (this.across()) {
+      return undefined;
+    }
     return resource ? this.listableOf(resource) : undefined;
   });
 
@@ -402,13 +451,21 @@ export class ResourceListComponent implements OnInit {
     if (!target) {
       return false;
     }
+    // Across tenants a row opens inside its own tenant: the column is drawn where the
+    // application mounts the record a row route, and each row carries its own link, drawn
+    // where that tenant's digest lets the person read the record (processedRowData).
+    if (this.across()) {
+      return this.acrossRowRoute() !== undefined;
+    }
     return this.auth.hasPermission({ resource: target.resource, permission: ReadPermission });
   });
 
   /** Whether the digest left this page no column to ask for. */
   noListableColumns = computed(
     () =>
-      this.listableFields() !== undefined && (this.config().listColumns || []).length > 0 && this.listColumns().length === 0,
+      this.listableFields() !== undefined &&
+      (this.config().listColumns || []).length > 0 &&
+      this.listColumns().length === 0,
   );
 
   /**
@@ -476,7 +533,9 @@ export class ResourceListComponent implements OnInit {
 
   /** A header click: the sorts to request next; the store drops the cursor and asks for a first page. */
   onSortChange(sorts: SortRule[]): void {
-    this.store.sorts.set(sorts as FieldSort[]);
+    // The tenant column of a list across tenants is not a field of the resource: a
+    // click on its header sorts nothing.
+    this.store.sorts.set((sorts as FieldSort[]).filter((sort) => (sort.field as string) !== TenantProperty));
   }
 
   /**
@@ -486,7 +545,13 @@ export class ResourceListComponent implements OnInit {
    */
   onFilterChange(filters: ColumnFilter[]): void {
     this.store.columnFilters.set(
-      withoutOrphanedCompanions(filters, this.filterability(), this.configFilterFields(), this.searches(), this.boxActive()),
+      withoutOrphanedCompanions(
+        filters,
+        this.filterability(),
+        this.configFilterFields(),
+        this.searches(),
+        this.boxActive(),
+      ),
     );
   }
 
@@ -546,6 +611,19 @@ export class ResourceListComponent implements OnInit {
     const cols = this.rootColumns();
     const columns: ColumnConfig[] = [];
     const usedIds = new Set<string>();
+
+    if (this.across()) {
+      // Each row of a list across tenants says which tenant it is in: the first column
+      // names it, under the application's word for a tenant.
+      usedIds.add(TenantProperty);
+      columns.push({
+        id: TenantProperty as FieldName,
+        header: tenantWord(this.store.client.descriptor),
+        filterable: false,
+        valueFormatter: (tenant: DataType | null): string =>
+          tenant ? this.store.client.permissions.domainName(tenant as Domain) : '',
+      });
+    }
 
     for (const col of cols) {
       const indexId = this.getUniqueId(col.id, usedIds) as FieldName;
@@ -655,13 +733,17 @@ export class ResourceListComponent implements OnInit {
         id: 'view' as FieldName,
         header: 'View',
         hideHeader: true,
-        buttonConfig: {
-          label: 'View',
-          icon: 'arrow_forward',
-          viewRoute: this.resolvePageRoute(ownPage ? this.viewRouteFallback() || '' : target.route),
-          keyField: target.keyField,
-          actionType: 'link',
-        },
+        buttonConfig: this.across()
+          ? // Each row opens inside its own tenant: the link rides the display row
+            // (processedRowData), built from the target's route and the row's tenant.
+            { label: 'View', icon: 'arrow_forward', linkField: acrossTenantsLinkKey, actionType: 'link' }
+          : {
+              label: 'View',
+              icon: 'arrow_forward',
+              viewRoute: this.resolvePageRoute(ownPage ? this.viewRouteFallback() || '' : target.route),
+              keyField: target.keyField,
+              actionType: 'link',
+            },
       });
     }
 
@@ -729,8 +811,24 @@ export class ResourceListComponent implements OnInit {
     const methods = this.rowMethodNames();
     const filled = this.filledMethodNames();
 
+    const target = this.across() ? this.rowTarget() : undefined;
+    const rowRoute = this.acrossRowRoute();
+    const tenantParam = this.store.client.descriptor.domainRoute?.param;
+
     return data.map((row) => {
       const updatedRow = { ...row };
+      if (target && rowRoute && tenantParam) {
+        // The row's own link: the record's row route inside the tenant the row is in,
+        // drawn where the person may read the record there, as the row route asks. The
+        // tenant's digest answers; until it has loaded the row draws no link.
+        const tenant = row[TenantProperty];
+        const reads =
+          typeof tenant === 'string' &&
+          this.auth.hasPermission({ resource: target.resource, permission: ReadPermission, domain: tenant as Domain });
+        updatedRow[acrossTenantsLinkKey] = reads
+          ? tenantLink(rowRoute, tenantParam, tenant, row[target.keyField ?? 'id'])
+          : undefined;
+      }
       for (const col of columns) {
         if (col.valueGetter) {
           updatedRow[col.id] = col.valueGetter(row);
@@ -785,7 +883,7 @@ export class ResourceListComponent implements OnInit {
    * run the page says so and reads its rows again, by the page's own cursor.
    */
   runMethod(method: OfferedMethod, row?: RecordData): void {
-    openMethodDialog(this.dialog, method, row, this.relatedData()).subscribe((result) => {
+    openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows).subscribe((result) => {
       if (!result) {
         return;
       }
@@ -871,6 +969,10 @@ export class ResourceListComponent implements OnInit {
     // A column over a write-only field would be a 400 from the server and an empty cell
     // otherwise: a configuration error, raised here naming the resource and the field.
     refuseWriteOnlyColumns(this.config().primaryResource, this.config().listColumns ?? [], this.meta());
+    // A list across tenants needs the resource declared for it, and reads alone: a
+    // page asking for what it cannot do is refused here, naming the resource.
+    refuseAcrossTenantsConfig(this.config().primaryResource, this.config(), this.store.client);
+    this.store.acrossTenants.set(this.across());
     if (this.meta()) {
       // The store reads the listed resource and writes the write resource.
       this.store.resourceName.set(this.writeResourceName());
@@ -942,6 +1044,21 @@ export class ResourceListComponent implements OnInit {
           signal([...entry.columns]),
         );
         this.resourceRefMap.update((map) => new Map(map).set(refKey, ref));
+      });
+
+      effect(() => {
+        // A row of a list across tenants links to its own page where its tenant's digest
+        // lets the person read it: the digests of the tenants on the page are loaded as
+        // the page arrives, each once.
+        if (!this.acrossRowRoute()) {
+          return;
+        }
+        for (const row of this.store.page().rows) {
+          const tenant = row[TenantProperty];
+          if (typeof tenant === 'string' && tenant !== '' && !this.auth.hasDigest(tenant as Domain)) {
+            this.auth.loadDigest(tenant as Domain).subscribe();
+          }
+        }
       });
 
       effect(() => {

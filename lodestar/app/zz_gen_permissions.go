@@ -17,10 +17,13 @@ import (
 // means global) and the payload is advisory and fail-closed: denied targets are
 // absent, and so is every resource, field and method gated behind a feature flag
 // that is off (resources.FeatureGates); a renamed field or method
-// (@formerly) appears under its former name too, with the same states. The generated router registers it at GET /console/api/permission-digest and,
+// (@formerly) appears under its former name too, with the same states. The global
+// digest also answers, for each resource listed across tenants (@listAcrossTenants),
+// whether the person may list it in at least one tenant the session reaches
+// (resource.ListAcrossTenants), which is who the list's page is shown to. The generated router registers it at GET /console/api/permission-digest and,
 // for each additional session-serving outlet (ServesSessions), under that outlet's prefix.
 func (a *App) PermissionDigest() http.HandlerFunc {
-	return resource.PermissionDigestHandler(a.UserPermissions, resource.WithFeatureGates(resources.FeatureGates(), a.FeatureSet()), resource.WithFormerNames(router.Collection()))
+	return resource.PermissionDigestHandler(a.UserPermissions, resource.WithFeatureGates(resources.FeatureGates(), a.FeatureSet()), resource.WithFormerNames(router.Collection()), resource.WithListsAcrossTenants(router.Collection()))
 }
 
 // UserDomains serves the session's tenant list — the sorted list of domains where
@@ -33,6 +36,9 @@ func (a *App) PermissionDigest() http.HandlerFunc {
 // outlet (ServesSessions), under that outlet's prefix.
 // Each tenant of the list carries its name from the application's tenant roster, which
 // reads the tenant record's name column, so the tenant's own people see it.
+// A tenant that is closed to the session says why, and names the directory the session
+// came through as the sign-in registrations of each auth call it, never by its
+// connection (resource.WithDirectoryNames).
 func (a *App) UserDomains() http.HandlerFunc {
-	return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()))
+	return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()), resource.WithDirectoryNames(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName))
 }

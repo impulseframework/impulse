@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/accesstypes"
+	"google.golang.org/grpc/codes"
 )
 
 func TestNew_naming(t *testing.T) {
@@ -77,7 +79,7 @@ func TestStore_isolation(t *testing.T) {
 	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor", "Edits the records of the tenant."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor"); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -90,6 +92,44 @@ func TestStore_isolation(t *testing.T) {
 	}
 	if len(records.Roles) != 0 || len(records.Grants) != 0 || len(records.Memberships) != 0 {
 		t.Errorf("ReadPolicy() on sibling store returned rows: %+v", records)
+	}
+}
+
+// TestStore_readsUnderATransactionsContext pins what the store's reads do under the
+// context of a read-write transaction of the application's: the Spanner client refuses
+// them (FailedPrecondition, "Cloud Spanner does not support nested transactions"),
+// whichever client the transaction is on, since it marks the context it hands the
+// transaction's function. The store reads on a client of its own, outside any
+// transaction, so a caller reads the policy and lists roles before it opens one. The
+// permission engine reloads on the check path with the caller's context, so a check
+// made inside a transaction right after a local policy write cannot reload here, and
+// is answered from the snapshot before the write (the engine's own test shows it).
+func TestStore_readsUnderATransactionsContext(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	store, db := prepareStore(ctx, t)
+	scope := accesstypes.DomainPolicyScope("tenant1")
+	if err := store.InsertRole(ctx, scope, "Editor", "Edits the records of the tenant."); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+	if _, err := store.ReadPolicy(ctx); err != nil {
+		t.Fatalf("ReadPolicy() outside a transaction error = %v", err)
+	}
+
+	var readErr, listErr error
+	if _, err := db.ReadWriteTransaction(ctx, func(ctx context.Context, _ *spanner.ReadWriteTransaction) error {
+		_, readErr = store.ReadPolicy(ctx)
+		_, listErr = store.ListRoles(ctx, scope)
+
+		return nil
+	}); err != nil {
+		t.Fatalf("ReadWriteTransaction() error = %v", err)
+	}
+	for name, err := range map[string]error{"ReadPolicy()": readErr, "ListRoles()": listErr} {
+		if spanner.ErrCode(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "does not support nested transactions") {
+			t.Errorf("%s under a transaction's context error = %v, want the client's refusal of a nested transaction (FailedPrecondition)", name, err)
+		}
 	}
 }
 
@@ -132,6 +172,23 @@ func TestDDL_keys(t *testing.T) {
 			"PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition)",
 			"INTERLEAVE IN PARENT AccessRoles ON DELETE CASCADE",
 		}},
+		{name: "groups are kept globally or in one domain", stmt: 4, want: []string{
+			"Id STRING(36) NOT NULL", "Name STRING(128) NOT NULL", "Description STRING(MAX) NOT NULL",
+			"CONSTRAINT AccessGroupsKind CHECK (Kind IN ('global', 'domain'))",
+			"PRIMARY KEY (Id)",
+		}},
+		{name: "a group's name is one group's where it is kept", stmt: 5, want: []string{"CREATE UNIQUE INDEX AccessGroupsByName ON AccessGroups (Kind, Axis, DomainId, Name)"}},
+		{name: "a member needs the group", stmt: 6, want: []string{
+			"CONSTRAINT AccessGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES AccessGroups (Id)",
+			"PRIMARY KEY (GroupId, UserId)",
+		}},
+		{name: "group members by user", stmt: 7, want: []string{"CREATE INDEX AccessGroupMembersByUserId ON AccessGroupMembers (UserId, GroupId)"}},
+		{name: "a group's role needs the group", stmt: 8, want: []string{
+			"CONSTRAINT AccessGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every'))",
+			"CONSTRAINT AccessGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES AccessGroups (Id)",
+			"PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role)",
+		}},
+		{name: "group roles by where they are held", stmt: 9, want: []string{"CREATE INDEX AccessGroupRolesByScope ON AccessGroupRoles (Kind, Axis, DomainId, Role)"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

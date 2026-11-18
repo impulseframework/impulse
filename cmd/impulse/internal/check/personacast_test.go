@@ -15,7 +15,7 @@ import (
 // The staff auth registering the persona method beside its password method.
 var staffPersonaAuth = strings.Replace(strings.Replace(staffAuth,
 	"\t\"github.com/impulseframework/impulse/session/sessionstorage\"\n",
-	"\t\"github.com/impulseframework/impulse/session/oidc\"\n\t\"github.com/impulseframework/impulse/session/sessionstorage\"\n\t\"github.com/impulseframework/impulse/session/signin\"\n", 1),
+	"\t\"github.com/impulseframework/impulse/session/oidc\"\n\t\"github.com/impulseframework/impulse/session/sessionstorage\"\n", 1),
 	"\tsession.PasswordSignIn(s)\n",
 	"\tsession.PasswordSignIn(s)\n\t_ = oidc.SignIn(s, \"persona\", nil, &oidc.Config{Issuer: \"https://persona.example.com\", RoleSync: signin.DisableRoleSync()})\n", 1)
 
@@ -46,6 +46,11 @@ func TestPersonaCast(t *testing.T) {
 		{
 			name: "a cast whose roles the role file defines", files: with(staffPersonaAuth, rolesDefined, castSeated),
 			wantStatus: Pass, wantSummary: "1 cast(s) name their personas and the roles seated: pkg/auth/staff/cast.json (2 persona(s))",
+		},
+		{
+			name:       "a persona who is a super administrator, the framework's role no role file defines",
+			files:      with(staffPersonaAuth, rolesDefined, `{"personas": [{"login": "root", "roles": ["SuperAdministrator", "Administrator"]}]}`),
+			wantStatus: Pass, wantSummary: "1 cast(s) name their personas and the roles seated: pkg/auth/staff/cast.json (1 persona(s))",
 		},
 		{
 			name: "a cast naming no role reads no role file", files: with(staffPersonaAuth, "", `{"personas": [{"login": "guest"}]}`),

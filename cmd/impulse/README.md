@@ -85,23 +85,28 @@ templates, this README, and the tool's source.
   makes a table the domain universe: its resource struct is the tenant record (`@tenant`),
   from which the generator derives the tenant segment tenant-scoped resources live under
   and emits the constructor of the tenant roster, the tenants as the running application
-  knows them, reloaded on the `tenants` signal so a tenant created on any instance is
+  knows them, reloaded on the `tenants` signal so a tenant made on any instance is
   usable at once, without a restart; a role held in every domain reaches every tenant. A
-  tenant's key is an id the record's create path generates, never a word a person types:
+  tenant's key is an id generated when the tenant is made, never a word a person types:
   it is the domain of every role held in the tenant and the tenant segment's value in
   every address, so it never changes and is never used twice, while the tenant's name is
   a field its administrators change, kept from a second tenant by a unique index. A
   deleted tenant takes the roles held in it and its standing invitations with it. A
   session's tenant list is the roster filtered by where it holds a grant, and a tenant
   is offered only when the session may enter it: the application's tenant declaration
-  (what the tenant declares about who may enter it, its directories and whether it
-  admits its people through them only) decides against the way the session was
-  established, so the picker never offers a tenant the session cannot enter and a direct
+  (what the tenant declares about who may enter it, its directory and whether it
+  admits its people through it only) decides against the way the session was
+  established. A declaration restricts its own tenant alone: a session reaches every
+  tenant that seats the person, except a tenant that is directory only and whose
+  directory is not the one they signed in through, which stays in the list marked
+  closed to this sign-in, with the reason, so the picker never offers a tenant the session cannot enter and a direct
   request for one is refused as a tenant that does not exist. The declaration is two
-  things on the tenant record: the directories the tenant admits its people through (a
-  child record, `@tenantDirectory`, one row per directory: a sign-in method and the
-  connection its identities carry) and whether its people enter through them only (a
-  column, `@directoryOnly`, which closes passwords); each auth's sign-in rule
+  things on the tenant record: the tenant's directory, the organization its people sign
+  in through (a child record, `@tenantDirectory`, one row for a tenant and a directory
+  in one tenant's row only, set from a sign-in through it and never typed: a sign-in
+  method and the connection its identities carry) and whether its people enter through
+  it only (a column, `@directoryOnly`, which closes the tenant to every sign-in but one
+  through its directory, and closes no other tenant); each auth's sign-in rule
   (`signin.TenantPolicy` over the generated `New<Record>DeclarationReader`) reads it at
   sign-in, the roster keeps a copy for every request, and the records' change events are
   the audit. The skeletons' consoles carry it on the tenant's Sign-in page.
@@ -116,14 +121,19 @@ templates, this README, and the tool's source.
   same page under the chosen tenant; a URL naming a tenant the session cannot reach lands
   on a refusal page that shows the server's answer, never on another tenant.
 
-  Who may create a tenant is declared on the record, apart from who may enter one:
-  `@tenant` alone keeps it to an administrator (the record's create path under a Create
-  grant), `@tenant(creation: self-service)` lets a person who signed in holding no tenant
-  create their own through the generated create-your-tenant route and become its
-  administrator, and `@tenant(creation: both)` keeps both ways. The order is sign in
-  first, then name the tenant, so self-service needs a registration admitting open
-  sign-up on the outlet's auth (`.OpenSignUp()` on the method declaration), which the
-  generator holds it to.
+  How a tenant comes to exist is apart from who may enter one, and no declaration.
+  Nobody creates a tenant directly: the record's create is refused with a sentence that
+  says so. Staff bring an organization in by inviting one person, on the Invited tenants
+  page the library draws from the auth's generated management: the invitation carries
+  the tenant's details as staff entered them, held to the record's own create under the
+  sender's Create grant when it is sent, and the invited person's first sign-in makes
+  the tenant, makes them its administrator and, where they came through their
+  organization's directory, makes that directory the tenant's. A person who signed up
+  holding no tenant creates their own through the generated create-your-tenant route
+  and becomes its administrator. There the order is sign in first, then name the tenant,
+  so the route serves only while an administrator has a sign-in method of the outlet's
+  auth open to sign-up, which is chosen in the running application, on the auth's
+  Sign-in page.
 - **Levels**: the configuration chain in `pkg/config`, one level per kind of process, each
   embedding the one below it: **core** (every process), **data** (every process that opens
   the database), and **site** (one served site: its port and its built bundle). The site
@@ -261,7 +271,12 @@ zero pseudo-version and `go.mod` gains `replace github.com/impulseframework/impu
 for development and never for committing.
 
 The tree is committed as the application's first commit (`--skip-git` leaves it
-uncommitted), so `impulse add` can start from a clean tree. Options come afterwards, one reviewable change each:
+uncommitted), so `impulse add` can start from a clean tree. `new` installs nothing, so the
+browser files it writes under the application's own names (a longer auth name makes a
+longer line) are not wrapped as the web root's prettier would wrap them: the steps it
+prints say to run `impulse check --only prettier --fix` once after the web root's install,
+and `impulse check` fails on the files it names until then (section impulse check,
+`prettier`). Options come afterwards, one reviewable change each:
 `impulse add tenancy`, `impulse add outlet`, `impulse add auth`, `impulse add files`,
 `impulse add job`.
 
@@ -279,9 +294,28 @@ The first auth signs in with a password; a directory method joins it afterwards 
 `impulse add method` (section add auth), registered beside the password method on the
 same Auth, so nothing about the auth's tables moves.
 
+`--one-tenant-per-person` goes with `--tenancy` and says a person belongs to one tenant
+(section add tenancy); without it a person can be in several. `--shape <name>` starts the
+application from a sign-in shape by name (section impulse audit lists the eight): `new`
+takes the four an application with tenants has, `tenant-owned-users-invite-only` (5),
+`tenant-owned-users-by-directory` (6), `global-users-invite-only` (7) and
+`global-users-each-tenant-chooses` (8). The shape composes `--tenancy` and fills in the
+tenants' choices: the two tenant-owned shapes hold a person to one tenant, and in the two
+global ones a person can be in several. The two invite-only shapes are the new
+application as it is, since its first auth signs in with a password and no tenant's
+people come through an organization's directory. For the other two the command says
+which `impulse add method` adds the directory method a tenant's people come through, and
+until it is added `impulse audit` reads the application as the invite-only shape beside
+it. A flag that contradicts the shape is refused before anything is written, naming both
+(`--shape global-users-invite-only --one-tenant-per-person`, `--shape` with
+`--tenancy=false`), and a name the command does not know is refused with the names it
+knows. The four shapes of an application without tenants are told apart by a sign-in
+method's choices, so `impulse add auth` and `impulse add method` take those.
+
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent
 impulse new ./fleet --module example.com/fleet --auth crew --site console --site portal
+impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned-users-by-directory
 ```
 
 The application ships its CI, and impulse owns it. Three workflows are rendered from the
@@ -322,7 +356,14 @@ so the gate covers every job:
   (its baseline is the pull request's base branch, so a patch release-line pull request diffs
   against its own base); and `go tool impulse check` with its regeneration (the generators
   start the Spanner emulator in a container, which the runner has), failing on a tree the
-  checks changed. The pins fix the engines, not what they know: govulncheck reads
+  checks changed. `go-check` installs every browser workspace first (`bun ci`, as the
+  workspace's own job does), so the `prettier` check runs there and a browser file that is
+  not formatted fails the pull request: the formatter comes with the install, and where
+  the packages are not installed the check only says it was not run. The install is in
+  this job and not the check in the workspace's, since the job has Go and the tool
+  already and an install costs seconds, where a workspace's job would have to set Go up
+  and compile the tool to run one check.
+  The pins fix the engines, not what they know: govulncheck reads
   vuln.go.dev, Grype (in `image`) downloads its vulnerability database and Semgrep fetches
   its registry rules when the job runs, so a workflow at an old pin still finds a
   vulnerability published after it; TruffleHog's detectors, golangci-lint's linters and
@@ -481,6 +522,7 @@ any of them is broken. Run it from the application root, or point it at one:
 impulse check
 impulse check --app path/to/app --skip-generate
 impulse check --only prettier-ignore,env-template --fix
+impulse check --only prettier --fix             # once the web roots' packages are installed
 impulse check --list
 ```
 
@@ -495,14 +537,16 @@ impulse check --list
 | `web-wired` | Every browser application bound to a session outlet is bound to the outlet's auth: every `Resources.<Name>` its hand-written TypeScript takes from the generated constants is one its generated client exports; every request it makes for the pages of an auth's generated management (`identityRoutes` or `identityPages` naming `auth: '<Auth>'` and a `scope`) names an auth and a side the outlet's generated API description carries (`zz_gen_api.ts`, its `identity` entries, which a program without `GenerateIdentity` leaves empty); and the cookie its `withXsrfConfiguration` names is the XSRF cookie the outlet's auth issues (`<auth>-xsrf`, as `pkg/auth/<auth>` declares it; every auth's under a hand-written router). A site's browser application starts as a copy of the console's, bound to the console's auth; a stale resource name fails the browser's own build (TS2339), which no Go build sees, a request for pages the description does not carry is refused by the library when the application loads, which no build sees at all, and a stale cookie has the server refuse every mutating request. `impulse add auth --outlet <site>` rewrites the routes and the cookie in the sites layout, and each line under the check names the file, what it carries, and what to write. |
 | `login-pages` | Every auth bound to a browser outlet (an outlet declaring `Auth(...)` and `WebApp("<mount>")`) returns a refused or waiting sign-in to that outlet's login page: the `LoginURL` its settings construction on the data level names (`<auth>.Settings{...}`, outside tests) is the mount path joined with `/login` (`/login` at the root, `/console/login`, `/portal/login`), the session library's default `/login` standing for a construction naming none when the outlet declares a directory method (the password method answers its own post and sends nobody anywhere, so a password-only auth's construction may name none), and where the construction names `MailLoginURL` (`env.PublicURL + "<path>"`) the quoted path is the same page, so every mailed link opens it. The library sends a refused directory sign-in (`?code=`) and a sign-in waiting for its confirmation (`?pending=`) to `LoginURL`; a console moved from `/` to `/console/` that kept `/login` sends both to a page nothing serves, which no build or generation sees. When a machine outlet carries the auth's tokens (`Tokens("<module>/pkg/auth/<name>")`), the construction's `DevicePage` is the mount path joined with `/device` (`/console/device`), the page a device authorization sends a command-line client's person to for approval, the library's default `/device` standing for a construction naming none; a construction naming a `DevicePage` is held to the page whether or not a machine outlet carries the auth's tokens. A mismatch fails naming the file, the auth, what it holds and the outlet's page, with the value to set; a value that is not a string literal fails too, since the check cannot read it. An auth bound to no browser outlet is passed over with a reason, an auth whose settings no file outside tests builds warns, and an application whose outlets serve no browser application is skipped. |
 | `login-held` | Every login page rendering the library's login component (`<impulse-login-methods>`) holds its card back while the component's arrival reads are in flight: the page gives the component a template reference (`<impulse-login-methods #methods ...>`), reads its arriving signal (`methods.arriving()`, the component's word that the methods the server lists and the session are still being read), and, where the read binds a class on the card (`[class.arriving]="methods.arriving()"` on the `<mat-card class="login-card">`), a stylesheet of the page (the ones the component names in `styleUrl`/`styleUrls`, its inline `styles`, or the template's sibling) hides it (`.login-card.arriving { visibility: hidden }`); a page reading the signal another way (`@if`, `[hidden]`) holds its card as well. The component renders nothing while it is arriving, so a page that does not hold its card shows an empty card and then fills it, where a page shows nothing until it knows what it renders and then renders whole, the way a page loads, with no progress bar on every load. The skeletons' login pages carry the shape; an application's own login page takes it by hand, which no build or generation sees. A browser application rendering the component nowhere is a warning, since the check cannot read a login page of the application's own making. |
-| `maintenance-switch` | Every site's main checks `maintenance.Requested()` before it builds the site configuration (`config.NewSiteConfiguration`), and serves `maintenance.Serve(ctx)` when it is set: the deploy pipeline starts a maintenance revision of the application's own image with `APP_MAINTENANCE` set before a release that replaces or interrupts the database, and that revision must open no database, session store or secret. A main that builds the configuration first, or checks the switch after it, fails; a main that builds no site configuration is a warning, since the check cannot tell where the switch belongs. |
+| `maintenance-switch` | Every site's main checks `maintenance.Requested()` before it builds the site configuration (`config.NewSiteConfiguration`), and serves `maintenance.Serve(ctx, brands)` when it is set, with the brands of the browser applications it serves by mount path (`pkg/brand`, which `impulse brand` writes), so the page says whose it is: the deploy pipeline starts a maintenance revision of the application's own image with `APP_MAINTENANCE` set before a release that replaces or interrupts the database, and that revision must open no database, session store or secret. A main that builds the configuration first, or checks the switch after it, fails; a main that builds no site configuration is a warning, since the check cannot tell where the switch belongs. |
 | `session-tables` | Every session Auth constructed outside tests (`session.NewAuth`) reads tables a migration creates: its sessions, users, identities, pending sign-ins and sign-in attempts tables, the mail links, sign-in codes and trusted devices tables when it sends mail (`session.WithMail`), the tokens and device codes tables when a machine outlet names it as its issuer, and the auth events, impersonation and custom data tables when the storage attaches them. Two Auths never share a table. Every Auth registers at least one sign-in method (`session.PasswordSignIn`, `azure.SignIn`, `google.SignIn`, `oidc.SignIn` for the persona method), each under a registration name the scan can read, once; a method registered on an identifier that names no construction the scan sees is a finding. The report lists the auths, each named by its package when it lives in one (`pkg/auth/<name>`), with its methods (the registration name, the method behind it when the two differ, and a directory method's role-membership authority: directory for `RoleSync`, application for `DisableRoleSync`), its tables, and its session and XSRF cookies when named. |
 | `migrations-reader` | The schema sequence creates the `migrations_reader` database role and grants it select on the `SchemaMigrations` table (`CREATE ROLE migrations_reader`, `GRANT SELECT ON TABLE SchemaMigrations TO ROLE migrations_reader`, read statement by statement over the up files), which the pipeline's migration guard reads each environment's migration version through on a consolidation; the environment layer grants the test environment's deploy identity the role on the other environments' databases. The skeleton's first migration carries the statements; a sequence without them fails naming the migration to add at its next free index, which `impulse upgrade` writes. |
-| `auths-wired` | Every auth package (`pkg/auth/<name>`, constructing a session Auth) is constructed by the data level (`<name>.New` called outside tests), carries its role file (`pkg/auth/<name>/roles.json`, embedded by a `//go:embed roles.json` directive, exported as `<name>.Roles()`, and handed to the permission engine by an `access.WithDefaultRoles` call outside tests, in the package or on the data level; the file exists), and bound by a surface: an outlet declaring `Auth("<module>/pkg/auth/<name>", <methods>)` naming the methods the package registers (the generated router mounts the login routes of the methods declared, so a method declared but not registered, registered but not declared, or declared as another kind is a finding; the password method's `.OpenSignUp()` and `.UsernameIsEmail()` are said on the declaration and the registration both or neither, and a directory method's `.SyncsRoles()` is chained exactly where the registration's `RoleSync` writes the roles, since the generated management leaves a role to the directory on the declaration's word alone; a registration that writes the roles stands alone on its auth, so a second method beside it is a finding, and the session library refuses it at construction), or a package outside `config` and `cmd/` taking `*<name>.Auth`. An outlet bound to a package that is no auth package is a finding. No two auth packages issue the same cookie, session, XSRF or trusted-device, a name left unset being the session library's default (`auth`, `XSRF-TOKEN`, `auth-trusted`); the browser keeps one cookie of a name per host, so a login to one auth would overwrite the other's, and a browser one auth remembers after a sign-in code would forget the other's remembered browsers. A directory method that hands role membership to its directory (`RoleSync`) has no role writer in the application reaching its auth's store, since the directory removes those roles at the next sign-in. A role file handed to the engine that no test validates warns: a `_test.go` calling `access.ValidateRoles` while parsing the auth's `Roles()` is where the warnings the deploy prints are pinned as typed values, so without it a warning is accepted nowhere in code. Auths outside auth packages warn. |
-| `roles-file` | Every auth package's role file (`pkg/auth/<name>/roles.json`) parses the way the permission engine reads it when the release starts, with no permission collection (`access.RoleFile.Parse`): every role is named in the one grammar, letters and digits starting with a capital letter (`Administrator`, `TenantAdministrator`), with the scope never part of the name; every role carries a `description`, one or two plain sentences saying what the role is for; and every grant names a resource, with a condition that parses. A file the engine would refuse stops the release at start, so the refusal is a finding here, naming the file, the role and the rule. What the file grants is validated against the collection by the engine and by the validation test `auths-wired` asks for; this reads the file alone. An application with no auth package is skipped. |
-| `persona-cast` | Every Auth registering the persona method (`oidc.SignIn`) has its cast beside it (`pkg/auth/<name>/cast.json`): the file parses the way the migrate command seeds it and the deploy registers it with the persona provider (at least one persona; every login lowercase letters, digits, dots, underscores and hyphens starting with a letter; no login twice), and every role a persona names is defined in the auth's role file, since `SeedCast` seats each persona in its roles and a role the file does not define grants nothing. The empty cast `add method persona` writes is a finding until it is filled in. An application whose Auths register no persona method is skipped. |
-| `directory-admission` | An application whose tenant record declares directories (a struct annotated `@tenantDirectory` in a site's resource package, the skeletons' `TenantDirectory`) is wired to seat a stranger the directory vouches for: the directories record declares a column annotated `@directoryDefaultSeat` (the skeletons' nullable `DefaultSeat`, the tenant's role the stranger is seated with at their first sign-in, NULL where the tenant admits them by invitation only); every auth whose roles the application assigns (one registering no method with `RoleSync`, whose directory would write them) calls `SetDirectoryAdmission` on its session Auth (`authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`, over the generated directory reader its Settings carry and the hook of the identity client its `New` builds, which gives the role in the transaction that creates the person), so a stranger from a declared directory is created seated with the row's role or refused with no account (`invitation_only`); and a role in a role file handed to the permission engine grants `Update` on the directories record with the default seat field (`TenantDirectories` with `defaultSeat`: the record's plural as the generator derives it or `WithPluralOverrides` names it, and the field's wire name), so the tenant's administrator chooses the seat on the Sign-in page. An application whose tenant record declares no directories is skipped. When the check fails under `impulse handoff`, the brief carries the pattern. |
-| `tenant-accounts` | In an application whose program generates the management of its auths' people (`GenerateIdentity`) beside a tenant record, every grant a tenant's role (a domain role of the auth's role file) carries on a generated method that changes a person's account carries a condition that reads the person's row. The methods are the tenant's side of the account methods, named as the generator names them (`Disable<Auth><Tenant>User`, `Enable…`, `Delete…`, `Rename…`, `Set<Auth><Tenant>UserName`, `Set<Auth><Tenant>UserEmail`, `Set<Auth><Tenant>TemporaryPassword`, `Require<Auth><Tenant>PasswordChange`, `End<Auth><Tenant>UserSessions`, `Revoke<Auth><Tenant>UserTrustedDevices`, `Unlink<Auth><Tenant>SessionIdentity`). An account is one for the whole application, so what a tenant may do to a person another tenant or the application's own staff also holds is a rule, and the generated management leaves it to the role file: each of these methods names a row of the tenant's list of people, whose facts a condition reads (`heldElsewhere`, `heldGlobally`). The skeletons grant them under `heldElsewhere = false AND heldGlobally = false`; another rule over the row is the application's to choose. A grant with no condition, or with one that reads the request alone, states no rule about the person and is a finding. The methods that give or take a role in the tenant and that invite to it are the tenant's own and are not held to this. An application with no tenant record, or whose programs generate no management, is skipped. |
+| `auths-wired` | Every auth package (`pkg/auth/<name>`, constructing a session Auth) is constructed by the data level (`<name>.New` called outside tests), carries its role file (`pkg/auth/<name>/roles.json`, embedded by a `//go:embed roles.json` directive, exported as `<name>.Roles()`, and handed to the permission engine by an `access.WithDefaultRoles` call outside tests, in the package or on the data level; the file exists), and bound by a surface: an outlet declaring `Auth("<module>/pkg/auth/<name>", <methods>)` naming the methods the package registers (the generated router mounts the login routes of the methods declared, so a method declared but not registered, registered but not declared, or declared as another kind is a finding; the password method's `.UsernameIsEmail()` is said on the declaration and the registration both or neither, and a directory method's `.SyncsRoles()` is chained exactly where the registration's `RoleSync` writes the roles, since the generated management leaves a role to the directory on the declaration's word alone; a registration that writes the roles stands alone on its auth, so a second method beside it is a finding, and the session library refuses it at construction), or a package outside `config` and `cmd/` taking `*<name>.Auth`. An outlet bound to a package that is no auth package is a finding. No two auth packages issue the same cookie, session, XSRF or trusted-device, a name left unset being the session library's default (`auth`, `XSRF-TOKEN`, `auth-trusted`); the browser keeps one cookie of a name per host, so a login to one auth would overwrite the other's, and a browser one auth remembers after a sign-in code would forget the other's remembered browsers. A directory method that hands role membership to its directory (`RoleSync`) has no role writer in the application reaching its auth's store, since the directory removes those roles at the next sign-in. A role file handed to the engine that no test validates warns: a `_test.go` calling `access.ValidateRoles` while parsing the auth's `Roles()` is where the warnings the deploy prints are pinned as typed values, so without it a warning is accepted nowhere in code. Auths outside auth packages warn. |
+| `roles-file` | Every auth package's role file (`pkg/auth/<name>/roles.json`) parses the way the permission engine reads it when the release starts, with no permission collection (`access.RoleFile.Parse`): every role is named in the one grammar, letters and digits starting with a capital letter (`Administrator`, `TenantAdministrator`), with the scope never part of the name, and none takes the name of the role the framework defines in every auth (`SuperAdministrator`, in any case); every role carries a `description`, one or two plain sentences saying what the role is for; and every grant names a resource, with a condition that parses. A file the engine would refuse stops the release at start, so the refusal is a finding here, naming the file, the role and the rule. What the file grants is validated against the collection by the engine and by the validation test `auths-wired` asks for; this reads the file alone. An application with no auth package is skipped. |
+| `super-administrators` | Every auth package with a role file tells its Auth who the auth's own super administrators are. An auth with a role file has the Super Administrator role, which the framework defines in every auth, and the session library holds its holders to a second factor whatever the sign-in rule asks of anyone else, except at a sign-in through a directory that writes the roles, where the directory decides who holds the role; it learns who they are from the argument `session.NewAuth` takes after the cookie key. The compiler holds an application to passing the argument, and this check to passing the right one: `session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))`, over the permission engine the package's `New` opens with its own `Roles()` (`access.New` with `access.WithDefaultRoles(collection, Roles())`), as `add auth` writes it. Three things fail: `session.NoSuperAdministrators()`, which compiles and leaves a holder to the sign-in rule alone; a check over an engine the constructor opens with another auth package's role file (`<other>.Roles()`), which is that auth's engine; and a check taken from another auth's package. Either holds another auth's holders, or nobody, to the factor. The check reads what the constructor shows, following the check through the identifiers the function assigns. An argument that reads some other way, a check written by hand as a function, an engine opened outside the constructor (handed in by the data level, say), or an engine whose role file does not read there or is no auth package's cannot be followed, so whose engine it is goes unjudged and the result is a warning naming the construction. An auth package without its role file is `roles-file`'s and `auths-wired`'s finding, and an application with no auth package is skipped. |
+| `persona-cast` | Every Auth registering the persona method (`oidc.SignIn`) has its cast beside it (`pkg/auth/<name>/cast.json`): the file parses the way the migrate command seeds it and the deploy registers it with the persona provider (at least one persona; every login lowercase letters, digits, dots, underscores and hyphens starting with a letter; no login twice), and every role a persona names is defined in the auth's role file, since `SeedCast` seats each persona in its roles and a role the file does not define grants nothing, or is the framework's `SuperAdministrator`, which no role file defines and `SeedCast` seats in the global partition. The empty cast `add method persona` writes is a finding until it is filled in. An application whose Auths register no persona method is skipped. |
+| `directory-admission` | An application whose tenant record declares directories (a struct annotated `@tenantDirectory` in a site's resource package, the skeletons' `TenantDirectory`) is wired to seat a stranger the directory vouches for: the directories record declares a column annotated `@directoryDefaultSeat` (the skeletons' nullable `DefaultSeat`, the tenant's role the stranger is seated with at their first sign-in, NULL where the tenant admits them by invitation only); every auth whose roles the application assigns (one registering no method with `RoleSync`, whose directory would write them) calls `SetDirectoryAdmission` on its session Auth (`authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`, over the generated directory reader its Settings carry and the hook of the identity client its `New` builds, which gives the role in the transaction that links the person's account to the directory), so a stranger from a tenant's directory is created seated with the row's role or refused with no account (`invitation_only`), and a person whose account stood before is given the role at their first sign-in through the directory; and a role in a role file handed to the permission engine grants `Execute` on the two generated methods that say how a tenant admits its directory's people (`Open<Record>ToDirectory`, which names the role behind its warning, and `Make<Record>InviteOnly`, which clears it; the skeletons' `OpenTenantToDirectory` and `MakeTenantInviteOnly`), so the tenant's administrator makes the choice on the Sign-in page; the record's own update never writes the default seat. An application whose tenant record declares no directories is skipped. When the check fails under `impulse handoff`, the brief carries the pattern. |
+| `first-administrator` | In an application whose tenant record declares directories (`@tenantDirectory`), the first administrator each auth's migrate command seeds can sign in. An auth whose people sign in through a directory and whose roles the application assigns seeds its first administrator with no password, under the sign-in name the directory will present (`SeedAdministrator` in `pkg/auth/<name>/foothold.go`), and where tenants have directories a name alone links no account that has never signed in: the sign-in rule links the seed only when its id says which registration the name is believed from (`session.SeedUserIDThrough` in `seedFoothold`), and only through that registration while it admits one organization and nobody else. `impulse add auth` writes that id for an auth whose one directory method is of one Microsoft Entra tenant or one Google Workspace; for any other auth (several directory methods, one open to more than one organization, an organization's identity provider) it seeds for no registration, and the deployment would seed an administrator who can never sign in. The check fails for such an auth and passes once it registers the password method and its seed gives the administrator a password (the `session.CreateUserRequest` in `SeedAdministrator` sets `Password`, as `impulse add auth` writes it for an auth that starts with the method; `impulse add method <name> password` adds the method and leaves the seed as it was, which does not pass), or once its foothold derives the id with `session.SeedUserIDThrough` over the registration that is the deployment's own directory. The seed is read in `SeedAdministrator` and `seedFoothold`. A `SeedUserIDThrough` the author wrote is the author's word that the directory is the deployment's own; the check holds it to naming one of the auth's directory registrations and to a registration of one organization and nobody else, where it reads the registration's slot: for a Microsoft registration one tenant and no personal accounts, for a Google registration one Workspace of one domain (`google.Workspace` alone, with the name and that domain) and no other Google account, since the sign-in rule counts a Workspace by its domains; the width of any other registration, and of a slot written in a form the check does not read, is the author's word. Skipped where no tenant record declares directories, and for an auth whose directory writes the roles or that seeds nobody. |
+| `tenant-accounts` | In an application whose program generates the management of its auths' people (`GenerateIdentity`) beside a tenant record, every grant a tenant's role (a domain role of the auth's role file) carries on a generated method that changes a person's account carries a condition that reads the person's row. The methods are the tenant's side of the account methods, named as the generator names them (`Disable<Auth><Tenant>User`, `Enable…`, `Delete…`, `Rename…`, `Set<Auth><Tenant>UserName`, `Set<Auth><Tenant>UserEmail`, `Set<Auth><Tenant>TemporaryPassword`, `Require<Auth><Tenant>PasswordChange`, `End<Auth><Tenant>UserSessions`, `Revoke<Auth><Tenant>UserTrustedDevices`, `Unlink<Auth><Tenant>SessionIdentity`, `Remove<Auth><Tenant>Password`). An account is one for the whole application, so what a tenant may do to a person another tenant or the application's own staff also holds is a rule, and the generated management leaves it to the role file: each of these methods names a row of the tenant's list of people, whose facts a condition reads (`heldElsewhere`, `heldGlobally`). The skeletons grant them under `heldElsewhere = false AND heldGlobally = false`; another rule over the row is the application's to choose. A grant with no condition, or with one that reads the request alone, states no rule about the person and is a finding. The methods that give or take a role in the tenant and that invite to it are the tenant's own and are not held to this. An application with no tenant record, or whose programs generate no management, is skipped. |
 | `second-factor` | Every auth package's `New` ends its sign-in rule with the second factor: its one `SetSignInPolicy` call on the Auth it constructs (the session library panics at a second) is given `requireSecondFactor`, a function of the package returning `signin.RequireMFA`, alone or chained last with `.Then` after the tenant policy. Every session carries a second factor, and the rule is the whole of it: the sign-in codes and trusted devices tables (`session-tables`) and the pending sign-in's code handlers (the router compiles against them) ask nobody for the code by themselves, so an auth that sets no rule, or a rule that ends elsewhere, admits a session on the password alone. `--fix` writes the rule as `impulse upgrade`'s `second-factor` recipe writes it: `.Then(requireSecondFactor)` chained on the call's policy, or the call set after the construction's error check when the package makes none, and the function at the end of the file with its imports when the package has none returning `signin.RequireMFA`; it then names what the rule leaves to the author, which no check sees: the application's tests that sign in with a password now meet the code step, and complete it as the skeleton's integration tests do. |
 | `change-signal` | Every permission engine constructed outside tests (`access.New`) is handed a change signal: an `access.WithChangeSignal` option among the call's arguments, the skeletons' being `access.ChangeSignalFunc(announcePolicy(signals), watchPolicy(signals))` over the live service's `policy` kind. Without it a role, grant or membership written on one instance reaches the others at the engine's next heartbeat alone. A package constructing an engine without the option fails on its own line, naming each construction by file and line; a call forwarding its options (`opts...`) fails too, since the signal cannot be read there. Skipped when the application constructs no engine. |
 | `conditions-proven` | Every conditional grant in a role file the release hands to the permission engine (`pkg/auth/<auth>/roles.json`, the `<auth>.Roles()` an `access.WithDefaultRoles` call takes) is named by a test case calling the harness helper `provesGrant(t, <auth>.Roles(), role, permission, resource, condition)` with literal coordinates. The generated authorization matrix runs a fake engine with unconditional grants and the deploy-time validation reads the grammar, so whether a condition does what its author meant on real rows is proven only by a case over seeded rows: a row the condition admits answers, a row it refuses is refused. The check reads the call; the helper, in `test/integration/harness_test.go`, parses the role file when the test runs and fails when the grant is gone or its condition reads differently, so the case and the file hold each other from both sides. A grant no case names fails the check on its own line; a call naming a grant the file does not carry, or one the check cannot read, is a finding too; a file with no conditional grant reads "0 conditional grants". Unconditional grants need no case: the generic test `test/integration/grants_test.go` parses the auths' role files and proves the engine serves every one of them. A case may still pin an unconditional grant its suite depends on, by a `provesGrant` call with an empty condition: the helper fails when the file puts a condition on that grant or drops it, and the check takes the call while the file carries the grant with no condition, and reports it once the file does not. When the check fails under `impulse handoff`, the brief carries the pattern a case follows. |
@@ -516,16 +560,19 @@ impulse check --list
 | `web-pins` | Every web root (a directory holding `angular.json` whose `package.json` names the browser packages) pins `@impulseframework/resource`, `@impulseframework/resource-angular` and `@impulseframework/resource-firestore` at the version of the ledger step the application stands at, which is the step's release without its `v`, read from the framework pin in `go.mod` as `impulse upgrade` reads it, in every section that names them (dependencies, overrides). The server libraries and the browser packages of one release were written for each other, so a pin behind the step's fails, naming the file, the section, the package, what it holds and what the step pins; `impulse upgrade` moves it. A pin ahead of the step's warns and stays, as a Go pin bumped by hand ahead of its step does; a package the file does not name fails. A web root naming none of the library's packages is passed over, and an application whose pin reaches no step is skipped. |
 | `test-runner` | Every browser application project runs its component specs on Angular's unit-test builder, the runner `ng new` scaffolds (`@angular/build:unit-test`: Vitest under jsdom in Node, no browser): a `test` target on that builder, the spec tsconfig it reads (named in the target, or `tsconfig.spec.json` in the project root), and a package script running `ng test <project>`, so `bun run test` runs every project's specs once. A project with no `*.spec.ts` under its source root warns: the runner is wired and nothing runs on it yet. |
 | `installable` | Every browser application bound to a session outlet installs as a progressive web app, and the server serves it through the resource package's served browser app. On the browser side: `@angular/service-worker` is a dependency at the workspace's Angular line (the line of `@angular/core`); the project's production configuration names a worker config (`"serviceWorker": "ngsw-config.json"`) that exists, whose `navigationUrls` exclude the outlet's API under the mount (`!/api/**`, relative to the mount, so the login, callback and stored-file navigations reach the server; an API prefix outside the mount is outside the worker's scope and needs none); the app config provides the worker (`provideServiceWorker`) and the library's update provider (`provideAppUpdate`); `index.html` links the web app manifest, which parses with `id` the mount path with a trailing slash and `scope` and `start_url` `./`; and every icon the manifest declares is there with PNG dimensions matching its `sizes`, read from the file's header. The release reaches the browser: the project's build defines `APP_VERSION` (`"define": { "APP_VERSION": "'dev'" }` in its build options) and the workspace's `build` script redefines it from the `VERSION` environment variable (`ng build console --define \"APP_VERSION='${VERSION:-dev}'\"`, which the image's browser stage sets), so a release build stamps its release and any other `dev`; the app config provides it as `API_VERSION` (`{ provide: API_VERSION, useValue: APP_VERSION }`) and registers `apiVersionInterceptor` through `provideHttpClient(withInterceptors([...]))`, so every request carries the release in `X-Api-Version` and the server can refuse a build it no longer answers. On the server side: the application's hand-written handlers build the asset handlers from `resource.NewBrowserApp(dir, "<mount>")`, `github.com/jtwatson/spaassets` is imported nowhere and gone from `go.mod`. A project with none of the browser side warns as not installable; a project with part of it fails, naming the first missing piece by file. |
+| `brand` | A reminder, never a failure: every browser application carries an icon of its own. A new application starts with the skeleton's mark, in its favicon, its three app icons and the logo its brand declaration names (`brand.json`), and the check warns while any of them is still there, naming the browser application and the files, with what to do: put the application's own logo where the declaration names it, or declare the brand where there is no declaration, and run `impulse brand` (section impulse brand). It compares each file with the skeleton's own, so a mark redrawn by hand passes. |
 | `ci-workflow` | The committed `.github/workflows/ci.yml`, `.github/workflows/ci-cache.yml` and `.github/workflows/security-scan.yml` equal what impulse renders from the code: one browser job per workspace with the `web` gate over them, the jobs the `//impulse:ci` line puts on the larger runner and whether the test results are reused, the action and tool pins this impulse carries, and the daily security scan. A missing `ci.yml` fails: the pull requests run no checks at all; a missing `ci-cache.yml` fails: the checks start cold on every pull request; a missing `security-scan.yml` fails: nothing rescans the default branch and the latest release between pull requests. Once the files match, the check asks origin for its default branch and fails when `ci-cache.yml` does not fill it (declare it with `default-branch=<name>` on the `//impulse:ci` line); without a remote or a network it says it could not ask. A differing file fails naming the first differing line, what the code renders and what the file has; the fix is `impulse render`, since the file is impulse's: change the code or impulse, not the file. A browser workspace without its job is a difference like any other. An application that is a directory of a larger repository is skipped: GitHub runs the workflows at a repository's root alone, so a workflow in the application's own directory would never run. |
 | `paging` | No application code positions a list by offset: the generated query builders have no `Offset`, the server refuses the `offset` parameter, and pages are positioned by the cursor the `Link` header carries. Go code calling `.Offset(` or `SetOffset(` and browser code sending an `offset` query parameter are reported, so a hand-written caller is found before the upgrade breaks it; tests and specs are not read, since a spec describes the server's answer (whose page state carries an `offset` field) as often as a request. |
 | `rpc-execute` | Every `@rpc` struct declares `Execute` in one of the three forms the generator classifies by signature (`resource.ReadWriteTransaction` second for the transaction form, `resource.Client` for the client form, `resource.ReadWriteTransaction` second and `resource.Files` third for the upload form, or `resource.FilesIn[S]` where the method names its store; `error` the only or last result), and every generated RPC handler calls it. A handler an older generator could not type-check decodes and returns without running the method. A `TxnRunner` or `DBRunner` interface left in the RPC package warns: the generator reads the signature and no longer consults it, so delete it. |
 | `feature-flags` | The `FeatureFlags` and `FeatureFlagChanges` tables the generated feature flag routes and the deploy's `MigrateFeatures` read are created by a migration as the `resource` package of the framework module the application pins declares them: the check reads `resource.FeatureFlagsDDL(resource.SpannerDBType)` from that module's source (found through `go list` in the module cache, so the comparison is against the framework the application builds with, a replace included) and compares each statement with the migration's, whitespace aside; a table that differs is brought to the library's statement by a new migration. Every declared flag (`resource.Feature` constant) gates something (`@feature(<Constant>)` on a resource, a field or a method) or is read somewhere outside tests (`a.FeatureSet().Enabled(resources.<Constant>)` in Go, `Feature.<Constant>` in a browser application), or it is a switch wired to nothing and fails by name and position; a flag declared twice and an annotation naming no declared constant fail too. Skipped when the generator emits no feature flags (no `zz_gen_features.go` in a resources package) and none is declared. |
 | `sites-generators` | In the sites layout, every generator reads the one schema and the shared generator's TypeScript reaches every site's browser app. |
-| `env-template` | Every `env` struct tag without a default appears in the development environment template (`.envrc.template`, `.env.template`, or `.env.example`), the variables a framework settings struct the configuration embeds declares (`gcp.Settings`) among them; a missing one of those names the struct. `--fix` adds the missing lines. |
+| `env-template` | Every `env` struct tag without a default appears in the development environment template (`.envrc.template`, `.env.template`, or `.env.example`), the variables a framework settings struct the configuration embeds declares (`gcp.Settings`) among them; a missing one of those names the struct. A comment names a variable well enough, since one a single process is given, or another program reads, is written so. A versioned secret (`secret:"versioned"`, the application secret that seals stored secret fields) is handed over one variable for each version and none under its declared name, so the template sets its first version (`APP_SECRET_KEY_1` for `APP_SECRET_KEY`); the declared name alone, a comment, and an empty value (which the application refuses at start) do not cover it. The template writes no key, since a key in a tracked file is every checkout's: a shell template (`.envrc.template`) makes one for the checkout, 32 random bytes written to `.app-secret-key.dev` the first time it is sourced and read from there after, and `.gitignore` ignores that file; a list of assignments (`.env.template`, `.env.example`) can make none and says nothing of the variable. `--fix` adds the missing lines: an empty assignment for a variable to set, the two lines that make the key for a versioned secret, and the key's file in `.gitignore`. A key written in the template, and an empty first version, are refused with the lines to write in their place. |
 | `env-reads` | No Go file outside the config package reads the environment: `os.Getenv`, `os.LookupEnv`, `os.Environ`, `os.ExpandEnv`, `syscall.Getenv`, and go-envconfig's `Process`, `ProcessWith` and `MustProcess`, each resolved by the package's import path so an alias does not escape it. The config package is the package holding the application's `env` tags, and bedrock derives the stack's variables from those tags, so a read anywhere else names a variable the stack never learns of and no deployment sets. Two places are exempt: the main package of a shipped program (`ShipsProgram` on a machine outlet), which runs on the machine it is installed on and reads its own tagged settings there, which bedrock leaves out of the application's configuration, and `_test.go` files. Each failure names the file and line, the call, and the two places a read may live; an application whose `env` tags are in more than one package outside the programs fails too, since the config package cannot be told. |
 | `file-store` | Every file store variable the code declares (`APP_FILE_STORE`, `APP_FILE_STORE_<NAME>`) names, in the development environment template, a store the framework opens (`file://<dir>`, `gs://<bucket>` or `mem://`); a directory store's directory is in `.gitignore` (`--fix` adds it); and a resource or method recording files (`@file`, `@upload`) has a store wired, the failure naming `impulse add files`. |
+| `secret-holders` | A retirement of a version of the application secret reads every resources package. The generator writes each resources package's list of the resources that store a secret (`SecretHolders()` in `zz_gen_secret_holders.go`, nil for a package that stores none), and the call that retires a version (`resource.RetireSecretVersion`, which the migrate command's `-retire-secret` runs) names the packages by hand: a package it does not name is never read, and the retirement still reports that no stored value names the version. The check fails naming each package a call is not handed, a call whose holders come from where it cannot read them (a parameter, a function of the application's own, a list written by hand; a package's `SecretHolders()`, several joined by `slices.Concat` or `append`, and a variable of the calling function assigned from those are read), and an application whose packages no code retires. Skipped when no package carries the generated file. |
 | `pins` | `go.mod` requires the framework module, `github.com/impulseframework/impulse`, at a released version: the one framework requirement, whose version is the framework pin. A pseudo-version, or a `replace` of the module (a local path or another version), warns but does not fail, since the application then builds against unreleased framework code, legitimate while a change is in flight. `go.mod` carries the `tool github.com/impulseframework/impulse/cmd/impulse` directive, or the check fails with the commands that add the requirement and the directive together (`go get -tool github.com/impulseframework/impulse/cmd/impulse@<version>`, then `go tool impulse render`, then `go tool impulse check`). When the running impulse was built from a module version (`go tool impulse`, `go install github.com/impulseframework/impulse/cmd/impulse@<version>`) and that version is not the pin, the check fails: with the same three commands to move the pin when the pin stands at the ledger's last step, and with `impulse upgrade` (`go run github.com/impulseframework/impulse/cmd/impulse@<version> upgrade`) when it stands behind a step, since `go get -tool` ahead of the walk would skip the steps' recipes; an impulse built from a checkout is a development build, noted and not compared. |
 | `gofmt` | Every Go file the author owns is gofmt-formatted, test files included, since the rendered CI's lint gate refuses an unformatted file; the generated files (`zz_gen_*`) are the generator's and are left out. `--fix` formats the files named, so a handoff's edit or a recipe's rewrite that left one is caught before the walk commits the step. |
+| `prettier` | Every web root's browser files are formatted as the prettier the root pins formats them, as `gofmt` holds the Go files: the check runs the root's own prettier (`node_modules/.bin/prettier`, the version `package.json` pins) over the whole root with its `.prettierrc`, `.prettierignore` and `.gitignore`, so the generated client and the build's output stay out of it, and fails naming each file prettier would change. Nothing else holds them: the browser apps' lint does not run prettier, and a command that writes browser files under the application's own names (`impulse new`, `impulse add tenancy`) cannot wrap the lines again, since the formatter exists only once the root's packages are installed and those commands install nothing. So a web root whose packages are not installed is said to be not checked and never fails (the check's own line reads `SKIP`, not run, when no root is installed), and one whose `package.json` pins no prettier has nothing to be held to. The application's own CI installs every browser workspace in the job that runs the check (`go-check`), so there the check runs and an unformatted file fails the pull request. `--fix` formats the files named and changes no other: run `impulse check --only prettier --fix` once after the first install. |
 | `gowork-off` | `GOWORK=off go build ./...` and `go vet ./...` succeed, so the pin in `go.mod` resolves on its own, without a workspace file above the application. |
 | `shipped-programs` | Every program a release ships (`ShipsProgram("cmd/<name>", Platforms("linux/amd64"))` on an outlet) is a main package on a machine outlet that builds for each platform it declares: the outlet declares `Tokens`, since a session outlet serves no programs; a package main is at the directory; and `go build` of the package succeeds for each platform with `CGO_ENABLED=0`, as the image build compiles it after the tag, the compiler's output reported under a failure. An application whose outlets ship no program passes saying so. |
 | `regen` | `go generate ./...` reproduces the generated files on disk: every `zz_gen` file, and every file under a `GenerateIdentity` tree, which is the generator's whole (content compared before and after, so it holds in untracked trees too). The `Warning:` lines the generate programs printed are listed under the result and counted in its summary; they never fail the check, since the program's warnings test is what gates the accepted set. A run that removes a generated Go file it no longer writes is stopped by the go command at that file, which it listed before the generator ran, though the generation finished; the check, like every `impulse` command that regenerates, runs `go generate ./...` once more in that one case and reads the second run. Needs the Spanner emulator and rewrites the working tree; `--skip-generate` leaves it out. |
@@ -548,16 +595,76 @@ with the lines beneath it or `no findings`. A section, `feature flags`, lists ev
 declared flag with its description and where it is used: the resources, fields and
 methods its `@feature` gates and the Go and browser code that reads it (tests and specs
 marked), or that it gates nothing and is read nowhere, which the `feature-flags` check
-fails on; an application declaring none reads `none declared`. A last section,
+fails on; an application declaring none reads `none declared`. A section,
 `permission engines`, lists every engine the application constructs (`access.New`
 outside tests) by package, file and line, and whether it is handed a change signal,
 which the `change-signal` check fails without; an application constructing none reads
-`none constructed`.
+`none constructed`. A last section, `sign-in`, reads the application's sign-in choices
+back from its code and names the shape they add up to (below).
+
+| Section | What it lists |
+| --- | --- |
+| one per generator program | The `Warning:` and `Audit:` lines the program raised, or `no findings`. |
+| `feature flags` | Every declared flag, what it gates and where it is read. |
+| `permission engines` | Every engine the application constructs, and whether it is handed a change signal. |
+| `sign-in` | Every auth's sign-in methods with their choices in words, the application's own choices, and the shape they add up to. |
 
 ```sh
 impulse audit
 impulse audit --app path/to/app
 ```
+
+The `sign-in` section lists every auth by name and package, and under it every sign-in
+method the auth registers, where it is registered, and its three choices in words: how
+wide it is open (the accounts of one Microsoft Entra tenant, any Google account, anyone
+with an email address), who gives the roles (the directory or the application), and Open
+or Invite only. That last choice is made while the application runs, on the auth's
+Sign-in page, and is no line of code, so the section says where it is chosen and never
+guesses it: it says what opening each method would make of the auth. A choice written
+where the command does not read it (a slot built from settings, a configuration built in
+another function) is said to be not read, and is not guessed either. The auth ends in the
+shape its choices add up to, by number and name, or in `no named shape` with why. Then
+come the application's own choices: tenants or none, whether a tenant can have a
+directory of its own, and who creates a tenant; in an application with tenants each auth
+also says whether a person belongs to one tenant or can be in several.
+
+```text
+sign-in
+  staff (pkg/auth/staff)
+    password (pkg/auth/staff/password.go:65): admits anyone with an email address; the application gives the roles; invite only until an administrator opens it to sign-up on the Sign-in page, which is chosen while the application runs
+    shape: 1 Invite only. It starts so, and stays so until an administrator opens a method to sign-up on the Sign-in page, which is chosen while the application runs: opening password makes it 4 Open sign-up.
+  the application
+    tenants: none
+```
+
+The shapes are the eight combinations of those choices that have a name:
+
+| Shape | The choices that add up to it |
+| --- | --- |
+| 1 Invite only | No tenants. The application gives the roles, and every method is invite only. An auth without tenants starts here. |
+| 2 Directory members | No tenants. The application gives the roles, and a method that admits the organizations it names and nobody else (one or listed Microsoft tenants or Google Workspaces, an identity provider) is open, so everyone in the organization's directory gets an account. |
+| 3 Directory roles | No tenants. One directory method whose directory gives the roles, alone in its auth. |
+| 4 Open sign-up | No tenants. The application gives the roles, and a method anyone can use (the password method, any Microsoft tenant, personal accounts, any Google account) is open. |
+| 5 Tenant-owned users, invite only | Tenants. A person belongs to one tenant, and a tenant's people come by invitation alone. |
+| 6 Tenant-owned users, by directory | Tenants. A person belongs to one tenant, and a tenant's people can come through its own directory. |
+| 7 Global users, invite only | Tenants. A person can be in several tenants, and a tenant's people come by invitation alone. |
+| 8 Global users, each tenant chooses | Tenants. A person can be in several tenants, and each tenant chooses whether its people come through its own directory. |
+
+Shapes 1, 2 and 4 are one auth at different moments: it is written as 1, and the section
+says which method's opening makes it 2 and which makes it 4. Among the tenants' shapes, a
+person belongs to one tenant where the auth's package hands its identity client
+`identity.WithOneTenantPerPerson()`, and a tenant's people can come through its own
+directory where the tenant record declares directories (a record annotated
+`@tenantDirectory`) and the auth registers a directory method whose roles the
+application gives; what a tenant then does with its directory is the tenant's choice,
+made while the application runs. An auth outside the eight (a directory that gives the
+roles in an application with tenants, or beside another method; a method whose authority
+is not read) reads `no named shape`. That is no error: nothing in the framework acts on a
+shape's name, and `impulse check` refuses nothing for it. The `--shape` flag of
+`impulse new`, `impulse add tenancy`, `impulse add auth` and `impulse add method` starts
+an application from a shape by its name or its number (`--shape
+global-users-each-tenant-chooses` or `--shape 8`), and this section is where the result is
+read back.
 
 Findings never fail the command: it exits 0 with or without them. A program that fails
 exits 1 with its output tail, and a program that does not take `-audit` exits 1 saying to
@@ -656,6 +763,84 @@ impulse built from a checkout, which names no version the proxy serves, renders 
 way. The browser packages take the latest release's version. That replace line is for
 development only; never commit it.
 
+## impulse brand
+
+`brand` writes an application's brand where the application carries it. Each browser
+application declares its brand once, in `brand.json` in its own directory (the Angular
+project's root: `web/console` in the flat layout, `apps/<site>/web` in the sites layout),
+beside its logo:
+
+```json
+{
+  "name": "Harbor",
+  "logo": "logo.png",
+  "logoSvg": "logo.svg",
+  "primaryColor": "#005cbb",
+  "backgroundColor": "#f6f7fb"
+}
+```
+
+- `name` is the application's name as people read it.
+- `logo` is the logo, a square PNG at least 512 pixels a side (and at most 4096), by its
+  path from the declaration. Every icon is scaled down from it, each pixel the average of
+  the logo's pixels it covers, and never up, which is why 512, the largest icon, is the
+  least it can be.
+- `logoSvg`, optional, is the same logo as an SVG, which becomes the favicon as it is.
+  The command draws no SVG: the PNG is the source of every other icon.
+- `primaryColor` is the brand's color, and `backgroundColor`, optional and white without
+  it, the color behind the installed application while it starts and behind the logo on
+  the icon a device cuts to its own shape. Both are a number sign and six hex digits.
+
+One brand per browser application: a console and a portal of one application carry their
+own, whether they share a workspace (`web/console/brand.json` and `web/portal/brand.json`
+in the flat layout) or have one each (the sites layout). A browser application with no
+`brand.json` is said to have none and left as it is; a declaration the command cannot
+write from (a logo that is not square or is too small, with the size wanted; a color that
+is not six hex digits; a field it does not know) is refused before anything is written.
+
+```sh
+impulse brand
+impulse brand --app path/to/app
+```
+
+From each declaration `brand` writes:
+
+| Where | What |
+| --- | --- |
+| `public/favicon.png`, `public/favicon.svg` | The favicon: the PNG at 96 pixels, and the SVG as it is where the brand names one. A `favicon.svg` the declaration no longer names is removed, since the page then links the PNG alone. The skeletons' worker configuration (`ngsw-config.json`) keeps whichever is there with the application's shell (`/favicon.*`). |
+| `public/icons/icon-192.png`, `icon-512.png`, `icon-512-maskable.png` | The app icons the manifest names. The maskable one is the logo scaled into its central 80% on the background color, so nothing of the logo is cut away whatever shape a device gives it. |
+| `public/manifest.webmanifest` | `name`, `short_name`, `theme_color` (the primary color) and `background_color`. |
+| `src/index.html` | The title, the `theme-color`, and the icon links: the PNG, then the SVG where there is one. |
+| `src/app/app.config.ts` | The name the frame draws (`provideFrame({ name })`) and the name of the brand's palette in the list the picker offers (`provideTheme`). |
+| `src/_theme-colors.scss`, `src/theme.scss` | The theme's first palette. Angular Material's own generator, the `theme-color` schematic of the version the workspace has installed, generates the palette from the primary color (`ng generate @angular/material:theme-color --primary-color=<color> --directory=<source root>/ --is-scss --include-high-contrast=false --interactive=false --force`, run through the workspace's own `ng`, every answer a flag and no prompt asked), so the palette is the one that version's components are drawn for and the brand's exact color is its source. The theme sheet takes it as its first palette, `'brand'`, in the place of the skeleton's, and the other palettes stay. Once the sheet carries the brand's palette it is left alone: a change of color changes the generated file only. |
+| `pkg/brand` | What the server says: each brand's name as a constant (`ConsoleName`) and its logo embedded (`console.png`, 192 pixels), behind an accessor (`brand.Console()`), named for the Angular project. A main hands them to the maintenance page by mount path, `maintenance.Serve(ctx, maintenance.Brands{"/": brand.Console()})`, and the page shows the name and the logo of the application a request is for. The source is composed whole on every run, and the logo's copy is written when the logo changed. |
+| `pkg/auth/<name>` | The name the mail an auth sends says, its `Application` constant, from the brand of the browser application the auth's people sign in to: the one receiving the client of the first browser outlet that declares the auth. |
+
+The server's part is written rather than read, because the server cannot embed the
+declaration where it sits: a browser application lies under the web workspace's own
+`go.mod`, the boundary that keeps Go's tools out of the installed packages, and `go:embed`
+refuses a file of another module. So the declaration stays in the browser application,
+where a designer changes a color without touching Go, and `brand` carries the name and
+the logo into the module. A brand no main hands to the maintenance page yet (the brand of
+a browser application `impulse add outlet` or `impulse add site` copied in) is named at
+the end of the run, with the line to add.
+
+The palette's generator needs the workspace's packages installed. Where they are not,
+everything else is written, the palette file is said to be missing with what to do, the
+theme keeps the palette it had, and the command exits non-zero: install the packages and
+run it again. A palette already generated from the declared color stands, so a run on a
+machine without the packages changes nothing once the brand is written. Where the
+workspace has a prettier installed, the generated palette is formatted with it, as
+`impulse check` (`prettier`) holds every browser file.
+
+The files are the application's after the first write. `brand` runs when asked, never as
+part of `impulse render`, and writes a file only where the declaration changed what it
+holds, so a second run over the same declaration writes nothing and a hand-tuned icon is
+kept until the logo or the background changes. A new application starts with a
+declaration under its own name, the skeleton's colors and the skeleton's logo;
+`impulse check` (`brand`) reminds, without failing, while a browser application still
+carries that logo or the icons cut from it.
+
 ## impulse upgrade
 
 `upgrade` moves an application through the steps the ledger records after the one its
@@ -679,14 +864,6 @@ Upgrade impulse first, then bedrock (`bedrock upgrade`), and land both in one ch
 bedrock's checks read what the walk writes (the drivers' settings the configuration embeds,
 the release file, the processes), and the walk reads nothing bedrock renders; the code after
 a step may need what only the newer stack provides.
-
-An application still on the single-method session types (its generator program declares
-an auth with `generation.Password` or another identifier in place of a method declaration,
-types of the framework's earlier releases that this module does not carry) is refused
-before anything moves, `--dry-run` included: no recipe moves an application off them, so a
-step would only break its generator program. The sentence names the generator program and
-the auth and says what to do instead: re-create the application from the skeleton
-(`impulse new`, then `impulse add` for its options) and bring its resources over.
 
 The impulse to upgrade to is run, not pinned first: a `go get -tool` ahead of the walk
 would skip the steps' recipes. The walk refuses to start on a working tree that is not
@@ -846,7 +1023,10 @@ and a `GenerateTypescript` target for the outlet copied from the default target'
 console's browser project is copied to `web/<name>` with its API prefix, base path, and
 compiler output rewritten (and its XSRF cookie, when the auth is not the console's) and
 registered in `angular.json` (serving under `/<name>` on the next port), the package
-scripts, and the Procfile. A console that was alone at `/` moves when the second browser
+scripts, and the Procfile. The copy carries the console's brand declaration where the
+console has one (`brand.json`), which the report says: the brief names giving the new
+application its own and running `impulse brand`.
+A console that was alone at `/` moves when the second browser
 application arrives, since the generator refuses an application at `/` beside another (an
 installed application's scope is every URL under its start): it goes to `/console`, the
 name of its Angular project, with its API at `/console/api`, in the generator program
@@ -874,8 +1054,9 @@ not-found handler, and its browser application. The App's handlers the generated
 `<Outlet>Auth` middleware), the configuration, the members (`@outlet`), and the tests are
 the agent's, and the compiler, `outlet-wired`, `outlet-shape`, and `login-pages` hold it to them.
 
-`add tenancy` makes a flat, untenanted application tenanted. An administrator alone creates
-tenants, through the record's create path, unless the record says otherwise. The tenant table becomes the
+`add tenancy` makes a flat, untenanted application tenanted. Nobody creates a tenant
+directly: staff bring one in by inviting the person who will administer it, and that
+person's first sign-in makes it. The tenant table becomes the
 next schema migration, with two development tenants as a data migration under
 `schema/devseed`; the tenant-record struct joins the resource package as a global resource
 annotated `@tenant`, from which the generator derives the tenant segment and emits
@@ -884,56 +1065,119 @@ annotated `@tenant`, from which the generator derives the tenant segment and emi
 program gains `WithConcealedDomains`; the data level gains the roster, built with that
 constructor over the live service's tenants signal and started where the configuration
 is built (a new `tenancy.go` plus a field and the start inserted into
-`DataConfiguration`), so a tenant created on any instance is usable at once, without a
+`DataConfiguration`), so a tenant made on any instance is usable at once, without a
 restart, and handed to each auth the level holds (`SetTenantNames`), so the invitation
 screen names the tenant an invitation seats a person in and not its id; the app exposes the roster and the roster's copy of the declarations to the
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
 `Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
 shape: the tenant pages are copied in (the tenant's sign-in page, the configuration of All
-tenants, the library's list page over the record, and the New tenant dialog), the menu
-file gains the tenant menus ahead of its others (Tenants with All tenants and New tenant…,
-People with the tenant's side of the auth's people, and Tenant with Sign-in settings), the
+tenants, the library's list page over the record, and the dialog a person who signed up
+creates their own tenant through), the menu
+file gains the tenant menus ahead of its others (Tenants with All tenants,
+People with the tenant's side of the auth's people, and Tenant with Sign-in settings;
+the Invited tenants page, where staff bring a tenant in, is among the auth's pages the
+System menu already places, and the menu file's test, where it lists that menu's pages as
+the skeleton's does, gains it after Mailed links), the
 frame's configuration names the place outside every tenant (Configuration, with a gear),
 and routes still as the skeleton rendered them are written in the tenant shape, while the
 library's frame carries the tenant the URL names, the guard, the refusal page and the
 place switcher. The record's name, marked `@tenantName`, is what the session's tenant
 list shows. A record of another name gets everything in its own words: with
 `--tenant-table ServiceAreas` the pages, the menus and the routes say service area, and
-every name the generator derives from the record is the record's. The declaration rides along: the tenant table carries `DirectoryOnly` and a
-`<Record>Directories` table beside it, the directories record joins the resource package
-(`@tenantDirectory`, tenant-scoped), both records track changes, each auth's `Settings`
+every name the generator derives from the record is the record's; the files are written
+without wrapping their lines again, so the brief says to run `impulse check --only prettier
+--fix` once the web root's packages are installed. The declaration rides along: the tenant table carries `DirectoryOnly` and a
+`<Record>Directories` table beside it, with the two unique indexes that hold a tenant to
+one directory and a directory to one tenant, the directories record joins the resource
+package (`@tenantDirectory`, tenant-scoped, its directory set from a sign-in and never
+typed), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it
 (`signin.TenantPolicy`, the memberships read through `resource.SignInRoles`), and the
-data level's settings literal passes the reader in. Every edit whose anchor the
+data level's settings literal passes the reader in. The auth a tenant is made through,
+the one whose outlets serve the record, where the application assigns its roles and
+generates its management, is handed what makes a tenant from an accepted invitation: its
+`Settings` gain `TenantMaker`, its `New` refuses a nil one with a sentence and passes it
+to the generated identity client as its third argument, and on a data level in the
+skeleton's shape the roster is built ahead of that auth in `NewDataConfiguration`
+(`tenants := <handlers>.New<Record>Roster(...)`), the auth's settings function gains a
+parameter the construction passes `<handlers>.New<Record>Maker(tenants, liveService)`
+through, and `startTenants` only starts the roster. On a level the command cannot
+follow (no live service field, a client the literal builds in place, an auth built
+elsewhere) the roster is built in `startTenants` as before and handing the maker in is
+recorded as the agent's, since the auth refuses to start without it. Every edit whose anchor the
 application lacks is recorded in the brief as the agent's. Which resources become
 tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
 tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
 the directories the development seed declares are the agent's, and `tenancy-wired`
 holds it to them.
 
+`--one-tenant-per-person` says a person belongs to one tenant, as in an application whose
+tenants own their people: every auth whose roles the application gives builds its
+identity client with `identity.WithOneTenantPerPerson()`, so a role in a second tenant is
+refused however it would be given. Without it a person can be in several tenants. An
+auth whose client is built in a form the command does not follow is recorded in the brief
+as the agent's.
+
+`--shape <name>` starts from a sign-in shape by name (section impulse audit lists the
+eight) and fills in the tenants' choices. `add tenancy` takes the four an application
+with tenants has: `tenant-owned-users-invite-only` (5), `tenant-owned-users-by-directory`
+(6), `global-users-invite-only` (7) and `global-users-each-tenant-chooses` (8). The two
+tenant-owned shapes set `--one-tenant-per-person`, and the two global ones leave it off.
+In the two invite-only shapes a tenant's people come by invitation alone, which is so
+while no sign-in method goes through an organization's directory: the command refuses one
+of them where the application already registers such a method, naming the method. In the
+other two a tenant's people come through its own directory: the tenant record declares
+one either way, and where no sign-in method goes through an organization's directory yet
+the command says which `impulse add method` adds it. Whether a tenant takes a directory,
+and whether that directory's people get an account without an invitation, is each
+tenant's choice, made while the application runs, so the command writes nothing for it
+and says where it is chosen. A flag that contradicts the shape is refused, naming both
+(`--shape global-users-invite-only --one-tenant-per-person`), and a name the command does
+not know is refused with the names it knows. What the shape filled in is printed after
+the change as `Starting point:`, and `impulse audit` reads it back from the code.
+
 ```sh
 impulse add tenancy --agent
 impulse add tenancy --tenant-table Organizations
+impulse add tenancy --one-tenant-per-person
+impulse add tenancy --shape global-users-each-tenant-chooses
 ```
 
-Who may create a tenant is the record's declaration, separate from who may enter one, and
-the application chooses it by annotating the record. `@tenant` is an administrator alone:
-the record's create path under the Create grant on it, and no route a stranger could reach.
-`@tenant(creation: self-service)` is the person who becomes the tenant's administrator: a
-stranger signs in first, through a registration admitting open sign-up (`add method
-<auth> google <name> --slot any --accounts open`, which declares `.OpenSignUp()` on the
-method), holds no tenant, and the application offers one page, create your tenant; the
-generated route (`POST <prefix>/create-<record>`, no grant needed) writes the row, seats the
+How a tenant comes to exist is separate from who may enter one, and it is no declaration.
+Nobody creates a tenant directly: an `add` on the record's collection answers 400 with a
+sentence saying how one is made. Staff bring an organization in by inviting one person:
+the auth's generated `Invite<Auth><Record>` takes the person's address and the record's
+fields, each named for the record, with whether the tenant is entered through its
+directory only and the role its directory's people start with; sending it takes the
+method's grant and the Create grant on the record, and a name a tenant holds is refused
+there. The invited person's first sign-in makes the tenant, seats them with the roles
+that administer a tenant in the auth and, where they came through an organization's
+directory, makes it the tenant's own, in one transaction; `<Auth>Invited<Record>s` lists
+the invitations that still stand and `Withdraw<Auth>Invited<Record>` withdraws one. The
+library draws the page from the generated description, and each tenanted skeleton's role
+file gives its `Administrator` role the three, beside Create on the record. A person who
+signs up creates their own while an administrator has a sign-in
+method open to sign-up: every method starts invite only, and an administrator opens one on
+the auth's Sign-in page in the running application (`Open sign-up`, behind a warning that
+says who will be admitted and is confirmed by typing a word) and makes it invite only again
+there. A stranger then signs in through the open method, holds no tenant, and the
+application offers one page, create your tenant; the generated route
+(`POST <prefix>/create-<record>`, no grant needed) reads the choice in the transaction that
+writes the row and refuses while every method is invite only, writes the row, seats the
 person with the domain roles the App names in `<Record>AdministratorRoles()` and hands the
 tenant to the roster, so their next request stands in it, and a person who already holds a
 tenant is refused, an administrator of one tenant never creating another. The generated
 client exports the route and the body's shape (`create<Record>Route`, `Create<Record>`) for
-the page, which the tenanted skeleton's console offers from its dashboard to a session
-without a tenant. `@tenant(creation: both)` keeps both ways. The generator refuses
-self-service on an outlet whose auth has no open sign-up registration, naming the record
-and the fix, and refuses a shape it does not know; the default stays an administrator
-alone, so no application ships self-service by omission.
+the page, which each tenanted skeleton's console offers from its dashboard to a session
+without a tenant, and only while the route would serve: the dashboard asks the same route
+with `GET`, which answers whether the caller may create a tenant now
+(`Create<Record>Offered`, by the two facts the creation refuses on), and shows its card
+on a yes alone, so nobody is offered a dialog the server would refuse while every method is
+invite only. The route is generated wherever it can serve: the record is on session
+outlets of one auth whose management the program generates and whose roles no directory
+writes. `@tenant(creation: ...)`, which declared the choice in code, is refused at
+generation with what replaced it, so no application ships open sign-up by a line of code.
 
 `add auth` adds an auth: a population that holds roles in its own permission store and
 signs in through the methods on its Auth. An auth is a package, `pkg/auth/<name>`, and
@@ -997,17 +1241,14 @@ when none is given), `azure:<registration>`, `google:<registration>`,
 registration name has no default) or `persona` (the persona sign-in of the test
 environments, section add method), the registration
 being the segment of the method's routes (`user/<registration>/login`). A directory method
-added here takes one organization, and `--accounts` its account rule for a first sign-in as
-`add method` takes it (`members`, the default, or `invited`; `open` is refused with one
-organization), written to the method file and, for `invited`, as `.InvitedUsers()` on the
-method's declaration, so the generated management creates their users, and for
-`open`, as `.OpenSignUp()`, the rule a self-service tenant record needs; `add method`
-composes the other slots. The password method takes `open` alone, and `--accounts open`
-reaches it too: a stranger gives their address on the login page, follows the link mailed
-to it and chooses a password (`session.OpenSignUp()` on the registration and
-`.OpenSignUp()` on the declaration, so the router serves the sign-up routes);
-`members` and `invited` describe a directory and are refused with the password method
-alone. `--username-is-email` makes the password method's sign-in name the person's email
+added here takes one organization; `add method` composes the other slots. No method is
+given an account rule: every method starts invite only, a person signs in once they are
+invited or created, and an administrator opens a method to sign-up, or makes it invite
+only again, on the auth's Sign-in page in the running application. A password method's
+sign-up routes are always on the router and answer not found while the method is invite
+only; once it is open a stranger gives their address on the login page, follows the link
+mailed to it and chooses a password. `--accounts`, which wrote the rule into code, is
+refused with these words. `--username-is-email` makes the password method's sign-in name the person's email
 address (`session.UsernameIsEmail()` and `.UsernameIsEmail()`): the generated management
 derives the address from the username, and a verified change of address renames the user,
 whose roles stay where they are (the permission store names a person by the id of their
@@ -1038,18 +1279,56 @@ Under a hand-written router the program declares no Auth to point, and the brief
 mount the auth's session group in the router. In a tenanted application the new auth's
 `New` sets the sign-in rule over the tenant record's declaration, as the staff auth's does
 (`signin.TenantPolicy` through the reader its settings carry, `TenantDeclarations`, which
-the settings copied from the source auth pass in); a record created by its own people
-(`@tenant(creation: self-service)` or `both`) has the rule admit a person who holds no
-tenant yet (`signin.AdmitWithoutTenant`).
+the settings copied from the source auth pass in); the auth whose session outlets serve
+the tenant record, and whose roles the application assigns, has the rule admit a person
+who holds no tenant yet (`signin.AdmitWithoutTenant`), since a person who signs up through
+it creates a tenant of their own. That auth is the one a tenant is made through, so its
+`Settings` carry `TenantMaker` and its `New` passes it to the identity client; the
+construction copied from the source auth carries the maker only where the source is that
+auth too, an auth a tenant is not made through leaves it behind, and an auth that takes
+the default outlet over is handed none, which the brief records as the agent's.
+
+`--shape <name>` starts the auth from a sign-in shape by name (section impulse audit
+lists the eight) and fills in each method's choices. `add auth` and `add method` take the
+four a sign-in method's choices tell apart:
+
+| `--shape` | What it fills in |
+| --- | --- |
+| `invite-only` | 1 Invite only: the application gives the roles (`--authority application`), and every method stays invite only. |
+| `directory-members` | 2 Directory members: a directory method limited to the organizations it names, with the application giving the roles, which an administrator opens so that everyone in the organization's directory gets an account. A password method beside it is left invite only; the shape is refused with the password method alone. |
+| `directory-roles` | 3 Directory roles: one directory method with one organization whose directory gives the roles (`--authority directory`), alone in its auth. |
+| `open-sign-up` | 4 Open sign-up: methods anyone can use, with the application giving the roles, which an administrator opens: the password method as it is, a Microsoft method with any tenant and personal accounts, a Google method with any Google account. |
+
+The shape settles `--authority`, so it is not asked. Open is never written, since it is
+chosen while the application runs: for `directory-members` and `open-sign-up` the command
+says that an administrator opens the method on the auth's Sign-in page, and what opening
+does on this auth (a new person gets the role chosen there, or creates a tenant of their
+own, or the auth's methods are never opened because a person who signed up to it could be
+given no tenant). What the shape filled in is printed after the change as
+`Starting point:`, and `impulse audit` reads it back from the code. A method or a flag
+that contradicts the shape is refused, naming both and saying what each means (`--shape
+directory-roles --authority application`, `--shape open-sign-up` with an identity
+provider's method, `--shape directory-roles` with two methods), and a name the command
+does not know is refused with the names it knows; the four shapes of an application with
+tenants are `impulse new`'s and `add tenancy`'s. In an application whose tenants have
+directories, Open sign-up on an auth with no password method would seed a first
+administrator who cannot sign in, since the shape opens every directory method to more
+than one organization, and `impulse check` refuses that (`first-administrator`): the
+command refuses it before anything is written and says what to give instead, the
+password method beside the others (`--method password`), or the auth without the shape
+and `impulse add method` afterward. Any other starting point the check refuses for its
+first administrator is said after the check's report, in the check's words.
 
 ```sh
 impulse add outlet partners --prefix partners/api --auth staff
 impulse add auth partners --outlet partners --agent
 impulse add auth members --method azure:directory --authority application --outlet portal --agent
 impulse add auth members --method google:workspace --authority directory --outlet portal
-impulse add auth members --method google:google --authority application --accounts invited --outlet portal
-impulse add auth clients --method password --accounts open --username-is-email --outlet portal
+impulse add auth members --method google:google --authority application --outlet portal
+impulse add auth clients --method password --username-is-email --outlet portal
 impulse add auth employees --method oidc:company-sso --authority directory --outlet portal
+impulse add auth members --method google:workspace --shape directory-roles --outlet portal
+impulse add auth visitors --method password --method google:google --shape open-sign-up --outlet portal
 ```
 
 `add method` adds a sign-in method to an auth the application has: `password`, `azure`
@@ -1074,14 +1353,16 @@ domain, whose sign-ins carry the directory's second factor and are not asked for
 sign-in code (empty where it administers none); the secret's field
 carrying `secret:"true"` beside its env tag (the marker bedrock reads to serve a variable
 from Secret Manager; `secret:"generated"` marks one whose value bedrock makes and nobody
-types), and passes them in the auth's settings function (`<auth>Settings` on the
+types, and `secret:"versioned"` a generated one kept in versions, every enabled one of
+which the service is handed in a variable of its own: the application secret that seals
+stored secret fields, `APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), and passes them in the auth's settings function (`<auth>Settings` on the
 environment struct, which grows by the registration while `NewDataConfiguration` stays
 one call per auth; in an application composed before the function, the `Settings`
 literal in `NewDataConfiguration`, which the did line says); every outlet bound to the
 auth declares it (`generation.AzureMethod("directory")` on the outlet's `Auth` option,
-with `.InvitedUsers()`, `.SyncsRoles()` or `.OpenSignUp()` chained as the method file's
-account rule and authority say, so the generated management reads the same rule the
-registration enforces), so the generated router mounts its routes and the login
+with `.SyncsRoles()` chained where the method file's authority is the directory, so the
+generated management reads the same authority the registration enforces), so the
+generated router mounts its routes and the login
 page, which renders from the methods route, offers it; and for a directory method the
 Procfile builds with the session library's `skipAuth` tag, which simulates the directory
 until the application is registered with it (every sign-in through the registration is
@@ -1102,16 +1383,19 @@ administers are declared attesting; for a Microsoft registration that function i
 place bedrock reads the tenant shape from, for the app registration's supported account
 type in the stack's hand steps, and a registration that builds its tenants any other way is
 refused by `bedrock check`.
-`--accounts` is the account rule for a first sign-in: `members` (members of the directory,
-the default: the person becomes a user under the name the directory presents), `invited`
-(a user created beforehand is linked, anyone else refused) or `open` (open sign-up: anyone
-the directory verifies becomes a user holding nothing, declared `.OpenSignUp()` on the
-method, the registration a self-service tenant record needs). The
-session library allows `open` only with any organization or personal accounts, and refuses
-`members` there, since every organization in the world is "the directory". The password
-method takes `open` alone: a stranger gives their address on the login page, follows the
-link mailed to it and chooses a password (`session.OpenSignUp()` on the registration,
-`.OpenSignUp()` on the declaration, and the sign-up routes on the router).
+Who a method admits at a first sign-in is not written into code. Under the application
+authority every method is invite only: a user created beforehand or an invitation is
+linked, anyone else is refused and nothing is written. An administrator opens a method to
+sign-up on the auth's Sign-in page in the running application, where the server says how
+wide the method is (the slot: one organization's accounts, any Google account, an email
+address for the password method) and what a new person gets, and makes it invite only
+again there. The choice holds for the width it was made for: a release that changes whom
+a method admits (another organization in its slot, a wider account kind) leaves the method
+invite only until an administrator opens it again, reading the new width in the warning.
+A registration given an account rule of its own in code (`signin.AccountRule`) is listed on
+the page as decided by the application, with nothing to choose. Under the directory authority the directory decides: a person it gives a role
+signs in, and nobody else. `--accounts`, which declared the rule, is refused with where the
+choice is made now.
 `--username-is-email` makes the password method's sign-in name the person's email address
 (`session.UsernameIsEmail()`, `.UsernameIsEmail()` on the declaration): the generated
 management derives the address from the username, and a verified change of address renames
@@ -1120,6 +1404,17 @@ their account). `--authority` is as for `add auth`; the directory authority is a
 only on an auth that registers no other method, as no method is added beside a
 registration that writes the roles: the command names the two ways out, an auth of its
 own or the application authority.
+
+`--shape <name>` is as for `add auth` and fills in the choices the flags left open:
+`invite-only` sets the application authority and takes any slot; `directory-members`
+takes a slot limited to the organizations it names (`one`, the default, or `listed`, or an
+identity provider's method) with the application authority; `directory-roles` sets the
+directory authority with one organization; `open-sign-up` takes the password method as it
+is, azure with `--slot any-personal` unless another slot wider than the named
+organizations is given, and google with `--slot any`. A method or a flag that contradicts
+the shape is refused, naming both (`--shape directory-members --slot any`, `--shape
+invite-only --authority directory`, `--shape directory-members` with the password
+method).
 
 `oidc` is one organization's identity provider: a provider with nothing vendor-specific
 about it, which the session library knows by its issuer alone (Okta, Keycloak, an identity
@@ -1132,30 +1427,30 @@ is required: it is the application's word for the provider (`okta`, `company-sso
 segment of the method's routes, the connection every identity link carries and, with each
 word capitalized, the label of its button on the login page (`.Labeled(text)` on the
 declaration says another). The method takes no `--slot`, since the issuer names the one
-organization. `--accounts` is `members` (the default: whoever the provider signs in
-becomes a user under the name it presents, the token's `preferred_username` or else its
-`email`) or `invited`; `open` is refused, since everyone the provider signs in is a member
-of its organization, whom the method admits without it. `--authority` is as for a
+organization. A person signs in under the name the provider presents, the token's
+`preferred_username` or else its `email`; under the application authority the method is
+invite only until an administrator opens it to the provider's organization.
+`--authority` is as for a
 directory: under `directory` every sign-in reconciles the person's roles to the ID
 token's `roles` claim, a list of role names at the top level of the token, and removes any
 role the claim does not name, and a sign-in whose claim names no role the role file
 defines is refused. The claim's name is fixed, so the provider is set up to send it for
 this client (a custom claim on Okta, a mapper on Keycloak, whose own `realm_access.roles`
 is nested and is not read). Under `application` the claim is not read. In a tenanted
-application whose tenants declare the directories their people enter through, a sign-in
+application whose tenants each have a directory their people enter through, a sign-in
 through the provider is a directory's to the sign-in policy, method `oidc` under the
-registration's name as the connection: a person who holds a role in the global partition
-is admitted and reaches every tenant, anyone else enters a tenant only where the tenant
-declares that directory, and a person who holds roles in particular tenants, none of
-which declares it, is refused (`connection_not_in_tenant`). The directories record
-`add tenancy` composes admits `google`, `azure` and `workos` in its method column, so
-the command leaves two things to wire there: a migration that admits `oidc` in the
-column's check, and the method on the console's page that declares a tenant's
-directories. A sign-in whose
+registration's name as the connection: a tenant's administrator who is signed in through
+it is offered to make it the tenant's directory on the console's Sign-in page, and a
+tenant that is directory only then admits the people who sign in through it and nobody
+else, while a tenant that is not admits everyone it seats, however they signed in. The
+directories record `add tenancy` composes admits `google`, `azure`, `workos` and `oidc`
+in its method column, and the Sign-in page names the method's directory
+(`directoryKinds`, "OpenID Connect provider"); a table composed with fewer methods in
+the column's check needs a migration that adds `oidc`, which the command says. A sign-in whose
 token names `mfa` in its `amr` claim carries the second factor; any other is asked for the
 sign-in code the Auth mails, where the sign-in policy requires a second factor. The
-declaration is `generation.OIDCMethod("<registration>")`, with `.InvitedUsers()` or
-`.SyncsRoles()` chained as the method file says. `check` tells this method from the
+declaration is `generation.OIDCMethod("<registration>")`, with `.SyncsRoles()` chained
+where the method file's authority is the directory. `check` tells this method from the
 persona method, which registers with the same call, by the configuration: one that sets
 `ClientSecret` is an identity provider, one that sets none is the persona method. Under
 `skipAuth` the provider is simulated like a directory; the registration validates its
@@ -1166,28 +1461,33 @@ harness.
 `persona` is the sign-in of the test environments: a reviewer, a tester or an agent opens
 the application in a pull-request environment or the first environment, clicks one button
 on its login page, picks a persona from the deployment's cast at the persona provider
-(Redgrade's, which signs the person in itself and decides whether they may enter the
-application's test environments), and is signed in as that persona with its roles; the
+(the hosting platform's, which signs the person in itself and decides whether they may
+enter the application's test environments), and is signed in as that persona with its
+roles; the
 application's own methods stay on the page. The method is the session library's generic
 OpenID Connect method (`oidc.SignIn`), the application a public client (no secret, PKCE),
 the application the authority for role membership (`--authority` defaults to
-`application` and takes nothing else) and the account rule invited users only
-(`--accounts` defaults to `invited` and takes nothing else): the provider says which
+`application` and takes nothing else) and the method invite only, as every method starts,
+with seeded users declared (`SeededUsers: true`): the provider says which
 persona signed in, and the persona's identity (its login as the subject) is linked to the
-account seeded under that login. The method takes no `--slot`. Its settings are
+account seeded under that login, on the login alone, since the declaration takes the
+provider's names for the application's own. A seeded account has no password and has
+never signed in, so without the declaration an application whose tenants have
+directories links it only through the directory of the one tenant it belongs to, or
+with its own invitation, and a persona holds its roles in every tenant or in none. The method takes no `--slot`. Its settings are
 `APP_<AUTH>_<REGISTRATION>_ISSUER`, `_CLIENT_ID` and `_REDIRECT_URL`, and
 `register<Registration>` answers nil when the issuer is empty, so the method is registered
 only where the provider is configured: bedrock sets the issuer in the first environment and
 its pull requests from the placement's `persona` block (`{"issuer": ..., "clientId": ...}`,
-both from Redgrade's registration of the application), derives the client id (the root with
+both from the provider's registration of the application), derives the client id (the root with
 the pull request or the environment appended) and the callback, and registers each
 deployment, its callbacks and its cast with the provider after traffic; a later
 environment carries no issuer, so it never offers the method and nothing in the build
 differs. The generated router mounts the method's routes and the methods route offers it
-only where the handlers are non-nil (`generation.PersonaMethod("<registration>").InvitedUsers()`
+only where the handlers are non-nil (`generation.PersonaMethod("<registration>")`
 on the declaration). Beside the method file the command writes the cast,
 `pkg/auth/<auth>/cast.json` (the personas: `login`, `name`, `email`, `roles` from the
-auth's role file), empty to fill in, and `cast.go`, which embeds it (`Cast()`) and seeds
+auth's role file or the framework's `SuperAdministrator`), empty to fill in, and `cast.go`, which embeds it (`Cast()`) and seeds
 its accounts with their roles (`SeedCast`, skipping accounts that exist); the did lines say
 to call `data.<Auth>().SeedCast(ctx)` where the migrate command seeds (`-seed`), after
 `SeedAdministrators`. The `persona-cast` check holds the cast to its shape and its roles to
@@ -1205,11 +1505,13 @@ is in the groups the roles variable names.
 
 ```sh
 impulse add method members azure directory --authority application --agent
-impulse add method members google workspace --slot listed --accounts invited --authority application
+impulse add method members google workspace --slot listed --authority application
 impulse add method partners password
-impulse add method clients password --accounts open --username-is-email
-impulse add method staff oidc okta --authority application --accounts invited
+impulse add method clients password --username-is-email
+impulse add method staff oidc okta --authority application
 impulse add method staff persona
+impulse add method staff google workspace --shape directory-members
+impulse add method staff azure entra --shape open-sign-up
 ```
 
 ### add site
@@ -1217,7 +1519,9 @@ impulse add method staff persona
 `add site <name>` adds a site: a stand-alone application on a host of its own under
 `apps/<name>/`, with its own main package, handlers, router, resources (empty to start),
 authorization suite, and browser workspace, copied from the first site with the imports
-renamed; its generator program and directive; its serve and browser processes on the next
+renamed (its brand declaration with it, `brand.json`, which the report says and the brief
+names giving a brand of its own);
+its generator program and directive; its serve and browser processes on the next
 ports; its TypeScript target in the shared generator; and its router collection in the union
 the roles are reconciled against. The name is one word of lowercase letters and digits
 starting with a letter, at most 25 characters, and a name outside the rule is refused
@@ -1461,12 +1765,14 @@ A template's `go.mod` requires the framework at the placeholder `v0.0.0-skeleton
 with the version of the impulse that runs it (the zero pseudo-version with a `replace`
 under `--dev-root`), so no version is written into a template and nobody moves one by
 hand.
-A template names its application by its own candidate name in five places only: the
+A template names its application by its own candidate name in these places only: the
 workspace name in `package.json` and `bun.lock`, the service name and development
 database ids in `.envrc.template`, the README heading, and, in display form, each browser
-project's titles (the page title, the component title fields, the login card) and the
+project's titles (the page title, the component title fields, the login card), the
 `name` and `short_name` of its web app manifest (`public/manifest.webmanifest`, the
-portal's ending in Portal). Rendering puts the application's name there; everywhere
+portal's ending in Portal), the `name` of its brand declaration (`brand.json`) with the
+name constants of the server's brands package written from it (`pkg/brand/brand.go`), and
+the auth packages' `Application` constant. Rendering puts the application's name there; everywhere
 else the prose says "the application", since the candidate names are English words.
 The templates are therefore validated by rendering them and running the rendered
 application's build, tests, and `impulse check`, never in place, and under a module path

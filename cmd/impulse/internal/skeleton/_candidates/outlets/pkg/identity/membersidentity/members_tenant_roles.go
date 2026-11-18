@@ -19,12 +19,19 @@ import (
 //
 // It is a computed resource. The role file's roles are held by the permission engine
 // and only a custom role is a row of a table, so the engine is asked and no query
-// selects the list. The role file grants it like any resource, and a grant may carry
-// a condition on the role's name (name != 'TenantAdmin'): the library judges each role
-// the engine answers, so a person is listed the roles their grant admits and picks
-// among roles they may give. The method that gives a role carries the same limit on
-// its own grant (new.role != 'TenantAdmin'), which is what refuses a request that
-// names a role the list left out.
+// selects the list. A person is listed the roles they could give. A role file
+// says which roles a person hands out on the grants of the methods that give one, whose
+// role field picks from this list:
+//
+//	AssignMembersTenantRole, CreateMembersTenantUser, InviteMembersTenantUser, GiveMembersTenantGroupRole
+//
+// A condition there reads the role (new.role != 'TenantAdmin'), and the list leaves out
+// a role every one of them refuses the caller (identity.Manager.RolesToGive), so the
+// limit is said once and a page offers what the caller may do. One list serves all of
+// them, so it holds a role that one of them takes and another refuses, which the method
+// then says. The role file grants the list like any resource, and a condition on the
+// role's name there (name != 'TenantAdmin') narrows it further: the library judges each
+// role the list answers.
 //
 // @computed
 // @permissionScope(domain)
@@ -44,7 +51,7 @@ func (MembersTenantRole) Resource() accesstypes.Resource {
 }
 
 // ListMembersTenantRole yields the roles that exist in the tenant the request was
-// checked in; the generated handler applies the request's filter, sort and page over
+// checked in that the caller could give there; the generated handler applies the request's filter, sort and page over
 // them.
 func ListMembersTenantRole(ctx context.Context, qSet *resource.QuerySet[MembersTenantRole], _ resource.Client, client *Client) iter.Seq2[*MembersTenantRole, error] {
 	return func(yield func(*MembersTenantRole, error) bool) {
@@ -54,9 +61,9 @@ func ListMembersTenantRole(ctx context.Context, qSet *resource.QuerySet[MembersT
 
 			return
 		}
-		roles, err := client.manager.TenantRoles(ctx, domain)
+		roles, err := client.manager.RolesToGive(ctx, domain)
 		if err != nil {
-			yield(nil, errors.Wrap(err, "identity.Manager.TenantRoles()"))
+			yield(nil, errors.Wrap(err, "identity.Manager.RolesToGive()"))
 
 			return
 		}

@@ -16,7 +16,9 @@ export interface FieldPointer {
  * and resourcePage answers the same page for the menu file to place. The page needs the
  * resource's List permission and sits behind the resource's feature flag unless these
  * say otherwise. A config without one makes a page no menu reaches, such as one only a
- * row link opens.
+ * row link opens. A page that lists its resource across tenants needs no List permission:
+ * no one tenant's digest speaks for it, so the menus show it to every signed-in person
+ * unless `permission` names what it needs.
  */
 export interface ConfigPage {
   label: string;
@@ -77,11 +79,19 @@ export interface MethodPresentation {
   /**
    * Whether a row offers the method, beyond the server's answer for the row: for a
    * method that only makes sense in one state of the row (Enable on a disabled
-   * account). The server's answer still decides whether the caller may run it.
+   * account). The server's answer still decides whether the caller may run it. For a
+   * method above a list (`listMethods`) the row is the one the list sits under, and
+   * `listed` the rows the list shows: a method that only makes sense while the list
+   * holds something (the removal of a person's password, above the directory sign-ins
+   * linked to them) says so from them.
    */
-  when?: (row: RecordData) => boolean;
-  /** The question the dialog asks before a method that takes nothing but the row. */
-  confirm?: string | ((row: RecordData) => string);
+  when?: (row: RecordData, listed?: readonly RecordData[]) => boolean;
+  /**
+   * The question the dialog asks before a method that takes nothing but the row. For a
+   * method above a list it is asked of the row the list sits under, with `listed`, the
+   * rows the list shows.
+   */
+  confirm?: string | ((row: RecordData, listed?: readonly RecordData[]) => string);
   /** What the notice says once the method has run. */
   successMessage?: string;
   /**
@@ -90,6 +100,13 @@ export interface MethodPresentation {
    * tenant). A field the page does not name is labeled with its name in words.
    */
   labels?: Record<string, string>;
+  /**
+   * The request fields picked as a day that mean through the end of that day: the last
+   * day of a period. The dialog sends the first instant of the day after the one picked,
+   * in the viewer's time zone, so what is given "until 1 December" still counts on
+   * 1 December. A day picked for a field not named is sent as its first instant.
+   */
+  throughDay?: readonly string[];
   /**
    * What the page fills in the method's request from a row: the row the method is
    * offered on, or, for a method above a list, the row the list sits under (a child
@@ -103,14 +120,17 @@ export interface MethodPresentation {
    * caller Execute on it; the server gives no answer for a row it does not name.
    */
   fill?: (row: RecordData) => Record<string, unknown>;
+  /**
+   * What a picker among the request's inputs lists each option by, by the request
+   * field's name, where the option's name alone does not say enough to choose by: the
+   * fields of the listed resource, joined in order (a role with its description). A
+   * field the page does not name lists its options by the source's own name.
+   */
+  shows?: Record<string, string[]>;
 }
 
 export type ListConcatFn =
-  | 'space-concat'
-  | 'hyphen-concat'
-  | 'space-hyphen-concat'
-  | 'hyphen-space-concat'
-  | 'no-space-concat';
+  'space-concat' | 'hyphen-concat' | 'space-hyphen-concat' | 'hyphen-space-concat' | 'no-space-concat';
 export type ConfigType = ChildResourceConfig;
 export type FormatType = 'simpleSlashDateFormat';
 export type RPCPlacement = 'inline' | 'end';
@@ -135,6 +155,13 @@ export interface ActionButtonConfig {
   viewRoute?: string;
   /** The row field whose value follows viewRoute as the opened row's key; `id` when unset. */
   keyField?: FieldName;
+  /**
+   * The display-row field holding the row's own link, for a list whose rows open in
+   * different places: a list across tenants, where each row opens inside its tenant.
+   * Set, the link is the field's value, viewRoute and keyField are not read, and a row
+   * whose field is empty draws no link.
+   */
+  linkField?: string;
   actionType?: ActionType;
   color?: string;
   disabledLabel?: string;
@@ -145,6 +172,7 @@ export interface ActionButtonConfigOptions {
   action?: (resource: { id: string }) => void;
   viewRoute?: string;
   keyField?: FieldName;
+  linkField?: string;
   actionType?: ActionType;
   color?: string;
   disabledLabel?: string;
@@ -930,7 +958,12 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   /**
    * The methods offered above the list: methods that name no row (a create, an
    * invitation), each a button drawn when the digest grants the caller Execute on it,
-   * opening the same dialog. The list is read again once one has run.
+   * opening the same dialog. A list under a row may also name a method that runs
+   * against that row (`@target` naming it), which belongs with what the list shows and
+   * is no row of it (a person's password, above the identities the person signs in
+   * with): its button is drawn when the server's answer for the row lists the method,
+   * the row's key fills its request, and the page's question is asked of that row. The
+   * list is read again once one has run.
    */
   listMethods?: MethodPresentation[];
   /** The sorts the list is requested in until a header is clicked; none, and the resource's declared order applies. */
@@ -938,6 +971,13 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   /** Show the server's total row count in the title. */
   showRowCount?: boolean;
+  /**
+   * A standing notice above the list, drawn in the library's warning colors under a
+   * warning icon: what the page must not let a person overlook for as long as it holds
+   * (a sign-in method that is open to sign-up). It is said from the rows on the page,
+   * again each time they are read, and answering nothing draws none.
+   */
+  notice?: (rows: RecordData[]) => string | undefined;
   /**
    * Whether the page draws the search box over the resource's search fields
    * (`ResourceMeta.searchFields`): drawn above the table when the metadata lists any,
@@ -970,6 +1010,28 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * plain one.
    */
   live?: boolean;
+  /**
+   * Whether the page lists the resource across tenants: one list of its rows in every
+   * tenant the person reaches in which they may list it, where a page inside a tenant
+   * lists that tenant's. The resource must be declared for it (`@listAcrossTenants`; its
+   * descriptor says `acrossTenants`), and the page is refused when it is built otherwise,
+   * naming the resource. The table gains a first column naming each row's tenant, under
+   * the application's word for a tenant, and a row's View link opens the row itself
+   * inside its tenant, on the record's own row route there, drawn where the person may
+   * read the record in that tenant and the application mounts it a row route. The page
+   * is shown, and its route opened, to whoever may list the resource in at least one
+   * tenant they reach, as the server tells the global digest; the config names no
+   * permission for it. The server decides, tenant by tenant, which of the page's columns a
+   * row shows, so the page asks for no column list and a cell the person may not read in
+   * a row's tenant stays empty. The page reads: it offers no create, no delete and no
+   * method, since every write stays inside one tenant, on the row's page; row expansion
+   * is refused when the page is built. It is plain unless the page asks: only
+   * `live: true` makes it live, with one subscription over the tenants the list reads,
+   * where a tenant's list is live unless its page says otherwise. A column that reads a
+   * referenced tenant-scoped resource shows nothing, since the page has no one tenant to
+   * read it in.
+   */
+  acrossTenants?: boolean;
 }
 export interface ListViewConfig extends BaseConfig {
   type: 'ListView';
@@ -995,6 +1057,8 @@ export interface ListViewConfig extends BaseConfig {
   sorts: FieldSort[];
   shouldRenderActions: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   showRowCount: boolean;
+  /** The page's standing notice; see ListViewConfigOptions.notice. */
+  notice?: (rows: RecordData[]) => string | undefined;
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */
   showSearchBox: boolean;
   /** The server page size; see ListViewConfigOptions.pageSize. */
@@ -1004,6 +1068,8 @@ export interface ListViewConfig extends BaseConfig {
    * nothing, so the resource's metadata decides. See ListViewConfigOptions.live.
    */
   live?: boolean;
+  /** Whether the page lists the resource across tenants; see ListViewConfigOptions.acrossTenants. */
+  acrossTenants?: boolean;
 }
 
 export function listViewConfig(config: ListViewConfigOptions): ListViewConfig {

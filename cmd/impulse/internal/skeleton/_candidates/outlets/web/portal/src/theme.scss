@@ -8,10 +8,11 @@
 // tokens under html[data-palette='<id>']; ThemeService (provideTheme in app.config.ts,
 // which names the same ids) sets that attribute from the person's choice, and
 // color-scheme on html from their light or dark, which flips every token since mat.theme
-// emits both values of each. The manifest (public/manifest.webmanifest, theme_color and
-// background_color) and index.html's theme-color carry the first palette's primary and
-// the page's colors as literals; keep them in step until they are rendered from one
-// brand declaration.
+// emits both values of each. The first palette is the brand's: impulse brand generates it
+// from the primary color brand.json declares (Angular Material's theme-color schematic,
+// written beside this file as _theme-colors.scss) and puts it here in the place of the
+// skeleton's, and writes the manifest's theme_color and background_color and index.html's
+// theme-color from the same declaration, which carry the colors as literals.
 // The portal offers one palette, so its picker offers light and dark alone; a second
 // entry here, and in provideTheme, is the whole of offering a choice of colors.
 @use '@angular/material' as mat;

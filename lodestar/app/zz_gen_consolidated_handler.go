@@ -67,6 +67,17 @@ func (a *App) PatchResources() http.HandlerFunc {
 	}
 	distressCallDecoder := NewDecoder[resources.DistressCall, distressCallRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
+	type hangarPassRequest struct {
+		ID         impulse.UUID     `json:"-"`
+		SectorID   impulse.UUID     `json:"-"`
+		HangarID   impulse.UUID     `json:"hangarId"`
+		UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
+		SquadronID impulse.NullUUID `json:"squadronId"`
+		LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
+		ExpiresAt  *time.Time       `json:"expiresAt"`
+	}
+	hangarPassDecoder := NewDecoder[resources.HangarPass, hangarPassRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
+
 	type missionRequest struct {
 		ID                 impulse.UUID          `json:"-"`
 		SectorID           impulse.UUID          `json:"-"`
@@ -146,16 +157,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 		Name          string       `json:"name"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
-		DirectoryOnly bool         `json:"directoryOnly"`
+		DirectoryOnly bool         `json:"-"`
 	}
 	sectorDecoder := NewDecoder[resources.Sector, sectorRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type sectorDirectoryRequest struct {
 		ID          impulse.UUID `json:"-"`
 		SectorID    impulse.UUID `json:"-"`
-		Method      string       `json:"method"      sqltype:"STRING(16)"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
+		Method      string       `json:"-"`
+		Connection  string       `json:"-"`
+		DefaultSeat *string      `json:"-"`
 	}
 	sectorDirectoryDecoder := NewDecoder[resources.SectorDirectory, sectorDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -168,7 +179,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		LastRefitAt    *time.Time   `json:"-"`
 		UpdatedAt      *time.Time   `json:"-"`
 		CargoBays      []int64      `json:"cargoBays"`
-		TransponderKey *string      `json:"transponderKey" sqltype:"STRING(64)"`
+		TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(106)"`
 	}
 	shipDecoder := NewDecoder[resources.Ship, shipRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -224,15 +235,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 
 	type response map[string][]impulse.UUID
 
-	// The creator of a Sector is its first administrator: the roles SectorAdministratorRoles
-	// names, given in the create's transaction through the Crew auth's generated
-	// identity client.
-	roles := a.SectorAdministratorRoles()
-	if len(roles) == 0 {
-		panic("SectorAdministratorRoles() names no role: the person who creates a Sector holds its administrator role, which the application names there")
-	}
-	identity := a.CrewIdentity()
-
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -246,9 +248,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// The roster follows the commit: a tenant or a declaration this transaction
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
-		// The Sectors this transaction creates with their creator's membership,
-		// which the answer waits on after the commit.
-		var created []impulse.UUID
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
@@ -257,7 +256,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			tenantsWritten = false
-			created = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -462,6 +460,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 					}
 				case "sectors":
 					if op.PathDepth() <= 2 {
+						if op.Type == resource.OperationCreate {
+							// A row comes in another way (a NOT NULL @file key: the @upload
+							// method that stores its file; the tenant record: an invitation's
+							// first sign-in), so a create op is refused naming it, with the
+							// status an unknown resource answers.
+							return httpio.NewBadRequestMessage("a sector is not created directly: invite one person, and the sector is made when that person first signs in")
+						}
 						patchSet, err := sectorDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 						if err != nil {
 							return errors.Wrap(err, "sectorDecoder.DecodeOperation()")
@@ -483,13 +488,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 								return errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 							}
 							resp["sectors"] = append(resp["sectors"], patch.ID())
-							id := patch.ID()
-							for _, role := range roles {
-								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
-									return errors.Wrap(err, "the auth's identity client: AssignRole()")
-								}
-							}
-							created = append(created, id)
 						case resource.OperationUpdate:
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewSectorUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
@@ -598,6 +596,38 @@ func (a *App) PatchResources() http.HandlerFunc {
 								return errors.Wrap(err, "resources.DistressCallDeletePatch.Buffer()")
 							}
 						}
+					case "hangar-passes":
+						patchSet, err := hangarPassDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
+						if err != nil {
+							return errors.Wrap(err, "hangarPassDecoder.DecodeOperation()")
+						}
+
+						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
+						if err != nil {
+							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						switch op.Type {
+						case resource.OperationCreate:
+							patch, err := resources.NewHangarPassCreatePatchFromPatchSet(patchSet)
+							if err != nil {
+								return errors.Wrap(err, "hangarPassCreatePatchFromPatchSet()")
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.HangarPassCreatePatch.Buffer()")
+							}
+							resp["hangarPasses"] = append(resp["hangarPasses"], patch.ID())
+						case resource.OperationUpdate:
+							id := httpio.Param[impulse.UUID](req, "id")
+							if err := resources.NewHangarPassUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.HangarPassUpdatePatch.Buffer()")
+							}
+						case resource.OperationDelete:
+							id := httpio.Param[impulse.UUID](req, "id")
+							if err := resources.NewHangarPassDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.HangarPassDeletePatch.Buffer()")
+							}
+						}
 					case "missions":
 						patchSet, err := missionDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
 						if err != nil {
@@ -633,8 +663,9 @@ func (a *App) PatchResources() http.HandlerFunc {
 					case "mission-documents":
 						if op.Type == resource.OperationCreate {
 							// A row comes in another way (a NOT NULL @file key: the @upload
-							// method that stores its file; a self-service tenant record: the
-							// create-your-tenant route), so a create op is refused naming it.
+							// method that stores its file; the tenant record: an invitation's
+							// first sign-in), so a create op is refused naming it, with the
+							// status an unknown resource answers.
 							return httpio.NewBadRequestMessage("a MissionDocument row is added by the @upload method that stores its file; a create cannot supply the file's key")
 						}
 						patchSet, err := missionDocumentDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
@@ -776,6 +807,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err != nil {
 								return errors.Wrap(err, "sectorDirectoryCreatePatchFromPatchSet()")
 							}
+							// A directory is never typed in: the row takes the directory the caller is
+							// signed in through, held to the rules of a sector's directory. The
+							// caller's grants answer first, so a caller they refuse learns nothing
+							// from a rule.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							directory, err := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).FromSession(ctx, txn, domain)
+							if err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
+							}
+							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
 							}
@@ -787,6 +830,14 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
+							// A sector that is directory only keeps its directory: its people
+							// enter through it alone. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							if err := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).Remove(ctx, txn, domain); err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+							}
 							if err := resources.NewSectorDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDirectoryDeletePatch.Buffer()")
 							}
@@ -1021,15 +1072,10 @@ func (a *App) PatchResources() http.HandlerFunc {
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
 		if tenantsWritten {
 			if err := a.TenantRoster().Reload(ctx); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
-			}
-		}
-		for _, id := range created {
-			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {
-				logger.FromCtx(ctx).Errorf("sector %s: %v", id, err)
 			}
 		}
 		if tenantsWritten {

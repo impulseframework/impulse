@@ -15,6 +15,7 @@ func TestArg_ParseInvocations(t *testing.T) {
 	transitionSpec := &ArgSpec{Positional: 1, Keys: []string{"from", "to"}, Required: []string{"from", "to"}, Multi: []string{"from"}}
 	typescriptSpec := &ArgSpec{Positional: 1, Keys: []string{"from"}}
 	fileSpec := &ArgSpec{Positional: 1, OptionalPositional: true, Keys: []string{"name", "type"}}
+	setSpec := &ArgSpec{Positional: 1, Keys: []string{"value", "who", "where"}, Required: []string{"value"}, Expressions: []string{"who", "where"}}
 
 	tests := []struct {
 		name        string
@@ -165,6 +166,55 @@ func TestArg_ParseInvocations(t *testing.T) {
 			want: []NamedArgs{{Positional: []string{"Point"}, named: map[string][]string{}}},
 		},
 		{
+			name: "an expression keeps the commas inside its parentheses and its strings",
+			arg:  Arg("views, value: ApplicationID,\n    who:   UserID = subject OR GroupID IN subject.groups,\n    where: Permission IN ('view', 'develop') AND (ExpiresAt IS NULL OR ExpiresAt > now)"),
+			spec: setSpec,
+			want: []NamedArgs{{Positional: []string{"views"}, named: map[string][]string{
+				"value": {"ApplicationID"},
+				"who":   {"UserID = subject OR GroupID IN subject.groups"},
+				"where": {"Permission IN ('view', 'develop') AND (ExpiresAt IS NULL OR ExpiresAt > now)"},
+			}}},
+		},
+		{
+			name: "an expression before another argument ends at the comma outside it",
+			arg:  Arg("views, where: Note IN ('a, b', 'it''s, so'), value: ApplicationID"),
+			spec: setSpec,
+			want: []NamedArgs{{Positional: []string{"views"}, named: map[string][]string{
+				"value": {"ApplicationID"},
+				"where": {"Note IN ('a, b', 'it''s, so')"},
+			}}},
+		},
+		{
+			name: "an expression is passed on as written, a colon and a double quote inside a string included",
+			arg:  Arg(`views, value: ApplicationID, where: ExpiresAt > '2026-10-01T00:00:00Z' AND Note != 'say "no", then go'`),
+			spec: setSpec,
+			want: []NamedArgs{{Positional: []string{"views"}, named: map[string][]string{
+				"value": {"ApplicationID"},
+				"where": {`ExpiresAt > '2026-10-01T00:00:00Z' AND Note != 'say "no", then go'`},
+			}}},
+		},
+		{
+			name:        "an expression whose string is never closed is refused",
+			arg:         Arg("views, value: ApplicationID, where: Permission = 'develop"),
+			spec:        setSpec,
+			wantContain: "unclosed quote",
+		},
+		{
+			// Without an expression key the split is the one every other annotation has
+			// always had: an apostrophe is a character like any other.
+			name: "a spec with no expression key splits on every comma outside double quotes",
+			arg:  Arg("WorkOrder, from: it's, draft, to: canceled"),
+			spec: transitionSpec,
+			want: []NamedArgs{{Positional: []string{"WorkOrder"}, named: map[string][]string{"from": {"it's", "draft"}, "to": {"canceled"}}}},
+		},
+		{
+			// Nor does it count parentheses: a comma inside them splits as any other.
+			name: "a spec with no expression key splits on a comma inside parentheses too",
+			arg:  Arg("WorkOrder, from: draft(a, b), to: canceled"),
+			spec: transitionSpec,
+			want: []NamedArgs{{Positional: []string{"WorkOrder"}, named: map[string][]string{"from": {"draft(a", "b)"}, "to": {"canceled"}}}},
+		},
+		{
 			name:        "an unclosed quote is refused",
 			arg:         Arg(`Point, from: "geojson`),
 			spec:        typescriptSpec,
@@ -198,6 +248,31 @@ func TestArg_ParseInvocations(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(NamedArgs{})); diff != "" {
 				t.Errorf("ParseInvocations(%q) mismatch (-want +got):\n%s", tt.arg, diff)
+			}
+		})
+	}
+}
+
+// TestArgSpec_ScanFlags pins the flags a keyword takes from the spec its arguments are
+// parsed with: Expressions where the spec names an expression key, and nothing where it
+// names none, so the scanner reads a single quote as the spec's split does.
+func TestArgSpec_ScanFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		spec *ArgSpec
+		want keywordFlag
+	}{
+		{name: "a spec with expression keys", spec: &ArgSpec{Keys: []string{"value", "where"}, Expressions: []string{"where"}}, want: Expressions},
+		{name: "a spec with none", spec: &ArgSpec{Positional: 1, Keys: []string{"from"}}, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.spec.ScanFlags(); got != tt.want {
+				t.Errorf("ScanFlags() = %d, want %d", got, tt.want)
 			}
 		})
 	}

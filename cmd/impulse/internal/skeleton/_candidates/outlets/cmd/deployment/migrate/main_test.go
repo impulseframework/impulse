@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"maps"
@@ -257,6 +258,43 @@ func TestExecute(t *testing.T) {
 			wantErr:  `"-2" is not a version`,
 		},
 		{
+			name:     "a retirement with another flag is refused before the database is touched",
+			missing:  true,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_1", "-seed"},
+			wantCode: exitRefused,
+			wantErr:  "-retire-secret applies no migration and reports no version: it goes with no other flag",
+		},
+		{
+			name:     "a retirement without its variable is refused",
+			missing:  true,
+			args:     []string{"-retire-secret"},
+			wantCode: exitRefused,
+			wantErr:  "flag needs an argument: -retire-secret",
+		},
+		{
+			name:    "a retirement of an older version of the application secret finds no value that names it and passes",
+			prepare: migrated,
+			args:    []string{"-retire-secret", "APP_SECRET_KEY_1"},
+			env:     map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantOut: "Retired APP_SECRET_KEY_1: no stored value names version 1\n",
+		},
+		{
+			name:     "a retirement of the current version of the application secret is refused",
+			prepare:  migrated,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_2"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantCode: exitFailed,
+			wantErr:  "APP_SECRET_KEY_2 is the current version of the application secret",
+		},
+		{
+			name:     "a retirement of a variable that is not a version of the application secret is refused",
+			prepare:  migrated,
+			args:     []string{"-retire-secret", "APP_COOKIE_KEY_1"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantCode: exitFailed,
+			wantErr:  "APP_COOKIE_KEY_1 is not a version of the application secret",
+		},
+		{
 			name:     "a stray argument is refused",
 			missing:  true,
 			args:     []string{"-version", "extra"},
@@ -322,13 +360,15 @@ func TestExecute(t *testing.T) {
 // database of its own, by what the seed reports and what it leaves. The seed runs only
 // while the auth's users table is empty, and it is two writes: the administrator's roles
 // first, which the auth's permission store holds under an id the seed derives
-// (session.SeedUserID, the same on every run), then the user, created under that id. The
+// (session.SeedUserID, or session.SeedUserIDThrough for an administrator the directory
+// signs in; the same on every run), then the user, created under that id. The
 // user's row is what says the seed is done: a run that stopped between the two left the
 // table empty, and the next run writes the same memberships again, each left as it is,
 // and creates the user. Once the table holds a user nothing is seeded, whoever that user
 // is and whatever it holds: a user under the administrator's name whom the seed did not
 // create is given no role. The staff auth's first administrator is created with the
-// password the seed is handed; the members auth's, whose people the directory signs in,
+// password the seed is handed, marked for change: the deployment generated it, and the
+// first sign-in changes it. The members auth's, whose people the directory signs in,
 // is a user without a password under the sign-in name the seed is handed, which the
 // person's first sign-in links to. The data level reads its target from the environment,
 // so the cases run one at a time.
@@ -450,9 +490,13 @@ type sessionAPI = session.AuthAPI[session.NoCustomData, session.NoCustomData, *s
 // the auth's users and its permission store; and the administrator's roles by where
 // they are held.
 type foothold struct {
-	auth                string
-	username            string
-	password            *string
+	auth     string
+	username string
+	password *string
+	// registration is the sign-in registration the administrator's account is seeded
+	// for, where the directory signs the auth's people in; empty for an administrator
+	// who signs in with a password.
+	registration        string
 	seed                func(ctx context.Context, setting string) (bool, error)
 	setting             string
 	users               *sessionAPI
@@ -465,8 +509,12 @@ type foothold struct {
 // one under the sign-in name the placement names.
 func footholds(data *config.DataConfiguration) []*foothold {
 	password := administratorPassword
+	// Each auth's first administrator holds the Super Administrator role, which the
+	// framework defines in every auth, beside the application's own roles.
 	staffGlobal, staffEveryDomain := staff.FirstAdministratorRoles()
+	staffGlobal = append([]accesstypes.Role{accesstypes.SuperAdministrator}, staffGlobal...)
 	membersGlobal, membersEveryDomain := members.FirstAdministratorRoles()
+	membersGlobal = append([]accesstypes.Role{accesstypes.SuperAdministrator}, membersGlobal...)
 
 	return []*foothold{
 		{
@@ -476,7 +524,7 @@ func footholds(data *config.DataConfiguration) []*foothold {
 			global: staffGlobal, everyDomain: staffEveryDomain,
 		},
 		{
-			auth: members.Name, username: membersAdministrator,
+			auth: members.Name, username: membersAdministrator, registration: members.DirectoryRegistration,
 			seed: data.Members().SeedAdministrator, setting: membersAdministrator,
 			users: data.Members().Session().API(), manager: data.Members().Access().UserManager(),
 			global: membersGlobal, everyDomain: membersEveryDomain,
@@ -536,8 +584,15 @@ func someoneElse(t *testing.T, f *foothold) {
 }
 
 // seedID is the id the auth's seed creates its first administrator under, which it
-// derives from the auth's name and the administrator's: the same on every run.
+// derives from the auth's name and the administrator's: the same on every run. An
+// administrator the directory signs in is seeded for the registration they come
+// through, which the id names too (session.SeedUserIDThrough): it is what the sign-in
+// rule recognizes the account by at the person's first sign-in.
 func (f *foothold) seedID() impulse.UUID {
+	if f.registration != "" {
+		return session.SeedUserIDThrough(f.auth, f.registration, f.username)
+	}
+
 	return session.SeedUserID(f.auth, f.username)
 }
 
@@ -557,30 +612,51 @@ func (f *foothold) accounts(t *testing.T) map[impulse.UUID]string {
 	return byID
 }
 
-// hasPassword reports whether the auth's user under the id holds a password.
-func (f *foothold) hasPassword(t *testing.T, id impulse.UUID) bool {
+// passwordAsSeeded checks the password of the auth's first administrator as the seed
+// leaves it. The staff auth's holds the password the seed was handed and the mark that it
+// must change (PasswordChangeRequired): the deployment generated it, so the session
+// library serves the person nothing but the change until they have chosen one of their
+// own, and the generated one signs nobody in after that. The members auth's, whose
+// people the directory signs in, holds no password and so no mark, which the session
+// library refuses on a user with none.
+func (f *foothold) passwordAsSeeded(t *testing.T, id impulse.UUID) {
 	t.Helper()
 
 	user, err := f.users.User(t.Context(), id)
 	if err != nil {
 		t.Fatalf("session.AuthAPI.User(%s) of the %s auth error = %v", id, f.auth, err)
 	}
+	if f.password == nil {
+		if user.PasswordHash != nil {
+			t.Errorf("%s holds a password in the %s auth, want none: the directory signs the auth's people in", f.username, f.auth)
+		}
+		if user.PasswordChangeRequired {
+			t.Errorf("%s is marked to change a password in the %s auth, want no mark: the user holds no password", f.username, f.auth)
+		}
 
-	return user.PasswordHash != nil
+		return
+	}
+	if user.PasswordHash == nil {
+		t.Errorf("%s holds no password in the %s auth, want the one the seed was handed", f.username, f.auth)
+	}
+	if !user.PasswordChangeRequired {
+		t.Errorf("%s is not marked to change the password in the %s auth, want the mark: the deployment generated the password, and the first sign-in changes it", f.username, f.auth)
+	}
 }
 
 // administratorAlone checks what the auth's seed leaves: the auth's users table holds
-// the first administrator alone, under the id the seed derives, without a password where
-// the directory signs the auth's people in, and the auth's permission store holds the
-// administrator's roles under that id.
+// the first administrator alone, under the id the seed derives, with the password the
+// seed was handed marked for change, or without a password where the directory signs the
+// auth's people in, and the auth's permission store holds the administrator's roles
+// under that id.
 func (f *foothold) administratorAlone(t *testing.T) {
 	t.Helper()
 
 	id := f.seedID()
 	if got, want := f.accounts(t), map[impulse.UUID]string{id: f.username}; !maps.Equal(got, want) {
 		t.Errorf("the %s auth's users table after the run = %v, want %v: %s alone, under the id the seed derives", f.auth, got, want, f.username)
-	} else if f.password == nil && f.hasPassword(t, id) {
-		t.Errorf("%s holds a password in the %s auth, want none: the directory signs the auth's people in", f.username, f.auth)
+	} else {
+		f.passwordAsSeeded(t, id)
 	}
 	f.holdsAdministratorRoles(t, id)
 }
@@ -665,6 +741,12 @@ func (f *foothold) holdsNoRole(t *testing.T, user accesstypes.User, whose string
 			t.Errorf("the %s auth's roles held under %s (%s) in %v = %v, want none", f.auth, user, whose, scope, held)
 		}
 	}
+}
+
+// secretVersion is one version of a test application secret as the deployment hands it
+// over: 32 bytes, the version's number repeated, in Base64.
+func secretVersion(version byte) string {
+	return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{version}, 32))
 }
 
 // database creates a fresh database for the case and drops it when the case ends.

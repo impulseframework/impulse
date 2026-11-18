@@ -38,8 +38,8 @@ type storeRecorder interface {
 	DestroyImpersonatedSession(ctx, sessionID, reason any) *gomock.Call
 }
 
-// sessionAPI is the impersonation surface of the five API types that this file
-// exercises directly.
+// sessionAPI is the impersonation surface of the API types that this file exercises
+// directly.
 type sessionAPI interface {
 	EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error)
 }
@@ -99,7 +99,7 @@ func surfaceBuilders() []struct {
 			name: "Auth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
 				storage := newAuthStoreMock(ctrl)
-				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, NoSuperAdministrators(), WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)
 				}

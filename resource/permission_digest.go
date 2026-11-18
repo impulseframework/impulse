@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"maps"
 	"net/http"
 	"slices"
@@ -19,6 +20,32 @@ type digestOptions struct {
 	gates    FeatureGates
 	features *FeatureSet
 	former   FormerNames
+	across   AcrossTenantsLists
+}
+
+// ListAcrossTenants is the permission the global permission digest answers for a
+// resource declared for listing across tenants (@listAcrossTenants): granted while the
+// person may list the resource in at least one tenant the session reaches. It is the
+// digest's own entry and no grant's, so no role names it. A page that lists the resource
+// across tenants is shown, and its route opened, to whoever the digest answers it for.
+const ListAcrossTenants accesstypes.Permission = "ListAcrossTenants"
+
+// AcrossTenantsLists answers the resources declared for listing across tenants
+// (@listAcrossTenants), as the generated collection does.
+type AcrossTenantsLists interface {
+	ListedAcrossTenants() []accesstypes.Resource
+}
+
+// WithListsAcrossTenants adds, to the digest of the global scope, the answer a page
+// that lists a resource across tenants is shown by: each resource declared for it
+// carries ListAcrossTenants, granted, while the person may list it in at least one
+// tenant the session reaches (ListedInSomeTenant), and is left as it was otherwise. The
+// resources are the generated collection's (Collection()). A tenant's digest is
+// untouched: it speaks for that tenant alone.
+func WithListsAcrossTenants(lists AcrossTenantsLists) DigestOption {
+	return func(o *digestOptions) {
+		o.across = lists
+	}
 }
 
 // FormerNames answers the former wire names of renamed fields and methods (their
@@ -80,15 +107,53 @@ func PermissionDigestHandler(userPermissions func(r *http.Request) UserPermissio
 			scope = accesstypes.DomainScope(accesstypes.Domain(domain))
 		}
 
-		digest, err := userPermissions(r).PermissionDigest(ctx, scope)
+		perms := userPermissions(r)
+		digest, err := perms.PermissionDigest(ctx, scope)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if scope.IsGlobal() {
+			digest, err = o.withListsAcrossTenants(ctx, perms, digest)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
 		}
 		o.gates.filter(o.features, digest)
 		o.mirrorFormerNames(scope, digest)
 
 		return httpio.NewEncoder(w).Ok(digest)
 	})
+}
+
+// withListsAcrossTenants returns the global digest with ListAcrossTenants on each
+// resource declared for listing across tenants that the person may list in some tenant
+// the session reaches. It runs before the feature gates, so a resource behind a flag
+// that is off is left out with the rest of its entries.
+func (o *digestOptions) withListsAcrossTenants(ctx context.Context, perms UserPermissions, digest accesstypes.PermissionDigest) (accesstypes.PermissionDigest, error) {
+	if o.across == nil {
+		return digest, nil
+	}
+	listed, err := ListedInSomeTenant(ctx, perms, o.across.ListedAcrossTenants())
+	if err != nil {
+		return nil, err
+	}
+	if len(listed) == 0 {
+		return digest, nil
+	}
+	if digest == nil {
+		digest = make(accesstypes.PermissionDigest, len(listed))
+	}
+	for _, res := range listed {
+		// The entry is written on a copy: what the engine answered is its own.
+		entry := maps.Clone(digest[res])
+		if entry == nil {
+			entry = make(map[accesstypes.Permission]accesstypes.DigestState, 1)
+		}
+		entry[ListAcrossTenants] = accesstypes.DigestGranted
+		digest[res] = entry
+	}
+
+	return digest, nil
 }
 
 // mirrorFormerNames adds the former-name entries of the digest's renamed fields and

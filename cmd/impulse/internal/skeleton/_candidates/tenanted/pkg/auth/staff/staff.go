@@ -1,4 +1,4 @@
-// Package staff is the staff auth: the people who sign in to the console with a password, or with any Google account to create their own tenant, who hold their roles in the
+// Package staff is the staff auth: the people who sign in to the console with a password, or with any Google account, who hold their roles in the
 // staff permission store.
 //
 // An auth is a package. It owns its session manager, one Auth session with the sign-in
@@ -17,7 +17,9 @@
 //
 // The auth mails: an administrator invites a person by address, with the roles the
 // invitation seats, and the invitee follows the link to accept it; a signed-in person
-// adds an address and proves it by following the link sent to it.
+// adds an address and proves it by following the link sent to it; and, while an
+// administrator has the password method open to sign-up, a stranger signs up from a link
+// mailed to the address they give.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -73,21 +75,24 @@ const (
 	// Auth session (a person is one user whichever way they sign in; an identity the
 	// directory verifies links to its user through the identities table), the auth events
 	// each session records, the pending sign-ins that wait for a confirmation, the
-	// sign-in attempts the password method's attempt limiter counts per sign-in name, and
-	// the mail links: the invitations, address verifications and sign-ups the auth mails,
-	// each a single-use token its follower proves; the tokens: the bearer credentials of
-	// the machine outlets whose tokens this auth issues (the application tokens its people
-	// issue and the access and refresh tokens of the device grants they approve); the
-	// device codes: the device authorizations command-line clients wait on; and the second
-	// factor's tables: the sign-in codes mailed to people and the browsers they asked to
-	// be remembered. The names are spelled out in full so the tool's session-tables
-	// check, which reads the literals, finds their migrations.
+	// sign-in attempts the password method's attempt limiter counts per sign-in name, the
+	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
+	// only, which a method with no row is), and the mail links: the invitations, address
+	// verifications and sign-ups the auth mails, each a single-use token its follower
+	// proves; the tokens: the bearer credentials of the machine outlets whose tokens this
+	// auth issues (the application tokens its people issue and the access and refresh
+	// tokens of the device grants they approve); the device codes: the device
+	// authorizations command-line clients wait on; and the second factor's tables: the
+	// sign-in codes mailed to people and the browsers they asked to be remembered. The
+	// names are spelled out in full so the tool's session-tables check, which reads the
+	// literals, finds their migrations.
 	sessionsTable       = "StaffSessions"
 	usersTable          = "StaffSessionUsers"
 	identitiesTable     = "StaffSessionIdentities"
 	eventsTable         = "StaffSessionAuthEvents"
 	pendingTable        = "StaffSessionPendingSignIns"
 	attemptsTable       = "StaffSessionSignInAttempts"
+	methodsTable        = "StaffSessionSignInMethods"
 	mailLinksTable      = "StaffSessionMailLinks"
 	tokensTable         = "StaffSessionTokens"
 	deviceCodesTable    = "StaffSessionDeviceCodes"
@@ -131,8 +136,9 @@ type Settings struct {
 	CookieKey string
 	// SessionTimeout is the idle timeout of a browser session.
 	SessionTimeout time.Duration
-	// Mail sends the auth's mail: the invitation an administrator sends to an address
-	// and the link that verifies an address a person adds.
+	// Mail sends the auth's mail: the invitation an administrator sends to an address,
+	// the link that verifies an address a person adds, the link a sign-up starts from, and
+	// the code a person who has no password chooses their first one with.
 	// The application's one sender, which the data level opens: the Workspace relay
 	// (session/mail/workspace) where the deployment names a mailbox, and the log (mail.Log)
 	// in development, where nothing is sent and a developer follows the link from the log.
@@ -160,6 +166,12 @@ type Settings struct {
 	// admission decides a stranger's first sign-in with: the generated reader
 	// (app.NewTenantDirectoryReader). Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
+	// TenantMaker makes a Tenant from an accepted invitation: the generated maker over
+	// the record's own create patch (app.NewTenantMaker). Nobody creates a tenant
+	// directly: staff invite one person with the tenant's details, which the auth's
+	// identity client checks with the maker when the invitation is sent, and that
+	// person's first sign-in makes the tenant with it. Required; New refuses nil.
+	TenantMaker identity.TenantMaker
 }
 
 // Signals is the channel the auth's permission engine signals a policy change on and
@@ -310,13 +322,16 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // against the collection before it opens, so a release whose default roles are wrong does
 // not start, blocks until its first policy snapshot is loaded, and signals its policy
 // writes through the live service (access.WithChangeSignal over the policy kind), which it
-// refuses to open without.
+// refuses to open without. Beside the role file's roles the engine defines one of the
+// framework's in every auth, Super Administrator (accesstypes.SuperAdministrator), held
+// for the whole application alone: its holder gives and takes any role of the auth, enters
+// every tenant, and signs in with a second factor whatever the sign-in rule asks.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if settings.Signals == nil {
 		return nil, errors.New("staff.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
 	}
 	if settings.Mail == nil {
-		return nil, errors.New("staff.Settings.Mail is nil: the auth mails its invitations and address verifications through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
+		return nil, errors.New("staff.Settings.Mail is nil: the auth mails its invitations and address verifications and its sign-up links through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
 	}
 	if settings.TenantDeclarations == nil {
 		return nil, errors.New("staff.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in")
@@ -324,13 +339,26 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if settings.TenantDirectories == nil {
 		return nil, errors.New("staff.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in")
 	}
+	if settings.TenantMaker == nil {
+		return nil, errors.New("staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in")
+	}
 	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
+	_, tenantAdministrators := AdministratorRoles()
 	accessClient, err := access.New(store,
 		access.WithDefaultRoles(settings.Collection, Roles()),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
+		// What no role file takes from a super administrator: the methods that give and
+		// take the auth's roles, as the generated management names them.
+		access.WithSuperAdministratorMethods(staffidentity.SuperAdministratorMethods()...),
+		// Who administers a tenant: a person holding one of these roles in the tenant
+		// itself, by a membership of their own or through the tenant's own group. A
+		// tenant that admits its people through its directory only still admits them,
+		// with a password and a second factor, so its administrators have a way in when
+		// its directory has a problem; the sign-in rule and each request ask the engine.
+		access.WithTenantAdministratorRoles(tenantAdministrators...),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
@@ -346,14 +374,21 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// One Auth session every method establishes: one cookie, one session table, one
 	// middleware chain. The methods are registered on it below, before the first request.
+	// The Auth is built knowing who holds the Super Administrator role, which is why the
+	// permission engine opens first: a holder signs in with a second factor whatever the
+	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
+	// the library's own after the application's. The memberships are read outside the
+	// sign-in's transaction (resource.SignInRoles).
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -375,53 +410,94 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The sign-in rule: the library's tenant policy. A person's tenants are where they
 	// hold a role (the engine's memberships), and what each tenant admits is its
-	// declaration, read in the sign-in's transaction: a password is admitted unless
-	// every one of the person's tenants admits its people through directories only, a
-	// sign-in through a directory when one of their tenants declares it (its method and
-	// the connection its identities carry); the application's own staff (a global role,
-	// or one held in every tenant) are admitted on the library's checks.
-	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant), since
-	// the Tenant record's creation shape lets a stranger sign in first and create
-	// their own; an application whose administrator alone creates tenants drops the
-	// option, and such a person is refused (no_tenant).
+	// declaration, read in the sign-in's transaction. A declaration restricts its own
+	// tenant alone: a tenant that is not directory only admits everyone it seats,
+	// however they signed in, and a directory-only tenant admits a sign-in through its
+	// own directory (its method and the connection its identities carry) and nothing
+	// else, so a person is refused only when every tenant that seats them is closed to
+	// the way they signed in; a person who holds a role outside any one
+	// tenant (a global role, or one held in every tenant) is admitted on the library's
+	// checks, and a super administrator before any of it. A directory-only tenant's own
+	// administrator who signs in with a password is not refused either: the sign-in is
+	// held for the mailed code, and the session then enters that tenant
+	// (access.WithTenantAdministratorRoles names the roles).
+	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a
+	// person who signs up through a sign-in method an administrator opened signs in
+	// first and creates a Tenant of their own, and keeps their account when the method
+	// is made invite only again. Nobody gets an account that way while every method is
+	// invite only, and the create-your-own route refuses while none is open.
 	// Which tenants the session then reaches is decided again, tenant by tenant, where
-	// its tenant list is computed (UserPermissions). The memberships are read outside
-	// the sign-in's transaction (resource.SignInRoles): the Spanner client refuses the
-	// engine's read under the transaction's context as a nested transaction. A sign-in
-	// the rule admits then carries a second factor (requireSecondFactor).
+	// its tenant list is computed (UserPermissions): a super administrator's session
+	// reaches every tenant, a tenant's own administrator's reaches theirs with a
+	// password and a second factor, and nobody else's reaches one whose declaration
+	// their sign-in does not meet. The memberships are read outside the sign-in's transaction
+	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
+	// transaction's context as a nested transaction. A sign-in the rule admits then
+	// carries a second factor (requireSecondFactor).
 	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
 
 	// The auth's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
 	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets. The client knows the roles that count as an
-	// administrator's (identity.WithAdministratorRoles), so a person who removes a role
-	// from themselves is judged by the rule on the last administrator.
-	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
+	// of its methods sets. The client knows the roles that count as a
+	// tenant's administrator's (identity.WithAdministratorRoles, the ones held in every
+	// tenant), so a person who removes a role from themselves in a tenant is judged by
+	// the rule on the tenant's last administrator. The application's last administrator
+	// is its last super administrator, kept by the client's own rule.
+	//
+	// The client makes the tenants too. Nobody creates a Tenant directly: staff invite
+	// one person with the tenant's details, which the client checks against the record's
+	// own create under the sender's grants, and that person's first sign-in makes the
+	// tenant through the generated maker (settings.TenantMaker), seats them with the
+	// roles that administer it and, where they came through an organization's
+	// directory, makes that directory the tenant's own, all in the transaction that
+	// consumes the invitation.
+	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")
 	}
 
-	// The directory admission: what a stranger gets at their first sign-in through a
-	// directory a tenant declares, before the registration's account rule is reached.
-	// The directory rows the tenants declare for the identity's connection decide: a
-	// row with a default seat creates the person and gives them that role in the tenant
-	// in one transaction (the identity client's DirectorySeated, which the session
-	// library runs inside the transaction that creates the person), and the sign-in rule
-	// then finds the membership; rows with none refuse them (invitation_only) and no
+	// A role, a place in a group and a group's role may each be given for a period, and
+	// count inside it alone. A row whose period has ended goes when its person next signs
+	// in: the session library calls the identity client's SignedIn once the session is
+	// committed, apart from the sign-in, so a failure is logged and the session stands.
+	// It removes the person's ended roles and places and nothing else, never the
+	// account, and no job runs on a schedule.
+	authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
+
+	// The directory admission: what a person gets at their first sign-in through a
+	// tenant's directory, before the sign-in method's own choice is reached. The row of
+	// the tenant whose directory the identity came through decides. A row with a default
+	// seat creates a stranger and gives them that role in the tenant in one transaction
+	// (the identity client's DirectorySeated, which the session library runs inside the
+	// transaction that links the account to the directory), and the sign-in rule then
+	// finds the membership; a row with none refuses a stranger (invitation_only) and no
 	// account is created, unless they followed an invitation link, which is the way in.
-	// A person given a role ahead of their first sign-in has the account the role is
-	// held by, which the sign-in links, and is no stranger. A directory no tenant
-	// declares falls to the registration's rule. The auth's roles are the application's,
-	// so the admission is set here; an auth whose directory writes the roles sets none.
+	// A person whose account stood before is given the default seat too, at the sign-in
+	// that links the account to the directory, where they hold no role in the tenant; a
+	// role an administrator removes afterwards is not given back by signing in. A
+	// directory no tenant has falls to the method's choice, which is invite only until an
+	// administrator opens the method to sign-up. The auth's roles are the
+	// application's, so the admission is set here; an auth whose directory writes the
+	// roles sets none.
 	authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 
 	// An accepted invitation gives its roles, in the tenant it names or for the whole
 	// application, in the transaction that consumes the invitation (the identity
 	// client's InvitationAccepted, which the session library runs inside it): the
 	// invitation is spent and its roles given together or neither is, and the sign-in
-	// rule that follows finds the memberships.
+	// rule that follows finds the memberships. An invitation that makes a tenant
+	// is accepted there too: the tenant's row, the person's administrator roles and the
+	// tenant's directory are written with the invitation's consumption or not at all.
 	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+
+	// A person who signs up through a sign-in method an administrator opened is given
+	// the method's default role in the transaction that makes their account (the
+	// identity client's SignedUp, which the session library runs inside it), so no
+	// account is left holding nothing.
+	// Here a person who signs up holds no role of the whole application: they create a
+	// Tenant of their own, and an open method names no default role.
+	authSession.SetSignUpSeated(identityClient.SignedUp())
 
 	return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil
 }

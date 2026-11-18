@@ -1,12 +1,14 @@
 package resource
 
 import (
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 )
 
 // FieldTags describes the registration-relevant struct tags of a single request-struct
@@ -211,6 +213,14 @@ type CollectionResource struct {
 	// that role alone can create a row. Each is a tag of the resource that carries
 	// Create.
 	RequiredTags []accesstypes.Tag
+
+	// ListsAcrossTenants marks a tenant's resource declared for listing across
+	// tenants (@listAcrossTenants): its list is also served without the tenant's
+	// route segment. Only such a resource is decoded as a list across tenants
+	// (QueryDecoder.DecodeAcrossTenants), named to the page in the permission digest
+	// (WithListsAcrossTenants), or held as one live subscription over a set of
+	// tenants.
+	ListsAcrossTenants bool
 }
 
 // TransitionData records a declared state transition on an RPC method
@@ -312,6 +322,12 @@ func (b *CollectionBuilder) SetResourceComputed(scope accesstypes.PermissionScop
 	b.g.setResourceComputed(scope, res)
 }
 
+// SetResourceListsAcrossTenants marks res, a tenant's resource, as declared for
+// listing across tenants (@listAcrossTenants).
+func (b *CollectionBuilder) SetResourceListsAcrossTenants(res accesstypes.Resource) {
+	b.g.setListsAcrossTenants(res)
+}
+
 // SetMethodTransition records an RPC method resource's declared state transition
 // (@transition) within scope.
 func (b *CollectionBuilder) SetMethodTransition(scope accesstypes.PermissionScope, method accesstypes.Resource, transition TransitionData) {
@@ -378,6 +394,11 @@ type GeneratedCollection struct {
 	// the renamed methods' former names, each within scope.
 	formerTags  map[accesstypes.PermissionScope]formerTagMap
 	formerNames map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource
+	// setWheres are the subject sets' where: parts, compiled once at construction, by
+	// set name (subjectSetWhere).
+	setWheres map[string]condition.Expr
+	// acrossTenants are the tenants' resources declared for listing across tenants.
+	acrossTenants map[accesstypes.Resource]struct{}
 }
 
 // newGeneratedCollection creates an empty, populatable GeneratedCollection.
@@ -408,6 +429,11 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	if err := validateCollectionBindings(data.Resources); err != nil {
 		return nil, err
 	}
+	wheres, err := validateSubjectSetParts(data.Resources)
+	if err != nil {
+		return nil, err
+	}
+	g.setWheres = wheres
 
 	type resourceKey struct {
 		scope accesstypes.PermissionScope
@@ -474,6 +500,13 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) error {
 	if res.Computed {
 		g.setResourceComputed(res.Scope, res.Name)
+	}
+
+	if res.ListsAcrossTenants {
+		if res.Scope != accesstypes.DomainPermissionScope {
+			return errors.Newf("resource %q is declared for listing across tenants and is not a tenant's resource: its permission scope is %q", res.Name, res.Scope)
+		}
+		g.setListsAcrossTenants(res.Name)
 	}
 
 	if res.Transition != nil {
@@ -782,6 +815,35 @@ func (g *GeneratedCollection) setResourceComputed(scope accesstypes.PermissionSc
 		g.computed[scope] = make(map[accesstypes.Resource]struct{})
 	}
 	g.computed[scope][res] = struct{}{}
+}
+
+// ListsAcrossTenants reports whether res is a tenant's resource declared for listing
+// across tenants (@listAcrossTenants). A nil collection declares none.
+func (g *GeneratedCollection) ListsAcrossTenants(res accesstypes.Resource) bool {
+	if g == nil {
+		return false
+	}
+	_, ok := g.acrossTenants[res]
+
+	return ok
+}
+
+// ListedAcrossTenants returns the resources declared for listing across tenants, in
+// name order. A nil collection declares none.
+func (g *GeneratedCollection) ListedAcrossTenants() []accesstypes.Resource {
+	if g == nil {
+		return nil
+	}
+
+	return slices.Sorted(maps.Keys(g.acrossTenants))
+}
+
+// setListsAcrossTenants records res as declared for listing across tenants.
+func (g *GeneratedCollection) setListsAcrossTenants(res accesstypes.Resource) {
+	if g.acrossTenants == nil {
+		g.acrossTenants = make(map[accesstypes.Resource]struct{})
+	}
+	g.acrossTenants[res] = struct{}{}
 }
 
 // setMethodTransition records an RPC method resource's declared transition
@@ -1198,6 +1260,9 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 
 		if _, ok := g.computed[key.scope][key.name]; ok {
 			res.Computed = true
+		}
+		if key.scope == accesstypes.DomainPermissionScope && g.ListsAcrossTenants(key.name) {
+			res.ListsAcrossTenants = true
 		}
 
 		perms := slices.Clone(g.resourceStore[key.scope][key.name])

@@ -19,6 +19,7 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/framework"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/handoff"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/ledger"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/shape"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 	transition_ "github.com/impulseframework/impulse/cmd/impulse/internal/transition"
 )
@@ -245,6 +246,10 @@ type transitionFlags struct {
 	agentCommand string
 	agentArgs    []string
 	skipGenerate bool
+	// start is the starting point of a command given --shape, nil without one: what it
+	// says is written after the change, and again after the check where the check
+	// refuses what the shape wrote into this application.
+	start *startingPoint
 }
 
 func (f *transitionFlags) bind(cmd *cobra.Command) {
@@ -326,8 +331,10 @@ the failing checks as the obligations.`,
 
 func newAddTenancy() *cobra.Command {
 	var (
-		f     transitionFlags
-		table string
+		f         transitionFlags
+		table     string
+		shapeKey  string
+		oneTenant bool
 	)
 
 	cmd := &cobra.Command{
@@ -340,12 +347,38 @@ annotated @tenant, from which the generator derives the tenant segment and emits
 constructor of the tenant roster; the generator program gains WithConcealedDomains; the
 data level gains the roster, built with that constructor over the live service's tenants
 signal and started where the configuration is built (a new file plus a field and the
-start in DataConfiguration), so a tenant created on any instance is usable at once,
+start in DataConfiguration), so a tenant made on any instance is usable at once,
 without a restart; the app exposes the roster to the generated code as TenantRoster()
 and hands its Domains to the session permissions (a new file plus the Configurer, App
 and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page,
-All tenants and the New tenant dialog) are copied into the browser app, whose frame
-carries the tenant the URL names, the guard and the place switcher.
+All tenants and the dialog a person who signed up creates their own tenant through) are
+copied into the browser app, whose frame carries the tenant the URL names, the guard and
+the place switcher.
+
+Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
+an organization in by inviting one person, and that person's first sign-in makes the
+tenant: the auth's settings gain the generated maker (TenantMaker), its New refuses a
+nil one and hands it to the identity client, and where the data level has the
+skeleton's shape the roster is built ahead of that auth and the maker passed in.
+
+--one-tenant-per-person says a person belongs to one tenant, as in an application whose
+tenants own their people: every auth whose roles the application gives builds its
+identity client with identity.WithOneTenantPerPerson(), so a role in a second tenant is
+refused however it would be given. Without it a person can be in several tenants.
+
+--shape names a sign-in shape to start from, one of the four an application with tenants
+has, and fills in the tenants' choices: ` + shape.Keys(shape.OfTenants()) + `.
+The two tenant-owned shapes hold a person to one tenant (--one-tenant-per-person), and in
+the two global ones a person can be in several. In the two invite-only shapes a tenant's
+people come by invitation alone, which is so while no sign-in method goes through an
+organization's directory: the command refuses one of them where the application already
+registers such a method. In the other two a tenant's people come through its own
+directory: the tenant record declares one either way, and where no sign-in method goes
+through an organization's directory yet the command says which impulse add method adds
+it. Whether a tenant takes a directory, and whether that directory's people get an
+account without an invitation, is each tenant's choice, made while the application runs.
+A flag given beside --shape that contradicts it is refused, naming both, and impulse
+audit reads the shape back from the code (its sign-in section).
 
 Which resources become tenant-scoped and how their rows are assigned, the bootstrap
 order, the harnesses, the tests, the tenant segment in the browser's routes, and the
@@ -353,11 +386,23 @@ tenant menus in its menu file are handed to the agent with the failing checks as
 obligations.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTransition(cmd, &f, transition_.Tenancy{Table: table}, transition_.TenancyReferenceCandidate)
+			start, one, err := tenantShape(cmd, shapeKey, oneTenant)
+			if err != nil {
+				return err
+			}
+			if start != nil {
+				if f.start, err = tenancyStartingPoint(start, f.appDir); err != nil {
+					return err
+				}
+			}
+
+			return runTransition(cmd, &f, transition_.Tenancy{Table: table, OneTenantPerPerson: one}, transition_.TenancyReferenceCandidate)
 		},
 	}
 	f.bind(cmd)
 	cmd.Flags().StringVar(&table, "tenant-table", "Tenants", "the tenant-record table, PascalCase and plural")
+	cmd.Flags().BoolVar(&oneTenant, shape.OneTenantFlag, false, oneTenantUsage)
+	bindShape(cmd, &shapeKey, shape.OfTenants(), "the tenants' choices")
 
 	return cmd
 }
@@ -367,9 +412,9 @@ func newAddAuth() *cobra.Command {
 		f               transitionFlags
 		methods         []string
 		authority       string
-		accounts        string
 		usernameIsEmail bool
 		outlet          string
+		shapeKey        string
 	)
 
 	cmd := &cobra.Command{
@@ -378,7 +423,14 @@ func newAddAuth() *cobra.Command {
 		Long:  addAuthLong,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			specs, err := authMethods(cmd, methods, authority, accounts, usernameIsEmail)
+			if err := refuseRetiredAccounts(cmd); err != nil {
+				return err
+			}
+			start, err := methodShape(cmd, shapeKey)
+			if err != nil {
+				return err
+			}
+			specs, err := authMethods(cmd, methods, authority, usernameIsEmail, start)
 			if err != nil {
 				return err
 			}
@@ -389,28 +441,33 @@ func newAddAuth() *cobra.Command {
 				}
 				outlet = answer
 			}
+			if start != nil {
+				if f.start, err = authStartingPoint(start, f.appDir, outlet, specs); err != nil {
+					return err
+				}
+			}
 
-			return runTransition(cmd, &f, transition_.Auth{Name: args[0], Methods: specs, Outlet: outlet}, transition_.ReferenceCandidate)
+			return runTransition(cmd, &f, transition_.Auth{Name: args[0], Methods: specs, Outlet: outlet, Shape: shapeKey}, transition_.ReferenceCandidate)
 		},
 	}
 	f.bind(cmd)
+	bindRetiredAccounts(cmd)
+	bindShape(cmd, &shapeKey, shape.OfMethods(), "each method's choices")
 	cmd.Flags().StringArrayVar(&methods, "method", nil, "a sign-in method the auth starts with (repeatable): password, azure:<registration>, google:<registration>, or oidc:<registration>; password when none is given")
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for the directory methods: directory (roles synchronized at every sign-in) or application (roles assigned in the application); asked when not given")
-	cmd.Flags().StringVar(&accounts, "accounts", "", "the standard account rule for a first sign-in: members (default), invited, or open; the password method takes open alone")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
 	cmd.Flags().StringVar(&outlet, "outlet", "", "the outlet the auth serves, whose declaration is pointed at it: default for the console's, or a WithRouterOutlet name; asked when not given")
 
 	return cmd
 }
 
-// authMethods reads add auth's --method flags and settles the methods' authority and
-// account rule, which the command takes once for all of them: the authority is asked when
-// a directory method is given without it and refused with the password method alone; the
-// account rule goes to every directory method, and open to the password method too (a
-// stranger signs up from a mailed link), while members and invited describe a directory
-// and are refused without one. --username-is-email goes to the password method, and is
-// refused without one.
-func authMethods(cmd *cobra.Command, methods []string, authority, accounts string, usernameIsEmail bool) ([]authpkg.Method, error) {
+// authMethods reads add auth's --method flags and settles the methods' authority, which
+// the command takes once for all of them: it is asked when a directory method is given
+// without it and refused with the password method alone. --username-is-email goes to
+// the password method, and is refused without one. Under --shape (start) the shape
+// fills in what the flags left open, so the authority is not asked, and a method or a
+// flag that contradicts the shape is refused.
+func authMethods(cmd *cobra.Command, methods []string, authority string, usernameIsEmail bool, start *shape.Shape) ([]authpkg.Method, error) {
 	specs, err := parseMethods(methods)
 	if err != nil {
 		return nil, err
@@ -423,7 +480,7 @@ func authMethods(cmd *cobra.Command, methods []string, authority, accounts strin
 			password = true
 		}
 	}
-	if directory && authority == "" {
+	if directory && authority == "" && start == nil {
 		answer, err := askAuthority(cmd)
 		if err != nil {
 			return nil, err
@@ -433,9 +490,6 @@ func authMethods(cmd *cobra.Command, methods []string, authority, accounts strin
 	if !directory && authority != "" {
 		return nil, errors.New("--authority goes with a directory method (azure, google or oidc); the password method's role membership is the application's")
 	}
-	if !directory && accounts != "" && accounts != authpkg.AccountsOpen {
-		return nil, errors.Newf("--accounts %s goes with a directory method (azure, google or oidc); the password method takes open (a stranger signs up from a link mailed to their address) or no rule (its users are created in the application, or invited)", accounts)
-	}
 	if !password && usernameIsEmail {
 		return nil, errors.New("--username-is-email goes with the password method, whose sign-in name it makes the person's email address; a directory method's people sign in as the directory names them")
 	}
@@ -443,12 +497,13 @@ func authMethods(cmd *cobra.Command, methods []string, authority, accounts strin
 		switch {
 		case specs[i].Directory():
 			specs[i].Authority = authority
-			specs[i].Accounts = accounts
 		default:
 			specs[i].UsernameIsEmail = usernameIsEmail
-			if accounts == authpkg.AccountsOpen {
-				specs[i].Accounts = accounts
-			}
+		}
+	}
+	if start != nil {
+		if err := fillMethods(start, specs); err != nil {
+			return nil, err
 		}
 	}
 
@@ -563,8 +618,8 @@ func newAddMethod() *cobra.Command {
 		f               transitionFlags
 		authority       string
 		slot            string
-		accounts        string
 		usernameIsEmail bool
+		shapeKey        string
 	)
 
 	cmd := &cobra.Command{
@@ -573,44 +628,83 @@ func newAddMethod() *cobra.Command {
 		Long:  addMethodLong,
 		Args:  cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec := authpkg.Method{Kind: args[1], Slot: slot, Accounts: accounts, Authority: authority, UsernameIsEmail: usernameIsEmail}
-			switch {
-			case len(args) == 3:
-				spec.Name = args[2]
-			case spec.Kind == app.MethodOIDC:
-				return errors.New("the oidc method needs a registration name: impulse add method <auth> oidc <registration>, the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries")
-			case spec.Kind != app.MethodPassword:
-				spec.Name = spec.Kind
+			if err := refuseRetiredAccounts(cmd); err != nil {
+				return err
 			}
-			if spec.Kind == app.MethodPassword && (slot != "" || authority != "") {
-				return errors.New("the password method takes no --slot or --authority")
+			start, err := methodShape(cmd, shapeKey)
+			if err != nil {
+				return err
 			}
-			if spec.Kind == app.MethodPersona {
-				if slot != "" {
-					return errors.New("the persona method takes no --slot: the persona provider is one issuer, and which personas it offers is the deployment's cast")
-				}
-				if authority == "" {
-					spec.Authority = app.AuthorityApplication
-				}
+			registration := ""
+			if len(args) == 3 {
+				registration = args[2]
 			}
-			if spec.Directory() && spec.Authority == "" {
-				answer, err := askAuthority(cmd)
-				if err != nil {
+			spec, err := methodSpec(cmd, args[1], registration, slot, authority, usernameIsEmail, start)
+			if err != nil {
+				return err
+			}
+			if start != nil {
+				if f.start, err = methodStartingPoint(start, f.appDir, args[0], &spec); err != nil {
 					return err
 				}
-				spec.Authority = answer
 			}
 
 			return runTransition(cmd, &f, &transition_.Method{Auth: args[0], Spec: spec}, transition_.ReferenceCandidate)
 		},
 	}
 	f.bind(cmd)
+	bindRetiredAccounts(cmd)
+	bindShape(cmd, &shapeKey, shape.OfMethods(), "the method's choices")
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for a directory method: directory (roles synchronized at every sign-in, one organization only) or application (roles assigned in the application); asked when not given, and application for the persona method")
 	cmd.Flags().StringVar(&slot, "slot", "", "the organization slot of a Microsoft or Google method: azure one|listed|any|personal|one-personal|any-personal, google one|listed|any-workspace|any|mixed (default: one); oidc and persona take none")
-	cmd.Flags().StringVar(&accounts, "accounts", "", "the standard account rule for a first sign-in: members (default), invited, or open; the password method takes open alone, and oidc members or invited")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
 
 	return cmd
+}
+
+// methodSpec reads add method's arguments and flags into the method to add: its kind,
+// its registration name (the kind's own when none is given, registration being empty
+// then, except for an identity provider, which has no default), its slot and its
+// authority. The password method
+// takes neither flag, the persona method no slot and the application's authority.
+// Under --shape (start) the shape fills in what the flags left open and refuses a
+// method or a flag that contradicts it; without one, a directory method's authority is
+// asked when the flag did not say.
+func methodSpec(cmd *cobra.Command, kind, registration, slot, authority string, usernameIsEmail bool, start *shape.Shape) (authpkg.Method, error) {
+	spec := authpkg.Method{Kind: kind, Name: registration, Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail}
+	switch {
+	case registration != "":
+	case spec.Kind == app.MethodOIDC:
+		return spec, errors.New("the oidc method needs a registration name: impulse add method <auth> oidc <registration>, the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries")
+	case spec.Kind != app.MethodPassword:
+		spec.Name = spec.Kind
+	}
+	if spec.Kind == app.MethodPassword && (slot != "" || authority != "") {
+		return spec, errors.New("the password method takes no --slot or --authority")
+	}
+	if spec.Kind == app.MethodPersona {
+		if slot != "" {
+			return spec, errors.New("the persona method takes no --slot: the persona provider is one issuer, and which personas it offers is the deployment's cast")
+		}
+		if authority == "" {
+			spec.Authority = app.AuthorityApplication
+		}
+	}
+	if start != nil {
+		// The shape fills in what the flags left open, so nothing is asked.
+		if err := start.Method(&spec); err != nil {
+			return spec, err
+		}
+	}
+	if spec.Directory() && spec.Authority == "" {
+		answer, err := askAuthority(cmd)
+		if err != nil {
+			return spec, err
+		}
+		spec.Authority = answer
+	}
+
+	return spec, nil
 }
 
 // authorityQuestion is what a person at the terminal is asked when --authority is not
@@ -696,6 +790,9 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 		meanings = append(meanings, t.Meaning())
 		left += len(change.Left)
 	}
+	if f.start != nil {
+		f.start.write(out)
+	}
 
 	// The tree changed, so the application is read again for the checks.
 	a, err := app.Discover(f.appDir)
@@ -718,6 +815,9 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 		return err
 	}
 	check.Report(out, results)
+	if f.start != nil {
+		f.start.writeHeld(out, results)
+	}
 	if !check.Failed(results) && left == 0 {
 		if len(ts) == 1 {
 			fmt.Fprintf(out, "\nThe check is clean: the option is wired. Review the diff and open the pull request.\n")
@@ -788,10 +888,20 @@ access tables copied from an auth the application has; an empty role file is wri
 the package (the file its Roles() embeds and hands to the permission engine), and the data
 level constructs it beside that auth. The package carries a foothold (foothold.go): the
 first administrator the migrate command seeds while the auth's users table holds no rows,
-a user named administrator with the password the stack generates for a password auth, or
-a user without a password under a sign-in name the placement names, which that person's
-first sign-in links to, for an auth whose roles the application assigns; its roles, its
-setting in the data level and its seeding from pkg/deploy are handed to the agent.
+a user named administrator with the password the stack generates for a password auth,
+which the first sign-in changes before anything else is served, or a user without a
+password under a sign-in name the placement names, which that person's first sign-in
+links to, for an auth whose roles the application assigns; its roles, its setting in the
+data level and its seeding from pkg/deploy are handed to the agent. Where the
+application's tenants have directories, a name alone links no account that has never
+signed in, so such a user is seeded for the registration its name is believed from. The
+foothold names that registration itself only for an auth whose one directory method is
+of one Microsoft Entra tenant or one Google Workspace; for any other auth (several
+directory methods, a method open to more than one organization, an organization's
+identity provider) it names none and says so, and the first sign-in links nothing until
+its author names the deployment's own directory in the foothold, or gives the auth a
+password method and seeds the administrator with a password; impulse check fails until
+one of the two is done (first-administrator).
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),
@@ -800,20 +910,15 @@ organization's own identity provider over OpenID Connect, one known by its issue
 such as Okta or Keycloak), the registration being the segment of the method's routes
 (user/<registration>/login). An identity provider's registration is the application's word
 for the provider (okta), which every link made through it carries, so it has no default. A
-directory method added here takes one organization, and --accounts its standard account
-rule for a first sign-in, one rule for every method given: members (members of the
-directory, the default: the person becomes a user under the name the directory presents),
-invited (invited users only: a user created beforehand is linked, anyone else refused) or
-open (open sign-up, which the session library allows with any organization or personal
-accounts alone, so it is refused with the one organization taken here, and an identity
-provider never takes it, since everyone it signs in is a member of its organization);
-impulse add method composes the other slots. The rule is
-written to the method file (Accounts) and, for invited, as .InvitedUsers() on the method's
-declaration, so the generated management creates their users. The password method
-takes open alone: a stranger gives their address on the login page, follows the link
-mailed to it and chooses a password (session.OpenSignUp(), and .OpenSignUp() on the
-declaration, so the router serves the sign-up routes); members and invited describe a
-directory and are refused with the password method alone. --username-is-email makes the
+directory method added here takes one organization; impulse add method composes the
+other slots. Every method starts invite only: a person with no account needs an
+invitation, or an account an administrator made for them. Whether a method admits a
+person with no invitation is chosen in the running application, for each method, on the
+application's Sign-in page (Open sign-up, with the role each new person gets, and Make
+invite only), by whoever holds the grant on it; nothing in code or on this command line
+says it. A method whose directory gives the
+roles (--authority directory) has no such choice: everyone the directory signs in becomes
+a user with the roles the directory names. --username-is-email makes the
 password method's sign-in name the person's email address (session.UsernameIsEmail(), and
 .UsernameIsEmail() on the declaration): the generated management derives the address from
 the username, and a verified change of address renames the user, whose roles stay with
@@ -842,6 +947,29 @@ routes. There is no default, because an auth is reachable only through the outle
 to it. Under a hand-written router the program declares no Auth to point, and the brief
 says to mount the group in the router.
 
+--shape names a sign-in shape to start from, one of the four a sign-in method's choices
+tell apart, and fills in each method's choices: invite-only (1 Invite only: the
+application gives the roles, and the methods stay invite only), directory-members (2
+Directory members: a directory method limited to one organization, which an
+administrator opens so that everyone in the organization's directory gets an account; a
+password method beside it is left invite only), directory-roles (3 Directory roles: one
+directory method whose directory gives the roles, alone in its auth) and open-sign-up (4
+Open sign-up: methods anyone can use, the password method as it is, a Microsoft method
+with any tenant and personal accounts, a Google method with any Google account, which
+an administrator opens). The shape settles --authority, so it is not asked. Open is
+never written: for directory-members and open-sign-up the command says that it is
+chosen on the application's Sign-in page while the application runs. A method or a
+flag given beside --shape that contradicts it is refused, naming both (--shape
+directory-roles with --authority application, --shape open-sign-up with an identity
+provider's method). In an application whose tenants have directories, Open sign-up on
+an auth with no password method would seed a first administrator who cannot sign in,
+since the shape opens every directory method to more than one organization: the command
+refuses it before anything is written and says what to give instead (the password method
+beside the others, or the auth without the shape and impulse add method afterward). Any
+other starting point impulse check refuses for its first administrator is said after the
+check's report, in the check's words (first-administrator). impulse audit reads the
+shape back from the code (its sign-in section).
+
 Checking the auth's roles in the deploy, the App's handlers the generated router now
 requires for the outlet, its development identities, and the tests that prove its people
 are strangers to the other auths are handed to the agent.`
@@ -868,16 +996,15 @@ is named in code: its issuer, client id, client secret and callback are the regi
 settings, read from the environment, so it serves the whole application and changes with a
 release. The registration name is required: it is the application's word for the provider
 (okta, company-sso), and the connection every link made through it carries, so it is chosen
-once. It takes no slot, and members or invited for --accounts: everyone the provider signs
-in is a member of its organization, so open has nobody to add. With --authority directory
+once. It takes no slot. With --authority directory
 every sign-in reconciles the person's roles to the role names the provider's ID token
 carries in its roles claim, which the provider has to be set up to send.
 
 The persona method is registered only where the persona provider is configured: the
 placement's persona block names the provider's issuer and the application's client ID root,
 bedrock sets them in the first environment and its pull requests, and a later environment,
-where they are empty, never offers the method. It takes no slot, the application authority
-and invited users only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
+where they are empty, never offers the method. It takes no slot and the application
+authority, and is left invite only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
 written empty here and named by hand), which the migrate command seeds and the deploy
 registers with the provider, and a sign-in links the persona's identity to its account.
 
@@ -888,14 +1015,14 @@ accounts), any-personal (any tenant and personal accounts). For google: one (one
 Workspace, the default), listed (named Workspaces), any-workspace (any Workspace), any
 (any Google account), mixed (one Workspace and any Google account).
 
---accounts is the standard account rule for a first sign-in: members (members of the
-directory, the default: the person becomes a user under the name the directory presents),
-invited (invited users only: a user created beforehand is linked, anyone else refused) or
-open (open sign-up). The session library allows open only with any organization or
-personal accounts, and refuses members there, since every organization in the world is
-"the directory". The password method takes open alone: a stranger gives their address on
-the login page, follows the link mailed to it and chooses a password (session.OpenSignUp(),
-and .OpenSignUp() on the declaration, so the router serves the sign-up routes).
+Every method starts invite only: a person with no account needs an invitation, or an
+account an administrator made for them. Whether the method admits a person with no
+invitation is chosen in the running application, on the application's Sign-in page (Open
+sign-up, which says who that admits for a method this wide and asks for the role each
+new person gets, and Make invite only), by whoever holds the grant on it. The slot says
+how wide the method is, which stays in code. Through the password method a stranger
+gives their address on the login page, follows the link mailed to it and chooses a
+password, while the method is open.
 
 --username-is-email makes the password method's sign-in name the person's email address
 (session.UsernameIsEmail(), and .UsernameIsEmail() on the declaration): the generated
@@ -904,4 +1031,50 @@ the user, whose roles stay with the account.
 
 --authority is who owns role membership for a directory method, asked when not given:
 directory (the directory's roles are synchronized at every sign-in, allowed with one
-organization only) or application (roles are assigned in the application).`
+organization only) or application (roles are assigned in the application).
+
+--shape names a sign-in shape to start from, one of the four a sign-in method's choices
+tell apart, and fills in the choices the flags left open: invite-only (1 Invite only:
+the application gives the roles, any slot, and the method stays invite only),
+directory-members (2 Directory members: a method limited to the organizations it names,
+--slot one or listed or an identity provider's, which an administrator opens so that
+everyone in the organization's directory gets an account), directory-roles (3 Directory
+roles: --authority directory with one organization, alone in its auth) and open-sign-up
+(4 Open sign-up: a method anyone can use, the password method, azure with --slot
+any-personal unless a wider-than-one slot is given, google with --slot any, which an
+administrator opens). The shape settles --authority, so it is not asked. Open is never
+written: for directory-members and open-sign-up the command says that it is chosen on
+the application's Sign-in page while the application runs, and what it does there. A
+method or a flag given beside --shape that contradicts it is refused, naming both
+(--shape directory-members with --slot any, --shape invite-only with --authority
+directory, --shape directory-members with the password method). In an application
+whose tenants have directories, a starting point that leaves the auth with no password
+method and a directory method open to more than one organization seeds a first
+administrator who cannot sign in: the command says so after the check's report, with
+what to do next in the check's words (first-administrator). impulse audit reads the
+shape back from the code (its sign-in section).`
+
+// retiredAccountsFlag is the flag add auth and add method took for a method's standard
+// account rule, and accountsRetired what either says of it now.
+const (
+	retiredAccountsFlag = "accounts"
+	accountsRetired     = "--accounts is no longer an option: whether a sign-in method admits a person with no account and no invitation is chosen in the running application, for each method. Every method starts invite only, and an administrator opens one to sign-up, or makes it invite only again, on the application's Sign-in page. Remove --accounts and run the command again"
+)
+
+// bindRetiredAccounts keeps --accounts known to a command, hidden, so that giving it is
+// answered with what replaced it (refuseRetiredAccounts) and not as a flag nobody ever
+// heard of.
+func bindRetiredAccounts(cmd *cobra.Command) {
+	cmd.Flags().String(retiredAccountsFlag, "", "retired: the choice is made in the running application")
+	_ = cmd.Flags().MarkHidden(retiredAccountsFlag)
+}
+
+// refuseRetiredAccounts refuses a command given --accounts, whatever its value, saying
+// where the choice is made now.
+func refuseRetiredAccounts(cmd *cobra.Command) error {
+	if cmd.Flags().Changed(retiredAccountsFlag) {
+		return errors.New(accountsRetired)
+	}
+
+	return nil
+}

@@ -2,6 +2,7 @@
 package authz
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -49,6 +50,15 @@ func (f *fakeAccess) ForUser(user accesstypes.User) *access.UserChecker {
 
 func (f *fakeAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(f, role)
+}
+
+// TenantAdministratorRoles answers what the crew's generated identity client asks where
+// it is built, the roles whose holders administer a sector: the crew's own, as its
+// engine is told them.
+func (f *fakeAccess) TenantAdministratorRoles() []accesstypes.Role {
+	_, sectorAdministrators := crew.AdministratorRoles()
+
+	return sectorAdministrators
 }
 
 // UserManager answers the one question a generated handler asks the engine's user
@@ -105,13 +115,13 @@ func (f *fakeAccess) decide(perm accesstypes.Permission, names []accesstypes.Res
 type testConfigurer struct {
 	db      *initiator.SpannerDB
 	g       grants
-	stores  []resource.ClientOption
+	options []resource.ClientOption
 	live    *live.Fake
 	tenants *resource.TenantRoster
 }
 
 func (c *testConfigurer) ResourceClient() resource.Client {
-	return resource.NewSpannerClient(c.db.Client, c.stores...)
+	return resource.NewSpannerClient(c.db.Client, c.options...)
 }
 
 // CursorKey seals the cursors the suites' paged lists issue; any key serves a test process.
@@ -179,7 +189,8 @@ func (c *testConfigurer) Live() live.Service {
 func (c *testConfigurer) LiveOrigins() []string { return nil }
 
 // noSessionAPI stands where the matrix serves no session manager: a denied case is
-// answered before any method runs, so nothing here is ever hashed.
+// answered before any method runs, so nothing here is ever hashed, and the one list it
+// is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -190,11 +201,27 @@ func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationReques
 	return nil, fmt.Errorf("the authorization matrix serves no session manager")
 }
 
+// SignInMethods names no method: the matrix registers none, and a denied case reads none.
+func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return nil
+}
+
+func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
+	return nil
+}
+
+// DirectoryName names no directory: the matrix registers no sign-in method.
+func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
+	return "", ""
+}
+
 // CrewIdentity and MembersIdentity are the two auths' identity clients over the scripted
 // engine: the matrix drives the generated methods' routes as it drives every other, and
-// a denied case is answered before any of them runs.
+// a denied case is answered before any of them runs. The crew's client takes what makes
+// a sector from an accepted invitation, as production's does, though no case here
+// accepts one.
 func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
-	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{})
+	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()))
 	if err != nil {
 		panic(err)
 	}
@@ -235,15 +262,25 @@ func newTestHandler(t *testing.T, db *initiator.SpannerDB, g grants) http.Handle
 
 	// The two memory stores production opens from APP_FILE_STORE and
 	// APP_FILE_STORE_DOCUMENTS, wired as the data level wires them; the matrix never
-	// stores a file, and the generated router requires both at start.
-	stores := []resource.ClientOption{resource.WithFileStore(filestore.NewMem()), resource.WithNamedFileStore[resources.Documents](filestore.NewMem())}
+	// stores a file, and the generated router requires both at start. And the secret keys
+	// production builds from the application secret's versions, from fixed bytes here:
+	// the matrix writes a ship's transponder key, which the write path seals with them.
+	secretKeys, err := resource.NewSecretKeys(map[int][]byte{1: bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		t.Fatalf("resource.NewSecretKeys() error = %v", err)
+	}
+	options := []resource.ClientOption{
+		resource.WithFileStore(filestore.NewMem()),
+		resource.WithNamedFileStore[resources.Documents](filestore.NewMem()),
+		resource.WithSecretKeys(secretKeys),
+	}
 
 	// The matrix's sector is added to the roster with Add, the generated matrix's
 	// contract: the empty schema holds no tenant row for Start to read.
-	tenants := app.NewSectorRoster(resource.NewSpannerClient(db.Client, stores...))
+	tenants := app.NewSectorRoster(resource.NewSpannerClient(db.Client, options...))
 	tenants.Add(router.TestDomain)
 
-	a := app.New(&testConfigurer{db: db, g: g, stores: stores, tenants: tenants})
+	a := app.New(&testConfigurer{db: db, g: g, options: options, tenants: tenants})
 	// The App reads its feature flags as it is built, so a suite that flips a flag
 	// before newTestHandler drives the App in that state; Start reports a copy that
 	// could not be read and follows the table until the test ends.

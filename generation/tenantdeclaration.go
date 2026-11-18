@@ -1,8 +1,12 @@
 package generation
 
 import (
+	"fmt"
 	"go/types"
+	"slices"
+	"strings"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
@@ -12,17 +16,23 @@ import (
 // kept as data of the application rather than deploy configuration: the record's
 // directory-only column (@directoryOnly, a BOOL saying the tenant's people enter
 // through its directories only, so a password does not reach it) and the directories
-// record (@tenantDirectory), the tenant-scoped table whose rows are the directories a
-// tenant admits its people through, one per declaration, each naming the sign-in
+// record (@tenantDirectory), the tenant-scoped table whose row is the directory a
+// tenant admits its people through, naming the sign-in
 // method (@directoryMethod: google, azure, workos, as sessioninfo.AuthMethod spells
 // them) and the connection the method's identities carry (@directoryConnection: a
 // Google Workspace by its domain, a Microsoft Entra tenant by its tenant id), and
 // naming, when the record carries the column, the default seat (@directoryDefaultSeat:
-// the role a stranger the directory vouches for is seated with in the tenant at their
-// first sign-in, NULL where the tenant admits such strangers by invitation only). The
+// the role a person is seated with in the tenant at their first sign-in through the
+// directory, NULL where the tenant admits a stranger from it by invitation only). A
+// tenant has one directory and a directory is one tenant's: the schema holds both with
+// a unique index each, which the generator requires, and the generated write paths
+// refuse each first (resource.TenantDirectoryRules). A directory is never typed in:
+// the method and the connection are off the wire's writes, and the record's create
+// stamps them from the directory the caller is signed in through. The
 // generator holds the shape at capture, so the generated constructors
 // (New<Record>Roster with the declaration's columns, New<Record>DeclarationReader for
-// the sign-in policy, New<Record>DirectoryReader for the directory admission) and the
+// the sign-in policy, New<Record>DirectoryReader for the directory admission,
+// New<Record>DirectoryRules and Set<Record>Directory for the writes) and the
 // write paths that keep every instance's copy current render against a declaration
 // that can serve as one.
 
@@ -56,7 +66,12 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 			if res.DirectoryOnlyField != nil {
 				return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant has one directory-only flag", res.Name(), field.Name(), directoryOnlyKeyword, res.DirectoryOnlyField.Name())
 			}
-			res.DirectoryOnlyField = res.fieldNamed(field.Name())
+			flag := res.fieldNamed(field.Name())
+			if flag == nil {
+				return errors.Newf("struct %s field %s: @%s on a field the resource does not carry as a column; the directory-only flag is the tenant record's BOOL column", res.Name(), field.Name(), directoryOnlyKeyword)
+			}
+			flag.IsDirectoryOnly = true
+			res.DirectoryOnlyField = flag
 		case fieldAnnotations.Has(tenantNameKeyword):
 			if err := res.setTenantNameColumn(field); err != nil {
 				return err
@@ -115,6 +130,7 @@ func (r *resourceInfo) setDirectorySeatColumn(field *parser.Field) error {
 	if r.DirectoryDefaultSeatField == nil {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), directoryDefaultSeatKeyword)
 	}
+	r.DirectoryDefaultSeatField.IsDirectoryDefaultSeat = true
 
 	return nil
 }
@@ -147,6 +163,8 @@ func (r *resourceInfo) setDirectoryColumn(dest **resourceField, field *parser.Fi
 	if *dest == nil {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), keyword)
 	}
+	// A directory is never typed in: the wire writes neither column.
+	(*dest).IsDirectoryKey = true
 
 	return nil
 }
@@ -226,7 +244,10 @@ func (r *resourceGenerator) tenantDirectoryRecord() *resourceInfo {
 // validateTenantDeclaration holds the package's declaration to its shape once the
 // tenant record and the bindings are known: the directories record belongs to the
 // tenant record through the bare @domain column (the tenant's key on the row itself,
-// never a join path), carries both of its columns, and the record's directory-only
+// never a join path), carries both of its columns, is keyed by an id its create
+// generates (a directory is set from a sign-in, which names no key), and its table
+// holds the two rules of a tenant's directory with a unique index each
+// (requireDirectoryIndexes); and the record's directory-only
 // flag needs the directories record, since a tenant whose people enter through its
 // directories only needs directories to enter through. With the declaration whole the
 // record carries it, so the generated constructors and write paths read it.
@@ -257,9 +278,193 @@ func (r *resourceGenerator) validateTenantDeclaration() error {
 	if directories.DirectoryConnectionField == nil {
 		return errors.Newf("struct %s: @%s with no @%s column; annotate the string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)", directories.Name(), tenantDirectoryKeyword, directoryConnectionKeyword)
 	}
+	if !directories.PrimaryKeyIsGeneratedUUID() {
+		return errors.Newf("struct %s: the @%s record's key is not an id its create generates; a directory is set from a sign-in, which names no key, so key the record by one %s column (Id)", directories.Name(), tenantDirectoryKeyword, impulseUUIDGoType)
+	}
+	if err := r.requireDirectoryIndexes(directories); err != nil {
+		return err
+	}
 	record.declaration = &tenantDeclaration{Directories: directories}
+	directories.directoryOf = record
+	directories.directoryRules = r.namedDirectoryRules(record)
 
 	return nil
+}
+
+// requireDirectoryIndexes holds the directories record's table to the two rules of a
+// tenant's directory, which the schema keeps whatever writes the row: a unique index on
+// the tenant column alone (a tenant has one directory) and a unique index on the method
+// and the connection together (a directory is one tenant's). The generated write paths
+// refuse each first with a sentence a person can act on; the indexes are what holds
+// when two writes race, or when a row is written by hand.
+func (r *resourceGenerator) requireDirectoryIndexes(directories *resourceInfo) error {
+	table := r.pluralize(directories.Name())
+	tenant, method, connection := spannerColumn(directories.DomainBinding.Anchor), spannerColumn(directories.DirectoryMethodField), spannerColumn(directories.DirectoryConnectionField)
+	if !r.hasUniqueIndexOn(table, tenant) {
+		return errors.Newf("struct %s: table %s has no unique index on %s alone; a tenant has one directory, which the schema holds: CREATE UNIQUE INDEX %sBy%s ON %s(%s)", directories.Name(), table, tenant, table, tenant, table, tenant)
+	}
+	if !r.hasUniqueIndexOn(table, method, connection) {
+		return errors.Newf("struct %s: table %s has no unique index on %s and %s together; a directory belongs to one tenant, which the schema holds: CREATE UNIQUE INDEX %sBy%s%s ON %s(%s, %s)", directories.Name(), table, method, connection, table, method, connection, table, method, connection)
+	}
+
+	return nil
+}
+
+// hasUniqueIndexOn reports whether the table carries a unique index whose key is
+// exactly the columns, in any order: what makes the database refuse a second row with
+// the same values in them. A table the schema does not hold has none.
+func (r *resourceGenerator) hasUniqueIndexOn(table string, columns ...string) bool {
+	meta, ok := r.tableMap[table]
+	if !ok {
+		return false
+	}
+	for _, index := range meta.Indexes {
+		if !index.Unique || index.Search || len(index.Key) != len(columns) {
+			continue
+		}
+		covered := 0
+		for _, key := range index.Key {
+			if slices.Contains(columns, key.Column) {
+				covered++
+			}
+		}
+		if covered == len(columns) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// tenantDirectoryWrite is the directories record as the generated Set<Record>Directory
+// writes a tenant's directory: the setters of its tenant, method and connection
+// columns, the tenant column's Go type with the parameter that carries it, and the
+// expression that reads the parameter as the tenant's domain.
+type tenantDirectoryWrite struct {
+	TenantField     string
+	TenantType      string
+	TenantParam     string
+	TenantDomain    string
+	MethodField     string
+	ConnectionField string
+}
+
+// tenantDirectoryWriteData reads the directories record's write shape off the tenant
+// record, nil where the record declares none. The tenant column holds the tenant's key
+// as an id or as its text (validateTenantDeclaration), so the domain is the id's text
+// or the string itself.
+func tenantDirectoryWriteData(record *resourceInfo) *tenantDirectoryWrite {
+	if !record.HasDeclaration() {
+		return nil
+	}
+	directories := record.declaration.Directories
+	column := directories.DomainBinding.Anchor
+	const param = "tenant"
+	domain := "accesstypes.Domain(" + param + ")"
+	if column.Type() == impulseUUIDGoType {
+		domain = "accesstypes.Domain(" + param + ".String())"
+	}
+
+	return &tenantDirectoryWrite{
+		TenantField:     column.Name(),
+		TenantType:      column.Type(),
+		TenantParam:     param,
+		TenantDomain:    domain,
+		MethodField:     directories.DirectoryMethodField.Name(),
+		ConnectionField: directories.DirectoryConnectionField.Name(),
+	}
+}
+
+// directoryTenantWord is what a refusal of the directory's rules calls one tenant: the
+// record's label where it declares one, else its name in words, in lower case, as a
+// sentence carries it ("sector", "ship class").
+func (r *resourceGenerator) directoryTenantWord(record *resourceInfo) string {
+	return strings.ToLower(r.tenantWord(record).One)
+}
+
+// directoryNamers are the expressions that name a directory in a generated frame of
+// the handler package: the DirectoryName of the generated identity client of every
+// auth whose management the program generates, in declaration order, each read through
+// the application's accessor (a.CrewIdentity().DirectoryName). A sentence that speaks
+// of a directory says it as the auths' sign-in registrations call it
+// (resource.DirectoryWords), a name from any auth before a label from another.
+func (r *resourceGenerator) directoryNamers() []string {
+	namers := make([]string, 0, len(r.identity))
+	for _, inst := range r.identity {
+		namers = append(namers, fmt.Sprintf("%s.%s().DirectoryName", r.receiverName, inst.accessor()))
+	}
+
+	return namers
+}
+
+// closedTenantNamers are the namers the generated tenant list names a session's
+// directory by in a closed tenant's reason, as the arguments of its option
+// (resource.WithDirectoryNames): the program's (directoryNamers) where the package
+// declares a tenant's directories, and none where it declares none, since no tenant is
+// then closed to a session.
+func (r *resourceGenerator) closedTenantNamers() string {
+	if r.tenantDirectoryRecord() == nil {
+		return ""
+	}
+
+	return strings.Join(r.directoryNamers(), ", ")
+}
+
+// namedDirectoryRules is the expression of the rules of a tenant record's directory as
+// a generated frame of the handler package builds them: a call of
+// New<Record>DirectoryRules, which the record's roster file declares there, named by
+// the program's auths (directoryNamers, resource.TenantDirectoryRules.NamedBy) so the
+// rules' sentences say a directory in words a person knows and never by its
+// connection. A program that generates no auth's management names the rules by nobody.
+func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
+	rules := "New" + record.Name() + "DirectoryRules()"
+	namers := r.directoryNamers()
+	if len(namers) == 0 {
+		return rules
+	}
+
+	return rules + ".NamedBy(" + strings.Join(namers, ", ") + ")"
+}
+
+// switchDirectoryRules is the expression of the rules the frame of a tenant's
+// directory-only switch asks: the named rules (namedDirectoryRules), told what each of
+// the program's auths says of the caller's password
+// (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the generated
+// identity client of every auth whose management the program generates, in declaration
+// order. The switch is turned on by a person who has a password, where their auth has
+// passwords; a program that generates no auth's management asks nothing.
+func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
+	rules := r.namedDirectoryRules(record)
+	if len(r.identity) == 0 {
+		return rules
+	}
+	readers := make([]string, 0, len(r.identity))
+	for _, inst := range r.identity {
+		readers = append(readers, fmt.Sprintf("%s.%s().CallerPassword", r.receiverName, inst.accessor()))
+	}
+
+	return rules + ".PasswordsBy(" + strings.Join(readers, ", ") + ")"
+}
+
+// DirectoryRules is the expression of the rules of a tenant's directory the
+// directories record's write paths ask: a call of New<Record>DirectoryRules, which the
+// tenant record's roster file declares in the handler package, named by the program's
+// auths (namedDirectoryRules). It is a call and never a package variable: a handler
+// file that named a variable another file declares would read to the import resolution
+// as naming a package. Empty on every other resource.
+func (r *resourceInfo) DirectoryRules() string {
+	return r.directoryRules
+}
+
+// DirectoryTenantWord is the word for one tenant in the comments the directories
+// record's write paths carry: the tenant record's name in lower-case words. Empty on
+// every other resource.
+func (r *resourceInfo) DirectoryTenantWord() string {
+	if r.directoryOf == nil {
+		return ""
+	}
+
+	return strings.ToLower(strcase.ToCase(r.directoryOf.Name(), strcase.LowerCase, ' '))
 }
 
 // tenantDeclarationColumns is the declaration as the generated constructors hand it to
@@ -267,12 +472,13 @@ func (r *resourceGenerator) validateTenantDeclaration() error {
 // resource.NewTenantDirectoryReader: the column names behind the record's annotated
 // fields, the default seat's empty where the record carries none.
 type tenantDeclarationColumns struct {
-	DirectoryOnly     string
-	DirectoriesTable  string
-	TenantColumn      string
-	MethodColumn      string
-	ConnectionColumn  string
-	DefaultSeatColumn string
+	DirectoryOnly        string
+	DirectoriesTable     string
+	TenantColumn         string
+	MethodColumn         string
+	ConnectionColumn     string
+	DirectoriesKeyColumn string
+	DefaultSeatColumn    string
 }
 
 // declarationColumns reads the declaration's columns off the record, nil when the
@@ -292,6 +498,7 @@ func (r *resourceGenerator) declarationColumns(record *resourceInfo) *tenantDecl
 		columns.DirectoryOnly = spannerColumn(record.DirectoryOnlyField)
 	}
 	if directories.DirectoryDefaultSeatField != nil {
+		columns.DirectoriesKeyColumn = spannerColumn(directories.PrimaryKey())
 		columns.DefaultSeatColumn = spannerColumn(directories.DirectoryDefaultSeatField)
 	}
 

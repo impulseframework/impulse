@@ -25,7 +25,9 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // The layout.
@@ -82,6 +84,9 @@ type Service struct {
 	auth *fbauth.Client
 	cfg  Config
 	now  func() time.Time
+	// dial are gRPC dial options added to the emulator connection; the tests count the
+	// store's operations through one.
+	dial []grpc.DialOption
 	// instance identifies this process in the signals it writes: the Cloud Run revision
 	// or job execution when the platform names one, else the host, and the process id,
 	// so a reader of the document can say who signaled.
@@ -105,6 +110,14 @@ type Option func(*Service)
 func WithClock(now func() time.Time) Option {
 	return func(s *Service) {
 		s.now = now
+	}
+}
+
+// withDialOptions adds gRPC dial options to the connection the service opens to the
+// emulator. The tests count what a subscription costs the store through an interceptor.
+func withDialOptions(opts ...grpc.DialOption) Option {
+	return func(s *Service) {
+		s.dial = append(s.dial, opts...)
 	}
 }
 
@@ -152,10 +165,11 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Service, error) {
 	}
 
 	if cfg.EmulatorHost != "" {
-		conn, err := grpc.NewClient(cfg.EmulatorHost,
+		dial := append([]grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithPerRPCCredentials(emulatorCredentials{}),
-		)
+		}, s.dial...)
+		conn, err := grpc.NewClient(cfg.EmulatorHost, dial...)
 		if err != nil {
 			return nil, errors.Wrap(err, "grpc.NewClient()")
 		}
@@ -208,24 +222,47 @@ func (emulatorCredentials) RequireTransportSecurity() bool {
 	return false
 }
 
-// subscriptionDoc is a subscription as the record stores it.
+// subscriptionDoc is a subscription as the record stores it. Domains is the set of
+// tenants it is held over (live.Subscription.Tenants): the one tenant of a tenant's
+// list, the tenants of a list across tenants, and the empty domain alone for a global
+// resource's list and for a row. The publisher's lookup of a list in a tenant is the
+// documents whose set holds the tenant.
 type subscriptionDoc struct {
 	Principal string    `firestore:"principal"`
 	Tab       string    `firestore:"tab"`
 	Resource  string    `firestore:"resource"`
 	Key       string    `firestore:"key"`
-	Domain    string    `firestore:"domain"`
+	Domains   []string  `firestore:"domains"`
 	Expiry    time.Time `firestore:"expiry"`
 }
 
-// subscription returns the stored document as a Subscription.
-func (d *subscriptionDoc) subscription() live.Subscription {
+// newSubscriptionDoc returns the subscription as the record stores it.
+func newSubscriptionDoc(sub *live.Subscription) subscriptionDoc {
+	tenants := sub.Tenants()
+	domains := make([]string, 0, len(tenants))
+	for _, domain := range tenants {
+		domains = append(domains, string(domain))
+	}
+
+	return subscriptionDoc{
+		Principal: sub.Principal,
+		Tab:       sub.Tab,
+		Resource:  string(sub.Resource),
+		Key:       sub.Key,
+		Domains:   domains,
+		Expiry:    sub.Expiry,
+	}
+}
+
+// in returns the stored document as the publisher is answered for one tenant of its
+// set: that tenant's list, or the row.
+func (d *subscriptionDoc) in(domain string) live.Subscription {
 	return live.Subscription{
 		Principal: d.Principal,
 		Tab:       d.Tab,
 		Resource:  accesstypes.Resource(d.Resource),
 		Key:       d.Key,
-		Domain:    accesstypes.Domain(d.Domain),
+		Domain:    accesstypes.Domain(domain),
 		Expiry:    d.Expiry,
 	}
 }
@@ -241,10 +278,41 @@ func (s *Service) changes(principal string) *cloudfirestore.CollectionRef {
 }
 
 // Register writes the subscriptions in one batch, each under its id with its expiry;
-// the same subscription handed twice is written once, with the later expiry.
+// the same subscription handed twice is written once, with the later expiry. The first
+// document the store did not take is the error.
 func (s *Service) Register(ctx context.Context, subs []live.Subscription) error {
+	refused, err := s.write(ctx, subs)
+	if err != nil {
+		return err
+	}
+	if len(refused) > 0 {
+		return refused[0].Err
+	}
+
+	return nil
+}
+
+// Renew writes the renewed subscriptions with their fresh expiry, as Register does, and
+// answers the ones the store refused: a document Firestore judged invalid, which a
+// renewal that keeps the others drops.
+func (s *Service) Renew(ctx context.Context, subs []live.Subscription) ([]live.Refusal, error) {
+	return s.write(ctx, subs)
+}
+
+// write writes the subscriptions in one batch, each under its id with its expiry; the
+// same subscription handed twice is written once, with the later expiry. A document the
+// store refuses as invalid (codes.InvalidArgument: a document over its size, or over
+// the index entries one document may have) is answered in refused and stops nothing
+// else. The batch travels in requests of several documents, and the store may answer a
+// request as invalid for one document's sake, writing none of it (the emulator does,
+// for a value over its size), so every document that came back invalid is written
+// again alone: the refusal that remains is that document's own, and a document that
+// was only sent beside it is written. A document that failed for any other reason says
+// nothing certain about the batch, the store out of reach among them, so it is the
+// error of the whole write.
+func (s *Service) write(ctx context.Context, subs []live.Subscription) (refused []live.Refusal, err error) {
 	if len(subs) == 0 {
-		return nil
+		return nil, nil
 	}
 	byID := make(map[string]live.Subscription, len(subs))
 	order := make([]string, 0, len(subs))
@@ -260,27 +328,38 @@ func (s *Service) Register(ctx context.Context, subs []live.Subscription) error 
 	jobs := make([]*cloudfirestore.BulkWriterJob, 0, len(order))
 	for _, id := range order {
 		sub := byID[id]
-		doc := subscriptionDoc{
-			Principal: sub.Principal,
-			Tab:       sub.Tab,
-			Resource:  string(sub.Resource),
-			Key:       sub.Key,
-			Domain:    string(sub.Domain),
-			Expiry:    sub.Expiry,
-		}
-		job, err := writer.Set(s.subscriptions().Doc(id), doc)
+		job, err := writer.Set(s.subscriptions().Doc(id), newSubscriptionDoc(&sub))
 		if err != nil {
-			return errors.Wrap(err, "firestore.BulkWriter.Set()")
+			return nil, errors.Wrap(err, "firestore.BulkWriter.Set()")
 		}
 		jobs = append(jobs, job)
 	}
+	writer.End()
 
-	return await(writer, jobs)
-}
+	alone := make([]string, 0)
+	for i, job := range jobs {
+		_, err := job.Results()
+		switch {
+		case err == nil:
+		case status.Code(err) == codes.InvalidArgument:
+			alone = append(alone, order[i])
+		default:
+			return nil, errors.Wrap(err, "firestore.BulkWriterJob.Results()")
+		}
+	}
+	for _, id := range alone {
+		sub := byID[id]
+		_, err := s.subscriptions().Doc(id).Set(ctx, newSubscriptionDoc(&sub))
+		switch {
+		case err == nil:
+		case status.Code(err) == codes.InvalidArgument:
+			refused = append(refused, live.Refusal{Subscription: sub, Err: errors.Wrap(err, "firestore.DocumentRef.Set()")})
+		default:
+			return nil, errors.Wrap(err, "firestore.DocumentRef.Set()")
+		}
+	}
 
-// Renew writes the renewed subscriptions with their fresh expiry, as Register does.
-func (s *Service) Renew(ctx context.Context, subs []live.Subscription) error {
-	return s.Register(ctx, subs)
+	return refused, nil
 }
 
 // Unsubscribe deletes the tab's subscriptions.
@@ -327,36 +406,52 @@ func (s *Service) SubscribersOfRow(ctx context.Context, res accesstypes.Resource
 		Where("key", "==", key).
 		Where("expiry", ">", s.now())
 
-	return s.lookup(ctx, &query, nil)
-}
-
-// SubscribersOfList lists the live subscriptions to the resource's list in the domain:
-// the (resource, domain, expiry) index, the rows it also matches in the empty domain
-// left out.
-func (s *Service) SubscribersOfList(ctx context.Context, res accesstypes.Resource, domain accesstypes.Domain) ([]live.Subscription, error) {
-	query := s.subscriptions().
-		Where("resource", "==", string(res)).
-		Where("domain", "==", string(domain)).
-		Where("expiry", ">", s.now())
-
-	return s.lookup(ctx, &query, func(sub *live.Subscription) bool {
-		return !sub.IsRow()
+	return s.lookup(ctx, &query, func(doc *subscriptionDoc) []live.Subscription {
+		return []live.Subscription{doc.in("")}
 	})
 }
 
-// SubscribersOfResource lists every live subscription to the resource: the
-// (resource, expiry) index.
+// SubscribersOfList lists the live subscriptions to the resource's list in the domain:
+// the documents whose set of tenants holds it, each as that tenant's list. It is the
+// (resource, domains, expiry) index, the rows it also matches in the empty domain left
+// out. One tenant's list is a set of one, so it is found as it always was; a list
+// across tenants is found by every tenant of its set, from its one document.
+func (s *Service) SubscribersOfList(ctx context.Context, res accesstypes.Resource, domain accesstypes.Domain) ([]live.Subscription, error) {
+	query := s.subscriptions().
+		Where("resource", "==", string(res)).
+		Where("domains", "array-contains", string(domain)).
+		Where("expiry", ">", s.now())
+
+	return s.lookup(ctx, &query, func(doc *subscriptionDoc) []live.Subscription {
+		sub := doc.in(string(domain))
+		if sub.IsRow() {
+			return nil
+		}
+
+		return []live.Subscription{sub}
+	})
+}
+
+// SubscribersOfResource lists every live subscription to the resource, a list once for
+// each tenant of its set: the (resource, expiry) index.
 func (s *Service) SubscribersOfResource(ctx context.Context, res accesstypes.Resource) ([]live.Subscription, error) {
 	query := s.subscriptions().
 		Where("resource", "==", string(res)).
 		Where("expiry", ">", s.now())
 
-	return s.lookup(ctx, &query, nil)
+	return s.lookup(ctx, &query, func(doc *subscriptionDoc) []live.Subscription {
+		subs := make([]live.Subscription, 0, len(doc.Domains))
+		for _, domain := range doc.Domains {
+			subs = append(subs, doc.in(domain))
+		}
+
+		return subs
+	})
 }
 
-// lookup runs one record query and decodes its documents, keeping the ones the filter
-// admits (every one when nil).
-func (s *Service) lookup(ctx context.Context, query *cloudfirestore.Query, keep func(*live.Subscription) bool) ([]live.Subscription, error) {
+// lookup runs one record query and decodes its documents, each into the subscriptions
+// answer makes of it.
+func (s *Service) lookup(ctx context.Context, query *cloudfirestore.Query, answer func(*subscriptionDoc) []live.Subscription) ([]live.Subscription, error) {
 	it := query.Documents(ctx)
 	defer it.Stop()
 
@@ -373,24 +468,24 @@ func (s *Service) lookup(ctx context.Context, query *cloudfirestore.Query, keep 
 		if err := snapshot.DataTo(&doc); err != nil {
 			return nil, errors.Wrap(err, "firestore.DocumentSnapshot.DataTo()")
 		}
-		sub := doc.subscription()
-		if keep == nil || keep(&sub) {
-			subs = append(subs, sub)
-		}
+		subs = append(subs, answer(&doc)...)
 	}
 }
 
 // Publish fans the committed changes out through the record (live.Fanout) and writes
 // one document per subscriber into their change set, set with merge under an id that
 // carries the current second, so writes to one target within a second coalesce. Every
-// document carries the server timestamp and an expiry the time-to-live policy acts on.
-func (s *Service) Publish(ctx context.Context, domain accesstypes.Domain, writes live.Writes) error {
+// document carries the server timestamp, an expiry the time-to-live policy acts on,
+// and the id of the write (writes.ID), which the merge replaces with the later
+// write's as it replaces the timestamp. It answers the documents it wrote, per
+// principal.
+func (s *Service) Publish(ctx context.Context, domain accesstypes.Domain, writes live.Writes) (live.Changes, error) {
 	changes, err := live.Fanout(ctx, s, domain, writes)
 	if err != nil {
-		return errors.Wrap(err, "live.Fanout()")
+		return nil, errors.Wrap(err, "live.Fanout()")
 	}
 	if len(changes) == 0 {
-		return nil
+		return changes, nil
 	}
 
 	now := s.now()
@@ -400,26 +495,30 @@ func (s *Service) Publish(ctx context.Context, domain accesstypes.Domain, writes
 	var jobs []*cloudfirestore.BulkWriterJob
 	for principal, docs := range changes {
 		for _, doc := range docs {
-			job, err := writer.Set(s.changes(principal).Doc(doc.ID(second)), changeData(doc, expires), cloudfirestore.MergeAll)
+			job, err := writer.Set(s.changes(principal).Doc(doc.ID(second)), changeData(doc, expires, writes.ID), cloudfirestore.MergeAll)
 			if err != nil {
-				return errors.Wrap(err, "firestore.BulkWriter.Set()")
+				return nil, errors.Wrap(err, "firestore.BulkWriter.Set()")
 			}
 			jobs = append(jobs, job)
 		}
 	}
+	if err := await(writer, jobs); err != nil {
+		return nil, err
+	}
 
-	return await(writer, jobs)
+	return changes, nil
 }
 
-// changeData renders a change document's fields: kind, resource and the two
-// timestamps on every document, key and deleted on a row document, domain on a list
-// document.
-func changeData(doc live.ChangeDocument, expires time.Time) map[string]any {
+// changeData renders a change document's fields: kind, resource, the two timestamps
+// and the id of the write that published it on every document, key and deleted on a
+// row document, domain on a list document.
+func changeData(doc live.ChangeDocument, expires time.Time, write string) map[string]any {
 	data := map[string]any{
 		"kind":     string(doc.Kind),
 		"resource": string(doc.Resource),
 		"at":       cloudfirestore.ServerTimestamp,
 		"expires":  expires,
+		"write":    write,
 	}
 	switch doc.Kind {
 	case live.RowChange:
@@ -439,6 +538,8 @@ type Change struct {
 	live.ChangeDocument
 	At      time.Time
 	Expires time.Time
+	// Write is the id of the write that published the document last.
+	Write string
 }
 
 // Changes reads the principal's change set the way the browser does: the documents
@@ -464,6 +565,7 @@ func (s *Service) Changes(ctx context.Context, principal string, after time.Time
 			Deleted  bool      `firestore:"deleted"`
 			At       time.Time `firestore:"at"`
 			Expires  time.Time `firestore:"expires"`
+			Write    string    `firestore:"write"`
 		}
 		if err := snapshot.DataTo(&doc); err != nil {
 			return nil, errors.Wrap(err, "firestore.DocumentSnapshot.DataTo()")
@@ -479,6 +581,7 @@ func (s *Service) Changes(ctx context.Context, principal string, after time.Time
 			},
 			At:      doc.At,
 			Expires: doc.Expires,
+			Write:   doc.Write,
 		})
 	}
 }

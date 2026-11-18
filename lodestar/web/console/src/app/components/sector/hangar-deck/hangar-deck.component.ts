@@ -191,7 +191,8 @@ export class HangarDeckComponent {
   async saveEdits(refit: Refits): Promise<void> {
     const handle = this.sectors.sectorApi().refits;
     const patch: Record<string, unknown> = {};
-    if (this.canEdit(refit, 'estimate') && this.editEstimate !== null && this.editEstimate !== refit.estimate) patch['estimate'] = this.editEstimate;
+    if (this.canEdit(refit, 'estimate') && this.editEstimate !== null && this.editEstimate !== refit.estimate)
+      patch['estimate'] = this.editEstimate;
     if (this.canEdit(refit, 'notes') && this.editNotes !== (refit.notes ?? '')) patch['notes'] = this.editNotes;
     if (Object.keys(patch).length === 0) return;
     await handle.patch(handle.keyOf(refit), patch);

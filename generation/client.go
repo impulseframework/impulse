@@ -567,6 +567,7 @@ func (c *client) templateFuncs() map[string]any {
 		"ScopeConstant":           scopeConstant,
 		"MaskingConstant":         maskingConstant,
 		"BindingHops":             bindingHopsLiteral,
+		"SubjectParts":            subjectPartsLiteral,
 		// The feature flag routes under an outlet's prefix and the read route's
 		// parameter, from the resource package's constants, so the routes, the router
 		// tests and the TypeScript descriptor spell them once.
@@ -578,6 +579,11 @@ func (c *client) templateFuncs() map[string]any {
 		},
 		"SetFeatureRoute": func() string {
 			return resource.SetFeatureRoute
+		},
+		// The header a request asks a method's warning with, from the resource package's
+		// constant, so the frames' refusal spells it as the frame reads it.
+		"WarningHeader": func() string {
+			return resource.WarningHeader
 		},
 		"FeatureFlagNameParam": func() string {
 			return string(resource.FeatureFlagNameParam)
@@ -620,6 +626,39 @@ func bindingHopsLiteral(path []resource.BindingHop) string {
 		fmt.Fprintf(&b, "{Table: %q, JoinColumn: %q, Column: %q}", hop.Table, hop.JoinColumn, hop.Column)
 	}
 	b.WriteString("}")
+
+	return b.String()
+}
+
+// subjectPartsLiteral renders the two parts a subject set's definition may write,
+// who: and where:, as the trailing fields of its SubjectBindingData literal. A set
+// that writes neither renders nothing, so its literal is the one it has always had.
+func subjectPartsLiteral(who []resource.SubjectWhoData, where *resource.SubjectWhereData) string {
+	var b strings.Builder
+	if len(who) > 0 {
+		b.WriteString(", Who: []resource.SubjectWhoData{")
+		for i, test := range who {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "{Column: %q", test.Column)
+			if test.Set != "" {
+				fmt.Fprintf(&b, ", Set: %q", test.Set)
+			}
+			b.WriteString("}")
+		}
+		b.WriteString("}")
+	}
+	if where != nil {
+		fmt.Fprintf(&b, ", Where: &resource.SubjectWhereData{Condition: %q, Columns: []resource.SubjectColumnData{", where.Condition)
+		for i, column := range where.Columns {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "{Name: %q, Column: %q, Type: %q}", column.Name, column.Column, column.Type)
+		}
+		b.WriteString("}}")
+	}
 
 	return b.String()
 }
@@ -998,10 +1037,14 @@ func sanitizeEnumIdentifier(name string) string {
 
 func typescriptMethodImports(t *typescriptGenerator) string {
 	pkgs := make([]string, 0, 2)
-	if t.hasRPCMethods() || t.servesFeatureFlags() {
+	own := t.tenantOwnClientData()
+	if t.hasRPCMethods() || t.servesFeatureFlags() || len(own) > 0 {
 		pkgs = append(pkgs, "Methods")
 	}
-	if t.hasRPCMethodWithEnumeratedResource() || t.hasRPCMethodWithTarget() {
+	picks := slices.ContainsFunc(own, func(method *tsTenantOwnMethod) bool {
+		return slices.ContainsFunc(method.Fields, func(field tsTenantOwnField) bool { return field.Enumerated != "" })
+	})
+	if t.hasRPCMethodWithEnumeratedResource() || t.hasRPCMethodWithTarget() || picks {
 		pkgs = append(pkgs, "Resources")
 	}
 
@@ -1013,7 +1056,7 @@ func typescriptConsImports(t *typescriptGenerator, d *resource.TypescriptData) s
 	if len(d.ResourceTags) > 0 || len(t.rpcMethods) > 0 {
 		pkgs = append(pkgs, "FieldName")
 	}
-	if len(t.rpcMethods) > 0 || t.servesFeatureFlags() {
+	if len(t.rpcMethods) > 0 || t.servesFeatureFlags() || len(t.tenantOwnClientData()) > 0 {
 		pkgs = append(pkgs, "Method")
 	}
 	if len(d.Permissions) > 0 {

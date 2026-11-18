@@ -55,6 +55,11 @@ func indexFixtureTables() map[string]*tableMetadata {
 		"Unordereds": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "TenantId": tenant, "Name": plain,
 		}, Indexes: []indexMeta{primaryKey, backing("Unordereds")}},
+		// The unique index leads with the foreign key, so Spanner manages no backing index
+		// for it.
+		"Singles": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "TenantId": tenant, "Name": plain,
+		}, Indexes: []indexMeta{primaryKey, {Name: "SinglesByTenantId", Unique: true, Key: []indexColumn{{Column: "TenantId"}}}}},
 		"Keyeds": {PkCount: 2, Columns: map[string]columnMeta{
 			"TenantId": {IsPrimaryKey: true, IsForeignKey: true, ReferencedTable: "Tenants", ReferencedColumn: "Id"},
 			"Sequence": {IsPrimaryKey: true, KeyOrdinalPosition: 1},
@@ -151,6 +156,7 @@ func TestSchemaWarnings(t *testing.T) {
 		},
 		{name: "a suppressed list handler is silent", resource: "Unlisted"},
 		{name: "a bare tenant column with no order is silent", resource: "Unordered"},
+		{name: "one row for a tenant, held by a unique index on the tenant column alone, is silent whatever its order", resource: "Single"},
 		{name: "an order the primary key serves is silent", resource: "Keyed"},
 		{
 			name:     "a join path warns that the lists scan the table",

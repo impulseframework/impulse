@@ -33,16 +33,16 @@ func TestAuth(t *testing.T) {
 
 // authSources maps an users suite schema to this package's migration sources.
 func authSources(schema drivertest.AuthSchema) []string {
-	legacy := []string{"file://../../../schema/spanner/migrations", "file://../../../schema/spanner/impersonation/migrations"}
+	base := []string{"file://../../../schema/spanner/migrations", "file://../../../schema/spanner/impersonation/migrations"}
 	switch schema {
-	case drivertest.LegacySessions:
-		return legacy
+	case drivertest.WithoutAuth:
+		return base
 	case drivertest.Auth:
-		return append(legacy, "file://../../../schema/spanner/auth/migrations")
+		return append(base, "file://../../../schema/spanner/auth/migrations")
 	case drivertest.AuthWithAppTables:
-		return append(legacy, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables")
+		return append(base, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables")
 	case drivertest.AuthUsernameIsEmail:
-		return append(legacy, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables", "file://testdata/auth_test/username_is_email")
+		return append(base, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables", "file://testdata/auth_test/username_is_email")
 	default:
 		panic("unknown schema")
 	}
@@ -79,10 +79,14 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		})
 	}
 
+	drivertest.SeedSignInMethod(ctx, t, d, cfg)
+
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Client,
-		SignIn: drivertest.NewSignIn(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		Accept: drivertest.NewAccept(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignIn:        drivertest.NewSignIn(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		Accept:        drivertest.NewAccept(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		LinkConfirmed: drivertest.NewLinkConfirmed(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		SignUp:        drivertest.NewSignUp(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
 	}
 }
 

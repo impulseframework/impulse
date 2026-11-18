@@ -21,6 +21,14 @@ import (
 // is an error.
 type roleStore struct {
 	held map[accesstypes.User]accesstypes.RoleCollection
+	// administers are the tenants each user administers, as the access library
+	// answers it from the roles the application names: nobody's unless a case says so.
+	administers map[accesstypes.User][]accesstypes.Domain
+}
+
+// TenantsAdministered answers the tenants the store was told the user administers.
+func (s *roleStore) TenantsAdministered(_ context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	return s.administers[user], nil
 }
 
 func (s *roleStore) UserRoles(_ context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
@@ -93,6 +101,136 @@ func readDeclaration(ctx context.Context, tx HookTx, tenant accesstypes.Domain) 
 	return d, nil
 }
 
+// testTenantAdministratorsWayIn runs the administrators' way into a directory-only
+// tenant through the real sign-in flow: the tenant's administrator who signs in with a
+// password is held for the library's mailed code instead of being refused, and the
+// session is inserted once the completion carries it and never on another factor; a
+// member is refused as before; and the application's own rule, chained after the
+// tenant policy, is still asked of a person the policy holds, and its refusal stands.
+func testTenantAdministratorsWayIn(_ context.Context, t *testing.T, h *AuthHarness) {
+	const jane = "jane@lakeside.edu"
+	lakesideScope := accesstypes.DomainPolicyScope("lakeside")
+	directoryOnly := map[accesstypes.Domain]*signin.TenantDeclaration{
+		"lakeside": {Directories: []signin.Directory{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside"}}, DirectoryOnly: true},
+	}
+	refuses := func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+		if err := tx.Record(ctx, "chained:"+req.Username, "asked"); err != nil {
+			return nil, errors.Wrap(err, "HookTx.Record()")
+		}
+
+		return signin.Deny("app_denied"), nil
+	}
+
+	tests := []struct {
+		name string
+		// administers says jane administers Lakeside; otherwise she is a member of it.
+		administers bool
+		// then is the application's own rule chained after the tenant policy.
+		then func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error)
+		// completion are the events of the step-up the test completes the held sign-in
+		// with, after the password's; none leaves the sign-in as the first answer.
+		completion []sessioninfo.AuthEvent
+		// wantHeld says the last answer is a wait for the mailed code; wantCode a
+		// refusal; neither a session.
+		wantHeld    bool
+		wantCode    sessioninfo.LoginRefusalCode
+		wantCause   error
+		wantChained bool
+	}{
+		{
+			name:        "the administrator of a directory-only tenant who signs in with a password is held for the mailed code",
+			administers: true,
+			wantHeld:    true,
+		},
+		{
+			name:        "the completion that carries the mailed code establishes the session",
+			administers: true,
+			completion:  []sessioninfo.AuthEvent{{Method: sessioninfo.MethodEmailCode}},
+		},
+		{
+			name:        "a completion by another factor is held for the mailed code again",
+			administers: true,
+			completion:  []sessioninfo.AuthEvent{{Method: "sms-code"}},
+			wantHeld:    true,
+		},
+		{
+			name:      "a member with a password is refused with directory_only",
+			wantCode:  sessioninfo.RefusedDirectoryOnly,
+			wantCause: signin.ErrDirectoryOnly,
+		},
+		{
+			name:        "the application's own rule is asked of an administrator the tenant policy holds, and its refusal stands",
+			administers: true,
+			then:        refuses,
+			wantCode:    "app_denied",
+			wantCause:   signin.ErrSignInDenied,
+			wantChained: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			roles := &roleStore{held: map[accesstypes.User]accesstypes.RoleCollection{}, administers: map[accesstypes.User][]accesstypes.Domain{}}
+			policy := signin.TenantPolicy(roles, readDeclaration)
+			if tt.then != nil {
+				policy = policy.Then(tt.then)
+			}
+			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, AuthEvents: true, Policy: policy})
+			for tenant, declaration := range directoryOnly {
+				h.Record(ctx, t, in.Raw, declarationKeyPrefix+string(tenant), declarationValue(declaration))
+			}
+			user := passwordUser(ctx, t, in.Driver, jane)
+			person := accesstypes.User(user.ID.String())
+			roles.held[person] = accesstypes.RoleCollection{lakesideScope: {"Member"}}
+			if tt.administers {
+				roles.held[person] = accesstypes.RoleCollection{lakesideScope: {"TenantAdministrator"}}
+				roles.administers[person] = []accesstypes.Domain{"lakeside"}
+			}
+
+			_, err := passwordSignIn(ctx, in, user, sessioninfo.ReasonLogin)
+			if tt.completion != nil {
+				assertHeldForCode(t, err)
+				err = signInRequest(ctx, in, &sessioninfo.NewSessionRequest{
+					Reason: sessioninfo.ReasonStepUp, Username: user.Username, UserID: user.ID,
+					Identity:   &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()},
+					AuthEvents: append([]sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}, tt.completion...),
+				})
+			}
+
+			switch {
+			case tt.wantHeld:
+				assertHeldForCode(t, err)
+			case tt.wantCode != "":
+				assertRefused(t, err, tt.wantCode, tt.wantCause)
+			case err != nil:
+				t.Errorf("sign-in error = %v (code %q), want a session", err, sessioninfo.LoginRefusalCodeOf(err))
+			}
+			if _, asked := h.Recorded(ctx, t, in.Raw, "chained:"+jane); asked != tt.wantChained {
+				t.Errorf("the application's own rule asked = %v, want %v", asked, tt.wantChained)
+			}
+		})
+	}
+}
+
+// assertHeldForCode fails unless err is a sign-in held for the library's mailed code
+// and nothing else.
+func assertHeldForCode(t *testing.T, err error) {
+	t.Helper()
+
+	var wait *signin.PendingSignInError
+	if !errors.As(err, &wait) {
+		t.Fatalf("sign-in error = %v, want the sign-in held for a second factor", err)
+	}
+	if wait.Reason != sessioninfo.PendingMFA {
+		t.Errorf("pending reason = %q, want %q", wait.Reason, sessioninfo.PendingMFA)
+	}
+	if len(wait.Factors) != 1 || wait.Factors[0] != sessioninfo.MethodEmailCode {
+		t.Errorf("pending factors = %v, want the mailed code alone", wait.Factors)
+	}
+}
+
 func testTenantPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 	const jane = "jane@lakeside.edu"
 	global := accesstypes.GlobalPolicyScope()
@@ -144,14 +282,25 @@ func testTenantPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 			opts: []signin.TenantPolicyOption{signin.AdmitWithoutTenant()},
 		},
 		{
-			name:     "a sign-in through a directory one of the person's tenants declares is admitted: the reader reads the declaration in the sign-in's transaction",
-			held:     accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
-			declared: map[accesstypes.Domain]*signin.TenantDeclaration{"riverside": {Directories: []signin.Directory{lakesideDirectory}}},
+			name: "a sign-in through the directory of a directory-only tenant of the person is admitted: the reader reads the declaration in the sign-in's transaction",
+			held: accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"lakeside":  {DirectoryOnly: true},
+				"riverside": {Directories: []signin.Directory{lakesideDirectory}, DirectoryOnly: true},
+			},
 		},
 		{
-			name:      "a sign-in through a directory no tenant of the person declares is refused with connection_not_in_tenant",
-			held:      accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
-			declared:  map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Directories: []signin.Directory{riversideDirectory}}},
+			name:     "a sign-in through a directory no tenant of the person has is admitted by a tenant that is not directory only",
+			held:     accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Directories: []signin.Directory{riversideDirectory}, DirectoryOnly: true}},
+		},
+		{
+			name: "a sign-in through a directory is refused with connection_not_in_tenant when every tenant of the person is directory only and none has it",
+			held: accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"lakeside":  {Directories: []signin.Directory{riversideDirectory}, DirectoryOnly: true},
+				"riverside": {DirectoryOnly: true},
+			},
 			wantCode:  sessioninfo.RefusedConnectionNotInTenant,
 			wantCause: signin.ErrConnectionNotInTenant,
 		},

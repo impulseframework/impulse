@@ -62,6 +62,9 @@ func (a *App) scan() error {
 	if err != nil {
 		return errors.Wrap(err, "filepath.WalkDir()")
 	}
+	if err := versionedSecretClash(a.EnvTags); err != nil {
+		return err
+	}
 
 	for _, g := range a.Generators {
 		g.ReadsWarnings = a.readsWarnings(g)
@@ -173,7 +176,7 @@ func (a *App) scanGoFile(abs, rel string) error {
 	}
 
 	if bytes.Contains(data, []byte(sessionImportPath)) {
-		auths, unattached, err := parseAuths(rel, data)
+		auths, unattached, err := parseAuths(rel, data, a.packagePath(path.Dir(rel)))
 		if err != nil {
 			return err
 		}
@@ -183,7 +186,197 @@ func (a *App) scanGoFile(abs, rel string) error {
 
 	a.goFiles = append(a.goFiles, rel)
 
+	if err := a.scanSecretRetirement(rel, data, generated); err != nil {
+		return err
+	}
+
 	return a.scanAccess(rel, data)
+}
+
+// The retirement of a version of the application secret, as the scan reads it: the
+// generated file listing a package's resources that store a secret, the function in it,
+// the library's function declaring one holder, the function that retires a version, how
+// many arguments it takes before the holders, and the standard library's package and
+// function that join several packages' lists.
+const (
+	generatedHoldersFile = "zz_gen_secret_holders.go"
+
+	secretHoldersFunc  = "SecretHolders"
+	secretHolderOfFunc = "SecretHolderOf"
+	retireSecretFunc   = "RetireSecretVersion"
+	retireSecretFixed  = 3
+	slicesImportPath   = "slices"
+	slicesConcatFunc   = "Concat"
+	appendBuiltin      = "append"
+	nilIdentifier      = "nil"
+)
+
+// scanSecretRetirement records what one Go file says of the retirement of a version of
+// the application secret: a package's generated list of the resources that store a
+// secret, or, in a file the author wrote, the calls that retire a version.
+func (a *App) scanSecretRetirement(rel string, data []byte, generated bool) error {
+	switch {
+	case filepath.Base(rel) == generatedHoldersFile:
+		a.SecretHolders = append(a.SecretHolders, SecretHolders{File: rel, Package: a.packagePath(path.Dir(rel)), Stored: bytes.Contains(data, []byte(secretHolderOfFunc+"["))})
+	case !generated && bytes.Contains(data, []byte(retireSecretFunc+"(")):
+		retirements, err := parseSecretRetirements(rel, data, a.packagePath(path.Dir(rel)))
+		if err != nil {
+			return err
+		}
+		a.SecretRetirements = append(a.SecretRetirements, retirements...)
+	}
+
+	return nil
+}
+
+// parseSecretRetirements returns every resource.RetireSecretVersion call in the file,
+// each with the packages whose generated SecretHolders() it is handed. The holders are
+// read where the call names them: a package's SecretHolders() itself, several joined by
+// slices.Concat or append, or a variable of the calling function assigned from those.
+func parseSecretRetirements(rel string, src []byte, ownPkg string) ([]SecretRetirement, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+	pkg := localImportName(f, resourceImportPath)
+	if pkg == "" {
+		return nil, nil
+	}
+
+	var retirements []SecretRetirement
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || !isQualified(call.Fun, pkg, retireSecretFunc) {
+				return true
+			}
+			r := holdersReader{imports: fileImports(f), slices: localImportName(f, slicesImportPath), ownPkg: ownPkg, body: fn.Body, followed: map[string]bool{}, packages: map[string]bool{}, unread: false}
+			if len(call.Args) > retireSecretFixed {
+				for _, arg := range call.Args[retireSecretFixed:] {
+					r.read(arg)
+				}
+			}
+			retirement := SecretRetirement{File: rel, Line: fset.Position(call.Pos()).Line, Packages: nil, Unread: r.unread}
+			for p := range r.packages {
+				retirement.Packages = append(retirement.Packages, p)
+			}
+			slices.Sort(retirement.Packages)
+			retirements = append(retirements, retirement)
+
+			return true
+		})
+	}
+
+	return retirements, nil
+}
+
+// holdersReader reads the secret holders one retirement call is handed: the packages
+// whose SecretHolders() reach it, and whether any holder comes from where it cannot read.
+type holdersReader struct {
+	imports  map[string]string
+	slices   string
+	ownPkg   string
+	body     *ast.BlockStmt
+	followed map[string]bool
+	packages map[string]bool
+	unread   bool
+}
+
+// read reads one expression holding holders.
+func (r *holdersReader) read(expr ast.Expr) {
+	switch e := expr.(type) {
+	case *ast.ParenExpr:
+		r.read(e.X)
+	case *ast.Ident:
+		if e.Name != nilIdentifier {
+			r.follow(e.Name)
+		}
+	case *ast.CallExpr:
+		switch {
+		case r.holdersOf(e):
+		case isQualified(e.Fun, r.slices, slicesConcatFunc), calleeIs(e.Fun, appendBuiltin):
+			for _, arg := range e.Args {
+				r.read(arg)
+			}
+		default:
+			r.unread = true
+		}
+	default:
+		r.unread = true
+	}
+}
+
+// holdersOf records a package's SecretHolders() call, and reports whether the call is
+// one: on an imported package, or unqualified in the package that declares it.
+func (r *holdersReader) holdersOf(call *ast.CallExpr) bool {
+	if len(call.Args) != 0 {
+		return false
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		if fun.Name == secretHoldersFunc {
+			r.packages[r.ownPkg] = true
+
+			return true
+		}
+	case *ast.SelectorExpr:
+		if id, ok := fun.X.(*ast.Ident); ok && fun.Sel.Name == secretHoldersFunc && r.imports[id.Name] != "" {
+			r.packages[r.imports[id.Name]] = true
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// follow reads what a variable of the calling function was assigned. A name the
+// function assigns nowhere is a parameter or a package's variable, which is not read.
+func (r *holdersReader) follow(name string) {
+	if r.followed[name] {
+		return
+	}
+	r.followed[name] = true
+	assigned := false
+	bind := func(target, value ast.Expr) {
+		if id, ok := target.(*ast.Ident); ok && id.Name == name {
+			assigned = true
+			r.read(value)
+		}
+	}
+	ast.Inspect(r.body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i := range n.Lhs {
+					bind(n.Lhs[i], n.Rhs[i])
+				}
+			}
+		case *ast.ValueSpec:
+			if len(n.Names) == len(n.Values) {
+				for i := range n.Names {
+					bind(n.Names[i], n.Values[i])
+				}
+			}
+		}
+
+		return true
+	})
+	if !assigned {
+		r.unread = true
+	}
+}
+
+// calleeIs reports whether a call's function is the bare name given.
+func calleeIs(fun ast.Expr, name string) bool {
+	id, ok := fun.(*ast.Ident)
+
+	return ok && id.Name == name
 }
 
 // The permission engine's constructor and the option handing it a change signal.
@@ -239,11 +432,7 @@ func (a *App) scanAnnotations(rel string, data []byte) error {
 				a.DomainResources = append(a.DomainResources, DomainResource{File: rel, Line: d.Line, Name: d.Name})
 			}
 			if m := tenantRE.FindStringSubmatch(d.Doc); m != nil {
-				record := TenantRecord{File: rel, Line: d.Line, Name: d.Name}
-				if shape := tenantCreationRE.FindStringSubmatch(m[1]); shape != nil {
-					record.Creation = shape[1]
-				}
-				a.TenantRecords = append(a.TenantRecords, record)
+				a.TenantRecords = append(a.TenantRecords, TenantRecord{File: rel, Line: d.Line, Name: d.Name})
 			}
 			if tenantDirectoryRE.MatchString(d.Doc) {
 				a.TenantDirectories = append(a.TenantDirectories, directoryRecord(rel, &d))
@@ -743,15 +932,13 @@ const (
 
 // domainScopeRE matches the @permissionScope(domain) struct annotation; outletRE
 // captures the names an @outlet(...) annotation lists; tenantRE matches the @tenant
-// struct annotation, a line of its own in the doc comment, capturing its arguments;
-// tenantCreationRE captures the creation shape among them (creation: self-service);
+// struct annotation, a line of its own in the doc comment, with or without arguments;
 // tenantDirectoryRE matches the @tenantDirectory struct annotation, a line of its own,
 // and directoryDefaultSeatRE the @directoryDefaultSeat field annotation.
 var (
 	domainScopeRE          = regexp.MustCompile(`@` + permissionScopeKeyword + `\(\s*domain\s*\)`)
 	outletRE               = regexp.MustCompile(`@` + outletKeyword + `\(([^)]*)\)`)
 	tenantRE               = regexp.MustCompile(`(?m)^\s*@` + tenantKeyword + `\s*(?:\(([^)]*)\))?\s*$`)
-	tenantCreationRE       = regexp.MustCompile(`\b` + TenantCreationArg + `\s*:\s*([A-Za-z-]+)`)
 	tenantDirectoryRE      = regexp.MustCompile(`(?m)^\s*@` + tenantDirectoryKeyword + `\s*$`)
 	directoryDefaultSeatRE = regexp.MustCompile(`@` + directoryDefaultSeatKeyword + `\b`)
 )
@@ -895,7 +1082,7 @@ func parseEnvTags(rel string, src []byte) ([]EnvTag, error) {
 		return true
 	})
 	if r.bad != nil {
-		return nil, errors.Newf("%s:%d: secret:%q on %s: the secret tag takes %q, %q or %q", rel, r.bad.Line, r.badValue, r.bad.Name, secretTrue, secretGenerated, secretFalse)
+		return nil, errors.Newf("%s:%d: secret:%q on %s: the secret tag takes %q, %q, %q or %q", rel, r.bad.Line, r.badValue, r.bad.Name, secretTrue, secretGenerated, secretVersioned, secretFalse)
 	}
 
 	return r.tags, nil
@@ -953,6 +1140,8 @@ func (r *envTagReader) readField(field *ast.Field, line int) {
 			tag.Secret = true
 		case secretGenerated:
 			tag.Secret, tag.Generated = true, true
+		case secretVersioned:
+			tag.Secret, tag.Generated, tag.Versioned = true, true, true
 		case secretFalse:
 		default:
 			r.bad, r.badValue = &tag, secret
@@ -1004,13 +1193,38 @@ func declaredTags(d cloud.Declaration, rel string, line int) []EnvTag {
 	return tags
 }
 
+// versionedSecretClash refuses a variable named as a version of a versioned secret is:
+// beside APP_SECRET_KEY declared secret:"versioned", APP_SECRET_KEY_1 is the variable its
+// first version is handed over in, so a field declaring that name would be handed the
+// version, or would hide it.
+func versionedSecretClash(tags []EnvTag) error {
+	for _, versioned := range tags {
+		if !versioned.Versioned {
+			continue
+		}
+		for _, tag := range tags {
+			number, found := strings.CutPrefix(tag.Name, versioned.Name+"_")
+			if !found || number == "" || strings.Trim(number, "0123456789") != "" {
+				continue
+			}
+
+			return errors.Newf("%s:%d: %s is the variable version %s of %s is handed over in (%s:%d declares %s secret:%q, one variable for each version): give the field another name", tag.File, tag.Line, tag.Name, number, versioned.Name, versioned.File, versioned.Line, versioned.Name, secretVersioned)
+		}
+	}
+
+	return nil
+}
+
 // secretTag is the struct tag beside the env tag that declares a secret: secretTrue a
-// value someone puts in place, secretGenerated one the tooling makes, secretFalse a plain
-// value whose name sounds like a credential.
+// value someone puts in place, secretGenerated one the tooling makes, secretVersioned one
+// the tooling makes and keeps in versions, every enabled one of which the service is
+// handed (the application secret, which seals stored secret fields), and secretFalse a
+// plain value whose name sounds like a credential.
 const (
 	secretTag       = "secret"
 	secretTrue      = "true"
 	secretGenerated = "generated"
+	secretVersioned = "versioned"
 	secretFalse     = "false"
 )
 

@@ -38,6 +38,8 @@ type staffTenantUserRead struct {
 	LastSignInAt           *time.Time   `json:"lastSignInAt"`
 	HeldElsewhere          bool         `json:"heldElsewhere"`
 	HeldGlobally           bool         `json:"heldGlobally"`
+	OutsideDirectory       bool         `json:"outsideDirectory"`
+	CannotEnter            *string      `json:"cannotEnter"`
 }
 
 var staffTenantUserReadSets resource.SetCache[StaffTenantUser, staffTenantUserRead]
@@ -158,6 +160,8 @@ func (c *StaffTenantUserColumns) All() *StaffTenantUserColumns {
 		"LastSignInAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"OutsideDirectory",
+		"CannotEnter",
 	}
 
 	return c
@@ -235,6 +239,18 @@ func (c *StaffTenantUserColumns) HeldGlobally() *StaffTenantUserColumns {
 	return c
 }
 
+func (c *StaffTenantUserColumns) OutsideDirectory() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "OutsideDirectory")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) CannotEnter() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "CannotEnter")
+
+	return c
+}
+
 type StaffTenantUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -265,6 +281,10 @@ func (p StaffTenantUserQueryPartialClause) HeldElsewhere() StaffTenantUserQueryI
 
 func (p StaffTenantUserQueryPartialClause) HeldGlobally() StaffTenantUserQueryIdent[bool] {
 	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p StaffTenantUserQueryPartialClause) OutsideDirectory() StaffTenantUserQueryIdent[bool] {
+	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
 }
 
 type StaffTenantUserQueryClause struct {
@@ -379,6 +399,14 @@ func (c *staffTenantUserSort) HeldElsewhere() *StaffTenantUserSort {
 
 func (c *staffTenantUserSort) HeldGlobally() *StaffTenantUserSort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *staffTenantUserSort) OutsideDirectory() *StaffTenantUserSort {
+	return c.addField("OutsideDirectory")
+}
+
+func (c *staffTenantUserSort) CannotEnter() *StaffTenantUserSort {
+	return c.addField("CannotEnter")
 }
 
 type StaffTenantUserSort struct {

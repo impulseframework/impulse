@@ -9,6 +9,7 @@ impulse add auth <name>
   --authority string
   --method stringArray
   --outlet string
+  --shape string
   --skip-generate bool
   --username-is-email bool
 impulse add feature <name>
@@ -38,6 +39,7 @@ impulse add method <auth> <kind> [<registration>]
   --agent-command string (default claude)
   --app string (default .)
   --authority string
+  --shape string
   --skip-generate bool
   --slot string
   --username-is-email bool
@@ -62,6 +64,8 @@ impulse add tenancy
   --agent-arg stringArray
   --agent-command string (default claude)
   --app string (default .)
+  --one-tenant-per-person bool
+  --shape string
   --skip-generate bool
   --tenant-table string (default Tenants)
 impulse advise
@@ -71,6 +75,8 @@ impulse advise
   --app string (default .)
   --skip-generate bool
 impulse audit
+  --app string (default .)
+impulse brand
   --app string (default .)
 impulse check
   --app string (default .)
@@ -99,7 +105,9 @@ impulse new <dir>
   --files bool
   --module string (required)
   --name string
+  --one-tenant-per-person bool
   --outlet stringArray
+  --shape string
   --site stringArray
   --skip-generate bool
   --skip-git bool
@@ -151,8 +159,10 @@ checks:
   migrations-reader
   auths-wired
   roles-file
+  super-administrators
   persona-cast
   directory-admission
+  first-administrator
   tenant-accounts
   second-factor
   change-signal
@@ -167,6 +177,7 @@ checks:
   web-pins
   test-runner
   installable
+  brand
   ci-workflow
   paging
   rpc-execute
@@ -175,8 +186,10 @@ checks:
   env-template
   env-reads
   file-store
+  secret-holders
   pins
   gofmt
+  prettier
   gowork-off
   shipped-programs
   regen

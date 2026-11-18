@@ -405,7 +405,9 @@ func featureFlagRoutes(routePrefix string) []*generatedRoute {
 func setFeatureRoute(routePrefix string) *generatedRoute {
 	path := fmt.Sprintf("/%s/%s", routePrefix, resource.SetFeatureRoute)
 
-	return &generatedRoute{Method: http.MethodPost, Path: path, HandlerFunc: setFeatureHandlerFunc, TestURL: path}
+	// SetFeature's frame runs a dry run and refuses a warning, which it does not declare
+	// (resource.SetFeatureHandler), so its route is left off the router's refusal.
+	return &generatedRoute{Method: http.MethodPost, Path: path, HandlerFunc: setFeatureHandlerFunc, TestURL: path, ReadsDryRunAndWarning: true}
 }
 
 // accumulateFeatureRoutes adds the feature flag routes to every outlet: the features
@@ -596,6 +598,15 @@ func (r *resourceGenerator) resourceFeatureTests(data *featureTestsData, res *re
 			return err
 		}
 		data.Routes = append(data.Routes, test)
+	}
+	if res.Feature != nil {
+		for _, route := range r.resourceAcrossTenantsRoutes(res, outlet.prefix) {
+			test, err := gateTestOf(route, pkTypes, resourceMatrixListQuery(res), res.Feature.Constant, outlet)
+			if err != nil {
+				return err
+			}
+			data.Routes = append(data.Routes, test)
+		}
 	}
 	if listRoute == nil {
 		return nil

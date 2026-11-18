@@ -402,6 +402,11 @@ type (
 	// domain, or every domain), and UserID is the person: the id of their account, as
 	// text, which is how the permission store names anyone.
 	//
+	// StartsAt and EndsAt are the membership's period: the first instant it counts and
+	// the first it no longer does, each empty for none. Outside its period a membership
+	// grants nothing, and a row whose period has ended stands until its person next signs
+	// in, which removes it.
+	//
 	// @resource
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
@@ -413,8 +418,10 @@ type (
 		Axis      string    ` + "`spanner:\"Axis\"`" + `
 		DomainID  string    ` + "`spanner:\"DomainId\"`" + `
 		Role      string    ` + "`spanner:\"Role\"`" + `
-		UserID    string    ` + "`spanner:\"UserId\"`" + `
-		CreatedAt time.Time ` + "`spanner:\"CreatedAt\"`" + `
+		UserID    string     ` + "`spanner:\"UserId\"`" + `
+		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt    *time.Time ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 `
@@ -520,6 +527,8 @@ import (
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/signin"
+	{{ .LocalPackageImports }}
 )
 
 // TablePrefix is the prefix of the auth's tables the package was generated from: the
@@ -549,22 +558,71 @@ type Client struct {
 // store: a role a method assigns is held to its rule, and it is told once a membership
 // is committed. sessions is the API of the session library's Auth that signs the
 // auth's people in (its API method): a password a method writes is hashed by that
-// Auth's password method. The options are the identity package's: the administrator
-// roles (identity.WithAdministratorRoles), which the rule on a person removing a role
-// from themselves reads, and one tenant per person (identity.WithOneTenantPerPerson),
-// which every role given in a tenant is then held to.
-func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
+// Auth's password method. The options are the identity package's: a tenant's
+// administrator roles (identity.WithAdministratorRoles), which the rule on a person
+// removing a role from themselves in a tenant reads, and one tenant per person
+// (identity.WithOneTenantPerPerson), which every role given in a tenant is then held to.
+//
+// The engine is the one built with the methods a super administrator always executes
+// (access.WithSuperAdministratorMethods(SuperAdministratorMethods()...)): the client
+// refuses one built without them.
+{{- if .InvitesTenants }}
+//
+// tenants makes a {{ .TenantWord }} from an accepted invitation: the generated
+// New{{ .TenantName }}Maker of the application's handler package, which the application
+// builds over its tenant roster and its live service. Staff bring a {{ .TenantWord }} in
+// by an invitation alone ({{ .InviteTenant }}), so the client is not built without it.
+{{- end }}
+func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if .InvitesTenants }}tenants identity.TenantMaker, {{ end }}opts ...identity.Option) (*Client, error) {
+	{{- if .InvitesTenants }}
+	if tenants == nil {
+		return nil, errors.New("{{ .MethodsPackage }}.NewClient(): tenants is nil; pass the generated New{{ .TenantName }}Maker of the application's handler package, which makes a {{ .TenantWord }} from an accepted invitation")
+	}
+	opts = append(opts, identity.WithTenantMaker(tenants))
+	{{- end }}
 	{{- if .TenantWord }}
 	// A refusal that speaks of a tenant says the application's word for one, the tenant
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord({{ printf "%q" .TenantWord }})}, opts...)
 	{{- end }}
+	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	{{- if .JudgesRoleChanges }}
+	// What gives a person a role without naming them is judged as giving the role
+	// directly, by the grants of the methods that give a role and take one away
+	// (grants.go): a change to a group, as the role changes it makes, and the default
+	// role of a sign-in method opened to sign-up, which every person who signs up is
+	// given.
+	opts = append(opts, identity.WithRoleGrants(grants{}))
+	{{- end }}
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
+	{{- if .AdministratorsEnter }}
+	// The {{ .TenantWord }}'s list of its people says who its directory-only switch keeps out, and
+	// reads who administers a {{ .TenantWord }} by the engine's own names, the ones the sign-in and
+	// the session's reach decide by.
+	{{ .ResourcesPackage }}.Set{{ .TenantUser }}AdministratorRoles(manager.TenantAdministratorRoles())
+	{{- end }}
 
 	return &Client{manager: manager}, nil
+}
+
+// SuperAdministratorMethods are the methods that give and take the {{ .Auth }} auth's
+// roles for the whole application, in the global scope, in one domain or in every
+// domain. The auth's package hands them to its permission engine where it builds it
+// (access.WithSuperAdministratorMethods), and the Super Administrator role, which the
+// framework defines in every auth, then holds Execute on each whatever the role file
+// grants: a super administrator gives and takes any role of the auth for any person.
+{{- if not .GivesRoles }}
+// The auth's roles are not given by hand here, so there are none.
+{{- end }}
+func SuperAdministratorMethods() []accesstypes.Resource {
+	{{- if .GivesRoles }}
+	return []accesstypes.Resource{Assign{{ .Auth }}Role{}.Method(), Remove{{ .Auth }}Role{}.Method()}
+	{{- else }}
+	return nil
+	{{- end }}
 }
 
 // AssignRole buffers the membership of user in role, held in scope, in the caller's
@@ -610,6 +668,43 @@ func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransact
 
 	return nil
 }
+
+// DirectoryName answers what the {{ .Auth }} auth's sign-in registrations call a
+// directory, for a sentence that names it to a person: the name a registration that
+// takes its connection gives it (a listed Workspace or tenant, a provider), and the
+// label of the button a person signs in to it with, each "" where the registrations
+// have none (identity.Manager.DirectoryName). It is a resource.DirectoryNamer: the
+// generated frames of a tenant's directory and the tenant list say a directory by it,
+// "Lakeside" or "your organization's Microsoft directory", and never by its
+// connection, which for a Microsoft Entra tenant is an id.
+func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {
+	return c.manager.DirectoryName(directory)
+}
+
+// CallerPassword answers whether the person behind the request holds a password in the
+// {{ .Auth }} auth, and whether the question applies to them at all: it does not where
+// the request came through another auth, or where this auth has no password method
+// (identity.Manager.CallerPassword). It is a resource.CallerPassword: the generated frame
+// of the method that makes a tenant directory only hands it to the rule that the switch
+// is turned on by a person who has a password, their way back in
+// (resource.TenantDirectoryRules.PasswordsBy).
+func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {
+	has, applies, err = c.manager.CallerPassword(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.CallerPassword()")
+	}
+
+	return has, applies, nil
+}
+
+// AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
+// {{ .Auth }} auth keep a way into a tenant that is directory only: the auth registers
+// the password method and its permission engine names the roles that administer a
+// tenant (identity.Manager.AdministratorsEnterWithPassword). The warning of the method
+// that makes a tenant directory only says so (resource.DirectoryPeople).
+func (c *Client) AdministratorsEnterWithPassword() bool {
+	return c.manager.AdministratorsEnterWithPassword()
+}
 {{- if not .RolesSynced }}
 
 // InvitationAccepted answers the session library's hook for an accepted invitation
@@ -631,8 +726,34 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("{{ .Auth }}")
 }
+
+// DirectoryRole holds the role a tenant is opened to its directory's people with to its
+// rules over the {{ .Auth }} auth's tables, in the caller's transaction, and writes
+// nothing: the role exists in the tenant, and the request's caller could give it there
+// directly, by the grant of the method that gives a role in a tenant
+// (identity.Manager.DirectoryRole). The generated method that opens a tenant to its
+// directory asks it before it writes the role.
+func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, role accesstypes.Role) error {
+	if err := c.manager.DirectoryRole(ctx, txn, tenant, role); err != nil {
+		return errors.Wrap(err, "identity.Manager.DirectoryRole()")
+	}
+
+	return nil
+}
+
+// SignedIn answers the session library's hook for a sign-in that stands
+// (session.Auth.SetSignedInHook) over the {{ .Auth }} auth's tables: the person's roles
+// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
+// in a transaction of the hook's own on db, the application's database. Nothing else
+// removes them: no job runs on a schedule. The session library calls the hook once the
+// session is committed and logs an error it answers, so the removal neither fails a
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
+// package sets it where it sets the invitation's.
+func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
+	return c.manager.SignedIn("{{ .Auth }}", db)
+}
 {{- end }}
-`
+` + identitySignUpClientTemplate
 
 	// identityStoreTemplate is the instance's implementation of identity.Store: single
 	// reads and single buffered writes over the instance's own queries and patches,
@@ -644,6 +765,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -756,7 +878,7 @@ func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransactio
 {{ if .Password }}
 // passwordWrite names the user row a password is written on. It is the one write that
 // goes past the declarations: the password hash is no field of any of them, so no read
-// returns it and nothing but SetPassword writes it.
+// returns it and nothing but SetPassword and RemovePassword writes it.
 type passwordWrite struct {
 	id impulse.UUID
 }
@@ -781,12 +903,27 @@ func (store) SetPassword(_ context.Context, txn resource.ReadWriteTransaction, i
 
 	return nil
 }
+
+func (store) RemovePassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The password write with no hash: the column is left holding nothing, and the mark
+	// that the person must change the password goes with it.
+	row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}
+	if err := txn.BufferMap(passwordWrite{id: id}, row); err != nil {
+		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
+	}
+
+	return nil
+}
 {{ else }}
 // The {{ .Auth }} auth has no password method: nobody of it holds a password, and none
 // is written.
 
 func (store) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, _ string, _ bool) error {
 	return errors.Newf("the {{ .Auth }} auth has no password method: user %s is given no password", id)
+}
+
+func (store) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	return errors.Newf("the {{ .Auth }} auth has no password method: user %s holds no password to remove", id)
 }
 {{ end }}{{ if .Has "signInAttempts" }}
 func (store) ClearAttempts(ctx context.Context, txn resource.ReadWriteTransaction, name string) error {
@@ -806,7 +943,7 @@ func (store) ClearAttempts(context.Context, resource.ReadWriteTransaction, strin
 	return nil
 }
 {{ end }}
-func (store) UserHasPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error) {
+func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {
 	// A read that goes past the declarations. The password hash is no field of any of
 	// them, so the database is asked whether the user holds one, and the hash itself
 	// is read by nothing here.
@@ -841,19 +978,22 @@ func (store) IdentityUser(ctx context.Context, txn resource.ReadWriteTransaction
 	return row.Data.UserID, true, nil
 }
 
-func (store) Identities(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {
+	// The method and the connection say whether a sign-in through the identity is
+	// still possible; its subject and the address it was linked under are read by
+	// nothing here.
 	query := {{ .ResourcesPackage }}.New{{ .Identity }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .Identity }}Columns().ID()).
+		AddColumns({{ .ResourcesPackage }}.New{{ .Identity }}Columns().ID().Method().Connection()).
 		Where({{ .ResourcesPackage }}.New{{ .Identity }}QueryClause().UserID().Equal(userID))
-	var ids []impulse.UUID
+	var links []identity.Link
 	for row, err := range query.List(ctx, txn) {
 		if err != nil {
 			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Identity }}Query.List()")
 		}
-		ids = append(ids, row.Data.ID)
+		links = append(links, identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection})
 	}
 
-	return ids, nil
+	return links, nil
 }
 
 func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -871,7 +1011,7 @@ func (store) IdentityUser(context.Context, resource.ReadWriteTransaction, impuls
 	return impulse.NilUUID, false, nil
 }
 
-func (store) Identities(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]impulse.UUID, error) {
+func (store) Identities(context.Context, resource.ReadOnlyTransaction, impulse.UUID) ([]identity.Link, error) {
 	return nil, nil
 }
 
@@ -952,6 +1092,22 @@ func (store) Username(ctx context.Context, txn resource.ReadWriteTransaction, id
 	}
 
 	return row.Data.Username, true, nil
+}
+
+func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {
+	row, err := {{ .ResourcesPackage }}.New{{ .User }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .User }}Columns().Disabled()).
+		SetID(id).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, false, nil
+		}
+
+		return false, false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}Query.Read()")
+	}
+
+	return row.Data.Disabled, true, nil
 }
 
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
@@ -1239,20 +1395,22 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 	return len(rolePatches), nil
 }
 {{ else }}
-// errNoMemberships answers a membership call on an auth whose schema holds no
-// memberships table ({{ .Policy.UserRoles }}): the generator wrote no method that
-// reaches one.
+// errNoMemberships answers a call that gives, takes or looks up a role on an auth whose
+// schema holds no memberships table ({{ .Policy.UserRoles }}): the generator wrote no
+// method that reaches one.
 var errNoMemberships = errors.New("the schema holds no table {{ .Policy.UserRoles }}: the {{ .Auth }} auth's memberships are not managed here")
 
 func (store) HasRole(context.Context, resource.ReadWriteTransaction, *access.RoleKey) (bool, error) {
 	return false, errNoMemberships
 }
 
-func (store) HasMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) (bool, error) {
-	return false, errNoMemberships
-}
+// Nobody holds a membership in a table the schema does not have. The rules every auth
+// keeps ask who holds one, whatever its tables: disabling or deleting an account asks
+// whether the person is the last super administrator, and here nobody is one.
 
-// Nobody holds a membership in a table the schema does not have.
+func (store) HasMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) (bool, error) {
+	return false, nil
+}
 
 func (store) Memberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.MembershipKey, error) {
 	return nil, nil
@@ -1319,6 +1477,15 @@ func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransacti
 	if row.InvitedByUserID.Valid {
 		columns["InvitedByUserId"] = row.InvitedByUserID.UUID
 	}
+	// The tenant an invitation makes, as the session library reads it back at the
+	// sign-in that accepts it; null on every other invitation.
+	newTenant, err := row.NewTenantColumn()
+	if err != nil {
+		return errors.Wrap(err, "session.InvitationRow.NewTenantColumn()")
+	}
+	if newTenant != nil {
+		columns["NewTenant"] = *newTenant
+	}
 	if err := txn.BufferMap(invitationWrite{id: row.ID}, columns); err != nil {
 		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
 	}
@@ -1369,6 +1536,35 @@ func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransa
 
 	return ids, nil
 }
+
+func (store) InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
+	// A read that goes past the declarations, as UserID's does: the document an
+	// invitation that makes a tenant keeps (NewTenant) is no field of the declaration,
+	// so no list of the auth's mailed links serves it. The table's index by kind leads
+	// with the kind, then the consumption.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Id, Email, Name, NewTenant, InvitedByUserId, CreatedAt, ExpiresAt FROM {{ .Tables.MailLinks }} WHERE Kind = @kind AND ConsumedAt IS NULL AND NewTenant IS NOT NULL ORDER BY CreatedAt, Id",
+		Params: map[string]any{"kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	var rows []identity.InvitedTenantRow
+	if err := reader.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			invited identity.InvitedTenantRow
+			name    spanner.NullString
+		)
+		if err := row.Columns(&invited.ID, &invited.Email, &name, &invited.NewTenant, &invited.InvitedByUserID, &invited.CreatedAt, &invited.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		invited.Name = name.StringVal
+		rows = append(rows, invited)
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
+}
 {{ else }}
 // The schema holds no mail links for the {{ .Auth }} auth ({{ .Tables.MailLinks }}):
 // none is ever found, and no invitation is written.
@@ -1388,7 +1584,11 @@ func (store) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTransaction,
 func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
 	return nil, nil
 }
-{{ end }}{{ if .Has "trustedDevices" }}
+
+func (store) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
+	return nil, nil
+}
+{{ end }}` + identitySignInMethodStoreTemplate + `{{ if .Has "trustedDevices" }}
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := {{ .ResourcesPackage }}.New{{ .TrustedDevice }}Query().
@@ -1426,7 +1626,36 @@ func (store) TrustedDevices(context.Context, resource.ReadWriteTransaction, impu
 func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	return errors.Newf("the schema holds no table {{ .Tables.TrustedDevices }}: there is no remembered browser %s to revoke", id)
 }
-{{ end }}`
+{{ end }}
+{{- if .ListsDirectoryOutsiders }}
+
+// DirectoryOutsiders lists the people of the {{ .Auth }} auth who hold a role in the
+// {{ .TenantWord }}, in it or in every {{ .TenantWord }}, and have no sign-in through its directory: the
+// people the {{ .TenantWord }}'s directory-only switch keeps out while it is on, and who turning
+// it on would shut out. A super administrator is never one of them{{ if .AdministratorsEnter }}, and neither is the
+// {{ .TenantWord }}'s own administrator who has a password, who enters with it and a code mailed to
+// them{{ end }}. It reads the
+// {{ .TenantWord }}'s own list of its people ({{ .TenantUser }}, whose OutsideDirectory column is the
+// fact), in the caller's transaction, by username. The warning of the generated method
+// that turns the switch on asks every auth's client
+// (resource.TenantDirectoryRules.DirectoryOnlyWarning, through resource.DirectoryPeople),
+// and it sits beside the store because it reads the auth's tables as the store does,
+// through the declarations' own query types.
+func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID().Username().Name()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().DomainID().Equal(string(tenant)).And().OutsideDirectory().Equal(true))
+	outsiders := []resource.DirectoryOutsider{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+		outsiders = append(outsiders, resource.DirectoryOutsider{UserID: row.Data.ID, Username: row.Data.Username, Name: row.Data.Name})
+	}
+
+	return outsiders, nil
+}
+{{- end }}` + identityGroupStore + identityPeriodStore
 
 	// identityCreateUserTemplate is the method that creates a person.
 	identityCreateUserTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
@@ -1728,8 +1957,9 @@ import (
 
 // {{ .UnlinkIdentity }} removes one identity of a person of the {{ .Auth }} auth, the
 // link to what a directory verified for them: a sign-in through it no longer reaches the
-// person. A person who holds no password keeps at least one identity. Unlink one
-// identity of a person per transaction: a second in the same one does not see the
+// person. A person who holds no password keeps an identity that can sign them in: the
+// last one that counts stays, whatever identities that sign nobody in remain. Unlink
+// one identity of a person per transaction: a second in the same one does not see the
 // first.` + identityTenantIdentityNote + `
 //
 // @rpc` + identityTenantScope + `
@@ -1744,6 +1974,46 @@ type {{ .UnlinkIdentity }} struct {
 func (m *{{ .UnlinkIdentity }}) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {` + identityTenantGuard + `
 	if err := client.manager.UnlinkIdentity(ctx, txn, m.IdentityID); err != nil {
 		return errors.Wrap(err, "identity.Manager.UnlinkIdentity()")
+	}
+
+	return nil
+}
+`
+
+	// identityRemovePasswordTemplate is the method that removes a person's password.
+	identityRemovePasswordTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
+// Source: {{ .Source }}
+
+package {{ .Package }}
+
+import (
+	"context"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
+)
+
+// Remove{{ .Subject }}Password removes the password of a person of the {{ .Auth }} auth:
+// a sign-in with it is then refused as a wrong password is, and the person signs in
+// through the directory linked to them. A person who holds no such link keeps the
+// password, their one way in. The sessions the person holds stand, the count of failed
+// sign-ins kept under their name is cleared, and the requirement to change the password
+// goes with the password. The request names the person and carries nothing else, so no
+// record of the call holds a value.` + identityTenantUserNote + `
+//
+// @rpc` + identityTenantScope + `
+// @outlet({{ .Outlets }})
+// @answers(204)
+type Remove{{ .Subject }}Password struct {
+	// @target({{ .SubjectUser }})
+	UserID impulse.UUID
+}
+
+// Execute buffers the removal and the cleared count into the caller's transaction.
+func (m *Remove{{ .Subject }}Password) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {` + identityTenantGuard + `
+	if err := client.manager.RemovePassword(ctx, txn, m.UserID); err != nil {
+		return errors.Wrap(err, "identity.Manager.RemovePassword()")
 	}
 
 	return nil
@@ -1830,6 +2100,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -1841,8 +2112,16 @@ import (
 // Assign{{ .Auth }}Role gives a person of the {{ .Auth }} auth a role: in the global
 // scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
 // by the id of their account, and an id no user holds is refused: a role is held by an
-// account. The role must exist where it is given; a role the person holds there already
-// is left as it is. The person's next request is served with the role.
+// account. The role must exist where it is given. The person's next request is served
+// with the role. The Super Administrator role is given in the global scope alone, and by
+// a super administrator.
+//
+// The role is given for a period where the request names one (StartsAt, EndsAt, each
+// optional): outside it the role grants nothing, and nothing is written when it begins
+// or ends. Giving a role the person holds there already gives it the period of this
+// request in place of the one it had, so a request that names neither makes the role
+// stand until it is taken away; ending a role now is taking it away. The Super
+// Administrator role takes no period: there is always one.
 //
 // @rpc
 // @outlet({{ .Outlets }})
@@ -1861,7 +2140,7 @@ type Assign{{ .Auth }}Role struct {
 	// @enumerate({{ .TenantPicker }})
 	{{- end }}
 	Domain      *string
-	EveryDomain bool
+	EveryDomain bool` + identityPeriodFields + `
 }
 
 // Execute buffers the membership into the caller's transaction.
@@ -1870,11 +2149,15 @@ func (m *Assign{{ .Auth }}Role) Execute(ctx context.Context, txn resource.ReadWr
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
+	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
+	if err != nil {
+		return errors.Wrap(err, "identity.RequestPeriod()")
+	}
 	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
 		return errors.Wrap(err, "identity.Manager.RequireUser()")
 	}
-	if err := client.manager.AssignRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role)); err != nil {
-		return errors.Wrap(err, "identity.Manager.AssignRole()")
+	if err := client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+		return errors.Wrap(err, "identity.Manager.AssignRoleFor()")
 	}
 
 	return nil
@@ -1902,10 +2185,12 @@ import (
 // every domain (EveryDomain). A role the person does not hold there is no error. The
 // person's next request is served without it.
 //
-// A person who removes a role from themselves keeps an administrator role nobody else
-// would hold where it is held (identity.WithAdministratorRoles names them). A person
-// left with no role anywhere is deleted with their identity links and sessions, in the
-// same transaction: an account nothing admits is not kept.
+// A person who removes a role from themselves in a domain keeps an administrator role
+// nobody else would hold there (identity.WithAdministratorRoles names them). The Super
+// Administrator role is taken away by a super administrator alone, and never from the
+// last one who can sign in. A person left with no role anywhere is deleted with their
+// identity links and sessions, in the same transaction: an account nothing admits is
+// not kept.
 //
 // @rpc
 // @outlet({{ .Outlets }})

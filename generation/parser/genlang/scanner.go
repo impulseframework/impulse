@@ -207,7 +207,7 @@ func (s *scanner) scan() error {
 					return errors.New(s.errorPostscript("unexpected argument", "%s keyword cannot take arguments here", key))
 				}
 
-				arg, err = s.scanArguments()
+				arg, err = s.scanArguments(key)
 				if err != nil {
 					return err
 				}
@@ -276,7 +276,22 @@ func (s scanner) isExclusive(key string) bool {
 	return false
 }
 
-func (s *scanner) scanArguments() (Arg, error) {
+// takesExpressions reports whether the keyword's arguments may hold an expression of the
+// condition language, where a single quote opens and closes a string.
+func (s scanner) takesExpressions(key string) bool {
+	opts, ok := s.keywords[key][s.mode]
+	if !ok {
+		return false
+	}
+
+	return hasFlag(opts, Expressions)
+}
+
+// scanArguments reads the arguments of the keyword's annotation, from the parenthesis that
+// opens them to the one that closes them. A parenthesis inside quoted text closes nothing,
+// and what is quoted is decided by quotes, which the argument parser splits by too. An
+// annotation that never closes a quote or a parenthesis is refused at its own position.
+func (s *scanner) scanArguments(key string) (Arg, error) {
 	var (
 		opened          bool
 		openParenthesis int
@@ -286,12 +301,16 @@ func (s *scanner) scanArguments() (Arg, error) {
 		eof  bool
 	)
 
+	quoted := newQuotes(s.takesExpressions(key))
 	currentPos := s.pos
 
 	char, eof = s.next()
 loop:
 	for !eof {
 		switch {
+		case quoted.read(char):
+			buf = append(buf, char)
+
 		case isWhitespace(char):
 			if !opened {
 				break
@@ -320,6 +339,12 @@ loop:
 		}
 
 		char, eof = s.next()
+	}
+
+	if name, written, open := quoted.unclosed(); open {
+		s.pos = currentPos
+
+		return Arg(""), errors.New(s.errorPostscript("unclosed "+name, "%s", written))
 	}
 
 	if openParenthesis > 0 {

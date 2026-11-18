@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/civil"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // Struct-level annotations only parse from a TypeSpec doc comment, so the structs sit
@@ -113,13 +114,13 @@ type (
 		Input string
 	}
 
-	// Station declares the self-service creation shape: the person who becomes its
-	// administrator creates it, through the generated route, and no administrator does.
-	// Beside the key, the id the route generates, it carries a plain column, a nullable
-	// one, a column of a type from another package and a server-owned one.
+	// Station is a tenant record a person who signs up creates through the generated
+	// create-your-station route, where the route serves. Beside the key, the id the
+	// route generates, it carries a plain column, a nullable one, a column of a type
+	// from another package and a server-owned one.
 	//
 	// @resource
-	// @tenant(creation: self-service)
+	// @tenant
 	Station struct {
 		ID      impulse.UUID `spanner:"Id"`
 		Name    string       `spanner:"Name"`
@@ -128,16 +129,17 @@ type (
 		Derived string       `spanner:"Derived" conditions:"output_only"`
 	}
 
-	// Colony declares both creation shapes.
+	// Colony is a second tenant record with a create-your-colony route where it serves.
 	//
 	// @resource
-	// @tenant(creation: both)
+	// @tenant
 	Colony struct {
 		ID   impulse.UUID `spanner:"Id"`
 		Name string       `spanner:"Name"`
 	}
 
-	// Enclave spells the default shape out.
+	// Enclave still declares the retired creation argument, with the value that was
+	// its default.
 	//
 	// @resource
 	// @tenant(creation: administrator)
@@ -145,12 +147,62 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 	}
 
-	// Outland names a creation shape the generator does not know.
+	// Outland still declares the retired creation argument, with the value that let a
+	// stranger create a tenant.
 	//
 	// @resource
-	// @tenant(creation: nowhere)
+	// @tenant(creation: self-service)
 	Outland struct {
 		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// Frontier still declares the retired creation argument, with the value that kept
+	// both ways.
+	//
+	// @resource
+	// @tenant(creation: both)
+	Frontier struct {
+		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// Citadel is a tenant record with every kind of field an invitation that makes a
+	// tenant meets: the ones it carries (the name people call the citadel by, a field
+	// the create may leave out, a date, a yes or no) and the ones it does not (the key,
+	// a secret, a write-only field and a field the server owns).
+	//
+	// @resource
+	// @tenant
+	Citadel struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantName
+		Name       string           `spanner:"Name"`
+		Motto      *string          `spanner:"Motto"`
+		Founded    civil.Date       `spanner:"Founded"`
+		Walled     bool             `spanner:"Walled"`
+		Passphrase *resource.Secret `spanner:"Passphrase" conditions:"secret"`
+		Cipher     *string          `spanner:"Cipher"     conditions:"input_only"`
+		Sealed     string           `spanner:"Sealed"     conditions:"output_only"`
+	}
+
+	// Keep is a tenant record whose create requires a secret: its column takes no NULL
+	// and has no default.
+	//
+	// @resource
+	// @tenant
+	Keep struct {
+		ID         impulse.UUID    `spanner:"Id"`
+		Name       string          `spanner:"Name"`
+		Passphrase resource.Secret `spanner:"Passphrase" conditions:"secret"`
+	}
+
+	// Redoubt is a tenant record whose create requires a write-only field.
+	//
+	// @resource
+	// @tenant
+	Redoubt struct {
+		ID     impulse.UUID `spanner:"Id"`
+		Name   string       `spanner:"Name"`
+		Cipher string       `spanner:"Cipher" conditions:"input_only"`
 	}
 
 	// Province passes the shape without its key.
@@ -182,7 +234,7 @@ type (
 	// HarborDirectory holds the directories.
 	//
 	// @resource
-	// @tenant(creation: both)
+	// @tenant
 	Harbor struct {
 		ID   impulse.UUID `spanner:"Id"`
 		Name string       `spanner:"Name"`
@@ -236,6 +288,56 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
 		HarborID string `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
+	// Causeway is a directories record whose table carries no unique index on the tenant
+	// column: nothing in the schema keeps a harbor to one directory.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Causeway struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
+	// Seawall is a directories record whose table carries no unique index on the method
+	// and the connection together: nothing in the schema keeps a directory to one
+	// harbor. The index the table does carry, on the harbor with the two, keeps neither
+	// rule.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Seawall struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
+	// Pontoon is a directories record keyed by a name the request would have to type:
+	// a directory is set from a sign-in, which names no key.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Pontoon struct {
+		Name string `spanner:"Name"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryConnection

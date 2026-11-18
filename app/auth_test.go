@@ -1,8 +1,11 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // registrationFile renders an auth package's file constructing one Auth and registering
@@ -21,7 +24,7 @@ import (
 )
 
 func register(client any, key string, settings *Settings) {
-	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)
+	authSession, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
 ` + statements + `
 }
 ` + strings.Join(decls, "\n")
@@ -227,7 +230,7 @@ func parseDirectoryTenants(value string, administered []string) (azure.TenantSet
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statements, tt.decls...)))
+			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statements, tt.decls...)), "example.com/harbor/pkg/auth/members")
 			if err != nil {
 				t.Fatalf("parseAuths() error = %v", err)
 			}
@@ -245,13 +248,197 @@ func parseDirectoryTenants(value string, administered []string) (azure.TenantSet
 	}
 }
 
+// TestReadWorkspaces reads a Google registration's Workspace shape from the building
+// blocks its Workspaces slot is made of: in the slot function, as impulse add method
+// writes one for each slot kind (one Workspace, listed Workspaces parsed out of their
+// setting, any Workspace, any Google account, and one Workspace beside any Google
+// account), and in the configuration itself, as an auth written by hand has it. A slot
+// built anywhere else leaves the shape empty, and a Microsoft registration has none.
+func TestReadWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	const (
+		// The registering statements as impulse writes them: a fallible slot function,
+		// and one that cannot fail.
+		fallible = `	workspaces, err := workspaceSlot(settings)
+	if err != nil {
+		return
+	}
+	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: workspaces, RoleSync: google.DisableRoleSync()})`
+		infallible = `	workspaces := workspaceSlot(settings)
+	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: workspaces, RoleSync: google.DisableRoleSync()})`
+		// The one-Workspace slot function, returning the Workspace alone or beside any
+		// Google account.
+		oneWorkspace = `func workspaceSlot(settings *Settings) (google.WorkspaceSet, error) {
+	workspace := google.Workspace(WorkspaceRegistration, settings.Workspace.HostedDomain)
+	for _, domain := range parseWorkspaceAdministered(settings.Workspace.AdministeredWorkspaces) {
+		if !strings.EqualFold(domain, settings.Workspace.HostedDomain) {
+			return google.WorkspaceSet{}, errors.Newf("the administered Workspace %q is not the Workspace admitted", domain)
+		}
+		workspace = workspace.Attesting()
+	}
+
+	return RETURN, nil
+}`
+		// The open slot function, with the administered Workspaces attesting beside it.
+		anyWorkspace = `func workspaceSlot(settings *Settings) google.WorkspaceSet {
+	administered := parseWorkspaceAdministered(settings.Workspace.AdministeredWorkspaces)
+	sets := make([]google.WorkspaceSet, 0, len(administered)+2)
+	sets = append(sets, OPEN)
+	for _, domain := range administered {
+		sets = append(sets, google.Workspace(domain, domain).Attesting())
+	}
+
+	return google.Workspaces(sets...)
+}`
+		// The listed slot function and the parser of its setting.
+		listedWorkspaces = `func workspaceSlot(settings *Settings) (google.WorkspaceSet, error) {
+	return parseWorkspaceWorkspaces(settings.Workspace.Workspaces)
+}
+
+func parseWorkspaceWorkspaces(value string) (google.WorkspaceSet, error) {
+	var sets []google.WorkspaceSet
+	for _, entry := range strings.Split(value, ",") {
+		name, domains, ok := strings.Cut(entry, "=")
+		if !ok {
+			return google.WorkspaceSet{}, errors.Newf("Workspace %q is not <name>=<domain>", entry)
+		}
+		sets = append(sets, google.Workspace(name, strings.Split(domains, "+")...))
+	}
+
+	return google.Workspaces(sets...), nil
+}`
+	)
+	tests := []struct {
+		name           string
+		statements     string
+		decls          []string
+		wantWorkspaces string
+		wantAccounts   bool
+		// wantDomains is whether a Workspace the slot names was given several domains:
+		// read beside the shape, which it leaves as it is.
+		wantDomains bool
+	}{
+		{
+			name:           "one Workspace",
+			statements:     fallible,
+			decls:          []string{strings.Replace(oneWorkspace, "RETURN", "workspace", 1)},
+			wantWorkspaces: WorkspacesOne,
+		},
+		{
+			name:           "one Workspace and any Google account",
+			statements:     fallible,
+			decls:          []string{strings.Replace(oneWorkspace, "RETURN", "google.Workspaces(workspace, google.AnyGoogleAccount())", 1)},
+			wantWorkspaces: WorkspacesOne,
+			wantAccounts:   true,
+		},
+		{
+			name:           "listed Workspaces parsed out of their setting, each given the domains its entry names",
+			statements:     fallible,
+			decls:          []string{listedWorkspaces},
+			wantWorkspaces: WorkspacesListed,
+			wantDomains:    true,
+		},
+		{
+			name:       "one Workspace of two domains is one Workspace, and several domains",
+			statements: infallible,
+			decls: []string{`func workspaceSlot(settings *Settings) google.WorkspaceSet {
+	return google.Workspace("fleet", "fleet.example", "fleet.test")
+}`},
+			wantWorkspaces: WorkspacesOne,
+			wantDomains:    true,
+		},
+		{
+			name:       "one Workspace given a spread of domains is one Workspace, and several domains",
+			statements: infallible,
+			decls: []string{`func workspaceSlot(settings *Settings) google.WorkspaceSet {
+	return google.Workspace("fleet", settings.Workspace.Domains...)
+}`},
+			wantWorkspaces: WorkspacesOne,
+			wantDomains:    true,
+		},
+		{
+			name:           "a Workspace of several domains beside any Google account",
+			statements:     `	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: google.Workspaces(google.Workspace("fleet", "fleet.example", "fleet.test"), google.AnyGoogleAccount()), RoleSync: google.DisableRoleSync()})`,
+			wantWorkspaces: WorkspacesOne,
+			wantAccounts:   true,
+			wantDomains:    true,
+		},
+		{
+			name:           "any Workspace",
+			statements:     infallible,
+			decls:          []string{strings.Replace(anyWorkspace, "OPEN", "google.AnyWorkspace()", 1)},
+			wantWorkspaces: WorkspacesAny,
+		},
+		{
+			name:           "any Google account, with any Workspace named beside it",
+			statements:     infallible,
+			decls:          []string{strings.Replace(anyWorkspace, "OPEN", "google.AnyWorkspace(), google.AnyGoogleAccount()", 1)},
+			wantWorkspaces: WorkspacesAny,
+			wantAccounts:   true,
+		},
+		{
+			name:           "any Google account alone, built in the configuration itself",
+			statements:     `	_, _ = google.SignIn(authSession, "sign-up", nil, &google.Config{Workspaces: google.AnyGoogleAccount(), RoleSync: google.DisableRoleSync()})`,
+			wantWorkspaces: WorkspacesAccounts,
+			wantAccounts:   true,
+		},
+		{
+			name: "a slot the registering function assigned from the library's blocks",
+			statements: `	set := google.Workspaces(google.Workspace("fleet", "fleet.example"), google.Workspace("yard", "yard.example"))
+	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: set, RoleSync: google.DisableRoleSync()})`,
+			wantWorkspaces: WorkspacesListed,
+		},
+		{
+			name:       "a slot the settings build is not read",
+			statements: `	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{Workspaces: settings.Directory.Workspace(), RoleSync: google.DisableRoleSync()})`,
+		},
+		{
+			name:       "a configuration with no slot is not read",
+			statements: `	_, _ = google.SignIn(authSession, "workspace", nil, &google.Config{RoleSync: google.DisableRoleSync()})`,
+		},
+		{
+			name:       "a configuration built elsewhere is not read",
+			statements: `	_, _ = google.SignIn(authSession, "workspace", nil, workspaceConfig(settings))`,
+		},
+		{
+			name: "a Microsoft registration has no Workspace shape",
+			statements: `	tenants := directorySlot()
+	_, _ = azure.SignIn(authSession, "directory", nil, &azure.Config{Tenants: tenants, RoleSync: signin.DisableRoleSync()})`,
+			decls: []string{`func directorySlot() azure.TenantSet {
+	return azure.PersonalAccounts()
+}`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statements, tt.decls...)), "example.com/harbor/pkg/auth/members")
+			if err != nil {
+				t.Fatalf("parseAuths() error = %v", err)
+			}
+			if len(auths) != 1 || len(auths[0].Methods) != 1 || len(unattached) != 0 {
+				t.Fatalf("parseAuths() = %d auths, %d unattached; want one auth with one method", len(auths), len(unattached))
+			}
+			m := auths[0].Methods[0]
+			if m.Workspaces != tt.wantWorkspaces || m.GoogleAccounts != tt.wantAccounts {
+				t.Errorf("Workspaces = %q, GoogleAccounts = %v; want %q, %v", m.Workspaces, m.GoogleAccounts, tt.wantWorkspaces, tt.wantAccounts)
+			}
+			if m.SeveralDomains != tt.wantDomains {
+				t.Errorf("SeveralDomains = %v, want %v", m.SeveralDomains, tt.wantDomains)
+			}
+		})
+	}
+}
+
 // TestPersonaRegistration reads the persona method from the generic OpenID Connect
 // package's constructor (oidc.SignIn): the method's kind is persona under the
 // registration name the call gives it.
 func TestPersonaRegistration(t *testing.T) {
 	t.Parallel()
 
-	auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(`	_ = oidc.SignIn(authSession, "reviewers", nil, &oidc.Config{Issuer: settings.Reviewers.Issuer, RoleSync: signin.DisableRoleSync()})`)))
+	auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(`	_ = oidc.SignIn(authSession, "reviewers", nil, &oidc.Config{Issuer: settings.Reviewers.Issuer, RoleSync: signin.DisableRoleSync()})`)), "example.com/harbor/pkg/auth/members")
 	if err != nil {
 		t.Fatalf("parseAuths() error = %v", err)
 	}
@@ -300,7 +487,7 @@ func TestOIDCRegistration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statement)))
+			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statement)), "example.com/harbor/pkg/auth/members")
 			if err != nil {
 				t.Fatalf("parseAuths() error = %v", err)
 			}
@@ -310,6 +497,121 @@ func TestOIDCRegistration(t *testing.T) {
 			m := auths[0].Methods[0]
 			if m.Kind != tt.wantKind || m.Name != "okta" || m.Authority != tt.wantAuthority {
 				t.Errorf("method = %s %q under %q; want %s okta under %q", m.Kind, m.Name, m.Authority, tt.wantKind, tt.wantAuthority)
+			}
+		})
+	}
+}
+
+// TestReadSuperAdministrators reads what an Auth construction is told about its super
+// administrators: the form of the argument session.NewAuth takes after the cookie key,
+// and, for a check, the permission engine the constructor opens behind it with the
+// package whose role file that engine is handed. The check is followed through the
+// identifiers the function assigns, and an engine opened anywhere else does not read.
+func TestReadSuperAdministrators(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ownPkg  = "example.com/harbor/pkg/auth/members"
+		session = "github.com/impulseframework/impulse/session"
+		signin  = "github.com/impulseframework/impulse/session/signin"
+		res     = "github.com/impulseframework/impulse/resource"
+		// The engine as an auth package opens it, on line 15 of the file, and the
+		// construction of the Auth over an argument.
+		ownEngine = `	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.Signals))
+	if err != nil {
+		return
+	}
+`
+		construct = `	_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, %s, session.WithCookieName("members"))
+`
+		scaffolded = `session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))`
+	)
+	tests := []struct {
+		name string
+		body string
+		want SuperAdministrators
+	}{
+		{
+			name: "nobody is a super administrator",
+			body: fmt.Sprintf(construct, `session.NoSuperAdministrators()`),
+			want: SuperAdministrators{Form: SuperAdministratorsNone},
+		},
+		{
+			name: "a check over the engine the constructor opens with its own role file, as add auth writes it",
+			body: ownEngine + fmt.Sprintf(construct, scaffolded),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: ownPkg, Packages: []string{res, session, signin}},
+		},
+		{
+			name: "a check assigned before the call, over a user manager assigned before it",
+			body: ownEngine + `	userManager := accessClient.UserManager()
+	superAdministrators := session.SuperAdministratorsBy(signin.SuperAdministrators(userManager))
+` + fmt.Sprintf(construct, `superAdministrators`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: ownPkg, Packages: []string{session, signin}},
+		},
+		{
+			name: "an engine handed another auth package's role file",
+			body: strings.Replace(ownEngine, "Roles()", "staff.Roles()", 1) + fmt.Sprintf(construct, scaffolded),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, RolesPackage: "example.com/harbor/pkg/auth/staff", Packages: []string{res, session, signin}},
+		},
+		{
+			name: "an engine handed no role file here",
+			body: strings.Replace(ownEngine, "access.WithDefaultRoles(settings.Collection, Roles()), ", "", 1) + fmt.Sprintf(construct, scaffolded),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, EngineLine: 15, Packages: []string{res, session, signin}},
+		},
+		{
+			name: "a check taken from another auth package",
+			body: fmt.Sprintf(construct, `session.SuperAdministratorsBy(staff.SuperAdministrators())`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, Packages: []string{"example.com/harbor/pkg/auth/staff", session}},
+		},
+		{
+			name: "an engine the constructor is handed does not read",
+			body: fmt.Sprintf(construct, `session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(settings.Engine.UserManager())))`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, Packages: []string{res, session, signin}},
+		},
+		{
+			name: "a check written in place is not entered, whatever its body names",
+			body: ownEngine + fmt.Sprintf(construct, `session.SuperAdministratorsBy(func(context.Context, string) (bool, error) { _ = accessClient; return false, nil })`),
+			want: SuperAdministrators{Form: SuperAdministratorsChecked, Packages: []string{session}},
+		},
+		{
+			name: "an argument the constructor is handed has no form",
+			body: fmt.Sprintf(construct, `settings.SuperAdministrators`),
+		},
+		{
+			name: "the two-argument form, which no longer compiles, has no form",
+			body: `	_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			src := `package members
+
+import (
+	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
+
+	"example.com/harbor/pkg/auth/staff"
+)
+
+func open(client any, key string, store access.Store, settings *Settings) {
+	_ = staff.Name
+` + tt.body + `}
+`
+			auths, _, err := parseAuths("pkg/auth/members/members.go", []byte(src), ownPkg)
+			if err != nil {
+				t.Fatalf("parseAuths() error = %v", err)
+			}
+			if len(auths) != 1 {
+				t.Fatalf("parseAuths() = %d auths, want one", len(auths))
+			}
+			if diff := cmp.Diff(tt.want, auths[0].SuperAdministrators); diff != "" {
+				t.Errorf("SuperAdministrators mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

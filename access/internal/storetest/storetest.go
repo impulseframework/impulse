@@ -68,6 +68,8 @@ func Run(t *testing.T, store access.Store) {
 	t.Run("change grants", func(t *testing.T) { runChangeGrants(t, store) })
 	t.Run("global and every domain", func(t *testing.T) { runPartitions(t, store) })
 	t.Run("delete role", func(t *testing.T) { runDeleteRole(t, store) })
+	t.Run("groups", func(t *testing.T) { runGroups(t, store) })
+	t.Run("periods", func(t *testing.T) { runPeriods(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
 }
 
@@ -124,7 +126,7 @@ func runMemberships(t *testing.T, store access.Store) {
 
 	// A membership names its role by name alone: the release's default roles
 	// have no row, so no row is required.
-	if err := store.InsertUserRole(ctx, tenant1, alice, chief); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1, alice, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() of a role with no row must succeed, got error = %v", err)
 	}
 
@@ -136,11 +138,11 @@ func runMemberships(t *testing.T, store access.Store) {
 		{alice, viewer},
 		{bob, editor},
 	} {
-		if err := store.InsertUserRole(ctx, tenant1, m.user, m.role); err != nil {
+		if err := store.InsertUserRole(ctx, tenant1, m.user, m.role, accesstypes.Period{}); err != nil {
 			t.Fatalf("InsertUserRole(%q, %q) error = %v", m.user, m.role, err)
 		}
 	}
-	if err := store.InsertUserRole(ctx, tenant1, alice, editor); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1, alice, editor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() re-insert must be a no-op, got error = %v", err)
 	}
 
@@ -193,11 +195,11 @@ func runUserMemberships(t *testing.T, store access.Store) {
 		{globalScope, admin},
 		{everyDomain, chief},
 	} {
-		if err := store.InsertUserRole(ctx, m.scope, alice, m.role); err != nil {
+		if err := store.InsertUserRole(ctx, m.scope, alice, m.role, accesstypes.Period{}); err != nil {
 			t.Fatalf("InsertUserRole(%v, %q) error = %v", m.scope, m.role, err)
 		}
 	}
-	if err := store.InsertUserRole(ctx, everyDomain, carol, chief); err != nil {
+	if err := store.InsertUserRole(ctx, everyDomain, carol, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -514,7 +516,7 @@ func runDeleteRole(t *testing.T, store access.Store) {
 	}
 
 	// A membership in another scope does not block.
-	if err := store.InsertUserRole(ctx, tenant2, bob, editor); err != nil {
+	if err := store.InsertUserRole(ctx, tenant2, bob, editor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if err := store.DeleteUserRole(ctx, tenant1, alice, editor); err != nil {
@@ -546,7 +548,7 @@ func runDeleteRole(t *testing.T, store access.Store) {
 	// Memberships block by name: a membership naming a role with no row still
 	// refuses the delete, and once it is gone the delete of the absent role
 	// is the no-op.
-	if err := store.InsertUserRole(ctx, tenant1, alice, chief); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1, alice, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if _, err := store.DeleteRole(ctx, tenant1, chief); err == nil {
@@ -578,7 +580,7 @@ func runReadPolicy(t *testing.T, store access.Store) {
 	if err := store.InsertGrant(ctx, tenant1, viewer, readPerm, widgets, "name", "owner = @subject"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.InsertUserRole(ctx, everyDomain, carol, chief); err != nil {
+	if err := store.InsertUserRole(ctx, everyDomain, carol, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -592,6 +594,9 @@ func runReadPolicy(t *testing.T, store access.Store) {
 	}
 	userSubject := func(user accesstypes.User) policy.Subject {
 		return policy.Subject{Kind: policy.SubjectUser, Name: string(user)}
+	}
+	groupSubject := func(group accesstypes.Group) policy.Subject {
+		return policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}
 	}
 	want := &policy.Records{
 		Roles: []policy.Role{
@@ -610,6 +615,19 @@ func runReadPolicy(t *testing.T, store access.Store) {
 		Memberships: []policy.Membership{
 			{Scope: tenant1, Member: userSubject(alice), Role: viewer},
 			{Scope: everyDomain, Member: userSubject(carol), Role: chief},
+			// What runGroups left: the roles the two groups hold.
+			{Scope: tenant1, Member: groupSubject(nightGroup), Role: viewer},
+			{Scope: tenant2, Member: groupSubject(staffGroup), Role: editor},
+			{Scope: everyDomain, Member: groupSubject(staffGroup), Role: chief},
+		},
+		Groups: []policy.Group{
+			{ID: nightGroup, Scope: tenant1},
+			{ID: staffGroup, Scope: globalScope},
+		},
+		GroupMembers: []policy.GroupMember{
+			{Group: nightGroup, User: alice},
+			{Group: nightGroup, User: bob},
+			{Group: staffGroup, User: carol},
 		},
 	}
 	sortRecords(records)
@@ -658,5 +676,11 @@ func sortRecords(r *policy.Records) {
 			compareSubjects(a.Member, b.Member),
 			strings.Compare(string(a.Role), string(b.Role)),
 		)
+	})
+	slices.SortFunc(r.Groups, func(a, b policy.Group) int {
+		return strings.Compare(string(a.ID), string(b.ID))
+	})
+	slices.SortFunc(r.GroupMembers, func(a, b policy.GroupMember) int {
+		return cmpChain(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(string(a.User), string(b.User)))
 	})
 }

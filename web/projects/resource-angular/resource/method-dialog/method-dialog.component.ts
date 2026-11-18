@@ -1,11 +1,15 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
-import { ApiError, MethodHandle, UploadMethodHandle } from '@impulseframework/resource';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { ApiError, MethodHandle, MethodWarning, UploadMethodHandle } from '@impulseframework/resource';
 import {
   DataType,
+  enumeratedConfig,
   field,
   FieldElement,
   FieldName,
@@ -35,6 +39,14 @@ export interface MethodDialogData {
   confirm?: string;
   /** The words above an input, by the request field's name; a field not named is labeled with its name in words. */
   labels?: Record<string, string>;
+  /**
+   * What a picker among the inputs lists each option by, by the request field's name:
+   * the fields of the listed resource, joined in order. A field not named lists its
+   * options by the source's own name.
+   */
+  shows?: Record<string, string[]>;
+  /** The request fields picked as a day that mean through the end of that day: each is sent as the next day's first instant. */
+  throughDay?: readonly string[];
 }
 
 /** What a method dialog closes with once the method has run; a dialog dismissed closes with nothing. */
@@ -68,10 +80,29 @@ export interface MethodDialogResult {
  * picker offers are not each tried: the picked one is. A method no condition can judge
  * by its request, one that runs outside a transaction (it refuses a dry run) and one
  * that takes files (they travel with the call alone) are not rehearsed.
+ *
+ * A method that warns before it runs (`warning` in its metadata, the method's @warning)
+ * is drawn as a warning. The dialog asks the server what the call will do, with what the
+ * row carries and what the person has filled, as it opens and again after each change,
+ * and nothing is saved by asking. The server's words are shown in the warning style
+ * under a warning icon, the confirm button carries the words the server gave it, which
+ * say what it does, and the button is held until the server has answered and the person
+ * has typed the word the method declares. While an input the method requires is empty
+ * the server is not asked, since it would refuse the request for it. A refusal of the
+ * question is shown as a refusal of the call is, and holds the button too: nobody
+ * confirms a warning they were not shown.
  */
 @Component({
   selector: 'impulse-method-dialog',
-  imports: [MatDialogModule, MatButtonModule, ReactiveFormsModule, ResourceLayoutComponent],
+  imports: [
+    MatDialogModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    ReactiveFormsModule,
+    ResourceLayoutComponent,
+  ],
   templateUrl: './method-dialog.component.html',
   styleUrls: ['./method-dialog.component.scss'],
   providers: [ResourceStore],
@@ -92,8 +123,23 @@ export class MethodDialogComponent {
       name: asked.fieldName as FieldName,
       label: this.data.labels?.[asked.fieldName] ?? nameInWords(asked.fieldName),
       cols: 12,
+      ...this.picker(asked.fieldName),
     }),
   );
+  /**
+   * How the picker of an input lists its options, where the page said: the fields it
+   * named, joined in order, in the list and once one is chosen. Nothing for an input
+   * the page did not name, whose picker lists the source's own name.
+   */
+  private picker(fieldName: string): Pick<FieldElement, 'enumeratedConfig'> | Record<string, never> {
+    const shown = this.data.shows?.[fieldName];
+    if (!shown || shown.length === 0) {
+      return {};
+    }
+    const display = shown as FieldName[];
+    return { enumeratedConfig: enumeratedConfig({ listDisplay: display, viewDisplay: display }) };
+  }
+
   /** Each input's value before anything is typed: an empty list for a field that holds a list, empty text otherwise. */
   readonly pristine: Record<string, DataType> = Object.fromEntries(
     this.asked.map((asked): [string, DataType] => [asked.fieldName, asked.displayType.endsWith('[]') ? [] : '']),
@@ -116,7 +162,29 @@ export class MethodDialogComponent {
    * file input is what the person fills.
    */
   readonly question =
-    this.asked.length === 0 && (!this.meta.upload || this.data.confirm) ? (this.data.confirm ?? `${this.data.label}?`) : '';
+    this.asked.length === 0 && (!this.meta.upload || this.data.confirm) && (!this.meta.warning || this.data.confirm)
+      ? (this.data.confirm ?? `${this.data.label}?`)
+      : '';
+
+  /** The word a person types before a method that warns is confirmed; empty for a method that does not warn. */
+  readonly typedWord = this.meta.warning?.typed ?? '';
+  /** What the server says the call will do, for the request as filled; undefined until it has answered. */
+  readonly warned = signal<MethodWarning | undefined>(undefined);
+  /** The input the word is typed into. It is no part of the request. */
+  readonly typed = new FormControl('', { nonNullable: true });
+  private readonly typedValue = toSignal(this.typed.valueChanges, { initialValue: '' });
+  /**
+   * Whether the call may be confirmed: always for a method that does not warn; for one
+   * that does, once the server's warning is on the screen and the word is typed, in any
+   * case and with spaces around it or not.
+   */
+  readonly confirmed = computed(
+    () => !this.typedWord || (this.warned() !== undefined && this.typedValue().trim().toLowerCase() === this.typedWord),
+  );
+  /** The words on the button that runs the method: the server's for a method that warns, the page's label otherwise. */
+  readonly runLabel = computed(() => this.warned()?.confirm ?? this.data.label);
+  /** Counts the warnings asked for, so an answer that a later change overtook is dropped. */
+  private warningTurn = 0;
 
   /** Whether the call is open: the button waits and a second click does nothing. */
   readonly busy = signal(false);
@@ -151,6 +219,12 @@ export class MethodDialogComponent {
   private rehearsal = 0;
 
   constructor() {
+    if (this.meta.warning) {
+      void this.askWarning();
+      this.form.valueChanges
+        .pipe(debounceTime(MethodDialogComponent.rehearsalDelay), takeUntilDestroyed(this.destroyRef))
+        .subscribe(() => void this.askWarning());
+    }
     if (!this.rehearses) {
       return;
     }
@@ -187,7 +261,9 @@ export class MethodDialogComponent {
     const turn = ++this.rehearsal;
     const values = metadataTypeCoercion(raw as RPCRecordData, this.meta);
     try {
-      await this.store.methodHandle(this.data.method).dryRun(requestBody(this.data.preset, this.asked, values));
+      await this.store
+        .methodHandle(this.data.method)
+        .dryRun(requestBody(this.data.preset, this.asked, values, this.data.throughDay));
       if (turn === this.rehearsal && !this.busy()) {
         this.refusal.set('');
       }
@@ -207,6 +283,39 @@ export class MethodDialogComponent {
     }
   }
 
+  /**
+   * Asks the server what the call will do, for what the row carries and what the person
+   * has filled, and shows its answer: nothing is saved by asking. It waits while an
+   * input the method requires is empty, since the server refuses such a request, and
+   * leaves the warning shown before as it is. A refusal is shown in the server's words
+   * and takes the warning off the screen, which holds the button. An answer a later
+   * change overtook is dropped.
+   */
+  async askWarning(): Promise<void> {
+    if (!this.meta.warning || this.busy() || this.form.invalid) {
+      return;
+    }
+    const turn = ++this.warningTurn;
+    const values = metadataTypeCoercion(this.form.getRawValue() as RPCRecordData, this.meta);
+    try {
+      const said = await this.store
+        .methodHandle(this.data.method)
+        .warning(requestBody(this.data.preset, this.asked, values, this.data.throughDay));
+      if (turn === this.warningTurn) {
+        this.warned.set(said);
+        this.refusal.set('');
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        throw error;
+      }
+      if (turn === this.warningTurn) {
+        this.warned.set(undefined);
+        this.refusal.set(error.message);
+      }
+    }
+  }
+
   /** Whether a method that takes files has one to send; a method that takes none always has what it needs. */
   readonly hasFiles = computed(() => !this.meta.upload || this.files().length > 0);
 
@@ -218,14 +327,14 @@ export class MethodDialogComponent {
 
   /** Runs the method with what the row carries and what the person filled, and its files where it takes them. */
   async run(): Promise<void> {
-    if (this.busy() || this.form.invalid || !this.hasFiles()) {
+    if (this.busy() || this.form.invalid || !this.hasFiles() || !this.confirmed()) {
       return;
     }
     this.busy.set(true);
     this.refusal.set('');
     try {
       const values = metadataTypeCoercion(this.form.getRawValue() as RPCRecordData, this.meta);
-      const body = requestBody(this.data.preset, this.asked, values);
+      const body = requestBody(this.data.preset, this.asked, values, this.data.throughDay);
       const handle = this.store.methodHandle(this.data.method);
       const answer = this.meta.upload
         ? await uploadHandle(handle, this.data.method).upload(body, this.files())
@@ -253,7 +362,10 @@ export class MethodDialogComponent {
  * a handle with no such call is metadata and a descriptor generated apart: refused,
  * naming the method and the way out.
  */
-function uploadHandle<Body, Result>(handle: MethodHandle<Body, Result>, method: string): UploadMethodHandle<Body, Result> {
+function uploadHandle<Body, Result>(
+  handle: MethodHandle<Body, Result>,
+  method: string,
+): UploadMethodHandle<Body, Result> {
   if (!('upload' in handle)) {
     throw new Error(
       `${method} takes files by its metadata and not by the API descriptor: the two were generated apart; regenerate both`,

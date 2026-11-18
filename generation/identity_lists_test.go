@@ -81,7 +81,7 @@ import "github.com/impulseframework/impulse"
 // Sector is the tenant record.
 //
 // @resource
-// @tenant(creation: selfService)
+// @tenant
 type Sector struct {
 	ID impulse.UUID
 }
@@ -260,7 +260,13 @@ func Test_readIdentityTenant(t *testing.T) {
 		wantErr string
 	}{
 		{name: "no tenant record", source: "package resources\n\n// @resource\ntype Dock struct {\n\tID string\n}\n"},
-		{name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(), want: &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}, word: "ship"}},
+		{
+			// The fixture's package is written outside the module the generator runs in,
+			// so the record's fields are not read for an invitation, and the record says
+			// why (Test_tenantInvitationIn reads one inside the module).
+			name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(),
+			want: &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}, word: "ship", unreadable: "the resources package is outside the module the generator runs in"},
+		},
 		{name: "a record whose table the schema does not hold", source: shipTenantSource, wantErr: "struct Ship is the tenant record (@tenant) and the schema holds no table Ships"},
 		{
 			name:   "a record keyed by two columns",
@@ -454,7 +460,7 @@ func Test_identityTenantUsersTemplate_accountColumns(t *testing.T) {
 	if len(account) == 0 {
 		t.Fatal("no field found in identityUsersTemplate: the pattern no longer reads the template")
 	}
-	listed := columns(identityTenantUsersTemplate, "DomainID", "HeldElsewhere", "HeldGlobally")
+	listed := columns(identityTenantUsersTemplate, "DomainID", "HeldElsewhere", "HeldGlobally", "OutsideDirectory", "CannotEnter")
 	if diff := cmp.Diff(account, listed); diff != "" {
 		t.Errorf("the people's list against the users declaration (-declaration +list):\n%s", diff)
 	}
@@ -588,8 +594,8 @@ func Test_tenantRecordIn_label(t *testing.T) {
 		wantWord  string
 	}{
 		{name: "no label: the record's name in words", record: "Customer", tenant: "@tenant", wantWord: "customer"},
-		{name: "a record of two words", record: "ServiceArea", tenant: "@tenant(creation: both)", wantWord: "service area"},
-		{name: "a label beside a creation shape", record: "Tenant", tenant: `@tenant(creation: both, label: "Service district")`, wantLabel: "Service district", wantWord: "service district"},
+		{name: "a record of two words", record: "ServiceArea", tenant: "@tenant", wantWord: "service area"},
+		{name: "a label of two words", record: "Tenant", tenant: `@tenant(label: "Service district")`, wantLabel: "Service district", wantWord: "service district"},
 		{name: "a label that opens with an initialism keeps it", record: "Tenant", tenant: `@tenant(label: "HQ unit")`, wantLabel: "HQ unit", wantWord: "HQ unit"},
 	}
 	for _, tt := range tests {

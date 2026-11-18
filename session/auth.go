@@ -30,12 +30,13 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
-	// identitiesTable, pendingSignInsTable, signInAttemptsTable and mailLinksTable
-	// name the group's tables; nil keeps the store's defaults.
+	// identitiesTable, pendingSignInsTable, signInAttemptsTable, mailLinksTable and
+	// signInMethodsTable name the group's tables; nil keeps the store's defaults.
 	identitiesTable     *string
 	pendingSignInsTable *string
 	signInAttemptsTable *string
 	mailLinksTable      *string
+	signInMethodsTable  *string
 	// mail is how the Auth sends mail, nil when it sends none.
 	mail *mailSettings
 	// invitationCookie names the cookie that carries an opened invitation into the
@@ -141,6 +142,12 @@ func WithMailLinksTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.mailLinksTable = &name }}
 }
 
+// WithSignInMethodsTableName sets the name of the group's sign-in methods table.
+// (default: SessionSignInMethods)
+func WithSignInMethodsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.signInMethodsTable = &name }}
+}
+
 // WithInvitationCookieName sets the name of the cookie that carries an invitation the
 // browser opened into the sign-in. (default: auth-invitation)
 func WithInvitationCookieName(name string) AuthOption {
@@ -196,6 +203,7 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithPendingSignInsTableName", name: settings.pendingSignInsTable, set: storage.SetPendingSignInsTableName},
 		{option: "WithSignInAttemptsTableName", name: settings.signInAttemptsTable, set: storage.SetSignInAttemptsTableName},
 		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
+		{option: "WithSignInMethodsTableName", name: settings.signInMethodsTable, set: storage.SetSignInMethodsTableName},
 		{option: "WithTokensTableName", name: settings.tokensTable, set: storage.SetTokensTableName},
 		{option: "WithDeviceCodesTableName", name: settings.deviceCodesTable, set: storage.SetDeviceCodesTableName},
 		{option: "WithFactorCodesTableName", name: settings.factorCodesTable, set: storage.SetFactorCodesTableName},
@@ -217,8 +225,8 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 // for every method.
 //
 // Register sign-in methods with PasswordSignIn, azure.SignIn and google.SignIn after
-// NewAuth and before serving the first request (workos.SignIn once WorkOS returns to
-// the public API in v0.13.1). Each returns the method's handlers.
+// NewAuth and before serving the first request (the WorkOS method is in an internal
+// package, which an application cannot import). Each returns the method's handlers.
 //
 // Every session belongs to a user (SessionUsers). A sign-in either establishes a
 // session under a new session ID, becomes a pending identity that waits for a password
@@ -233,9 +241,15 @@ type Auth[SessionData, UserData, Tx any] struct {
 	baseSession *basesession.BaseSession
 	storage     sessionstorage.AuthStore[Tx]
 	settings    authSettings
-	// policy is the application's sign-in rule, nil when it set none: the library's
-	// own checks then decide. Set by SetSignInPolicy before the Auth is in use.
-	policy signin.Policy[Tx]
+	// policy is the rule a sign-in is decided by, nil when the library's own checks
+	// decide alone: the application's sign-in rule (applicationPolicy, set by
+	// SetSignInPolicy before the Auth is in use), with the rule on a super
+	// administrator's second factor after it where the Auth has super administrators.
+	policy            signin.Policy[Tx]
+	applicationPolicy signin.Policy[Tx]
+	// superAdministrators reports who holds the Super Administrator role, nil for an
+	// Auth built with NoSuperAdministrators. NewAuth is told it and nothing changes it.
+	superAdministrators signin.SuperAdministratorCheck
 	// signedIn is the application's after-sign-in hook, nil when it set none. Set by
 	// SetSignedInHook before the Auth is in use.
 	signedIn SignedInHook
@@ -257,6 +271,17 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// none. Set by SetDirectoryAdmission before the Auth is in use.
 	directories     signin.DirectoryReader[Tx]
 	directorySeated signinflow.DirectorySeater[Tx]
+	// directoryOnlyIn reports whether a tenant is the only place a person holds
+	// anything: with directories it decides a first link made on a name alone. Set
+	// with them.
+	directoryOnlyIn signinflow.OnlyInTenant[Tx]
+	// directorySeeded reports whether an account is the deployment's own seed for a
+	// registration, nil where the application named none
+	// (DirectorySeatedHook.Seeded).
+	directorySeeded signinflow.SeededAccount
+	// signUpSeated gives a person who signed up through an open method the method's
+	// default role, nil for none.
+	signUpSeated signinflow.SignUpSeater[Tx]
 	// tenantNames names the tenant an invitation seats a person in, for the invitation
 	// screen; nil for none. Set by SetTenantNames before the Auth is in use.
 	tenantNames TenantNamer
@@ -264,11 +289,76 @@ type Auth[SessionData, UserData, Tx any] struct {
 	methods signInMethods[Tx]
 }
 
+// SuperAdministrators is what NewAuth is told about the holders of the Super
+// Administrator role (accesstypes.SuperAdministrator), the role the access library
+// defines in every auth. An Auth is not built without one: a holder who signed in with
+// no second factor would be the one account no tenant's sign-in settings shut out, behind
+// a password alone. Build one with SuperAdministratorsBy, or with NoSuperAdministrators
+// for an application that has no permission engine; the zero value is refused.
+type SuperAdministrators struct {
+	// none is NoSuperAdministrators' word, and checked SuperAdministratorsBy's, with the
+	// check it was given; the zero value carries neither.
+	none    bool
+	checked bool
+	check   signin.SuperAdministratorCheck
+}
+
+// SuperAdministratorsBy tells an Auth who its super administrators are: the people
+// check reports. Pass signin.SuperAdministrators over the access library's user manager
+// (on Spanner over resource.SignInRoles of it, as the tenant policy is), built before
+// the Auth. The Auth then holds a holder's sign-in for the code it mails, whatever the
+// application's sign-in rule asks of anyone else (signin.SuperAdministratorFactor), so
+// the Auth must send mail (WithMail): NewAuth refuses one that sends none, and a nil
+// check. A sign-in through a method that synchronizes roles is not held: there the
+// directory is the authority on who is a super administrator, and the application's own
+// rule is asked of that person as of anyone. NewAuth asks such an Auth for mail all the
+// same.
+func SuperAdministratorsBy(check signin.SuperAdministratorCheck) SuperAdministrators {
+	return SuperAdministrators{none: false, checked: true, check: check}
+}
+
+// NoSuperAdministrators tells an Auth that nobody of its application is a super
+// administrator, because the application has no permission engine and so no role of any
+// kind. An application whose people hold roles passes SuperAdministratorsBy: with this,
+// a person who holds the Super Administrator role would sign in as anyone else does.
+func NoSuperAdministrators() SuperAdministrators {
+	return SuperAdministrators{none: true, checked: false, check: nil}
+}
+
+// validate refuses what NewAuth cannot build an Auth from: no word on the super
+// administrators at all, a word with no check behind it, and super administrators on an
+// Auth that cannot mail the code their second factor is.
+func (s SuperAdministrators) validate(mails bool) error {
+	switch {
+	case s.none:
+		return nil
+	case !s.checked:
+		return errors.New("NewAuth was not told who the Auth's super administrators are: pass session.SuperAdministratorsBy(signin.SuperAdministrators(...)) over the access library's user manager, " +
+			"so a holder of the Super Administrator role signs in with a second factor, or session.NoSuperAdministrators() for an application with no permission engine")
+	case s.check == nil:
+		return errors.New("session.SuperAdministratorsBy was given no check: pass signin.SuperAdministrators over the access library's user manager")
+	case !mails:
+		return errors.New("the Auth has super administrators and sends no mail: a super administrator signs in with a second factor, the code the Auth mails, " +
+			"and an Auth without mail could not send it, so a holder would never sign in; pass session.WithMail with the application's sender and its mail settings")
+	default:
+		return nil
+	}
+}
+
 // NewAuth creates an Auth session for the given storage. The storage's custom session
-// and user data configurations must be built for SessionData and UserData. The
-// OIDC-only storage features (the OIDC user anchor and the custom user data login hook)
-// are refused. Tx is inferred from the storage: an application writes
-// NewAuth[SessionData, UserData](store, cookieKey, options...).
+// and user data configurations must be built for SessionData and UserData. Tx is
+// inferred from the storage: an application writes
+// NewAuth[SessionData, UserData](store, cookieKey, superAdministrators, options...).
+//
+// superAdministrators says who holds the Super Administrator role
+// (SuperAdministratorsBy, or NoSuperAdministrators for an application with no permission
+// engine). It is an argument and not an option so that no Auth is built without it: a
+// holder always signs in with a second factor, whether or not the application's sign-in
+// rule asks anyone for one. A sign-in the rule allows, or any sign-in where no rule is
+// set, is held for the code the library mails when the person holds the role, unless
+// the sign-in already carries a second factor as any account's may (the directory's
+// attestation, or a browser the person asked to be remembered). So an Auth with super
+// administrators must send mail (WithMail), and NewAuth refuses one that does not.
 //
 // A sign-in is decided by the library's own checks: the user exists and is enabled,
 // the identity is linked or resolved, roles reconcile. An application with rules of
@@ -277,7 +367,7 @@ type Auth[SessionData, UserData, Tx any] struct {
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewAuth[SessionData, UserData, Tx any](
-	storage sessionstorage.AuthStore[Tx], cookieKey string, options ...AuthOption,
+	storage sessionstorage.AuthStore[Tx], cookieKey string, superAdministrators SuperAdministrators, options ...AuthOption,
 ) (*Auth[SessionData, UserData, Tx], error) {
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
@@ -313,6 +403,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	if err := settings.factors.validate(); err != nil {
 		return nil, err
 	}
+	if err := superAdministrators.validate(settings.mail != nil); err != nil {
+		return nil, err
+	}
 	if err := nameTables(storage, &settings); err != nil {
 		return nil, err
 	}
@@ -327,14 +420,16 @@ func NewAuth[SessionData, UserData, Tx any](
 	}
 
 	a := &Auth[SessionData, UserData, Tx]{
-		baseSession:       baseSession,
-		storage:           storage,
-		settings:          settings,
-		cookies:           cookieClient,
-		pendingCookies:    cookies.pending,
-		invitationCookies: cookies.invitation,
-		trustedCookies:    cookies.trusted,
+		baseSession:         baseSession,
+		storage:             storage,
+		settings:            settings,
+		superAdministrators: superAdministrators.check,
+		cookies:             cookieClient,
+		pendingCookies:      cookies.pending,
+		invitationCookies:   cookies.invitation,
+		trustedCookies:      cookies.trusted,
 	}
+	a.policy = a.decidingPolicy()
 	a.methods.init(storage)
 
 	return a, nil
@@ -390,10 +485,22 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[T
 	if a.methods.inUse.Load() {
 		panic("session: the sign-in policy was set after the Auth served a request: set it before serving")
 	}
-	if a.policy != nil {
+	if a.applicationPolicy != nil {
 		panic("session: the sign-in policy was set twice: one Auth has one rule")
 	}
-	a.policy = policy
+	a.applicationPolicy = policy
+	a.policy = a.decidingPolicy()
+}
+
+// decidingPolicy is the rule a sign-in is decided by: the application's rule, and after
+// it the super administrator's second factor where the Auth has super administrators.
+// The caller holds the methods' lock, or is NewAuth, before the Auth is anyone's.
+func (a *Auth[SessionData, UserData, Tx]) decidingPolicy() signin.Policy[Tx] {
+	if a.superAdministrators == nil {
+		return a.applicationPolicy
+	}
+
+	return signin.SuperAdministratorFactor(a.applicationPolicy, a.superAdministrators)
 }
 
 // SetSignedInHook sets the application's after-sign-in hook, called once for every
@@ -509,7 +616,16 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // person in place of the username, which stays what identifies them. look is the look
 // the person chose ({"scheme", "palette"}, each present where they chose it), present
 // when the user holds one: what their pages draw themselves in on every browser.
+// directory is the organization's directory the session was established through
+// ({"method", "connection"}: a Google Workspace by its connection, a Microsoft Entra
+// tenant by its tenant id), present for a sign-in through one and absent for a
+// password, for a personal account, which is no organization's directory, and for an
+// impersonated session: what a page offers the person to make a tenant's directory.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
+	type directory struct {
+		Method     sessioninfo.AuthMethod `json:"method"`
+		Connection string                 `json:"connection"`
+	}
 	type response struct {
 		Authenticated          bool                               `json:"authenticated"`
 		Username               string                             `json:"username"`
@@ -524,6 +640,9 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		// factor for the person, so their account page offers to forget it (ForgetBrowser).
 		// Never for an impersonated session, which may not forget it.
 		BrowserRemembered bool `json:"browserRemembered"`
+		// Directory is the organization's directory the session was established
+		// through, nil for any other session.
+		Directory *directory `json:"directory,omitempty"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -541,6 +660,12 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 
 		imp, _ := sessioninfo.ImpersonationFromCtx(ctx)
 		user := sessioninfo.UserFromCtx(ctx)
+		var through *directory
+		if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+			if d := (signin.Directory{Method: established.Method, Connection: established.Connection}); d.Organization() {
+				through = &directory{Method: d.Method, Connection: d.Connection}
+			}
+		}
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
@@ -553,6 +678,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			EmailHint:              a.emailHint(ctx, user),
 			Impersonation:          basesession.NewImpersonationResponse(imp),
 			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
+			Directory:              through,
 		})
 	}))
 }
@@ -616,42 +742,89 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 	}))
 }
 
-// DirectorySeatedHook is the application's half of a directory's default seat: it
-// seats the user a first sign-in provisions, named by id (the key an application's
-// memberships are held under) and by username (what a log line reads), with seats, the default seats of the
-// directories the tenants declared for the identity's connection, inside the
-// transaction that provisions the user, which it is handed: the account is made and
-// seated together, or neither. A seat the invitation this sign-in consumes names too
-// (the same role in the same tenant) is not among seats: InvitationAcceptedHook gives
-// it, in the same transaction, and the two hooks never write one membership twice. The
-// hook is not called for no seats. It is held to what InvitationAcceptedHook is: tx alone
-// for its reads and writes, the user not readable in it, a committed function (nil for
-// none) the library runs once the transaction has committed and before the sign-in
-// policy decides, and an error that fails the transaction and ends the sign-in, so no
-// account is left holding nothing.
-type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
+// DirectorySeatedHook is the application's half of a tenant directory's admission: what
+// it alone can read and write of a person's roles, in two functions.
+//
+// Seat seats the user at their first sign-in through a tenant's directory, named by id
+// (the key an application's memberships are held under) and by username (what a log
+// line reads), with seats, the default seat of the tenant whose directory the identity
+// came through, inside the transaction that links the identity to the user, which it is
+// handed: the link is made and the person seated together, or neither. The first
+// sign-in through a directory is the one that makes the link, whether it makes the
+// account too or the account stood before, and whether the link is made at once or once
+// the user's password has confirmed it. The library calls it once for a link: a later
+// sign-in finds the link and gives nothing, so a seat an administrator removed is not
+// given back, and a link that was deleted and is made again is a first sign-in again.
+// It gives a seat only where the person holds no role in the tenant: a person who holds
+// one keeps what they hold. A seat the invitation this sign-in consumes names too (the
+// same role in the same tenant) is not among seats: InvitationAcceptedHook gives it, in
+// the same transaction, and the two hooks never write one membership twice. It is not
+// called for no seats. It is held to what InvitationAcceptedHook is: tx alone for its
+// reads and writes, a user the transaction made not readable in it, a committed function
+// (nil for none) the library runs once the transaction has committed and before the
+// sign-in policy decides, and an error that fails the transaction and ends the sign-in,
+// so no account is left holding nothing and no link is left that gave nothing.
+//
+// OnlyIn reports whether tenant is the only place the user holds anything, read through
+// tx: the user holds a role, or a place in a group, in tenant itself, and nothing in
+// another tenant, in every tenant or outside the tenants. The library asks it before it
+// links an identity, on its sign-in name alone, to an account that has no password and
+// has never signed in. A directory asserts the names it likes, and the link hands
+// whoever it signs in everything the account holds, so such a link is made only through
+// the directory of the one tenant the person belongs to, which is given nothing the
+// tenant's own administrators could not give, or by a sign-in that carries the person's
+// own invitation; any other sign-in under the name is refused as a person no account
+// was created for is.
+//
+// Seeded is optional and reports whether the account with this id and username is the
+// one the deployment's own seed created for a person who signs in through the
+// registration named: the first administrator of an Auth whose people sign in through
+// a directory, who holds roles for the whole application and belongs to no tenant, so
+// no tenant's directory vouches for them. The seed creates the account under
+// SeedUserIDThrough, and the function answers by that id, which no request can give an
+// account. Such an account is linked on its name at its person's first sign-in through
+// that registration, where the registration admits one organization and nobody else
+// (signin.Audience.OneOrganization) and the account is not disabled; through any other
+// registration, or a wider one, the name links nothing. Nil
+// recognizes no account, and a seeded first administrator is then held to the rule
+// every account created ahead is.
+type DirectorySeatedHook[Tx any] struct {
+	Seat   func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
+	OnlyIn func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
+	Seeded func(userID impulse.UUID, username, registration string) bool
+}
 
-// SetDirectoryAdmission sets what a tenanted application gives a first sign-in
-// through a directory by a person no user was created for: reader, which reads
-// every tenant's declaration of the directory the identity came through
-// (signin.DirectoryReader), and hook, which seats the person with the default seats
-// the declarations name. With them the standard account rules ask the tenants first: a
-// directory some tenant declares belongs to that tenant, and its declaration decides
-// before the registration's own rule. A default seat admits a stranger with it, and a
-// declaration naming none refuses a stranger by invitation only (invitation_only,
-// unless the sign-in carries an invitation), with no account created. A person the
-// application gave a role ahead of their first sign-in is no stranger: a role is held
-// by an account, and the sign-in links the identity to the account under its sign-in
-// name before the tenants are asked. A directory no tenant declares falls to the
-// registration's rule as without them. Set the two after NewAuth and before serving
-// the first request; a nil reader or hook, a second call, or a call once the Auth is
-// in use is a wiring mistake and panics, as SetSignInPolicy does.
+// SetDirectoryAdmission sets what a tenanted application gives a person's first
+// sign-in through a tenant's directory: reader, which reads the declaration of the
+// directory the identity came through (signin.DirectoryReader: the tenant whose
+// directory it is, since a directory belongs to one tenant), and hook, which seats the
+// person with the default seat the declaration names. With them the standard rule asks
+// the tenant first: its declaration decides before the sign-in method's own choice,
+// open or invite only. A default seat admits a stranger with it, and a declaration naming none
+// refuses a stranger by invitation only (invitation_only, unless the sign-in carries
+// an invitation), with no account created. A person who has an account is no stranger.
+// One with a password confirms the link with it, and the default seat is given with the
+// link when they hold no role in the tenant. One with no password who has never signed
+// in (an account an administrator created ahead) is tied to the sign-in by nothing but
+// the name the directory asserts, so the identity is linked only when the directory is
+// that of the one tenant the person belongs to, holding a role there and nothing
+// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation, or
+// the account is the deployment's own seed for the registration the sign-in came
+// through and that registration admits one organization alone (hook.Seeded, the first
+// administrator of an Auth whose people sign in through a directory); any
+// other sign-in under the name is refused as a stranger is, and says nothing of the
+// account. A directory no tenant declares, and a personal
+// account, which is no organization's directory (signin.Directory.PersonalAccounts),
+// fall to the sign-in method's choice as without them. Set the two after
+// NewAuth and before serving the first request; a nil reader, a hook missing either
+// function, a second call, or a call once the Auth is in use is a wiring mistake and
+// panics, as SetSignInPolicy does.
 func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], hook DirectorySeatedHook[Tx]) {
 	if reader == nil {
 		panic("session: SetDirectoryAdmission was given no reader: pass the application's reader of the tenants' directory declarations")
 	}
-	if hook == nil {
-		panic("session: SetDirectoryAdmission was given no hook: pass the application's hook that seats the person")
+	if hook.Seat == nil || hook.OnlyIn == nil {
+		panic("session: SetDirectoryAdmission was given a hook without its two functions: pass the application's hook that seats the person and reads whether a tenant is the only place they hold anything")
 	}
 	a.methods.mu.Lock()
 	defer a.methods.mu.Unlock()
@@ -662,7 +835,50 @@ func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.Di
 	if a.directories != nil {
 		panic("session: the directory admission was set twice: one Auth has one")
 	}
-	a.directories, a.directorySeated = reader, hook
+	a.directories, a.directorySeated, a.directoryOnlyIn, a.directorySeeded = reader, hook.Seat, hook.OnlyIn, hook.Seeded
+}
+
+// SignUpSeatedHook is the application's half of a sign-up through a method an
+// administrator opened: it gives the person the default role the method's row names,
+// inside the transaction that makes their account, which it is handed, so the account
+// is made and holds the role together, or neither. The user is named by id (the key an
+// application's memberships are held under) and by username (what a log line reads);
+// method is the name the method is registered under, and role the row's default role,
+// as the application wrote it there. The library calls the hook for a person the open
+// method alone admitted and made an account for: a person who came with an invitation
+// is given the invitation's roles (InvitationAcceptedHook), and one whose account stood
+// before signs in as before and is given nothing. It is not called where the row names
+// no role, which is what an application whose people get their roles in a tenant
+// writes. It is held to what InvitationAcceptedHook is: tx alone for its reads and
+// writes, a user the transaction made not readable in it, a committed function (nil
+// for none) the library runs once the transaction has committed and before the sign-in
+// policy decides, and an error that fails the transaction and ends the sign-up, so no
+// account is left holding nothing.
+type SignUpSeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username, method, role string) (committed func(ctx context.Context), err error)
+
+// SetSignUpSeated sets the hook that gives a person who signed up through an open
+// sign-in method the method's default role. Whether a method is open is no setting of
+// the Auth's: an administrator chooses it in the running application, for each method,
+// and the choice is a row of the Auth's sign-in methods table (Tables.SignInMethods),
+// which each sign-in reads in its own transaction; a method with no row is invite only.
+// A row that names a role on an Auth with no hook fails the sign-up, so no account is
+// made holding nothing. Set it after NewAuth and before serving the first request; a
+// nil hook, a second call, or a call once the Auth is in use is a wiring mistake and
+// panics, as SetDirectoryAdmission does.
+func (a *Auth[SessionData, UserData, Tx]) SetSignUpSeated(hook SignUpSeatedHook[Tx]) {
+	if hook == nil {
+		panic("session: SetSignUpSeated was given no hook: pass the application's hook that gives the default role")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the sign-up hook was set after the Auth served a request: set it before serving")
+	}
+	if a.signUpSeated != nil {
+		panic("session: the sign-up hook was set twice: one Auth has one")
+	}
+	a.signUpSeated = hook
 }
 
 // TenantNamer names a tenant by its key: what people call it, "" for a tenant it does

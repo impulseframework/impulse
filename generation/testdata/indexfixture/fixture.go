@@ -94,6 +94,20 @@ type (
 		Name     string `spanner:"Name"`
 	}
 
+	// Single holds one row for a tenant: a unique index on the tenant column alone, and
+	// no index behind its order. Silent, since the tenant's partition holds at most one
+	// row and one row is in every order.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @order(Name asc)
+	Single struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		TenantID string `spanner:"TenantId"`
+		Name     string `spanner:"Name"`
+	}
+
 	// Keyed has its order in its primary key, tenant first: silent, since the
 	// PRIMARY_KEY index counts like any other.
 	//

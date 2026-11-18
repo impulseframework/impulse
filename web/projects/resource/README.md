@@ -175,6 +175,53 @@ always quotes the box's text; `quoteFilterValue` is the rule. `matchesSearch` is
 browser's copy of the rule the server applies in memory, every word found, folded, in one
 of the values, for a picker narrowing a list it holds whole.
 
+## Lists across tenants
+
+A tenant-scoped resource is listed inside one tenant, through `client.domain(tenant)`. A
+resource the application declares for it (`@listAcrossTenants`; its descriptor entry says
+`acrossTenants: true`) is also listed across tenants, through `client.acrossTenants`:
+
+```ts
+const page = await client.acrossTenants.missions.page({ sort: { field: 'deadline' }, limit: 25, count: true });
+for (const row of page.rows) {
+  const tenant = client.acrossTenants.missions.tenantOf(row); // row.zzTenant
+  const mission = await client.domain(tenant).missions.read(client.acrossTenants.missions.keyOf(row));
+}
+```
+
+One request reads the resource's rows in every tenant the session reaches in which the
+person holds its List grant, with one filter, one sort, one page and one count across
+them, at the resource's route without the tenant's segment. The server checks each row
+under the person's grants in the row's own tenant, so a field shows on the rows of the
+tenants whose grants cover it and is absent from the others, and every row carries the
+tenant it is in under the reserved `zzTenant` property (`TenantProperty`, the type
+`InTenant<Row>`). `domains` narrows the set to the tenants named, down to one; a tenant
+the session does not reach contributes nothing and is never an error, and an empty list
+of tenants is sent as written, which the server refuses. `page()` follows `next` and
+`prev` exactly as a tenant's list does, the narrowing in the links.
+
+The handle reads and does nothing else. It answers no capability envelope (the query type
+has no `capabilities`): what a person may do with a row is asked on the row's page inside
+its tenant, through `client.domain(tenantOf(row))`. It is plain unless the query asks: with
+`live: true` the request registers one subscription over the set of tenants the list
+reads, which the server works out then and again at each renewal, the query's `domains`
+travelling with it. One subscription holds at most 10,000 tenants: a list that reads more
+is answered as a plain one, not cached and not live, a subscription whose set grew past
+that is dropped at its renewal, and the list reads as before either way.
+`subscription(domains)` is what to hand `client.live.watch`: a change
+to the resource's list in any tenant the subscription covers refetches the page, by that
+change's version. `client.acrossTenants` is empty on an API
+that declares no such list, and `acrossTenantsHandle(client, 'Missions')` gives the
+handle by the resource's name to a page that learns its resources at run time, refusing
+a resource that is not declared for it.
+
+Who the list is for is the server's to say: the global digest carries
+`ListAcrossTenants` on a declared resource while the person may list it in at least one
+tenant the session reaches, and no role grants it. `client.acrossTenants.missions.can()`
+asks it, as does `client.can(ListAcrossTenantsPermission, 'Missions')`, which answers
+from the global digest whatever domain is passed. A page of the list is shown to the
+people it answers true for; the list itself answers anyone else an empty array.
+
 ## Permissions
 
 `api.permissions` is the session user's digest cache: one digest per scope (global,
@@ -200,6 +247,38 @@ or one per domain), loaded on demand and cached for the session.
   domains where the user holds any grant, each with its name (`user-domains` answers
   `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
   picker to show, the domain itself where none is held; `subscribe` notifies a UI framework.
+  A tenant the person holds a seat in and this session cannot enter (a tenant that admits
+  only people who sign in through its own directory, when the person signed in another
+  way) is listed with `closed`, the reason in a sentence the server writes. `domains()`
+  holds the tenants the session reaches and never a closed one; `closedDomains()` answers
+  the closed ones with their reasons, for a picker to show marked and not as places to
+  open.
+- A tenant's directory-only switch is the tenant's own, turned by the tenant's
+  administrator with two generated methods in the tenant's scope:
+  `api.domain(tenant).make<Record>DirectoryOnly` turns it on and
+  `api.domain(tenant).end<Record>DirectoryOnly` turns it off (Execute on each in the
+  tenant; the handle's `can()` says whether the person may). `directoryOnlyState(api, tenant)`
+  reads the switch as it stands (`GET <tenants>/<tenant>/directory-only`), asked under
+  the grant of either method, which the tenant's administrator, who does not read the
+  tenant record, has no other way to see. Turning it on warns first: the method's
+  metadata declares the word a person types (`warning: { typed: 'close' }`), and
+  `make<Record>DirectoryOnly.warning({})` answers what it would do, in the server's
+  words and with nothing saved: the sentence (`consequence`), the people who would lose
+  access (`names`, listed only to a caller who may list the tenant's people, so the list
+  can hold fewer than the sentence counts, or be absent), and the words for the button
+  (`confirm`). The method dialog shows all three and holds its button until the word is
+  typed. The server's refusal (a tenant with no directory, a person who is not signed in
+  through the tenant's directory, a tenant that is directory only already) throws from
+  `warning` with its sentence as the error's message, so a page that asks first shows
+  the refusal and opens no dialog.
+- How a tenant admits its directory's people is the tenant's own too, said with two
+  generated methods where the directories record carries a default role:
+  `api.domain(tenant).open<Record>ToDirectory({ role })` opens the tenant to them, each
+  given the role at their first sign-in through the directory, and
+  `api.domain(tenant).make<Record>InviteOnly({})` makes it invite only again. Opening
+  warns (`warning: { typed: 'open' }`): the server says who will be able to enter and
+  the role each of them gets, and refuses a role that is not the tenant's or that the
+  caller could not give directly.
 - Every answer here reads a `Store`, and a UI framework can make each read a
   dependency of its reactive code by setting the store read hook once
   (`setStoreReadHook`). The Angular client does (`provideResourceClient`), so a
@@ -233,10 +312,38 @@ reaches the tab through a change feed, one listener per tab over the user's own 
 and the row or list refetches with the change's timestamp as its version, so the browser's
 cache answers a repeat and never a stale one.
 
+When a live row or list fetches again. A change the person made in this tab shows at once.
+The server's answer to a write names what the write changed among the rows and lists the
+person holds live (the `X-Changes` response header, which the client reads off every
+answer), and the session fetches those as the write is answered, before the caller of the
+write goes on, by the write's id as their version, without waiting for the feed. The feed
+reports the same write a moment later, carrying the same id, and that report fetches
+nothing; when the feed is the faster of the two, the wait its report started ends with the
+fetch the answer makes. A reload the page asks for itself after its own write carries the
+same version, so the browser answers it with what the session's fetch brought. A change
+somebody else made waits. The first one
+starts a wait of two seconds, every change that arrives in the wait joins it, and the row or
+list fetches once at its end, by the latest change's timestamp: ten changes inside one
+second are one fetch, two seconds after the first. While changes keep arriving the row or
+list fetches at most once every five seconds, counted between the fetches made for other
+people's changes, so a person's own write never waits on them. A tab that is not shown (the
+document's `visibilityState` is `hidden`) fetches nothing, whoever made the change: each row
+and list remembers that something changed and fetches once when the tab is shown again.
+Each watched row and list keeps its own wait. The two times are the library's defaults
+(`liveChangeWait`, `liveRefetchInterval`), and an application sets its own once, where it
+creates its client:
+
+```ts
+const api = createApi({ baseUrl: '/api', live: { changeWait: 1_000, refetchInterval: 10_000 } });
+```
+
 What it costs. One feed listener per tab. One renewal request every two minutes while any
-live row or list is held. One request per change to a watched row or list, the whole page
-again for a list change. One unsubscribe when the page leaves (a keepalive request) and one
-at logout. The server holds no connection and keeps scaling to zero.
+live row or list is held. For a watched row or list: one request for each write the tab
+made to it, one for a burst of other people's changes and at most one every five seconds
+while they keep coming, none while the tab is hidden and one when it is shown again if
+something changed; the whole page again for a list. One unsubscribe when the page leaves (a
+keepalive request) and one at logout. The server holds no connection and keeps scaling to
+zero.
 
 What it never does. It caches nothing without the version parameter, so a plain request is
 never served stale. It never serves one user another's cache: the seed is minted when the
@@ -255,11 +362,16 @@ refetches every watched row and list by a fresh seed, so a page mounted before t
 becomes live; `stop()` is the logout path (every subscription of the user deleted and the
 feed's identity revoked with `{ all: true }`, the feed stopped, a fresh seed), run before the
 session is logged out; `watch(subscription, refetch)` holds a row or list live and returns
-the release; `handle.subscription(key?)` is the subscription a handle's list or row makes.
+the release, and `refetch` runs when the session says the row or list is to be fetched
+again, as above; `handle.subscription(key?)` is the subscription a handle's list or row makes.
 A live request carries `X-Subscribe: <tab>` and `_v=<version>`; every request to a live route
-carries the header too, so each shows the tab on its request log line. The `ChangeFeed`
+carries the header too, so each shows the tab on its request log line. A write needs
+nothing: the client hands the session the `X-Changes` header of any answer that carries one
+(`parseChangesHeader`, `LiveSession.wrote`), whichever handle, method or `api.request` made
+the write. The `ChangeFeed`
 interface (`start`, `stop`, `onChange`, `onResync`) and `ChangeEvent` (`row`, `list`, or
-`resource`, with `at` as unix microseconds) are the seam the feed implements;
+`resource`, with `at` as unix microseconds and `write`, the id of the write that published
+it) are the seam the feed implements;
 [`@impulseframework/resource-firestore`](../resource-firestore/README.md) is the Firestore one, and
 this package depends on no SDK.
 
@@ -287,13 +399,19 @@ releaseRow();
 await api.live.stop(); // at logout, before the session is logged out
 ```
 
-Everything is refetched by a fresh seed on three occasions and no other: when the live
-session starts; when the feed's listener recovers after an error; and when the page becomes
+Everything is refetched by a fresh seed on four occasions and no other: when the live
+session starts; when the feed's listener recovers after an error; when the page becomes
 visible again after being hidden longer than the change document's ten-minute life, since a
-browser throttles or drops a background page's connection. A quiet stretch is not one of
+browser throttles or drops a background page's connection; and when the answer to a write
+the tab made says the write changed more of what the person holds live than its header
+names (`all`). In a hidden tab each of these waits for the tab to be shown, like any other
+fetch. A quiet stretch is not one of
 them: the listener keeps its connection and resumes after a drop, so nothing is missed while
-it runs. `LiveOptions` on `createApi` (`live: { renewInterval, page, fetch, xsrf }`) are the
-knobs a spec turns; every one has a default. The page-leave unsubscribe rides a keepalive
+it runs. `LiveOptions` on `createApi` (`live: { changeWait, refetchInterval, renewInterval,
+page, visibility, clock, fetch, xsrf }`) are the knobs: the two times are an application's
+to set, the rest are what a spec turns (`visibility` is where the session reads whether the
+tab is shown, the document by default, and `clock` the time and the timer its waits run on,
+so a spec moves the time itself); every one has a default. The page-leave unsubscribe rides a keepalive
 fetch, not the transport, so it echoes the XSRF token itself: `xsrf` names the cookie and the
 header (the server's defaults), or is a token source (`{ token() }`) when the application's
 HTTP layer knows the cookie, as the Angular adapter's is, so the cookie is named once.
@@ -372,9 +490,9 @@ const redirects = list.methods.filter((method) => method.kind === 'redirect');
 // the server's refusal, resolved rather than thrown so the page renders it in place.
 const result = await api.auth.signInWithPassword(password, { username, password: secret });
 switch (result.outcome) {
-  case 'session':  // the session is established; check it and move on
-  case 'pending':  // a step waits: read api.auth.pending(), or go to result.redirectUrl when the server named one
-  case 'refused':  // result.code (user_disabled, pending_expired, too_many_attempts, the application's own), result.message, and result.retryAfter when the server named a wait
+  case 'session': // the session is established; check it and move on
+  case 'pending': // a step waits: read api.auth.pending(), or go to result.redirectUrl when the server named one
+  case 'refused': // result.code (user_disabled, pending_expired, too_many_attempts, the application's own), result.message, and result.retryAfter when the server named a wait
 }
 
 // A redirect method is a navigation, with the page to return to.
@@ -446,6 +564,37 @@ password did not match, the new one is the old one). A login page that finds the
 session read renders the change form before it opens the application. A signed-in person
 changes their own password the same way, from their account page.
 
+A person who signs in through a directory can do without the password. Where the server
+serves its removal the methods list names the path as `removePassword`, and
+`removePassword(password)` posts the password there as proof, reading the list again first:
+`removed`, after which the password no longer signs the person in and the session they hold
+continues, or `refused` with the server's words (the password did not match, or no directory
+sign-in is linked to the person, whose password is then their only way in). A server whose
+list names no such path does not serve it, and the call throws saying so.
+
+A person who has only ever signed in through a directory holds no password, and the change
+asks for the old one, so they choose their first one another way. Where the server offers a
+password method the methods list names two paths as `firstPassword` (`sendCode` and `set`).
+`sendFirstPasswordCode()` posts to the first, reading the list again: the server mails a code
+to the address the account holds confirmed, in place of any it sent before, and the call
+answers `sent` with that address masked (`codeEmail`) and when the code stops being accepted
+(`codeExpiresAt`), or `refused` with the server's words (the account already has a password,
+it has no confirmed address for the code to go to, the mailbox was sent too many codes it did
+not use). `setFirstPassword(code, password)` posts the code and the password to the second:
+`set`, after which the password signs the person in and the session they hold continues, or
+`refused` with the server's words (the code is not the one sent, it expired, the password is
+too short, or too many wrong codes were entered, a 429 with the wait). The code ties the
+password to the mailbox the account holds confirmed: whoever asks must read it to finish. A
+server whose list names no such paths serves none, and both calls throw saying so.
+
+A page offers the removal only where it can happen. Where the methods list names
+`signInMeans`, `signInMeans()` reads what the signed-in person signs in with: `{ password,
+directories }`, whether they hold a password and the sign-in methods of the login page that
+a directory sign-in linked to them goes through, each by its registration `name` and the
+`label` its button carries. It answers `undefined` where the server names no such path or
+answers anything else, and a page then offers what the methods list offers. The server's
+refusals stand whatever a page hides.
+
 A browser the second factor remembered (the person ticked "Remember this browser" at the
 emailed code) is forgotten from the account page: the session read carries
 `browserRemembered: true` while the browser holds the person's remembered entry, the list
@@ -478,7 +627,8 @@ server offers a password method), `email` (`add`, `verify`) and `signUp` (`start
 the password method declares the username as the person's email address, so the form asks for
 the address and an account created from a link takes no username of its own. The `invitation`
 block also carries `standing` while the browser holds a live invitation: its `email`, `tenantId`,
-`tenantName`, `expiresAt`, `usernameIsEmail`, `methods`, `accountExists` and `hasPassword`, what opening the
+`tenantName`, `expiresAt`, `usernameIsEmail`, `methods`, `accountExists` and `hasPassword`, and, for
+an invitation that makes a tenant, `newTenant` and `directoryOnly`, what opening the
 link answered, so a login page the browser comes back to without the token (a redirect method
 refused the sign-in and returned with `?code=`) shows the invitation again; it is absent when
 the browser holds none. Each step below
@@ -494,7 +644,8 @@ the screen names the tenant by its name or not at all; `expiresAt`;
 `methods`, the registration names of the listed directory methods that could admit the
 address, absent when the server did not say; and `accountExists` and `hasPassword`, whether
 an account already holds the address and signs in with a password, absent when the server did
-not say), and the browser now carries it, so the sign-in that follows accepts it and the
+not say; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
+that tenant is entered through its directory only, both absent for any other invitation), and the browser now carries it, so the sign-in that follows accepts it and the
 server's hook seats the person: a password sign-in or sign-up by whoever holds the link, a
 directory sign-in, or a password sign-in by an account that holds an address, only as the
 invited address (another address is refused with `invitation_address`, the invitation still
@@ -505,7 +656,12 @@ same rule: an account that holds another address resolves `refused` with 403 and
 server's sentence, the invitation still standing. `signUpFromInvitation({ password, username? })` creates the invited person's account with
 a password, the address verified, and signs them in, answering as a sign-in step does. A link
 that has expired or was already used resolves `refused` with 404 and the server's words; a
-taken username or address 409.
+taken username or address 409. An invitation that makes a tenant names the tenant to be
+(`tenantName`) and has no `tenantId` yet. One whose tenant is entered through its directory
+only answers `signUp: false`, and the server refuses a password sign-in, a sign-up and an
+acceptance by hand for it with `organization_account_required`: it is accepted through an
+organization's directory alone. A directory sign-in of an organization that already has a
+tenant is refused with `organization_has_tenant`, which says nothing more of that tenant.
 
 A sign-up (`?signUp=<token>`), where the password method offers it: `startSignUp(email)` asks
 for the link, answering `sent` whatever the address's state (an address an account already
@@ -528,11 +684,15 @@ address a directory asserted at a sign-in, offered as a prefill and trusted for 
 An Auth whose management is generated (`GenerateIdentity`) is named in the descriptor's
 `identity` block: `auth`, `label`, `tenant` (the tenant record's name, where the application
 has one) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
-each with its `lists` (`users`, `roles`, `identities`, `invitations`, `sessions`,
-`signInAttempts`) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
+each with its `lists` (`users`, `roles`, `identities`, `signInWays`, `invitations`, `sessions`,
+`signInAttempts`, `invitedTenants`; `signInWays` is how one person signs in, the password and the identities
+that can sign them in as the server judges it, from which a page offers the removal of a
+password; `invitedTenants` is the invitations that make a tenant and still stand, on the whole
+application's side of the Auth whose people make the tenants) and its `methods` (`create`, `invite`, `withdrawInvitation`, `inviteTenant`,
+`withdrawInvitedTenant`, `assignRole`,
 `removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
 `requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
-`endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
+`removePassword`, `endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
 optional: the block names what the outlet serves and nothing else. The lists and the methods
 are ordinary entries of `resources` and `methods`; the block says which is which, so a page
 over an Auth's people is written once for every application (`IdentityDescriptor`,

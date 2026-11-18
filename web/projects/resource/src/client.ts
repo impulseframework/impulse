@@ -3,6 +3,7 @@ import {
   DeletePermission,
   Domain,
   ExecutePermission,
+  ListAcrossTenantsPermission,
   Method,
   Permission,
   PermissionScope,
@@ -17,7 +18,11 @@ import {
   LiveOptions,
   LiveSession,
   LiveSubscription,
+  WriteChanges,
+  acrossTenantsSubscription,
+  changesHeader,
   liveSubscription,
+  parseChangesHeader,
   subscribeHeader,
   versionParam,
   versionedUrl,
@@ -25,8 +30,18 @@ import {
 import { BatchResult, Operation, OperationRoute, operationRoute } from './operations';
 import { ClientResponse, PermissionStore, Requester, RequestOptions, ResponseRequester } from './permissions';
 import { Store } from './store';
-import { dryRunHeader } from './transport';
-import { LinkHeader, ListQuery, ReadOptions, TotalCountHeader, listSearchParams, parseLinkHeader, readSearchParams } from './query';
+import { dryRunHeader, warningHeader } from './transport';
+import {
+  LinkHeader,
+  ListQuery,
+  ListQueryBase,
+  PageQuery,
+  ReadOptions,
+  TotalCountHeader,
+  listSearchParams,
+  parseLinkHeader,
+  readSearchParams,
+} from './query';
 import { readMode, wholeListQuery } from './reading';
 import {
   ApiError,
@@ -59,7 +74,12 @@ export interface ClientOptions {
    * answered without it, naming the regeneration that would serve it. `console.warn` by default.
    */
   warn?: Warn;
-  /** The live session's knobs (renewal interval, page events, the keepalive fetch); every one has a default. */
+  /**
+   * The live session's knobs: how long a page waits on other people's changes and how
+   * often it fetches for them at most (`changeWait`, `refetchInterval`), the renewal
+   * interval, the page and visibility events, the keepalive fetch; every one has a
+   * default.
+   */
   live?: LiveOptions;
   /**
    * The release this build of the application was made from, sent as the version header
@@ -226,6 +246,70 @@ export interface Listable<Row, Key extends readonly unknown[] = readonly unknown
   page<Query extends ListQuery<Row, Key> | undefined = undefined>(query?: Query): Promise<Page<Returned<Row, Query>>>;
 }
 
+/** The reserved property a row of a list across tenants carries: the tenant the row is in. */
+export const TenantProperty = 'zzTenant';
+
+/** The query parameter that narrows a list across tenants: tenant keys, separated by commas. */
+export const DomainsQueryParam = 'domains';
+
+/** A row of a list across tenants: the row, and the tenant it is in. */
+export type InTenant<Row> = Row & { readonly [TenantProperty]: Domain };
+
+/**
+ * The query of a list across tenants: the list query, and `domains`, the tenants to read
+ * among those the list would read without it, down to one. A tenant the session does not
+ * reach contributes nothing and is never an error. The list answers no capability
+ * envelope: what a person may do with a row is asked on the row's page inside its
+ * tenant. The list is plain unless the query says `live: true`: then the request
+ * registers one subscription over the set of tenants the list reads, which the server
+ * works out again at each renewal, and a change to the resource's list in any of them
+ * refetches the page (`subscription`, beside `client.live.watch`). One subscription
+ * holds at most 10,000 tenants: a list that reads more is answered as a plain one, not
+ * cached and not live, and a subscription whose set grew past that is dropped at its
+ * renewal; the list reads as before either way.
+ */
+export type AcrossTenantsQuery<Row, Key extends readonly unknown[] = readonly unknown[]> = Omit<
+  ListQueryBase<Row>,
+  'capabilities'
+> &
+  (Key extends readonly [] ? unknown : PageQuery) & { domains?: readonly (Domain | string)[] };
+
+/**
+ * The handle of a tenant-scoped resource's list across tenants (`@listAcrossTenants`),
+ * on `client.acrossTenants`: one filter, one sort, one page and one count over the rows
+ * of every tenant the session reaches in which the person may list the resource, each
+ * row checked under the person's grants in its own tenant. Reads only: a row is read,
+ * written and asked for its capabilities through `client.domain(tenantOf(row))`.
+ */
+export interface AcrossTenantsHandle<Row, Key extends unknown[]> {
+  readonly resource: Resource;
+  readonly descriptor: ResourceDescriptor;
+  /** The absolute URL of the list. */
+  url(): string;
+  /** The row's primary key, in route order. */
+  keyOf(row: Row): Key;
+  /** The tenant a row of the list is in. */
+  tenantOf(row: InTenant<Row>): Domain;
+  /**
+   * Whether the list has anything to show the person: the global digest's answer that
+   * they may list the resource in at least one tenant the session reaches
+   * (`ListAcrossTenantsPermission`). It is what a page of the list is shown by. False
+   * until the global digest has loaded.
+   */
+  can(): boolean;
+  /**
+   * What a live request of this handle subscribes to: the list across tenants, narrowed
+   * to `domains` when the page names tenants. Pass it to `client.live.watch` beside the
+   * refetch the change should run. Undefined for a list narrowed to no tenant, which
+   * nothing can change.
+   */
+  subscription(domains?: readonly (Domain | string)[]): LiveSubscription | undefined;
+  /** One page of rows across the set of tenants, the resource's default page when the query names no limit. */
+  list(query?: AcrossTenantsQuery<Row, Key>): Promise<InTenant<Row>[]>;
+  /** One page with its neighbors: follow `next` and `prev` as the server names them. */
+  page(query?: AcrossTenantsQuery<Row, Key>): Promise<Page<InTenant<Row>>>;
+}
+
 export interface Readable<Row, Key extends unknown[]> {
   read<Options extends ReadOptions<Row> | undefined = undefined>(
     key: Key,
@@ -360,8 +444,31 @@ export interface MethodHandle<Body, Result = void> {
    * method that runs outside a transaction rejects with 400.
    */
   dryRun(body: Body): Promise<void>;
+  /**
+   * Asks a method that declares a warning (`@warning`) what the call would do, in the
+   * server's words for this body, and saves nothing: the server decodes the body and
+   * checks the caller exactly as the call itself is checked, so every refusal rejects
+   * with the same ApiError the call would raise. The body is the request as filled so
+   * far; a field the method requires must be in it. A method that declares no warning
+   * rejects with 400, and is not run.
+   */
+  warning(body: Body): Promise<MethodWarning>;
   can(): boolean;
   state(): PermissionDigestState | undefined;
+}
+
+/** What a method that declares a warning (`@warning`) says before it is run. */
+export interface MethodWarning {
+  /** What the call will do, in sentences a person reads before they confirm it. */
+  consequence: string;
+  /**
+   * The people or things the consequence speaks of, where the method names them and the
+   * caller may be told: a dialog lists them under the sentences. Absent where it names
+   * none.
+   */
+  names?: string[];
+  /** The words on the button that runs the call, which say what it does. */
+  confirm: string;
 }
 
 /**
@@ -448,7 +555,9 @@ export interface ClientBase {
   batch(operations: Operation[]): Promise<BatchResult>;
   /**
    * Asks the right digest: the descriptor decides whether the target is global or
-   * domain-scoped; a domain-scoped target with no domain answers false.
+   * domain-scoped; a domain-scoped target with no domain answers false. Whether a
+   * resource may be listed across tenants (`ListAcrossTenantsPermission`) is the global
+   * digest's to answer, whatever domain is named.
    */
   can(permission: Permission, target: Resource | Method, domain?: Domain): boolean;
   /**
@@ -466,20 +575,30 @@ export interface ClientBase {
 
 /**
  * The client for one generated API: global handles on the root, domain-scoped handles
- * under `domain(...)`. The generated `Api` type fills in G and D.
+ * under `domain(...)`, and under `acrossTenants` the lists across tenants of the
+ * resources declared for it (empty where the API declares none). The generated `Api`
+ * type fills in G, D and A.
  */
-export type Client<G, D> = ClientBase & G & { domain(domain: Domain | string): DomainClient<D> };
+export type Client<G, D, A = Record<never, never>> = ClientBase &
+  G & { domain(domain: Domain | string): DomainClient<D>; readonly acrossTenants: A };
 
-export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOptions): Client<G, D> {
+export function createClient<G, D, A = Record<never, never>>(
+  descriptor: ApiDescriptor,
+  options: ClientOptions,
+): Client<G, D, A> {
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const transport = options.transport ?? fetchTransport();
   const serverRelease = new Store<string | undefined>(undefined);
+  // The live session is built over the requester, and the requester hands it each
+  // write's answer: the session takes its place here below, before any request is made.
+  const session: { live?: LiveSession } = {};
   const requestResponse = createRequester(baseUrl, transport, {
     onError: options.onError,
     apiVersion: options.apiVersion,
     olderServerRetryDelays: options.olderServerRetryDelays,
     timeZone: options.timeZone,
     serverRelease,
+    wrote: (changes) => session.live?.wrote(changes),
   });
   const request: Requester = async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
     (await requestResponse<T>(method, path, requestOptions)).body;
@@ -489,6 +608,7 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
   });
   const warn = warnOnce(options.warn);
   const live = new LiveSession({ ...options.live, request, baseUrl, routes: descriptor.live, warn });
+  session.live = live;
   const features = new FeatureState({
     request,
     route: descriptor.features?.route,
@@ -513,6 +633,9 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
     requestResponse,
     batch: (operations) => batch(request, descriptor, operations),
     can: (permission, target, domain) => {
+      if (permission === ListAcrossTenantsPermission) {
+        return permissions.can({ resource: target, permission });
+      }
       const scope =
         descriptor.resources[target]?.scope ?? descriptor.methods[target]?.scope ?? (domain ? 'domain' : 'global');
       if (scope === 'domain' && !domain) {
@@ -535,6 +658,12 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
   };
 
   const domains = new Map<string, DomainClient<D>>();
+  const acrossTenants: Record<string, unknown> = {};
+  for (const resource of Object.values(descriptor.resources)) {
+    if (resource.acrossTenants && resource.scope === 'domain') {
+      acrossTenants[resource.property] = createAcrossTenantsHandle(base, resource);
+    }
+  }
   const client = Object.assign(base, {
     domain: (domain: Domain | string): DomainClient<D> => {
       let bound = domains.get(domain);
@@ -544,7 +673,8 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
       }
       return bound;
     },
-  }) as Client<G, D>;
+    acrossTenants: acrossTenants as A,
+  }) as Client<G, D, A>;
 
   attachHandles(client, base, 'global', undefined);
   return client;
@@ -619,6 +749,8 @@ interface RequesterOptions {
   timeZone?: string;
   /** Where the release each answer names is kept, when the caller keeps it. */
   serverRelease?: Store<string | undefined>;
+  /** Who takes what a write's answer says it changed (the changes header): the live session. */
+  wrote?: (changes: WriteChanges) => void;
 }
 
 /**
@@ -630,7 +762,9 @@ interface RequesterOptions {
  * new instance); when the retries run out, or when this build is the older one, the
  * refusal is thrown as ApiVersionError, observed by the hook first. Every answer that names
  * the server's release in the version header, refusals included, is kept in `serverRelease`
- * before it is judged. A 503 that carries the
+ * before it is judged, and every answer that carries the changes header, a write's, is
+ * handed to `wrote` before the caller is answered, so the live pages the write changed
+ * fetch at once. A 503 that carries the
  * maintenance marker is the server down for maintenance and is judged the same way, before
  * the caller's declared answers, and thrown as MaintenanceError with the server's
  * Retry-After; a 503 without the marker is an ordinary error. Every other 4xx or 5xx the
@@ -651,6 +785,10 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       const named = response.headers?.[apiVersionHeader.toLowerCase()];
       if (named !== undefined && named !== '') {
         requester.serverRelease?.set(named);
+      }
+      const changes = parseChangesHeader(response.headers?.[changesHeader.toLowerCase()]);
+      if (changes) {
+        requester.wrote?.(changes);
       }
       const serverVersion = versionRefusal(response);
       if (serverVersion !== undefined) {
@@ -800,7 +938,9 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     const key: unknown[] = [];
     for (const field of descriptor.keys) {
       if (body[field] === undefined) {
-        throw new Error(`${descriptor.resource}: ${op} names its row, so the value must supply every key field (${descriptor.keys.join(', ')})`);
+        throw new Error(
+          `${descriptor.resource}: ${op} names its row, so the value must supply every key field (${descriptor.keys.join(', ')})`,
+        );
       }
       key.push(body[field]);
       delete body[field];
@@ -843,7 +983,9 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     url: (key?: Key) => `${client.baseUrl}/${route}${keySegments(key)}`,
     fileUrl: (key: Key, segment = 'content') => {
       if (!descriptor.files?.includes(segment)) {
-        throw new Error(`${descriptor.resource} serves no file under ${segment}: its files are [${descriptor.files?.join(', ') ?? ''}]`);
+        throw new Error(
+          `${descriptor.resource} serves no file under ${segment}: its files are [${descriptor.files?.join(', ') ?? ''}]`,
+        );
       }
       return `${client.baseUrl}/${route}${keySegments(key)}/${segment}`;
     },
@@ -931,6 +1073,83 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     ops,
   };
   return handle;
+}
+
+/**
+ * The handle of a resource's list across tenants, by the resource's name: what a page
+ * that learns its resources at run time calls the list through, where code that knows
+ * the resource at build time reads the typed handle off `client.acrossTenants`. A
+ * resource the API does not describe, or one not declared for the list
+ * (`@listAcrossTenants`), is refused naming it.
+ */
+export function acrossTenantsHandle<Row extends object = Record<string, unknown>, Key extends unknown[] = string[]>(
+  client: ClientBase,
+  resource: Resource | string,
+): AcrossTenantsHandle<Row, Key> {
+  const descriptor = client.descriptor.resources[resource];
+  if (!descriptor) {
+    throw new Error(`this API declares no ${resource} resource; it cannot be listed across tenants from here`);
+  }
+  if (!descriptor.acrossTenants) {
+    throw new Error(
+      `${resource} is not listed across tenants: declare @listAcrossTenants on its struct and regenerate, or list it inside one tenant with client.domain(...)`,
+    );
+  }
+  return createAcrossTenantsHandle<Row, Key>(client, descriptor);
+}
+
+function createAcrossTenantsHandle<Row extends object, Key extends unknown[]>(
+  client: ClientBase,
+  descriptor: ResourceDescriptor,
+): AcrossTenantsHandle<Row, Key> {
+  // The list is served at the resource's own route, without the tenant's segment pair.
+  const route = descriptor.route;
+  const keyless = descriptor.keys.length === 0;
+  const subscription = (domains?: readonly (Domain | string)[]): LiveSubscription | undefined =>
+    domains !== undefined && domains.length === 0 ? undefined : acrossTenantsSubscription(descriptor, domains);
+  const request = (query: AcrossTenantsQuery<Row> | undefined) => {
+    const { domains, live, ...rest } = query ?? {};
+    // Plain unless the page asks: the subscription is one over the set of tenants.
+    const wanted = live ? subscription(domains) : undefined;
+    if (keyless) {
+      delete (rest as PageQuery).limit;
+      delete (rest as PageQuery).cursor;
+    }
+    const { method, params, body } = listRequest(rest as ListQuery<Row>);
+    if (domains !== undefined) {
+      params.set(DomainsQueryParam, domains.join(','));
+    }
+    return { method, params, body, wanted };
+  };
+  return {
+    resource: descriptor.resource,
+    descriptor,
+    url: () => `${client.baseUrl}/${route}`,
+    keyOf: (row: Row) => descriptor.keys.map((field) => (row as Record<string, unknown>)[field]) as Key,
+    tenantOf: (row: InTenant<Row>) => row[TenantProperty],
+    can: () => client.can(ListAcrossTenantsPermission, descriptor.resource),
+    subscription,
+    list: async (query?: AcrossTenantsQuery<Row>) => {
+      const { method, params, body, wanted } = request(query);
+      return (
+        (await client.request<InTenant<Row>[] | null>(method, route, {
+          ...liveRequest(client.live, wanted, params),
+          body,
+        })) ?? []
+      );
+    },
+    page: (query?: AcrossTenantsQuery<Row>) => {
+      const { method, params, body, wanted } = request(query);
+      // The live parts are read when each request is made, as a tenant's list reads them.
+      return pageOf<InTenant<Row>>(
+        client,
+        method,
+        body,
+        () => client.requestResponse(method, route, { ...liveRequest(client.live, wanted, params), body }),
+        wanted,
+      );
+    },
+  };
 }
 
 /**
@@ -1077,6 +1296,20 @@ function createMethodHandle<Body, Result = void>(
     execute: (body) => post(body),
     dryRun: async (body) => {
       await client.request<unknown>('POST', route, { body, headers: { [dryRunHeader]: 'true' } });
+    },
+    warning: async (body) => {
+      const said = await client.request<MethodWarning | null | undefined>('POST', route, {
+        body,
+        headers: { [warningHeader]: 'true' },
+      });
+      if (!said || typeof said.consequence !== 'string' || typeof said.confirm !== 'string') {
+        // A server that predates warnings would have run the call: it refuses the header
+        // instead (400), so an answer that is no warning is a generation mismatch.
+        throw new Error(
+          `${descriptor.method} answered no warning: its metadata declares one and the server wrote none; regenerate both`,
+        );
+      }
+      return said;
     },
     can: () => client.permissions.can(scope),
     state: () => client.permissions.state(scope),

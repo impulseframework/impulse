@@ -163,7 +163,7 @@ func (q *QuerySet[Resource]) judgeRowsBy(ctx context.Context, plan *rowCondition
 			return errors.Newf("%s: a grant's condition reads subject.%s, a fact about the caller held in a table, and the decoder has no client to read it through; wire the resource client (WithSubjectFacts)", base, slices.Concat(sets, values)[0])
 		}
 		var err error
-		plan.subjectSets, plan.subjectValues, err = readSubjectFacts(ctx, facts, q.collection, q.scope, userPermissions.User(), sets, values)
+		plan.subjectSets, plan.subjectValues, err = readSubjectFacts(ctx, facts, q.collection, q.scope, q.env, userPermissions.User(), sets, values)
 		if err != nil {
 			return errors.Wrapf(err, "%s", base)
 		}

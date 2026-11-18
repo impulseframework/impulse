@@ -128,6 +128,7 @@ func (r *resourceGenerator) authzMatrixCases() ([]authzCase, error) {
 	cases = append(cases, r.rpcAuthzCases()...)
 	cases = append(cases, r.featureAuthzCases()...)
 	cases = append(cases, r.tenantCreationAuthzCases()...)
+	cases = append(cases, r.directoryOnlyAuthzCases()...)
 
 	if r.concealedDomains {
 		// Concealed domains answer a caller with no grants as if the domain
@@ -195,8 +196,9 @@ func computedMatrixListQuery(res *computedResource) string {
 // (matrixListQuery), "" for none.
 func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery string) (c authzCase, ok bool, err error) {
 	var permission string
+	lists := route.HandlerType == ListHandler || route.HandlerType == acrossTenantsHandler
 	switch route.HandlerType {
-	case ListHandler:
+	case ListHandler, acrossTenantsHandler:
 		permission = string(accesstypes.List)
 	case ReadHandler, fileHandler:
 		// A @file route is a read: Read on the resource opens it (the segment field
@@ -225,15 +227,16 @@ func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery stri
 			url = strings.Replace(url, "{"+p.Key+"}", value, 1)
 		}
 	}
-	if route.HandlerType == ListHandler && listQuery != "" {
+	if lists && listQuery != "" {
 		url += "?" + listQuery
 	}
 
 	return authzCase{
-		Name:       route.HandlerFunc,
-		Method:     httpMethodConst(route.Method),
-		URL:        url,
-		Permission: permission,
+		Name:          route.HandlerFunc,
+		Method:        httpMethodConst(route.Method),
+		URL:           url,
+		Permission:    permission,
+		AcrossTenants: route.HandlerType == acrossTenantsHandler,
 	}, true, nil
 }
 
@@ -286,6 +289,14 @@ func (r *resourceGenerator) resourceAuthzCases() (cases []authzCase, err error) 
 			}
 			for _, route := range files {
 				c, _, err := queryRouteCase(route, pkTypes, "")
+				if err != nil {
+					return nil, err
+				}
+				c.Name = authzCaseName(c.Name, outlet)
+				cases = append(cases, c)
+			}
+			for _, route := range r.resourceAcrossTenantsRoutes(res, outlet.prefix) {
+				c, _, err := queryRouteCase(route, pkTypes, resourceMatrixListQuery(res))
 				if err != nil {
 					return nil, err
 				}
@@ -425,6 +436,18 @@ func (r *resourceGenerator) rpcAuthzCases() (cases []authzCase) {
 					DeniedOnly: true,
 				})
 			}
+			// A method's warning is refused exactly as the call is: a caller who may
+			// not run the method reads nothing of what it would do.
+			if rpcStruct.Warning != nil {
+				cases = append(cases, authzCase{
+					Name:       authzCaseName(route.HandlerFunc, outlet) + " warning",
+					Method:     httpMethodConst(route.Method),
+					URL:        route.TestURL,
+					Body:       body,
+					Headers:    append(slices.Clone(headers), authzHeader{Name: resource.WarningHeader, Value: jsonTrueLiteral}),
+					DeniedOnly: true,
+				})
+			}
 		}
 	}
 
@@ -471,9 +494,10 @@ func patchOpCases(name, url, opPathPrefix string, res *resourceInfo, pkTypes []p
 	method := httpMethodConst(http.MethodPatch)
 
 	var cases []authzCase
-	// A resource whose NOT NULL @file key disables Create refuses a create op before
-	// any permission check, so the matrix has no denied case to pin for it.
-	if !res.CreateDisabled() {
+	// A resource that refuses a create op (a NOT NULL @file key; the tenant record,
+	// made by an invitation) refuses it before any permission check, so the matrix has
+	// no denied case to pin for it.
+	if !res.RefusesCreate() {
 		cases = append(cases, authzCase{
 			Name:       name + " create",
 			Method:     method,
@@ -533,7 +557,8 @@ func updateProbeField(res *resourceInfo) (name, value string, patchable bool, er
 			continue
 		}
 		patchable = true
-		value, ok := authzJSONValue(pkParamType{declared: f.Type(), underlying: f.UnderlyingType()})
+		// A stored secret is given as text, whatever its field stores.
+		value, ok := authzJSONValue(pkParamType{declared: f.RequestType(), underlying: f.RequestUnderlyingType()})
 		if !ok {
 			continue
 		}

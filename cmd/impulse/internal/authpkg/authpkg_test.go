@@ -1,9 +1,11 @@
 package authpkg
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"maps"
 	"os"
 	"path/filepath"
@@ -26,19 +28,19 @@ func smokeSpecs() []*Spec {
 			{Kind: app.MethodPassword},
 			{Kind: app.MethodAzure, Name: "entra-one", Authority: app.AuthorityDirectory},
 			{Kind: app.MethodAzure, Name: "entra-listed", Slot: SlotListed, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-any-open", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-personal", Slot: SlotPersonal, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-one-personal", Slot: SlotOnePersonal, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-any-personal", Slot: SlotAnyPersonal, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-any-open", Slot: SlotAny, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-personal", Slot: SlotPersonal, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-one-personal", Slot: SlotOnePersonal, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-any-personal", Slot: SlotAnyPersonal, Authority: app.AuthorityApplication},
 			{Kind: app.MethodGoogle, Name: "google-one", Authority: app.AuthorityDirectory},
-			{Kind: app.MethodGoogle, Name: "google-listed", Slot: SlotListed, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodGoogle, Name: "google-anyws", Slot: SlotAnyWorkspace, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
-			{Kind: app.MethodGoogle, Name: "google-any", Slot: SlotAny, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodGoogle, Name: "google-mixed", Slot: SlotMixed, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-listed", Slot: SlotListed, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-anyws", Slot: SlotAnyWorkspace, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-any", Slot: SlotAny, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-mixed", Slot: SlotMixed, Authority: app.AuthorityApplication},
 		}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "tenants", Doc: "the people of the tenants", Methods: []Method{
 			{Kind: app.MethodPassword},
-			{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
 		}, TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "closed", Methods: []Method{
 			{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
@@ -49,7 +51,7 @@ func smokeSpecs() []*Spec {
 		}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "partners", Doc: "the people of a partner organization, who sign in through its identity provider beside the invited", Methods: []Method{
 			{Kind: app.MethodPassword},
-			{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication},
+			{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication},
 			{Kind: app.MethodOIDC, Name: "keycloak", Authority: app.AuthorityApplication},
 			{Kind: app.MethodPersona},
 		}},
@@ -199,7 +201,7 @@ func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
 			{Kind: app.MethodPersona},
 		}}},
 		{name: "no password first administrator", want: false, spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "reviewers", Methods: []Method{
-			{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication},
+			{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication},
 			{Kind: app.MethodPersona},
 		}}},
 	}
@@ -221,6 +223,432 @@ func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
 	}
 }
 
+// TestFiles_footholdRegistration holds the first administrator of an auth whose people
+// sign in through a directory to the registration their name is believed from. Such an
+// administrator is seeded with no password and holds roles for the whole application,
+// so where the application's tenants have directories nothing but the deployment's own
+// word links the account at its person's first sign-in: the seed creates it under the
+// id that names the registration (session.SeedUserIDThrough). Naming a registration
+// says that whoever its directory presents under the name is the administrator, so the
+// generator names one only where it cannot be wrong: the auth's one directory method
+// whose roles the application gives, of one Microsoft Entra tenant or one Google
+// Workspace. A method open to more than one organization is never it, since any of
+// them could present the name; an organization's identity provider is not, since the
+// library can hold its names to nothing; with several directory methods nothing says
+// which is the deployment's own, and their order says nothing; and the persona method
+// is no foothold's. An auth with no such method seeds the account for no registration
+// and says what follows and what its author may do; a password foothold, which signs
+// in with its password, is seeded as it always was.
+func TestFiles_footholdRegistration(t *testing.T) {
+	t.Parallel()
+
+	const (
+		forNone      = "id := session.SeedUserID(Name, req.Username)"
+		refusedSaid  = "its first sign-in is refused as a\n// stranger's is"
+		byHandSaid   = "derive the id with session.SeedUserIDThrough(Name, the\n// registration's constant, req.Username)"
+		believedFrom = "its id says which of the auth's\n// registrations the name is believed from"
+	)
+	application := func(kind, name, slot string) Method {
+		return Method{Kind: kind, Name: name, Slot: slot, Authority: app.AuthorityApplication}
+	}
+	tests := []struct {
+		name    string
+		methods []Method
+		// wantRegistration is the constant the seed names, "" where it names none, and
+		// wantFoothold the foothold's form.
+		wantRegistration string
+		wantFoothold     string
+	}{
+		{name: "one Microsoft Entra tenant", methods: []Method{application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership},
+		{name: "a slot left empty is one organization", methods: []Method{application(app.MethodAzure, "directory", "")}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership},
+		{name: "one Google Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotOne)}, wantRegistration: "GoogleRegistration", wantFoothold: FootholdMembership},
+		{
+			name:    "the persona method beside the one directory method does not make two",
+			methods: []Method{application(app.MethodPersona, "", ""), application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership,
+		},
+		{
+			name:    "a method whose directory writes the roles is not the application's to seed for, and does not make two",
+			methods: []Method{{Kind: app.MethodAzure, Name: "staff", Slot: SlotOne, Authority: app.AuthorityDirectory}, application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership,
+		},
+		{name: "an organization's identity provider: the library holds its names to nothing", methods: []Method{application(app.MethodOIDC, "okta", "")}, wantFoothold: FootholdMembership},
+		{name: "any tenant could present the name", methods: []Method{application(app.MethodAzure, "directory", SlotAny)}, wantFoothold: FootholdMembership},
+		{name: "listed tenants could each present the name", methods: []Method{application(app.MethodAzure, "directory", SlotListed)}, wantFoothold: FootholdMembership},
+		{name: "one tenant and personal accounts", methods: []Method{application(app.MethodAzure, "directory", SlotOnePersonal)}, wantFoothold: FootholdMembership},
+		{name: "any Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotAnyWorkspace)}, wantFoothold: FootholdMembership},
+		{name: "one Workspace and any Google account", methods: []Method{application(app.MethodGoogle, "google", SlotMixed)}, wantFoothold: FootholdMembership},
+		{
+			name:    "two directory methods of one organization each: nothing says which is the deployment's own",
+			methods: []Method{application(app.MethodAzure, "partners", SlotOne), application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdMembership,
+		},
+		{
+			name:    "a provider declared before the one tenant is not taken for the deployment's own, and neither is the tenant",
+			methods: []Method{application(app.MethodOIDC, "okta", ""), application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdMembership,
+		},
+		{
+			name:    "a wide method beside the one tenant leaves two",
+			methods: []Method{application(app.MethodAzure, "directory", SlotOne), application(app.MethodGoogle, "google", SlotAny)}, wantFoothold: FootholdMembership,
+		},
+		{name: "the persona method alone is no foothold's", methods: []Method{application(app.MethodPersona, "", "")}, wantFoothold: FootholdMembership},
+		{name: "a password foothold signs in with its password", methods: []Method{{Kind: app.MethodPassword}, application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdPassword},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: tt.methods}
+			files, err := Files(spec)
+			if err != nil {
+				t.Fatalf("Files() error = %v", err)
+			}
+			if got := Foothold(spec); got != tt.wantFoothold {
+				t.Fatalf("Foothold() = %q, want %q", got, tt.wantFoothold)
+			}
+			var registration string
+			if m := FootholdMethod(spec); m != nil {
+				registration = m.Registration()
+			}
+			if registration != tt.wantRegistration {
+				t.Errorf("FootholdMethod() names %q, want %q", registration, tt.wantRegistration)
+			}
+			foothold := string(files[footholdFile])
+			forRegistration := "id := session.SeedUserIDThrough(Name, " + tt.wantRegistration + ", req.Username)"
+			switch {
+			case tt.wantRegistration != "":
+				if !strings.Contains(foothold, forRegistration) || strings.Contains(foothold, forNone) || !strings.Contains(foothold, believedFrom) || strings.Contains(foothold, refusedSaid) {
+					t.Errorf("%s does not seed the first administrator for %s alone and say so:\n%s", footholdFile, tt.wantRegistration, foothold)
+				}
+			case tt.wantFoothold == FootholdMembership:
+				// No registration the generator may name: the account is seeded for none,
+				// and the file says its first sign-in links nothing where tenants have
+				// directories, and how its author names the deployment's own directory.
+				if !strings.Contains(foothold, forNone) || strings.Contains(foothold, "id := session.SeedUserIDThrough") || !strings.Contains(foothold, refusedSaid) || !strings.Contains(foothold, byHandSaid) {
+					t.Errorf("%s does not seed the first administrator for no registration and say what follows and what its author may do:\n%s", footholdFile, foothold)
+				}
+			default:
+				if !strings.Contains(foothold, forNone) || strings.Contains(foothold, "SeedUserIDThrough") || strings.Contains(foothold, refusedSaid) {
+					t.Errorf("%s does not seed the password administrator as it was:\n%s", footholdFile, foothold)
+				}
+			}
+		})
+	}
+}
+
+// TestFiles_superAdministrator holds what every auth package writes for the role the
+// framework defines in every auth: the Auth is built told who its super administrators
+// are, so their sign-in carries a second factor whatever the sign-in rule asks; the engine is
+// built with the methods that give and take the auth's roles where the application
+// generates them; the first administrator is seeded holding the role; and a persona the
+// cast names a super administrator is seated in the global partition. An auth whose
+// roles the directory writes says the directory decides who is a super administrator,
+// and promises no second factor of the library's own.
+func TestFiles_superAdministrator(t *testing.T) {
+	t.Parallel()
+	const (
+		told    = "\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n"
+		methods = "access.WithSuperAdministratorMethods(%sidentity.SuperAdministratorMethods()...),"
+		seeded  = "global = append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)"
+		seated  = "case role == accesstypes.SuperAdministrator, definesRole(roles.Roles.Global, role):"
+		tenants = "identity.WithAdministratorRoles(tenantAdministrators)"
+		// What the package says of the holder's sign-in: the library's factor where
+		// the application gives the roles, the directory's word where it writes them.
+		factor    = "signs in with a second factor whatever"
+		directory = "the directory decides who is a super administrator"
+	)
+	tests := []struct {
+		name string
+		spec *Spec
+		// wantMethods says the engine is handed the generated management's methods,
+		// wantSeeded that a first administrator is seeded, and wantSeated that the
+		// package holds a cast.
+		wantMethods, wantSeeded, wantSeated bool
+	}{
+		{
+			name: "a password auth with its generated management", wantMethods: true, wantSeeded: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+		{
+			name: "a password auth with no generated management", wantSeeded: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+		{
+			name: "a directory auth whose roles the application gives", wantMethods: true, wantSeeded: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
+			}},
+		},
+		{
+			name: "a directory auth whose roles the directory gives seeds nobody", wantMethods: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+			}},
+		},
+		{
+			name: "an auth with a cast", wantMethods: true, wantSeeded: true, wantSeated: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "crew", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodPassword},
+				{Kind: app.MethodPersona},
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			auth := string(files[tt.spec.Name+".go"])
+			if !strings.Contains(auth, told) {
+				t.Errorf("%s.go does not tell the Auth who its super administrators are: it lacks %q", tt.spec.Name, told)
+			}
+			synced := !tt.wantSeeded
+			if got := strings.Count(auth, factor); (got == 0) != synced {
+				t.Errorf("%s.go promises the library's second factor for a holder %d times, want none = %v", tt.spec.Name, got, synced)
+			}
+			if got := strings.Contains(auth, directory); got != synced {
+				t.Errorf("%s.go says the directory decides who is a super administrator = %v, want %v", tt.spec.Name, got, synced)
+			}
+			if got := strings.Contains(auth, fmt.Sprintf(methods, tt.spec.Name)); got != tt.wantMethods {
+				t.Errorf("%s.go hands the engine the methods that give and take the auth's roles = %v, want %v", tt.spec.Name, got, tt.wantMethods)
+			}
+			if got := strings.Contains(auth, tenants); got != (tt.wantMethods && tt.wantSeeded) {
+				t.Errorf("%s.go names the tenant's administrator roles alone to the identity client = %v, want %v", tt.spec.Name, got, tt.wantMethods && tt.wantSeeded)
+			}
+			foothold, ok := files[footholdFile]
+			if ok != tt.wantSeeded {
+				t.Fatalf("Files(%s) wrote a %s = %v, want %v", tt.spec.Name, footholdFile, ok, tt.wantSeeded)
+			}
+			if ok && !strings.Contains(string(foothold), seeded) {
+				t.Errorf("%s does not seed the first administrator with the Super Administrator role: it lacks %q", footholdFile, seeded)
+			}
+			cast, ok := files[CastGoFile]
+			if ok != tt.wantSeated {
+				t.Fatalf("Files(%s) wrote a %s = %v, want %v", tt.spec.Name, CastGoFile, ok, tt.wantSeated)
+			}
+			if ok && !strings.Contains(string(cast), seated) {
+				t.Errorf("%s does not seat a super administrator persona in the global partition: it lacks %q", CastGoFile, seated)
+			}
+		})
+	}
+}
+
+// TestFiles_firstAdministratorChangesThePassword holds the user the seed of an auth's
+// first administrator creates. The password of an auth with a password method is the
+// one the deployment generated, so the seed creates the user marked to change it
+// (session.CreateUserRequest.PasswordChangeRequired): the session library serves the
+// person nothing but the change until they have chosen a password of their own, and the
+// generated one signs nobody in after that. The first administrator of an auth whose
+// people a directory signs in is created under a sign-in name with no password, which
+// has none to change: the session library refuses the mark on such a user, and the seed
+// sets none.
+func TestFiles_firstAdministratorChangesThePassword(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		spec *Spec
+		// want is the request the rendered SeedAdministrator creates the user with: each
+		// field it sets, as the file writes it.
+		want map[string]string
+	}{
+		{
+			name: "a password auth: the generated password is marked for change",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
+			want: map[string]string{"Username": "Administrator", "Password": "&password", "PasswordChangeRequired": "true"},
+		},
+		{
+			name: "a password auth with a directory beside it: the generated password is marked for change",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "tenants", Methods: []Method{
+				{Kind: app.MethodPassword},
+				{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
+			}},
+			want: map[string]string{"Username": "Administrator", "Password": "&password", "PasswordChangeRequired": "true"},
+		},
+		{
+			name: "a directory auth whose roles the application gives: no password and no mark",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: []Method{
+				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
+			}},
+			want: map[string]string{"Username": "signInName"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			foothold, ok := files[footholdFile]
+			if !ok {
+				t.Fatalf("Files(%s) wrote no %s", tt.spec.Name, footholdFile)
+			}
+			if got := seedRequest(t, foothold); !maps.Equal(got, tt.want) {
+				t.Errorf("%s: SeedAdministrator creates the user with %v, want %v", footholdFile, got, tt.want)
+			}
+		})
+	}
+}
+
+// seedRequest reads the session.CreateUserRequest the SeedAdministrator of a rendered
+// foothold file creates the first administrator with: each field the literal sets, by
+// name, as the file writes its value. The file must hold exactly one such literal in
+// that function.
+func seedRequest(t *testing.T, foothold []byte) map[string]string {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), footholdFile, foothold, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parser.ParseFile(%s) error = %v", footholdFile, err)
+	}
+	var requests []map[string]string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "SeedAdministrator" {
+			continue
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok || types.ExprString(lit.Type) != "session.CreateUserRequest" {
+				return true
+			}
+			fields := map[string]string{}
+			for _, elt := range lit.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					t.Fatalf("%s: SeedAdministrator's session.CreateUserRequest sets a field without naming it: %s", footholdFile, types.ExprString(elt))
+				}
+				fields[types.ExprString(kv.Key)] = types.ExprString(kv.Value)
+			}
+			requests = append(requests, fields)
+
+			return true
+		})
+	}
+	if len(requests) != 1 {
+		t.Fatalf("%s: SeedAdministrator holds %d session.CreateUserRequest literals, want one", footholdFile, len(requests))
+	}
+
+	return requests[0]
+}
+
+// TestFiles_signedInHook holds what an auth package sets for the roles given for a
+// period: the generated identity client's hook for a sign-in that stands, which removes
+// a person's ended roles, over the application's database. An auth whose roles the
+// application gives sets it where it has a generated management; one whose directory
+// writes the roles gives none for a period and sets none, and neither does one with no
+// generated management, which has no client to answer it.
+func TestFiles_signedInHook(t *testing.T) {
+	t.Parallel()
+	const hook = "authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))"
+	tests := []struct {
+		name string
+		spec *Spec
+		want bool
+	}{
+		{
+			name: "a password auth with its generated management", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+		{
+			name: "a directory auth whose roles the application gives", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
+			}},
+		},
+		{
+			name: "a directory auth whose roles the directory gives",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+			}},
+		},
+		{
+			name: "a password auth with no generated management",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			if got := strings.Contains(string(files[tt.spec.Name+".go"]), hook); got != tt.want {
+				t.Errorf("%s.go sets the hook that clears a person's ended roles at their sign-in = %v, want %v", tt.spec.Name, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFiles_tenantMaker pins which auth is handed what makes a tenant. Nobody creates a
+// tenant directly: staff invite one person, and that person's first sign-in makes the
+// tenant through the generated maker, which the generated identity client of one auth is
+// constructed over. That auth is the one whose people may hold no tenant yet (its
+// outlets serve the tenant record), where the application assigns the roles and
+// generates the auth's management. Its Settings carry the maker, New refuses a nil one
+// with a sentence, and the client is built over it; every other auth carries none of it,
+// since its generated client takes no maker.
+func TestFiles_tenantMaker(t *testing.T) {
+	t.Parallel()
+	carries := []string{
+		"\tTenantMaker identity.TenantMaker\n",
+		"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n",
+		"staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))",
+	}
+	policy := func(admitWithoutTenant bool) *TenantPolicy {
+		return &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: admitWithoutTenant}
+	}
+	tests := []struct {
+		name string
+		spec *Spec
+		want bool
+	}{
+		{
+			name: "the auth whose people may hold no tenant yet, with its generated management", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}, TenantPolicy: policy(true)},
+		},
+		{
+			name: "an auth whose people always hold a tenant: another auth's outlets serve the record",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}, TenantPolicy: policy(false)},
+		},
+		{
+			name: "an auth with no generated management",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}, TenantPolicy: policy(true)},
+		},
+		{
+			name: "an auth whose roles a directory gives",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+			}, TenantPolicy: policy(true)},
+		},
+		{
+			name: "an auth of an application without tenants",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.spec.MakesTenants(); got != tt.want {
+				t.Errorf("MakesTenants() = %v, want %v", got, tt.want)
+			}
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			rendered := string(files[tt.spec.Name+".go"])
+			for _, text := range carries {
+				if got := strings.Contains(rendered, text); got != tt.want {
+					t.Errorf("%s.go holds %q = %v, want %v", tt.spec.Name, text, got, tt.want)
+				}
+			}
+			if !tt.want && strings.Contains(rendered, "TenantMaker") {
+				t.Errorf("%s.go names TenantMaker for an auth a tenant is not made through", tt.spec.Name)
+			}
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -229,30 +657,24 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "password takes no slot", method: Method{Kind: app.MethodPassword, Slot: SlotAny}, wantErr: "takes no slot"},
-		{name: "password takes open sign-up", method: Method{Kind: app.MethodPassword, Accounts: AccountsOpen, UsernameIsEmail: true}},
-		{name: "password takes no invited rule", method: Method{Kind: app.MethodPassword, Accounts: AccountsInvited}, wantErr: "the password method takes open"},
 		{name: "username-is-email on a directory method", method: Method{Kind: app.MethodGoogle, Name: "x", Authority: app.AuthorityApplication, UsernameIsEmail: true}, wantErr: "username-is-email describes the password method"},
-		{name: "open sign-up needs an open slot", method: Method{Kind: app.MethodAzure, Name: "x", Accounts: AccountsOpen, Authority: app.AuthorityApplication}, wantErr: "open sign-up is for any organization"},
-		{name: "members with any tenant", method: Method{Kind: app.MethodAzure, Name: "x", Slot: SlotAny, Authority: app.AuthorityApplication}, wantErr: "sign up the world"},
 		{name: "role sync beyond one tenant", method: Method{Kind: app.MethodAzure, Name: "x", Slot: SlotListed, Authority: app.AuthorityDirectory}, wantErr: "role synchronization follows one tenant"},
 		{name: "google slot on azure", method: Method{Kind: app.MethodAzure, Name: "x", Slot: SlotMixed, Authority: app.AuthorityApplication}, wantErr: "a azure method takes"},
 		{name: "authority required", method: Method{Kind: app.MethodGoogle, Name: "x"}, wantErr: "authority"},
 		{name: "bad registration name", method: Method{Kind: app.MethodGoogle, Name: "Dir", Authority: app.AuthorityApplication}, wantErr: "registration"},
 		{name: "persona takes no slot", method: Method{Kind: app.MethodPersona, Name: "persona", Slot: SlotAny}, wantErr: "the persona method takes no slot"},
 		{name: "persona under the directory authority", method: Method{Kind: app.MethodPersona, Name: "persona", Authority: app.AuthorityDirectory}, wantErr: "the persona method takes the application authority alone"},
-		{name: "persona admitting open sign-up", method: Method{Kind: app.MethodPersona, Name: "persona", Accounts: AccountsOpen}, wantErr: "the persona method admits invited users only"},
 		{name: "persona with username-is-email", method: Method{Kind: app.MethodPersona, Name: "persona", UsernameIsEmail: true}, wantErr: "a persona signs in as the login its cast names"},
 		{name: "persona named password", method: Method{Kind: app.MethodPersona, Name: "password"}, wantErr: "is the password method's registration name"},
 		{name: "persona with nothing but its name", method: Method{Kind: app.MethodPersona, Name: "persona"}},
-		{name: "persona under the application authority, invited", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication, Accounts: AccountsInvited}},
+		{name: "persona under the application authority", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication}},
 		{name: "an identity provider without a name", method: Method{Kind: app.MethodOIDC, Authority: app.AuthorityApplication}, wantErr: "an identity provider's registration needs a name"},
 		{name: "an identity provider takes no slot", method: Method{Kind: app.MethodOIDC, Name: "okta", Slot: SlotOne, Authority: app.AuthorityApplication}, wantErr: "takes no slot: the provider is one organization's"},
 		{name: "an identity provider without an authority", method: Method{Kind: app.MethodOIDC, Name: "okta"}, wantErr: "authority"},
-		{name: "an identity provider admitting open sign-up", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsOpen, Authority: app.AuthorityApplication}, wantErr: "open sign-up is for a method anyone can use"},
 		{name: "an identity provider with username-is-email", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication, UsernameIsEmail: true}, wantErr: "a provider's people sign in as the provider names them"},
 		{name: "an identity provider named password", method: Method{Kind: app.MethodOIDC, Name: "password", Authority: app.AuthorityApplication}, wantErr: "is the password method's registration name"},
 		{name: "an identity provider whose name is not a route segment", method: Method{Kind: app.MethodOIDC, Name: "Okta", Authority: app.AuthorityApplication}, wantErr: "registration"},
-		{name: "an identity provider under the application authority, invited", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication}},
+		{name: "an identity provider under the application authority", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}},
 		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}},
 		{name: "a method impulse does not compose", method: Method{Kind: "ldap", Name: "ldap"}, wantErr: "password, azure, google, oidc or persona"},
 		{name: "fine", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityDirectory}},
@@ -272,9 +694,10 @@ func TestValidate(t *testing.T) {
 }
 
 // TestDeclaration holds the declaration a generator program carries for a method to its
-// kind, registration name, account rule and authority: .InvitedUsers() under the
-// invited-users rule, .SyncsRoles() under the directory authority, .OpenSignUp() under
-// open sign-up, and .UsernameIsEmail() on the password method that takes it.
+// kind, registration name and authority: .SyncsRoles() under the directory authority,
+// and .UsernameIsEmail() on the password method that takes it. How wide a method is
+// chains nothing, since whether it admits a person with no invitation is chosen in the
+// running application.
 func TestDeclaration(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -284,19 +707,15 @@ func TestDeclaration(t *testing.T) {
 	}{
 		{name: "a Google Workspace whose groups write the roles", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityDirectory}, want: `generation.GoogleMethod("directory").SyncsRoles()`},
 		{name: "a Google Workspace whose roles the application assigns", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("directory")`},
-		{name: "listed Workspaces admitting invited users", method: Method{Kind: app.MethodGoogle, Name: "listed", Slot: SlotListed, Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("listed").InvitedUsers()`},
-		{name: "any Google account under open sign-up", method: Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("sign-up").OpenSignUp()`},
-		{name: "one Workspace and any Google account, invited", method: Method{Kind: app.MethodGoogle, Name: "mixed", Slot: SlotMixed, Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("mixed").InvitedUsers()`},
+		{name: "any Google account, however wide", method: Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: SlotAny, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("sign-up")`},
 		{name: "an Entra tenant whose application roles write the roles", method: Method{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityDirectory}, want: `generation.AzureMethod("entra").SyncsRoles()`},
 		{name: "an Entra tenant whose roles the application assigns", method: Method{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra")`},
-		{name: "an Entra tenant and personal accounts, invited", method: Method{Kind: app.MethodAzure, Name: "entra", Slot: SlotOnePersonal, Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra").InvitedUsers()`},
-		{name: "any Entra tenant under open sign-up", method: Method{Kind: app.MethodAzure, Name: "entra", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra").OpenSignUp()`},
+		{name: "any Entra tenant, however wide", method: Method{Kind: app.MethodAzure, Name: "entra", Slot: SlotAny, Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra")`},
 		{name: "the password method", method: Method{Kind: app.MethodPassword, Name: app.PasswordRegistration}, want: `generation.PasswordMethod()`},
-		{name: "the password method signing strangers up by their address", method: Method{Kind: app.MethodPassword, Name: app.PasswordRegistration, Accounts: AccountsOpen, UsernameIsEmail: true}, want: `generation.PasswordMethod().OpenSignUp().UsernameIsEmail()`},
-		{name: "the persona method, whose personas are the invited users", method: Method{Kind: app.MethodPersona, Name: "persona"}, want: `generation.PersonaMethod("persona").InvitedUsers()`},
-		{name: "the persona method under another registration name", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication, Accounts: AccountsInvited}, want: `generation.PersonaMethod("reviewers").InvitedUsers()`},
+		{name: "the password method whose sign-in name is the address", method: Method{Kind: app.MethodPassword, Name: app.PasswordRegistration, UsernameIsEmail: true}, want: `generation.PasswordMethod().UsernameIsEmail()`},
+		{name: "the persona method", method: Method{Kind: app.MethodPersona, Name: "persona"}, want: `generation.PersonaMethod("persona")`},
+		{name: "the persona method under another registration name", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication}, want: `generation.PersonaMethod("reviewers")`},
 		{name: "an identity provider whose members the application gives roles", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}, want: `generation.OIDCMethod("okta")`},
-		{name: "an identity provider admitting invited users", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.OIDCMethod("okta").InvitedUsers()`},
 		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}, want: `generation.OIDCMethod("company-sso").SyncsRoles()`},
 	}
 	for _, tt := range tests {
@@ -314,8 +733,10 @@ func TestDeclaration(t *testing.T) {
 
 // TestDeclarationMatchesMethodFile holds the declaration and the method file to the same
 // rule for every method of the smoke specs: the declaration chains .SyncsRoles() exactly
-// where the file registers the method with RoleSync, .InvitedUsers() exactly where it
-// admits invited users only, and .OpenSignUp() exactly where it admits open sign-up.
+// where the file registers the method with RoleSync. No method file names an account
+// rule: the registration takes none, and every method starts invite only. The persona
+// method's file alone declares seeded users (SeededUsers), which takes the provider's
+// names for the application's own.
 func TestDeclarationMatchesMethodFile(t *testing.T) {
 	t.Parallel()
 	for _, spec := range smokeSpecs() {
@@ -330,11 +751,13 @@ func TestDeclarationMatchesMethodFile(t *testing.T) {
 			if got, want := strings.Contains(file, ".RoleSync("), arg.SyncsRoles; got != want {
 				t.Errorf("%s/%s.go registers RoleSync = %v, and the declaration %s says SyncsRoles = %v", spec.Name, m.Name, got, m.Declaration(), want)
 			}
-			if got, want := strings.Contains(file, "signin.InvitedUsersOnly"), arg.InvitedUsers; got != want {
-				t.Errorf("%s/%s.go admits invited users only = %v, and the declaration %s says InvitedUsers = %v", spec.Name, m.Name, got, m.Declaration(), want)
+			for _, retired := range []string{"Accounts:", "signin.InvitedUsersOnly", "signin.MembersOfDirectory", "signin.OpenSignUp", "session.OpenSignUp()"} {
+				if strings.Contains(file, retired) {
+					t.Errorf("%s/%s.go names %s: whether a method admits a person with no invitation is chosen in the running application, never in the method file", spec.Name, m.Name, retired)
+				}
 			}
-			if got, want := strings.Contains(file, "signin.OpenSignUp") || strings.Contains(file, "session.OpenSignUp()"), arg.OpenSignUp; got != want {
-				t.Errorf("%s/%s.go admits open sign-up = %v, and the declaration %s says OpenSignUp = %v", spec.Name, m.Name, got, m.Declaration(), want)
+			if got, want := strings.Contains(file, "SeededUsers: true"), m.Kind == app.MethodPersona; got != want {
+				t.Errorf("%s/%s.go takes the provider's names for the application's own (SeededUsers) = %v, want %v: the persona method alone does", spec.Name, m.Name, got, want)
 			}
 		}
 	}

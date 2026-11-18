@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"slices"
 	"testing"
 
@@ -72,12 +74,17 @@ func subscriptionNames(subs []live.Subscription) []string {
 // changeNames spells a change set: kind, resource, key, domain and the deleted flag.
 func changeNames(changes []live.FakeChange) []string {
 	names := make([]string, 0, len(changes))
-	for _, change := range changes {
-		names = append(names, fmt.Sprintf("%s|%s|%s|%s|%t", change.Kind, change.Resource, change.Key, change.Domain, change.Deleted))
+	for i := range changes {
+		names = append(names, changeName(&changes[i]))
 	}
 	slices.Sort(names)
 
 	return names
+}
+
+// changeName spells one change document: kind, resource, key, domain and the deleted flag.
+func changeName(change *live.FakeChange) string {
+	return fmt.Sprintf("%s|%s|%s|%s|%t", change.Kind, change.Resource, change.Key, change.Domain, change.Deleted)
 }
 
 // TestLivePages_subscribeRefitPublish plays the scenario in order: the subscriptions
@@ -304,6 +311,177 @@ func TestLivePages_renewRechecksGrants(t *testing.T) {
 	slices.Sort(want)
 	if got := subscriptionNames(fake.Subscriptions()); !slices.Equal(got, want) {
 		t.Errorf("subscriptions after the renewal = %v, want %v", got, want)
+	}
+}
+
+// answeredChanges reads the changes header off a write's answer: what the write tells
+// the tab that wrote. nil is an answer that carries none.
+func answeredChanges(t *testing.T, rr *httptest.ResponseRecorder) *live.Answer {
+	t.Helper()
+
+	value := rr.Header().Get(live.ChangesHeader)
+	if value == "" {
+		return nil
+	}
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		t.Fatalf("url.PathUnescape(%q) error = %v", value, err)
+	}
+	var answer live.Answer
+	if err := decodeJSON([]byte(decoded), &answer); err != nil {
+		t.Fatal(err)
+	}
+
+	return &answer
+}
+
+// TestLivePages_writeAnswer follows what a write's answer tells the tab that wrote,
+// through each write path the generator emits: an RPC method, the consolidated patch,
+// and a resource's own patch route. The engineer has the fleet board at Anvil, the
+// Patient Heron, the clients and the mission board at Anvil open, and the harbormaster
+// the fleet board and the Heron. Each of the engineer's writes answers the id of the
+// write and the documents it put into her own change set, so her tab fetches them at
+// once; the documents carry the same id in her set and in the harbormaster's, which is
+// how her tab knows the change for its own when the set reports it and his takes it for
+// somebody else's; and a write that reaches nothing she holds live answers no header.
+func TestLivePages_writeAnswer(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := live.NewFake()
+	h := newTestAppWithLive(db, grants{
+		accesstypes.List:    {"Ships", "Clients", "MissionBoards"},
+		accesstypes.Read:    {"Ships"},
+		accesstypes.Execute: {"StartFlightTest", "PassFlightTest"},
+		accesstypes.Update:  slices.Concat(withFields("Missions", "brief"), withFields("Clients", "insured"), withFields("Ships", "cargoBays")),
+	}, fake)
+
+	subscribe := []struct {
+		user   accesstypes.User
+		tab    string
+		target string
+	}{
+		{liveEngineer, liveTabBoards, versioned(sectorPath(anvil, "ships"), liveSeed)},
+		{liveEngineer, liveTabBoards, versioned(sectorPath(anvil, "ships/"+shipPatientHeronID), liveSeed)},
+		{liveEngineer, liveTabBoards, versioned(consoleAPI+"/clients", liveSeed)},
+		{liveEngineer, liveTabBoards, versioned(sectorPath(anvil, "mission-boards"), liveSeed)},
+		{liveHarbormaster, liveTabAnvil, versioned(sectorPath(anvil, "ships"), liveSeed)},
+		{liveHarbormaster, liveTabAnvil, versioned(sectorPath(anvil, "ships/"+shipPatientHeronID), liveSeed)},
+	}
+	for _, s := range subscribe {
+		rr := doRequestRecordedWithHeaders(t, h, s.user, http.MethodGet, s.target, "", liveHeaders(s.tab))
+		assertStatus(t, rr.Code, http.StatusOK, rr.Body.Bytes())
+	}
+
+	writes := []struct {
+		name   string
+		method string
+		target string
+		body   string
+		// want is the documents the answer names; nil is an answer with no header.
+		want []live.ChangeDocument
+		// harbormaster is what the same write put into the harbormaster's set.
+		harbormaster []string
+	}{
+		{
+			name:   "an RPC method that writes nothing she holds live: the refit alone starts its flight test",
+			method: http.MethodPost,
+			target: sectorPath(anvil, "start-flight-test"),
+			body:   fmt.Sprintf(`{"refitId":%q}`, refitHeronID),
+		},
+		{
+			name:   "an RPC method: the pass stamps the Heron, a row and a list she holds",
+			method: http.MethodPost,
+			target: sectorPath(anvil, "pass-flight-test"),
+			body:   fmt.Sprintf(`{"refitId":%q}`, refitHeronID),
+			want: []live.ChangeDocument{
+				{Kind: live.ListChange, Resource: "Ships", Domain: anvil},
+				{Kind: live.RowChange, Resource: "Ships", Key: shipPatientHeronID},
+			},
+			harbormaster: []string{"list|Ships||" + anvil + "|false", "row|Ships|" + shipPatientHeronID + "||false"},
+		},
+		{
+			name:         "the consolidated patch: another ship's bays, the list she holds and not the row she does not",
+			method:       http.MethodPatch,
+			target:       consoleAPI + "/resources",
+			body:         fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"cargoBays":[12,8]}}]`, opPath(anvil, "ships/"+shipKingfisherID)),
+			want:         []live.ChangeDocument{{Kind: live.ListChange, Resource: "Ships", Domain: anvil}},
+			harbormaster: []string{"list|Ships||" + anvil + "|false"},
+		},
+		{
+			name:   "the consolidated patch reaching a derived resource: a mission's brief, the board's list",
+			method: http.MethodPatch,
+			target: consoleAPI + "/resources",
+			body:   fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"brief":"Reroute through the Anvil lanes."}}]`, opPath(anvil, "missions/"+missionHaulerID)),
+			want:   []live.ChangeDocument{{Kind: live.ListChange, Resource: "MissionBoards", Domain: anvil}},
+		},
+		{
+			name:   "a resource's own patch route: a client is insured, the clients she holds and every mission board, wholesale",
+			method: http.MethodPatch,
+			target: consoleAPI + "/clients",
+			body:   fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"insured":true}}]`, clientMeridianID),
+			want: []live.ChangeDocument{
+				{Kind: live.ListChange, Resource: "Clients"},
+				{Kind: live.ResourceChange, Resource: "MissionBoards"},
+			},
+		},
+	}
+	seen := make(map[string]string)
+	for _, tt := range writes {
+		before := len(fake.Changes(principalID(liveHarbormaster)))
+		rr := doRequestRecordedAs(t, h, liveEngineer, tt.method, tt.target, tt.body)
+		assertStatus(t, rr.Code, http.StatusOK, rr.Body.Bytes())
+
+		answer := answeredChanges(t, rr)
+		if tt.want == nil {
+			if answer != nil {
+				t.Errorf("%s: the answer carries %s = %+v, want no header", tt.name, live.ChangesHeader, *answer)
+			}
+
+			continue
+		}
+		if answer == nil {
+			t.Fatalf("%s: the answer carries no %s header, want one naming %v", tt.name, live.ChangesHeader, tt.want)
+		}
+		if !slices.Equal(answer.Changes, tt.want) || answer.All {
+			t.Errorf("%s: the answer names %+v (all %t), want %+v", tt.name, answer.Changes, answer.All, tt.want)
+		}
+		if answer.Write == "" {
+			t.Fatalf("%s: the answer names no write", tt.name)
+		}
+		if earlier, ok := seen[answer.Write]; ok {
+			t.Errorf("%s: the answer names the write %q, which %q named too", tt.name, answer.Write, earlier)
+		}
+		seen[answer.Write] = tt.name
+
+		// Every document the answer names is in her set, written by this write.
+		hers := fake.Changes(principalID(liveEngineer))
+		for _, doc := range tt.want {
+			at := slices.IndexFunc(hers, func(change live.FakeChange) bool {
+				return change.ChangeDocument == doc && change.Write == answer.Write
+			})
+			if at < 0 {
+				t.Errorf("%s: her change set %v holds no %+v written by %q", tt.name, changeNames(hers), doc, answer.Write)
+			}
+		}
+		// The harbormaster's documents of the same write carry the same id, which his
+		// tab never learned: to him they are somebody else's change. Two writes within
+		// one second share a document, so the count is of documents this write wrote.
+		var his []string
+		all := fake.Changes(principalID(liveHarbormaster))
+		for i := range all {
+			if all[i].Write == answer.Write {
+				his = append(his, changeName(&all[i]))
+			}
+		}
+		slices.Sort(his)
+		if !slices.Equal(his, tt.harbormaster) {
+			t.Errorf("%s: the harbormaster's documents of this write = %v, want %v (his set held %d documents before it)", tt.name, his, tt.harbormaster, before)
+		}
 	}
 }
 

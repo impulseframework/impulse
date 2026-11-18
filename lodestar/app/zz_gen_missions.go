@@ -296,3 +296,160 @@ func (a *App) Mission() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// MissionsAcrossTenants lists Missions in every tenant the session reaches in which
+// the person holds the List grant (@listAcrossTenants): one filter, one order, one page
+// and one count across them, narrowed by the request's domains parameter. Each row is
+// checked under the person's grants in its own tenant and carries the tenant it is in
+// (resource.TenantProperty). The list is plain unless the page asks for live: then it
+// registers one subscription over the set of tenants it reads.
+func (a *App) MissionsAcrossTenants() http.HandlerFunc {
+	type mission struct {
+		ID                 impulse.UUID          `json:"id"                 index:"true"                                                        perm:"-"`
+		SectorID           impulse.UUID          `json:"sectorId"           index:"true"`
+		ClientID           impulse.UUID          `json:"clientId"           index:"true"`
+		KindID             string                `json:"kindId"             index:"true"`
+		Title              string                `json:"title"              search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
+		Brief              *string               `json:"brief"`
+		BriefingTemplateID *string               `json:"briefingTemplateId"`
+		Hazard             resources.HazardLevel `json:"hazard"`
+		Fee                decimal.Decimal       `json:"fee"                allow_filter:"true"`
+		Deadline           time.Time             `json:"deadline"           index:"true"                                                        masking:"positional" search:"token=Deadline_Search;index=MissionsSearch;role=date;contains;zone=UTC"`
+		RequiredCertID     *string               `json:"requiredCertId"     index:"true"`
+		BookedByUserID     string                `json:"bookedByUserId"`
+		BookedByName       string                `json:"bookedByName"`
+		AssignedSquadronID impulse.NullUUID      `json:"assignedSquadronId" index:"true"`
+		StatusID           string                `json:"statusId"           index:"true"`
+		Notes              *string               `json:"notes"`
+		Settlement         decimal.NullDecimal   `json:"settlement"`
+	}
+
+	type response []map[string]any
+
+	decoder := NewQueryDecoder[resources.Mission, mission](a, accesstypes.List).
+		WithPaging(resource.Paging{Order: []resource.SortField{{Field: "Deadline", Direction: resource.SortAscending}}, DefaultLimit: 25, MaxLimit: 200})
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		querySet, err := decoder.DecodeAcrossTenants(r, a.UserPermissions(r))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		// A page that asked for live registers before the query runs, so a commit that
+		// lands during the query is not missed: one subscription over the tenants the
+		// list reads for the person, and none of a tenant it does not. A set of more
+		// tenants than one subscription holds registers nothing, and the list is
+		// served plain.
+		liveness := live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)
+
+		res := resources.NewMissionQueryFromQuerySet(querySet)
+
+		// The page: a count first when asked, then the rows, one past the page size
+		// so the Link header knows whether a next page exists.
+		page := querySet.Page()
+		if err := page.Count(ctx, a.ResourceClient()); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resp := response{}
+		for row, err := range res.List(ctx, a.ResourceClient()) {
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			if !page.Add(row) {
+				break
+			}
+			rec := (*mission)(&row.Data)
+			rmap := make(map[string]any)
+			for _, field := range querySet.Fields() {
+				switch string(field) {
+				case "ID":
+					if !row.Masked("id") {
+						rmap["id"] = rec.ID
+					}
+				case "SectorID":
+					if !row.Masked("sectorId") {
+						rmap["sectorId"] = rec.SectorID
+					}
+				case "ClientID":
+					if !row.Masked("clientId") {
+						rmap["clientId"] = rec.ClientID
+					}
+				case "KindID":
+					if !row.Masked("kindId") {
+						rmap["kindId"] = rec.KindID
+					}
+				case "Title":
+					if !row.Masked("title") {
+						rmap["title"] = rec.Title
+					}
+				case "Brief":
+					if !row.Masked("brief") {
+						rmap["brief"] = rec.Brief
+					}
+				case "BriefingTemplateID":
+					if !row.Masked("briefingTemplateId") {
+						rmap["briefingTemplateId"] = rec.BriefingTemplateID
+					}
+				case "Hazard":
+					if !row.Masked("hazard") {
+						rmap["hazard"] = rec.Hazard
+					}
+				case "Fee":
+					if !row.Masked("fee") {
+						rmap["fee"] = rec.Fee
+					}
+				case "Deadline":
+					if !row.Masked("deadline") {
+						rmap["deadline"] = rec.Deadline
+					}
+				case "RequiredCertID":
+					if !row.Masked("requiredCertId") {
+						rmap["requiredCertId"] = rec.RequiredCertID
+					}
+				case "BookedByUserID":
+					if !row.Masked("bookedByUserId") {
+						rmap["bookedByUserId"] = rec.BookedByUserID
+					}
+				case "BookedByName":
+					if !row.Masked("bookedByName") {
+						rmap["bookedByName"] = rec.BookedByName
+					}
+				case "AssignedSquadronID":
+					if !row.Masked("assignedSquadronId") {
+						rmap["assignedSquadronId"] = rec.AssignedSquadronID
+					}
+				case "StatusID":
+					if !row.Masked("statusId") {
+						rmap["statusId"] = rec.StatusID
+					}
+				case "Notes":
+					if !row.Masked("notes") {
+						rmap["notes"] = rec.Notes
+					}
+				case "Settlement":
+					if !row.Masked("settlement") {
+						rmap["settlement"] = rec.Settlement
+					}
+				}
+			}
+			rmap[resource.TenantProperty] = row.Tenant()
+			resp = append(resp, rmap)
+		}
+		if page.Reversed() {
+			slices.Reverse(resp)
+		}
+		if err := page.WriteHeaders(w, r); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		// A request carrying the version parameter is a live refetch: the browser may
+		// cache the answer for the subscription's window, unless the list is served
+		// plain, which no change would ever tell the browser to ask again.
+		liveness.SetCacheControl(w, r)
+
+		return httpio.NewEncoder(w).Ok(resp)
+	})
+}

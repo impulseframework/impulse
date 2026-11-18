@@ -67,12 +67,25 @@ func (s *SessionStorageDriver) trustedDevicesTable() string {
 
 // InsertFactorCode consumes the earlier codes of c's pending sign-in that are live at
 // now and inserts c, created at the database's time, unused and not consumed, whatever
-// c carries, in one transaction: one code stands for a pending sign-in at a time.
+// c carries, in one transaction: one code stands for a pending sign-in at a time. The
+// transaction takes the pending sign-in's own row first and holds it until it ends, so
+// inserts for one pending sign-in run one at a time, and the one that waited consumes
+// the code the other committed, which its statements then see (the driver's
+// transactions are read committed): without the row, two made at once each consumed the
+// codes they could see, neither the other's, and both codes stood, each with attempts
+// of its own. The row is taken as an update of it takes it (FOR NO KEY UPDATE), which
+// holds off another insert's same statement and nothing an insert's foreign key asks
+// for. A pending sign-in that is not there has no row to take, and the insert is refused
+// by the schema as before.
 func (s *SessionStorageDriver) InsertFactorCode(ctx context.Context, c *dbtype.FactorCode, now time.Time) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		lock := fmt.Sprintf(`SELECT 1 FROM %s WHERE "Id" = $1 FOR NO KEY UPDATE`, s.pendingTable())
+		if _, err := tx.Exec(ctx, lock, c.PendingID); err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
 		consume := fmt.Sprintf(`UPDATE %s SET "ConsumedAt" = now() WHERE "PendingId" = $1 AND "ConsumedAt" IS NULL AND "ExpiresAt" > $2`, s.factorCodesTable())
 		if _, err := tx.Exec(ctx, consume, c.PendingID, now); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
@@ -109,8 +122,9 @@ func (s *SessionStorageDriver) FactorCodeByPending(ctx context.Context, pendingI
 	return rows[0].code(), nil
 }
 
-// RecordFactorCodeAttempt counts a wrong code against the code id, when it is live at
-// now, and returns the count. A code that is not live is NotFound.
+// RecordFactorCodeAttempt counts an attempt against the code id, when it is live at
+// now, and returns the count, in one statement: attempts counted at once are each
+// counted and answered their own count. A code that is not live is NotFound.
 func (s *SessionStorageDriver) RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID, now time.Time) (int, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

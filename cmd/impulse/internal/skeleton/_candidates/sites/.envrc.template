@@ -23,6 +23,18 @@ export GOOGLE_CLOUD_SPANNER_DATABASE_NAME=sites
 # APP_COOKIE_KEY signs session cookies: Base64 of 32+ random bytes. Unset, the process
 # generates an ephemeral key and sessions end when it restarts.
 # export APP_COOKIE_KEY=
+# APP_SECRET_KEY_1 is version 1 of the application secret, which every stored secret field
+# (conditions:"secret") is encrypted with: Base64 of 32 random bytes. A deployment generates
+# the secret and hands the service every enabled version, each in a variable of its own
+# (APP_SECRET_KEY_1, APP_SECRET_KEY_2, ...), the highest number the current one. Development
+# makes its own, once for a checkout: the first line below writes 32 random bytes to
+# .app-secret-key.dev when the file is not there, and the second reads it, so the key is the
+# same every time this file is sourced from the application's root. .gitignore keeps the
+# file out of git, and no key is written here. A stored value opens only under the version
+# that sealed it, so deleting .app-secret-key.dev leaves the secrets already in the
+# development database unreadable.
+[ -s .app-secret-key.dev ] || (umask 077 && head -c 32 /dev/urandom | base64 > .app-secret-key.dev)
+export APP_SECRET_KEY_1="$(cat .app-secret-key.dev)"
 # APP_PUBLIC_URL is the application's address as a browser reaches it, scheme and host with
 # no path: every link the auths mail (an invitation, an address verification, a sign-up)
 # opens the login page under it. The dev proxy here; a deployment sets the served hostname.

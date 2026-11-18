@@ -14,17 +14,26 @@ const (
 	// so it reads that person's memberships and nothing else. HeldElsewhere is two checks
 	// for that reason: written as one, with the two kinds under an OR, the database read
 	// the memberships table by its key for every listed person (measured on Spanner).
+	// Where the auth keeps groups, a place in a group counts as a role held where the
+	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally).
+	//
+	// A membership that has ended is no role held anywhere. One that has not begun is one:
+	// the person is known there and will hold it, as the rules on where a person belongs
+	// read it (identitySourceData.Standing).
 	identityTenantPersonFacts = `  (EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindEvery }} AND o.Axis = {{ .ScopeAxis }}
+      AND {{ .Standing "o" }}
   ) OR EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
-  )) AS HeldElsewhere,
-  EXISTS (
+      AND {{ .Standing "o" }}
+  )` + identityGroupPersonElsewhere + `) AS HeldElsewhere,
+  {{ if .KeepsGroups }}({{ end }}EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} g
     WHERE g.UserId = u.Id AND g.Kind = {{ .KindGlobal }}
-  ) AS HeldGlobally`
+      AND {{ .Standing "g" }}
+  )` + identityGroupPersonGlobally + ` AS HeldGlobally`
 
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
 	// name and u the account: who holds a role in a tenant (one tenant's memberships, and
@@ -33,18 +42,105 @@ const (
 	// and the join is on the users table's key: a page reads one row of the table for
 	// each person. The memberships held in every tenant are read by the
 	// table's key (the hint), where they are one short range; left to choose, the database
-	// ranged over the index by user when a page continued from a cursor.
+	// ranged over the index by user when a page continued from a cursor. Where the auth
+	// keeps groups, the people a tenant holds through one join them
+	// (identityTenantGroupPeople).
+	//
+	// A person is one of a tenant's people by what they hold at the moment: a membership
+	// outside its period, ended or not yet begun, puts nobody in the list, whether or not
+	// its row still stands in the table (identitySourceData.Counting).
 	identityTenantPeopleFrom = `FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM {{ .Policy.UserRoles }} m
   WHERE m.Kind = {{ .KindDomain }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Counting "m" }}
   UNION DISTINCT
   SELECT s.{{ .TenantKey }} AS DomainId, m.UserId AS UserId
   FROM {{ .Policy.UserRoles }}@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN {{ .TenantTable }} s
   WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Counting "m" }}` + identityTenantGroupPeople + `
 ) t
 JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
+
+	// identityTenantOutsideDirectory is the fact that a person of a tenant's list has no
+	// sign-in through the tenant's directory, as a condition of the list's select: ts is
+	// the tenant's row and td its directory's (identityTenantDirectoryJoins), u the
+	// person's account. A tenant with no directory has nobody outside it, and a super
+	// administrator is outside no tenant's: no tenant's sign-in settings shut them out.
+	// A sign-in through a directory is an identity linked to the account under the
+	// directory's method and connection, read by the identities table's index on the
+	// user; an auth that keeps no identities signs nobody in through a directory.
+	//
+	// The super administrator is the person who holds the role now: the membership
+	// counts inside its period alone (identitySourceData.Counting), as the sign-in rule
+	// and the session's reach read it, which ask the permission engine and its listing
+	// of what a person holds at the present. The exemption says who enters now, so a
+	// membership that has ended exempts nobody, and neither does one that has not begun
+	// (Standing, which the facts of where a person belongs use, would exempt a person
+	// the sign-in keeps out). The library's writes give the role no period
+	// (access.ValidatePeriod); the test is here so that a row written past them is read
+	// as every other reader reads it.
+	//
+	// The tenant's own administrator who has a password is outside no directory either,
+	// where the auth has a password method: they enter a directory-only tenant with the
+	// password and a second factor (signin.TenantDeclaration.AdmitsAdministrator). The
+	// administrator is who the permission engine says it is (access.administersTenant):
+	// a person holding, inside its period, one of the roles the application names as a
+	// tenant's administrator's in the tenant itself, by a membership of their own or
+	// through a group kept in that tenant, and never one held in every tenant or
+	// through a group kept for the whole application. The names are the engine's own,
+	// read as a parameter the generated client hands the list, so the list, the sign-in
+	// and the session's reach answer over one set of names; with none named nobody is
+	// exempt. Whether the person gave the second factor is a session's to say, not a
+	// person's, so the list reads the password alone.
+	identityTenantOutsideDirectory = `td.{{ .TenantDirectory.TenantColumn }} IS NOT NULL{{ if .HasIdentities }} AND NOT EXISTS (
+    SELECT 1 FROM {{ .Tables.Identities }} di
+    WHERE di.UserId = u.Id AND di.Method = td.{{ .TenantDirectory.MethodColumn }} AND di.Connection = td.{{ .TenantDirectory.ConnectionColumn }}
+  ){{ end }} AND NOT EXISTS (
+    SELECT 1 FROM {{ .Policy.UserRoles }} sa
+    WHERE sa.UserId = u.Id AND sa.Kind = {{ .KindGlobal }} AND sa.Role = {{ .SuperAdministratorRole }}
+      AND {{ .Counting "sa" }}
+  ){{ if .AdministratorsEnter }} AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
+    SELECT 1 FROM {{ .Policy.UserRoles }} ta
+    WHERE ta.UserId = u.Id AND ta.Kind = {{ .KindDomain }} AND ta.Axis = {{ .ScopeAxis }} AND ta.DomainId = t.DomainId
+      AND ta.Role IN UNNEST(@{{ .TenantAdministratorsParam }})
+      AND {{ .Counting "ta" }}
+  ){{ if .KeepsGroups }} OR EXISTS (
+    SELECT 1 FROM {{ .Policy.GroupRoles }} tr
+    JOIN {{ .Policy.Groups }} tg ON tg.Id = tr.GroupId
+    JOIN {{ .Policy.GroupMembers }} tm ON tm.GroupId = tr.GroupId
+    WHERE tm.UserId = u.Id
+      AND tg.Kind = {{ .KindDomain }} AND tg.Axis = {{ .ScopeAxis }} AND tg.DomainId = t.DomainId
+      AND tr.Kind = {{ .KindDomain }} AND tr.Axis = {{ .ScopeAxis }} AND tr.DomainId = t.DomainId
+      AND tr.Role IN UNNEST(@{{ .TenantAdministratorsParam }})
+      AND {{ .Counting "tr" }}
+      AND {{ .Counting "tm" }}
+  ){{ end }})){{ end }}`
+
+	// identityTenantDirectoryFacts are the two columns a tenant's list of its people
+	// carries where the tenant record declares the directory-only switch, after the
+	// person's facts: whether the person has no sign-in through the tenant's directory,
+	// and, while the tenant is directory only, the sentence that says so. The sentence
+	// speaks of the tenant's directory and does not name it: a directory's connection
+	// is a key, for a Microsoft Entra tenant an id nobody knows, and what a person
+	// calls the directory is said by the sign-in registrations, which a query does not
+	// read. The list is one tenant's, and a tenant has one directory, the one its
+	// Sign-in page shows.
+	identityTenantDirectoryFacts = `,
+  (` + identityTenantOutsideDirectory + `) AS OutsideDirectory,
+  IF(ts.{{ .TenantDirectory.OnlyColumn }} AND ` + identityTenantOutsideDirectory + `,
+    'Has not signed in through this {{ .TenantWordLiteral }}\'s directory, so cannot enter while this {{ .TenantWordLiteral }} is directory only',
+    NULL) AS CannotEnter`
+
+	// identityTenantDirectoryJoins join each row of a tenant's list to its tenant's row
+	// and to the tenant's directory, where it has one: a tenant has one directory. Both
+	// are outer joins, so the facts add columns and drop no row: a membership whose
+	// domain the tenant record no longer holds lists as it did before the facts, with
+	// nobody outside a directory there.
+	identityTenantDirectoryJoins = `
+LEFT JOIN {{ .TenantTable }} ts ON ts.{{ .TenantKey }} = t.DomainId
+LEFT JOIN {{ .TenantDirectory.Table }} td ON td.{{ .TenantDirectory.TenantColumn }} = ts.{{ .TenantKey }}`
 
 	// identityTenantUsersTemplate declares the tenant's people.
 	identityTenantUsersTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
@@ -53,9 +149,15 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 package {{ .Package }}
 
 import (
+	{{- if .AdministratorsEnter }}
+	"sync/atomic"
+	{{- end }}
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .AdministratorsEnter }}
+	"github.com/impulseframework/impulse/accesstypes"
+	{{- end }}
 )
 
 type (
@@ -65,6 +167,10 @@ type (
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	//
+	// A role counts inside its period alone: a person whose only role in the tenant has
+	// ended, or has not begun, is not one of its people, whether or not the role's row
+	// still stands. {{ .TenantRole }} lists a role that has not begun, with its period.
+	//
 	// Two columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
@@ -73,6 +179,25 @@ type (
 	// alone. The list filters and sorts by the username and by the two facts; the
 	// account's other columns are no filter keys, so a role file may grant any of them
 	// under a condition at no cost to a page.
+	{{- if .TenantDirectory }}
+	//
+	// Two more columns say what the tenant's directory-only switch does to the person.
+	// OutsideDirectory says the person has no sign-in through the tenant's directory, so
+	// the switch keeps them out while it is on: it is who turning the switch on would
+	// shut out, asked before it is on. CannotEnter is the sentence the list shows while
+	// the tenant is directory only, on the row of a person it keeps out ("Has not signed
+	// in through this {{ .TenantWord }}'s directory, so cannot enter while this {{ .TenantWord }} is
+	// directory only"), and nothing on every other row: the sentence never says the
+	// directory's connection, which is a key and no name. The list is made from who holds a role in the tenant,
+	// not from who can sign in, so a person the switch keeps out stays in it with their
+	// roles. A super administrator is outside no tenant's directory.
+	{{- if .AdministratorsEnter }} Neither is the
+	// {{ .TenantWord }}'s own administrator who has a password: a person who holds one of the roles
+	// the application names as a {{ .TenantWord }}'s administrator's in the {{ .TenantWord }} itself enters it
+	// with the password and a code mailed to them, so the switch keeps them out of nothing
+	// (Set{{ .TenantUser }}AdministratorRoles names the roles).
+	{{- end }}
+	{{- end }}
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -96,6 +221,10 @@ type (
 		HeldElsewhere bool ` + "`spanner:\"HeldElsewhere\" index:\"true\"`" + `
 		// @attribute(heldGlobally)
 		HeldGlobally bool ` + "`spanner:\"HeldGlobally\" index:\"true\"`" + `
+		{{- if .TenantDirectory }}
+		OutsideDirectory bool    ` + "`spanner:\"OutsideDirectory\" index:\"true\"`" + `
+		CannotEnter      *string ` + "`spanner:\"CannotEnter\"`" + `
+		{{- end }}
 	}
 )
 
@@ -115,13 +244,45 @@ SELECT
   u.PasswordChangeRequired AS PasswordChangeRequired,
   u.CreatedAt AS CreatedAt,
   u.LastSignInAt AS LastSignInAt,
-` + identityTenantPersonFacts + `
-` + identityTenantPeopleFrom + `
+` + identityTenantPersonFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
+` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
 ` + "`" + `
+
+{{- if .AdministratorsEnter }}
+
+// {{ GoCamel .TenantUser }}Administrators are the roles whose holders administer a {{ .TenantWord }}, as the
+// {{ .Auth }} auth's permission engine names them: what the list's query reads as
+// @{{ .TenantAdministratorsParam }}. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var {{ GoCamel .TenantUser }}Administrators atomic.Pointer[[]string]
+
+// Set{{ .TenantUser }}AdministratorRoles tells the list which roles administer a {{ .TenantWord }}: the
+// ones the {{ .Auth }} auth's permission engine answers who administers a {{ .TenantWord }} by
+// (access.WithTenantAdministratorRoles). The auth's generated identity client calls it
+// where it is built, so the list says who the directory-only switch keeps out by the
+// names the sign-in and the session's reach decide by. It is one value for the process,
+// as the auth's engine is.
+func Set{{ .TenantUser }}AdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	{{ GoCamel .TenantUser }}Administrators.Store(&names)
+}
+{{- end }}
 
 // Subquery is the query the rows are read from.
 func ({{ .TenantUser }}) Subquery() (query string, params map[string]any) {
+	{{- if .AdministratorsEnter }}
+	administrators := []string{}
+	if named := {{ GoCamel .TenantUser }}Administrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return {{ GoCamel .TenantUser }}Query, map[string]any{ {{- printf "%q" .TenantAdministratorsParam }}: administrators}
+	{{- else }}
 	return {{ GoCamel .TenantUser }}Query, nil
+	{{- end }}
 }
 `
 
@@ -149,6 +310,11 @@ type (
 	// the tenant's own row, with the other standing behind it. The role is read by a
 	// condition too (role), so a role file can say which roles its holder takes away.
 	//
+	// StartsAt and EndsAt are the role's period, the first instant it counts and the first
+	// it no longer does, each empty for none. A role that has ended is not listed: it
+	// grants nothing and goes at the person's next sign-in. One that has not begun is
+	// listed, where it is given another period or taken away.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet({{ .Outlets }})
@@ -164,8 +330,10 @@ type (
 		// @attribute(role)
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		// @attribute(everyDomain)
-		EveryDomain bool      ` + "`spanner:\"EveryDomain\" index:\"true\"`" + `
-		CreatedAt   time.Time ` + "`spanner:\"CreatedAt\"`" + `
+		EveryDomain bool       ` + "`spanner:\"EveryDomain\" index:\"true\"`" + `
+		CreatedAt   time.Time  ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt    *time.Time ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt      *time.Time ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 
@@ -185,19 +353,24 @@ SELECT
   u.Username AS Username,
   t.Role AS Role,
   t.EveryDomain AS EveryDomain,
-  t.CreatedAt AS CreatedAt
+  t.CreatedAt AS CreatedAt,
+  t.StartsAt AS StartsAt,
+  t.EndsAt AS EndsAt
 FROM (
-  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
   FROM {{ .Policy.UserRoles }} m
   WHERE m.Kind = {{ .KindDomain }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Standing "m" }}
   UNION ALL
-  SELECT s.{{ .TenantKey }} AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT s.{{ .TenantKey }} AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
   FROM {{ .Policy.UserRoles }}@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN {{ .TenantTable }} s
   WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Standing "m" }}
     AND NOT EXISTS (
       SELECT 1 FROM {{ .Policy.UserRoles }} d
       WHERE d.Kind = {{ .KindDomain }} AND d.Axis = m.Axis AND d.DomainId = s.{{ .TenantKey }} AND d.Role = m.Role AND d.UserId = m.UserId
+        AND {{ .Standing "d" }}
     )
 ) t
 JOIN {{ .Tables.Users }} u ON u.Id = t.UserId

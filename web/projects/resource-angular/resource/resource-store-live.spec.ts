@@ -4,27 +4,35 @@ import { provideRouter } from '@angular/router';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { ColumnConfig, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
 import {
+  AnsweredChange,
   ApiDescriptor,
   ChangeEvent,
   ChangeFeed,
+  changesHeader,
   ClientBase,
   createClient,
   Domain,
+  liveChangeWait,
+  LiveClock,
   LiveIdentity,
+  liveRefetchInterval,
   Resource,
   subscribeHeader,
   Transport,
   TransportRequest,
   unpublishedLiveWarning,
+  VisibilityEvents,
 } from '@impulseframework/resource';
 import { ResourceStore } from './resource-store.service';
 
-// The store's live pages over a fake feed: a live row or list page asks plainly until the
-// client's live session runs, then carries the tab's subscribe header and the version;
-// a change the feed reports to the row, or to the resource in the tenant, refetches it by
-// the change's version; a change elsewhere refetches nothing; a resync refetches by a
-// fresh seed; the tenant moving moves the list's subscription; and the store's hold on the
-// live session ends with the store.
+// The store's live pages over a fake feed and a clock the spec moves: a live row or list
+// page asks plainly until the client's live session runs, then carries the tab's subscribe
+// header and the version; a change the feed reports to the row, or to the resource in the
+// tenant, refetches it by the change's version once the session's wait for other people's
+// changes has ended; a write the tab made refetches at once, once, and its echo in the
+// feed refetches nothing; a hidden tab refetches when it is shown; a change elsewhere
+// refetches nothing; a resync refetches by a fresh seed; the tenant moving moves the list's
+// subscription; and the store's hold on the live session ends with the store.
 
 const descriptor: ApiDescriptor = {
   permissionDigestRoute: 'permission-digest',
@@ -43,6 +51,8 @@ const descriptor: ApiDescriptor = {
       operations: ['list', 'read'],
       page: { default: 25, max: 200 },
       order: [{ field: 'name', direction: 'asc' }],
+      // Ships is also listed across tenants (the last suite of this file).
+      acrossTenants: true,
     },
     ShipClasses: {
       resource: 'ShipClasses' as Resource,
@@ -104,6 +114,73 @@ class FakeFeed implements ChangeFeed {
   }
 }
 
+/** A document stand-in: whether the tab is shown, set by the spec, and the visibilitychange listeners. */
+class FakeVisibility implements VisibilityEvents {
+  visibilityState = 'visible';
+  private listeners = new Set<() => void>();
+
+  addEventListener(_type: string, listener: () => void): void {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: string, listener: () => void): void {
+    this.listeners.delete(listener);
+  }
+
+  become(state: 'visible' | 'hidden'): void {
+    this.visibilityState = state;
+    for (const listener of [...this.listeners]) {
+      listener();
+    }
+  }
+}
+
+/** A clock the spec moves: the time, and the timers due as it advances, run in the order they fall due. */
+class FakeClock implements LiveClock {
+  time = 0;
+  private timers: { id: number; due: number; run: () => void }[] = [];
+  private nextId = 0;
+
+  now(): number {
+    return this.time;
+  }
+
+  setTimeout(run: () => void, delay: number): unknown {
+    const id = ++this.nextId;
+    this.timers.push({ id, due: this.time + Math.max(0, delay), run });
+    return id;
+  }
+
+  clearTimeout(timer: unknown): void {
+    this.timers = this.timers.filter((held) => held.id !== timer);
+  }
+
+  /** Moves the time forward, running each timer that falls due on the way, at its own time. */
+  advance(milliseconds: number): void {
+    const until = this.time + milliseconds;
+    for (;;) {
+      const due = this.timers.filter((held) => held.due <= until).sort((a, b) => a.due - b.due || a.id - b.id)[0];
+      if (!due) {
+        break;
+      }
+      this.timers = this.timers.filter((held) => held !== due);
+      this.time = due.due;
+      due.run();
+    }
+    this.time = until;
+  }
+
+  /** Moves the time far enough that every wait for other people's changes has ended. */
+  elapse(): void {
+    this.advance(Math.max(liveChangeWait, liveRefetchInterval));
+  }
+}
+
+/** The changes header as the server writes it for a write and what it changed in the caller's own change set. */
+function changesAnswer(write: string, changes: AnsweredChange[]): Record<string, string> {
+  return { [changesHeader.toLowerCase()]: encodeURIComponent(JSON.stringify({ write, changes })) };
+}
+
 /** The URL without its version parameter, and the version it carried. */
 function split(url: string): { url: string; version: string | undefined } {
   const mark = url.indexOf('?');
@@ -124,8 +201,14 @@ interface Scripted {
   requests: TransportRequest[];
 }
 
-/** A transport scripted by URL with the version set aside; the live routes answer themselves. */
-function scripted(pages: Record<string, { rows: unknown; headers?: Record<string, string> }>): Scripted {
+/**
+ * A transport scripted by URL with the version set aside; the live routes answer
+ * themselves. A page marked `slow` answers a moment later, as an answer over a network
+ * does, so a spec can ask what happens while the request is in flight.
+ */
+function scripted(
+  pages: Record<string, { rows?: unknown; headers?: Record<string, string>; slow?: boolean }>,
+): Scripted {
   const requests: TransportRequest[] = [];
   const transport: Transport = async (request) => {
     requests.push(request);
@@ -142,17 +225,20 @@ function scripted(pages: Record<string, { rows: unknown; headers?: Record<string
     if (!page) {
       return { status: 404, body: { message: `unscripted ${request.url}` } };
     }
+    if (page.slow) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
     return { status: 200, body: page.rows, headers: page.headers ?? {} };
   };
   return { transport, requests };
 }
 
-/** The data requests as URL without the version, the version, and whether the subscribe header rode along. */
+/** The reads as URL without the version, the version, and whether the subscribe header rode along. */
 function dataRequests(
   requests: TransportRequest[],
 ): { url: string; version: string | undefined; subscribed: boolean }[] {
   return requests
-    .filter((r) => !r.url.startsWith('/api/live/'))
+    .filter((r) => r.method === 'GET' && !r.url.startsWith('/api/live/'))
     .map((r) => ({ ...split(r.url), subscribed: r.headers?.[subscribeHeader] !== undefined }));
 }
 
@@ -169,7 +255,9 @@ function storeOver(
   script: Scripted,
   domain: WritableSignal<Domain | undefined> = signal('anvil' as Domain),
   warnings: string[] = [],
-): { store: ResourceStore; client: ClientBase; feed: FakeFeed } {
+): { store: ResourceStore; client: ClientBase; feed: FakeFeed; clock: FakeClock; visibility: FakeVisibility } {
+  const clock = new FakeClock();
+  const visibility = new FakeVisibility();
   const client = createClient(descriptor, {
     baseUrl: '/api',
     transport: script.transport,
@@ -177,6 +265,8 @@ function storeOver(
     live: {
       renewInterval: 60 * 60 * 1000,
       page: { addEventListener: () => undefined, removeEventListener: () => undefined },
+      visibility,
+      clock,
     },
   });
   TestBed.configureTestingModule({
@@ -187,7 +277,7 @@ function storeOver(
       { provide: RESOURCE_DOMAIN, useValue: domain },
     ],
   });
-  return { store: TestBed.inject(ResourceStore), client, feed: new FakeFeed() };
+  return { store: TestBed.inject(ResourceStore), client, feed: new FakeFeed(), clock, visibility };
 }
 
 const s1 = '/api/sectors/anvil/ships/s1?capabilities=Update%2CDelete';
@@ -197,7 +287,7 @@ const bastionPage = '/api/sectors/bastion/ships?columns=name&count=true';
 describe('ResourceStore live row', () => {
   it('asks plainly until the feed runs, then by the seed, then by each change to the row, and by a fresh seed on a resync', async () => {
     const script = scripted({ [s1]: { rows: { id: 's1', name: 'Kestrel' } } });
-    const { store, client, feed } = storeOver(script);
+    const { store, client, feed, clock } = storeOver(script);
     store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', fields: [] });
     store.liveChoice.set(true);
     store.uuid.set('s1');
@@ -212,8 +302,12 @@ describe('ResourceStore live row', () => {
     expect(feed.started).toEqual([identity]);
     expect(dataRequests(script.requests)[1]).toEqual({ url: s1, version: client.live.seed, subscribed: true });
 
-    // A change to this row: asked again by the change's version, the row kept on screen meanwhile.
+    // A change to this row by someone else: asked again by the change's version once the
+    // session's wait has ended, the row kept on screen meanwhile.
     feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000001' });
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests)).toHaveLength(2);
+    clock.elapse();
     TestBed.tick();
     expect(store.rowPresent()).toBe(true);
     await settle(() => script.requests.length >= 4 && store.viewStatus() === 'resolved');
@@ -222,11 +316,13 @@ describe('ResourceStore live row', () => {
     // A change to another row, and to the list: nothing.
     feed.emit({ kind: 'row', resource: 'Ships', key: 's2', at: '1700000000000002' });
     feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000003' });
+    clock.elapse();
     await settle(() => false, 5);
     expect(dataRequests(script.requests)).toHaveLength(3);
 
     // A resource-level change reaches the row.
     feed.emit({ kind: 'resource', resource: 'Ships', at: '1700000000000004' });
+    clock.elapse();
     await settle(() => script.requests.length >= 5 && store.viewStatus() === 'resolved');
     expect(dataRequests(script.requests)[3]).toEqual({ url: s1, version: '1700000000000004', subscribed: true });
 
@@ -241,13 +337,14 @@ describe('ResourceStore live row', () => {
 
   it('a row that did not ask stays plain while the feed runs, and holds nothing on the live session', async () => {
     const script = scripted({ [s1]: { rows: { id: 's1', name: 'Kestrel' } } });
-    const { store, client, feed } = storeOver(script);
+    const { store, client, feed, clock } = storeOver(script);
     store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', fields: [] });
     store.uuid.set('s1');
     store.buildStoreViewData();
     await settle(() => store.rowPresent());
     await client.live.start(feed);
     feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000001' });
+    clock.elapse();
     await settle(() => false, 5);
     expect(dataRequests(script.requests)).toEqual([{ url: s1, version: undefined, subscribed: false }]);
     expect(client.live.subscriptions()).toEqual([]);
@@ -257,7 +354,7 @@ describe('ResourceStore live row', () => {
   it('a changed key moves the hold to the new row', async () => {
     const s2 = '/api/sectors/anvil/ships/s2?capabilities=Update%2CDelete';
     const script = scripted({ [s1]: { rows: { id: 's1' } }, [s2]: { rows: { id: 's2' } } });
-    const { store, client, feed } = storeOver(script);
+    const { store, client, feed, clock } = storeOver(script);
     store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', fields: [] });
     store.liveChoice.set(true);
     store.uuid.set('s1');
@@ -269,9 +366,11 @@ describe('ResourceStore live row', () => {
     expect(client.live.subscriptions()).toEqual([{ resource: 'Ships', key: 's2', domain: 'anvil' }]);
     const before = script.requests.length;
     feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000005' });
+    clock.elapse();
     await settle(() => false, 5);
     expect(script.requests).toHaveLength(before);
     feed.emit({ kind: 'row', resource: 'Ships', key: 's2', at: '1700000000000006' });
+    clock.elapse();
     await settle(() => script.requests.length > before);
     expect(dataRequests(script.requests).at(-1)).toEqual({ url: s2, version: '1700000000000006', subscribed: true });
     await client.live.stop();
@@ -296,7 +395,7 @@ describe('ResourceStore live list page', () => {
       },
       [second]: { rows: [{ id: 's2', name: 'Halcyon' }], headers: { link: `<${anvilPage}>; rel="prev"` } },
     });
-    const { store, client, feed } = storeOver(script);
+    const { store, client, feed, clock } = storeOver(script);
     listPage(store);
     await settle(() => store.pageStatus() === 'resolved');
     expect(dataRequests(script.requests)).toEqual([{ url: anvilPage, version: undefined, subscribed: false }]);
@@ -311,6 +410,7 @@ describe('ResourceStore live list page', () => {
     await settle(() => store.page().offset === 1);
     expect(dataRequests(script.requests)[2]).toEqual({ url: second, version: client.live.seed, subscribed: true });
     feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000010' });
+    clock.elapse();
     await settle(() => script.requests.length >= 5 && store.pageStatus() === 'resolved');
     expect(dataRequests(script.requests)[3]).toEqual({ url: second, version: '1700000000000010', subscribed: true });
     expect(store.page().offset).toBe(1);
@@ -320,11 +420,13 @@ describe('ResourceStore live list page', () => {
     feed.emit({ kind: 'list', resource: 'Ships', domain: 'bastion', at: '1700000000000011' });
     feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000012' });
     feed.emit({ kind: 'list', resource: 'ShipClasses', at: '1700000000000013' });
+    clock.elapse();
     await settle(() => false, 5);
     expect(dataRequests(script.requests)).toHaveLength(4);
 
     // A resource-level change reaches the list.
     feed.emit({ kind: 'resource', resource: 'Ships', at: '1700000000000014' });
+    clock.elapse();
     await settle(() => script.requests.length >= 6 && store.pageStatus() === 'resolved');
     expect(dataRequests(script.requests)[4]).toEqual({ url: second, version: '1700000000000014', subscribed: true });
     await client.live.stop();
@@ -333,7 +435,7 @@ describe('ResourceStore live list page', () => {
   it("the tenant moving moves the subscription, so the new tenant's changes reach the page and the old one's do not", async () => {
     const script = scripted({ [anvilPage]: { rows: [] }, [bastionPage]: { rows: [] } });
     const domain = signal<Domain | undefined>('anvil' as Domain);
-    const { store, client, feed } = storeOver(script, domain);
+    const { store, client, feed, clock } = storeOver(script, domain);
     listPage(store);
     await client.live.start(feed);
     await settle(() => store.pageStatus() === 'resolved');
@@ -345,9 +447,11 @@ describe('ResourceStore live list page', () => {
     expect(client.live.subscriptions()).toEqual([{ resource: 'Ships', domain: 'bastion' }]);
     const before = script.requests.length;
     feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000020' });
+    clock.elapse();
     await settle(() => false, 5);
     expect(script.requests).toHaveLength(before);
     feed.emit({ kind: 'list', resource: 'Ships', domain: 'bastion', at: '1700000000000021' });
+    clock.elapse();
     await settle(() => script.requests.length > before && store.pageStatus() === 'resolved');
     expect(dataRequests(script.requests).at(-1)).toEqual({
       url: bastionPage,
@@ -389,6 +493,142 @@ describe('ResourceStore live list page', () => {
     ]);
     TestBed.resetTestingModule();
     expect(client.live.subscriptions()).toEqual([]);
+  });
+});
+
+describe('ResourceStore live pages: whose change, and when', () => {
+  const shipsWrite = '/api/sectors/anvil/ships';
+  const listPage = (store: ResourceStore): void => {
+    store.resourceName.set('Ships' as Resource);
+    store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', fields: [] });
+    store.listColumns.set([{ id: 'name' } as ColumnConfig]);
+    store.liveChoice.set(true);
+    store.buildStorePage();
+  };
+  const listChange = (n: number): ChangeEvent => ({
+    kind: 'list',
+    resource: 'Ships',
+    domain: 'anvil',
+    at: String(1_700_000_000_000_000 + n),
+    write: `w-${n}`,
+  });
+
+  it('a row deleted from the list page requests the page again at once, once, and the echo in the feed requests nothing', async () => {
+    const script = scripted({
+      [anvilPage]: { rows: [{ id: 's1', name: 'Kestrel' }], slow: true },
+      [shipsWrite]: {
+        headers: changesAnswer('w-mine', [
+          { kind: 'list', resource: 'Ships', domain: 'anvil' },
+          { kind: 'row', resource: 'Ships', key: 's1', deleted: true },
+        ]),
+      },
+    });
+    const { store, client, feed, clock } = storeOver(script);
+    listPage(store);
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.pageStatus() === 'resolved');
+    const before = dataRequests(script.requests).length;
+
+    // What the list page does for a deleted row: the write, then the page again.
+    await store.apply([store.handle().ops.remove(['s1'])], 'Ships deleted successfully').then(() => store.reloadPage());
+    // No time has passed on the session's clock: the page was asked for when the write
+    // was answered, and the component's own reload, asked while that request is in
+    // flight, is that request.
+    expect(dataRequests(script.requests).slice(before)).toEqual([
+      { url: anvilPage, version: 'w-mine', subscribed: true },
+    ]);
+    await settle(() => store.pageStatus() === 'resolved');
+    expect(dataRequests(script.requests).slice(before)).toHaveLength(1);
+
+    feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000100', write: 'w-mine' });
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests).slice(before)).toHaveLength(1);
+    await client.live.stop();
+  });
+
+  it("a burst of other people's changes requests the list page once, two seconds after the first", async () => {
+    const script = scripted({ [anvilPage]: { rows: [{ id: 's1', name: 'Kestrel' }] } });
+    const { store, client, feed, clock } = storeOver(script);
+    listPage(store);
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.pageStatus() === 'resolved');
+    const before = dataRequests(script.requests).length;
+
+    for (let n = 0; n < 10; n++) {
+      feed.emit(listChange(n));
+      clock.advance(100);
+    }
+    clock.advance(liveChangeWait - 1_000 - 1);
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests)).toHaveLength(before);
+    clock.advance(1);
+    await settle(() => store.pageStatus() === 'resolved' && dataRequests(script.requests).length > before);
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests).slice(before)).toEqual([
+      { url: anvilPage, version: listChange(9).at, subscribed: true },
+    ]);
+    await client.live.stop();
+  });
+
+  it('a hidden tab requests nothing, and the list page once when it is shown again', async () => {
+    const script = scripted({ [anvilPage]: { rows: [{ id: 's1', name: 'Kestrel' }] } });
+    const { store, client, feed, clock, visibility } = storeOver(script);
+    listPage(store);
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.pageStatus() === 'resolved');
+    const before = dataRequests(script.requests).length;
+
+    visibility.become('hidden');
+    for (let n = 0; n < 5; n++) {
+      feed.emit(listChange(n));
+      clock.elapse();
+    }
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests)).toHaveLength(before);
+
+    visibility.become('visible');
+    await settle(() => store.pageStatus() === 'resolved' && dataRequests(script.requests).length > before);
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests).slice(before)).toEqual([
+      { url: anvilPage, version: listChange(4).at, subscribed: true },
+    ]);
+    await client.live.stop();
+  });
+
+  it('a row saved from its page is read again at once, once, the row staying on hand, and the echo reads nothing', async () => {
+    const script = scripted({
+      [s1]: { rows: { id: 's1', name: 'Kestrel' } },
+      [shipsWrite]: { headers: changesAnswer('w-mine', [{ kind: 'row', resource: 'Ships', key: 's1' }]) },
+    });
+    const { store, client, feed, clock } = storeOver(script);
+    store.resourceName.set('Ships' as Resource);
+    store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', fields: [] });
+    store.liveChoice.set(true);
+    store.uuid.set('s1');
+    store.buildStoreViewData();
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.viewStatus() === 'resolved');
+    const before = dataRequests(script.requests).length;
+
+    // What the row page does for a saved form: the write, then the row again.
+    await store
+      .apply([store.handle().ops.patch(['s1'], { name: 'Kestrel II' })], 'Ships saved')
+      .then(() => store.reloadViewData());
+    TestBed.tick();
+    // The form and the children stay on screen while the read is in flight.
+    expect(store.rowPresent()).toBe(true);
+    expect(store.viewData()).toEqual({ id: 's1', name: 'Kestrel' });
+    await settle(() => store.viewStatus() === 'resolved' && dataRequests(script.requests).length > before);
+    expect(dataRequests(script.requests).slice(before)).toEqual([{ url: s1, version: 'w-mine', subscribed: true }]);
+
+    feed.emit({ kind: 'row', resource: 'Ships', key: 's1', deleted: false, at: '1700000000000100', write: 'w-mine' });
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests).slice(before)).toHaveLength(1);
+    await client.live.stop();
   });
 });
 
@@ -447,5 +687,69 @@ describe('ResourceStore live by default', () => {
     store.liveChoice.set(true);
     await settle(() => false, 3);
     expect(warnings).toHaveLength(1);
+  });
+});
+
+// A list page across tenants is plain unless its config says live: then the store holds
+// one subscription over the tenants the list reads, the page's requests carry the tab's
+// header, and a change to the resource's list in any tenant requests the page again.
+describe('ResourceStore live list page across tenants', () => {
+  const acrossPage = '/api/ships?count=true';
+  const rows = { rows: [{ id: 's1', name: 'Kestrel', zzTenant: 'anvil' }], headers: { 'total-count': '1' } };
+  const listPage = (store: ResourceStore, live: boolean | undefined): void => {
+    store.resourceName.set('Ships' as Resource);
+    // The resource publishes its changes: a tenant's list of it is live by default.
+    store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', live: true, fields: [] });
+    store.listColumns.set([{ id: 'name' } as ColumnConfig]);
+    store.acrossTenants.set(true);
+    store.liveChoice.set(live);
+    store.buildStorePage();
+  };
+
+  it('is plain unless the page asks: nothing subscribed and nothing asked again, feed or no feed', async () => {
+    const script = scripted({ [acrossPage]: rows });
+    const { store, client, feed, clock } = storeOver(script, signal<Domain | undefined>(undefined));
+    listPage(store, undefined);
+    await settle(() => store.pageStatus() === 'resolved');
+    await client.live.start(feed);
+    feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000060' });
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(store.live()).toBe(false);
+    expect(dataRequests(script.requests)).toEqual([{ url: acrossPage, version: undefined, subscribed: false }]);
+    expect(client.live.subscriptions()).toEqual([]);
+    await client.live.stop();
+  });
+
+  it('asked for live, holds one subscription over the tenants and requests the page again by a change in any of them', async () => {
+    const script = scripted({ [acrossPage]: rows });
+    const { store, client, feed, clock } = storeOver(script, signal<Domain | undefined>(undefined));
+    listPage(store, true);
+    await settle(() => store.pageStatus() === 'resolved');
+    expect(store.live()).toBe(true);
+    expect(dataRequests(script.requests)).toEqual([{ url: acrossPage, version: undefined, subscribed: false }]);
+    expect(client.live.subscriptions()).toEqual([{ resource: 'Ships', acrossTenants: true }]);
+
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.pageStatus() === 'resolved');
+    expect(dataRequests(script.requests)[1]).toEqual({ url: acrossPage, version: client.live.seed, subscribed: true });
+
+    // A change to the resource's list in a tenant, whichever: the page again, by its version.
+    feed.emit({ kind: 'list', resource: 'Ships', domain: 'cinder', at: '1700000000000061' });
+    clock.elapse();
+    await settle(() => script.requests.length >= 4 && store.pageStatus() === 'resolved');
+    expect(dataRequests(script.requests)[2]).toEqual({
+      url: acrossPage,
+      version: '1700000000000061',
+      subscribed: true,
+    });
+
+    // A row of the resource, and another resource: nothing.
+    feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000062' });
+    feed.emit({ kind: 'list', resource: 'ShipClasses', at: '1700000000000063' });
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests)).toHaveLength(3);
+    await client.live.stop();
   });
 });

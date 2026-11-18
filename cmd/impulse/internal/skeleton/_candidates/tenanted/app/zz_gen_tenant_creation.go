@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -28,10 +29,13 @@ var _ interface {
 } = (*App)(nil)
 
 // CreateTenant serves the create-your-tenant route, POST /api/create-tenant: a signed-in person
-// who holds no tenant creates one and becomes its administrator (@tenant(creation: both)).
-// No grant admits the call. The session must be established, which the router's session
-// group holds it to, and must hold a grant in no tenant: a person creates one tenant,
-// and the member or administrator of one is refused (403). The row is written first, in
+// who holds no tenant creates one and becomes its administrator, while an administrator has
+// a sign-in method of the Staff auth open to sign-up. No grant admits the call. The session
+// must be established, which the router's session group holds it to, and must hold a
+// grant in no tenant: a person creates one tenant, and the member or administrator of
+// one is refused (403). Whether sign-up is open is read in the transaction that writes
+// the row, from the auth's sign-in methods table: while every method is invite only the
+// call is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // Staff auth's generated identity client, so the tenant and its administrator are
@@ -40,11 +44,14 @@ var _ interface {
 // new membership as a foothold the session reaches, so the person's next request stands
 // in the tenant; the tenants kind is signaled last, so every instance serves it at
 // once.
-// The tenant's first directory is the one its creator came through: a person who
-// signed in through a directory (Google, Microsoft Entra, WorkOS) has it declared on the
-// new tenant in the row's transaction (TenantDirectory), so the tenant admits
-// them at once, one domain, one directory; a person who signed in by password declares
-// none, and the tenant admits passwords as every tenant declaring nothing does.
+// The tenant's directory is the one its creator came through: a person who
+// signed in through an organization's directory (a Google Workspace, a Microsoft Entra
+// tenant) has it set on the new tenant in the row's transaction
+// (SetTenantDirectory, which writes the TenantDirectory row), so the tenant admits
+// them at once. A directory belongs to one tenant: a person whose organization has a
+// tenant already is refused (409) and nothing is written. A person who signed in by
+// password, or with a personal account, which is no organization's directory, sets
+// none, and the tenant admits both as every tenant with no directory does.
 // The roster must list the tenant and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a tenant the roster does
 // not know admits nobody who came through a directory.
@@ -88,6 +95,17 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		var id impulse.UUID
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// Who is admitted: a person who signed up, which is a person with no tenant
+			// while an administrator has a sign-in method open to sign-up. A person who
+			// holds an invitation to create a tenant is the next admission, and is
+			// decided here, before the refusal, when that invitation exists.
+			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			if err != nil {
+				return errors.Wrap(err, "StaffIdentity().AnySignInMethodOpen()")
+			}
+			if !open {
+				return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a tenant of your own: ask an administrator of the application to create one for you, or to invite you to one")
+			}
 			patch, err := resources.NewTenantCreatePatch()
 			if err != nil {
 				return errors.Wrap(err, "resources.NewTenantCreatePatch()")
@@ -98,16 +116,16 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 			}
-			// The creator's directory, written with the row; none for a creator who came
-			// by password.
-			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok && established.Method.ThroughDirectory() {
-				directory, err := resources.NewTenantDirectoryCreatePatch()
-				if err != nil {
-					return errors.Wrap(err, "resources.NewTenantDirectoryCreatePatch()")
-				}
-				directory.SetTenantID(id).SetMethod(string(established.Method)).SetConnection(established.Connection)
-				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
-					return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
+			// The creator's directory, written with the row: the organization's directory
+			// the creator is signed in through, held to the rules of a tenant's
+			// directory, so a directory another tenant has refuses the creation and
+			// nothing is written. None for a creator who came by password or with a
+			// personal account, which is no organization's directory.
+			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+					if err := SetTenantDirectory(ctx, txn, id, directory, eventSource); err != nil {
+						return errors.Wrap(err, "SetTenantDirectory()")
+					}
 				}
 			}
 			// The first administrator: the person's membership of each role, in the row's
@@ -122,7 +140,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
 		domain := accesstypes.Domain(id.String())
 
 		// This instance's roster learns the tenant before the membership is probed:
@@ -145,5 +163,41 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		}
 
 		return httpio.NewEncoder(w).Ok(response{ID: id})
+	})
+}
+
+// CreateTenantOffered serves GET /api/create-tenant: whether the caller may create a tenant of
+// their own now. A page offers a person only what they may do, so the page that offers
+// the create-your-tenant card asks this first and hides the card on a no. The answer is
+// the one CreateTenant would reach for the same caller before it reads a body, by the
+// same two facts: the session holds a grant in no tenant, and an administrator has a
+// sign-in method of the Staff auth open to sign-up, read as committed. No grant admits the
+// call, which any signed-in person makes, and nothing is written. The POST decides again
+// in its own transaction: what is offered here may be refused there a moment later.
+func (a *App) CreateTenantOffered() http.HandlerFunc {
+	type offer struct {
+		Offered bool `json:"offered"`
+	}
+
+	identity := a.StaffIdentity()
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		// One tenant per person: a session holding a grant in any tenant is offered none.
+		held, err := a.UserPermissions(r).Domains(ctx)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if len(held) > 0 {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "StaffIdentity().AnySignInMethodOpen()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(offer{Offered: open})
 	})
 }

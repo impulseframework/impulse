@@ -1,4 +1,15 @@
 <h1>Signed in as {{ auth.sessionInfo().username }}</h1>
+@if (creationOffered()) {
+  <mat-card appearance="outlined" class="create-tenant-card">
+    <mat-card-header>
+      <mat-card-title>You hold no tenant yet</mat-card-title>
+      <mat-card-subtitle>Create yours and you become its administrator.</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-actions>
+      <button mat-flat-button type="button" (click)="createYourTenant()">Create your tenant</button>
+    </mat-card-actions>
+  </mat-card>
+}
 <p>
   Every page consults the permission digest before asking the server, and the server checks every request. The card
   below is that digest: tenant-scoped resources in <strong>{{ tenantName() || 'no tenant' }}</strong

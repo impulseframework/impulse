@@ -8,44 +8,42 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 )
 
-// fakeStore is a Store over a map, applying the rule as the drivers do, that counts
-// its calls.
+// fakeStore is a Store over a map, applying the rule as the drivers do, in one step, that
+// counts its calls.
 type fakeStore struct {
 	mu      sync.Mutex
 	now     func() time.Time
 	records map[string]*dbtype.SignInAttempts
-	reads   int
 	writes  int
 	clears  int
 	fail    error
+	// beforeClear, when set, is called as a clear arrives, before the record is deleted:
+	// where a test makes another attempt while a clear is on its way.
+	beforeClear func()
+	// afterRecord, when set, is called once a failure was counted, before the store
+	// answers: where a test holds attempts made at once.
+	afterRecord func()
 }
 
 func newFakeStore(now func() time.Time) *fakeStore {
 	return &fakeStore{now: now, records: map[string]*dbtype.SignInAttempts{}}
 }
 
-func (s *fakeStore) SignInAttempts(_ context.Context, name string) (*dbtype.SignInAttempts, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.reads++
-	if s.fail != nil {
-		return nil, s.fail
+func (s *fakeStore) RecordSignInFailure(_ context.Context, name string, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error) {
+	record, err := s.count(name, limit)
+	if err == nil && s.afterRecord != nil {
+		s.afterRecord()
 	}
-	r, found := s.records[name]
-	if !found {
-		return nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")
-	}
-	copied := *r
 
-	return &copied, nil
+	return record, err
 }
 
-func (s *fakeStore) RecordSignInFailure(_ context.Context, name string, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error) {
+// count counts a failure of name in one step, as the drivers' transaction does, and
+// returns a copy of the record as written.
+func (s *fakeStore) count(name string, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -60,7 +58,14 @@ func (s *fakeStore) RecordSignInFailure(_ context.Context, name string, limit db
 	return &copied, nil
 }
 
-func (s *fakeStore) ClearSignInAttempts(_ context.Context, name string) error {
+func (s *fakeStore) ClearSignInAttempts(ctx context.Context, name string) error {
+	// A store does nothing for a request that was canceled.
+	if err := ctx.Err(); err != nil {
+		return errors.Wrap(err, "context.Context.Err()")
+	}
+	if s.beforeClear != nil {
+		s.beforeClear()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -75,6 +80,14 @@ func (s *fakeStore) record(name string) *dbtype.SignInAttempts {
 	defer s.mu.Unlock()
 
 	return s.records[name]
+}
+
+// asked is how often the store was asked to count a failure.
+func (s *fakeStore) asked() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.writes
 }
 
 // clock is a settable test clock.
@@ -110,16 +123,45 @@ func newLimiter(t *testing.T) (*Limiter, *fakeStore, *clock) {
 	return l, store, c
 }
 
-// fail runs one failed attempt: the check lets it through, the failure is recorded.
+// take takes an attempt that must be given a place, and returns it.
+func take(ctx context.Context, t *testing.T, l *Limiter, name string, client Client) *Attempt {
+	t.Helper()
+
+	taken, wait, err := l.Take(ctx, name, client)
+	if err != nil || taken == nil {
+		t.Fatalf("Take(%q) = %v, %v, %v; want the attempt taken", name, taken, wait, err)
+	}
+
+	return taken
+}
+
+// fail runs one failed attempt: it takes its place, and its password proves wrong, so
+// the place stays taken.
 func fail(ctx context.Context, t *testing.T, l *Limiter, name string, client Client) {
 	t.Helper()
 
-	if wait, err := l.Check(ctx, name, client); err != nil || wait != 0 {
-		t.Fatalf("Check(%q) before the failure = %v, %v; want to go on", name, wait, err)
+	take(ctx, t, l, name, client)
+}
+
+// succeed runs one attempt with the right password: it takes its place and gives it back.
+func succeed(ctx context.Context, t *testing.T, l *Limiter, name string, client Client) {
+	t.Helper()
+
+	if err := l.Succeeded(ctx, take(ctx, t, l, name, client)); err != nil {
+		t.Fatalf("Succeeded(%q) error = %v", name, err)
 	}
-	if _, err := l.Failed(ctx, name, client); err != nil {
-		t.Fatalf("Failed(%q) error = %v", name, err)
+}
+
+// refused takes an attempt that must be refused, and returns the wait.
+func refused(ctx context.Context, t *testing.T, l *Limiter, name string, client Client) time.Duration {
+	t.Helper()
+
+	taken, wait, err := l.Take(ctx, name, client)
+	if err != nil || taken != nil {
+		t.Fatalf("Take(%q) = %v, %v, %v; want the attempt refused", name, taken, wait, err)
 	}
+
+	return wait
 }
 
 func TestNormalize(t *testing.T) {
@@ -153,43 +195,51 @@ func TestLimiter_NameLock(t *testing.T) {
 		run  func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, c *clock)
 	}{
 		{
-			name: "the failure that reaches the limit locks the name, and the next attempt is refused from memory with the wait and no store read",
+			name: "the attempt that reaches the limit is taken and locks the name, and the next attempt is refused from memory with the wait and the store not asked",
 			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
-				for range testLimit.Failures {
-					fail(ctx, t, l, "Pat", Client{Address: "10.0.0.1"})
+				for range testLimit.Failures - 1 {
+					if taken := take(ctx, t, l, "Pat", Client{Address: "10.0.0.1"}); taken.Lock != 0 {
+						t.Fatalf("Take() before the limit says the name is locked for %v, want no lock", taken.Lock)
+					}
 				}
-				reads := store.reads
-				wait, err := l.Check(ctx, "pat", Client{Address: "10.0.0.1"})
-				if err != nil || wait != testLimit.Lock {
-					t.Errorf("Check() after the limit = %v, %v; want the lock period %v", wait, err, testLimit.Lock)
+				if taken := take(ctx, t, l, "Pat", Client{Address: "10.0.0.1"}); taken.Lock != testLimit.Lock {
+					t.Errorf("Take() of the attempt that reaches the limit says the name is locked for %v, want the lock period %v", taken.Lock, testLimit.Lock)
 				}
-				if store.reads != reads {
-					t.Errorf("store reads during the lock = %d, want none beyond %d", store.reads, reads)
+				asked := store.asked()
+				if wait := refused(ctx, t, l, "pat", Client{Address: "10.0.0.1"}); wait != testLimit.Lock {
+					t.Errorf("Take() after the limit waits %v, want the lock period %v", wait, testLimit.Lock)
+				}
+				if store.asked() != asked {
+					t.Errorf("the store was asked %d times during the lock, want none beyond %d", store.asked(), asked)
 				}
 			},
 		},
 		{
-			name: "a lock in the store is learned by the first check, refused from memory within the read window, and read again past it",
+			name: "a lock in the store is learned by the first attempt, which is not counted, refused from memory within the read window, and asked for again past it",
 			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, c *clock) {
 				lockedUntil := c.now().Add(4 * time.Minute)
-				store.records[Normalize("pat")] = &dbtype.SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: c.now().Add(time.Hour), LockedUntil: &lockedUntil}
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 4*time.Minute {
-					t.Fatalf("Check() = %v, %v; want the store's wait of 4m", wait, err)
+				locked := dbtype.SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: c.now().Add(time.Hour), LockedUntil: &lockedUntil}
+				store.records[Normalize("pat")] = &locked
+				if wait := refused(ctx, t, l, "pat", Client{}); wait != 4*time.Minute {
+					t.Fatalf("Take() waits %v, want the store's wait of 4m", wait)
 				}
-				reads := store.reads
+				asked := store.asked()
 				c.advance(readTTL - time.Second)
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 4*time.Minute-readTTL+time.Second {
-					t.Errorf("Check() within the read window = %v, %v; want the rest of the lock", wait, err)
+				if wait := refused(ctx, t, l, "pat", Client{}); wait != 4*time.Minute-readTTL+time.Second {
+					t.Errorf("Take() within the read window waits %v, want the rest of the lock", wait)
 				}
-				if store.reads != reads {
-					t.Errorf("store reads = %d, want %d: within the read window the lock answers from memory", store.reads, reads)
+				if store.asked() != asked {
+					t.Errorf("the store was asked %d times, want %d: within the read window the lock answers from memory", store.asked(), asked)
 				}
 				c.advance(time.Minute)
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 3*time.Minute-readTTL+time.Second {
-					t.Errorf("Check() a minute later = %v, %v; want the rest of the lock", wait, err)
+				if wait := refused(ctx, t, l, "pat", Client{}); wait != 3*time.Minute-readTTL+time.Second {
+					t.Errorf("Take() a minute later waits %v, want the rest of the lock", wait)
 				}
-				if store.reads != reads+1 {
-					t.Errorf("store reads = %d, want %d: past the read window the lock is read again", store.reads, reads+1)
+				if store.asked() != asked+1 {
+					t.Errorf("the store was asked %d times, want %d: past the read window it is asked again", store.asked(), asked+1)
+				}
+				if r := store.record(Normalize("pat")); r.Failures != locked.Failures || !r.LockedUntil.Equal(lockedUntil) {
+					t.Errorf("the name's record after the refused attempts = %+v, want it as it was: an attempt during the lock is not counted", r)
 				}
 			},
 		},
@@ -199,26 +249,25 @@ func TestLimiter_NameLock(t *testing.T) {
 				for range testLimit.Failures {
 					fail(ctx, t, l, "pat", Client{})
 				}
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != testLimit.Lock {
-					t.Fatalf("Check() after the limit = %v, %v; want the lock period", wait, err)
+				if wait := refused(ctx, t, l, "pat", Client{}); wait != testLimit.Lock {
+					t.Fatalf("Take() after the limit waits %v, want the lock period", wait)
 				}
 				// An administrator deletes the row, as another instance or the
 				// application's own transaction does: this limiter is not told.
+				store.mu.Lock()
 				delete(store.records, Normalize("pat"))
+				store.mu.Unlock()
 				c.advance(readTTL - time.Second)
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait == 0 {
-					t.Errorf("Check() within the read window = %v, %v; want the remembered lock still", wait, err)
+				if wait := refused(ctx, t, l, "pat", Client{}); wait == 0 {
+					t.Error("Take() within the read window waits nothing, want the remembered lock still")
 				}
 				c.advance(time.Second)
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 0 {
-					t.Errorf("Check() once the read window has passed = %v, %v; want to go on", wait, err)
-				}
-				// The name starts again from nothing: one failure does not lock it.
-				if lock, err := l.Failed(ctx, "pat", Client{}); err != nil || lock != 0 {
-					t.Errorf("Failed() after the clear = %v, %v; want no lock", lock, err)
+				// The name starts again from nothing: one attempt does not lock it.
+				if taken := take(ctx, t, l, "pat", Client{}); taken.Lock != 0 {
+					t.Errorf("Take() once the read window has passed says the name is locked for %v, want no lock", taken.Lock)
 				}
 				if got := store.record(Normalize("pat")); got == nil || got.Failures != 1 {
-					t.Errorf("the name's record after the clear and one failure = %+v, want one failure", got)
+					t.Errorf("the name's record after the clear and one attempt = %+v, want one failure", got)
 				}
 			},
 		},
@@ -229,9 +278,7 @@ func TestLimiter_NameLock(t *testing.T) {
 					fail(ctx, t, l, "pat", Client{})
 				}
 				c.advance(testLimit.Lock + time.Second)
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 0 {
-					t.Errorf("Check() after the lock = %v, %v; want to go on", wait, err)
-				}
+				take(ctx, t, l, "pat", Client{})
 			},
 		},
 		{
@@ -241,11 +288,36 @@ func TestLimiter_NameLock(t *testing.T) {
 				fail(ctx, t, l, "pat", Client{})
 				c.advance(testLimit.Window + time.Second)
 				fail(ctx, t, l, "pat", Client{})
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 0 {
-					t.Errorf("Check() = %v, %v; want to go on: the window ended", wait, err)
-				}
 				if r := store.record(Normalize("pat")); r == nil || r.Failures != 1 {
 					t.Errorf("record = %+v, want one failure in a new window", r)
+				}
+				take(ctx, t, l, "pat", Client{})
+			},
+		},
+		{
+			name: "a failure learned after its attempt was given back is counted, and the one that reaches the limit locks the name",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+				for i := range testLimit.Failures {
+					succeed(ctx, t, l, "pat", Client{})
+					lock, err := l.Failed(ctx, "pat", Client{})
+					if err != nil {
+						t.Fatalf("Failed() error = %v", err)
+					}
+					// Each right password before it reset the name, so each failure is the first.
+					if r := store.record(Normalize("pat")); lock != 0 || r == nil || r.Failures != 1 {
+						t.Fatalf("Failed() %d = %v with the record %+v, want no lock and one failure", i+1, lock, r)
+					}
+				}
+				for range testLimit.Failures - 2 {
+					if lock, err := l.Failed(ctx, "pat", Client{}); err != nil || lock != 0 {
+						t.Fatalf("Failed() before the limit = %v, %v; want no lock", lock, err)
+					}
+				}
+				if lock, err := l.Failed(ctx, "pat", Client{}); err != nil || lock != testLimit.Lock {
+					t.Errorf("Failed() at the limit = %v, %v; want the lock period", lock, err)
+				}
+				if wait := refused(ctx, t, l, "pat", Client{}); wait != testLimit.Lock {
+					t.Errorf("Take() after the failures reached the limit waits %v, want the lock period", wait)
 				}
 			},
 		},
@@ -260,7 +332,7 @@ func TestLimiter_NameLock(t *testing.T) {
 	}
 }
 
-// TestLimiter_NameResetAndCache covers what resets a name and how the store is read.
+// TestLimiter_NameResetAndCache covers what resets a name and how the store is asked.
 func TestLimiter_NameResetAndCache(t *testing.T) {
 	t.Parallel()
 
@@ -269,27 +341,71 @@ func TestLimiter_NameResetAndCache(t *testing.T) {
 		run  func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, c *clock)
 	}{
 		{
-			name: "a success resets the name and deletes the record it saw; a name with no record is not written",
+			name: "a right password gives its attempt back and resets the name: the record goes, with the failures before it, and a name with no failures is left with none",
 			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
 				fail(ctx, t, l, "pat", Client{})
 				fail(ctx, t, l, "pat", Client{})
-				if _, err := l.Check(ctx, "pat", Client{}); err != nil {
-					t.Fatal(err)
-				}
-				if err := l.Succeeded(ctx, "pat"); err != nil {
-					t.Fatalf("Succeeded() error = %v", err)
-				}
+				succeed(ctx, t, l, "pat", Client{})
 				if store.clears != 1 || store.record(Normalize("pat")) != nil {
 					t.Errorf("clears = %d, record = %v; want the record deleted once", store.clears, store.record(Normalize("pat")))
 				}
-				if _, err := l.Check(ctx, "sam", Client{}); err != nil {
-					t.Fatal(err)
+				succeed(ctx, t, l, "sam", Client{})
+				if store.record(Normalize("sam")) != nil {
+					t.Errorf("record after a right password with no failure before it = %v, want none: the attempt was given back", store.record(Normalize("sam")))
 				}
-				if err := l.Succeeded(ctx, "sam"); err != nil {
+			},
+		},
+		{
+			name: "the right password that takes the attempt at the limit lifts the lock it earned: the next attempt goes on",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+				for range testLimit.Failures - 1 {
+					fail(ctx, t, l, "pat", Client{})
+				}
+				taken := take(ctx, t, l, "pat", Client{})
+				if taken.Lock != testLimit.Lock {
+					t.Fatalf("Take() of the attempt that reaches the limit says the name is locked for %v, want the lock period", taken.Lock)
+				}
+				if wait := refused(ctx, t, l, "pat", Client{}); wait != testLimit.Lock {
+					t.Fatalf("Take() while the attempt at the limit is compared waits %v, want the lock period", wait)
+				}
+				if err := l.Succeeded(ctx, taken); err != nil {
 					t.Fatalf("Succeeded() error = %v", err)
 				}
-				if store.clears != 1 {
-					t.Errorf("clears after a success with no record = %d, want still 1", store.clears)
+				if got := take(ctx, t, l, "pat", Client{}); got.Lock != 0 || store.record(Normalize("pat")).Failures != 1 {
+					t.Errorf("Take() after the right password = lock %v with the record %+v, want the first attempt of a name with no failures", got.Lock, store.record(Normalize("pat")))
+				}
+			},
+		},
+		{
+			name: "an attempt made while a right password's clear is on its way leaves no lock behind in memory: the next attempt goes on",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+				for range testLimit.Failures - 1 {
+					fail(ctx, t, l, "pat", Client{})
+				}
+				taken := take(ctx, t, l, "pat", Client{})
+				// The store still holds the lock the attempt at the limit earned when
+				// another attempt arrives.
+				store.beforeClear = func() {
+					refused(ctx, t, l, "pat", Client{})
+				}
+				if err := l.Succeeded(ctx, taken); err != nil {
+					t.Fatalf("Succeeded() error = %v", err)
+				}
+				store.beforeClear = nil
+				take(ctx, t, l, "pat", Client{})
+			},
+		},
+		{
+			name: "a right password whose request was canceled gives its attempt back all the same",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+				request, cancel := context.WithCancel(ctx)
+				taken := take(request, t, l, "pat", Client{})
+				cancel()
+				if err := l.Succeeded(request, taken); err != nil {
+					t.Fatalf("Succeeded() of a canceled request error = %v, want the attempt given back", err)
+				}
+				if r := store.record(Normalize("pat")); r != nil {
+					t.Errorf("record after the right password of a canceled request = %+v, want none", r)
 				}
 			},
 		},
@@ -302,9 +418,7 @@ func TestLimiter_NameResetAndCache(t *testing.T) {
 				if err := l.Clear(ctx, "pat"); err != nil {
 					t.Fatalf("Clear() error = %v", err)
 				}
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 0 {
-					t.Errorf("Check() after the clear = %v, %v; want to go on", wait, err)
-				}
+				take(ctx, t, l, "pat", Client{})
 				if store.clears != 1 {
 					t.Errorf("clears = %d, want 1", store.clears)
 				}
@@ -316,39 +430,33 @@ func TestLimiter_NameResetAndCache(t *testing.T) {
 				fail(ctx, t, l, "Pat@Lakeside.edu", Client{})
 				fail(ctx, t, l, "pat@lakeside.EDU", Client{})
 				fail(ctx, t, l, "PAT@LAKESIDE.EDU", Client{})
-				if wait, _ := l.Check(ctx, "pat@lakeside.edu", Client{}); wait == 0 {
-					t.Error("Check() = 0 after three failures under one name in three spellings, want the lock")
+				if wait := refused(ctx, t, l, "pat@lakeside.edu", Client{}); wait == 0 {
+					t.Error("Take() waits nothing after three failures under one name in three spellings, want the lock")
 				}
 			},
 		},
 		{
-			name: "a store read within the TTL is not repeated; one after it is",
-			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, c *clock) {
-				if _, err := l.Check(ctx, "pat", Client{}); err != nil {
-					t.Fatal(err)
-				}
-				if _, err := l.Check(ctx, "pat", Client{}); err != nil {
-					t.Fatal(err)
-				}
-				if store.reads != 1 {
-					t.Errorf("reads = %d, want 1 within the TTL", store.reads)
-				}
-				c.advance(readTTL + time.Second)
-				if _, err := l.Check(ctx, "pat", Client{}); err != nil {
-					t.Fatal(err)
-				}
-				if store.reads != 2 {
-					t.Errorf("reads = %d, want 2 after the TTL", store.reads)
-				}
-			},
-		},
-		{
-			name: "a store failure on the check is reported",
+			name: "every attempt that goes on is counted in the store: nothing but a lock answers from memory",
 			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
-				store.fail = errors.New("store down")
-				if _, err := l.Check(ctx, "pat", Client{}); err == nil {
-					t.Error("Check() error = nil, want the store's failure")
+				fail(ctx, t, l, "pat", Client{})
+				fail(ctx, t, l, "pat", Client{})
+				if store.asked() != 2 || store.record(Normalize("pat")).Failures != 2 {
+					t.Errorf("the store was asked %d times and holds %+v, want each attempt counted", store.asked(), store.record(Normalize("pat")))
 				}
+			},
+		},
+		{
+			name: "a store failure is reported, and the attempt it refused leaves nothing counted against the client",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+				client := Client{Address: "10.0.0.1", Cookie: "tok"}
+				store.fail = errors.New("store down")
+				for range ClientMultiple * testLimit.Failures {
+					if taken, _, err := l.Take(ctx, "pat", client); err == nil || taken != nil {
+						t.Fatalf("Take() = %v, %v; want the store's failure and no attempt", taken, err)
+					}
+				}
+				store.fail = nil
+				take(ctx, t, l, "pat", client)
 			},
 		},
 	}
@@ -380,40 +488,149 @@ func TestLimiter_ClientKeys(t *testing.T) {
 				}
 				locked := *store.record(Normalize("pat"))
 				for range clientLimit {
-					if wait, err := l.Check(ctx, "pat", client); err != nil || wait == 0 {
-						t.Fatalf("Check() during the lock = %v, %v; want a wait", wait, err)
+					if wait := refused(ctx, t, l, "pat", client); wait == 0 {
+						t.Fatal("Take() during the lock waits nothing, want a wait")
 					}
 				}
 				if r := store.record(Normalize("pat")); *r != locked {
 					t.Errorf("the name's record changed during the retries: %+v, want %+v", r, locked)
 				}
 				// The client is now locked on its own: another name from it is refused
-				// with no store read, and each retry extends the client's lock.
-				reads := store.reads
-				if wait, err := l.Check(ctx, "sam", client); err != nil || wait != testLimit.Lock {
-					t.Errorf("Check() of another name from the locked client = %v, %v; want the lock period", wait, err)
+				// with the store not asked, and each retry extends the client's lock.
+				asked := store.asked()
+				if wait := refused(ctx, t, l, "sam", client); wait != testLimit.Lock {
+					t.Errorf("Take() of another name from the locked client waits %v, want the lock period", wait)
 				}
-				if store.reads != reads {
-					t.Errorf("store reads for a locked client = %d, want none beyond %d", store.reads, reads)
+				if store.asked() != asked {
+					t.Errorf("the store was asked %d times for a locked client, want none beyond %d", store.asked(), asked)
 				}
 			},
 		},
 		{
-			name: "a client's failures across names lock the client at the client's limit, and a success for one name leaves the client's count",
+			name: "a client's failures across names lock the client at the client's limit, and a right password for one name leaves the client's count as it was",
 			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, _ *clock) {
 				client := Client{Address: "10.0.0.1"}
 				for i := range clientLimit - 1 {
 					fail(ctx, t, l, fmt.Sprintf("name-%d", i), client)
 				}
-				if wait, _ := l.Check(ctx, "another", client); wait != 0 {
-					t.Fatalf("Check() one short of the client's limit = %v, want to go on", wait)
-				}
-				if err := l.Succeeded(ctx, "name-0"); err != nil {
-					t.Fatal(err)
-				}
+				// One short of the client's limit: a right password takes the place at
+				// the limit, is compared, and gives the place back.
+				succeed(ctx, t, l, "another", client)
+				succeed(ctx, t, l, "name-0", client)
 				fail(ctx, t, l, "last", client)
-				if wait, _ := l.Check(ctx, "yet-another", client); wait != testLimit.Lock {
-					t.Errorf("Check() at the client's limit = %v, want the lock period", wait)
+				if wait := refused(ctx, t, l, "yet-another", client); wait != testLimit.Lock {
+					t.Errorf("Take() at the client's limit waits %v, want the lock period", wait)
+				}
+			},
+		},
+		{
+			name: "right passwords from one address never hold it: more of them than the client's limit, one after another",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, _ *clock) {
+				client := Client{Address: "10.0.0.1", Cookie: "tok"}
+				for i := range 3 * clientLimit {
+					succeed(ctx, t, l, fmt.Sprintf("name-%d", i), client)
+				}
+			},
+		},
+		{
+			name: "the right password that takes the place at the client's limit lifts the lock it earned, and a wrong one keeps it",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, _ *clock) {
+				client := Client{Cookie: "tok"}
+				for i := range clientLimit - 1 {
+					fail(ctx, t, l, fmt.Sprintf("name-%d", i), client)
+				}
+				taken := take(ctx, t, l, "right", client)
+				if wait := refused(ctx, t, l, "meanwhile", client); wait != testLimit.Lock {
+					t.Fatalf("Take() while the attempt at the client's limit is compared waits %v, want the lock period", wait)
+				}
+				if err := l.Succeeded(ctx, taken); err != nil {
+					t.Fatalf("Succeeded() error = %v", err)
+				}
+				fail(ctx, t, l, "wrong", client)
+				if wait := refused(ctx, t, l, "after", client); wait != testLimit.Lock {
+					t.Errorf("Take() after the wrong password at the client's limit waits %v, want the lock period", wait)
+				}
+			},
+		},
+		{
+			name: "once a client's lock has passed while its window is open, a right password goes on and leaves the client as it was, and a wrong one locks it again",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1"}
+				for i := range clientLimit {
+					fail(ctx, t, l, fmt.Sprintf("name-%d", i), client)
+				}
+				// The lock is shorter than the window: it passes with the count still at
+				// the limit.
+				c.advance(testLimit.Lock + time.Second)
+				for i := range 3 {
+					succeed(ctx, t, l, fmt.Sprintf("right-%d", i), client)
+				}
+				fail(ctx, t, l, "wrong", client)
+				if wait := refused(ctx, t, l, "after", client); wait != testLimit.Lock {
+					t.Errorf("Take() after a wrong password past the client's limit waits %v, want the lock period", wait)
+				}
+			},
+		},
+		{
+			name: "a right password still being compared when wrong ones reach the client's limit takes its place off the count, and the lock the count no longer earns is lifted",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, _ *clock) {
+				client := Client{Address: "10.0.0.1"}
+				slow := take(ctx, t, l, "slow", client)
+				for i := range clientLimit - 1 {
+					fail(ctx, t, l, fmt.Sprintf("name-%d", i), client)
+				}
+				if wait := refused(ctx, t, l, "meanwhile", client); wait != testLimit.Lock {
+					t.Fatalf("Take() at the client's limit waits %v, want the lock period", wait)
+				}
+				if err := l.Succeeded(ctx, slow); err != nil {
+					t.Fatalf("Succeeded() error = %v", err)
+				}
+				// One short of the limit in wrong passwords: the next one reaches it.
+				fail(ctx, t, l, "last", client)
+				if wait := refused(ctx, t, l, "after", client); wait != testLimit.Lock {
+					t.Errorf("Take() after the client's limit of wrong passwords waits %v, want the lock period", wait)
+				}
+			},
+		},
+		{
+			name: "a lock a later failure earned is not lifted by a right password whose own lock had passed",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1"}
+				for i := range clientLimit - 1 {
+					fail(ctx, t, l, fmt.Sprintf("name-%d", i), client)
+				}
+				// The attempt at the limit locks the client, and is still being compared
+				// when its lock passes and a failure past the limit locks the client again.
+				slow := take(ctx, t, l, "slow", client)
+				c.advance(testLimit.Lock + time.Second)
+				if _, err := l.Failed(ctx, "another", client); err != nil {
+					t.Fatalf("Failed() error = %v", err)
+				}
+				if err := l.Succeeded(ctx, slow); err != nil {
+					t.Fatalf("Succeeded() error = %v", err)
+				}
+				if wait := refused(ctx, t, l, "after", client); wait != testLimit.Lock {
+					t.Errorf("Take() after the failure past the client's limit waits %v, want the lock period", wait)
+				}
+			},
+		},
+		{
+			name: "an attempt given back after its window ended takes nothing off the next window's count",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, c *clock) {
+				client := Client{Address: "10.0.0.1"}
+				early := take(ctx, t, l, "slow", client)
+				c.advance(testLimit.Window + time.Second)
+				for i := range clientLimit - 1 {
+					fail(ctx, t, l, fmt.Sprintf("name-%d", i), client)
+				}
+				if err := l.Succeeded(ctx, early); err != nil {
+					t.Fatalf("Succeeded() error = %v", err)
+				}
+				// The new window holds one short of the limit still: the next wrong
+				// password reaches it.
+				fail(ctx, t, l, "last", client)
+				if wait := refused(ctx, t, l, "after", client); wait != testLimit.Lock {
+					t.Errorf("Take() after the client's limit of wrong passwords in one window waits %v, want the lock period", wait)
 				}
 			},
 		},
@@ -426,13 +643,11 @@ func TestLimiter_ClientKeys(t *testing.T) {
 					c.advance(time.Millisecond)
 				}
 				c.advance(testLimit.Lock - time.Minute)
-				if wait, _ := l.Check(ctx, "x", client); wait != testLimit.Lock {
-					t.Errorf("Check() during the client's lock = %v, want it extended to the full lock period", wait)
+				if wait := refused(ctx, t, l, "x", client); wait != testLimit.Lock {
+					t.Errorf("Take() during the client's lock waits %v, want it extended to the full lock period", wait)
 				}
 				c.advance(testLimit.Lock + time.Second)
-				if wait, _ := l.Check(ctx, "x", client); wait != 0 {
-					t.Errorf("Check() once the client's lock passed without retries = %v, want to go on", wait)
-				}
+				take(ctx, t, l, "x", client)
 			},
 		},
 		{
@@ -441,35 +656,27 @@ func TestLimiter_ClientKeys(t *testing.T) {
 				for i := range clientLimit {
 					fail(ctx, t, l, fmt.Sprintf("n%d", i), Client{Address: "10.0.0.1", Cookie: fmt.Sprintf("c%d", i)})
 				}
-				if wait, _ := l.Check(ctx, "x", Client{Address: "10.0.0.1", Cookie: "fresh"}); wait == 0 {
-					t.Error("Check() from the address with a fresh cookie = 0, want the address's lock")
+				if wait := refused(ctx, t, l, "x", Client{Address: "10.0.0.1", Cookie: "fresh"}); wait == 0 {
+					t.Error("Take() from the address with a fresh cookie waits nothing, want the address's lock")
 				}
-				if wait, _ := l.Check(ctx, "x", Client{}); wait != 0 {
-					t.Errorf("Check() with no client keys = %v, want to go on", wait)
-				}
+				take(ctx, t, l, "x", Client{})
 			},
 		},
 		{
 			name: "the memory is bounded: a flood of names evicts the oldest entries and holds no more than the cap",
-			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, _ *clock) {
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore, _ *clock) {
 				for i := range cacheSize + 100 {
-					if _, err := l.Check(ctx, fmt.Sprintf("flood-%d", i), Client{Address: fmt.Sprintf("10.%d.%d.%d", i>>16&255, i>>8&255, i&255)}); err != nil {
-						t.Fatal(err)
-					}
+					take(ctx, t, l, fmt.Sprintf("flood-%d", i), Client{Address: fmt.Sprintf("10.%d.%d.%d", i>>16&255, i>>8&255, i&255)})
 				}
 				l.mu.Lock()
 				n := len(l.entries)
+				_, first := l.entries[nameKey(Normalize("flood-0"))]
 				l.mu.Unlock()
 				if n > cacheSize {
 					t.Errorf("entries = %d, want at most %d", n, cacheSize)
 				}
-				// The first name was evicted, so it is read from the store again.
-				reads := store.reads
-				if _, err := l.Check(ctx, "flood-0", Client{}); err != nil {
-					t.Fatal(err)
-				}
-				if store.reads != reads+1 {
-					t.Errorf("reads = %d, want %d: the evicted name is read again", store.reads, reads+1)
+				if first {
+					t.Error("the first name of the flood is still in memory, want it evicted")
 				}
 			},
 		},
@@ -480,6 +687,111 @@ func TestLimiter_ClientKeys(t *testing.T) {
 
 			l, store, c := newLimiter(t)
 			tt.run(t.Context(), t, l, store, c)
+		})
+	}
+}
+
+// TestLimiter_TakenAtOnce holds the limits under attempts made at once: the place is
+// taken before the password is compared, in one step for the name (the store's) and in
+// one step for the client's keys (the limiter's), so of attempts that arrive together as
+// many as the limit are taken and no more.
+func TestLimiter_TakenAtOnce(t *testing.T) {
+	t.Parallel()
+
+	clientLimit := ClientMultiple * testLimit.Failures
+	// atOnce takes n attempts at once and returns how many were taken and how many refused.
+	atOnce := func(ctx context.Context, t *testing.T, l *Limiter, n int, attempt func(i int) (string, Client)) (taken, refused int) {
+		t.Helper()
+
+		var (
+			wg     sync.WaitGroup
+			mu     sync.Mutex
+			failed []error
+		)
+		for i := range n {
+			wg.Go(func() {
+				name, client := attempt(i)
+				got, wait, err := l.Take(ctx, name, client)
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case err != nil:
+					failed = append(failed, err)
+				case got != nil:
+					taken++
+				case wait > 0:
+					refused++
+				default:
+					failed = append(failed, errors.New("an attempt was refused with no wait"))
+				}
+			})
+		}
+		wg.Wait()
+		if len(failed) != 0 {
+			t.Fatalf("%d attempts at once: errors %v", n, failed)
+		}
+
+		return taken, refused
+	}
+
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore)
+	}{
+		{
+			name: "of a dozen attempts on one name at once, as many as the limit are taken and the rest are refused; the name is locked",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore) {
+				// Every attempt is held at the count it takes in the store until all of
+				// them have taken theirs: none was answered, so none found the name locked
+				// in memory, and the store's answer alone decides which go on.
+				var counted sync.WaitGroup
+				counted.Add(12)
+				all := make(chan struct{})
+				go func() {
+					counted.Wait()
+					close(all)
+				}()
+				// An attempt the others never join goes on after a while, so a change
+				// that keeps one from the store fails the counts and does not hang.
+				store.afterRecord = func() {
+					counted.Done()
+					select {
+					case <-all:
+					case <-time.After(10 * time.Second):
+					}
+				}
+				taken, refused := atOnce(ctx, t, l, 12, func(int) (string, Client) {
+					return "pat", Client{}
+				})
+				if store.asked() != 12 {
+					t.Errorf("the store was asked %d times, want 12: each attempt asked for its place", store.asked())
+				}
+				if taken != testLimit.Failures || refused != 12-testLimit.Failures {
+					t.Errorf("%d taken and %d refused, want %d and %d", taken, refused, testLimit.Failures, 12-testLimit.Failures)
+				}
+				if r := store.record(Normalize("pat")); r == nil || r.Failures != int64(testLimit.Failures) || r.LockedUntil == nil {
+					t.Errorf("the name's record = %+v, want %d failures and the name locked", r, testLimit.Failures)
+				}
+			},
+		},
+		{
+			name: "of attempts at once from one client, each on another name, as many as the client's limit are taken and the rest are refused",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, _ *fakeStore) {
+				taken, refused := atOnce(ctx, t, l, clientLimit+10, func(i int) (string, Client) {
+					return fmt.Sprintf("name-%d", i), Client{Address: "10.0.0.1", Cookie: "tok"}
+				})
+				if taken != clientLimit || refused != 10 {
+					t.Errorf("%d taken and %d refused, want %d and 10", taken, refused, clientLimit)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			l, store, _ := newLimiter(t)
+			tt.run(t.Context(), t, l, store)
 		})
 	}
 }

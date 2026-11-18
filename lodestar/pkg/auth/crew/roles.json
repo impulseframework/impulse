@@ -86,7 +86,7 @@
       },
       {
         "name": "Headquarters",
-        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, the crew's and the clients' accounts and seats, and issues bulletins.",
+        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, brings a new sector in by inviting its first marshal, manages the crew's and the clients' accounts and seats, and issues bulletins.",
         "permissions": {
           "List": [
             {
@@ -152,7 +152,9 @@
             {
               "resource": "CrewUserRoles",
               "fields": [
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -199,6 +201,15 @@
               ]
             },
             {
+              "resource": "CrewSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through"
+              ]
+            },
+            {
               "resource": "CrewSessionTokens",
               "fields": [
                 "clientId",
@@ -236,6 +247,18 @@
                 "lockedUntil",
                 "updatedAt",
                 "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "CrewSignInMethods",
+              "fields": [
+                "admits",
+                "defaultRole",
+                "directoryGivesRoles",
+                "label",
+                "openSignUp",
+                "ownRule",
+                "says"
               ]
             },
             {
@@ -354,6 +377,60 @@
                 "lastUsedAt",
                 "revokedAt",
                 "userId"
+              ]
+            },
+            {
+              "resource": "CrewGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewInvitedSectors",
+              "fields": [
+                "email",
+                "name",
+                "sectorName",
+                "sectorRegion",
+                "sectorEstablished",
+                "sectorDirectoryOnly",
+                "defaultRole",
+                "invitedByUserId",
+                "createdAt",
+                "expiresAt"
               ]
             }
           ],
@@ -532,6 +609,17 @@
                 "revokedAt",
                 "userId"
               ]
+            },
+            {
+              "resource": "CrewGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
             }
           ],
           "Create": [
@@ -617,8 +705,7 @@
               "fields": [
                 "name",
                 "region",
-                "established",
-                "directoryOnly"
+                "established"
               ]
             },
             {
@@ -694,6 +781,9 @@
               "resource": "UnlinkCrewSessionIdentity"
             },
             {
+              "resource": "RemoveCrewPassword"
+            },
+            {
               "resource": "RevokeCrewSessionToken"
             },
             {
@@ -727,10 +817,22 @@
               "resource": "UnlockMembersSignIn"
             },
             {
+              "resource": "OpenCrewSignUp"
+            },
+            {
+              "resource": "MakeCrewInviteOnly"
+            },
+            {
               "resource": "InviteCrewUser"
             },
             {
               "resource": "WithdrawCrewInvitation"
+            },
+            {
+              "resource": "InviteCrewSector"
+            },
+            {
+              "resource": "WithdrawCrewInvitedSector"
             },
             {
               "resource": "SetCrewUserEmail"
@@ -743,6 +845,27 @@
             },
             {
               "resource": "SetMembersUserName"
+            },
+            {
+              "resource": "CreateCrewGroup"
+            },
+            {
+              "resource": "DescribeCrewGroup"
+            },
+            {
+              "resource": "DeleteCrewGroup"
+            },
+            {
+              "resource": "AddCrewGroupMember"
+            },
+            {
+              "resource": "RemoveCrewGroupMember"
+            },
+            {
+              "resource": "GiveCrewGroupRole"
+            },
+            {
+              "resource": "TakeCrewGroupRole"
             }
           ]
         }
@@ -911,8 +1034,25 @@
       },
       {
         "name": "Surveyor",
-        "description": "Charts new sectors and corrects their records.",
+        "description": "Charts new sectors, by inviting the person who will run each, and corrects their records. Closing a sector to its directory is not the Surveyor's to say: an invitation of theirs never says directory only.",
         "permissions": {
+          "List": [
+            {
+              "resource": "CrewInvitedSectors",
+              "fields": [
+                "email",
+                "name",
+                "sectorName",
+                "sectorRegion",
+                "sectorEstablished",
+                "sectorDirectoryOnly",
+                "defaultRole",
+                "invitedByUserId",
+                "createdAt",
+                "expiresAt"
+              ]
+            }
+          ],
           "Create": [
             {
               "resource": "Sectors",
@@ -931,6 +1071,15 @@
                 "region",
                 "established"
               ]
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "InviteCrewSector",
+              "condition": "new.directoryOnly = false"
+            },
+            {
+              "resource": "WithdrawCrewInvitedSector"
             }
           ]
         }
@@ -982,6 +1131,17 @@
                 "sectorId",
                 "name",
                 "zone"
+              ]
+            },
+            {
+              "resource": "HangarPasses",
+              "fields": [
+                "sectorId",
+                "hangarId",
+                "userId",
+                "squadronId",
+                "levelId",
+                "expiresAt"
               ]
             },
             {
@@ -1148,7 +1308,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "cannotEnter"
               ]
             },
             {
@@ -1165,7 +1326,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -1204,11 +1367,29 @@
               "condition": "heldElsewhere = false"
             },
             {
+              "resource": "CrewSectorSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through",
+                "heldElsewhere",
+                "heldGlobally"
+              ],
+              "condition": "password = false OR heldElsewhere = false"
+            },
+            {
               "resource": "CrewSectorRoles",
               "fields": [
                 "description"
               ],
               "condition": "name != 'SectorMarshal'"
+            },
+            {
+              "resource": "CrewSectorDirectoryRoles",
+              "fields": [
+                "description"
+              ]
             },
             {
               "resource": "SectorDirectories",
@@ -1226,6 +1407,45 @@
                 "squadrons",
                 "clearance",
                 "fliesElsewhere"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroupRoles",
+              "fields": [
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewSectorUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "globalGroup",
+                "everyDomain",
+                "startsAt",
+                "endsAt"
               ]
             }
           ],
@@ -1280,6 +1500,17 @@
                 "sectorId",
                 "name",
                 "zone"
+              ]
+            },
+            {
+              "resource": "HangarPasses",
+              "fields": [
+                "sectorId",
+                "hangarId",
+                "userId",
+                "squadronId",
+                "levelId",
+                "expiresAt"
               ]
             },
             {
@@ -1399,7 +1630,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "cannotEnter"
               ]
             },
             {
@@ -1416,7 +1648,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -1471,6 +1705,14 @@
                 "clearance",
                 "fliesElsewhere"
               ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
             }
           ],
           "Create": [
@@ -1497,6 +1739,16 @@
               "fields": [
                 "name",
                 "zone"
+              ]
+            },
+            {
+              "resource": "HangarPasses",
+              "fields": [
+                "hangarId",
+                "userId",
+                "squadronId",
+                "levelId",
+                "expiresAt"
               ]
             },
             {
@@ -1579,21 +1831,10 @@
               ]
             },
             {
-              "resource": "SectorDirectories",
-              "fields": [
-                "method",
-                "connection"
-              ]
+              "resource": "SectorDirectories"
             }
           ],
           "Update": [
-            {
-              "resource": "SectorDirectories",
-              "fields": [
-                "defaultSeat"
-              ],
-              "condition": "new.defaultSeat IS NULL OR new.defaultSeat != 'SectorMarshal'"
-            },
             {
               "resource": "Wings",
               "fields": [
@@ -1613,6 +1854,13 @@
               "fields": [
                 "name",
                 "zone"
+              ]
+            },
+            {
+              "resource": "HangarPasses",
+              "fields": [
+                "levelId",
+                "expiresAt"
               ]
             },
             {
@@ -1704,6 +1952,9 @@
             },
             {
               "resource": "Hangars"
+            },
+            {
+              "resource": "HangarPasses"
             },
             {
               "resource": "Ships"
@@ -1851,13 +2102,52 @@
             {
               "resource": "UnlinkCrewSectorSessionIdentity",
               "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RemoveCrewSectorPassword",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "CreateCrewSectorGroup"
+            },
+            {
+              "resource": "DescribeCrewSectorGroup"
+            },
+            {
+              "resource": "DeleteCrewSectorGroup"
+            },
+            {
+              "resource": "AddCrewSectorGroupMember"
+            },
+            {
+              "resource": "RemoveCrewSectorGroupMember"
+            },
+            {
+              "resource": "GiveCrewSectorGroupRole",
+              "condition": "new.role != 'SectorMarshal'"
+            },
+            {
+              "resource": "TakeCrewSectorGroupRole",
+              "condition": "role != 'SectorMarshal'"
+            },
+            {
+              "resource": "MakeSectorDirectoryOnly"
+            },
+            {
+              "resource": "EndSectorDirectoryOnly"
+            },
+            {
+              "resource": "OpenSectorToDirectory"
+            },
+            {
+              "resource": "MakeSectorInviteOnly"
             }
           ]
         }
       },
       {
         "name": "SectorCrew",
-        "description": "Sees a sector's wings and hangars.",
+        "description": "Sees a sector's wings and hangars, and the groups of the sector they are in themselves, with the people in them.",
         "permissions": {
           "List": [
             {
@@ -1874,6 +2164,23 @@
                 "name",
                 "zone"
               ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ],
+              "condition": "group IN subject.groups"
+            },
+            {
+              "resource": "CrewSectorGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName"
+              ],
+              "condition": "group IN subject.groups"
             }
           ],
           "Read": [
@@ -1891,6 +2198,14 @@
                 "name",
                 "zone"
               ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ],
+              "condition": "group IN subject.groups"
             }
           ]
         }
@@ -3759,6 +4074,43 @@
           "Execute": [
             {
               "resource": "AttachRefitPhoto"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Armorer",
+        "description": "Serves a squadron's ships where its hangar passes reach: sees the hangars a pass opens to them or to a squadron they fly with, and re-zones the ones a pass lets them run.",
+        "permissions": {
+          "List": [
+            {
+              "resource": "Hangars",
+              "fields": [
+                "sectorId",
+                "name",
+                "zone"
+              ],
+              "condition": "hangar IN subject.hangarsOpen"
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Hangars",
+              "fields": [
+                "sectorId",
+                "name",
+                "zone"
+              ],
+              "condition": "hangar IN subject.hangarsOpen"
+            }
+          ],
+          "Update": [
+            {
+              "resource": "Hangars",
+              "fields": [
+                "zone"
+              ],
+              "condition": "hangar IN subject.hangarsRun"
             }
           ]
         }

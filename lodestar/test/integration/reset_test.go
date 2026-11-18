@@ -22,6 +22,7 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/deploy"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/session/mail"
 )
@@ -42,10 +43,11 @@ func TestResetDevelopmentData(t *testing.T) {
 		Collection:     router.Collection(),
 		Directory:      auth.Directory{Connection: "example", HostedDomain: "example.com", GroupPrefix: "crew-"},
 		ChangeSignal:   auth.PolicySignal(live.NewFake()),
-		// Required by the auth, though this suite signs nobody in, mails nothing and
-		// approves no program.
+		// Required by the auth, though this suite signs nobody in, mails nothing,
+		// approves no program and makes no sector.
 		TenantDeclarations: app.NewSectorDeclarationReader(),
 		TenantDirectories:  app.NewSectorDirectoryReader(),
+		TenantMaker:        app.NewSectorMaker(app.NewSectorRoster(resource.NewSpannerClient(db.Client)), live.NewFake()),
 		Mail:               auth.Mail{Sender: &mail.Recorder{}, LoginURL: "http://lodestar.test" + consoleLogin},
 		DevicePage:         consoleDevice,
 	})

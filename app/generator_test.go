@@ -110,17 +110,17 @@ func TestParseGeneratorProblems(t *testing.T) {
 		{
 			name:         "a sign-in method that is not one of the generation package's",
 			options:      `generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/acme/pkg/auth/staff", generation.LDAP)),`,
-			wantProblems: []string{"Auth argument generation.LDAP should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"},
+			wantProblems: []string{"Auth argument generation.LDAP should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .SyncsRoles() or .UsernameIsEmail() when chained)"},
 		},
 		{
 			name:         "a sign-in method written as a string",
 			options:      `generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/acme/pkg/auth/staff", "password")),`,
-			wantProblems: []string{`Auth argument "password" should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)`},
+			wantProblems: []string{`Auth argument "password" should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .SyncsRoles() or .UsernameIsEmail() when chained)`},
 		},
 		{
 			name:         "a registration flag chained with an argument is not a declaration",
 			options:      `generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/acme/pkg/auth/staff", generation.GoogleMethod("directory").SyncsRoles("x"))),`,
-			wantProblems: []string{"Auth argument generation.GoogleMethod(...).SyncsRoles(...) should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"},
+			wantProblems: []string{"Auth argument generation.GoogleMethod(...).SyncsRoles(...) should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .SyncsRoles() or .UsernameIsEmail() when chained)"},
 		},
 		{
 			name:    "a method's label and flags chained in any order, and the outlet managing another auth",
@@ -341,15 +341,15 @@ func TestParseGeneratorRecordsDeclarations(t *testing.T) {
 		},
 		{
 			name:   "a method's label and flags are recorded, and Manages names the auth the outlet manages",
-			option: `generation.WithRouterOutlet("portal", "portal/api", generation.Auth("example.com/acme/pkg/auth/members", generation.GoogleMethod("directory").Labeled("Company directory").SyncsRoles(), generation.AzureMethod("entra").InvitedUsers(), generation.GoogleMethod("sign-up").OpenSignUp()), generation.Manages("example.com/acme/pkg/auth/staff")),`,
+			option: `generation.WithRouterOutlet("portal", "portal/api", generation.Auth("example.com/acme/pkg/auth/members", generation.GoogleMethod("directory").Labeled("Company directory").SyncsRoles(), generation.AzureMethod("entra"), generation.PasswordMethod().UsernameIsEmail()), generation.Manages("example.com/acme/pkg/auth/staff")),`,
 			want: []Arg{
 				{Kind: ArgString, Str: "portal"},
 				{Kind: ArgString, Str: "portal/api"},
 				{Kind: ArgCall, Call: &Call{Name: "Auth", Pos: "main.go:14", Args: []Arg{
 					{Kind: ArgString, Str: "example.com/acme/pkg/auth/members"},
 					{Kind: ArgAuthMethod, Method: &AuthMethodArg{Kind: MethodGoogle, Name: "directory", Label: "Company directory", SyncsRoles: true}},
-					{Kind: ArgAuthMethod, Method: &AuthMethodArg{Kind: MethodAzure, Name: "entra", InvitedUsers: true}},
-					{Kind: ArgAuthMethod, Method: &AuthMethodArg{Kind: MethodGoogle, Name: "sign-up", OpenSignUp: true}},
+					{Kind: ArgAuthMethod, Method: &AuthMethodArg{Kind: MethodAzure, Name: "entra"}},
+					{Kind: ArgAuthMethod, Method: &AuthMethodArg{Kind: MethodPassword, Name: PasswordRegistration, UsernameIsEmail: true}},
 				}}},
 				{Kind: ArgCall, Call: &Call{Name: "Manages", Pos: "main.go:14", Args: []Arg{{Kind: ArgString, Str: "example.com/acme/pkg/auth/staff"}}}},
 			},
@@ -476,6 +476,64 @@ func TestParseGeneratorNotAProgram(t *testing.T) {
 	}
 }
 
+// A variable named as a version of a versioned secret is refused, wherever the two are
+// declared: the deployment hands version 1 of APP_SECRET_KEY over as APP_SECRET_KEY_1.
+func Test_versionedSecretClash(t *testing.T) {
+	t.Parallel()
+
+	versioned := EnvTag{File: "pkg/config/data.go", Line: 4, Name: "APP_SECRET_KEY", Secret: true, Generated: true, Versioned: true}
+	tests := []struct {
+		name    string
+		tags    []EnvTag
+		wantErr string
+	}{
+		{name: "a versioned secret alone", tags: []EnvTag{versioned}},
+		{name: "a name that only begins the same", tags: []EnvTag{versioned, {File: "pkg/config/site.go", Line: 9, Name: "APP_SECRET_KEY_FILE"}, {File: "pkg/config/site.go", Line: 10, Name: "APP_SECRET_KEYS"}, {File: "pkg/config/site.go", Line: 11, Name: "APP_SECRET_KEY_1A"}}},
+		{name: "a numbered name beside a secret that is not versioned", tags: []EnvTag{{File: "pkg/config/data.go", Line: 4, Name: "APP_COOKIE_KEY", Secret: true, Generated: true}, {File: "pkg/config/data.go", Line: 5, Name: "APP_COOKIE_KEY_1"}}},
+		{
+			name:    "a version's variable declared after the secret",
+			tags:    []EnvTag{versioned, {File: "pkg/config/site.go", Line: 9, Name: "APP_SECRET_KEY_1"}},
+			wantErr: `pkg/config/site.go:9: APP_SECRET_KEY_1 is the variable version 1 of APP_SECRET_KEY is handed over in (pkg/config/data.go:4 declares APP_SECRET_KEY secret:"versioned", one variable for each version): give the field another name`,
+		},
+		{
+			name:    "a version's variable declared before the secret",
+			tags:    []EnvTag{{File: "pkg/config/config.go", Line: 7, Name: "APP_SECRET_KEY_12", Secret: true}, versioned},
+			wantErr: `pkg/config/config.go:7: APP_SECRET_KEY_12 is the variable version 12 of APP_SECRET_KEY is handed over in`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := versionedSecretClash(tt.tags)
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Errorf("versionedSecretClash() error = %v, want none", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Errorf("versionedSecretClash() error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Discover refuses the clash, reading the two declarations out of the application.
+func TestDiscover_versionedSecretClash(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join("testdata", "flat"))); err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
+	extra := "package config\n\ntype secrets struct {\n\tSecretKey string `env:\"LIGHTHOUSE_SECRET_KEY\" secret:\"versioned\"`\n\tFirst     string `env:\"LIGHTHOUSE_SECRET_KEY_1\"`\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "config", "secrets.go"), []byte(extra), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	_, err := Discover(dir)
+	if want := "pkg/config/secrets.go:5: LIGHTHOUSE_SECRET_KEY_1 is the variable version 1 of LIGHTHOUSE_SECRET_KEY is handed over in"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Discover() error = %v, want containing %q", err, want)
+	}
+}
+
 func TestParseEnvTagsSecret(t *testing.T) {
 	t.Parallel()
 
@@ -503,9 +561,17 @@ func TestParseEnvTagsSecret(t *testing.T) {
 			},
 		},
 		{
+			name: "the versioned value marks a generated secret kept in versions",
+			src:  "package config\n\ntype dataConfig struct {\n\tSecretKey string `env:\"APP_SECRET_KEY\" secret:\"versioned\"`\n\tCookieKey string `env:\"APP_COOKIE_KEY\" secret:\"generated\"`\n}\n",
+			want: []EnvTag{
+				{File: "pkg/config/data.go", Line: 4, Name: "APP_SECRET_KEY", Secret: true, Generated: true, Versioned: true},
+				{File: "pkg/config/data.go", Line: 5, Name: "APP_COOKIE_KEY", Secret: true, Generated: true},
+			},
+		},
+		{
 			name:    "another value is refused",
 			src:     "package config\n\ntype dataConfig struct {\n\tCookieKey string `env:\"APP_COOKIE_KEY\" secret:\"yes\"`\n}\n",
-			wantErr: `pkg/config/data.go:4: secret:"yes" on APP_COOKIE_KEY: the secret tag takes "true", "generated" or "false"`,
+			wantErr: `pkg/config/data.go:4: secret:"yes" on APP_COOKIE_KEY: the secret tag takes "true", "generated", "versioned" or "false"`,
 		},
 	}
 	for _, tt := range tests {
@@ -649,10 +715,10 @@ func TestAuthMethodArgDeclaration(t *testing.T) {
 		{name: "the password method", method: AuthMethodArg{Kind: MethodPassword, Name: PasswordRegistration}, want: `generation.PasswordMethod()`},
 		{name: "a directory under its registration name", method: AuthMethodArg{Kind: MethodGoogle, Name: "google"}, want: `generation.GoogleMethod("google")`},
 		{name: "a label", method: AuthMethodArg{Kind: MethodAzure, Name: "directory", Label: "Company directory"}, want: `generation.AzureMethod("directory").Labeled("Company directory")`},
-		{name: "the flags after the label", method: AuthMethodArg{Kind: MethodGoogle, Name: "google", Label: "Workspace", InvitedUsers: true, SyncsRoles: true}, want: `generation.GoogleMethod("google").Labeled("Workspace").InvitedUsers().SyncsRoles()`},
+		{name: "the flag after the label", method: AuthMethodArg{Kind: MethodGoogle, Name: "google", Label: "Workspace", SyncsRoles: true}, want: `generation.GoogleMethod("google").Labeled("Workspace").SyncsRoles()`},
 		{name: "a flag alone", method: AuthMethodArg{Kind: MethodWorkOS, Name: "sso", SyncsRoles: true}, want: `generation.WorkOSMethod("sso").SyncsRoles()`},
-		{name: "an organization's identity provider", method: AuthMethodArg{Kind: MethodOIDC, Name: "okta", InvitedUsers: true}, want: `generation.OIDCMethod("okta").InvitedUsers()`},
-		{name: "open sign-up after the others", method: AuthMethodArg{Kind: MethodGoogle, Name: "sign-up", SyncsRoles: true, OpenSignUp: true}, want: `generation.GoogleMethod("sign-up").SyncsRoles().OpenSignUp()`},
+		{name: "an organization's identity provider", method: AuthMethodArg{Kind: MethodOIDC, Name: "okta"}, want: `generation.OIDCMethod("okta")`},
+		{name: "the password method's flag", method: AuthMethodArg{Kind: MethodPassword, Name: PasswordRegistration, UsernameIsEmail: true}, want: `generation.PasswordMethod().UsernameIsEmail()`},
 		{name: "a method the router does not compose", method: AuthMethodArg{Kind: "ldap", Name: "ldap"}, want: ""},
 	}
 	for _, tt := range tests {
@@ -662,7 +728,7 @@ func TestAuthMethodArgDeclaration(t *testing.T) {
 			if got := tt.method.Declaration(); got != tt.want {
 				t.Errorf("Declaration() = %q, want %q", got, tt.want)
 			}
-			if got := MethodDeclaration(tt.method.Kind, tt.method.Name, tt.method.Label); tt.method.InvitedUsers || tt.method.SyncsRoles || tt.method.OpenSignUp {
+			if got := MethodDeclaration(tt.method.Kind, tt.method.Name, tt.method.Label); tt.method.SyncsRoles || tt.method.UsernameIsEmail {
 				if got == tt.want {
 					t.Errorf("MethodDeclaration() = %q carries the flags, which only Declaration() writes", got)
 				}

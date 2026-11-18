@@ -62,6 +62,23 @@ func (m AuthMethod) Attests() bool {
 	return m == MethodAttestedByEvidence || m == MethodAttestedByDeclaration
 }
 
+// SecondFactor reports whether m records a second factor on a session: a step beyond
+// the sign-in that established it. The library's own are the mailed code
+// (MethodEmailCode), a remembered browser standing in for it (MethodTrustedDevice) and a
+// connection's attestation (Attests); a step the application records under a name of
+// its own is one too, since that is what such a name is for. The methods that establish
+// a session or link an identity are none: a password, a directory, an impersonation, a
+// link confirmation, a session the application starts itself, a token.
+func (m AuthMethod) SecondFactor() bool {
+	switch m {
+	case "", MethodPassword, MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC,
+		MethodImpersonation, MethodLinkConfirmation, MethodApplication, MethodToken:
+		return false
+	default:
+		return true
+	}
+}
+
 // Attestation is what a sign-in's connection says about a second factor: nothing,
 // evidence or a declaration. A sign-in method sets it on the Identity it verifies, and
 // the Auth records it as the session's second auth event (MethodAttestedByEvidence or
@@ -123,9 +140,9 @@ func AttestationOf(amr []string, declared bool) Attestation {
 // whose identities carry the directory as their connection (Identity.Connection, and AuthEvent.Connection on the session's
 // first auth event). A password, a session the application starts for a user it
 // authenticated itself, an impersonation, a link confirmation and a step the
-// application records under its own name are not. A tenant's declaration admits a
-// sign-in through a directory by naming the directory (signin.Directory); see
-// signin.TenantPolicy.
+// application records under its own name are not. A tenant that is directory only
+// admits a sign-in through its own directory alone, which its declaration names
+// (signin.Directory); see signin.TenantPolicy.
 func (m AuthMethod) ThroughDirectory() bool {
 	switch m {
 	case MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC:
@@ -170,20 +187,20 @@ type Identity struct {
 	IDPAMR []string
 	// SignInName is the name the person signs in with at the directory the identity
 	// came from: the user principal name on Entra, the verified email on Google; ""
-	// when the method has none. The standard account rules (signin.StandardAccountRule)
-	// use it as the username of the account they provision or match. It is an
+	// when the method has none. The standard account rule (signin.AccountRule)
+	// uses it as the username of the account it provisions or matches. It is an
 	// attribute, never a key.
 	SignInName string
 	// Organization is the organization the identity came from as the registration
 	// names it: the tenant's name when the application gave one and its id otherwise
 	// on Entra, the connection the Workspaces slot selected on Google; "" when the
-	// method has none. The standard account rules store it as the tenant key of the
-	// link they make, unless a custom rule names another. It is an attribute, never a
+	// method has none. The standard account rule stores it as the tenant key of the
+	// link it makes, unless a custom rule names another. It is an attribute, never a
 	// key: the key stays Connection.
 	Organization string
 	// Guest reports that the account is a guest of its directory, not a member: an
 	// Entra B2B guest, whose preferred username is an address the directory did not
-	// verify. The standard account rules refuse a guest; a custom rule decides for
+	// verify. The standard account rule refuses a guest; a custom rule decides for
 	// itself.
 	Guest bool
 	// Attestation is what the connection says about a second factor: evidence in the
@@ -306,7 +323,7 @@ const (
 	// account rule needs it as the username.
 	RefusedNoEmail LoginRefusalCode = "no_email"
 	// RefusedNotInvited is the code for an identity that is not linked yet and matches
-	// no pre-created user, under the invited-users-only account rule.
+	// no pre-created user, through a sign-in method that is invite only.
 	RefusedNotInvited LoginRefusalCode = "not_invited"
 	// RefusedInvitationOnly is the code for an identity that is not linked yet and
 	// matches no pre-created user, from a directory a tenant declares with no default
@@ -314,7 +331,7 @@ const (
 	// no account is created.
 	RefusedInvitationOnly LoginRefusalCode = "invitation_only"
 	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
-	// admitted, under the invited-users-only account rule, whose invitation had expired
+	// admitted, through a sign-in method that is invite only, whose invitation had expired
 	// or been used by the time the sign-in accepted it.
 	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
 	// RefusedInvitationAddress is the code for a sign-in or an acceptance that carried
@@ -327,7 +344,7 @@ const (
 	// account.
 	RefusedInvitationAddress LoginRefusalCode = "invitation_address"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
-	// (Identity.Guest), which the standard account rules refuse.
+	// (Identity.Guest), which the standard account rule refuses.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"
 	// RefusedUnlistedTenant is the code for an Entra token from a tenant the
 	// registration's Tenants slot does not admit.
@@ -339,13 +356,14 @@ const (
 	// tenant policy (signin.TenantPolicy), which admits such a person only when it was
 	// built with signin.AdmitWithoutTenant.
 	RefusedNoTenant LoginRefusalCode = "no_tenant"
-	// RefusedConnectionNotInTenant is the code for a sign-in through a directory that
-	// no tenant of the person declares, under the tenant policy.
+	// RefusedConnectionNotInTenant is the code for a sign-in through a directory by a
+	// person whose every tenant admits its people through its own directory only, none
+	// of which is the directory the sign-in came through, under the tenant policy.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
 	// RefusedDirectoryOnly is the code for a sign-in that is not through a directory (a
-	// password, a session the application starts itself) by a person whose every
-	// tenant admits its people through their directories only, under the tenant
-	// policy.
+	// password, a personal account, a session the application starts itself) by a
+	// person whose every tenant admits its people through its own directory only,
+	// under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
 	// RefusedOtherTenant is the code for a role in a tenant that is refused because the
 	// person belongs to another tenant, in an application where a person belongs to
@@ -354,6 +372,20 @@ const (
 	// invitation it carries, or the default role of the directory it came through,
 	// would seat the person in a second tenant.
 	RefusedOtherTenant LoginRefusalCode = "other_tenant"
+	// RefusedOrganizationAccountRequired is the code for a sign-in or an acceptance that
+	// carried an invitation which makes a tenant entered through its directory only
+	// (NewTenant.DirectoryOnly), by a person who did not come through an organization's
+	// directory: a password, a personal account, a session the application started
+	// itself. Nothing is written, no tenant is made and the invitation stands; the
+	// login page asks for a sign-in with the organization's account.
+	RefusedOrganizationAccountRequired LoginRefusalCode = "organization_account_required"
+	// RefusedOrganizationHasTenant is the code for a sign-in or an acceptance that
+	// carried an invitation which makes a tenant (NewTenant), through a directory
+	// another tenant already has: a directory belongs to one tenant, so no second
+	// tenant is made for the organization, and the invitation stands. The session
+	// library never answers it itself: the application's acceptance hook does, in the
+	// transaction it is handed, which fails with it.
+	RefusedOrganizationHasTenant LoginRefusalCode = "organization_has_tenant"
 	// RefusedInvalidCode is the code for an email code that is not the one sent; the
 	// code sent stands, with one fewer attempt left.
 	RefusedInvalidCode LoginRefusalCode = "invalid_code"

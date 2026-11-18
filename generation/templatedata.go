@@ -114,11 +114,8 @@ type consolidatedPatchData struct {
 	SegmentCase *consolidatedCaseData
 	// HasTenant says the tenant record or the directories record is among the cases:
 	// the dispatcher then reloads the roster after a commit that wrote either, and
-	// signals the tenants kind. Seat is the creator's seat the dispatcher writes after
-	// a commit that created tenants, nil where the record is not among the cases or
-	// its create seats nobody (tenantSeatData).
+	// signals the tenants kind.
 	HasTenant           bool
-	Seat                *tenantSeatData
 	DomainRouteSegment  string
 	DomainPatternPrefix string // "/stations/{stationID}" — the chi pattern the descent case prefix-matches
 	Package             string
@@ -140,10 +137,6 @@ type consolidatedCaseData struct {
 	DomainPatternPrefix string // "" for global cases
 	ResourcePackage     string
 	ReceiverName        string
-	// Seated marks the tenant record's case when the dispatcher seats the creator of
-	// each tenant the transaction created (consolidatedPatchData.Seat): the case
-	// collects the keys its create operations wrote.
-	Seated bool
 	// Clears are the application's accessors of the identity clients the tenant
 	// record's delete clears the tenant through (tenantClears); empty on every other
 	// case.
@@ -165,10 +158,6 @@ type handlerContentData struct {
 	VirtualResourcesPackage string
 	ApplicationName         string
 	ReceiverName            string
-	// Seat is the creator's seat the tenant record's patch handler writes after a
-	// create's commit, nil on every other resource and where the record's create
-	// seats nobody (tenantSeatData).
-	Seat *tenantSeatData
 	// Clears are the application's accessors of the identity clients the tenant
 	// record's delete clears the tenant through (tenantClears); empty on every other
 	// resource.
@@ -263,6 +252,10 @@ type routerFileData struct {
 	// router-test stub's pass-through when any outlet has a gated route.
 	HasGatedRoutes   bool
 	StubFeatureGuard bool
+	// HasAskedRoutes emits the default outlet's asked router, the one before the
+	// refusal of a dry run and a warning, when a route's frame answers the two headers
+	// itself (generatedRoute.ReadsDryRunAndWarning).
+	HasAskedRoutes bool
 	// BodyLimit is the request body limit the routes file declares as the router
 	// package's BodyLimit (WithBodyLimit; DefaultBodyLimit when the application sets
 	// none); BodyLimitText is it in words, and BodyLimitDefault whether it is the
@@ -328,6 +321,9 @@ type outletRouteData struct {
 	// HasGatedRoutes emits the FeatureGuard requirement and the wrapping for the
 	// outlet's gated routes.
 	HasGatedRoutes bool
+	// HasAskedRoutes emits the outlet's asked router, the one before the refusal of a
+	// dry run and a warning, when a route's frame answers the two headers itself.
+	HasAskedRoutes bool
 	// HasConsolidatedHandler emits the outlet's consolidated patch dispatcher
 	// (ConsolidatedHandlerFunc) at ConsolidatedPath.
 	HasConsolidatedHandler  bool
@@ -381,6 +377,15 @@ type permissionsData struct {
 	// roster: the tenant record marks its name (@tenantName) and the application serves
 	// tenant-scoped routes, so it holds the roster.
 	TenantNames bool
+	// DirectoryNamers are the expressions that name the directory a session came
+	// through in a closed tenant's reason (closedTenantNamers), as the arguments of one
+	// call; empty where the package declares no tenant's directories, since a tenant is
+	// closed to a session by its directory alone.
+	DirectoryNamers string
+	// ListsAcrossTenants says the application declares a resource for listing across
+	// tenants (@listAcrossTenants): the digest handler and the live renewal are handed
+	// the collection, which says which resources those are.
+	ListsAcrossTenants bool
 }
 
 // featureDeclarationsData feeds the resources package's zz_gen_features.go.
@@ -412,6 +417,14 @@ type computedHolder struct {
 type computedHolderKey struct {
 	Field     string
 	StoreExpr string
+}
+
+// secretHoldersData feeds the resources package's zz_gen_secret_holders.go: the
+// resources that store a secret, by struct name.
+type secretHoldersData struct {
+	Source  string
+	Package string
+	Holders []string
 }
 
 // featuresData feeds the handler package's zz_gen_features.go: the feature flag
@@ -535,6 +548,12 @@ type authzCase struct {
 	// caller holding none is admitted past the gate, where the body meets its
 	// validation (400). The case renders both halves.
 	NoGrant bool
+	// AcrossTenants marks a list across tenants (@listAcrossTenants), which has no
+	// endpoint gate to refuse at: the List grant is asked in each tenant, and a tenant
+	// in which the caller holds none is left out of the list. The case renders the two
+	// answers the matrix can see: a caller holding no grant reads a list of no tenant
+	// (200), and a caller holding the grant reads the list (200).
+	AcrossTenants bool
 }
 
 // authzHeader is one request header a generated authorization case sends.
@@ -648,6 +667,11 @@ type tsMethodsData struct {
 	// FeatureFlags emits the library's SetFeature method: its body and result
 	// interfaces and its metadata.
 	FeatureFlags bool
+	// TenantOwn emits the methods the generator writes in the tenant's scope beside the
+	// tenant record's declaration (the directory-only switch's, and the ones that say
+	// how a tenant admits its directory's people): each one's body interfaces and its
+	// metadata. Empty where the outlet serves none.
+	TenantOwn []*tsTenantOwnMethod
 }
 
 type tsEnumsData struct {
@@ -732,6 +756,10 @@ type tsAPIData struct {
 	// page and the device page read and write through, and the outlets a token is
 	// issued for. Nil, the block is left out.
 	Tokens *tsAPITokens
+	// HasAcrossTenants says a resource of the outlet is listed across tenants
+	// (@listAcrossTenants): the file declares the AcrossTenantsApi interface and types
+	// the client with it.
+	HasAcrossTenants bool
 }
 
 // tsAPITokens is the descriptor's tokens block: the token routes of a session outlet
@@ -861,6 +889,16 @@ type tsAPIResource struct {
 	// Feature is the flag the resource is gated behind, as the descriptor carries it;
 	// empty when the resource is not gated.
 	Feature string
+	// AcrossTenants says the resource's list is also served without the tenant's
+	// segment (@listAcrossTenants): the descriptor carries the word, and the client
+	// hangs the list's handle off client.acrossTenants.
+	AcrossTenants bool
+}
+
+// AcrossTenantsHandleType renders the handle of the resource's list across tenants:
+// the row type and the key tuple.
+func (r *tsAPIResource) AcrossTenantsHandleType() string {
+	return "AcrossTenantsHandle<" + r.Name + ", " + r.Name + "Key>"
 }
 
 // tsAPISort is one entry of a descriptor's declared order.

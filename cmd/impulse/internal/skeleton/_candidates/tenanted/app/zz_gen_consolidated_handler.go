@@ -31,29 +31,20 @@ func (a *App) PatchResources() http.HandlerFunc {
 	type tenantRequest struct {
 		ID            impulse.UUID `json:"-"`
 		Name          string       `json:"name"`
-		DirectoryOnly bool         `json:"directoryOnly"`
+		DirectoryOnly bool         `json:"-"`
 	}
 	tenantDecoder := NewDecoder[resources.Tenant, tenantRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type tenantDirectoryRequest struct {
 		ID          impulse.UUID `json:"-"`
 		TenantID    impulse.UUID `json:"-"`
-		Method      string       `json:"method"      sqltype:"STRING(16)"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
+		Method      string       `json:"-"`
+		Connection  string       `json:"-"`
+		DefaultSeat *string      `json:"-"`
 	}
 	tenantDirectoryDecoder := NewDecoder[resources.TenantDirectory, tenantDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type response map[string][]impulse.UUID
-
-	// The creator of a Tenant is its first administrator: the roles TenantAdministratorRoles
-	// names, given in the create's transaction through the Staff auth's generated
-	// identity client.
-	roles := a.TenantAdministratorRoles()
-	if len(roles) == 0 {
-		panic("TenantAdministratorRoles() names no role: the person who creates a Tenant holds its administrator role, which the application names there")
-	}
-	identity := a.StaffIdentity()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -68,9 +59,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// The roster follows the commit: a tenant or a declaration this transaction
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
-		// The Tenants this transaction creates with their creator's membership,
-		// which the answer waits on after the commit.
-		var created []impulse.UUID
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
@@ -79,7 +67,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			tenantsWritten = false
-			created = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -93,6 +80,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 				switch httpio.Param[string](op.Req, "resource") {
 				case "tenants":
 					if op.PathDepth() <= 2 {
+						if op.Type == resource.OperationCreate {
+							// A row comes in another way (a NOT NULL @file key: the @upload
+							// method that stores its file; the tenant record: an invitation's
+							// first sign-in), so a create op is refused naming it, with the
+							// status an unknown resource answers.
+							return httpio.NewBadRequestMessage("a tenant is not created directly: invite one person, and the tenant is made when that person first signs in")
+						}
 						patchSet, err := tenantDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 						if err != nil {
 							return errors.Wrap(err, "tenantDecoder.DecodeOperation()")
@@ -114,13 +108,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 								return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 							}
 							resp["tenants"] = append(resp["tenants"], patch.ID())
-							id := patch.ID()
-							for _, role := range roles {
-								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
-									return errors.Wrap(err, "the auth's identity client: AssignRole()")
-								}
-							}
-							created = append(created, id)
 						case resource.OperationUpdate:
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewTenantUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
@@ -212,6 +199,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err != nil {
 								return errors.Wrap(err, "tenantDirectoryCreatePatchFromPatchSet()")
 							}
+							// A directory is never typed in: the row takes the directory the caller is
+							// signed in through, held to the rules of a tenant's directory. The
+							// caller's grants answer first, so a caller they refuse learns nothing
+							// from a rule.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							directory, err := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).FromSession(ctx, txn, domain)
+							if err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
+							}
+							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
 							}
@@ -223,6 +222,14 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
+							// A tenant that is directory only keeps its directory: its people
+							// enter through it alone. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							if err := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).Remove(ctx, txn, domain); err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+							}
 							if err := resources.NewTenantDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDirectoryDeletePatch.Buffer()")
 							}
@@ -239,15 +246,10 @@ func (a *App) PatchResources() http.HandlerFunc {
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
 		if tenantsWritten {
 			if err := a.TenantRoster().Reload(ctx); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
-			}
-		}
-		for _, id := range created {
-			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {
-				logger.FromCtx(ctx).Errorf("tenant %s: %v", id, err)
 			}
 		}
 		if tenantsWritten {

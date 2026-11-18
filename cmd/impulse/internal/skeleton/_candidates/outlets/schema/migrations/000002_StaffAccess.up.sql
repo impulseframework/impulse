@@ -14,6 +14,8 @@ CREATE TABLE StaffUserRoles (
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT StaffUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -33,3 +35,42 @@ CREATE TABLE StaffRoleGrants (
   CONSTRAINT StaffRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT StaffRoles ON DELETE CASCADE;
+
+CREATE TABLE StaffGroups (
+  Id STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Name STRING(128) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+  UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT StaffGroupsKind CHECK (Kind IN ('global', 'domain')),
+) PRIMARY KEY (Id);
+
+CREATE UNIQUE INDEX StaffGroupsByName ON StaffGroups (Kind, Axis, DomainId, Name);
+
+CREATE TABLE StaffGroupMembers (
+  GroupId STRING(36) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT StaffGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES StaffGroups (Id),
+) PRIMARY KEY (GroupId, UserId);
+
+CREATE INDEX StaffGroupMembersByUserId ON StaffGroupMembers (UserId, GroupId);
+
+CREATE TABLE StaffGroupRoles (
+  GroupId STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Role STRING(128) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT StaffGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
+  CONSTRAINT StaffGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES StaffGroups (Id),
+) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
+
+CREATE INDEX StaffGroupRolesByScope ON StaffGroupRoles (Kind, Axis, DomainId, Role);

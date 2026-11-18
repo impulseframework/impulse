@@ -67,6 +67,21 @@ var (
 // reads when it installs the application.
 const webManifest = "manifest.webmanifest"
 
+// brandDeclaration is the name of a browser application's brand declaration, whose name
+// field is the application's display name, alone or with the project's suffix (Solo,
+// Solo Portal): the name impulse brand writes everywhere else.
+const brandDeclaration = "brand.json"
+
+// brandNameConstRE matches a name constant of the server's brands package
+// (pkg/brand/brand.go, written by impulse brand from the declarations): the name a
+// browser application's brand declares, as the maintenance page says it.
+var brandNameConstRE = regexp.MustCompile(`(?m)^(const \w+Name = ")([^"]*)"`)
+
+// brandSource reports the source of the server's brands package.
+func brandSource(rel string) bool {
+	return rel == "pkg/brand/brand.go" || strings.HasSuffix(rel, "/pkg/brand/brand.go")
+}
+
 // applicationConstRE matches an auth package's Application constant, the application's
 // name as the mail the auth sends says it, in display form (Solo).
 var applicationConstRE = regexp.MustCompile(`(?m)^(\s*Application\s*=\s*")([^"]*)"`)
@@ -111,16 +126,18 @@ func Display(name string) string {
 // the service and the development database (<candidate>, <candidate>-dev) and its
 // heading comment, the root README's heading, and, in display form, the browser
 // projects' titles and the name and short_name of their web app manifests (Solo, Solo
-// Portal), and the auth packages' Application constant, the name the mail an auth sends
-// says (Solo). rel is the file's path in the tree and text its content; a file outside
-// those slots comes back unchanged. Nowhere else: the candidate names are English words
-// (sites, outlets), so a template's prose says "the application" rather than naming it.
+// Portal), the name of each browser application's brand declaration (brand.json) and of
+// the server's brands package written from it (pkg/brand/brand.go), and the auth
+// packages' Application constant, the name the mail an auth sends says (Solo, Solo
+// Portal). rel is the file's path in the tree and text its content; a file outside those
+// slots comes back unchanged. Nowhere else: the candidate names are English words (sites,
+// outlets), so a template's prose says "the application" rather than naming it.
 func RenameApp(rel, text, from, to string) string {
 	base := path.Base(rel)
 	switch {
-	case base == webManifest:
+	case base == webManifest, base == brandDeclaration:
 		// The manifest names the installed application in display form, alone or with the
-		// project's suffix (Solo Portal).
+		// project's suffix (Solo Portal), and the brand declaration names it the same way.
 		fromTitle, toTitle := Display(from), Display(to)
 
 		return manifestNameRE.ReplaceAllStringFunc(text, func(m string) string {
@@ -132,16 +149,31 @@ func RenameApp(rel, text, from, to string) string {
 
 			return sub[1] + toTitle + strings.TrimPrefix(name, fromTitle) + `"`
 		})
+	case brandSource(rel):
+		fromTitle, toTitle := Display(from), Display(to)
+
+		return brandNameConstRE.ReplaceAllStringFunc(text, func(m string) string {
+			sub := brandNameConstRE.FindStringSubmatch(m)
+			name := sub[2]
+			if name != fromTitle && !strings.HasPrefix(name, fromTitle+" ") {
+				return m
+			}
+
+			return sub[1] + toTitle + strings.TrimPrefix(name, fromTitle) + `"`
+		})
 	case authSource(rel):
+		// An auth's mail says the name of the browser application its people sign in to,
+		// the application's alone or with the project's suffix (Solo Portal).
 		fromTitle, toTitle := Display(from), Display(to)
 
 		return applicationConstRE.ReplaceAllStringFunc(text, func(m string) string {
 			sub := applicationConstRE.FindStringSubmatch(m)
-			if sub[2] != fromTitle {
+			name := sub[2]
+			if name != fromTitle && !strings.HasPrefix(name, fromTitle+" ") {
 				return m
 			}
 
-			return sub[1] + toTitle + `"`
+			return sub[1] + toTitle + strings.TrimPrefix(name, fromTitle) + `"`
 		})
 	case base == "package.json" || base == "bun.lock":
 		return workspaceNameRE.ReplaceAllStringFunc(text, func(m string) string {

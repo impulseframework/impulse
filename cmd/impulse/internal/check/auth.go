@@ -12,14 +12,13 @@ import (
 
 // sessionTables verifies that every session Auth the application constructs has its
 // tables in the schema (sessions, users, identities, pending sign-ins, sign-in attempts,
-// the mail links, sign-in codes and trusted devices where the Auth sends mail, and the
+// sign-in methods, the mail links, sign-in codes and trusted devices where the Auth sends mail, and the
 // auth events, impersonation and custom data tables where the storage attaches them), that
 // two Auths never share a table, that every Auth has at least one sign-in method
 // registered on it and every registration an Auth it reaches, and reports the auths
-// that result with their methods. A construction of a session type v0.13.0 retired (the
-// single-method types) fails the check, with what to move to. The compiler holds the
-// handler wiring (the router's session interfaces name the methods declared); this check
-// holds the schema the Auth reads, which nothing compiles against.
+// that result with their methods. The compiler holds the handler wiring (the router's
+// session interfaces name the methods declared); this check holds the schema the Auth
+// reads, which nothing compiles against.
 type sessionTables struct{}
 
 func (sessionTables) Name() string { return "session-tables" }
@@ -117,7 +116,7 @@ func issuingAuths(a *app.App, p *app.Profile) map[string]bool {
 // tables when a machine outlet names the Auth as its issuer (issues), since an Auth that
 // issues no tokens never opens them.
 func authTables(auth *app.Auth, issues bool) []string {
-	tables := []string{auth.SessionTable, auth.UserTable, auth.IdentitiesTable, auth.PendingTable, auth.AttemptsTable}
+	tables := []string{auth.SessionTable, auth.UserTable, auth.IdentitiesTable, auth.PendingTable, auth.AttemptsTable, auth.SignInMethodsTable}
 	if auth.Mail {
 		tables = append(tables, auth.MailLinksTable, auth.FactorCodesTable, auth.TrustedDevicesTable)
 	}
@@ -171,9 +170,6 @@ func methodSummary(auth *app.Auth) string {
 		}
 		if m.Authority != "" {
 			notes = append(notes, m.Authority+" authority")
-		}
-		if m.OpenSignUp {
-			notes = append(notes, "open sign-up")
 		}
 		if m.UsernameIsEmail {
 			notes = append(notes, "the username is the address")

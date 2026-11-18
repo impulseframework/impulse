@@ -6,17 +6,51 @@ export interface FieldPointer {
   field: FieldName;
 }
 
+export interface AddCrewGroupMemberConfig {
+  groupId: string | FieldPointer;
+  userId: string | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface AddCrewGroupMember {
+  groupId: string;
+  userId: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses AddCrewGroupMember declares; the method chooses one per response. */
+export type AddCrewGroupMemberStatus = 204;
+
+export interface AddCrewSectorGroupMemberConfig {
+  groupId: string | FieldPointer;
+  userId: string | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface AddCrewSectorGroupMember {
+  groupId: string;
+  userId: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses AddCrewSectorGroupMember declares; the method chooses one per response. */
+export type AddCrewSectorGroupMemberStatus = 204;
+
 export interface AssignCrewRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
 }
 export interface AssignCrewRole {
   userId: string;
   role: string;
   domain?: string;
   everyDomain: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 /** The statuses AssignCrewRole declares; the method chooses one per response. */
 export type AssignCrewRoleStatus = 204;
@@ -24,10 +58,14 @@ export type AssignCrewRoleStatus = 204;
 export interface AssignCrewSectorRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
 }
 export interface AssignCrewSectorRole {
   userId: string;
   role: string;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 /** The statuses AssignCrewSectorRole declares; the method chooses one per response. */
 export type AssignCrewSectorRoleStatus = 204;
@@ -127,6 +165,34 @@ export namespace CompleteMission {
   }
 }
 
+export interface CreateCrewGroupConfig {
+  name: string | FieldPointer;
+  description: string | FieldPointer;
+  domain?: string | FieldPointer;
+}
+export interface CreateCrewGroup {
+  name: string;
+  description: string;
+  domain?: string;
+}
+/** The result CreateCrewGroup answers with. */
+export interface CreateCrewGroupResult {
+  id: string;
+}
+
+export interface CreateCrewSectorGroupConfig {
+  name: string | FieldPointer;
+  description: string | FieldPointer;
+}
+export interface CreateCrewSectorGroup {
+  name: string;
+  description: string;
+}
+/** The result CreateCrewSectorGroup answers with. */
+export interface CreateCrewSectorGroupResult {
+  id: string;
+}
+
 export interface CreateCrewSectorUserConfig {
   username: string | FieldPointer;
   name?: string | FieldPointer;
@@ -169,6 +235,24 @@ export interface CreateCrewUserResult {
   id: string;
 }
 
+export interface DeleteCrewGroupConfig {
+  groupId: string | FieldPointer;
+}
+export interface DeleteCrewGroup {
+  groupId: string;
+}
+/** The statuses DeleteCrewGroup declares; the method chooses one per response. */
+export type DeleteCrewGroupStatus = 204;
+
+export interface DeleteCrewSectorGroupConfig {
+  groupId: string | FieldPointer;
+}
+export interface DeleteCrewSectorGroup {
+  groupId: string;
+}
+/** The statuses DeleteCrewSectorGroup declares; the method chooses one per response. */
+export type DeleteCrewSectorGroupStatus = 204;
+
 export interface DeleteCrewSectorUserConfig {
   userId: string | FieldPointer;
 }
@@ -204,6 +288,28 @@ export interface DeleteMembersUser {
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
 export type DeleteMembersUserStatus = 204;
+
+export interface DescribeCrewGroupConfig {
+  groupId: string | FieldPointer;
+  description: string | FieldPointer;
+}
+export interface DescribeCrewGroup {
+  groupId: string;
+  description: string;
+}
+/** The statuses DescribeCrewGroup declares; the method chooses one per response. */
+export type DescribeCrewGroupStatus = 204;
+
+export interface DescribeCrewSectorGroupConfig {
+  groupId: string | FieldPointer;
+  description: string | FieldPointer;
+}
+export interface DescribeCrewSectorGroup {
+  groupId: string;
+  description: string;
+}
+/** The statuses DescribeCrewSectorGroup declares; the method chooses one per response. */
+export type DescribeCrewSectorGroupStatus = 204;
 
 export interface DisableCrewSectorUserConfig {
   userId: string | FieldPointer;
@@ -356,6 +462,40 @@ export interface FailMission {
   reasonId: string;
 }
 
+export interface GiveCrewGroupRoleConfig {
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface GiveCrewGroupRole {
+  groupId: string;
+  role: string;
+  domain?: string;
+  everyDomain: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses GiveCrewGroupRole declares; the method chooses one per response. */
+export type GiveCrewGroupRoleStatus = 204;
+
+export interface GiveCrewSectorGroupRoleConfig {
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface GiveCrewSectorGroupRole {
+  groupId: string;
+  role: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses GiveCrewSectorGroupRole declares; the method chooses one per response. */
+export type GiveCrewSectorGroupRoleStatus = 204;
+
 export interface HailShipConfig {
   shipId: string | FieldPointer;
 }
@@ -397,6 +537,30 @@ export namespace InspectShip {
     name: string;
     readings: InspectShip.Reading[];
   }
+}
+
+export interface InviteCrewSectorConfig {
+  email: string | FieldPointer;
+  name?: string | FieldPointer;
+  sectorName: string | FieldPointer;
+  sectorRegion: string | FieldPointer;
+  sectorEstablished: Date | FieldPointer;
+  sectorDirectoryOnly: boolean | FieldPointer;
+  defaultRole?: string | FieldPointer;
+}
+export interface InviteCrewSector {
+  email: string;
+  name?: string;
+  sectorName: string;
+  sectorRegion: string;
+  sectorEstablished: Date;
+  sectorDirectoryOnly: boolean;
+  defaultRole?: string;
+}
+/** The result InviteCrewSector answers with. */
+export interface InviteCrewSectorResult {
+  id: string;
+  sent: boolean;
 }
 
 export interface InviteCrewSectorUserConfig {
@@ -451,6 +615,24 @@ export interface LaunchMission {
   pilotUserId: string;
 }
 
+export interface MakeCrewInviteOnlyConfig {
+  name: string | FieldPointer;
+}
+export interface MakeCrewInviteOnly {
+  name: string;
+}
+/** The statuses MakeCrewInviteOnly declares; the method chooses one per response. */
+export type MakeCrewInviteOnlyStatus = 204;
+
+export interface OpenCrewSignUpConfig {
+  name: string | FieldPointer;
+}
+export interface OpenCrewSignUp {
+  name: string;
+}
+/** The statuses OpenCrewSignUp declares; the method chooses one per response. */
+export type OpenCrewSignUpStatus = 204;
+
 export interface PassFlightTestConfig {
   refitId: string | FieldPointer;
 }
@@ -471,6 +653,26 @@ export interface ReleaseConsignmentResult {
   releasedAt: Date;
 }
 
+export interface RemoveCrewGroupMemberConfig {
+  groupId: string | FieldPointer;
+  userId: string | FieldPointer;
+}
+export interface RemoveCrewGroupMember {
+  groupId: string;
+  userId: string;
+}
+/** The statuses RemoveCrewGroupMember declares; the method chooses one per response. */
+export type RemoveCrewGroupMemberStatus = 204;
+
+export interface RemoveCrewPasswordConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveCrewPassword {
+  userId: string;
+}
+/** The statuses RemoveCrewPassword declares; the method chooses one per response. */
+export type RemoveCrewPasswordStatus = 204;
+
 export interface RemoveCrewRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
@@ -485,6 +687,26 @@ export interface RemoveCrewRole {
 }
 /** The statuses RemoveCrewRole declares; the method chooses one per response. */
 export type RemoveCrewRoleStatus = 204;
+
+export interface RemoveCrewSectorGroupMemberConfig {
+  groupId: string | FieldPointer;
+  userId: string | FieldPointer;
+}
+export interface RemoveCrewSectorGroupMember {
+  groupId: string;
+  userId: string;
+}
+/** The statuses RemoveCrewSectorGroupMember declares; the method chooses one per response. */
+export type RemoveCrewSectorGroupMemberStatus = 204;
+
+export interface RemoveCrewSectorPasswordConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveCrewSectorPassword {
+  userId: string;
+}
+/** The statuses RemoveCrewSectorPassword declares; the method chooses one per response. */
+export type RemoveCrewSectorPasswordStatus = 204;
 
 export interface RemoveCrewSectorRoleConfig {
   userId: string | FieldPointer;
@@ -760,6 +982,32 @@ export interface StartFlightTest {
   refitId: string;
 }
 
+export interface TakeCrewGroupRoleConfig {
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+}
+export interface TakeCrewGroupRole {
+  groupId: string;
+  role: string;
+  domain?: string;
+  everyDomain: boolean;
+}
+/** The statuses TakeCrewGroupRole declares; the method chooses one per response. */
+export type TakeCrewGroupRoleStatus = 204;
+
+export interface TakeCrewSectorGroupRoleConfig {
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+}
+export interface TakeCrewSectorGroupRole {
+  groupId: string;
+  role: string;
+}
+/** The statuses TakeCrewSectorGroupRole declares; the method chooses one per response. */
+export type TakeCrewSectorGroupRoleStatus = 204;
+
 export interface UnlinkCrewSectorSessionIdentityConfig {
   identityId: string | FieldPointer;
 }
@@ -823,6 +1071,15 @@ export interface WithdrawCrewInvitation {
 /** The statuses WithdrawCrewInvitation declares; the method chooses one per response. */
 export type WithdrawCrewInvitationStatus = 204;
 
+export interface WithdrawCrewInvitedSectorConfig {
+  invitationId: string | FieldPointer;
+}
+export interface WithdrawCrewInvitedSector {
+  invitationId: string;
+}
+/** The statuses WithdrawCrewInvitedSector declares; the method chooses one per response. */
+export type WithdrawCrewInvitedSectorStatus = 204;
+
 export interface WithdrawCrewSectorInvitationConfig {
   invitationId: string | FieldPointer;
 }
@@ -847,6 +1104,26 @@ export interface SetFeatureResult {
   enabled: boolean;
   updatedAt: Date;
 }
+
+/** The body MakeSectorDirectoryOnly takes. The method turns the sector's directory-only switch on, which closes the sector to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the sector has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on. */
+export interface MakeSectorDirectoryOnlyConfig {}
+export interface MakeSectorDirectoryOnly {}
+
+/** The body EndSectorDirectoryOnly takes. The method turns the sector's directory-only switch off: every sign-in is admitted again. */
+export interface EndSectorDirectoryOnlyConfig {}
+export interface EndSectorDirectoryOnly {}
+
+/** The body OpenSectorToDirectory takes. The method opens the sector to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+export interface OpenSectorToDirectoryConfig {
+  role: string | FieldPointer;
+}
+export interface OpenSectorToDirectory {
+  role: string;
+}
+
+/** The body MakeSectorInviteOnly takes. The method makes the sector invite only for its directory's people: a person from the directory enters once they are invited. */
+export interface MakeSectorInviteOnlyConfig {}
+export interface MakeSectorInviteOnly {}
 
 
 export interface RPCFieldMeta {
@@ -912,12 +1189,42 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
+  /**
+   * Set on a method that warns before it runs (@warning): the server writes what the
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
+   * warning style and holds its confirm button until the person has typed the word.
+   */
+  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 
 export type MethodMap = Record<Method, MethodMeta>;
 
 const methodMap: MethodMap = {
+  [Methods.AddCrewGroupMember]: {
+    route: 'add-crew-group-member',
+    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'enumerated', enumeratedResource: Resources.CrewSessionUsers },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
+  [Methods.AddCrewSectorGroupMember]: {
+    route: 'add-crew-sector-group-member',
+    target: { resource: Resources.CrewSectorGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorUsers },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
   [Methods.AssignCrewRole]: {
     route: 'assign-crew-role',
     statuses: [204],
@@ -927,6 +1234,8 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
   },
   [Methods.AssignCrewSectorRole]: {
@@ -937,6 +1246,8 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorRoles, required: true, attribute: 'role' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
   },
   [Methods.AttachMissionDocument]: {
@@ -998,6 +1309,25 @@ const methodMap: MethodMap = {
       { fieldName: 'missionId', displayType: 'uuid' },
     ],
   },
+  [Methods.CreateCrewGroup]: {
+    route: 'create-crew-group',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+      { fieldName: 'description', displayType: 'string', required: true },
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
+    ],
+  },
+  [Methods.CreateCrewSectorGroup]: {
+    route: 'create-crew-sector-group',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+      { fieldName: 'description', displayType: 'string', required: true },
+    ],
+  },
   [Methods.CreateCrewSectorUser]: {
     route: 'create-crew-sector-user',
     answers: true,
@@ -1006,7 +1336,7 @@ const methodMap: MethodMap = {
       { fieldName: 'username', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', optional: true },
+      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.CrewSectorRoles, attribute: 'role' },
     ],
   },
@@ -1022,6 +1352,24 @@ const methodMap: MethodMap = {
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.DeleteCrewGroup]: {
+    route: 'delete-crew-group',
+    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DeleteCrewSectorGroup]: {
+    route: 'delete-crew-sector-group',
+    target: { resource: Resources.CrewSectorGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
     ],
   },
   [Methods.DeleteCrewSectorUser]: {
@@ -1058,6 +1406,26 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DescribeCrewGroup]: {
+    route: 'describe-crew-group',
+    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'description', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.DescribeCrewSectorGroup]: {
+    route: 'describe-crew-sector-group',
+    target: { resource: Resources.CrewSectorGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'description', displayType: 'string', required: true },
     ],
   },
   [Methods.DisableCrewSectorUser]: {
@@ -1214,6 +1582,32 @@ const methodMap: MethodMap = {
       { fieldName: 'reasonId', displayType: 'enumerated', enumeration: [{ id: "aborted", display: "Aborted" }, { id: "recalled", display: "Recalled" }, { id: "solar_weather", display: "Solar weather" }, { id: "unrecoverable", display: "Unrecoverable" }] },
     ],
   },
+  [Methods.GiveCrewGroupRole]: {
+    route: 'give-crew-group-role',
+    target: { resource: Resources.CrewGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
+  [Methods.GiveCrewSectorGroupRole]: {
+    route: 'give-crew-sector-group-role',
+    target: { resource: Resources.CrewSectorGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorRoles, required: true, attribute: 'role' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
   [Methods.HailShip]: {
     route: 'hail-ship',
     target: { resource: Resources.Ships, key: { shipId: 'id' } },
@@ -1241,6 +1635,19 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.InviteCrewSector]: {
+    route: 'invite-crew-sector',
+    answers: true,
+    fields: [
+      { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
+      { fieldName: 'sectorName', displayType: 'string', required: true },
+      { fieldName: 'sectorRegion', displayType: 'string', required: true },
+      { fieldName: 'sectorEstablished', displayType: 'civildate', required: true },
+      { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', attribute: 'directoryOnly' },
+      { fieldName: 'defaultRole', displayType: 'string', optional: true, attribute: 'role' },
     ],
   },
   [Methods.InviteCrewSectorUser]: {
@@ -1282,6 +1689,23 @@ const methodMap: MethodMap = {
       { fieldName: 'pilotUserId', displayType: 'string' },
     ],
   },
+  [Methods.MakeCrewInviteOnly]: {
+    route: 'make-crew-invite-only',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.OpenCrewSignUp]: {
+    route: 'open-crew-sign-up',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'open' },
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+    ],
+  },
   [Methods.PassFlightTest]: {
     route: 'pass-flight-test',
     transition: { target: Resources.Refits, from: ['flight_test'], to: 'cleared' },
@@ -1300,6 +1724,25 @@ const methodMap: MethodMap = {
       { fieldName: 'consignmentId', displayType: 'uuid' },
     ],
   },
+  [Methods.RemoveCrewGroupMember]: {
+    route: 'remove-crew-group-member',
+    target: { resource: Resources.CrewGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RemoveCrewPassword]: {
+    route: 'remove-crew-password',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
   [Methods.RemoveCrewRole]: {
     route: 'remove-crew-role',
     statuses: [204],
@@ -1309,6 +1752,25 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.RemoveCrewSectorGroupMember]: {
+    route: 'remove-crew-sector-group-member',
+    target: { resource: Resources.CrewSectorGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RemoveCrewSectorPassword]: {
+    route: 'remove-crew-sector-password',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RemoveCrewSectorRole]: {
@@ -1579,6 +2041,27 @@ const methodMap: MethodMap = {
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
   },
+  [Methods.TakeCrewGroupRole]: {
+    route: 'take-crew-group-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.TakeCrewSectorGroupRole]: {
+    route: 'take-crew-sector-group-role',
+    target: { resource: Resources.CrewSectorGroupRoles, key: { groupId: 'groupId', role: 'role' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true },
+    ],
+  },
   [Methods.UnlinkCrewSectorSessionIdentity]: {
     route: 'unlink-crew-sector-session-identity',
     target: { resource: Resources.CrewSectorIdentities, key: { identityId: 'id' } },
@@ -1642,6 +2125,14 @@ const methodMap: MethodMap = {
       { fieldName: 'invitationId', displayType: 'uuid' },
     ],
   },
+  [Methods.WithdrawCrewInvitedSector]: {
+    route: 'withdraw-crew-invited-sector',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
   [Methods.WithdrawCrewSectorInvitation]: {
     route: 'withdraw-crew-sector-invitation',
     target: { resource: Resources.CrewSectorInvitations, key: { invitationId: 'id' } },
@@ -1658,6 +2149,30 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string' },
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
+  },
+  [Methods.MakeSectorDirectoryOnly]: {
+    route: 'make-sector-directory-only',
+    dryRun: true,
+    warning: { typed: 'close' },
+    fields: [],
+  },
+  [Methods.EndSectorDirectoryOnly]: {
+    route: 'end-sector-directory-only',
+    dryRun: true,
+    fields: [],
+  },
+  [Methods.OpenSectorToDirectory]: {
+    route: 'open-sector-to-directory',
+    dryRun: true,
+    warning: { typed: 'open' },
+    fields: [
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorDirectoryRoles, required: true },
+    ],
+  },
+  [Methods.MakeSectorInviteOnly]: {
+    route: 'make-sector-invite-only',
+    dryRun: true,
+    fields: [],
   },
 
 };

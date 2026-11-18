@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/lodestar/pkg/rpc"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/scheduled"
 	"google.golang.org/grpc/codes"
 )
@@ -19,8 +21,10 @@ import (
 // the invoker identity as its verified email. No session is signed in for any call: the
 // route sits behind the scheduler's check alone. A call without a token, with a token of
 // another identity, or with a token minted for another route is refused 401 and deletes
-// nothing; the scheduler's own call deletes the reading recorded before the retention
-// window, leaves the one inside it, and answers how many readings went and the cutoff.
+// nothing; the scheduler's own call that asks for a dry run or for a warning, neither of
+// which a scheduled call has, is refused 400 naming the header and deletes nothing; the
+// scheduler's own call deletes the reading recorded before the retention window, leaves
+// the one inside it, and answers how many readings went and the cutoff.
 //
 // Demonstrates: @schedule.
 func TestScheduled_pruneDroidReports(t *testing.T) {
@@ -51,8 +55,10 @@ func TestScheduled_pruneDroidReports(t *testing.T) {
 	// The steps run in order, not as parallel subtests: the refusals leave the stale
 	// reading in place for the scheduler's call, the last step, to prune.
 	steps := []struct {
-		name       string
-		token      string
+		name  string
+		token string
+		// header is a header the call carries with the value true, where it carries one.
+		header     string
 		wantStatus int
 		// wantStale says whether the stale reading is still there after the call.
 		wantStale bool
@@ -60,12 +66,19 @@ func TestScheduled_pruneDroidReports(t *testing.T) {
 		{name: "a call without a token is refused", wantStatus: http.StatusUnauthorized, wantStale: true},
 		{name: "a token of another identity is refused", token: s.scheduler.Mint(audience, "someone@lodestar.iam.gserviceaccount.com"), wantStatus: http.StatusUnauthorized, wantStale: true},
 		{name: "a token minted for another route is refused", token: s.scheduler.Mint("https://"+s.server.Listener.Addr().String()+scheduled.Prefix+"/another-route", schedulerInvoker), wantStatus: http.StatusUnauthorized, wantStale: true},
+		// A scheduled call has no dry run and no warning: the scheduler's own call asking
+		// for either is refused naming the header, and the method is not run.
+		{name: "the scheduler's call asking for a dry run is refused", token: s.scheduler.Mint(audience, schedulerInvoker), header: resource.DryRunHeader, wantStatus: http.StatusBadRequest, wantStale: true},
+		{name: "the scheduler's call asking for a warning is refused", token: s.scheduler.Mint(audience, schedulerInvoker), header: resource.WarningHeader, wantStatus: http.StatusBadRequest, wantStale: true},
 		{name: "the scheduler's call prunes the stale reading", token: s.scheduler.Mint(audience, schedulerInvoker), wantStatus: http.StatusOK},
 	}
 	for _, step := range steps {
-		status, body := postScheduled(t, s, route, step.token)
+		status, body := postScheduledAsking(t, s, route, step.token, step.header)
 		if status != step.wantStatus {
 			t.Fatalf("%s: POST %s: status = %d, want %d: %s", step.name, route, status, step.wantStatus, body)
+		}
+		if step.header != "" && !strings.Contains(string(body), "the "+step.header+" header asks for ") {
+			t.Errorf("%s: answer = %s, want the refusal to name the %s header", step.name, body, step.header)
 		}
 		if step.wantStatus == http.StatusOK {
 			var pruned struct {
@@ -95,12 +108,23 @@ func TestScheduled_pruneDroidReports(t *testing.T) {
 func postScheduled(t *testing.T, s *served, route, token string) (status int, body []byte) {
 	t.Helper()
 
+	return postScheduledAsking(t, s, route, token, "")
+}
+
+// postScheduledAsking calls the scheduled route as postScheduled does, carrying the
+// named header with the value true where one is named.
+func postScheduledAsking(t *testing.T, s *served, route, token, header string) (status int, body []byte) {
+	t.Helper()
+
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.server.URL+route, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if header != "" {
+		req.Header.Set(header, "true")
 	}
 	resp, err := s.server.Client().Do(req)
 	if err != nil {

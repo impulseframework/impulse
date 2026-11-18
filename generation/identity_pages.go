@@ -20,16 +20,28 @@ import (
 // names are taken from where the generator names them (the declarations, the lists, the
 // method sources), and a side names only what the outlet serves: a method the auth's
 // sign-in methods do not give, or a list the schema has no table for, is absent, and a
-// page draws nothing for it.
+// page draws nothing for it. The groups of people are named the same way, where the
+// auth keeps them.
 
 // The keys of the lists of a side.
 const (
 	identityListUsers          = "users"
 	identityListRoles          = "roles"
 	identityListIdentities     = "identities"
+	identityListSignInWays     = "signInWays"
 	identityListInvitations    = "invitations"
 	identityListSessions       = "sessions"
 	identityListSignInAttempts = "signInAttempts"
+	identityListSignInMethods  = "signInMethods"
+	identityListSignUpRoles    = "signUpRoles"
+	// The invitations that make a tenant and still stand (identity_invitedtenant.go).
+	identityListInvitedTenants = "invitedTenants"
+	// The lists over the groups of people (identity_groups.go): the groups, the people
+	// of a group, the roles a group holds, and the roles people hold through a group.
+	identityListGroups        = "groups"
+	identityListGroupUsers    = "groupUsers"
+	identityListGroupRoles    = "groupRoles"
+	identityListThroughGroups = "rolesThroughGroups"
 )
 
 // identityPart is one list or method of a side: the key a page knows it by and the name
@@ -71,19 +83,36 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 			{identityListUsers, i.listName(listPeopleSuffix)},
 			{identityListRoles, i.listName(listRolesSuffix)},
 			{identityListIdentities, i.listName(listIdentitiesSuffix)},
+			{identityListSignInWays, i.signInWayName(true)},
 			{identityListInvitations, i.listName(listInvitationsSuffix)},
+			{identityListGroups, i.groupListName(listGroupsSuffix, true)},
+			{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, true)},
+			{identityListGroupRoles, i.groupListName(listGroupRolesSuffix, true)},
+			{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, true)},
 		}
 	}
 	data := &identitySourceData{identityInstance: i}
 
-	return []identityPart{
+	parts := []identityPart{
 		{identityListUsers, data.User()},
 		{identityListRoles, data.Membership()},
 		{identityListIdentities, data.Identity()},
+		{identityListSignInWays, i.signInWayName(false)},
 		{identityListInvitations, data.MailLink()},
 		{identityListSessions, data.Session()},
 		{identityListSignInAttempts, data.SignInAttempt()},
+		{identityListSignInMethods, data.SignInMethod()},
+		{identityListSignUpRoles, data.SignUpRole()},
+		{identityListGroups, data.Group()},
+		{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, false)},
+		{identityListGroupRoles, data.GroupRole()},
+		{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, false)},
 	}
+	if i.invitesTenants() {
+		parts = append(parts, identityPart{identityListInvitedTenants, i.invitedTenantName()})
+	}
+
+	return parts
 }
 
 // pageMethods names the methods of a side by what each does, as the method sources
@@ -110,13 +139,29 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"endUserSessions", "End" + subject + "UserSessions"},
 		{"revokeTrustedDevices", "Revoke" + subject + "UserTrustedDevices"},
 		{"unlinkIdentity", i.unlinkIdentityMethod(tenant)},
+		{"removePassword", i.removePasswordMethod(tenant)},
+		{"createGroup", "Create" + subject + "Group"},
+		{"describeGroup", "Describe" + subject + "Group"},
+		{"deleteGroup", "Delete" + subject + "Group"},
+		{"addGroupMember", "Add" + subject + "GroupMember"},
+		{"removeGroupMember", "Remove" + subject + "GroupMember"},
+		{"giveGroupRole", "Give" + subject + "GroupRole"},
+		{"takeGroupRole", "Take" + subject + "GroupRole"},
 	}
 	if !tenant {
 		data := &identitySourceData{identityInstance: i}
 		parts = append(parts,
 			identityPart{"endSession", "End" + data.Session()},
 			identityPart{"unlockSignIn", "Unlock" + i.auth + "SignIn"},
+			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
+			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
 		)
+		if i.invitesTenants() {
+			parts = append(parts,
+				identityPart{"inviteTenant", i.inviteTenantMethod()},
+				identityPart{"withdrawInvitedTenant", i.withdrawInvitedTenantMethod()},
+			)
+		}
 	}
 
 	return parts

@@ -18,9 +18,51 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
-// a user that has no password. It is a Conflict client message.
+// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity
+// that can sign in a user that has no password, and when RemoveUserPassword would
+// remove the password of a user none of whose identities can sign them in: either would
+// leave the user no means of sign-in. It is a Conflict client message.
 var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
+
+// ErrPasswordChanged is returned by the password writes that follow a proof of the
+// password (UpgradeUserPasswordHash, ChangeUserPassword and RemoveProvenUserPassword)
+// and by the inserts made on the strength of one (SignIn, HoldSignIn and
+// LinkConfirmedIdentity with a PasswordProof) when the user no longer holds the hash
+// that was proved: the password was changed, reset or removed after the caller read
+// it. Nothing is written, so the other write stands whole. It is a Conflict client
+// message.
+var ErrPasswordChanged = dbtype.ErrPasswordChanged
+
+// ErrNoAuthEvents is returned by AppendAuthEvent on a store that records no auth
+// events (no WithAuthEvents): there is no table to record the event in. A caller for
+// whom the event is a record beside what it did, not the thing it did, tells this
+// apart from a failure.
+var ErrNoAuthEvents = dbtype.ErrNoAuthEvents
+
+// ErrPasswordHeld is returned by SetFirstUserPassword for a user who holds a password
+// already (a Conflict): a first password is given to an account that has none, and an
+// account that has one changes it with the old one (ChangeUserPassword). Nothing is
+// written.
+var ErrPasswordHeld = dbtype.ErrPasswordHeld
+
+// PasswordProof names the password a sign-in proved, without holding it: a digest of
+// the hash the password was compared against. A session, a pending sign-in or a
+// confirmed link that carries one is inserted only while the user still holds that
+// password, compared in the inserting transaction (ErrPasswordChanged otherwise), and a
+// pending sign-in keeps it in its row so its completion is held the same way. The nil
+// proof is the sign-in no password proved, which is held to nothing.
+type PasswordProof = dbtype.PasswordProof
+
+// ProofOfPassword is the proof of a password that was compared against hash, the hash
+// the user was read with: nil for a user with no password.
+func ProofOfPassword(hash *securehash.Hash) (PasswordProof, error) {
+	proof, err := dbtype.ProofOf(hash)
+	if err != nil {
+		return nil, errors.Wrap(err, "dbtype.ProofOf()")
+	}
+
+	return proof, nil
+}
 
 // SessionIdentity is a stored link from an external identity to a user.
 type SessionIdentity struct {
@@ -74,11 +116,33 @@ type AuthStore[Tx any] interface {
 	UserStore
 	// Users lists every user, by username.
 	Users(ctx context.Context) ([]*SessionUser, error)
-	// SetUserPassword sets a user's password hash and whether the user must change the
-	// password before anything else is served (SessionUser.PasswordChangeRequired), in
-	// one write: true for a password an operator set, false for one the user chose.
-	// SetUserPasswordHash leaves the mark as it is.
-	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ReplaceUserPassword sets a user's password hash and whether the user must change
+	// the password before anything else is served (SessionUser.PasswordChangeRequired:
+	// true for a password an operator set, false for one the user chose), and expires
+	// every session of the user, as DestroyUserSessions does, in one transaction: the
+	// password is replaced and the sessions ended together, or neither is, so no
+	// failure leaves the new password in place and a session alive. It follows no proof
+	// of the password it replaces and overwrites whatever the row holds: it is an
+	// operator's write, or the end of a flow that proved who the person is by other
+	// means. A user's own change is ChangeUserPassword.
+	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ChangeUserPassword replaces the password a user proved with one the user chose,
+	// clears the password change mark and expires every session of the user, as
+	// DestroyUserSessions does, in one transaction: the password is changed and the
+	// sessions ended together, or neither is. proven is the hash the caller compared the
+	// user's old password against, and the write lands only while the row still holds
+	// it: a password changed, reset or removed since the caller read it stands as it is
+	// (ErrPasswordChanged), with no session ended, so a temporary password an operator
+	// set meanwhile is not overwritten on proof of the password it replaced. A write with
+	// no proven hash writes nothing, and one with no new hash is refused.
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	// SetFirstUserPassword gives a user who holds no password the one they chose, with
+	// the password change mark clear. The write lands only while the row holds no
+	// password, decided by the write itself, so of two that race one lands: a user who
+	// holds one already keeps it (ErrPasswordHeld, a Conflict), and an unknown user is
+	// NotFound. The user's sessions stand: a person who adds a way to sign in gives
+	// nobody a reason to be signed out. A write with no hash is refused.
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
 	// CreateSession inserts a session that has no identity to resolve and returns its
 	// ID: a session the application starts for a user it authenticated itself, or a
 	// regeneration. A configured custom session data resolver runs inside the insert
@@ -87,26 +151,70 @@ type AuthStore[Tx any] interface {
 	// SignIn establishes the session of a sign-in that carries a verified identity
 	// (req.Identity) and returns its ID. An external identity resolves to its user by its
 	// link, or by the account rules when it has none: rules.Account, the registration's
-	// own, when it is set, and rules.Standard, the registration's standard rule, when
-	// the former is nil or answers signin.Standard, the tenants' declarations of the
+	// own, when it is set, and the library's standard rule when the former is nil or
+	// answers signin.Standard, which reads what an administrator chose for the method
+	// rules.Method names, the tenants' declarations of the
 	// directory deciding a stranger first when rules.Directories is set; a password
 	// identity names its user in req.UserID. rules.Policy then decides, and the
 	// session is inserted with its auth events and custom session data. The sign-in
 	// runs in two transactions that each commit unless a hook or the storage fails: a
 	// refusal (a *sessioninfo.LoginRefusal) or a wait (a *signin.PendingSignInError)
 	// keeps the hooks' own writes and writes no session. See the README's "Storage and
-	// schema".
+	// schema". A sign-in that rests on a password proof (rules.Proven) inserts its
+	// session only while the user still holds the password that was proved, compared in
+	// the transaction that inserts: once it was changed, reset or removed the sign-in
+	// ends with ErrPasswordChanged, before the policy is asked, and no session is
+	// written.
 	SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rules SignInRules[Tx]) (impulse.UUID, error)
 	// Identity returns the link for (method, connection, subject), or a NotFound error.
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error)
 	// IdentitiesByUser lists a user's identity links.
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*SessionIdentity, error)
-	// LinkIdentity links an identity to a user outside the sign-in flow (for
-	// example after a pending confirmation).
+	// LinkIdentity links an identity to a user outside the sign-in flow.
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*SessionIdentity, error)
-	// UnlinkIdentity removes a link. It refuses to remove the last means of sign-in of
-	// a user that has no password.
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	// LinkConfirmedIdentity links an identity to the user whose password confirmed the
+	// link, in one transaction, and gives the person the default seat of the tenant
+	// whose directory the identity came through: directories reads the declaration and
+	// seat gives the seat, handed the transaction, as at a sign-in that makes the link
+	// itself (SignInRules; both nil for none). The link is made and the person seated
+	// together, or neither. An identity linked meanwhile is a Conflict. proven is the
+	// proof of the password that confirmed the link: the link is made only while the
+	// user still holds it, compared in the transaction that links (ErrPasswordChanged
+	// otherwise, nothing written).
+	LinkConfirmedIdentity(
+		ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
+		directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx], proven PasswordProof,
+	) error
+	// UnlinkIdentity removes a link. A user that has no password keeps a means of
+	// sign-in: the link goes only while another identity linked to the user is one
+	// signsIn judges a means of sign-in, by its method and connection (the caller's
+	// judgment of the links a sign-in is still possible through), and the unlink is
+	// refused otherwise (ErrLastSignInMethod), however many identities that sign nobody
+	// in the user would keep. The user's other identities are read and judged in the
+	// transaction that unlinks, so two unlinks, or an unlink and a removal of the
+	// password, that race cannot leave the user with no means of sign-in between them.
+	// signsIn is asked about no identity of a user that has a password, who may lose
+	// every one; a nil signsIn judges no identity a means of sign-in.
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
+	// RemoveUserPassword removes a user's password, and with it the mark that the user
+	// must change it. standing names the identities linked to the user that the caller
+	// judged a means of sign-in (the links a sign-in is still possible through): the
+	// removal goes through only while one of them is still linked to the user, read in
+	// the transaction that removes the password, so a removal and an unlink that race
+	// cannot both go through, and it refuses to remove the last means of sign-in
+	// otherwise (ErrLastSignInMethod), a user with no identity and one whose identities
+	// sign nobody in alike. The store does not judge a link: an identity standing does
+	// not name is no means of sign-in to it. The user's sessions stand. A user that
+	// holds no password is a BadRequest. It follows no proof of the password: it is an
+	// administrator's removal. A user's own removal is RemoveProvenUserPassword.
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
+	// RemoveProvenUserPassword removes the password a user proved, as RemoveUserPassword
+	// removes one, under the same rule of the identities that stand. proven is the hash
+	// the caller compared the user's password against, and the removal goes through
+	// only while the row still holds it: a password changed, reset or removed since the
+	// caller read it stands as it is (ErrPasswordChanged), answered before the user's
+	// other means of sign-in are counted. A removal with no proven hash removes nothing.
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
 	// SetTokensTableName sets the name of the tokens table (SessionTokens).
 	SetTokensTableName(name string) error
 	// SetDeviceCodesTableName sets the name of the device codes table
@@ -179,7 +287,10 @@ type AuthStore[Tx any] interface {
 	SetPendingSignInsTableName(name string) error
 	// HoldSignIn stores a sign-in that waits for a confirmation or the application's MFA
 	// step and returns its row's ID. p.TokenHash is the hash of the opaque token the
-	// browser's pending cookie carries.
+	// browser's pending cookie carries. A sign-in that rests on a password proof
+	// (p.PasswordProof) is stored only while its user still holds the password that was
+	// proved, compared in the transaction that inserts the row (ErrPasswordChanged
+	// otherwise), and the row keeps the proof for the completion to be held to.
 	HoldSignIn(ctx context.Context, p *PendingSignIn) (impulse.UUID, error)
 	// PendingSignIn returns the live pending sign-in holding tokenHash: not consumed and
 	// not expired. Any other is NotFound.
@@ -198,13 +309,38 @@ type AuthStore[Tx any] interface {
 	// the call, under limit, and returns the record as written: the failure counts in
 	// the name's window, or opens one, and the failure that reaches limit.Failures
 	// locks the name for limit.Lock; a name that is locked is left as it is. The read
-	// and the write are one transaction, so concurrent failures each count.
+	// and the write are one transaction, so concurrent failures each count, and the
+	// record says whether this one was counted (Counted): of failures recorded at
+	// once, as many as limit.Failures are and no more, so a caller that takes the
+	// failure before it judges a guess judges no more guesses than the limit. Every
+	// limit the Auth keeps in this table is taken this way, before the thing it
+	// bounds: a password attempt before the password is compared, a code's guess
+	// before the code is, and a code or link before it is mailed.
 	RecordSignInFailure(ctx context.Context, name string, limit SignInAttemptLimit) (*SignInAttempts, error)
 	// ClearSignInAttempts deletes the sign-in attempts record of name: a successful
 	// password check, an MFA completion and a password change reset the count.
 	ClearSignInAttempts(ctx context.Context, name string) error
 	// SetMailLinksTableName sets the name of the mail links table. (default: SessionMailLinks)
 	SetMailLinksTableName(name string) error
+	// SetSignInMethodsTableName sets the name of the sign-in methods table. (default: SessionSignInMethods)
+	SetSignInMethodsTableName(name string) error
+	// SignInMethods lists the rows of the sign-in methods table, by name: what an
+	// administrator chose for each sign-in method they made a choice for. A method with
+	// no row is invite only and is not among them.
+	SignInMethods(ctx context.Context) ([]*SignInMethod, error)
+	// SetSignInMethod writes the row of the sign-in method m names, replacing the one
+	// it had. It holds no rule: whether the name is a registered method, and whether an
+	// open method names a role, are the caller's to decide.
+	SetSignInMethod(ctx context.Context, m *SignInMethod) error
+	// SignUp makes the account of a person who signs up with a password through the
+	// method registered under method, in one transaction, and returns its id: the method
+	// must be open to sign-up for audience, whom its registration admits
+	// (signin.Audience.Key), as its row says in that transaction, the mail link linkID
+	// is consumed, the user row is written, and seat gives the method's default role,
+	// handed the transaction (nil for none). A method that is not open and a link that
+	// is no longer live are NotFound, a taken username or address a Conflict, and
+	// nothing is written by a refusal.
+	SignUp(ctx context.Context, method, audience string, user *InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error)
 	// SetUsernameIsEmail declares the users table in the shape where the address is
 	// the username, generated by the database: the store never writes Email, refuses
 	// a rename, and writes a verified address as the username (see the README's
@@ -266,12 +402,16 @@ type AuthStore[Tx any] interface {
 	SetTrustedDevicesTableName(name string) error
 	// InsertFactorCode consumes the earlier live codes of c's pending sign-in and
 	// inserts c, in one transaction, so one code stands for a pending sign-in at a
-	// time; it gives c its ID.
+	// time; it gives c its ID. Inserts made at once for one pending sign-in run one
+	// after another, each consuming the code of the one before it, so one code
+	// stands after them too and none is left to be guessed at beside it.
 	InsertFactorCode(ctx context.Context, c *FactorCode) error
 	// FactorCode returns the live code of pendingID, or NotFound.
 	FactorCode(ctx context.Context, pendingID impulse.UUID) (*FactorCode, error)
-	// RecordFactorCodeAttempt counts a wrong code against the live code id and
-	// returns the count; NotFound when it is not live.
+	// RecordFactorCodeAttempt counts an attempt against the live code id and returns
+	// the count, in one step: attempts counted at once are each counted and answered
+	// their own count, so a caller that takes the attempt before it judges a guess
+	// judges no more guesses than it allows. NotFound when the code is not live.
 	RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID) (int, error)
 	// ConsumeFactorCode marks the live code id consumed, by a conditional update, so
 	// a code is used once; NotFound when it is not live.
@@ -311,7 +451,15 @@ const (
 	MailLinkInvitation   = dbtype.MailLinkInvitation
 	MailLinkVerification = dbtype.MailLinkVerification
 	MailLinkSignUp       = dbtype.MailLinkSignUp
+	// MailLinkFirstPassword is the code a signed-in person who has no password is
+	// mailed to choose their first one.
+	MailLinkFirstPassword = dbtype.MailLinkFirstPassword
 )
+
+// SignInMethod is a row of the sign-in methods table: what an administrator chose for
+// one sign-in method, whether it is open to sign-up and the role a person who signs up
+// through it is given.
+type SignInMethod = dbtype.SignInMethod
 
 // SignInAttempts is the sign-in attempts record of a name: the failed password
 // attempts in its window and the lock they earned.
@@ -423,20 +571,48 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 }
 
 // SignInRules are the application's rules a sign-in runs under, handed to
-// AuthStore.SignIn: the registration's own account rule (nil for none) and its standard
-// rule ("" for none), the sign-in policy (nil for none), the invitation acceptor (nil
-// for none), and a tenanted application's reader of the tenants' directory
-// declarations with the hook that seats a stranger they admit (both nil for none).
+// AuthStore.SignIn: the registration's own account rule (nil for none) and the name the
+// sign-in's method is registered under, by which the standard rule reads what an
+// administrator chose for it ("" for a sign-in through no registered method), the
+// sign-in policy (nil for none), the invitation acceptor (nil for none), the hook that
+// gives a person who signed up through an open method its default role (nil for none),
+// and a tenanted application's reader of the tenants' directory declarations with the
+// hook that seats a person at their first sign-in through a tenant's directory (both
+// nil for none). They carry the proof of the password the sign-in rests on too (nil for
+// none), which the session's insert is held to.
 type SignInRules[Tx any] struct {
-	Account     signin.AccountRule[Tx]
-	Standard    signin.StandardAccountRule
+	Account signin.AccountRule[Tx]
+	Method  string
+	// Audience is whom the method's registration admits now (signin.Audience.Key): the
+	// method's row opens it only for the audience it was opened for.
+	Audience string
+	// SeededUsers says the registration declared its provider's names the
+	// application's own (signin.Registration.SeededUsers): a user created ahead is
+	// then linked on the name alone.
+	SeededUsers bool
 	Policy      signin.Policy[Tx]
 	Accept      signinflow.InvitationAcceptor[Tx]
+	SignUp      signinflow.SignUpSeater[Tx]
 	Directories signin.DirectoryReader[Tx]
 	Seat        signinflow.DirectorySeater[Tx]
+	// OnlyIn reports whether a tenant is the only place a person holds anything (nil
+	// for none): with Directories it decides a first link made on a name alone to an
+	// account that has never signed in.
+	OnlyIn signinflow.OnlyInTenant[Tx]
+	// Seeded reports whether an account is the deployment's own seed for the
+	// registration the sign-in came through (nil for none), and OneOrganization says
+	// that registration admits exactly one organization and nobody else
+	// (signin.Audience.OneOrganization): with Directories the two admit the seed's
+	// first link on the name.
+	Seeded          signinflow.SeededAccount
+	OneOrganization bool
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
+	// Proven is the proof of the password the sign-in rests on (ProofOfPassword): the
+	// one just entered at a login or a confirmation, or the one a pending sign-in was
+	// held with. Nil when no password was proved.
+	Proven PasswordProof
 }
 
 // SignIn implements AuthStore.
@@ -451,8 +627,9 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 	session := &dbtype.InsertSession{Username: req.Username}
 
 	flowRules := signinflow.Rules[Tx]{
-		Account: rules.Account, Standard: rules.Standard, Policy: rules.Policy, Accept: rules.Accept,
-		Directories: rules.Directories, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice,
+		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, Seeded: rules.Seeded, OneOrganization: rules.OneOrganization,
+		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -480,6 +657,53 @@ func (a *Auth[Tx]) SetMailLinksTableName(name string) error {
 	}
 
 	return nil
+}
+
+// SetSignInMethodsTableName implements AuthStore.
+func (a *Auth[Tx]) SetSignInMethodsTableName(name string) error {
+	if err := a.db.SetSignInMethodsTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetSignInMethodsTableName()")
+	}
+
+	return nil
+}
+
+// SignInMethods implements AuthStore.
+func (a *Auth[Tx]) SignInMethods(ctx context.Context) ([]*SignInMethod, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	methods, err := a.db.SignInMethods(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.SignInMethods()")
+	}
+
+	return methods, nil
+}
+
+// SetSignInMethod implements AuthStore.
+func (a *Auth[Tx]) SetSignInMethod(ctx context.Context, m *SignInMethod) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.SetSignInMethod(ctx, m); err != nil {
+		return errors.Wrap(err, "db.SetSignInMethod()")
+	}
+
+	return nil
+}
+
+// SignUp implements AuthStore.
+func (a *Auth[Tx]) SignUp(ctx context.Context, method, audience string, user *InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := signinflow.SignUp(ctx, a.flow, method, audience, user, linkID, seat)
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignUp()")
+	}
+
+	return id, nil
 }
 
 // SetUsernameIsEmail implements AuthStore.
@@ -798,13 +1022,43 @@ func (a *Auth[Tx]) Users(ctx context.Context) ([]*SessionUser, error) {
 	return users, nil
 }
 
-// SetUserPassword implements AuthStore.
-func (a *Auth[Tx]) SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
+// ReplaceUserPassword implements AuthStore.
+func (a *Auth[Tx]) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetUserPassword(ctx, id, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "db.SetUserPassword()")
+	if err := a.db.ReplaceUserPassword(ctx, id, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "db.ReplaceUserPassword()")
+	}
+
+	return nil
+}
+
+// ChangeUserPassword implements AuthStore.
+func (a *Auth[Tx]) ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if hash == nil {
+		return errors.New("ChangeUserPassword needs the new password's hash: RemoveProvenUserPassword removes a password")
+	}
+	if err := a.db.ChangeUserPassword(ctx, id, proven, hash); err != nil {
+		return errors.Wrap(err, "db.ChangeUserPassword()")
+	}
+
+	return nil
+}
+
+// SetFirstUserPassword implements AuthStore.
+func (a *Auth[Tx]) SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if hash == nil {
+		return errors.New("SetFirstUserPassword needs the password's hash: a user with no password is given one")
+	}
+	if err := a.db.SetFirstUserPassword(ctx, id, hash); err != nil {
+		return errors.Wrap(err, "db.SetFirstUserPassword()")
 	}
 
 	return nil
@@ -854,13 +1108,52 @@ func (a *Auth[Tx]) LinkIdentity(ctx context.Context, userID impulse.UUID, identi
 	return (*SessionIdentity)(link), nil
 }
 
-// UnlinkIdentity implements AuthStore.
-func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
+// LinkConfirmedIdentity implements AuthStore.
+func (a *Auth[Tx]) LinkConfirmedIdentity(
+	ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
+	directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx], proven PasswordProof,
+) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.UnlinkIdentity(ctx, identityID); err != nil {
+	if err := signinflow.LinkConfirmed(ctx, a.flow, userID, username, identity, tenant, directories, seat, proven); err != nil {
+		return errors.Wrap(err, "signinflow.LinkConfirmed()")
+	}
+
+	return nil
+}
+
+// UnlinkIdentity implements AuthStore.
+func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.UnlinkIdentity(ctx, identityID, signsIn); err != nil {
 		return errors.Wrap(err, "db.UnlinkIdentity()")
+	}
+
+	return nil
+}
+
+// RemoveUserPassword implements AuthStore.
+func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RemoveUserPassword(ctx, userID, standing); err != nil {
+		return errors.Wrap(err, "db.RemoveUserPassword()")
+	}
+
+	return nil
+}
+
+// RemoveProvenUserPassword implements AuthStore.
+func (a *Auth[Tx]) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RemoveProvenUserPassword(ctx, userID, proven, standing); err != nil {
+		return errors.Wrap(err, "db.RemoveProvenUserPassword()")
 	}
 
 	return nil

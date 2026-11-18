@@ -60,6 +60,31 @@ type snapshot struct {
 	// store read this snapshot was compiled from: any local write up to and
 	// including that generation is guaranteed to be reflected here.
 	writeGen int64
+
+	// since and until bound the instants the snapshot answers for. It is
+	// compiled from the assignments that count at one instant, and the same
+	// ones count from since, the latest start or end of a period at or before
+	// that instant, until until, the earliest after it. The zero since is from
+	// the beginning and the zero until without end: a store whose assignments
+	// carry no period compiles to one snapshot for all time.
+	since, until time.Time
+
+	// timed is the records the snapshot was compiled from, kept where an
+	// assignment carries a period, so the snapshot for an instant outside the
+	// window compiles without a store read; nil where none does.
+	timed *policy.Records
+
+	// administrators are the people who administer each tenant, with the
+	// periods their holdings count in (compileTenantAdministrators): nil where
+	// the application named no administrator role. The engine sets it on the
+	// snapshot it compiles, before the snapshot is anyone's.
+	administrators tenantAdministrators
+}
+
+// holdsAt reports whether the snapshot answers for the instant: the
+// assignments it was compiled from are the ones that count then.
+func (s *snapshot) holdsAt(at time.Time) bool {
+	return !at.Before(s.since) && (s.until.IsZero() || at.Before(s.until))
 }
 
 // scopePolicy holds one partition's fully-resolved grants. Role inheritance
@@ -397,6 +422,16 @@ func (s *snapshot) userHasGrants(scope accesstypes.Scope, user accesstypes.User)
 	return len(s.userGrants(scope, user)) > 0
 }
 
+// userIsSuperAdministrator reports whether user holds the Super Administrator
+// role: a membership of their own held in the global partition, the one place
+// the role is held (accesstypes.RoleCollection.HoldsSuperAdministrator). A
+// role that inherits from it makes nobody a super administrator.
+func (s *snapshot) userIsSuperAdministrator(user accesstypes.User) bool {
+	held := accesstypes.RoleCollection{accesstypes.GlobalPolicyScope(): s.global.userRoles[user]}
+
+	return held.HoldsSuperAdministrator()
+}
+
 // roleHasGrants reports whether role holds at least one grant in scope, own
 // or inherited — the foothold a session operating as the role has there. A
 // role that exists but resolves to no grants has none.
@@ -646,11 +681,25 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 // into an immutable snapshot, and reports what the store holds that this
 // release cannot use as written: a grant it skipped (SkippedGrant), a custom
 // role a default of the same name shadows, whose grants it skipped
-// (ShadowedRole), and memberships naming a role that is neither a default nor
-// a custom role in their scope, which grant nothing (OrphanedMembership). The
+// (ShadowedRole), a role a group holds that its members are not given
+// (SkippedGroupRole), and memberships naming a role that is neither a default
+// nor a custom role in their scope, which grant nothing (OrphanedMembership),
+// a person's own and the ones a group gives alike. The
 // findings are sorted for a stable report. defaults and collection may be
-// nil: no default roles, and grant names unchecked.
+// nil: no default roles, and grant names unchecked. The snapshot holds the
+// assignments that count at loadedAt (newSnapshotAt).
 func newSnapshot(records *policy.Records, defaults *defaultRoles, collection PermissionCollection, loadedAt time.Time) (*snapshot, []policyFinding, error) {
+	return newSnapshotAt(records, defaults, collection, loadedAt, loadedAt)
+}
+
+// newSnapshotAt compiles the snapshot that answers at the instant at. An
+// assignment counts inside its period alone (accesstypes.Period), so the
+// compiler reads the memberships that count at that instant and no others, and
+// records the window around it in which the same ones count (holdsAt): a check
+// costs what it costs without periods, and nothing is written when a period
+// begins or ends. The findings do not depend on the instant: what the store
+// holds that the release cannot use is reported whether or not it counts now.
+func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection PermissionCollection, loadedAt, at time.Time) (*snapshot, []policyFinding, error) {
 	s := &snapshot{
 		perms:       make(map[accesstypes.Permission]uint16),
 		resources:   make(map[string]uint16),
@@ -671,9 +720,18 @@ func newSnapshot(records *policy.Records, defaults *defaultRoles, collection Per
 	for _, g := range skipped {
 		findings = append(findings, g)
 	}
-	memberships, orphaned := resolvedMemberships(records.Memberships, defaults, customs)
+	// A group's roles become its members' before anything reads a membership:
+	// from here on the compiler knows people and roles alone.
+	folded, skippedRoles := foldGroups(records)
+	findings = append(findings, skippedRoles...)
+	memberships, orphaned := resolvedMemberships(folded, defaults, customs)
 	findings = append(findings, orphaned...)
 	sortFindings(findings)
+	var timed bool
+	memberships, s.since, s.until, timed = countingAt(memberships, at)
+	if timed {
+		s.timed = records
+	}
 
 	// Group the records by where they are held and compile the global
 	// partition and every-domain policy outright; each domain with rows of
@@ -686,6 +744,40 @@ func newSnapshot(records *policy.Records, defaults *defaultRoles, collection Per
 	}
 
 	return s, findings, nil
+}
+
+// countingAt keeps the memberships that count at the instant, and answers the
+// window around it in which the same ones count: since is the latest start or
+// end of a period at or before the instant, until the earliest after it, each
+// the zero time where there is none. timed reports whether any membership
+// carries a period; where none does the memberships come back as they are.
+func countingAt(memberships []policy.Membership, at time.Time) (kept []policy.Membership, since, until time.Time, timed bool) {
+	if !slices.ContainsFunc(memberships, func(m policy.Membership) bool { return !m.Period.IsZero() }) {
+		return memberships, since, until, false
+	}
+	// A start or an end at or before the instant has happened, and one after
+	// it has not: the same split Period.Contains makes.
+	edge := func(instant time.Time) {
+		switch {
+		case instant.IsZero():
+		case instant.After(at):
+			if until.IsZero() || instant.Before(until) {
+				until = instant
+			}
+		case instant.After(since):
+			since = instant
+		}
+	}
+	kept = make([]policy.Membership, 0, len(memberships))
+	for _, m := range memberships {
+		edge(m.Period.Start)
+		edge(m.Period.End)
+		if m.Period.Contains(at) {
+			kept = append(kept, m)
+		}
+	}
+
+	return kept, since, until, true
 }
 
 // definedRoles sorts the store's roles against the release's defaults: a
@@ -1072,6 +1164,10 @@ func (s *snapshot) compileSubjectGrants(grants []policy.Grant) (roleOwn map[acce
 				userDirect[user] = make(grantMap)
 			}
 			gm = userDirect[user]
+		case policy.SubjectGroup:
+			// No grant is a group's: a group holds roles, and its members hold the
+			// roles' grants.
+			continue
 		}
 
 		resID := s.resources[g.Resource]
@@ -1130,6 +1226,9 @@ func splitMemberships(memberships []policy.Membership) (inherits map[accesstypes
 			if !slices.Contains(userRoles[user], m.Role) {
 				userRoles[user] = append(userRoles[user], m.Role)
 			}
+		case policy.SubjectGroup:
+			// A group's roles were folded into its members' before the compiler
+			// read a membership (foldGroups): none reaches here.
 		}
 	}
 

@@ -60,6 +60,23 @@ type identityTenant struct {
 	// letter lowered ("customer", "service district"). A refusal that speaks of a
 	// tenant says it (identity.WithTenantWord).
 	word string
+	// directory is where the record keeps its directory-only switch and its directory
+	// (identity_directory.go), nil where it declares no switch.
+	directory *identityTenantDirectory
+	// invitation is the record as an invitation that makes a tenant carries it
+	// (identity_invitedtenant.go), nil where its fields could not be read before the
+	// load, and unreadable then says what stopped the reading.
+	invitation *identityTenantInvitation
+	unreadable string
+	// directorySeat is the directories record's default seat column
+	// (@directoryDefaultSeat), "" where the application declares none: the role a
+	// tenant is opened to its directory's people with, which the generated methods
+	// judge by the role file's grants (seatsDirectory).
+	directorySeat string
+	// directoryOutlets are the outlets the directories record is served on, nil where
+	// the application declares none: the two methods that say how a tenant admits its
+	// directory's people are served on the session outlets among them.
+	directoryOutlets []string
 }
 
 // identityList is one of a tenant's lists as the generated management declares it: the
@@ -114,7 +131,12 @@ func (i *identityInstance) refuseListNamesTaken() error {
 	for _, decl := range identityDeclarations() {
 		declared[i.auth+decl.suffix] = true
 	}
-	suffixes := []string{tenantRoleChoiceSuffix}
+	// The whole application's lists over groups are named after the auth alone, as the
+	// declarations are.
+	for _, suffix := range []string{listGroupPeopleSuffix, listThroughGroupsSuffix} {
+		declared[i.groupListName(suffix, false)] = true
+	}
+	suffixes := []string{tenantRoleChoiceSuffix, directoryRoleChoiceSuffix, listGroupsSuffix, listGroupPeopleSuffix, listGroupRolesSuffix, listThroughGroupsSuffix}
 	for _, list := range identityLists() {
 		suffixes = append(suffixes, list.suffix)
 	}
@@ -295,7 +317,21 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	return &identityTenant{name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label)}, nil
+	directory, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	if err != nil {
+		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
+	}
+
+	invitation, unreadable, err := r.tenantInvitationIn(r.resource.Dir(), name)
+	if err != nil {
+		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the fields of the tenant record (@%s) from the sources of %s", r.identityTree.Dir(), tenantKeyword, r.resource.Dir())
+	}
+
+	return &identityTenant{
+		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
+		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets,
+		invitation: invitation, unreadable: unreadable,
+	}, nil
 }
 
 // holdIdentityTenant holds the tenant record the sources were written for to the one the

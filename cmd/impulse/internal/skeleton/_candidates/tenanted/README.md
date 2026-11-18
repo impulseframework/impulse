@@ -5,8 +5,8 @@ sign in to. One site, one browser application,
 tenancy as data: the `Tenant` record (`@tenant`) over the `Tenants` table is the domain
 universe, a tenant's key is an id the server generates while its name is a field its
 administrators change, tenant-scoped routes live under `/api/tenants/{tenantID}/`, the data level's
-tenant roster keeps the tenants current on every instance (a tenant created through the
-API is usable at once, without a restart), and tenant existence is concealed from logins
+tenant roster keeps the tenants current on every instance (a tenant is usable the moment
+it is made, without a restart), and tenant existence is concealed from logins
 that hold nothing there. `Announcement` is the first tenant-scoped resource — a login's tenant list
 is where it holds a grant, and a grant needs a tenant-scoped resource to land on, so the
 application ships one. The console sits in the library's frame (`provideFrame` in
@@ -26,57 +26,138 @@ the 404 every route under the tenant gives — and never switches to another ten
 dashboard is every place's first page, the global digest in Configuration and the
 tenant's under a tenant, and the staff auth's people are managed in both places the same
 way: the whole application's accounts at `/staff-accounts`, a tenant's people at
-`/tenants/{tenantID}/staff-people`. The library draws both from the API description
+`/tenants/{tenantID}/staff-people`. Groups of people are kept beside them
+(`/staff-groups`, `/tenants/{tenantID}/staff-groups`): a group holds roles the way a
+person does, a person in it holds the group's roles, and the role file gives a place's
+groups, their members and their roles to whoever manages its people (`Administrator`
+for the whole application, `TenantAdministrator` in a tenant). A group gives
+nobody a power that giving the role directly would not: who is in a group, and what it
+holds, is changed by someone who may give or take those roles directly, and a tenant puts
+its own people in its groups, while an account from outside the tenant is put there from
+the whole application's accounts. The library draws them from the API description
 (`identityRoutes` in `app.routes.ts`, placed by `identityMenuPages` in the menu file), and
 a tenant's pages read the tenant from the URL (the frame provides `RESOURCE_DOMAIN`).
 The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list page over the
-record, and New tenant…) and System (the staff's accounts and Feature flags…) in
+record) and System (the staff's accounts, the Invited tenants page and Feature flags…) in
 Configuration, and People and Tenant (Sign-in settings) inside a tenant; the person's own
 menu holds Your account (the email address, Change your password, Forget this browser),
 Appearance and Sign out; Help ends with About, which carries the release. A spec beside
 the menu file fails on a page the routes carry and no menu places (`unplacedPages`).
 
-Who may create a tenant is declared on the record, apart from who may enter one. The
-record declares both ways (`@tenant(creation: both)`): an administrator creates tenants
-through the record's create path, under the `Administrator` role's Create grant,
-and a person who signs in holding no tenant creates their own through the generated
+How a tenant comes to exist is decided in the running application, apart from who may
+enter one. Nobody creates a tenant directly: the record's create is refused, with a
+sentence that says so. An administrator brings an organization in by inviting one person,
+on the console's Invited tenants page (System), which the library draws from the staff
+auth's generated `InviteStaffTenant`, `StaffInvitedTenants` and
+`WithdrawStaffInvitedTenant`: the invitation carries the tenant's name and, where the
+administrator says so, that the tenant is entered through its directory only and the role
+its directory's people start with. Sending it takes the `Administrator` role's Create
+grant on the record, and a name a tenant holds is refused there. No tenant exists while
+the invitation waits; the invited person's first sign-in makes it under an id the server
+generates, gives them the roles the App names in `TenantAdministratorRoles`
+(`TenantAdministrator`), makes the directory they came through the tenant's where they
+came through one, and hands the tenant to the roster, so their next request stands in
+it. An invitation that says directory only is accepted through an organization's
+directory alone, and one that still waits is withdrawn on the same page. The staff auth
+is handed what makes the tenant by the data level (`staff.Settings.TenantMaker`, the
+generated `app.NewTenantMaker` over the roster, built before the auth), and refuses to
+start without it.
+
+A person who signs in holding no tenant creates their own through the generated
 create-your-tenant route (`POST /api/create-tenant`), which takes the tenant's name, writes the row under an id it generates and answers, gives them
 the roles the App names in `TenantAdministratorRoles` (`TenantAdministrator`) and
 hands the tenant to the roster, so their next request stands in it; a person who already
 holds a tenant is refused, an administrator of one tenant never creates another, and the
-console's dashboard offers the new-tenant dialog to a session without a tenant (Tenants ›
-New tenant… opens the same dialog on the administrator's path, the record's create). The order is sign in
-first, then name the tenant: the staff auth carries a Google registration admitting
-anyone (`pkg/auth/staff/google.go`, open sign-up, `.OpenSignUp()` on its declaration in
-the generator program), which the self-service shape requires, since a stranger needs a
-way to sign in before holding anything. `@tenant` alone keeps creation to an
-administrator, and `@tenant(creation: self-service)` to the person alone.
+console's dashboard offers the new-tenant dialog to a session without a tenant. The order is sign in
+first, then name the tenant: the staff auth carries a Google registration as wide as any
+Google account (`pkg/auth/staff/google.go`), and every sign-in method starts invite only.
+An administrator opens one to sign-up on the console's Sign-in page (Open sign-up, which
+says who that admits and asks for a typed word), and from then a stranger signs in
+through it and creates their tenant; Make invite only closes it again, and the people
+who have accounts keep them. The create-your-tenant route refuses while every method is
+invite only, so nothing in code says whether a stranger may create a tenant.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
-deploy configuration: the directories the tenant admits its people through
-(`TenantDirectory`, one row each under `/api/tenants/{tenantID}/tenant-directories`: a
-sign-in method and the connection its identities carry, a Google Workspace by its domain
-or a Microsoft Entra tenant by its tenant id) and whether its people enter through them
-only (`Tenant.DirectoryOnly`, which closes passwords). The staff auth's sign-in rule is
+deploy configuration: the tenant's directory, the organization its people sign in
+through (`TenantDirectory`, one row at most under
+`/api/tenants/{tenantID}/tenant-directories`: a sign-in method and the connection its
+identities carry, a Google Workspace by its domain or a Microsoft Entra tenant by its
+tenant id) and whether its people enter through it only (`Tenant.DirectoryOnly`, which
+closes the tenant to every sign-in but one through its directory). A tenant has one directory and a directory belongs to one tenant: the
+table's two unique indexes hold both, and the generated write paths refuse first, each
+with a sentence the person can act on. The staff auth's sign-in rule is
 the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
-transaction): a sign-in through a directory is admitted when one of the person's tenants
-declares that directory, a password unless every one of their tenants is directory only,
-staff (a global role) on the library's checks, and a person holding no tenant too, since
+transaction): a tenant's declaration restricts its own door alone, so a tenant that is
+not directory only admits everyone it seats, however they signed in, a directory-only
+tenant admits a sign-in through its own directory and, of its own administrators alone, a
+password with a code sent to their email, and nothing else, and a person is
+refused only when every tenant that seats them is closed to the way they signed in. A
+super administrator is admitted whatever a tenant declares, an administrator of a
+directory-only tenant (a holder of `TenantAdministrator` in that tenant itself, by a role
+of their own or through one of the tenant's own groups, never one held in every tenant)
+who signs in with a password is held for the code sent to their email and then enters
+that tenant, which is the tenant's way back in when its directory has a problem (who
+holds that role in a directory-only tenant, and the account of a person who does, is
+changed only by a caller whose own session the tenant admits or by a super administrator,
+so the application's own staff do not give themselves the way in), a person
+holding a role
+outside any one tenant (a global role, or one held in every tenant) is admitted and then
+enters a tenant only where its declaration admits their session, and a person holding no
+tenant is admitted too, since
 the record lets a stranger sign in first and create their own. Which tenants the session
 then reaches is decided again per tenant where its tenant list is computed: the data
 level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the
 records' generated write paths reload it after their commit and signal every instance,
-so a declaration edited anywhere decides the next request everywhere, and a tenant the
-session may not enter is not listed and answers as one that does not exist. The
-console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) lists, declares
-and withdraws directories under the tenant's own grants (`TenantAdministrator`) and
-flips directory only under the global record's Update grant (`Administrator`);
-both records write change events, the audit of every edit. A self-service tenant's
-first directory is the one its creator came through, written by the create-your-tenant
-route; the staff auth's google registration admits any Workspace account (its domain is
-the connection a tenant declares) beside any Google account.
+so a declaration edited anywhere decides the next request everywhere, and a tenant that
+seats the person and that their session may not enter is listed as closed to this
+sign-in, with the reason, and answers as one that does not exist. The
+console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) shows the
+tenant's directory, sets it and removes it, and changes everything else with the
+tenant's own generated methods, each run through the library's method dialog under the
+tenant's own grants (`TenantAdministrator`). Two say how the tenant admits its
+directory's people: `OpenTenantToDirectory`
+(`POST /api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of them is
+given at their first sign-in through the directory, a role the caller could give
+directly, picked from the list of the roles they may give (`StaffTenantDirectoryRoles`),
+and `MakeTenantInviteOnly` clears it. Two turn directory only:
+`MakeTenantDirectoryOnly` (`POST /api/tenants/{tenantID}/make-tenant-directory-only`)
+and `EndTenantDirectoryOnly`; the `Tenants` record, which the application's
+`Administrator` writes, shows the flag and takes no write of it, and the page reads the
+switch in the tenant (`GET /api/tenants/{tenantID}/directory-only`). The server allows
+turning it on only once the tenant has its directory, and only to a person who is signed
+in through that directory themselves and has a password of their own, which is their way
+back in if the directory has a problem: a person who has only ever signed in through a
+directory chooses one on Your account first, with a code sent to their confirmed address. Opening the tenant and making it directory only
+each warn first: the dialog shows what the server says the call will do (who will
+enter and with what role; who will be able to enter, the count of the people it would
+keep out and, to a person who may list the tenant's people, their names as a list) and
+holds its button until the person has typed the method's word (`open`, `close`); a
+refusal is shown on the page and no dialog opens. Every sentence names the directory in
+words a person knows, the Workspace's name or its domain as the staff auth's Google
+registration gives it, and never by a connection that is an id (a Microsoft Entra
+tenant its registration lists by id alone reads "your organization's Microsoft
+directory", by the label of its button). Making the tenant invite only and
+turning directory only off are plain confirmations; while a tenant is directory only its
+routes answer the people it admits, so a tenant whose directory has stopped working is
+opened again by its own administrator, signed in with a password and the code, or by a
+super administrator. The tenant's People page marks the people it
+keeps out for as long as it is on. Both records write change events, the audit of every
+edit. Nobody types a directory in. It is set from a sign-in: an invitation that makes a
+tenant, accepted through an organization's directory, sets it as the tenant is made, the
+create-your-tenant route sets the one its creator came through, each refusing an
+organization that already has a tenant, and afterwards the page offers an administrator who is
+signed in through their organization's directory to make it the tenant's ("Make
+acme.example this tenant's directory"), with a create that names no directory, since the
+server sets the one the session came through. A session that came by password is
+offered no such action and its call is refused, as is a personal account, which is no
+organization's directory; the directory of a tenant that is directory only is not
+removed. A person is given the directory's default role at their first sign-in through
+it, whether their account is created then or stood before, once for the link between
+the account and the directory. The staff auth's google registration admits any
+Workspace account (its domain is the connection of the tenant's directory) beside any
+Google account.
 
 ## Layout
 
@@ -135,7 +216,7 @@ the connection a tenant declares) beside any Google account.
   (`staff.AdministratorRoles`), so neither the application nor a tenant is left with
   nobody to give the next role, and sets the client's two hooks on its session manager,
   through which a sign-in gives a role in the transaction of the step that causes it:
-  an accepted invitation's roles, and the default role of a directory a tenant declares.
+  an accepted invitation's roles, and the default role of a tenant's directory.
   No auth is open without them. The console writes no page for any of it: the library builds
   them from the API description (`identityRoutes` in `web/console/src/app/app.routes.ts`).
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
@@ -145,7 +226,11 @@ the connection a tenant declares) beside any Google account.
   administrator while its users table holds no rows, the foothold a deployed environment
   starts from: the staff auth's `administrator`, with the password the stack generates
   (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. A user that exists stops the seed; the auth's management
+  administrator's roles. The generated password is for the first sign-in alone: sign in
+  as `administrator` with it, give an email address and confirm it with the sign-in code
+  mailed there (the account starts with no address), then choose a new password, which
+  the login page asks for before it opens anything else; the generated password signs
+  nobody in after that. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development
@@ -165,8 +250,15 @@ the connection a tenant declares) beside any Google account.
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
+  every stored secret field that names the version again under the current one, confirms
+  none is left and exits 0 only then, so the deployment disables the version only when no
+  stored value needs it (see "Secret fields").
 - `test/authz` is the generated authorization matrix over the generated test router;
   `test/integration` drives the served stack (real router, session, engine) end to end.
+  How a tenant comes to exist is held in both: `test/integration/invited_tenant_test.go`
+  plays the invitation that makes a tenant from the sending to the first sign-in, and
+  `test/authz/invited_tenant_test.go` holds the sending to the Create grant on the record.
 - `web/` is the Angular workspace, one project per browser application (`console`).
   `web/go.mod` exists only to keep Go tooling out of `node_modules`.
 
@@ -227,6 +319,34 @@ through `CursorKey()`. In the browser, `@impulseframework/resource` follows the 
 surface; their List function may take the conditions, sort, or page it pushes down and the
 generated handler applies the rest.
 
+## Secret fields
+
+A field that holds a secret the application must use itself (an API key, a signing key) is
+declared `conditions:"secret"` and typed `resource.Secret`, on a `BYTES` column with room
+for the 42 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(106)` takes a key
+of up to 64 bytes. The field is never served, the form masks it, a change record names it
+without its values, and the database holds it encrypted: the resource client seals the
+value when it is written, and code that needs it opens it with the row's generated method
+(`row.OpenAPIKey(conf.SecretKeys())`, or `row.OpenAPIKeyIn(ctx, txn)` inside a
+transaction). The generator refuses a `secret` field typed a plain `string`.
+
+The key is the application secret, which `pkg/config` declares
+(`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
+keys. It is kept in versions, each in a variable of its own. `.envrc.template` makes
+`APP_SECRET_KEY_1` for the checkout: 32 random bytes, written to `.app-secret-key.dev` the
+first time the file is sourced from the application's root and read from it from then on,
+with `.gitignore` keeping that file out of git, so no key is written in a tracked file
+and deleting the file leaves the development database's secrets unreadable. A deployment
+generates the secret and hands the service every enabled version (`APP_SECRET_KEY_1`,
+`APP_SECRET_KEY_2`), the highest the current one. An application with a secret field
+refuses to start without a version, naming the variable. A
+version is retired, before the deployment disables it, by the migrate command
+(`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
+under the current version. It reads the resources packages `pkg/deploy` hands it
+(`SecretHolders()`, which the generator writes into each), and `impulse check`
+(`secret-holders`) fails when a package is left out of that call. The framework's
+`resource/README.md`, "Secrets at rest", has the whole of it.
+
 ## Running it
 
     cp .envrc.template .envrc && direnv allow
@@ -234,7 +354,8 @@ generated handler applies the rest.
 
 That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the North and South tenants,
 roles, the `admin`, `member` and `newcomer` logins with password `password`; `newcomer`
-holds no tenant and creates one from the dashboard), and serves the API on
+holds no tenant and creates one from the dashboard once `admin` has opened a sign-in
+method to sign-up on the Sign-in page), and serves the API on
 `$PORT` (:8092). The first run compiles and bootstraps before it listens; wait for
 "Starting Server" in the server pane.
 
@@ -250,9 +371,10 @@ link opens the login page under `APP_PUBLIC_URL`.
 
 The server builds with the session library's `skipAuth` tag (see the Procfile), which
 simulates the staff auth's Google registration: every sign-in through the Google button is
-`APP_GOOGLE_USERNAME` from `.envrc` (`newcomer`, or `APP_USERNAME` when that is unset), a
-person the auth has never seen becomes a user under that name (open sign-up), no directory
-is contacted, and only `APP_STAFF_GOOGLE_REDIRECT_URL` is read. To sign in through Google
+`APP_GOOGLE_USERNAME` from `.envrc` (`newcomer`, or `APP_USERNAME` when that is unset), no
+directory is contacted, and only `APP_STAFF_GOOGLE_REDIRECT_URL` is read. A person the auth
+has never seen is refused until an administrator opens the registration to sign-up on the
+console's Sign-in page, and becomes a user under that name once it is open. To sign in through Google
 for real, register the application there, fill in the `APP_STAFF_GOOGLE_*` variables, and
 drop the tag. A deployed build never carries it.
 
@@ -270,6 +392,11 @@ local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts t
 `IMPULSE` to point elsewhere. Then `overmind start` runs everything, with `ng serve` for the console at
 http://127.0.0.1:4301 proxying `/api` to the server.
 
+The browser files are held to the prettier the workspace pins (`.prettierrc`): `impulse
+check` names a file prettier would change, and `impulse check --only prettier --fix` formats
+it. Run that once after the first install: the files were written under this application's
+names before the formatter was there to wrap their lines.
+
 After a change in the framework's web packages, push the rebuilt packages, restart the dev
 server, and reload the page:
 
@@ -283,11 +410,25 @@ browser profile: nothing is held behind an immutable URL, and no cache needs cle
 
 The console installs as a progressive web app. The production build emits a service worker
 (`@angular/service-worker`, configured by `web/ngsw-config.json`) that keeps the files of the
-build an open tab loaded, so a release never breaks a tab still running the previous build,
-and the library's update notice offers Reload when a new build is ready; the worker is off
-under `ng serve`. The manifest and the icons sit in `web/console/public/`
-(`manifest.webmanifest`, `icons/`), a placeholder set to replace with the application's own
-mark. The server serves every bundle through the resource package's `BrowserApp`, which sets
+build an open tab loaded, so a release never breaks a tab still running the previous build, and
+the library's update notice offers Reload when a new build is ready; the worker is off under `ng
+serve`. The manifest and the icons sit in `web/console/public/` (`manifest.webmanifest`,
+`icons/`): a placeholder set, the skeleton's mark, until the application's own logo is in place.
+
+The brand is declared once, in `web/console/brand.json`: the application's name, its logo
+(`logo.png` beside the declaration, a square PNG at least 512 pixels a side; `logoSvg` names the
+same logo as an SVG, which then is the favicon as it is), a primary color and, optionally, a
+background color. `impulse brand` writes from it the favicon and the app icons, the manifest's
+names and colors, the page's title and `theme-color`, the name the frame draws, the theme's
+first palette (generated from the primary color by Angular Material's own generator, once the
+workspace's packages are installed, into `src/_theme-colors.scss`), and what the server says:
+`pkg/brand`, the name and the logo `main.go` hands to the maintenance page, and the name the
+mail says, the `Application` constant of `pkg/auth/staff`. The declaration the skeleton carries
+names the placeholder: put the application's own logo in its place, set the name and the colors,
+and run `impulse brand`, then again whenever the declaration changes; `impulse check` (`brand`)
+reminds while the placeholder is still there.
+
+The server serves every bundle through the resource package's `BrowserApp`, which sets
 the cache headers a worker needs; a build deployed without `ngsw.json` makes every installed
 worker unregister itself and drop its caches. `impulse check` (`installable`) holds the wiring.
 
@@ -304,8 +445,8 @@ form the Checks section and CI use; `bun ng test console` watches. The specs bes
 skeleton's components are the pattern for the application's own: the dashboard renders a
 permission digest over a scripted client from `@impulseframework/resource-angular/testing`
 (`provideResourceTesting` puts the generated client on a transport that records every
-request and answers from the test); the new-tenant dialog creates through either path
-and reports the server's refusal in place; the tenant's sign-in page has its own; and the
+request and answers from the test); the new-tenant dialog posts to the create-your-tenant
+route and reports the server's refusal in place; the tenant's sign-in page has its own; and the
 menu file's spec holds every page the routes carry to a place in the menus. The frame
 itself (the tenant guard, the switcher, the menus and the person's menu) is the library's,
 tested there.

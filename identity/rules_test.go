@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -10,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // dana and erin are the two people of the tests as the permission store names them and
@@ -48,9 +50,8 @@ func asCallerThrough(ctx context.Context, auth string, user accesstypes.User) co
 	return asCaller(resource.WithAuth(ctx, auth), user)
 }
 
-// administrators are the roles the tests name as the administrators': Steward in the
-// global scope and Warden in a tenant.
-var administrators = WithAdministratorRoles([]accesstypes.Role{"Steward"}, []accesstypes.Role{"Warden"})
+// administrators are the roles the tests name as a tenant's administrators': Warden.
+var administrators = WithAdministratorRoles([]accesstypes.Role{"Warden"})
 
 // TestManager_DisableUser_ownAccount pins the rule that nobody disables themselves: the
 // request's caller is refused their own account, which is the one whose id the caller
@@ -94,10 +95,138 @@ func TestManager_DisableUser_ownAccount(t *testing.T) {
 	}
 }
 
+// TestManager_ownAccount_judgesThePersonActing pins whose account "your own" is to the
+// rule that nobody disables or deletes themselves: the account of the real person behind
+// the session. A person who views as someone else is refused their own account, which
+// they could not get back, where the session's grants are the other person's; they are
+// refused the account they view as too, and told that it is the one they view as, since
+// a view does no more than the person viewed as may; a view started by a person of
+// another application, who has no account here, is refused the account it views as and
+// is nobody's own; and through another auth's outlet nobody is a person of this auth.
+func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
+	t.Parallel()
+
+	reader := access.NewMembershipKey(globalScope, dana, "Reader")
+	acts := []struct {
+		name       string
+		act        func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		wantOwn    string
+		wantViewed string
+		wantWrites []string
+	}{
+		{
+			name: "disable",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.DisableUser(ctx, txn, userID)
+			},
+			wantOwn:    "you cannot disable your own account",
+			wantViewed: "you cannot disable the account you are viewing as",
+			wantWrites: []string{"update user " + userID.String() + " disabled=true"},
+		},
+		{
+			name: "delete",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.DeleteUser(ctx, txn, userID)
+			},
+			wantOwn:    "you cannot delete your own account",
+			wantViewed: "you cannot delete the account you are viewing as",
+			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader)},
+		},
+	}
+	// Each session acts on dana's account. own and viewed say which refusal it meets.
+	const (
+		through = iota
+		own
+		viewed
+	)
+	sessions := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		want int
+	}{
+		{
+			name: "dana, viewing as erin, acts on her own account",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
+			},
+			want: own,
+		},
+		{
+			name: "erin, viewing as dana, acts on the account she views as",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, dana), otherUser)
+			},
+			want: viewed,
+		},
+		{
+			name: "a person of another application, viewing as dana, acts on the account they view as",
+			ctx: func(ctx context.Context) context.Context {
+				foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+
+				return context.WithValue(asCallerThrough(ctx, managedAuth, dana), sessioninfo.CtxSessionInfo, foreign)
+			},
+			want: viewed,
+		},
+		{
+			name: "dana, viewing as erin through another auth's outlet, is nobody of this auth",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, otherAuth, erin), userID)
+			},
+			want: through,
+		},
+		{
+			name: "erin, viewing as frank, acts on a third person's account",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, User(frankID)), otherUser)
+			},
+			want: through,
+		},
+	}
+	for _, session := range sessions {
+		for _, act := range acts {
+			t.Run(session.name+": "+act.name, func(t *testing.T) {
+				t.Parallel()
+
+				store := &fakeStore{
+					usernames:   map[impulse.UUID]string{userID: "dana", otherUser: "erin"},
+					memberships: map[access.MembershipKey]bool{reader: true},
+				}
+				m, _ := newManager(t, store, engineRoles)
+
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					return act.act(session.ctx(ctx), txn, m)
+				})
+				if session.want != through {
+					wantSays := act.wantOwn
+					if session.want == viewed {
+						wantSays = act.wantViewed
+					}
+					if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), wantSays) {
+						t.Fatalf("error = %v, want the refusal %q", err, wantSays)
+					}
+					if len(store.writes) != 0 {
+						t.Errorf("buffered writes = %v, want none", store.writes)
+					}
+
+					return
+				}
+				if err != nil {
+					t.Fatalf("error = %v, want the act to go through: the account is neither the one of the person acting nor the one viewed as", err)
+				}
+				if diff := cmp.Diff(act.wantWrites, store.writes); diff != "" {
+					t.Errorf("buffered writes (-want +got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
 // TestManager_RemoveRole_lastAdministrator pins the rule on a person removing a role
-// from themselves: an administrator role nobody else would hold where it is held stays,
-// and every other role goes; without the administrator roles a person removes no role
-// from themselves; and the rule judges nobody but the caller.
+// from themselves: a tenant's administrator role nobody else would hold there stays,
+// and every other role goes, a role of the global scope among them, since the
+// application's last administrator is its last super administrator; without the
+// administrator roles a person removes no role from themselves in a tenant; and the
+// rule judges nobody but the caller.
 func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 	t.Parallel()
 
@@ -115,15 +244,15 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		wantRemoved bool
 	}{
 		{
-			name: "the last administrator of the application keeps the role",
+			name: "a role of the global scope goes from its last holder: the application's last administrator is its last super administrator",
 			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
-			held:    []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
-			wantErr: httpio.HasForbidden,
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
+			wantRemoved: true,
 		},
 		{
-			name: "an administrator gives the role up once another holds it",
-			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Steward")},
+			name:   "a role of the global scope goes without the administrator roles too",
+			caller: dana, scope: globalScope, role: "Steward",
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 		{
@@ -163,21 +292,27 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 			wantRemoved: true,
 		},
 		{
-			name:   "without the administrator roles a person removes no role from themselves",
-			caller: dana, scope: globalScope, role: "Reader",
-			held:    []access.MembershipKey{membership(globalScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
+			name:   "without the administrator roles a person removes no role from themselves in a tenant",
+			caller: dana, scope: alphaScope, role: "Reader",
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
 			wantErr: httpio.HasForbidden,
 		},
 		{
-			name: "the rule judges nobody but the caller: another person removes the last administrator's role",
-			opts: []Option{administrators}, caller: erin, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
+			name:   "without the administrator roles a person removes no role from themselves in every tenant",
+			caller: dana, scope: everyScope, role: "Reader",
+			held:    []access.MembershipKey{membership(everyScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
+			wantErr: httpio.HasForbidden,
+		},
+		{
+			name: "the rule judges nobody but the caller: another person removes the last administrator's role in the tenant",
+			opts: []Option{administrators}, caller: erin, scope: alphaScope, role: "Warden",
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 		{
 			name: "a call outside any request is the application's act",
-			opts: []Option{administrators}, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
+			opts: []Option{administrators}, scope: alphaScope, role: "Warden",
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 	}
@@ -361,9 +496,9 @@ func TestManager_RemoveRole_lastRole(t *testing.T) {
 func TestManager_callerOfAnotherAuth(t *testing.T) {
 	t.Parallel()
 
-	// dana is the one administrator and holds a second role, so the removal of the
-	// first leaves the account in place.
-	steward := access.NewMembershipKey(globalScope, dana, "Steward")
+	// dana is the one administrator of the tenant and holds a second role, so the
+	// removal of the first leaves the account in place.
+	warden := access.NewMembershipKey(alphaScope, dana, "Warden")
 	reader := access.NewMembershipKey(globalScope, dana, "Reader")
 	acts := []struct {
 		name       string
@@ -382,14 +517,14 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.DeleteUser(ctx, txn, userID)
 			},
-			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader), "delete membership " + membershipText(&steward)},
+			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&warden), "delete membership " + membershipText(&reader)},
 		},
 		{
 			name: "remove the last administrator's role",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.RemoveRole(ctx, txn, globalScope, userID, "Steward")
+				return m.RemoveRole(ctx, txn, alphaScope, userID, "Warden")
 			},
-			wantWrites: []string{"delete membership " + membershipText(&steward)},
+			wantWrites: []string{"delete membership " + membershipText(&warden)},
 		},
 	}
 	callers := []struct {
@@ -438,7 +573,7 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 
 				store := &fakeStore{
 					usernames:   map[impulse.UUID]string{userID: "dana"},
-					memberships: map[access.MembershipKey]bool{steward: true, reader: true},
+					memberships: map[access.MembershipKey]bool{warden: true, reader: true},
 				}
 				m, _ := newManager(t, store, engineRoles, administrators)
 

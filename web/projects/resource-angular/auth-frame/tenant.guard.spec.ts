@@ -52,8 +52,13 @@ describe('tenantGuard', () => {
   const listLoads = (): number => transport.requests.filter((r) => r.url.endsWith('/user-domains')).length;
 
   /** Configures the app over a scripted server; with `preload`, the session's tenant list has landed. */
-  const appOver = async (tenants: string[], preload: boolean): Promise<void> => {
-    transport = specTransport({ domains: tenants.map((domain) => ({ domain, name: domain })) });
+  const appOver = async (tenants: string[], preload: boolean, closed: string[] = []): Promise<void> => {
+    transport = specTransport({
+      domains: [
+        ...tenants.map((domain) => ({ domain, name: domain })),
+        ...closed.map((domain) => ({ domain, name: domain, closed: `${domain} admits only its own directory.` })),
+      ],
+    });
     TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, {}, testRoutes)] });
     if (preload) {
       await firstValueFrom(TestBed.inject(AuthService).loadDomains());
@@ -63,6 +68,7 @@ describe('tenantGuard', () => {
   const cases: {
     name: string;
     tenants: string[];
+    closed?: string[];
     preload: boolean;
     navigate: string[];
     want: 'page' | 'refused' | 'elsewhere';
@@ -85,6 +91,18 @@ describe('tenantGuard', () => {
     {
       name: 'a tenant the session cannot reach is refused under its own URL, and nothing is written',
       tenants: ['acme'],
+      preload: true,
+      navigate: ['/tenants/zzz/page'],
+      want: 'refused',
+      wantTenant: '',
+      wantEntered: [],
+      wantLeft: 0,
+      wantListLoads: 2,
+    },
+    {
+      name: 'a tenant that is closed to this sign-in is refused as one the session cannot reach, though the list names it',
+      tenants: ['acme'],
+      closed: ['zzz'],
       preload: true,
       navigate: ['/tenants/zzz/page'],
       want: 'refused',
@@ -141,7 +159,7 @@ describe('tenantGuard', () => {
 
   for (const tt of cases) {
     it(tt.name, async () => {
-      await appOver(tt.tenants, tt.preload);
+      await appOver(tt.tenants, tt.preload, tt.closed);
       const tenants = TestBed.inject(TenantService);
       const entered = vi.spyOn(tenants, 'enter');
       const left = vi.spyOn(tenants, 'leave');

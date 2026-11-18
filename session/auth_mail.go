@@ -8,11 +8,13 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -74,8 +76,8 @@ type mailSettings struct {
 // WithMail gives the Auth the means to send mail: sender delivers the messages
 // (mail/workspace is the Google Workspace relay), and settings say as whom and where
 // the links lead. It is needed by invitations (AuthAPI.Invite, Invitation()), the
-// add-address step (Email()) and sign-up (SignUp(), with OpenSignUp on the password
-// method); an Auth without it offers none of them. NewAuth refuses a nil sender, an
+// add-address step (Email()) and sign-up (SignUp(), while an administrator has the
+// password method open to it); an Auth without it offers none of them. NewAuth refuses a nil sender, an
 // empty application name and a login URL that is not an absolute http or https URL.
 func WithMail(sender mail.Sender, settings MailSettings) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.mail = &mailSettings{sender: sender, settings: settings} }}
@@ -283,6 +285,35 @@ Nobody from %s will ask you for it. Don't share it.
 	}
 }
 
+// firstPasswordMessage is the mail that carries the code of a person's first password:
+// the code, where to enter it and how long it is good for (lifetime), then what to do
+// if they did not ask: someone at a browser they left signed in asked, and without the
+// code nothing changes. The code is spaced in the middle for reading.
+func (m *mailSettings) firstPasswordMessage(to, code string, lifetime time.Duration) mail.Message {
+	app := m.settings.Application
+	spaced := code
+	if len(code) == emailCodeLength {
+		spaced = code[:emailCodeLength/2] + " " + code[emailCodeLength/2:]
+	}
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your code to choose a %s password is %s", app, spaced),
+		Text: fmt.Sprintf(`Your code to choose a password for your %s account is:
+
+%s
+
+Enter it on your account page, with the password you want. The code is good for %s.
+
+Didn't do this?
+If you did not ask to choose a password, ignore this message: without the code nothing changes. Someone asked from a browser where you are signed in, so sign out of the browsers you do not use.
+
+Keep the code to yourself
+Nobody from %s will ask you for it. Don't share it.
+`, app, spaced, goodFor(lifetime), app),
+	}
+}
+
 // mailOf returns the Auth's mail settings, or an error for an Auth without mail.
 func (a *Auth[S, U, Tx]) mailOf() (*mailSettings, error) {
 	if a.settings.mail == nil {
@@ -343,18 +374,20 @@ func optionalAddress(email *string) (*string, error) {
 
 // limitMail bounds the codes and links sent to an address (mailLimit): the address's
 // record in the sign-in attempts table counts each one, and an address at the limit is
-// refused with too_many_emails and the wait.
+// refused with too_many_emails and the wait. A request takes its place under the limit
+// before anything is mailed: the store counts it in one transaction and says whether it
+// was counted (dbtype.SignInAttempts.Counted), and a request that was not, because the
+// address is at the limit already, mails nothing. Requests made at once are so each
+// counted, and no more of them than the limit are ever mailed.
 func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
-	key := mailLimitKey(email)
-	record, err := a.storage.SignInAttempts(ctx, key)
-	if err != nil && !httpio.HasNotFound(err) {
-		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
-	}
-	if wait, locked := record.Locked(time.Now()); locked {
-		return sessioninfo.NewTooManyEmailsRefusal(wait)
-	}
-	if _, err := a.storage.RecordSignInFailure(ctx, key, mailLimit); err != nil {
+	record, err := a.storage.RecordSignInFailure(ctx, mailLimitKey(email), mailLimit)
+	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	if !record.Counted {
+		wait, _ := record.Locked(time.Now())
+
+		return sessioninfo.NewTooManyEmailsRefusal(wait)
 	}
 
 	return nil
@@ -369,17 +402,40 @@ func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
 	}
 }
 
-// minPasswordLength is the shortest password a sign-up accepts.
+// minPasswordLength is the shortest password any path sets.
 const minPasswordLength = 8
 
-// acceptedPassword refuses a password a sign-up may not set: shorter than eight
-// characters. The rules beyond that are the application's, on its page.
+// acceptedPassword is the one rule for a password's shape: it refuses a password
+// shorter than eight characters, counted as characters and not as the bytes that
+// encode them. Every path that sets a password is held to it, since
+// each hashes the password through hashToSet: a sign-up and an invitation's acceptance,
+// a person's first password, their own change, a password set or reset for them, an
+// account created with one, and the hash the generated user management asks for
+// (AuthAPI.HashPassword). A path that judges the password before other work calls it
+// first as well, so a refused password costs nothing. The rules beyond the length are
+// the application's, on its page.
 func acceptedPassword(password string) error {
-	if len(password) < minPasswordLength {
+	if utf8.RuneCountInString(password) < minPasswordLength {
 		return httpio.NewBadRequestMessagef("the password is at least %d characters", minPasswordLength)
 	}
 
 	return nil
+}
+
+// hashToSet hashes a password a path is about to set, once it is one any path may set
+// (acceptedPassword). It is the one way a new password's hash is made, so no path sets
+// a password the rule would refuse. The hash a sign-in upgrades is of the password the
+// person already has, and is not made here (upgradePasswordHash).
+func (a *Auth[S, U, Tx]) hashToSet(password string) (*securehash.Hash, error) {
+	if err := acceptedPassword(password); err != nil {
+		return nil, err
+	}
+	hash, err := a.registered().hasher.Hash(password)
+	if err != nil {
+		return nil, errors.Wrap(err, "securehash.SecureHasher.Hash()")
+	}
+
+	return hash, nil
 }
 
 // claimVerifiedEmail writes the address a sign-in method asserts as verified (Google

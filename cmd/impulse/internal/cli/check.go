@@ -68,7 +68,7 @@ files in the working tree; pass --skip-generate to leave it out.`,
 
 	cmd.Flags().StringVar(&appDir, "app", ".", "application root (the directory holding go.mod)")
 	cmd.Flags().BoolVar(&skipGenerate, "skip-generate", false, "skip the regen check (no emulator, no working-tree rewrite)")
-	cmd.Flags().BoolVar(&fix, "fix", false, "apply the mechanical remedies (.prettierignore entries, env template lines)")
+	cmd.Flags().BoolVar(&fix, "fix", false, "apply the mechanical remedies (.prettierignore entries, env template lines, gofmt and prettier formatting)")
 	cmd.Flags().StringSliceVar(&only, "only", nil, "run only these checks (see --list)")
 	cmd.Flags().BoolVar(&list, "list", false, "list the checks and exit")
 

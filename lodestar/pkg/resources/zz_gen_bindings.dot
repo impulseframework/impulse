@@ -8,17 +8,32 @@
 // continuing hop and `name: column ⇒ column` where the path terminates; a thin
 // grey edge points a bare binding on a foreign key at its table. Facts only: no
 // grant or condition is drawn.
+// A subject set that writes a who: or a where: part lists each under the set, in
+// the columns' names: who: says which rows are the requester's, where: which of
+// those rows count. A set that builds on another is a dashed edge from the
+// resource declaring that other set, labeled `name: column IN subject.other`.
 digraph Bindings {
 	rankdir=LR;
 	node [shape=box];
 	"Client" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Client</b></td></tr><tr><td align="left">insured: Insured</td></tr><tr><td align="left">trusted: Trusted</td></tr></table>>];
 	"ClientContact" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>ClientContact</b></td></tr><tr><td align="left">subject.client: ClientId</td></tr><tr><td align="left">userId: UserId</td></tr></table>>];
 	"Consignment" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Consignment</b></td></tr><tr><td align="left">expiresOn: ExpiresOn</td></tr><tr><td align="left">releasedAt: ReleasedAt</td></tr></table>>];
+	"CrewGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
+	"CrewGroupMember" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewGroupMember</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">subject.groups: GroupId</td></tr><tr><td align="left">subject.groups where: (StartsAt IS NULL OR StartsAt &lt;= now) AND (EndsAt IS NULL OR EndsAt &gt; now)</td></tr></table>>];
+	"CrewGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"CrewGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"CrewSectorGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
+	"CrewSectorGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">role: Role</td></tr></table>>];
+	"CrewSectorGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"CrewSectorIdentity" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorIdentity</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
 	"CrewSectorInvitation" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorInvitation</b></td></tr><tr><td align="left">pending: Pending</td></tr><tr><td align="left">role: RoleNames</td></tr></table>>];
 	"CrewSectorUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorUser</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
+	"CrewSectorUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"CrewSectorUserRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewSectorUserRole</b></td></tr><tr><td align="left">everyDomain: EveryDomain</td></tr><tr><td align="left">role: Role</td></tr></table>>];
+	"CrewUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>CrewUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"DistressCall" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>DistressCall</b></td></tr><tr><td align="left">filedBy: FiledByUserId</td></tr></table>>];
+	"Hangar" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Hangar</b></td></tr><tr><td align="left">hangar: Id</td></tr></table>>];
+	"HangarPass" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>HangarPass</b></td></tr><tr><td align="left">subject.hangarsOpen: HangarId</td></tr><tr><td align="left">subject.hangarsOpen who: UserId = subject OR SquadronId IN subject.squadrons</td></tr><tr><td align="left">subject.hangarsOpen where: LevelId IN (&#39;visit&#39;, &#39;run&#39;) AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr><tr><td align="left">subject.hangarsRun: HangarId</td></tr><tr><td align="left">subject.hangarsRun who: UserId = subject OR SquadronId IN subject.squadrons</td></tr><tr><td align="left">subject.hangarsRun where: LevelId = &#39;run&#39; AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr></table>>];
 	"MembersSectorIdentity" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersSectorIdentity</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
 	"MembersSectorInvitation" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersSectorInvitation</b></td></tr><tr><td align="left">pending: Pending</td></tr><tr><td align="left">role: RoleNames</td></tr></table>>];
 	"MembersSectorUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersSectorUser</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
@@ -29,7 +44,6 @@ digraph Bindings {
 	"PilotCertification" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>PilotCertification</b></td></tr><tr><td align="left">subject.certifications: CertificationId</td></tr></table>>];
 	"Refit" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Refit</b></td></tr><tr><td align="left">estimate: Estimate</td></tr><tr><td align="left">inspectedAt: InspectedAt</td></tr><tr><td align="left">openedBy: OpenedByUserId</td></tr><tr><td align="left">state: StatusId</td></tr></table>>];
 	"RefitTask";
-	"SectorDirectory" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>SectorDirectory</b></td></tr><tr><td align="left">defaultSeat: DefaultSeat</td></tr></table>>];
 	"SectorPilot" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>SectorPilot</b></td></tr><tr><td align="left">fliesElsewhere: FliesElsewhere</td></tr></table>>];
 	"Ship";
 	"Sortie";
@@ -37,7 +51,6 @@ digraph Bindings {
 	"Squadron" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Squadron</b></td></tr><tr><td align="left">wing: WingId</td></tr></table>>];
 	"SquadronMembership" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>SquadronMembership</b></td></tr><tr><td align="left">subject.squadrons: SquadronId</td></tr></table>>];
 	"Certifications" [style=dashed];
-	"Hangar" [style=dashed];
 	"MissionKinds" [style=dashed];
 	"ShipClass" [style=dashed];
 	"Wing" [style=dashed];
@@ -56,12 +69,21 @@ digraph Bindings {
 	"SortieExpense" -> "Sortie" [style=dotted, label="domain: SortieId"];
 	"Squadron" -> "Wing" [style=dotted, label="domain: WingId ⇒ SectorId"];
 	"SquadronMembership" -> "Squadron" [style=dotted, label="domain: SquadronId"];
+	"SquadronMembership" -> "HangarPass" [style=dashed, label="hangarsOpen: SquadronId IN subject.squadrons"];
+	"SquadronMembership" -> "HangarPass" [style=dashed, label="hangarsRun: SquadronId IN subject.squadrons"];
 	"SquadronMembership" -> "Squadron" [style=dashed, label="wings: SquadronId ⇒ WingId"];
 	"subject" -> "ClientContact" [style=dashed, label="client: UserId"];
+	"subject" -> "CrewGroupMember" [style=dashed, label="groups: UserId"];
+	"subject" -> "HangarPass" [style=dashed, label="hangarsOpen, hangarsRun: UserId"];
 	"subject" -> "Pilot" [style=dashed, label="clearance, feeLimit: UserId"];
 	"subject" -> "PilotCertification" [style=dashed, label="certifications: UserId"];
 	"subject" -> "SquadronMembership" [style=dashed, label="squadrons, wings: UserId"];
 	"ClientContact" -> "Client" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.client"];
+	"CrewGroupMember" -> "CrewGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
+	"CrewGroupMember" -> "CrewGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.groups"];
+	"CrewGroupRole" -> "CrewGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
+	"HangarPass" -> "Hangar" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.hangarsOpen"];
+	"HangarPass" -> "Hangar" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.hangarsRun"];
 	"Mission" -> "Certifications" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="requiredCert"];
 	"Mission" -> "Client" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="client"];
 	"Mission" -> "MissionKinds" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="kind"];

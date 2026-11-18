@@ -1,4 +1,5 @@
 import { rowCapabilities } from '@impulseframework/resource';
+import { addDays, isValid, startOfDay } from 'date-fns';
 import {
   MethodMeta,
   MethodPresentation,
@@ -129,6 +130,24 @@ export function filledMethods(
 }
 
 /**
+ * Whether the row a list sits under offers a method the page names above the list: a
+ * method that names a row (`@target`) runs there against that row, so the row's
+ * capability answer lists it and the page's row predicate does not say no. The
+ * predicate is asked of that row and told `listed`, the rows the list shows. A list
+ * under no row, and a row read without its capability answer, offer none.
+ */
+export function parentOffers(
+  parent: RecordData | undefined,
+  presentation: MethodPresentation,
+  listed: readonly RecordData[] = [],
+): boolean {
+  if (!parent || !rowCapabilities(parent)?.Execute?.includes(presentation.method)) {
+    return false;
+  }
+  return presentation.when?.(parent, listed) !== false;
+}
+
+/**
  * What the page fills in a method's request from a row (the presentation's `fill`),
  * less what it left undefined; nothing where the page fills nothing.
  */
@@ -176,19 +195,32 @@ export function holdsValue(value: unknown): boolean {
 /**
  * The request a dialog sends: what the row carries, then each field the person filled.
  * An input left empty sends nothing, so an optional field is absent and the server
- * judges a required one; false and 0 are values and are sent.
+ * judges a required one; false and 0 are values and are sent. A day picked for a field
+ * the page names in `throughDay` is sent as the end of that day (afterPickedDay).
  */
 export function requestBody(
   preset: Record<string, unknown>,
   asked: readonly RPCFieldMeta[],
   values: Record<string, unknown>,
+  throughDay: readonly string[] = [],
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { ...preset };
   for (const field of asked) {
     const value = values[field.fieldName];
     if (holdsValue(value)) {
-      body[field.fieldName] = value;
+      body[field.fieldName] = throughDay.includes(field.fieldName) ? afterPickedDay(value) : value;
     }
   }
   return body;
+}
+
+/**
+ * The instant a day picked as the last day of a period is sent as: the first instant of
+ * the day after it, in the viewer's time zone. A period's end is the first instant it no
+ * longer counts, so the day picked counts whole. The day after is the calendar's, so a
+ * day a clock change makes shorter or longer ends where the next one begins. A value
+ * that is no date is sent as it is.
+ */
+export function afterPickedDay(value: unknown): unknown {
+  return value instanceof Date && isValid(value) ? addDays(startOfDay(value), 1) : value;
 }

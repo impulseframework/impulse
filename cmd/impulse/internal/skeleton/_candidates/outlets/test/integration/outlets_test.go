@@ -10,6 +10,8 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
+	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -89,8 +91,8 @@ func TestPortalOutlet(t *testing.T) {
 // TestPortalOutlet_aRoleUnderANameAdmitsNobody proves a role is held by an account and
 // by nothing else. A membership written under the name a person will sign in with, for
 // a person no user was created for, is held by nobody: the directory proves who they
-// are, the tenants that declare the directory find a stranger, and since the seeded
-// declarations name no default seat the stranger is refused by invitation only, with no
+// are, the tenant whose directory it is finds a stranger, and since the seeded
+// directory names no default role the stranger is refused by invitation only, with no
 // account made. The portal's client, who has the account the harness created, is
 // admitted on the same stack (TestPortalOutlet).
 func TestPortalOutlet_aRoleUnderANameAdmitsNobody(t *testing.T) {
@@ -116,6 +118,97 @@ func TestPortalOutlet_aRoleUnderANameAdmitsNobody(t *testing.T) {
 	}
 	if accountExists(ctx, t, s, membersUsers, stranger) {
 		t.Error("the refused sign-in made an account, want none: the tenants admit a stranger by invitation only")
+	}
+}
+
+// TestPortalOutlet_theFirstAdministratorSignsIn proves the members auth's foothold end
+// to end: the first administrator the deployment seeds can sign in. The members auth's
+// people sign in through a directory and the application gives its roles, so the seed
+// creates the administrator with no password under the sign-in name the directory will
+// present, holding the Super Administrator role for the whole application and
+// belonging to no tenant. The application's tenants have directories, and an account
+// that has never signed in is linked on its name only when something vouches for it: no
+// tenant's directory vouches for this one, whose roles are no tenant's. The deployment
+// does: the seed creates the account under the id that names the registration the
+// person comes through (session.SeedUserIDThrough), which the sign-in rule recognizes,
+// and the registration admits one organization alone. So the first sign-in through the
+// directory links the account and opens its session.
+func TestPortalOutlet_theFirstAdministratorSignsIn(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	const administrator = "first.administrator@north.example"
+	s := newServedSeeding(ctx, t, administrator)
+
+	// The seed made the account under the id it derives for the registration, with the
+	// role every first administrator holds, and no link: nobody has signed in.
+	seeded := session.SeedUserIDThrough(members.Name, members.DirectoryRegistration, administrator)
+	if !accountExists(ctx, t, s, membersUsers, administrator) {
+		t.Fatal("the seed made no account for the members auth's first administrator")
+	}
+	held, err := s.members.UserManager().UserRoles(ctx, accesstypes.User(seeded.String()))
+	if err != nil {
+		t.Fatalf("UserRoles(%s) in the members store error = %v", seeded, err)
+	}
+	if !held.HoldsSuperAdministrator() {
+		t.Fatalf("the account under the seed's id holds %v, want the Super Administrator role: the seed did not create the administrator under the id that names its registration", held)
+	}
+	if n := identityLinks(ctx, t, s, seeded.String()); n != 0 {
+		t.Fatalf("the first administrator's account holds %d identity links before the first sign-in, want none", n)
+	}
+
+	b := newBrowser(t, s, portalAPI)
+	if status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before login: status %d: %s", status, body)
+	}
+	if status, location := b.loginPortal(ctx, administrator); status != http.StatusFound || location != portalPage {
+		t.Fatalf("the first administrator's first sign-in through the directory: status %d to %q, want %d to %q: a deployment whose first administrator cannot sign in has nobody who can admit anyone", status, location, http.StatusFound, portalPage)
+	}
+	status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET session after login: status %d: %s", status, body)
+	}
+	var sess struct {
+		Authenticated bool   `json:"authenticated"`
+		Username      string `json:"username"`
+	}
+	if err := json.Unmarshal(body, &sess); err != nil {
+		t.Fatal(err)
+	}
+	if !sess.Authenticated || sess.Username != administrator {
+		t.Fatalf("session after login = %+v, want authenticated as %s", sess, administrator)
+	}
+	// The sign-in linked the directory's identity to the seeded account, and to no
+	// other: the session is the first administrator's.
+	if n := identityLinks(ctx, t, s, seeded.String()); n != 1 {
+		t.Errorf("the first administrator's account holds %d identity links after the first sign-in, want the directory's one", n)
+	}
+	// A super administrator enters every tenant: the portal lists them.
+	if status, body := b.do(ctx, http.MethodGet, portalAPI+"/user-domains", nil); status != http.StatusOK || !strings.Contains(string(body), north) {
+		t.Errorf("GET user-domains as the first administrator: status %d: %s, want 200 naming north", status, body)
+	}
+
+	// An account an administrator created ahead under a name, with a role for the whole
+	// application and no password, is no seed's: its id is generated. The directory
+	// presents the name and nothing vouches for the account, so the sign-in is refused
+	// as a stranger's is and links nothing.
+	const createdAhead = "created.ahead@north.example"
+	ahead, err := s.membersAuth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: createdAhead})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) in the members auth error = %v", createdAhead, err)
+	}
+	if err := s.members.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(ahead.String()), accesstypes.SuperAdministrator); err != nil {
+		t.Fatalf("AddUserRoles(%s) in the members store error = %v", createdAhead, err)
+	}
+	other := newBrowser(t, s, portalAPI)
+	if status, body := other.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before login: status %d: %s", status, body)
+	}
+	if status, location := other.loginPortal(ctx, createdAhead); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedInvitationOnly)) {
+		t.Errorf("a directory sign-in under the name of an account created ahead for the whole application: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedInvitationOnly)
+	}
+	if n := identityLinks(ctx, t, s, ahead.String()); n != 0 {
+		t.Errorf("the account created ahead holds %d identity links after the refused sign-in, want none", n)
 	}
 }
 

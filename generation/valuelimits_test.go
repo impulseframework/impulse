@@ -40,6 +40,7 @@ func limitFixtureTables() map[string]*tableMetadata {
 			"Hash":     column("BYTES(6)", false),
 			"Awards":   column("ARRAY<STRING(7)>", false),
 			"Nick":     column("STRING(12)", false),
+			"Token":    column("BYTES(64)", false),
 			// A string key into another resource: the picker's key is a string the
 			// column sizes.
 			"CategoryId": {IsForeignKey: true, ReferencedTable: "Categories", ReferencedColumn: "Id", SpannerType: "STRING(36)"},
@@ -113,6 +114,7 @@ func Test_sqltypeTag(t *testing.T) {
 		{name: "a declared type over a named slice carries the tag and no character limit", field: "Awards", wantDisplayType: "object", wantTag: `sqltype:"ARRAY<STRING(7)>"`},
 		{name: "a declared type over a named string carries the tag and no character limit", field: "Nick", wantDisplayType: "object", wantTag: `sqltype:"STRING(12)"`},
 		{name: "a string key rendered as a picker keeps its character limit", field: "CategoryID", wantDisplayType: "enumerated", wantTag: `sqltype:"STRING(36)"`, wantMaxLength: 36},
+		{name: "a named string type on BYTES(n) is no secret, and is not sized as one", field: "Token", wantDisplayType: "string"},
 	}
 
 	for _, tt := range tests {

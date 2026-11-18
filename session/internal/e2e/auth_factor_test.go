@@ -3,14 +3,17 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -445,6 +448,247 @@ func seamEmailCodeUsedResetsLimit[Tx any](ctx context.Context, t *testing.T, a *
 		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, "pat@lakeside.edu")})
 		assertEventsSeen(t, b.view(ctx), "password", "email-code")
 		b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	}
+}
+
+// seamEmailCodeGuessesAtOnce: the code's attempts hold under guesses made at once,
+// through the real handlers and the database's own counting. A dozen wrong guesses
+// sent together each take an attempt: four are told the code is wrong, every other
+// that no code stands, none is answered with a failure of the server, and the right
+// code is dead after them. A dozen copies of the right code sent together sign one
+// browser in.
+func seamEmailCodeGuessesAtOnce[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	a.seedWithEmail(ctx, t, "pat@lakeside.edu", "pat@lakeside.edu")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+
+	const guesses = 12
+	// atOnce enters code from a dozen copies of b's cookies together and returns what
+	// each was answered.
+	atOnce := func(b *browser, code string) (statuses []int, bodies []string) {
+		copies := make([]*browser, guesses)
+		for i := range copies {
+			copies[i] = b.clone()
+		}
+		statuses, bodies = make([]int, guesses), make([]string, guesses)
+		failed := make([]error, guesses)
+		var wg sync.WaitGroup
+		for i, c := range copies {
+			wg.Go(func() {
+				status, body, err := c.send(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
+				statuses[i], bodies[i], failed[i] = status, string(body), err
+			})
+		}
+		wg.Wait()
+		for i, err := range failed {
+			if err != nil {
+				t.Fatalf("guess %d of %d at once: %v", i, guesses, err)
+			}
+		}
+
+		return statuses, bodies
+	}
+
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "pat@lakeside.edu", "password": seedPassword})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	code := a.lastCode(t, "pat@lakeside.edu")
+	wrong := "000000"
+	if wrong == code {
+		wrong = "111111"
+	}
+
+	statuses, bodies := atOnce(b, wrong)
+	invalid, dead := 0, 0
+	for i, status := range statuses {
+		switch {
+		case status == http.StatusUnauthorized && strings.Contains(bodies[i], `"code":"invalid_code"`):
+			invalid++
+		case status == http.StatusUnauthorized && strings.Contains(bodies[i], `"code":"code_expired"`):
+			dead++
+		default:
+			t.Errorf("wrong guess %d of %d at once = %d %s, want 401 invalid_code or code_expired", i, guesses, status, bodies[i])
+		}
+	}
+	if invalid != 4 || dead != guesses-4 {
+		t.Errorf("%d wrong guesses at once: %d were told the code is wrong and %d that none stands, want 4 and %d", guesses, invalid, dead, guesses-4)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+		t.Errorf("the right code after %d wrong guesses at once = %d %s, want 401 code_expired", guesses, status, body)
+	}
+
+	// A new code, entered right from a dozen copies of the browser at once: one is
+	// signed in, and every other is refused.
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	statuses, bodies = atOnce(b, a.lastCode(t, "pat@lakeside.edu"))
+	accepted := 0
+	for i, status := range statuses {
+		switch status {
+		case http.StatusOK:
+			accepted++
+		case http.StatusUnauthorized:
+		default:
+			t.Errorf("right guess %d of %d at once = %d %s, want 200 or 401", i, guesses, status, bodies[i])
+		}
+	}
+	if accepted != 1 {
+		t.Errorf("%d copies of the right code at once: %d were accepted, want one", guesses, accepted)
+	}
+}
+
+// mailedCodes are the codes of the code messages among messages.
+func mailedCodes(messages []mail.Message) map[string]bool {
+	codes := make(map[string]bool, len(messages))
+	for _, m := range messages {
+		if code := codePattern.FindStringSubmatch(m.Subject); code != nil {
+			codes[code[1]+code[2]] = true
+		}
+	}
+
+	return codes
+}
+
+// unmailedCode is a code that is none of mailed: a wrong guess, whichever code stands.
+func unmailedCode(mailed map[string]bool) string {
+	for n := 0; ; n++ {
+		if code := fmt.Sprintf("%06d", n); !mailed[code] {
+			return code
+		}
+	}
+}
+
+// seamEmailCodesAskedAtOnce: the address's mail limit holds under codes asked for at
+// once, through the real handlers and the database's own counting. A dozen requests for
+// a code sent together for one pending sign-in each take their place under the
+// address's limit before anything is mailed: five are mailed, every other is refused
+// with too_many_emails, and none is answered with a failure of the server. One of the
+// five codes stands, and it signs the person in.
+func seamEmailCodesAskedAtOnce[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	a.seedWithEmail(ctx, t, "pat@lakeside.edu", "pat@lakeside.edu")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "pat@lakeside.edu", "password": seedPassword})
+
+	const (
+		requests = 12
+		limit    = 5
+	)
+	copies := make([]*browser, requests)
+	for i := range copies {
+		copies[i] = b.clone()
+	}
+	statuses, bodies := make([]int, requests), make([]string, requests)
+	failed := make([]error, requests)
+	var wg sync.WaitGroup
+	for i, c := range copies {
+		wg.Go(func() {
+			status, body, err := c.send(ctx, http.MethodPost, "/pending/code/send", nil)
+			statuses[i], bodies[i], failed[i] = status, string(body), err
+		})
+	}
+	wg.Wait()
+	sent, refused := 0, 0
+	for i, status := range statuses {
+		switch {
+		case failed[i] != nil:
+			t.Fatalf("request %d of %d at once: %v", i, requests, failed[i])
+		case status == http.StatusOK:
+			sent++
+		case status == http.StatusTooManyRequests && strings.Contains(bodies[i], `"code":"too_many_emails"`):
+			refused++
+		default:
+			t.Errorf("request %d of %d at once = %d %s, want 200 or 429 too_many_emails", i, requests, status, bodies[i])
+		}
+	}
+	messages := a.mail.Messages()
+	if len(messages) != limit {
+		t.Errorf("%d codes asked for at once: %d messages were mailed, want %d: the address's limit", requests, len(messages), limit)
+	}
+	if sent != limit || refused != requests-limit {
+		t.Errorf("%d codes asked for at once: %d were answered as sent and %d refused, want %d and %d", requests, sent, refused, limit, requests-limit)
+	}
+
+	// One of the codes mailed stands: entered in turn, the others are told they are
+	// wrong, and the one that stands signs the person in within its attempts.
+	signedIn := false
+	for code := range mailedCodes(messages) {
+		status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
+		if status == http.StatusOK {
+			signedIn = true
+
+			break
+		}
+		if status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"invalid_code"`) {
+			t.Fatalf("a code mailed at once with the others = %d %s, want 200 or 401 invalid_code", status, body)
+		}
+	}
+	if !signedIn {
+		t.Fatal("none of the codes mailed signed the person in, want the one that stands to")
+	}
+	assertEventsSeen(t, b.view(ctx), "password", "email-code")
+}
+
+// seamEmailCodesRecordedAtOnce: one code stands for a pending sign-in however many are
+// recorded at once, through the real handlers. A person who holds no address gives a
+// dozen addresses at the step together, each mailed a code under its own address's
+// limit, so nothing but the database orders the dozen codes recorded for the one
+// pending sign-in. One of them stands: five wrong guesses end it, and after them none
+// of the dozen codes mailed is left to be guessed at.
+func seamEmailCodesRecordedAtOnce[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	a.seed(ctx, t, "pat")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "pat", "password": seedPassword})
+
+	const addresses = 12
+	copies := make([]*browser, addresses)
+	for i := range copies {
+		copies[i] = b.clone()
+	}
+	statuses, bodies := make([]int, addresses), make([]string, addresses)
+	failed := make([]error, addresses)
+	var wg sync.WaitGroup
+	for i, c := range copies {
+		wg.Go(func() {
+			status, body, err := c.send(ctx, http.MethodPost, "/pending/email", map[string]string{"email": fmt.Sprintf("pat%d@lakeside.edu", i)})
+			statuses[i], bodies[i], failed[i] = status, string(body), err
+		})
+	}
+	wg.Wait()
+	for i, status := range statuses {
+		if failed[i] != nil || status != http.StatusOK {
+			t.Fatalf("address %d of %d given at once = %d %s (%v), want 200", i, addresses, status, bodies[i], failed[i])
+		}
+	}
+	mailed := mailedCodes(a.mail.Messages())
+	if got := len(a.mail.Messages()); got != addresses {
+		t.Fatalf("%d addresses given at once: %d messages were mailed, want one code to each", addresses, got)
+	}
+
+	wrong := unmailedCode(mailed)
+	for i := 1; i <= 4; i++ {
+		if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": wrong}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"invalid_code"`) {
+			t.Fatalf("wrong code #%d = %d %s, want 401 invalid_code", i, status, body)
+		}
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": wrong}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+		t.Errorf("the fifth wrong code = %d %s, want 401 code_expired", status, body)
+	}
+	for code := range mailed {
+		if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"code":"code_expired"`) {
+			t.Errorf("a code mailed at once with the others, entered after five wrong guesses = %d %s, want 401 code_expired: one code stood, and it is ended", status, body)
+		}
+	}
+	if status := b.pendingStatus(ctx); status.EmailCode == nil || status.EmailCode.CodeSent {
+		t.Errorf("pending status after the code was ended = %+v, want none standing", status.EmailCode)
 	}
 }
 

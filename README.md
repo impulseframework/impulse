@@ -75,7 +75,9 @@ go install github.com/impulseframework/impulse/cmd/impulse@latest
 
 `impulse new` creates an application from an embedded skeleton, `impulse add` and
 `impulse remove` put options in and take them out, `impulse check` verifies the agreements
-between an application's parts, `impulse render` writes the files the tool owns, and
+between an application's parts, `impulse render` writes the files the tool owns,
+`impulse brand` writes an application's name, logo and colors from the one file that
+declares them, and
 `impulse upgrade` walks an application through the framework's releases. Inside an
 application the tool is the `tool github.com/impulseframework/impulse/cmd/impulse`
 directive in `go.mod`, and `go tool impulse <command>` runs it at the pinned version.

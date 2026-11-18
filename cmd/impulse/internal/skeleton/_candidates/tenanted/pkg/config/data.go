@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log"
+	"os"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -13,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/auth/staff"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	database "github.com/impulseframework/impulse/resource/database/spanner"
 	"github.com/impulseframework/impulse/resource/live"
@@ -68,9 +70,12 @@ type DataConfiguration struct {
 	// resource client over it.
 	database  *database.Driver
 	cursorKey *resource.CursorKey
-	staff     *staff.Auth
-	tenants   *resource.TenantRoster
-	live      *liveservice.Service
+	// secretKeys seals and opens the stored secret fields; nil where the environment
+	// carries no version of the application secret.
+	secretKeys *resource.SecretKeys
+	staff      *staff.Auth
+	tenants    *resource.TenantRoster
+	live       *liveservice.Service
 }
 
 // NewDataConfiguration loads the core and data levels and opens their clients. The
@@ -86,9 +91,22 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		return nil, errors.Wrap(err, "envconfig.ProcessWith()")
 	}
 
+	// The application secret's versions, each in a variable of its own named by the name
+	// dataConfig declares and the version's number (APP_SECRET_KEY_1, APP_SECRET_KEY_2):
+	// the keys the resource client seals every stored secret field with
+	// (conditions:"secret"), and a row's generated Open method opens one with. With no
+	// version in the environment the holder holds no key: an application that stores a
+	// secret is refused for that when its router is built, by the name of the variable
+	// that is missing (APP_SECRET_KEY_1), and no other is. The name set with no number
+	// (APP_SECRET_KEY) is refused here, with the variable to use.
+	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())
+	if err != nil {
+		return nil, errors.Wrap(err, "resource.SecretKeysFromEnv()")
+	}
+
 	// The database driver: the Spanner client over the database the settings name, and
-	// the resource client over it.
-	db, err := database.Open(ctx, env.Database.Settings)
+	// the resource client over it, which holds the secret keys.
+	db, err := database.Open(ctx, env.Database.Settings, resource.WithSecretKeys(secretKeys))
 	if err != nil {
 		return nil, errors.Wrap(err, "database.Open()")
 	}
@@ -127,7 +145,14 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// opens; the collection is passed in here, since the auth package imports no router.
 	// The auth opens its stores on the driver's Spanner client: the one vendor-specific
 	// seam left in the level, pending the PostgreSQL client.
-	staffAuth, err := staff.New(ctx, db.SpannerClient, env.staffSettings(router.Collection(), liveService, cookieKey, sender))
+	// The tenant roster is built before the staff auth, which takes what makes a tenant:
+	// nobody creates one directly, and an invited person's first sign-in makes it,
+	// through the generated maker over the Tenant record, the roster and the live
+	// service, so the instance that took the sign-in serves the new tenant at the
+	// person's next request and the others on the tenants signal. startTenants starts
+	// the roster once the level holds the auth.
+	tenants := app.NewTenantRoster(db.ResourceClient, resource.WithTenantSignals(liveService))
+	staffAuth, err := staff.New(ctx, db.SpannerClient, env.staffSettings(router.Collection(), liveService, cookieKey, sender, app.NewTenantMaker(tenants, liveService)))
 	if err != nil {
 		return nil, errors.Wrap(err, "staff.New()")
 	}
@@ -137,7 +162,9 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		env:               env,
 		database:          db,
 		cursorKey:         cursorKey,
+		secretKeys:        secretKeys,
 		staff:             staffAuth,
+		tenants:           tenants,
 		live:              liveService,
 	}
 	if err := conf.startTenants(ctx); err != nil {
@@ -173,6 +200,13 @@ func (c *DataConfiguration) ResourceClient() resource.Client {
 // CursorKey returns the key that seals list cursors.
 func (c *DataConfiguration) CursorKey() *resource.CursorKey {
 	return c.cursorKey
+}
+
+// SecretKeys returns the application's secret keys: what a row's generated Open method
+// opens a stored secret field with, outside a transaction. Nil where the environment
+// carries no version of the application secret, which opens nothing.
+func (c *DataConfiguration) SecretKeys() *resource.SecretKeys {
+	return c.secretKeys
 }
 
 // Access returns the permission engine the handlers check against.
@@ -220,16 +254,15 @@ func (c *DataConfiguration) LiveOrigins() []string {
 	return c.env.Live.BrowserOrigins()
 }
 
-// startTenants builds the tenant roster over the Tenant record with the generated
-// constructor and starts it: the roster reads the Tenants table once, fails the start
+// startTenants starts the tenant roster, built over the Tenant record with the generated
+// constructor where the level is opened: the roster reads the Tenants table once, fails the start
 // when it cannot (the schema is behind the release), and keeps the set current until
 // ctx ends, rereading on the tenants signal the record's generated write paths publish
-// through the live service (a tenant created or deleted on any instance) and at its
+// through the live service (a tenant made or deleted on any instance) and at its
 // backstop. The generated DomainGuard and the consolidated dispatcher ask it before a
 // tenant-scoped request runs, with no read and no wait, so a new tenant is usable at
 // once, on every instance, without a restart.
 func (c *DataConfiguration) startTenants(ctx context.Context) error {
-	c.tenants = app.NewTenantRoster(c.database.ResourceClient, resource.WithTenantSignals(c.live))
 	if err := c.tenants.Start(ctx); err != nil {
 		return errors.Wrap(err, "resource.TenantRoster.Start()")
 	}
@@ -284,6 +317,15 @@ type dataConfig struct {
 	// startup.
 	CookieKey string `env:"APP_COOKIE_KEY" secret:"generated"`
 
+	// SecretKey declares the application secret: 32 random bytes kept in versions, which
+	// every stored secret field (conditions:"secret") is encrypted with. secret:"versioned"
+	// has the deployment generate it and hand the service every enabled version, each in
+	// a variable of its own named by this one and the version's number (APP_SECRET_KEY_1,
+	// APP_SECRET_KEY_2). No variable has this name itself, so the field stays empty: the
+	// versions are read into the key holder when the level opens
+	// (resource.SecretKeysFromEnv, under this name).
+	SecretKey string `env:"APP_SECRET_KEY" secret:"versioned"`
+
 	// PublicURL is the application's address as a browser reaches it, scheme and host
 	// with no path: every link the auths mail (an invitation, an address verification, a
 	// sign-up) opens the login page under it. The dev proxy in development; a deployment
@@ -322,13 +364,17 @@ type dataConfig struct {
 // declaration, which the sign-in rule reads in the sign-in's transaction, and the google
 // registration's settings, read from the environment under the registration's variables,
 // so the constructor stays one call per auth.
-func (env *dataConfig) staffSettings(collection access.PermissionCollection, signals staff.Signals, cookieKey string, sender mail.Sender) *staff.Settings {
+//
+// tenants is what makes a tenant from an accepted invitation: the generated maker, which
+// the level builds over the roster and hands to the auth a tenant is made through.
+func (env *dataConfig) staffSettings(collection access.PermissionCollection, signals staff.Signals, cookieKey string, sender mail.Sender, tenants identity.TenantMaker) *staff.Settings {
 	return &staff.Settings{
 		Collection:         collection,
 		Signals:            signals,
 		CookieKey:          cookieKey,
 		TenantDeclarations: app.NewTenantDeclarationReader(),
 		TenantDirectories:  app.NewTenantDirectoryReader(),
+		TenantMaker:        tenants,
 		SessionTimeout:     env.SessionTimeout,
 		Mail:               sender,
 		MailLoginURL:       env.PublicURL + "/login",

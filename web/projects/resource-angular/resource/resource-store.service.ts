@@ -27,10 +27,17 @@ import {
   rowCapabilities,
   RPCConfig,
 } from '@impulseframework/resource-angular/types';
-import { ColumnFilter, composeFilter, filterFields, isComplete, PageTurn } from '@impulseframework/resource-angular/grid';
+import {
+  ColumnFilter,
+  composeFilter,
+  filterFields,
+  isComplete,
+  PageTurn,
+} from '@impulseframework/resource-angular/grid';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 import {
+  acrossTenantsHandle,
   AnyResourceHandle,
   BatchResult,
   Capability,
@@ -104,7 +111,9 @@ export class ResourceStore {
    * by default, `Execute` on a list whose rows offer methods. A change asks for a first
    * page again.
    */
-  pageCapabilities = signal<Capability[]>([], { equal: (a, b) => a.length === b.length && a.every((c, i) => c === b[i]) });
+  pageCapabilities = signal<Capability[]>([], {
+    equal: (a, b) => a.length === b.length && a.every((c, i) => c === b[i]),
+  });
   /**
    * The page's own choice about being live: `live` on its ListViewConfig or ViewConfig,
    * undefined when the config says nothing. Resolved against the metadata in `live`.
@@ -121,13 +130,25 @@ export class ResourceStore {
    * plain.
    */
   live = computed(() =>
-    pageIsLive(
-      this.resourceName() || this.resourceMeta().route,
-      this.liveChoice(),
-      this.resourceMeta(),
-      this.client.warn,
-    ),
+    // A list across tenants is plain unless its page asks: only `live: true` on the
+    // config makes it live, whatever the resource's metadata says of its changes.
+    this.acrossTenants()
+      ? this.liveChoice() === true
+      : pageIsLive(
+          this.resourceName() || this.resourceMeta().route,
+          this.liveChoice(),
+          this.resourceMeta(),
+          this.client.warn,
+        ),
   );
+  /**
+   * Whether the store's list page reads the resource across tenants
+   * (ListViewConfigOptions.acrossTenants): the page is asked of the client's list across
+   * tenants, bound to no tenant, with no column list and no capability answer, and each
+   * row carries the tenant it is in. It is plain unless the page's config says
+   * `live: true`: then it holds one subscription over the tenants the list reads.
+   */
+  acrossTenants = signal(false);
   uuid = signal<string>('');
   error = signal<string>('');
 
@@ -170,6 +191,8 @@ export class ResourceStore {
   private readonly position = signal<PagePosition>({ offset: 0 });
   private pageEffect: EffectRef | undefined;
   private pageRequestSeq = 0;
+  /** The reload of a live page in flight: the page it repeats, the version it asked by, and its place among the requests. */
+  private liveReload: { page: Page<RecordData>; version: string; seq: number } | undefined;
   pageStatus = signal<ListPageStatus>('idle');
   /** The page request's error when it failed — an ApiError for a server refusal — else undefined. */
   pageError = signal<unknown>(undefined);
@@ -197,8 +220,14 @@ export class ResourceStore {
     if (this.disableCacheForFilterPii()) {
       return true;
     }
-    const pii = new Set((this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName));
-    if (pii.size > 0 && (filterFields(this.filter()).some((f) => pii.has(f)) || this.columnFilters().some((f) => isComplete(f) && pii.has(f.field)))) {
+    const pii = new Set(
+      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
+    );
+    if (
+      pii.size > 0 &&
+      (filterFields(this.filter()).some((f) => pii.has(f)) ||
+        this.columnFilters().some((f) => isComplete(f) && pii.has(f.field)))
+    ) {
       return true;
     }
     return this.searchText().trim() !== '' && this.searchPII();
@@ -225,14 +254,17 @@ export class ResourceStore {
       ),
       sorts: this.sorts(),
       limit: this.pageSize(),
-      domain: this.scopedDomain(this.descriptorFor(route)),
+      // A list across tenants is bound to no tenant: selecting another leaves it as it is.
+      domain: this.acrossTenants() ? undefined : this.scopedDomain(this.descriptorFor(route)),
       live: this.live(),
       capabilities: this.pageCapabilities(),
+      acrossTenants: this.acrossTenants(),
     };
   });
 
   /**
-   * The list page's live subscription, the resource in the selected tenant, while the
+   * The list page's live subscription, the resource in the selected tenant (or, for a
+   * list across tenants, over the tenants the list reads), while the
    * page is live and has a route; undefined otherwise. Equal answers hold the watcher
    * still, so a filter or a sort changing re-registers nothing.
    */
@@ -244,8 +276,10 @@ export class ResourceStore {
   /**
    * Starts holding the server's page for the list: from here on, whenever the request the
    * signals describe changes, the store asks for a first page, and while the page is live
-   * a change the feed reports to the resource in the tenant requests the page again by
-   * its own cursor. Idempotent.
+   * a change to the resource in the tenant requests the page again by its own cursor,
+   * when the client's live session says so: at once for a write this tab made, after the
+   * session's wait for other people's changes, and not while the tab is hidden (see
+   * LiveSession in @impulseframework/resource). Idempotent.
    */
   buildStorePage(): void {
     if (this.pageEffect) {
@@ -282,14 +316,38 @@ export class ResourceStore {
     void this.runPageRequest(step, direction, current.rows.length);
   }
 
-  /** The page the table is on, requested again by its own cursor, so a write shows without losing the position. */
+  /**
+   * The page the table is on, requested again by its own cursor, so a write shows without
+   * losing the position. A live page asks by a version, and its answer is the one answer
+   * for that version: when a write this tab made is answered, the live session has asked
+   * for the page already, by the write, so the reload a component asks for after its own
+   * write, while that request is in flight, is that request and is not sent again.
+   */
   reloadPage(): void {
     const current = this.currentPage();
     if (!current) {
       this.firstPage();
       return;
     }
+    const version = this.pageVersion();
+    const inFlight = this.liveReload;
+    if (
+      version !== undefined &&
+      inFlight !== undefined &&
+      inFlight.page === current &&
+      inFlight.version === version &&
+      inFlight.seq === this.pageRequestSeq
+    ) {
+      return;
+    }
     void this.runPageRequest(current.reload, 'reload', current.rows.length);
+    this.liveReload = version === undefined ? undefined : { page: current, version, seq: this.pageRequestSeq };
+  }
+
+  /** The version a request for the list page carries now, while the page is live and the live session runs; undefined otherwise. */
+  private pageVersion(): string | undefined {
+    const subscription = untracked(() => this.pageSubscription());
+    return subscription && this.client.live.active ? this.client.live.version(subscription) : undefined;
   }
 
   private loadFirstPage(query: ReturnType<typeof this.pageQuery>): void {
@@ -299,6 +357,26 @@ export class ResourceStore {
       this.position.set({ offset: 0 });
       this.pageError.set(undefined);
       this.pageStatus.set('idle');
+      return;
+    }
+    if (query.acrossTenants) {
+      // The server decides, tenant by tenant, what a row shows, so the page names no
+      // columns: a column the person may read in no tenant would refuse the whole list.
+      const across = acrossTenantsHandle<RecordData>(this.client, this.descriptorFor(query.route).resource);
+      const acrossSorts = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
+      void this.runPageRequest(
+        () =>
+          across.page({
+            filter: query.filter !== '' ? query.filter : undefined,
+            sensitiveFilter: query.sensitive || undefined,
+            sort: acrossSorts.length > 0 ? (acrossSorts as ListQuery<RecordData>['sort']) : undefined,
+            limit: query.limit,
+            count: true,
+            live: query.live || undefined,
+          }) as Promise<Page<RecordData>>,
+        'first',
+        0,
+      );
       return;
     }
     const handle = this.handleFor(query.route);
@@ -334,7 +412,9 @@ export class ResourceStore {
       if (seq !== this.pageRequestSeq) {
         return;
       }
-      this.position.set(positionAfter(this.position(), turn, leftRows, { rows: landed.rows.length, total: landed.total }));
+      this.position.set(
+        positionAfter(this.position(), turn, leftRows, { rows: landed.rows.length, total: landed.total }),
+      );
       this.currentPage.set(landed);
       this.pageError.set(undefined);
       this.pageStatus.set('resolved');
@@ -571,6 +651,10 @@ export class ResourceStore {
       return undefined;
     }
     const descriptor = this.descriptorFor(route);
+    if (this.acrossTenants()) {
+      // One subscription over the tenants the list reads, whichever tenant is selected.
+      return acrossTenantsHandle<RecordData>(this.client, descriptor.resource).subscription();
+    }
     const domain = this.scopedDomain(descriptor);
     if (descriptor.scope === 'domain' && domain === undefined) {
       return undefined;
@@ -593,9 +677,10 @@ export class ResourceStore {
 
   /**
    * Holds the row or list `subscription` names on the client's live session for as long
-   * as the signal names it: a change the feed reports to it, or a resync, runs `refetch`.
-   * A new answer from the signal releases the old hold and takes the new; undefined holds
-   * nothing. Released with the store.
+   * as the signal names it: the session runs `refetch` when the row or list is to be
+   * fetched again (a write this tab made, other people's changes after its wait, a
+   * resync). A new answer from the signal releases the old hold and takes the new;
+   * undefined holds nothing. Released with the store.
    */
   private watchLive(subscription: Signal<LiveSubscription | undefined>, refetch: () => void): void {
     let release: (() => void) | undefined;
@@ -641,7 +726,10 @@ export class ResourceStore {
    * request. Nothing answers an empty key with an empty row, since an empty row would
    * count as present. While `live` is set the read carries the client's live option (so
    * the first live read subscribes the tab to the row) and the row is held on the live
-   * session: a change the feed reports to it reads it again by the change's version.
+   * session, which says when it is read again: at once for a write this tab made, after
+   * the session's wait for other people's changes, and not while the tab is hidden. The
+   * row stays on hand through every such read, so a form in use and the row's children
+   * stay on screen.
    */
   resourceView(
     route: Signal<string>,
@@ -773,7 +861,9 @@ export class ResourceStore {
           const columnsAsked = params.columns.length > 0 ? params.columns : undefined;
           if (!params.paged) {
             return from(
-              handle.list(wholeListQuery<RecordData>(handle.descriptor, { columns: columnsAsked }) as never) as Promise<RecordData[]>,
+              handle.list(wholeListQuery<RecordData>(handle.descriptor, { columns: columnsAsked }) as never) as Promise<
+                RecordData[]
+              >,
             );
           }
           if (params.keys.length === 0) {
@@ -809,20 +899,19 @@ export class ResourceStore {
       const current = request();
       return current ? { ...current, domain: this.scopedDomain(this.descriptorFor(current.route)) } : undefined;
     });
-    return untracked(
-      () =>
-        PagedList.over<RecordData, PagedListRequest & { domain: Domain | undefined }>(this.injector, params, (p) => {
-          const handle = this.handleFor(p.route);
-          const query: ListQuery<RecordData> = {
-            filter: p.filter && p.filter.trim() !== '' ? p.filter : undefined,
-            sensitiveFilter: p.sensitive || undefined,
-            columns: p.columns && p.columns.length > 0 ? p.columns : undefined,
-            sort: p.sorts && p.sorts.length > 0 ? (p.sorts as ListQuery<RecordData>['sort']) : undefined,
-            limit: p.limit,
-            count: true,
-          };
-          return handle.page(query as never) as Promise<Page<RecordData>>;
-        }),
+    return untracked(() =>
+      PagedList.over<RecordData, PagedListRequest & { domain: Domain | undefined }>(this.injector, params, (p) => {
+        const handle = this.handleFor(p.route);
+        const query: ListQuery<RecordData> = {
+          filter: p.filter && p.filter.trim() !== '' ? p.filter : undefined,
+          sensitiveFilter: p.sensitive || undefined,
+          columns: p.columns && p.columns.length > 0 ? p.columns : undefined,
+          sort: p.sorts && p.sorts.length > 0 ? (p.sorts as ListQuery<RecordData>['sort']) : undefined,
+          limit: p.limit,
+          count: true,
+        };
+        return handle.page(query as never) as Promise<Page<RecordData>>;
+      }),
     );
   }
 
@@ -849,7 +938,8 @@ export class ResourceStore {
       filter: filter && filter.trim() !== '' ? filter : undefined,
       sensitiveFilter: disableCacheForFilterPii || undefined,
       columns: columns && columns.length > 0 ? columns : undefined,
-      sort: sort && sort.length > 0 ? sort.map((s) => ({ field: s.field as string, direction: s.direction })) : undefined,
+      sort:
+        sort && sort.length > 0 ? sort.map((s) => ({ field: s.field as string, direction: s.direction })) : undefined,
       limit: limit && limit > 0 ? limit : undefined,
     };
     const request =

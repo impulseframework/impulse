@@ -1,13 +1,16 @@
 package drivertest
 
-// The tenants' declarations of a directory at a stranger's first sign-in, on both
-// drivers: a declared directory belongs to its tenant, whose declaration decides
-// before the registration's standard rule (signinflow's declaredRule), a default seat
-// admitting and seating the person, in the transaction that provisions them, and none
-// refusing them by invitation only.
+// The declaration of a directory at a person's first sign-in through it, on both
+// drivers: a declared directory belongs to its tenant, whose declaration decides a
+// stranger before the registration's standard rule (signinflow's declaredRule), a
+// default seat admitting and seating the person, in the transaction that provisions
+// them, and none refusing them by invitation only; and a person who has an account is
+// given the default seat in the transaction that links them, at once or once their
+// password has confirmed the link, and nothing at any later sign-in.
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +19,8 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -24,15 +29,41 @@ import (
 // application seats a person: the hook writes through the transaction that provisions
 // the user, so its row is committed with the account or not at all, and what it knows
 // in memory (an application's permission engine) it is told once the transaction has
-// committed. fail, while set, is the error the hook answers after its write.
+// committed. fail, while set, is the error the hook answers after its write. ahead is
+// the roles an administrator gave before a person's first sign-in, by the id of the
+// account: the tenants the account holds a role in itself, which are all it holds.
 type seatings struct {
-	mu   sync.Mutex
-	got  map[string][]signin.DirectorySeat
-	fail error
+	mu  sync.Mutex
+	got map[string][]signin.DirectorySeat
+	// given counts the hook's calls that committed, by username.
+	given map[string]int
+	fail  error
+	ahead map[impulse.UUID][]accesstypes.Domain
 }
 
 func newSeatings() *seatings {
-	return &seatings{got: map[string][]signin.DirectorySeat{}}
+	return &seatings{got: map[string][]signin.DirectorySeat{}, given: map[string]int{}, ahead: map[impulse.UUID][]accesstypes.Domain{}}
+}
+
+// roleAhead gives the account a role in tenant ahead of its first sign-in, as an
+// administrator of the tenant does for one of its people.
+func (s *seatings) roleAhead(userID impulse.UUID, tenant accesstypes.Domain) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ahead[userID] = append(s.ahead[userID], tenant)
+}
+
+// onlyIn reports whether tenant is the only place the account holds anything, as the
+// rule on a first link made on a name alone asks: every role it was given ahead is in
+// tenant, and one was given.
+func (s *seatings) onlyIn(_ context.Context, _ HookTx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ahead := s.ahead[userID]
+
+	return len(ahead) > 0 && !slices.ContainsFunc(ahead, func(held accesstypes.Domain) bool { return held != tenant }), nil
 }
 
 // hook is the seater: it writes the seats granted to username to HookRecords under
@@ -56,7 +87,24 @@ func (s *seatings) hook(ctx context.Context, tx HookTx, _ impulse.UUID, username
 		defer s.mu.Unlock()
 
 		s.got[username] = append(s.got[username], seats...)
+		s.given[username]++
 	}, s.fail
+}
+
+// remove takes username's seats away, as an administrator removes a person's seat.
+func (s *seatings) remove(username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.got, username)
+}
+
+// times reads how often the hook gave username seats in a transaction that committed.
+func (s *seatings) times(username string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.given[username]
 }
 
 // failing makes the hook fail with err, or work when err is nil.
@@ -83,6 +131,242 @@ func declaring(declared ...signin.DeclaredDirectory) func(context.Context, HookT
 	}
 }
 
+// declaringOnly is a directory reader that answers declared for directory alone and
+// fails the test when it is asked for any other: a directory belongs to one tenant, and
+// a personal account is no directory, so nothing is read for one.
+func declaringOnly(t *testing.T, directory signin.Directory, declared ...signin.DeclaredDirectory) func(context.Context, HookTx, signin.Directory) ([]signin.DeclaredDirectory, error) {
+	return func(_ context.Context, _ HookTx, asked signin.Directory) ([]signin.DeclaredDirectory, error) {
+		if asked != directory {
+			t.Errorf("the directory reader was asked for %+v, want %+v alone", asked, directory)
+
+			return nil, nil
+		}
+
+		return declared, nil
+	}
+}
+
+func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	acc := newAcceptances()
+	// The policy sees the seats: it denies a person the hook has not seated yet.
+	policy := func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+		if rec.of(req.Username) == nil {
+			return signin.Deny("seat_missing"), nil
+		}
+
+		return signin.Allow(), nil
+	}
+	lakesideDirectory := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}
+	cfg := AuthConfig{
+		Auth: true, Accounts: Open, Accept: acc.hook, Policy: policy,
+		Admission: &DirectoryAdmission{
+			Directories: declaringOnly(t, lakesideDirectory, signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn,
+		},
+	}
+	in := h.New(ctx, t, AuthWithAppTables, cfg)
+
+	// Pat's account stands before Pat ever signs in: Riverside's administrator created
+	// it ahead, with no password, and Riverside's invitation was mailed to its address.
+	const name = "pat@lakeside.edu"
+	pat := createUser(ctx, t, in.Driver, name)
+	invitation := insertInvitation(ctx, t, in.Driver, name, "riverside", []string{"Teacher"}, tokenHash(1))
+	if seats := rec.of(name); seats != nil {
+		t.Fatalf("seats before the first sign-in through the directory = %v, want none", seats)
+	}
+
+	// Lakeside's directory asserting Pat's name is not enough to link the account: Pat
+	// holds no role in Lakeside, and the sign-in carries nothing of Pat's.
+	identity := entra("oid-pat", name)
+	bare := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+	assertRefused(t, signInRequest(ctx, in, bare), sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly)
+	assertNoLink(ctx, t, in.Driver, identity)
+	if seats := rec.of(name); seats != nil {
+		t.Fatalf("seats after the refused sign-in = %v, want none", seats)
+	}
+
+	// Pat follows Riverside's invitation and signs in through Lakeside's directory: the
+	// invitation mailed to the account's address vouches for the link, so the identity
+	// is linked to the account, the invitation accepted, and Lakeside's default seat
+	// given in the one transaction, and the hook's committed function has run before
+	// the policy decides.
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(invitation)}
+	assertNewlyLinked(ctx, t, in.Driver, signInRequest(ctx, in, req), req, identity, pat, "tenant-1")
+	if !req.Invitation.Accepted {
+		t.Error("Invitation.Accepted = false after the sign-in that carried Riverside's invitation, want accepted")
+	}
+	assertAccepted(t, acc, "accepted:"+name, pat.ID.String()+" "+name+" riverside Teacher")
+	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
+	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
+		t.Errorf("seats granted at the first sign-in through the directory (-want +got):\n%s", diff)
+	}
+	assertRecorded(ctx, t, h, in.Raw, "seated:"+name, "lakeside=Member")
+
+	// The second sign-in finds the link and seats nothing: the hook is not called.
+	again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
+	if err := signInRequest(ctx, in, again); err != nil {
+		t.Fatalf("second sign-in error = %v", err)
+	}
+	if again.User == nil || again.User.Source != sessioninfo.UserExistingLink {
+		t.Errorf("second sign-in user = %+v, want the existing link", again.User)
+	}
+	if got := rec.times(name); got != 1 {
+		t.Errorf("the seat hook gave seats %d time(s), want once for the link", got)
+	}
+
+	// A personal account is no directory: nothing is read for it (declaringOnly fails
+	// the test otherwise), the registration's rule decides, and nothing is seated.
+	open := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaringOnly(t, lakesideDirectory, signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+	})
+	const personal = "sam@gmail.com"
+	personalIdentity := &sessioninfo.Identity{
+		Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection, Subject: "sub-sam", Email: personal, SignInName: personal,
+	}
+	sam := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: personal, Identity: personalIdentity}
+	err := signInRequest(ctx, open, sam)
+	assertProvisioned(ctx, t, open.Driver, err, sam, personalIdentity, signin.GoogleAnyAccountConnection)
+	if seats := rec.of(personal); seats != nil {
+		t.Errorf("seats granted to a personal account = %v, want none", seats)
+	}
+}
+
+func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+	})
+
+	// Kim has an account with a password: the directory's word alone does not link
+	// her, so the sign-in waits, and nothing is linked or seated yet.
+	const name = "kim@lakeside.edu"
+	kim := passwordUser(ctx, t, in.Driver, name)
+	identity := entra("oid-kim", name)
+	signInAs := func() (*sessioninfo.NewSessionRequest, error) {
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-kim", name)}
+
+		return req, signInRequest(ctx, in, req)
+	}
+	_, err := signInAs()
+	assertConfirmationPending(ctx, t, in.Driver, err, identity, kim, "tenant-1")
+	if seats := rec.of(name); seats != nil {
+		t.Fatalf("seats while the link waits for the password = %v, want none", seats)
+	}
+
+	// The password confirms it: the link is made and the default seat given with it.
+	if err := in.LinkConfirmed(ctx, kim.ID, name, identity, "tenant-1"); err != nil {
+		t.Fatalf("LinkConfirmed() error = %v", err)
+	}
+	assertLinkedTo(ctx, t, in.Driver, identity, kim.ID, "tenant-1")
+	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
+	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
+		t.Errorf("seats granted with the confirmed link (-want +got):\n%s", diff)
+	}
+	assertRecorded(ctx, t, h, in.Raw, "seated:"+name, "lakeside=Member")
+
+	// An administrator removes the seat. Kim signs in again: the link is found, and
+	// signing in does not give the seat back.
+	rec.remove(name)
+	req, err := signInAs()
+	if err != nil {
+		t.Fatalf("sign-in through the link error = %v", err)
+	}
+	if req.User == nil || req.User.Source != sessioninfo.UserExistingLink {
+		t.Errorf("sign-in user = %+v, want the existing link", req.User)
+	}
+	if seats := rec.of(name); seats != nil {
+		t.Errorf("seats after the sign-in that followed the removal = %v, want none: a removed seat is not given back", seats)
+	}
+	if got := rec.times(name); got != 1 {
+		t.Errorf("the seat hook gave seats %d time(s), want once for the link", got)
+	}
+
+	// The link is deleted. The next sign-in through the directory is a first one
+	// again: it waits for the password, and the link it makes gives the seat again.
+	link, err := in.Driver.Identity(ctx, identity.Method, identity.Connection, identity.Subject)
+	if err != nil {
+		t.Fatalf("Identity() error = %v", err)
+	}
+	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn); err != nil {
+		t.Fatalf("UnlinkIdentity() error = %v", err)
+	}
+	_, err = signInAs()
+	assertConfirmationPending(ctx, t, in.Driver, err, identity, kim, "tenant-1")
+	if err := in.LinkConfirmed(ctx, kim.ID, name, identity, "tenant-1"); err != nil {
+		t.Fatalf("LinkConfirmed() after the link was deleted error = %v", err)
+	}
+	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
+		t.Errorf("seats granted once the link is made again (-want +got):\n%s", diff)
+	}
+	if got := rec.times(name); got != 2 {
+		t.Errorf("the seat hook gave seats %d time(s), want twice: once for each link", got)
+	}
+
+	// An identity that is linked already is a Conflict, and gives nothing more.
+	if err := in.LinkConfirmed(ctx, kim.ID, name, identity, "tenant-1"); !httpio.HasConflict(err) {
+		t.Errorf("LinkConfirmed() of a linked identity error = %v, want a Conflict", err)
+	}
+	if got := rec.times(name); got != 2 {
+		t.Errorf("the seat hook gave seats %d time(s) after the refused link, want twice still", got)
+	}
+}
+
+func testDirectorySeatHookFailsAtLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	failure := errors.New("the default seat could not be given")
+	rec.failing(failure)
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
+	})
+
+	// A user created ahead in Lakeside, with no password, is linked by the sign-in
+	// through Lakeside's directory itself: the seat cannot be given, so the transaction
+	// fails and the link is not made.
+	const name = "pat@lakeside.edu"
+	pat := createUser(ctx, t, in.Driver, name)
+	rec.roleAhead(pat.ID, "lakeside")
+	identity := entra("oid-pat", name)
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+	err := signInRequest(ctx, in, req)
+	if !errors.Is(err, failure) {
+		t.Fatalf("sign-in error = %v, want the seat hook's failure", err)
+	}
+	assertNoLink(ctx, t, in.Driver, identity)
+	if value, found := h.Recorded(ctx, t, in.Raw, "seated:"+name); found {
+		t.Errorf("HookRecords[seated:%s] = %q after the hook failed, want nothing committed", name, value)
+	}
+
+	// A user with a password is linked once the password confirms it: the same
+	// failure leaves no link either.
+	const confirmed = "kim@lakeside.edu"
+	kim := passwordUser(ctx, t, in.Driver, confirmed)
+	kimIdentity := entra("oid-kim", confirmed)
+	if err := in.LinkConfirmed(ctx, kim.ID, confirmed, kimIdentity, "tenant-1"); !errors.Is(err, failure) {
+		t.Fatalf("LinkConfirmed() error = %v, want the seat hook's failure", err)
+	}
+	assertNoLink(ctx, t, in.Driver, kimIdentity)
+	if got := rec.times(name) + rec.times(confirmed); got != 0 {
+		t.Errorf("the committed function ran %d time(s) for transactions that did not commit", got)
+	}
+
+	// Nothing was left behind: once the seat can be given, each is linked and seated.
+	rec.failing(nil)
+	again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+	assertNewlyLinked(ctx, t, in.Driver, signInRequest(ctx, in, again), again, identity, pat, "tenant-1")
+	if err := in.LinkConfirmed(ctx, kim.ID, confirmed, kimIdentity, "tenant-1"); err != nil {
+		t.Fatalf("LinkConfirmed() once the hook works error = %v", err)
+	}
+	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
+	for _, username := range []string{name, confirmed} {
+		if diff := cmp.Diff(want, rec.of(username)); diff != "" {
+			t.Errorf("seats granted to %s once the hook works (-want +got):\n%s", username, diff)
+		}
+	}
+}
+
 func testDirectoryDefaultSeat(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newSeatings()
 	// The policy sees the seats: it denies a person the hook has not seated yet.
@@ -94,7 +378,7 @@ func testDirectoryDefaultSeat(ctx context.Context, t *testing.T, h *AuthHarness)
 		return signin.Allow(), nil
 	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Policy: policy,
+		Auth: true, Accounts: Open, Policy: policy,
 		Admission: &DirectoryAdmission{
 			Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}, signin.DeclaredDirectory{Tenant: "riverside"}), Seat: rec.hook,
 		},
@@ -128,12 +412,12 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 	rec := newSeatings()
 	acc := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Accept: acc.hook,
-		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside"}), Seat: rec.hook},
+		Auth: true, Accounts: Open, Accept: acc.hook,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
 	})
 
-	// The stranger is refused and nothing is written, though the registration admits
-	// members of the directory.
+	// The stranger is refused and nothing is written, though the method is open to
+	// sign-up.
 	strangerIdentity := entra("oid-new", "new@lakeside.edu")
 	stranger := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "new@lakeside.edu", Identity: strangerIdentity}
 	assertRefused(t, signInRequest(ctx, in, stranger), sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly)
@@ -142,10 +426,12 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 		t.Errorf("seats granted to the refused stranger = %v, want none", seats)
 	}
 
-	// A person given a role ahead of their first sign-in is no stranger: a role is held
-	// by an account, and the user under the sign-in name is linked, as before. The
-	// declaration decides strangers alone, and seats nobody it did not create.
+	// A person given a role in the tenant ahead of their first sign-in is no stranger: a
+	// role is held by an account, and the tenant's own directory vouches for the
+	// tenant's own people, so the user under the sign-in name is linked. The declaration
+	// names no default seat, so the link gives nothing.
 	kim := createUser(ctx, t, in.Driver, "kim@lakeside.edu")
+	rec.roleAhead(kim.ID, "lakeside")
 	kimIdentity := entra("oid-kim", "kim@lakeside.edu")
 	kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "kim@lakeside.edu", Identity: kimIdentity}
 	assertNewlyLinked(ctx, t, in.Driver, signInRequest(ctx, in, kimReq), kimReq, kimIdentity, kim, "tenant-1")
@@ -180,7 +466,7 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 
 func testDirectoryUndeclared(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newSeatings()
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Admission: &DirectoryAdmission{Directories: declaring(), Seat: rec.hook}})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Admission: &DirectoryAdmission{Directories: declaring(), Seat: rec.hook}})
 
 	// No tenant declares the directory: the registration's rule decides as before.
 	identity := entra("oid-new", "new@lakeside.edu")
@@ -191,7 +477,7 @@ func testDirectoryUndeclared(ctx context.Context, t *testing.T, h *AuthHarness) 
 
 func testDirectorySeatHookMissing(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory,
+		Auth: true, Accounts: Open,
 		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"})},
 	})
 
@@ -226,7 +512,7 @@ func testDirectorySeatHookFails(ctx context.Context, t *testing.T, h *AuthHarnes
 		return signin.Allow(), nil
 	}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.MembersOfDirectory, Policy: policy,
+		Auth: true, Accounts: Open, Policy: policy,
 		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
 	})
 

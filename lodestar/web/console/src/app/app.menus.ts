@@ -10,6 +10,7 @@ import { commendationsConfig } from './configs/commendations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
+import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
 import { sectorsConfig } from './configs/sectors.config';
 import { shipClassesConfig } from './configs/shipClasses.config';
@@ -47,6 +48,8 @@ export function appMenus(actions: FrameActions): Menu[] {
             // Behind the commendations flag: the entry shows only while it is on.
             resourcePage(commendationsConfig, resourceMeta),
             resourcePage(sectorsConfig, resourceMeta),
+            // The missions of every sector the person reaches, on one page of Headquarters.
+            resourcePage(missionsEverySectorConfig, resourceMeta),
           ],
         },
       ],
@@ -103,8 +106,15 @@ export function appMenus(actions: FrameActions): Menu[] {
       label: 'System',
       groups: [
         {
-          // The crew's accounts across the whole service, their mailed links, sessions and
-          // failed sign-ins.
+          // The crew's accounts across the whole service, their mailed links, the Invited
+          // sectors page, where headquarters and the surveyor bring a new sector in by
+          // inviting the person who will run it, sessions and failed sign-ins, and the
+          // Sign-in page, which lists the crew's sign-in methods.
+          // Its Open sign-up action runs a method that declares a warning: the library's
+          // dialog asks the server what opening that method will do, shows the answer in
+          // the warning style, and holds its button until the word `open` is typed.
+          //
+          // Demonstrates: @warning.
           label: 'Crew',
           entries: [...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' })],
         },

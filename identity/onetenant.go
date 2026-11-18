@@ -58,8 +58,9 @@ func WithOneTenantPerPerson() Option {
 // refuseSecondTenant is the rule of one tenant per person on a membership about to be
 // written: where the application declared it and the membership is held in one tenant,
 // a person who holds a role in another tenant is refused, unless they are one of the
-// application's own people. What the person holds is read as committed
-// (Store.Memberships), and, at a sign-in, as the hooks of the sign-in's transaction have
+// application's own people. What the person holds is read as committed: the roles of
+// their own and the groups they are in (holds), a place in a tenant's group counting as a
+// role in that tenant, and, at a sign-in, as the hooks of the sign-in's transaction have
 // given so far (signInTenants). A membership held for the whole application or in every
 // tenant is not a tenant's and is never refused.
 func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID) error {
@@ -67,9 +68,9 @@ func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWrite
 	if m.oneTenant == nil || !inTenant {
 		return nil
 	}
-	held, err := m.store.Memberships(ctx, txn, userID)
+	held, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return err
 	}
 	if outsideTenants(held) {
 		return nil
@@ -104,9 +105,9 @@ func (m *Manager) refuseInvitedElsewhere(ctx context.Context, txn resource.ReadW
 	if !found {
 		return nil
 	}
-	held, err := m.store.Memberships(ctx, txn, userID)
+	held, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return err
 	}
 	if !outsideTenants(held) && inAnotherTenant(held, accesstypes.DomainPolicyScope(accesstypes.Domain(*domain))) {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
@@ -124,9 +125,6 @@ func (m *Manager) refuseInvitedElsewhere(ctx context.Context, txn resource.ReadW
 // makes them the application's own. held is what the person holds, as committed, the
 // membership being removed among it. A role held in one tenant is always taken.
 func (m *Manager) refuseLeavingSeveralTenants(held []access.MembershipKey, removed *access.MembershipKey) error {
-	if m.oneTenant == nil || inOneTenant(removed) {
-		return nil
-	}
 	left := make([]access.MembershipKey, 0, len(held))
 	for i := range held {
 		if held[i].Kind == removed.Kind && held[i].Axis == removed.Axis && held[i].Role == removed.Role {
@@ -134,6 +132,20 @@ func (m *Manager) refuseLeavingSeveralTenants(held []access.MembershipKey, remov
 			continue
 		}
 		left = append(left, held[i])
+	}
+
+	return m.refuseSeveralTenantsLeft(removed, left)
+}
+
+// refuseSeveralTenantsLeft is the rule of refuseLeavingSeveralTenants on what a person
+// is left holding: removed is what goes, a membership of their own or their place in a
+// group, spelled as a membership held where the group is kept, and left everything else
+// they hold. A place in a group kept for the whole application is a role held outside
+// the tenants, so the last one is not taken from a person who holds roles in more than
+// one tenant.
+func (m *Manager) refuseSeveralTenantsLeft(removed *access.MembershipKey, left []access.MembershipKey) error {
+	if m.oneTenant == nil || inOneTenant(removed) {
+		return nil
 	}
 	if !outsideTenants(left) && tenantCount(left) > 1 {
 		return httpio.NewConflictMessage(

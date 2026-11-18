@@ -13,21 +13,27 @@ type evaluator interface {
 	// checkUser returns user's scope-wide (no resource attachment) decision
 	// within scope: granted on any unconditional cover, the covering
 	// conditions when only conditional grants cover it — always row-free,
-	// enforced at load — denied otherwise.
-	checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error)
+	// enforced at load — denied otherwise. The user's assignments are read
+	// at env's instant, the one the caller folds the conditions with: one
+	// outside its period grants nothing. An env that carries no instant is
+	// read at the engine's own clock.
+	checkUser(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error)
 
 	// checkUserResources returns user's decision for each resource within
 	// scope, aligned with the input order: granted on any unconditional
 	// cover, the covering conditions when only conditional grants cover it,
-	// denied otherwise.
+	// denied otherwise. The user's assignments are read at env's instant, as
+	// checkUser reads them.
 	checkUserResources(
-		ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) ([]resourceDecision, error)
 
 	// userDigest returns user's structural grant enumeration within scope:
 	// every resource and field the user's grants reach, permission → granted
 	// or conditional, with denied targets absent. Non-folding by design —
-	// the answer is a pure function of the policy snapshot.
+	// the answer is a pure function of the policy snapshot. This and the
+	// three user answers below take no Environment and read the user's
+	// assignments at the engine's own clock.
 	userDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 
 	// userHasGrants reports whether user holds at least one grant in scope,
@@ -35,6 +41,17 @@ type evaluator interface {
 	// tenancy asks (a caller with no grants in a domain is answered as if the
 	// domain did not exist).
 	userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
+
+	// userIsSuperAdministrator reports whether user holds the Super
+	// Administrator role, a membership held in the global partition, answered
+	// from the policy snapshot the checks are answered from.
+	userIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
+
+	// userAdministersTenant reports whether user administers the tenant: they
+	// hold one of the application's tenant administrator roles in the tenant
+	// itself, inside its period (administersTenant), answered from the policy
+	// snapshot the checks are answered from, at the engine's own clock.
+	userAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error)
 
 	// userPermissions returns user's effective permissions within scope by
 	// name — the management listing, answered from the same snapshot the
@@ -72,12 +89,13 @@ type evaluator interface {
 // (role existence, empty-input checks) belongs to the callers; implementations
 // only persist and query policy.
 type policyStore interface {
-	// Membership
-	addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
+	// Membership. A membership is given for a period, which replaces the
+	// period of one that is there, and the listings answer what counts now.
+	addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
 	deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
 	userRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
-	// userMemberships lists every membership the user holds, wherever it is
-	// held, as stored.
+	// userMemberships lists every membership the user holds now, wherever it
+	// is held.
 	userMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error)
 
 	// Roles. A custom role is created with the description its creator gave
@@ -100,4 +118,22 @@ type policyStore interface {
 	removeScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
 	roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 	roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
+
+	// Groups of people, their members and the roles each holds (groups.go).
+	addGroup(ctx context.Context, group *policy.GroupRow) (taken bool, err error)
+	describeGroup(ctx context.Context, group accesstypes.Group, description string) (bool, error)
+	deleteGroup(ctx context.Context, group accesstypes.Group) (bool, error)
+	group(ctx context.Context, group accesstypes.Group) (*policy.GroupRow, bool, error)
+	groups(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.GroupRow, error)
+	userGroups(ctx context.Context, user accesstypes.User) ([]policy.GroupRow, error)
+	addGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error
+	deleteGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User) error
+	groupUsers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error)
+	addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
+	deleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
+	groupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
+	// userGroupRoles lists every role held now by a group the user is in now.
+	userGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error)
+	// roleGroups lists the groups that hold the role in scope now.
+	roleGroups(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error)
 }

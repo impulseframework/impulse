@@ -74,7 +74,7 @@ type Completed struct {
 }
 
 // Claims decodes the ID token's claims into the value into points to. A token whose
-// claims do not decode is refused (claims_parse).
+// claims do not decode is refused (parse_claims_failed).
 func (c *Completed) Claims(into any) error {
 	if err := c.IDToken.Claims(into); err != nil {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims"))

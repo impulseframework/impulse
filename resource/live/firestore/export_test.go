@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -64,4 +65,21 @@ func ReadSignals(ctx context.Context, s *Service) (map[live.Kind]time.Time, erro
 	}
 
 	return signalTimes(snapshot), nil
+}
+
+// WithDialOptions adds gRPC dial options to the connection the service opens to the
+// emulator, so a test can count the store's operations through an interceptor.
+func WithDialOptions(opts ...grpc.DialOption) Option {
+	return withDialOptions(opts...)
+}
+
+// StoredSubscriptions counts the principal's documents in the record: how many
+// subscriptions the store holds for them.
+func StoredSubscriptions(ctx context.Context, s *Service, principal string) (int, error) {
+	docs, err := s.subscriptions().Where("principal", "==", principal).Documents(ctx).GetAll()
+	if err != nil {
+		return 0, errors.Wrap(err, "firestore.DocumentIterator.GetAll()")
+	}
+
+	return len(docs), nil
 }

@@ -4,32 +4,35 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
+
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
+	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/resource/live"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
-
-// The Tenant record's create makes its creator the first administrator of the new
-// tenant: the roles TenantAdministratorRoles names are given in the
-// transaction that writes the row, through the Staff auth's generated identity
-// client (StaffIdentity, which the auth's generated handlers ask of the
-// application too). The application supplies the roles beside the generated contract.
-var _ interface {
-	TenantAdministratorRoles() []accesstypes.Role
-} = (*App)(nil)
 
 // tenantDeclaration names where the Tenant record keeps its declaration of who
 // may enter a tenant (@directoryOnly on the record, the TenantDirectory record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var tenantDeclaration = resource.TenantDeclarationColumns{
-	DirectoryOnly:     "DirectoryOnly",
-	DirectoriesTable:  "TenantDirectories",
-	TenantColumn:      "TenantId",
-	MethodColumn:      "Method",
-	ConnectionColumn:  "Connection",
-	DefaultSeatColumn: "DefaultSeat",
+	DirectoryOnly:        "DirectoryOnly",
+	DirectoriesTable:     "TenantDirectories",
+	TenantColumn:         "TenantId",
+	MethodColumn:         "Method",
+	ConnectionColumn:     "Connection",
+	DirectoriesKeyColumn: "Id",
+	DefaultSeatColumn:    "DefaultSeat",
 }
 
 // NewTenantRoster builds the application's tenant roster over the Tenant record
@@ -72,4 +75,183 @@ func NewTenantDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // auth's generated identity client's DirectorySeated).
 func NewTenantDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDirectoryReader(&tenantDeclaration)
+}
+
+// NewTenantDirectoryRules builds the rules of a tenant's directory
+// (resource.TenantDirectoryRules) over the Tenant record's table and its declaration's
+// columns: a tenant has one directory, a directory is one tenant's, a personal account
+// is no directory, and the directory of a tenant that is directory only is not removed.
+// Every write of the TenantDirectory record is held to them. The generated TenantDirectory
+// write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes.
+func NewTenantDirectoryRules() *resource.TenantDirectoryRules {
+	return resource.NewTenantDirectoryRules("Tenants", "Id", &tenantDeclaration, "tenant")
+}
+
+// SetTenantDirectory makes directory the tenant's directory, in the caller's
+// transaction: the step every write that sets a tenant's directory from a sign-in takes.
+// The directory is one a sign-in names, its method and its connection, never one a
+// person typed: the create-your-tenant route hands the directory its creator came
+// through, and a caller inside a sign-in hands the identity's
+// (resource.NewSpannerReadWriteTransaction wraps the sign-in's transaction). The rules
+// are asked first (NewTenantDirectoryRules, Set), each refusal a Conflict that says what
+// to do: a personal account, a tenant that has a directory, a directory another tenant
+// has. Then the TenantDirectory row is buffered through the record's create patch, so its
+// change event is written with it. The caller reloads the roster and signals the
+// tenants kind once the transaction has committed, as the record's write paths do.
+func SetTenantDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {
+	if err := NewTenantDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {
+		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
+	}
+	patch, err := resources.NewTenantDirectoryCreatePatch()
+	if err != nil {
+		return errors.Wrap(err, "resources.NewTenantDirectoryCreatePatch()")
+	}
+	patch.SetTenantID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)
+	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
+		return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// tenantMaker makes a tenant from an accepted invitation
+// (identity.TenantMaker): NewTenantMaker builds it.
+type tenantMaker struct {
+	roster  *resource.TenantRoster
+	signals live.Service
+}
+
+// NewTenantMaker builds what makes a tenant from an invitation's details
+// (identity.TenantMaker), over the Tenant record's own create patch. Staff bring a
+// tenant in by inviting one person (the auth's generated Invite method), and the
+// person's first sign-in makes the tenant: the application hands this to the
+// auth whose people the record's outlets sign in, where it builds that auth's generated
+// identity client, which takes it. roster is the application's tenant roster and
+// signals its live service: once the sign-in's transaction has committed, this
+// instance's roster rereads its table, so the person's first request stands in the new
+// tenant, and the tenants kind is signaled, so every instance serves it at once.
+func NewTenantMaker(roster *resource.TenantRoster, signals live.Service) identity.TenantMaker {
+	return &tenantMaker{roster: roster, signals: signals}
+}
+
+// Make buffers the tenant's row from the invitation's details, through the
+// record's create patch, so the record's own rules apply and its change event is written
+// with it. The details name the record's fields by their Go names; a name the record
+// does not carry on an invitation is refused. At the check a send makes
+// (tenant.Caller), the patch is armed with the caller, so the record's Create grant, on
+// the record and on each field given, answers as it would for a create, and the
+// transaction is rolled back by whoever asked. A value another tenant holds
+// under a unique index is refused once the grants have answered. A rule the database alone applies at a commit (a CHECK constraint, a
+// unique index over several columns) is not seen by the check: it refuses the first
+// sign-in's commit, and the invitation stands.
+//
+// With a directory, the organization's the accepting person signed in through, the
+// TenantDirectory row is buffered too, held to the rules of a tenant's directory
+// (NewTenantDirectoryRules): a directory another tenant has refuses the sign-in
+// (sessioninfo.RefusedOrganizationHasTenant) and nothing is written. The row
+// carries the role the directory's people start with, where the invitation names one.
+// A tenant that is directory only is made so with its directory, and never
+// without one.
+func (m *tenantMaker) Make(ctx context.Context, txn resource.ReadWriteTransaction, tenant *identity.NewTenant) (accesstypes.Domain, error) {
+	var carried map[string]json.RawMessage
+	if len(tenant.Fields) > 0 {
+		if err := json.Unmarshal(tenant.Fields, &carried); err != nil {
+			return "", httpio.NewBadRequestMessageWithError(err, "the tenant's details do not read: they are a JSON object of the Tenant record's fields")
+		}
+	}
+	patch, err := resources.NewTenantCreatePatch()
+	if err != nil {
+		return "", errors.Wrap(err, "resources.NewTenantCreatePatch()")
+	}
+	id := patch.ID()
+	domain := accesstypes.Domain(id.String())
+	if value, ok := carried["Name"]; ok {
+		var given string
+		if err := json.Unmarshal(value, &given); err != nil {
+			return "", httpio.NewBadRequestMessageWithError(err, "the tenant's name does not read")
+		}
+		patch.SetName(given)
+		delete(carried, "Name")
+	}
+	for name := range carried {
+		return "", httpio.NewBadRequestMessagef("an invitation carries no field %s of the Tenant record: a field the wire cannot write, or a secret, is given to the tenant once it exists", name)
+	}
+	hasDirectory := tenant.Directory.Organization()
+	if tenant.DirectoryOnly {
+		if !hasDirectory {
+			return "", errors.New("a tenant that is directory only is made with its directory: the invitation was accepted through none")
+		}
+		patch.SetDirectoryOnly(true)
+	}
+	if tenant.Caller != nil {
+		patch.Enforce(tenant.Caller)
+	}
+	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
+		return "", errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
+	}
+	if patch.NameIsSet() {
+		// The database keeps one tenant to a name (a unique index), and
+		// refuses a second at the commit: it is refused here, where the answer says so,
+		// and after the caller's grants have answered (the buffer above), so the answer
+		// tells nobody who may not create a tenant which values are taken. The
+		// read sees what is committed, never the row just buffered.
+		switch _, err := resources.NewTenantQuery().SetName(patch.Name()).AddColumns(resources.NewTenantColumns().ID()).Read(ctx, txn); {
+		case err == nil:
+			return "", httpio.NewConflictMessagef("a tenant with the name %v already exists: give the new one another", patch.Name())
+		case !httpio.HasNotFound(err):
+			return "", errors.Wrap(err, "resources.TenantQuery.Read()")
+		}
+	}
+	if hasDirectory {
+		// The directory the person came through becomes the tenant's own, held to
+		// the rules: one another tenant has refuses the sign-in.
+		if err := NewTenantDirectoryRules().Set(ctx, txn, domain, tenant.Directory); err != nil {
+			if httpio.HasConflict(err) {
+				return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, err)
+			}
+
+			return "", errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
+		}
+		directory, err := resources.NewTenantDirectoryCreatePatch()
+		if err != nil {
+			return "", errors.Wrap(err, "resources.NewTenantDirectoryCreatePatch()")
+		}
+		directory.SetTenantID(id).SetMethod(string(tenant.Directory.Method)).SetConnection(tenant.Directory.Connection)
+		if tenant.DefaultRole != "" {
+			role := string(tenant.DefaultRole)
+			directory.SetDefaultSeat(&role)
+		}
+		if err := directory.Buffer(ctx, txn, tenant.Source); err != nil {
+			return "", errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
+		}
+	}
+	if tenant.Caller != nil {
+		// The check a send makes: nothing commits, and nothing is owed after it.
+		return domain, nil
+	}
+	if err := resource.AfterCommit(txn, func(ctx context.Context) {
+		if err := m.roster.Reload(ctx); err != nil {
+			logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
+		}
+		if err := m.signals.Signal(ctx, resource.KindTenants); err != nil {
+			logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
+		}
+	}); err != nil {
+		return "", errors.Wrap(err, "resource.AfterCommit()")
+	}
+
+	return domain, nil
+}
+
+// SeatsDefaultRole reports whether a tenant's directory keeps the role its
+// people start with: TenantDirectory.DefaultSeat.
+func (m *tenantMaker) SeatsDefaultRole() bool {
+	return true
+}
+
+// DeclaresDirectoryOnly reports whether the Tenant record declares the
+// directory-only switch (Tenant.DirectoryOnly).
+func (m *tenantMaker) DeclaresDirectoryOnly() bool {
+	return true
 }

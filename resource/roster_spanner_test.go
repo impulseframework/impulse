@@ -496,16 +496,17 @@ func TestTenantRoster_stopsWithContext(t *testing.T) {
 // directory-only flag on Stations and the StationDirectories rows with their default
 // seat.
 var stationColumns = &TenantDeclarationColumns{
-	DirectoryOnly:     "DirectoryOnly",
-	DirectoriesTable:  "StationDirectories",
-	TenantColumn:      "StationId",
-	MethodColumn:      "Method",
-	ConnectionColumn:  "Connection",
-	DefaultSeatColumn: "DefaultSeat",
+	DirectoryOnly:        "DirectoryOnly",
+	DirectoriesTable:     "StationDirectories",
+	TenantColumn:         "StationId",
+	MethodColumn:         "Method",
+	ConnectionColumn:     "Connection",
+	DirectoriesKeyColumn: "Id",
+	DefaultSeatColumn:    "DefaultSeat",
 }
 
-// seatStationDirectory sets the default seat of one of a station's directories, the
-// row declareStation wrote at that index, as the Sign-in page's edit commits it.
+// seatStationDirectory sets the default seat of a station's directory, the row
+// declareStation wrote at that index, as the Sign-in page's edit commits it.
 func seatStationDirectory(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain, index int, seat accesstypes.Role) {
 	t.Helper()
 
@@ -516,7 +517,8 @@ func seatStationDirectory(t *testing.T, db *initiator.SpannerDB, id accesstypes.
 }
 
 // declareStation writes a station's declaration the way the records' write paths commit
-// it: the flag on the row and one StationDirectories row per directory.
+// it: the flag on the row and the station's StationDirectories row. A station has one
+// directory, which the schema holds: a second is given only to prove the refusal.
 func declareStation(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain, directoryOnly bool, directories ...signin.Directory) {
 	t.Helper()
 
@@ -552,15 +554,15 @@ func TestTenantRoster_declarations(t *testing.T) {
 		want      map[accesstypes.Domain]*signin.TenantDeclaration
 	}{
 		{
-			name:     "each station's flag and directories, ordered by method and connection",
+			name:     "each station's flag and its directory",
 			declared: true,
 			declare: func(t *testing.T, db *initiator.SpannerDB) {
-				declareStation(t, db, "alpha", true, workspace, entra)
-				declareStation(t, db, "beta", false, workspace)
+				declareStation(t, db, "alpha", true, workspace)
+				declareStation(t, db, "beta", false, entra)
 			},
 			want: map[accesstypes.Domain]*signin.TenantDeclaration{
-				"alpha": {DirectoryOnly: true, Directories: []signin.Directory{entra, workspace}},
-				"beta":  {Directories: []signin.Directory{workspace}},
+				"alpha": {DirectoryOnly: true, Directories: []signin.Directory{workspace}},
+				"beta":  {Directories: []signin.Directory{entra}},
 				"gamma": {},
 				"delta": nil,
 			},
@@ -705,9 +707,8 @@ func TestNewTenantDeclarationReader(t *testing.T) {
 	t.Parallel()
 
 	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
-	entra := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000001"}
 	db, _ := tenantDatabase(t, "declaration-reader", "alpha", "beta")
-	declareStation(t, db, "alpha", true, workspace, entra)
+	declareStation(t, db, "alpha", true, workspace)
 	reader := NewTenantDeclarationReader(stationsTable, stationsKey, stationColumns)
 
 	tests := []struct {
@@ -715,7 +716,7 @@ func TestNewTenantDeclarationReader(t *testing.T) {
 		tenant accesstypes.Domain
 		want   *signin.TenantDeclaration
 	}{
-		{name: "a declared station: its flag and its directories", tenant: "alpha", want: &signin.TenantDeclaration{DirectoryOnly: true, Directories: []signin.Directory{entra, workspace}}},
+		{name: "a declared station: its flag and its directory", tenant: "alpha", want: &signin.TenantDeclaration{DirectoryOnly: true, Directories: []signin.Directory{workspace}}},
 		{name: "a station declaring nothing: an empty declaration", tenant: "beta", want: &signin.TenantDeclaration{}},
 		{name: "a station the table does not hold: nil", tenant: "nowhere", want: nil},
 		{name: "an empty tenant: nil, with no read", tenant: "", want: nil},
@@ -745,20 +746,18 @@ func TestNewTenantDeclarationReader(t *testing.T) {
 }
 
 // TestNewTenantDirectoryReader pins the sign-in's directory reader over the emulator:
-// in the read-write transaction it is handed it answers every station's declaration of
-// one directory with the row's default seat ("" where the row names none), ordered by
-// station; nothing for a directory no station declares; and nothing without a
-// directories record, whatever the directory.
+// in the read-write transaction it is handed it answers the station whose directory it
+// is with the row's default seat ("" where the row names none); nothing for a directory
+// no station has; and nothing without a directories record, whatever the directory.
 func TestNewTenantDirectoryReader(t *testing.T) {
 	t.Parallel()
 
 	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
 	entra := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000001"}
 	db, _ := tenantDatabase(t, "directory-reader", "alpha", "beta", "gamma")
-	declareStation(t, db, "alpha", true, workspace, entra)
-	declareStation(t, db, "beta", false, workspace)
+	declareStation(t, db, "alpha", true, workspace)
+	declareStation(t, db, "beta", false, entra)
 	seatStationDirectory(t, db, "alpha", 0, "Clerk")
-	seatStationDirectory(t, db, "beta", 0, "Pilot")
 
 	tests := []struct {
 		name      string
@@ -766,10 +765,10 @@ func TestNewTenantDirectoryReader(t *testing.T) {
 		directory signin.Directory
 		want      []signin.DeclaredDirectory
 	}{
-		{name: "a directory two stations declare: each with its seat, by station", columns: stationColumns, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha", DefaultSeat: "Clerk"}, {Tenant: "beta", DefaultSeat: "Pilot"}}},
-		{name: "a row naming no seat: the empty seat", columns: stationColumns, directory: entra, want: []signin.DeclaredDirectory{{Tenant: "alpha"}}},
-		{name: "a directory no station declares: nothing", columns: stationColumns, directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "elsewhere.example"}, want: []signin.DeclaredDirectory{}},
-		{name: "a record without the seat column: every seat empty", columns: &TenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "StationDirectories", TenantColumn: "StationId", MethodColumn: "Method", ConnectionColumn: "Connection"}, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha"}, {Tenant: "beta"}}},
+		{name: "a station's directory: the station with its seat", columns: stationColumns, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha", DefaultSeat: "Clerk"}}},
+		{name: "a row naming no seat: the empty seat", columns: stationColumns, directory: entra, want: []signin.DeclaredDirectory{{Tenant: "beta"}}},
+		{name: "a directory no station has: nothing", columns: stationColumns, directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "elsewhere.example"}, want: []signin.DeclaredDirectory{}},
+		{name: "a record without the seat column: the seat empty", columns: &TenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "StationDirectories", TenantColumn: "StationId", MethodColumn: "Method", ConnectionColumn: "Connection"}, directory: workspace, want: []signin.DeclaredDirectory{{Tenant: "alpha"}}},
 		{name: "no directories record: nothing, with no read", columns: nil, directory: workspace, want: nil},
 	}
 

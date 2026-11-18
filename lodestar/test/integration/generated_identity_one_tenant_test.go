@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
+	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -40,7 +41,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 	ctx := t.Context()
 	s := newServed(ctx, t)
 
-	strict, err := crewidentity.NewClient(s.access, s.crew.Session().API(), identity.WithOneTenantPerPerson())
+	strict, err := crewidentity.NewClient(s.access, s.crew.Session().API(), app.NewSectorMaker(s.tenants, s.live), identity.WithOneTenantPerPerson())
 	if err != nil {
 		t.Fatalf("crewidentity.NewClient() with one tenant per person: %v", err)
 	}
@@ -366,7 +367,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 			var committed []func(context.Context)
 			_, err := s.db.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 				committed = committed[:0]
-				seated, err := strict.DirectorySeated()(ctx, tx, newcomerID, newcomer, seat)
+				seated, err := strict.DirectorySeated().Seat(ctx, tx, newcomerID, newcomer, seat)
 				if err != nil {
 					return err
 				}

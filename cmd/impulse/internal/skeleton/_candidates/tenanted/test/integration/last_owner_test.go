@@ -9,19 +9,20 @@ import (
 	"testing"
 )
 
-// TestLastOwner_anAdministratorLeavesOnceAnotherRemains proves the last-owner rule on
-// the served stack: a person gives up an administrator role once another holder remains
-// where it is held, and the last one is refused. The administrator, the one holder of
-// Administrator, the application's administrator role (staff.AdministratorRoles), is
-// refused giving it up in the rule's words, and still refused while another person holds
-// FeatureAdministrator alone, a role that gives no role back; a role that is no
-// administrator role where it is held goes freely, TenantAdministrator held in every
-// tenant; in a tenant they
-// created, where the create path made them its administrator, they are refused giving
-// the role up as its last holder and give it up once they hold it in every tenant again;
-// and once the member holds Administrator beside them, they give that up too. So an
-// operator creates a customer's tenant, makes its first administrator and leaves, and
-// neither the application nor a tenant is left with nobody to give the next role. Every
+// TestLastOwner_anAdministratorLeavesOnceAnotherRemains proves the last-owner rules on
+// the served stack: the application always has a super administrator who can sign in, and
+// a tenant an administrator of its own. The administrator, the one holder of the Super
+// Administrator role, which the framework defines in every auth, is refused giving it up
+// in the rule's words, and still refused while another person holds Administrator alone,
+// the role file's own role, which makes nobody a super administrator; a role of the
+// whole application that is not that one goes freely, since a super administrator gives
+// it back, as does TenantAdministrator held in every tenant; in a tenant an invitation
+// made, whose first sign-in made the invited person its administrator, that person is
+// refused giving the role up as its last holder and gives it up once the administrator
+// holds it in every tenant again; and once the member is a super administrator beside
+// them, the administrator gives that up too. So an operator brings a customer's tenant in
+// by inviting its first administrator and leaves, and neither the application nor a
+// tenant is left with nobody to give the next role. Every
 // method names its person by the id of their account, and the rule knows the caller by
 // theirs.
 func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
@@ -31,28 +32,38 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	s := newServed(ctx, t)
 	admin := signedIn(ctx, t, s, adminUser)
 	adminID := staffUserID(ctx, t, admin, adminUser)
+	const lastSuperAdministrator = "you are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own"
 
-	// The last holder of the application's administrator role is refused, in the rule's words.
-	status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "Administrator", false))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator: give another person the role before you remove your own") {
-		t.Fatalf("the administrator giving up Administrator as its one holder: status %d, want 403 naming the rule: %s", status, body)
+	// The last holder of the Super Administrator role is refused, in the rule's words.
+	status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "SuperAdministrator", false))
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastSuperAdministrator) {
+		t.Fatalf("the administrator giving up the Super Administrator role as its one holder: status %d, want 403 naming the rule: %s", status, body)
 	}
-	if roles := globalRolesOf(ctx, t, admin, adminID); !slices.Contains(roles, "Administrator") {
-		t.Fatalf("the administrator's roles after the refusal = %v, want Administrator kept", roles)
+	if roles := globalRolesOf(ctx, t, admin, adminID); !slices.Contains(roles, "SuperAdministrator") {
+		t.Fatalf("the administrator's roles after the refusal = %v, want SuperAdministrator kept", roles)
 	}
 
-	// A person who holds FeatureAdministrator alone turns flags on and off and manages
-	// nobody, so they are no administrator left behind: with the member holding it, the
+	// A person who holds Administrator alone manages the application's people by the
+	// role file and is no super administrator: with the member holding it, the
 	// administrator is still the last one and is refused as before.
-	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(s.memberID, "FeatureAdministrator", false)); status != http.StatusNoContent {
-		t.Fatalf("giving the member FeatureAdministrator: status %d: %s", status, body)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(s.memberID, "Administrator", false)); status != http.StatusNoContent {
+		t.Fatalf("giving the member Administrator: status %d: %s", status, body)
 	}
-	status, body = admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "Administrator", false))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator: give another person the role before you remove your own") {
-		t.Fatalf("the administrator giving up Administrator while the member holds FeatureAdministrator alone: status %d, want 403 naming the rule: %s", status, body)
+	status, body = admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "SuperAdministrator", false))
+	if status != http.StatusForbidden || !strings.Contains(string(body), lastSuperAdministrator) {
+		t.Fatalf("the administrator giving up the Super Administrator role while the member holds Administrator alone: status %d, want 403 naming the rule: %s", status, body)
 	}
-	if roles := globalRolesOf(ctx, t, admin, adminID); !slices.Contains(roles, "Administrator") {
-		t.Fatalf("the administrator's roles after the second refusal = %v, want Administrator kept", roles)
+	if roles := globalRolesOf(ctx, t, admin, adminID); !slices.Contains(roles, "SuperAdministrator") {
+		t.Fatalf("the administrator's roles after the second refusal = %v, want SuperAdministrator kept", roles)
+	}
+
+	// Any other role of the whole application goes freely, the last holder's included:
+	// a super administrator gives it back.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "FeatureAdministrator", false)); status != http.StatusNoContent {
+		t.Fatalf("the administrator giving up FeatureAdministrator as its one holder: status %d, want 204: %s", status, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(adminID, "FeatureAdministrator", false)); status != http.StatusNoContent {
+		t.Fatalf("the administrator taking FeatureAdministrator again: status %d, want 204: %s", status, body)
 	}
 
 	// A role that is no administrator role where it is held goes freely:
@@ -61,35 +72,34 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 		t.Fatalf("the administrator giving up TenantAdministrator held in every tenant: status %d, want 204: %s", status, body)
 	}
 
-	// In a tenant: the create path made the creator west's administrator, and with no
-	// holder in every tenant left, they are its last one, refused in the tenant's words;
-	// holding the role in every tenant again, they give up west's own.
-	west := createTenant(ctx, t, admin, "West")
-	if roles := tenantRolesOf(ctx, t, admin, west, adminUser); !slices.Contains(roles, "TenantAdministrator") {
-		t.Fatalf("the administrator's roles in West = %v, want TenantAdministrator: the create path gives the creator the role", roles)
-	}
+	// In a tenant: the invitation's first sign-in made the invited person west's
+	// administrator, and with no holder in every tenant left, they are its last one,
+	// refused in the tenant's words; once the administrator holds the role in every
+	// tenant again, they give up west's own.
+	west, founder := makeTenant(ctx, t, s, admin, "West", "founder")
+	founderID := staffUserID(ctx, t, admin, "founder")
 	westRole := "/api/tenants/" + west + "/remove-staff-tenant-role"
-	status, body = admin.do(ctx, http.MethodPost, westRole, tenantRoleOf(adminID, "TenantAdministrator"))
+	status, body = founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator"))
 	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this tenant: give another person the role before you remove your own") {
-		t.Fatalf("the administrator giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
+		t.Fatalf("the founder giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
 	}
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(adminID, "TenantAdministrator", true)); status != http.StatusNoContent {
 		t.Fatalf("the administrator taking TenantAdministrator in every tenant again: status %d: %s", status, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPost, westRole, tenantRoleOf(adminID, "TenantAdministrator")); status != http.StatusNoContent {
-		t.Fatalf("the administrator giving up West's role while holding it in every tenant: status %d, want 204: %s", status, body)
+	if status, body := founder.do(ctx, http.MethodPost, westRole, tenantRoleOf(founderID, "TenantAdministrator")); status != http.StatusNoContent {
+		t.Fatalf("the founder giving up West's role while the administrator holds it in every tenant: status %d, want 204: %s", status, body)
 	}
 
 	// Another holder given the role, the administrator gives it up.
-	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(s.memberID, "Administrator", false)); status != http.StatusNoContent {
-		t.Fatalf("giving the member Administrator: status %d: %s", status, body)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(s.memberID, "SuperAdministrator", false)); status != http.StatusNoContent {
+		t.Fatalf("making the member a super administrator: status %d: %s", status, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "Administrator", false)); status != http.StatusNoContent {
-		t.Fatalf("the administrator giving up Administrator once the member holds it: status %d, want 204: %s", status, body)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "SuperAdministrator", false)); status != http.StatusNoContent {
+		t.Fatalf("the administrator giving up the Super Administrator role once the member holds it: status %d, want 204: %s", status, body)
 	}
 	member := signedIn(ctx, t, s, memberUser)
-	if roles := globalRolesOf(ctx, t, member, adminID); slices.Contains(roles, "Administrator") {
-		t.Errorf("the administrator's roles once they gave it up = %v, want Administrator gone", roles)
+	if roles := globalRolesOf(ctx, t, member, adminID); slices.Contains(roles, "SuperAdministrator") {
+		t.Errorf("the administrator's roles once they gave it up = %v, want SuperAdministrator gone", roles)
 	}
 }
 

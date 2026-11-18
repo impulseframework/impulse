@@ -20,7 +20,8 @@ import {
 // and what the library builds from it. Every list a page draws is a resource of the description; every column
 // and row page field is a field of that resource; every method a page presents is a
 // method of the description that runs against the listed resource's rows, or one the
-// page fills from the row with fields the method takes; and a child list is related to
+// page fills from the row with fields the method takes; a method offered above a list
+// names no row, or names the person the list sits under; and a child list is related to
 // its person by a field the server filters on.
 
 const sides: { name: string; auth: string; scope: 'global' | 'domain' }[] = [
@@ -40,15 +41,33 @@ const methodMeta = (method: Method): MethodMeta => generatedMethodMeta(method) a
 const fieldNames = (resource: Resource): string[] => resourceMeta(resource).fields.map((meta) => meta.fieldName);
 
 /** A row holding a value in every field of the resource, for a fill to read. */
-const sampleRow = (resource: Resource): RecordData => Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
+const sampleRow = (resource: Resource): RecordData =>
+  Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
 
 describe("the library's pages over an auth's generated management", () => {
-  it('are the accounts, mailed links, sessions and failed sign-ins of the whole service, and the people and invitations of a sector', () => {
+  it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins and sign-in methods of the whole service, and the people, groups and invitations of a sector', () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
-    expect(routes('Crew', 'global')).toEqual(['crew-accounts', 'crew-mailed-links', 'crew-sessions', 'crew-failed-sign-ins']);
-    expect(routes('Crew', 'domain')).toEqual(['sectors/:sectorID/crew-people', 'sectors/:sectorID/crew-invitations']);
+    // The crew's auth carries the choice of who may sign up, so it has the Sign-in page;
+    // the members' auth, whose roles a directory writes, has none. The crew's people
+    // make the sectors, so its pages hold the invitations that make one; the members'
+    // do not.
+    expect(routes('Crew', 'global')).toEqual([
+      'crew-accounts',
+      'crew-groups',
+      'crew-mailed-links',
+      'crew-invited-sectors',
+      'crew-sessions',
+      'crew-failed-sign-ins',
+      'crew-sign-in',
+    ]);
+    expect(routes('Crew', 'domain')).toEqual([
+      'sectors/:sectorID/crew-people',
+      'sectors/:sectorID/crew-groups',
+      'sectors/:sectorID/crew-invitations',
+    ]);
+    // The members' roles are their directory's, and so are its groups: no page of groups.
     expect(routes('Members', 'global')).toEqual([
       'members-accounts',
       'members-mailed-links',
@@ -63,7 +82,9 @@ describe("the library's pages over an auth's generated management", () => {
     const pages = identityPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' });
     const presented = new Set(
       lists(pages).flatMap((list) =>
-        [...((list.rowMethods || []) as MethodPresentation[]), ...(list.listMethods ?? [])].map((presentation) => presentation.method),
+        [...((list.rowMethods || []) as MethodPresentation[]), ...(list.listMethods ?? [])].map(
+          (presentation) => presentation.method,
+        ),
       ),
     );
 
@@ -82,6 +103,72 @@ describe("the library's pages over an auth's generated management", () => {
         Methods.UnlockMembersSignIn,
       ].sort(),
     );
+  });
+
+  it("offer Remove password on a crew member's page above the ways they sign in, only where the server lists a password and an identity that counts, and none on a member's, who holds no password", () => {
+    const childOf = (auth: string, scope: 'global' | 'domain', title: string): ListViewConfig | undefined => {
+      const people = identityPages(apiDescriptor, resourceMeta, { auth, scope })[0];
+      return (people?.relatedConfigs as ListViewConfig[] | undefined)?.find((child) => child.title === title);
+    };
+    const offered = (presentations: false | MethodPresentation[] | undefined): [Method, string | undefined][] =>
+      (presentations || []).map((presentation) => [presentation.method, presentation.label]);
+
+    for (const tt of [
+      {
+        scope: 'global' as const,
+        ways: Resources.CrewSignInWays,
+        remove: Methods.RemoveCrewPassword,
+        unlink: Methods.UnlinkCrewSessionIdentity,
+        people: Resources.CrewSessionUsers,
+      },
+      {
+        scope: 'domain' as const,
+        ways: Resources.CrewSectorSignInWays,
+        remove: Methods.RemoveCrewSectorPassword,
+        unlink: Methods.UnlinkCrewSectorSessionIdentity,
+        people: Resources.CrewSectorUsers,
+      },
+    ]) {
+      // The list the removal is offered from is the generated one: how one person signs
+      // in, which the server filters by the person and judges itself.
+      const ways = childOf('Crew', tt.scope, 'Ways to sign in');
+      expect(ways?.primaryResource).toBe(tt.ways);
+      expect(offered(ways?.listMethods)).toEqual([[tt.remove, 'Remove password']]);
+      const filterable = resourceMeta(tt.ways as Resource).fields.find((field) => field.fieldName === 'userId');
+      expect(filterable?.filterable).toBe('always');
+      // The identities keep the unlink and carry no removal of their own.
+      const identities = childOf('Crew', tt.scope, 'Sign-in identities');
+      expect(offered(identities?.rowMethods)).toEqual([[tt.unlink, 'Unlink']]);
+      expect(identities?.listMethods ?? []).toEqual([]);
+      // The method runs against the person the list sits under, named by the key of the
+      // person's row, and takes nothing else: the page asks its question and no more.
+      const meta = methodMeta(tt.remove as Method);
+      expect(meta.target).toEqual({ resource: tt.people, key: { userId: 'id' } });
+      expect(meta.fields.map((field) => field.fieldName)).toEqual(['userId']);
+      // The question names what is left by the words of the rows the server listed: the
+      // crew's login page offers two Google registrations, and the server names the one
+      // the person's identity comes through. The button is drawn only for a password
+      // and an identity that counts, since the server refuses the removal otherwise,
+      // and goes once the password's row does.
+      const remove = ways?.listMethods?.[0];
+      const cadet = { id: 'u-1', username: 'cadet' };
+      const password = { userId: 'u-1', way: 'password', through: 'Password' };
+      const google = { userId: 'u-1', way: 'i-1', through: 'Lodestar' };
+      const question = remove?.confirm as (person: RecordData, listed?: readonly RecordData[]) => string;
+      expect(question(cadet, [password, google])).toBe(
+        'Remove the password of cadet? They will sign in through Lodestar only.',
+      );
+      expect([
+        remove?.when?.(cadet, [password, google]),
+        remove?.when?.(cadet, [password]),
+        remove?.when?.(cadet, [google]),
+        remove?.when?.(cadet, []),
+      ]).toEqual([true, false, false, false]);
+    }
+    // The members sign in through their directory alone: the generator describes no such
+    // method and no such list for them.
+    expect(childOf('Members', 'global', 'Ways to sign in')).toBeUndefined();
+    expect(childOf('Members', 'global', 'Sign-in identities')?.listMethods ?? []).toEqual([]);
   });
 
   for (const side of sides) {
@@ -122,7 +209,15 @@ describe("the library's pages over an auth's generated management", () => {
           }
           for (const presentation of list.listMethods ?? []) {
             expect(Object.values(Methods)).toContain(presentation.method);
-            expect(methodMeta(presentation.method).target, presentation.method).toBeUndefined();
+            const target = methodMeta(presentation.method).target;
+            if (target) {
+              // A method that names a row, offered above a list: the list sits under a
+              // person, and the method runs against that person's row.
+              const people = pages.find((page) => (page.relatedConfigs as ListViewConfig[]).includes(list));
+              expect(target.resource, presentation.method).toBe(
+                (people?.parentConfig as ListViewConfig | undefined)?.primaryResource,
+              );
+            }
           }
         }
       });
@@ -144,12 +239,79 @@ describe("the library's pages over an auth's generated management", () => {
     });
   }
 
+  it("brings a sector in from the crew's Invited sectors page: the list is the generated one, the form is the invitation's own fields, and Withdraw is filled from the row", () => {
+    // Nobody creates a sector directly: the record's metadata says so, so no page of the
+    // library draws a Create button for it.
+    expect(resourceMeta(Resources.Sectors as Resource).createDisabled).toBe(true);
+    const page = identityPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }).find(
+      (candidate) => candidate.routeData.route === 'crew-invited-sectors',
+    );
+    const list = page?.parentConfig as ListViewConfig;
+    expect([page?.page?.label, list.title, list.primaryResource]).toEqual([
+      'Invited sectors',
+      'Invited sectors',
+      Resources.CrewInvitedSectors,
+    ]);
+    // The columns are the Sector record's fields as an invitation carries them, each
+    // under the record's name, then the switch, the starting role and who was invited.
+    const shown = list.listColumns.filter((column) => !column.hidden).map((column) => [column.id, column.header]);
+    expect(shown).toEqual([
+      ['sectorName', 'Sector name'],
+      ['sectorRegion', 'Sector region'],
+      ['sectorEstablished', 'Sector established'],
+      ['sectorDirectoryOnly', 'Directory only'],
+      ['defaultRole', 'Starting role'],
+      ['email', 'Invited'],
+      ['name', 'Name'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+    ]);
+    // The method above the list is the generated invitation: it names no row, the method
+    // dialog draws its form from its fields, and the page words only fields it takes.
+    const invite = list.listMethods?.[0];
+    expect([invite?.method, invite?.label]).toEqual([Methods.InviteCrewSector, 'Invite a sector']);
+    const sends = methodMeta(Methods.InviteCrewSector as Method);
+    const takes = sends.fields.map((field) => field.fieldName);
+    expect(sends.target).toBeUndefined();
+    expect(takes).toEqual([
+      'email',
+      'name',
+      'sectorName',
+      'sectorRegion',
+      'sectorEstablished',
+      'sectorDirectoryOnly',
+      'defaultRole',
+    ]);
+    for (const name of Object.keys(invite?.labels ?? {})) {
+      expect(takes, `${Methods.InviteCrewSector}.${name}`).toContain(name);
+    }
+    // Every detail the list shows of the sector is one the form asks for, under the same name.
+    for (const [id] of shown.slice(0, 5)) {
+      expect(takes, `${Methods.InviteCrewSector}.${String(id)}`).toContain(id);
+    }
+    // Withdraw takes the invitation's id, which the page fills from the row.
+    const withdraw = ((list.rowMethods || []) as MethodPresentation[])[0];
+    expect([withdraw?.method, withdraw?.label]).toEqual([Methods.WithdrawCrewInvitedSector, 'Withdraw']);
+    expect(methodMeta(Methods.WithdrawCrewInvitedSector as Method).fields.map((field) => field.fieldName)).toEqual([
+      'invitationId',
+    ]);
+    expect(withdraw?.fill?.({ id: 'i-1', email: 'founder@dawn.example' })).toEqual({ invitationId: 'i-1' });
+    // The members' people make no sector: their pages hold no such list.
+    expect(
+      identityPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }).map(
+        (candidate) => candidate.routeData.route,
+      ),
+    ).not.toContain('members-invited-sectors');
+  });
+
   it('says of the method that gives a sector role what the dialog needs to rehearse it', () => {
     // The Sector Marshal's grant carries a condition on the role given. The metadata
     // says a dry run previews the method and names the field the condition reads.
     const meta = methodMeta(Methods.AssignCrewSectorRole as Method);
 
     expect(meta.dryRun).toBe(true);
-    expect(meta.fields.filter((field) => field.attribute).map((field) => [field.fieldName, field.attribute])).toEqual([['role', 'role']]);
+    expect(meta.fields.filter((field) => field.attribute).map((field) => [field.fieldName, field.attribute])).toEqual([
+      ['role', 'role'],
+    ]);
   });
 });

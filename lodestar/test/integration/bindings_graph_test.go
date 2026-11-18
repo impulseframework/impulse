@@ -1,11 +1,13 @@
-// Demonstrates: bindings.dot, @attribute.join-path, @domain.join-path, @subjectSet.dotted-value.
+// Demonstrates: bindings.dot, @attribute.join-path, @domain.join-path, @subjectSet.dotted-value, @subjectSet.who, @subjectSet.where, @subjectSet.on-set.
 package integration
 
 // bindings_graph_test reads the committed bindings graph and asserts every binding the
 // resources declare is drawn exactly once: each join path hop by hop in its kind's style,
 // each bare binding as a line in its resource's box, each bare binding on a foreign key
-// pointing at its table, and the requester entering each anchor once, so a name cannot
-// vanish from the review surface or draw twice silently. The generator's own test pins the
+// pointing at its table, the requester entering each anchor once, each part a subject set
+// writes listed under the set, and a set that follows another as an edge from the
+// resource declaring that other set, so a name cannot vanish from the review surface or
+// draw twice silently. The generator's own test pins the
 // file format; this one pins Lodestar's facts.
 
 import (
@@ -53,6 +55,14 @@ func TestBindingsGraphDrawsEveryBindingOnce(t *testing.T) {
 		{name: "subject enters Pilot for clearance and feeLimit", line: `"subject" -> "Pilot" [style=dashed, label="clearance, feeLimit: UserId"];`},
 		{name: "subject enters PilotCertification for certifications", line: `"subject" -> "PilotCertification" [style=dashed, label="certifications: UserId"];`},
 		{name: "subject enters ClientContact for client", line: `"subject" -> "ClientContact" [style=dashed, label="client: UserId"];`},
+		{name: "subject enters HangarPass for the two pass sets, at the column their who: compares to the requester", line: `"subject" -> "HangarPass" [style=dashed, label="hangarsOpen, hangarsRun: UserId"];`},
+		// A set that follows another set: an edge from the resource declaring the set
+		// followed, labeled with the test, one for each set that writes it.
+		{name: "hangarsOpen follows subject.squadrons", line: `"SquadronMembership" -> "HangarPass" [style=dashed, label="hangarsOpen: SquadronId IN subject.squadrons"];`},
+		{name: "hangarsRun follows subject.squadrons", line: `"SquadronMembership" -> "HangarPass" [style=dashed, label="hangarsRun: SquadronId IN subject.squadrons"];`},
+		// Each set's parts, listed under the set in the columns' names.
+		{name: "HangarPass lists hangarsOpen with its who: and its where:", line: `<tr><td align="left">subject.hangarsOpen: HangarId</td></tr><tr><td align="left">subject.hangarsOpen who: UserId = subject OR SquadronId IN subject.squadrons</td></tr><tr><td align="left">subject.hangarsOpen where: LevelId IN (&#39;visit&#39;, &#39;run&#39;) AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr>`},
+		{name: "HangarPass lists hangarsRun with its who: and its where:", line: `<tr><td align="left">subject.hangarsRun: HangarId</td></tr><tr><td align="left">subject.hangarsRun who: UserId = subject OR SquadronId IN subject.squadrons</td></tr><tr><td align="left">subject.hangarsRun where: LevelId = &#39;run&#39; AND (ExpiresAt IS NULL OR ExpiresAt &gt; now)</td></tr>`},
 		// The dotted subject value, dashed.
 		{name: "wings lands on Squadrons.WingId", line: `"SquadronMembership" -> "Squadron" [style=dashed, label="wings: SquadronId ⇒ WingId"];`},
 		// Bare bindings listed in their resource's box.
@@ -62,6 +72,7 @@ func TestBindingsGraphDrawsEveryBindingOnce(t *testing.T) {
 		{name: "Pilot lists both subject values", line: `<tr><td align="left">subject.clearance: Clearance</td></tr><tr><td align="left">subject.feeLimit: FeeLimit</td></tr>`},
 		{name: "SquadronMembership lists the bare squadrons set", line: `<tr><td align="left">subject.squadrons: SquadronId</td></tr>`},
 		{name: "Client lists insured and trusted", line: `<tr><td align="left">insured: Insured</td></tr><tr><td align="left">trusted: Trusted</td></tr>`},
+		{name: "Hangar lists the hangar attribute, its own key", line: `<tr><td align="left"><b>Hangar</b></td></tr><tr><td align="left">hangar: Id</td></tr></table>`},
 		// Bare bindings on foreign keys point at their tables: the two sides of
 		// assignedSquadron IN subject.squadrons meet at Squadron, requiredCert IN
 		// subject.certifications at Certifications, client = subject.client at Client.
@@ -73,8 +84,10 @@ func TestBindingsGraphDrawsEveryBindingOnce(t *testing.T) {
 		{name: "subject.client points at Client", line: `"ClientContact" -> "Client" [` + reference + `label="subject.client"];`},
 		{name: "kind points at MissionKinds", line: `"Mission" -> "MissionKinds" [` + reference + `label="kind"];`},
 		{name: "wing points at Wing", line: `"Squadron" -> "Wing" [` + reference + `label="wing"];`},
+		{name: "subject.hangarsOpen points at Hangar, where hangar IN subject.hangarsOpen meets it", line: `"HangarPass" -> "Hangar" [` + reference + `label="subject.hangarsOpen"];`},
+		{name: "subject.hangarsRun points at Hangar", line: `"HangarPass" -> "Hangar" [` + reference + `label="subject.hangarsRun"];`},
 		// Nodes: a table only landed on or pointed at is dashed; the requester is an ellipse.
-		{name: "Hangar is landed on", line: `"Hangar" [style=dashed];`},
+		{name: "Wing is landed on", line: `"Wing" [style=dashed];`},
 		{name: "Certifications is pointed at", line: `"Certifications" [style=dashed];`},
 		{name: "the requester node", line: `"subject" [shape=ellipse];`},
 	}

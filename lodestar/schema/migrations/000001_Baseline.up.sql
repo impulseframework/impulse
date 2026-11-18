@@ -105,9 +105,9 @@ CREATE TABLE Sectors (
   Name STRING(MAX) NOT NULL,
   Region STRING(MAX) NOT NULL,
   Established DATE NOT NULL,
-  -- The sector's people enter through its directories only: a password does not reach a
-  -- sector whose flag is true. Half of what the sector declares about who may enter it;
-  -- the other half is SectorDirectories.
+  -- The sector's people enter through its directory only: no other sign-in reaches a
+  -- sector whose flag is true, a password included. Half of what the sector declares
+  -- about who may enter it; the other half is its row of SectorDirectories.
   DirectoryOnly BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
@@ -115,12 +115,16 @@ CREATE TABLE Sectors (
 
 CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 
--- The directories a sector admits its people through, one row per declaration: the
--- sign-in method (google, azure, workos) and the connection the method's identities carry
--- (a Google Workspace by the name the registration gives it, a Microsoft Entra tenant by
--- its tenant id). One domain, one directory by default; a second directory is a second row.
--- DefaultSeat names the role a stranger the directory vouches for is seated with in the
--- sector at their first sign-in; NULL says the sector admits them by invitation only.
+-- A sector's directory, the organization its people sign in through: the sign-in method
+-- (google, azure, workos, oidc) and the connection the method's identities carry (a
+-- Google Workspace by the name the registration gives it, a Microsoft Entra tenant by
+-- its tenant id, an OpenID Connect provider by its registration's connection, as the
+-- persona provider's is). Nobody types a row in: it is written from a sign-in through the directory,
+-- when the sector is charted or when its marshal, signed in through it, makes it the
+-- sector's. A sector has one directory and a directory belongs to one sector, which the
+-- two unique indexes below hold.
+-- DefaultSeat names the role a person is given in the sector at their first sign-in
+-- through the directory; NULL says the sector admits them by invitation only.
 CREATE TABLE SectorDirectories (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
@@ -129,11 +133,12 @@ CREATE TABLE SectorDirectories (
   DefaultSeat STRING(64),
 
   CONSTRAINT CK_SectorDirectories_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_SectorDirectories_Method CHECK (Method IN ('google', 'azure', 'workos')),
+  CONSTRAINT CK_SectorDirectories_Method CHECK (Method IN ('google', 'azure', 'workos', 'oidc')),
   CONSTRAINT FK_SectorDirectories_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
 ) PRIMARY KEY (Id);
 
-CREATE UNIQUE INDEX SectorDirectoriesBySectorIdMethodConnection ON SectorDirectories(SectorId, Method, Connection);
+CREATE UNIQUE INDEX SectorDirectoriesBySectorId ON SectorDirectories(SectorId);
+CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Method, Connection);
 
 CREATE TABLE Wings (
   Id STRING(36) NOT NULL,
@@ -245,6 +250,11 @@ CREATE TABLE Certifications (
 ) PRIMARY KEY (Id);
 
 CREATE TABLE FailReasons (
+  Id STRING(64) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+) PRIMARY KEY (Id);
+
+CREATE TABLE PassLevels (
   Id STRING(64) NOT NULL,
   Description STRING(MAX) NOT NULL,
 ) PRIMARY KEY (Id);
@@ -371,6 +381,39 @@ CREATE TABLE Hangars (
   Name_Lower STRING(MAX) AS (LOWER(Name)) STORED,
 ) PRIMARY KEY (Id);
 
+-- HangarPasses: who a hangar is open to. A pass names a person or a squadron, never both,
+-- at a level (visit, or run) and until it expires; no expiry is a standing pass. The two
+-- subject sets the resource struct declares read this table: the hangars open to the
+-- requester and the hangars the requester runs, each through a pass in their own name or
+-- in the name of a squadron they fly with. A pass goes with its hangar and with its
+-- squadron.
+CREATE TABLE HangarPasses (
+  Id STRING(36) NOT NULL,
+  SectorId STRING(36) NOT NULL,
+  HangarId STRING(36) NOT NULL,
+  UserId STRING(36),
+  SquadronId STRING(36),
+  LevelId STRING(64) NOT NULL,
+  ExpiresAt TIMESTAMP,
+
+  CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT CK_HangarPasses_Holder CHECK ((UserId IS NULL) != (SquadronId IS NULL)),
+  CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_HangarPasses_LevelId FOREIGN KEY (LevelId) REFERENCES PassLevels(Id),
+) PRIMARY KEY (Id);
+
+-- The lookups a check of the pass sets makes, one for each column a pass names its holder
+-- by: the sector, then the holder, then the hangar the set yields. Without them the
+-- generator warns, naming each (SubjectSetIndexWarning).
+CREATE INDEX HangarPassesBySectorIdUserIdHangarId ON HangarPasses(SectorId, UserId, HangarId);
+
+CREATE INDEX HangarPassesBySectorIdSquadronIdHangarId ON HangarPasses(SectorId, SquadronId, HangarId);
+
+-- The list's own order: a sector's passes by hangar.
+CREATE INDEX HangarPassesBySectorIdHangarId ON HangarPasses(SectorId, HangarId);
+
 CREATE TABLE Ships (
   Id STRING(36) NOT NULL,
   HangarId STRING(36) NOT NULL,
@@ -393,9 +436,12 @@ CREATE TABLE Ships (
   -- list filters or sorts by it.
   CargoBays ARRAY<INT64> NOT NULL DEFAULT (ARRAY<INT64>[]),
   -- TransponderKey is the key a ship's transponder signs its answers with: a secret. The
-  -- resource declares it conditions:"secret", so it is written and never served, and the
-  -- ship's log names a change of it without the value.
-  TransponderKey STRING(64),
+  -- resource declares it conditions:"secret" and types it resource.Secret, so it is
+  -- written and never served, the ship's log names a change of it without the value, and
+  -- the column holds it encrypted: BYTES, with room for the 64 bytes a key may be and the
+  -- 42 sealing adds (the version of the application secret that sealed it, the random
+  -- number drawn for the write, and the check).
+  TransponderKey BYTES(106),
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX ShipsByRegistry ON Ships(Registry);
@@ -622,6 +668,11 @@ CREATE INDEX CrewSessionImpersonations_PrincipalUserId_idx
 -- generator's index warning.
 CREATE INDEX MissionsBySectorIdDeadline ON Missions(SectorId, Deadline);
 
+-- Missions is listed across sectors too (@listAcrossTenants): that list has no one
+-- sector to seek to, so it reads its page off an index in its own order, which stores
+-- the sector so the filter on the sector is answered from the index.
+CREATE INDEX MissionsByDeadline ON Missions(Deadline) STORING (SectorId);
+
 CREATE INDEX HangarsBySectorIdName ON Hangars(SectorId, Name);
 
 CREATE INDEX WingsBySectorIdName ON Wings(SectorId, Name);
@@ -653,6 +704,8 @@ CREATE TABLE CrewUserRoles (
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -673,6 +726,49 @@ CREATE TABLE CrewRoleGrants (
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT CrewRoles ON DELETE CASCADE;
 
+-- The groups of people: a group holds roles the way a person does, and a person in it holds
+-- them wherever the group does. A group is kept for the whole application or in one sector
+-- (Kind global or domain); its members and the roles it holds each name it by its id, so a
+-- group goes only once both are empty.
+CREATE TABLE CrewGroups (
+  Id STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Name STRING(128) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+  UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewGroupsKind CHECK (Kind IN ('global', 'domain')),
+) PRIMARY KEY (Id);
+
+CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
+
+CREATE TABLE CrewGroupMembers (
+  GroupId STRING(36) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
+) PRIMARY KEY (GroupId, UserId);
+
+CREATE INDEX CrewGroupMembersByUserId ON CrewGroupMembers (UserId, GroupId);
+
+CREATE TABLE CrewGroupRoles (
+  GroupId STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Role STRING(128) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
+  CONSTRAINT CrewGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
+) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
+
+CREATE INDEX CrewGroupRolesByScope ON CrewGroupRoles (Kind, Axis, DomainId, Role);
+
 CREATE TABLE MembersRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
@@ -689,6 +785,8 @@ CREATE TABLE MembersUserRoles (
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -708,6 +806,47 @@ CREATE TABLE MembersRoleGrants (
   CONSTRAINT MembersRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT MembersRoles ON DELETE CASCADE;
+
+-- The members' store holds the group tables as every store does, and they stay empty: the
+-- directory writes a member's roles at every sign-in, and its own groups do that job.
+CREATE TABLE MembersGroups (
+  Id STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Name STRING(128) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+  UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupsKind CHECK (Kind IN ('global', 'domain')),
+) PRIMARY KEY (Id);
+
+CREATE UNIQUE INDEX MembersGroupsByName ON MembersGroups (Kind, Axis, DomainId, Name);
+
+CREATE TABLE MembersGroupMembers (
+  GroupId STRING(36) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (GroupId, UserId);
+
+CREATE INDEX MembersGroupMembersByUserId ON MembersGroupMembers (UserId, GroupId);
+
+CREATE TABLE MembersGroupRoles (
+  GroupId STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Role STRING(128) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
+  CONSTRAINT MembersGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
+
+CREATE INDEX MembersGroupRolesByScope ON MembersGroupRoles (Kind, Axis, DomainId, Role);
 
 -- The feature flags: one row per flag the resources package declares (a resource.Feature
 -- constant), written by the deploy's resource.MigrateFeatures and flipped by SetFeature;
@@ -796,7 +935,10 @@ CREATE TABLE CrewSessionAuthEvents (
 -- an opaque token; TokenHash is its SHA-256. A row is live until ExpiresAt or until a
 -- completion, cancellation or replacement consumes it (ConsumedAt), once. CreatedAt and
 -- ConsumedAt are written with the database's commit time; ExpiresAt is the library's
--- deadline, written as given.
+-- deadline, written as given. PasswordProof is the SHA-256 of the password hash a
+-- password sign-in was compared against, never the hash itself, null for a sign-in no
+-- password proved: a row that carries one is inserted only while its user still holds
+-- that password, and completes only while they do.
 CREATE TABLE CrewSessionPendingSignIns (
     Id                STRING(36) NOT NULL,
     TokenHash         BYTES(32) NOT NULL,
@@ -815,6 +957,7 @@ CREATE TABLE CrewSessionPendingSignIns (
     Organization      STRING(MAX) NOT NULL,
     UserId            STRING(36),
     Username          STRING(MAX) NOT NULL,
+    PasswordProof     BYTES(32),
     Tenant            STRING(MAX) NOT NULL,
     Events            BYTES(MAX) NOT NULL,
     RoleNames         ARRAY<STRING(MAX)>,
@@ -878,7 +1021,10 @@ CREATE TABLE MembersSessionAuthEvents (
 -- an opaque token; TokenHash is its SHA-256. A row is live until ExpiresAt or until a
 -- completion, cancellation or replacement consumes it (ConsumedAt), once. CreatedAt and
 -- ConsumedAt are written with the database's commit time; ExpiresAt is the library's
--- deadline, written as given.
+-- deadline, written as given. PasswordProof is the SHA-256 of the password hash a
+-- password sign-in was compared against, never the hash itself, null for a sign-in no
+-- password proved: a row that carries one is inserted only while its user still holds
+-- that password, and completes only while they do.
 CREATE TABLE MembersSessionPendingSignIns (
     Id                STRING(36) NOT NULL,
     TokenHash         BYTES(32) NOT NULL,
@@ -897,6 +1043,7 @@ CREATE TABLE MembersSessionPendingSignIns (
     Organization      STRING(MAX) NOT NULL,
     UserId            STRING(36),
     Username          STRING(MAX) NOT NULL,
+    PasswordProof     BYTES(32),
     Tenant            STRING(MAX) NOT NULL,
     Events            BYTES(MAX) NOT NULL,
     RoleNames         ARRAY<STRING(MAX)>,
@@ -933,6 +1080,25 @@ CREATE TABLE CrewSessionSignInAttempts (
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
+-- The crew's sign-in methods: what an administrator chose, in the running application,
+-- for one sign-in method of the auth, keyed by the name the method is registered under
+-- (the session library's SessionSignInMethods migration, under the auth's prefix).
+-- OpenSignUp says the method admits a person who holds no account and no invitation,
+-- and OpenedFor whom the method admitted when it was opened, as its registration spells
+-- its audience: the row opens the method for that audience alone, so a registration
+-- widened in code since is invite only until it is opened again. DefaultRole names the
+-- role such a person is given with their account, and holds nothing here, where a person
+-- who signs up charts a sector of their own. A method with
+-- no row is invite only, so the table starts empty and every method starts invite only.
+-- UpdatedAt takes the commit time.
+CREATE TABLE CrewSessionSignInMethods (
+    Name        STRING(MAX) NOT NULL,
+    OpenSignUp  BOOL NOT NULL,
+    OpenedFor   STRING(MAX),
+    DefaultRole STRING(MAX),
+    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Name);
+
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
 
 -- The username as written is unique. The index is in the order a list of people is read
@@ -942,14 +1108,19 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 
 -- The crew's mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it;
+-- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- or, for an invitation that brings an organization in, the sector its first sign-in
+-- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
+-- directory only, and its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
--- Email the address); or a sign-up a person starts by giving their address. The mail
--- carries an opaque token and the row keeps its hash; the row is accepted only while it
--- is live, not expired and not consumed, and is consumed by a conditional update so one
--- link completes once. A revoked invitation is consumed by hand. A verification link
--- goes with its user. CreatedAt and ConsumedAt take the commit time; ExpiresAt is the
--- library's deadline, written as given.
+-- Email the address); a sign-up a person starts by giving their address; or the code a
+-- signed-in person who has no password is mailed to choose their first one (UserId
+-- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- The mail carries an opaque token and the row keeps its hash; the row is accepted only
+-- while it is live, not expired and not consumed, and is consumed by a conditional
+-- update so one link completes once. A revoked invitation is consumed by hand. A
+-- verification link and a first-password code go with their user. CreatedAt and
+-- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE CrewSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -959,12 +1130,13 @@ CREATE TABLE CrewSessionMailLinks (
     UserId     STRING(36),
     TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
+    NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up')),
+    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
     CONSTRAINT FK_CrewSessionMailLinks_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -995,6 +1167,25 @@ CREATE TABLE MembersSessionSignInAttempts (
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
+-- The members' sign-in methods: what an administrator chose, in the running application,
+-- for one sign-in method of the auth, keyed by the name the method is registered under
+-- (the session library's SessionSignInMethods migration, under the auth's prefix).
+-- OpenSignUp says the method admits a person who holds no account and no invitation,
+-- and OpenedFor whom the method admitted when it was opened, as its registration spells
+-- its audience: the row opens the method for that audience alone, so a registration
+-- widened in code since is invite only until it is opened again. DefaultRole names the
+-- role such a person is given with their account, and holds nothing here, where a person
+-- who signs up charts a sector of their own. A method with
+-- no row is invite only, so the table starts empty and every method starts invite only.
+-- UpdatedAt takes the commit time.
+CREATE TABLE MembersSessionSignInMethods (
+    Name        STRING(MAX) NOT NULL,
+    OpenSignUp  BOOL NOT NULL,
+    OpenedFor   STRING(MAX),
+    DefaultRole STRING(MAX),
+    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Name);
+
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);
 
 -- The username as written is unique. The index is in the order a list of people is read
@@ -1004,14 +1195,19 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 
 -- The members' mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
--- to an address, carrying the sector and the roles its acceptance seats and who sent it;
+-- to an address, carrying the sector and the roles its acceptance seats and who sent it,
+-- or, for an invitation that brings an organization in, the sector its first sign-in
+-- makes (NewTenant, a JSON document: the sector's name, whether it is entered through its
+-- directory only, and its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
--- Email the address); or a sign-up a person starts by giving their address. The mail
--- carries an opaque token and the row keeps its hash; the row is accepted only while it
--- is live, not expired and not consumed, and is consumed by a conditional update so one
--- link completes once. A revoked invitation is consumed by hand. A verification link
--- goes with its user. CreatedAt and ConsumedAt take the commit time; ExpiresAt is the
--- library's deadline, written as given.
+-- Email the address); a sign-up a person starts by giving their address; or the code a
+-- signed-in person who has no password is mailed to choose their first one (UserId
+-- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- The mail carries an opaque token and the row keeps its hash; the row is accepted only
+-- while it is live, not expired and not consumed, and is consumed by a conditional
+-- update so one link completes once. A revoked invitation is consumed by hand. A
+-- verification link and a first-password code go with their user. CreatedAt and
+-- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE MembersSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1021,12 +1217,13 @@ CREATE TABLE MembersSessionMailLinks (
     UserId     STRING(36),
     TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
+    NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up')),
+    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
     CONSTRAINT FK_MembersSessionMailLinks_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -1259,3 +1456,7 @@ INSERT INTO FailReasons (Id, Description) VALUES ('solar_weather', 'Solar weathe
 INSERT INTO FailReasons (Id, Description) VALUES ('aborted', 'Aborted');
 
 INSERT INTO FailReasons (Id, Description) VALUES ('recalled', 'Recalled');
+
+INSERT INTO PassLevels (Id, Description) VALUES ('visit', 'Visit');
+
+INSERT INTO PassLevels (Id, Description) VALUES ('run', 'Run');

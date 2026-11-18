@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // TestGeneratedRoutes drives every generated route through NewTestRouter: each request
@@ -48,6 +49,38 @@ func TestGeneratedRoutes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGeneratedDryRunAndWarning proves the refusal of a dry run and of a warning lands
+// on exactly the routes whose frames read neither header. A request that asks a call
+// for a dry run (X-Dry-Run: true) or for its warning (X-Warning: true) reaches the
+// handler of a method, an upload or SetFeature, whose frame answers the header itself,
+// and is refused (400) ahead of every other handler, which never runs: a frame that
+// does not read the header would run for real the call the request asked be held back.
+func TestGeneratedDryRunAndWarning(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range generatedRouterTests() {
+		for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {
+			t.Run(tt.method+"-url"+strings.ReplaceAll(tt.url, "/", "-")+"-"+header, func(t *testing.T) {
+				t.Parallel()
+
+				rec := newGeneratedCallRecorder()
+				router := NewTestRouter(newGeneratedHandlersStub(rec.RecordHandlerCall))
+				req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.url, http.NoBody)
+				req.Header.Set(header, "true")
+				rr := httptest.NewRecorder()
+				router.ServeHTTP(rr, req)
+
+				if got, want := rec.handlers[tt.handlerFunc] == 1, tt.readsDryRunAndWarning; got != want {
+					t.Errorf("handler %s reached under %s = %v, want %v", tt.handlerFunc, header, got, want)
+				}
+				if !tt.readsDryRunAndWarning && rr.Code != http.StatusBadRequest {
+					t.Errorf("response.Code = %v under %s, want %v: the route's frame does not read the header", rr.Code, header, http.StatusBadRequest)
+				}
+			})
+		}
 	}
 }
 
@@ -133,17 +166,30 @@ type generatedRouterTest struct {
 	// selfBounded marks a route whose handler bounds its own body (live, RPC), which
 	// the router leaves off its bounded group.
 	selfBounded bool
+	// readsDryRunAndWarning marks a route whose frame answers a request that asks for a
+	// dry run or a warning itself (a method's, an upload's, SetFeature's), which the
+	// router leaves off its refusal of the two headers.
+	readsDryRunAndWarning bool
 }
 
 func generatedRouteParameters() []string {
 	keys := []string{
 		"featureFlagName",
+		"staffGroupID",
+		"staffGroupUserGroupID",
+		"staffGroupUserUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
 		"staffSessionMailLinkID",
 		"staffSessionTokenID",
 		"staffSessionTrustedDeviceID",
 		"staffSessionUserID",
+		"staffUserGroupRoleUserID",
+		"staffUserGroupRoleGroupID",
+		"staffUserGroupRoleKind",
+		"staffUserGroupRoleAxis",
+		"staffUserGroupRoleDomainID",
+		"staffUserGroupRoleRole",
 	}
 
 	return keys
@@ -173,6 +219,66 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/live/token", method: http.MethodGet,
 			handlerFunc: "LiveToken",
 			selfBounded: true,
+		},
+		{
+			url: "/api/staff-groups", method: http.MethodGet,
+			handlerFunc: "StaffGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-groups", method: http.MethodPost,
+			handlerFunc: "StaffGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-groups/testStaffGroupID", method: http.MethodGet,
+			handlerFunc: "StaffGroup",
+			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
+		},
+		{
+			url: "/api/staff-groups/testStaffGroupID", method: http.MethodPost,
+			handlerFunc: "StaffGroup",
+			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
+		},
+		{
+			url: "/api/staff-group-members", method: http.MethodGet,
+			handlerFunc: "StaffGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-members", method: http.MethodPost,
+			handlerFunc: "StaffGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-users", method: http.MethodGet,
+			handlerFunc: "StaffGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-users", method: http.MethodPost,
+			handlerFunc: "StaffGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodGet,
+			handlerFunc: "StaffGroupUser",
+			parameters:  map[string]string{"staffGroupUserGroupID": "testStaffGroupUserGroupID", "staffGroupUserUserID": "testStaffGroupUserUserID"},
+		},
+		{
+			url: "/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodPost,
+			handlerFunc: "StaffGroupUser",
+			parameters:  map[string]string{"staffGroupUserGroupID": "testStaffGroupUserGroupID", "staffGroupUserUserID": "testStaffGroupUserUserID"},
 		},
 		{
 			url: "/api/staff-roles", method: http.MethodGet,
@@ -335,6 +441,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
 		},
 		{
+			url: "/api/staff-user-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-user-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "StaffUserGroupRole",
+			parameters:  map[string]string{"staffUserGroupRoleUserID": "testStaffUserGroupRoleUserID", "staffUserGroupRoleGroupID": "testStaffUserGroupRoleGroupID", "staffUserGroupRoleKind": "testStaffUserGroupRoleKind", "staffUserGroupRoleAxis": "testStaffUserGroupRoleAxis", "staffUserGroupRoleDomainID": "testStaffUserGroupRoleDomainID", "staffUserGroupRoleRole": "testStaffUserGroupRoleRole"},
+		},
+		{
+			url: "/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "StaffUserGroupRole",
+			parameters:  map[string]string{"staffUserGroupRoleUserID": "testStaffUserGroupRoleUserID", "staffUserGroupRoleGroupID": "testStaffUserGroupRoleGroupID", "staffUserGroupRoleKind": "testStaffUserGroupRoleKind", "staffUserGroupRoleAxis": "testStaffUserGroupRoleAxis", "staffUserGroupRoleDomainID": "testStaffUserGroupRoleDomainID", "staffUserGroupRoleRole": "testStaffUserGroupRoleRole"},
+		},
+		{
 			url: "/api/staff-user-roles", method: http.MethodGet,
 			handlerFunc: "StaffUserRoles",
 			parameters:  map[string]string{},
@@ -342,6 +468,36 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/staff-user-roles", method: http.MethodPost,
 			handlerFunc: "StaffUserRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-methods", method: http.MethodGet,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-methods", method: http.MethodPost,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-up-roles", method: http.MethodGet,
+			handlerFunc: "StaffSignUpRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-up-roles", method: http.MethodPost,
+			handlerFunc: "StaffSignUpRoles",
 			parameters:  map[string]string{},
 		},
 		{
@@ -371,8 +527,8 @@ func generatedRouterTests() []*generatedRouterTest {
 		},
 		{
 			url: "/api/set-feature", method: http.MethodPost,
-			handlerFunc: "SetFeature",
-			parameters:  map[string]string{},
+			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
+			parameters: map[string]string{},
 		},
 	}
 
@@ -410,16 +566,32 @@ func (s *generatedHandlersStub) LiveToken() http.HandlerFunc {
 	return s.record("LiveToken")
 }
 
+func (s *generatedHandlersStub) AddStaffGroupMember() http.HandlerFunc {
+	return s.record("AddStaffGroupMember")
+}
+
 func (s *generatedHandlersStub) AssignStaffRole() http.HandlerFunc {
 	return s.record("AssignStaffRole")
+}
+
+func (s *generatedHandlersStub) CreateStaffGroup() http.HandlerFunc {
+	return s.record("CreateStaffGroup")
 }
 
 func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
 	return s.record("CreateStaffUser")
 }
 
+func (s *generatedHandlersStub) DeleteStaffGroup() http.HandlerFunc {
+	return s.record("DeleteStaffGroup")
+}
+
 func (s *generatedHandlersStub) DeleteStaffUser() http.HandlerFunc {
 	return s.record("DeleteStaffUser")
+}
+
+func (s *generatedHandlersStub) DescribeStaffGroup() http.HandlerFunc {
+	return s.record("DescribeStaffGroup")
 }
 
 func (s *generatedHandlersStub) DisableStaffUser() http.HandlerFunc {
@@ -450,8 +622,28 @@ func (s *generatedHandlersStub) Features() http.HandlerFunc {
 	return s.record("Features")
 }
 
+func (s *generatedHandlersStub) GiveStaffGroupRole() http.HandlerFunc {
+	return s.record("GiveStaffGroupRole")
+}
+
 func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
+}
+
+func (s *generatedHandlersStub) MakeStaffInviteOnly() http.HandlerFunc {
+	return s.record("MakeStaffInviteOnly")
+}
+
+func (s *generatedHandlersStub) OpenStaffSignUp() http.HandlerFunc {
+	return s.record("OpenStaffSignUp")
+}
+
+func (s *generatedHandlersStub) RemoveStaffGroupMember() http.HandlerFunc {
+	return s.record("RemoveStaffGroupMember")
+}
+
+func (s *generatedHandlersStub) RemoveStaffPassword() http.HandlerFunc {
+	return s.record("RemoveStaffPassword")
 }
 
 func (s *generatedHandlersStub) RemoveStaffRole() http.HandlerFunc {
@@ -488,6 +680,30 @@ func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
 	return s.record("SetStaffUserName")
+}
+
+func (s *generatedHandlersStub) StaffGroups() http.HandlerFunc {
+	return s.record("StaffGroups")
+}
+
+func (s *generatedHandlersStub) StaffGroup() http.HandlerFunc {
+	return s.record("StaffGroup")
+}
+
+func (s *generatedHandlersStub) StaffGroupMembers() http.HandlerFunc {
+	return s.record("StaffGroupMembers")
+}
+
+func (s *generatedHandlersStub) StaffGroupRoles() http.HandlerFunc {
+	return s.record("StaffGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffGroupUsers() http.HandlerFunc {
+	return s.record("StaffGroupUsers")
+}
+
+func (s *generatedHandlersStub) StaffGroupUser() http.HandlerFunc {
+	return s.record("StaffGroupUser")
 }
 
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
@@ -554,8 +770,32 @@ func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
 }
 
+func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
+	return s.record("StaffSignInMethods")
+}
+
+func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
+	return s.record("StaffSignInWays")
+}
+
+func (s *generatedHandlersStub) StaffSignUpRoles() http.HandlerFunc {
+	return s.record("StaffSignUpRoles")
+}
+
+func (s *generatedHandlersStub) StaffUserGroupRoles() http.HandlerFunc {
+	return s.record("StaffUserGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffUserGroupRole() http.HandlerFunc {
+	return s.record("StaffUserGroupRole")
+}
+
 func (s *generatedHandlersStub) StaffUserRoles() http.HandlerFunc {
 	return s.record("StaffUserRoles")
+}
+
+func (s *generatedHandlersStub) TakeStaffGroupRole() http.HandlerFunc {
+	return s.record("TakeStaffGroupRole")
 }
 
 func (s *generatedHandlersStub) UnlinkStaffSessionIdentity() http.HandlerFunc {

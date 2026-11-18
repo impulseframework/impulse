@@ -16,6 +16,14 @@ func Test_identityOn(t *testing.T) {
 
 	crew := &identityInstance{auth: "Crew", outlets: []string{"console", "admin"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}}
 	solo := &identityInstance{auth: "Staff", outlets: []string{"console"}}
+	// The auth whose people the tenant record's outlets sign in, in an application
+	// whose roles it gives and whose schema keeps its invitations: staff bring a tenant
+	// in by an invitation, so its pages know the three pieces.
+	inviting := &identityInstance{
+		auth: "Crew", outlets: []string{"console"}, createsTenant: true,
+		tables: map[identityTable]bool{identityMailLinks: true, identityMemberships: true},
+		tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", invitation: &identityTenantInvitation{}},
+	}
 
 	names := func(names ...string) (resources []*tsAPIResource, methods []*tsAPIMethod) {
 		for _, name := range names {
@@ -46,12 +54,17 @@ func Test_identityOn(t *testing.T) {
 			instances: []*identityInstance{crew},
 			served: []string{
 				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewSessionSignInAttempts",
-				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations",
+				"CrewSignInMethods", "CrewSignInWays",
+				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
 				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
-				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices",
+				"RemoveCrewPassword", "OpenCrewSignUp", "MakeCrewInviteOnly",
+				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices", "RemoveCrewSectorPassword",
 				// Served by the outlet and no part of the auth's management; the tenant record
 				// is named, since a page reads a tenant's name from it.
 				"Ships", "HailShip", "Sectors",
+				// The invitation that makes a tenant is no part of this auth's management:
+				// its people create no tenant, so the names are another declaration's.
+				"CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
@@ -60,22 +73,51 @@ func Test_identityOn(t *testing.T) {
 						Scope: accesstypes.GlobalPermissionScope,
 						Lists: []identityPart{
 							part("users", "CrewSessionUsers"), part("roles", "CrewUserRoles"), part("identities", "CrewSessionIdentities"),
+							part("signInWays", "CrewSignInWays"),
 							part("invitations", "CrewSessionMailLinks"), part("sessions", "CrewSessions"), part("signInAttempts", "CrewSessionSignInAttempts"),
+							// The auth's sign-in methods, each open to sign-up or invite only. An
+							// application with tenants picks no default role, so it lists no roles
+							// to pick one from.
+							part("signInMethods", "CrewSignInMethods"),
 						},
 						Methods: []identityPart{
 							part("create", "CreateCrewUser"), part("disable", "DisableCrewUser"), part("endUserSessions", "EndCrewUserSessions"),
-							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
+							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("removePassword", "RemoveCrewPassword"),
+							part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
+							part("openSignUp", "OpenCrewSignUp"), part("makeInviteOnly", "MakeCrewInviteOnly"),
 						},
 					},
 					{
 						Scope: accesstypes.DomainPermissionScope,
-						// The schema holds no identities table for this auth: the tenant keeps no list of them.
-						Lists: []identityPart{part("users", "CrewSectorUsers"), part("roles", "CrewSectorUserRoles"), part("invitations", "CrewSectorInvitations")},
+						// The outlet serves no list of the identities a tenant's people hold; how each
+						// signs in is a list of its own, named where the outlet serves it.
+						Lists: []identityPart{
+							part("users", "CrewSectorUsers"), part("roles", "CrewSectorUserRoles"), part("signInWays", "CrewSectorSignInWays"),
+							part("invitations", "CrewSectorInvitations"),
+						},
 						Methods: []identityPart{
 							part("assignRole", "AssignCrewSectorRole"), part("removeRole", "RemoveCrewSectorRole"), part("disable", "DisableCrewSectorUser"),
-							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"),
+							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"), part("removePassword", "RemoveCrewSectorPassword"),
 						},
 					},
+				},
+			}},
+		},
+		{
+			name:      "the auth that brings a tenant in by invitation names the list of the ones that stand and the two methods",
+			outlet:    "console",
+			instances: []*identityInstance{inviting},
+			served:    []string{"CrewSessionUsers", "CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector", "CrewSectorUsers", "Sectors"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope:   accesstypes.GlobalPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSessionUsers"), part("invitedTenants", "CrewInvitedSectors")},
+						Methods: []identityPart{part("inviteTenant", "InviteCrewSector"), part("withdrawInvitedTenant", "WithdrawCrewInvitedSector")},
+					},
+					// A tenant's own side carries none of it: no tenant brings another in.
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
 				},
 			}},
 		},
@@ -83,13 +125,15 @@ func Test_identityOn(t *testing.T) {
 			name:      "an application with no tenant record has the whole application's side alone",
 			outlet:    "console",
 			instances: []*identityInstance{solo},
-			served:    []string{"StaffSessionUsers", "DisableStaffUser"},
+			served:    []string{"StaffSessionUsers", "DisableStaffUser", "StaffSignInMethods", "StaffSignUpRoles", "OpenStaffSignUp", "MakeStaffInviteOnly"},
 			want: []*tsAPIIdentity{{
 				Auth: "Staff", Label: "Staff",
 				Sides: []*tsAPIIdentitySide{{
-					Scope:   accesstypes.GlobalPermissionScope,
-					Lists:   []identityPart{part("users", "StaffSessionUsers")},
-					Methods: []identityPart{part("disable", "DisableStaffUser")},
+					Scope: accesstypes.GlobalPermissionScope,
+					// Without tenants a person who signs up is given a role, picked from the
+					// roles the side lists for it.
+					Lists:   []identityPart{part("users", "StaffSessionUsers"), part("signInMethods", "StaffSignInMethods"), part("signUpRoles", "StaffSignUpRoles")},
+					Methods: []identityPart{part("disable", "DisableStaffUser"), part("openSignUp", "OpenStaffSignUp"), part("makeInviteOnly", "MakeStaffInviteOnly")},
 				}},
 			}},
 		},

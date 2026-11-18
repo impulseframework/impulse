@@ -87,6 +87,9 @@ export interface StandingInvitation {
   readonly tenantId: string;
   /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
   readonly tenantName: string;
+  /** The invitation makes a tenant, and whether that tenant is entered through its directory only, as `OpenedInvitation.newTenant` and `directoryOnly`; both absent for every other invitation. */
+  readonly newTenant?: boolean;
+  readonly directoryOnly?: boolean;
   /** When the invitation stops being accepted, as the server wrote it. */
   readonly expiresAt: string;
   /** An account created from the invitation has the address as its username; the person chooses one otherwise. */
@@ -113,6 +116,16 @@ export interface SignUpRoutes {
 }
 
 /**
+ * The paths of the first password handlers: `sendCode`, where a signed-in person who has
+ * no password asks for the code, and `set`, where they post the code with the password
+ * they chose.
+ */
+export interface FirstPasswordRoutes {
+  readonly sendCode: string;
+  readonly set: string;
+}
+
+/**
  * What the methods route answers: the methods in the order the server lists them, the
  * pending sign-in's routes, and the routes of the mailed links the server serves.
  */
@@ -126,6 +139,28 @@ export interface LoginMethods {
    * before anything else is served. Absent on a server with no password method.
    */
   readonly changePassword?: string;
+  /**
+   * The path where a signed-in person removes their own password (`removePassword()`),
+   * posting `{ password }` as proof: the server refuses a person no directory sign-in is
+   * linked to, since the password is their only way in. Absent on a server that does not
+   * serve it.
+   */
+  readonly removePassword?: string;
+  /**
+   * The paths where a signed-in person who has no password, because they have only ever
+   * signed in through a directory, chooses their first one (`sendFirstPasswordCode()`,
+   * then `setFirstPassword()`): a code is mailed to the address their account holds
+   * confirmed, and the password is set with it. Absent on a server with no password
+   * method, where there is none to choose, and on one that does not serve it.
+   */
+  readonly firstPassword?: FirstPasswordRoutes;
+  /**
+   * The path where a signed-in person reads what they sign in with (`signInMeans()`):
+   * whether they hold a password, and the directory sign-ins linked to them. Absent on a
+   * server that does not serve it, where a page offers the change and the removal of a
+   * password to everyone and the server's refusals say the rest.
+   */
+  readonly signInMeans?: string;
   /**
    * The path where a signed-in person forgets the browser the second factor remembered
    * for them (`forgetBrowser()`); the session read says whether it is remembered.
@@ -167,6 +202,20 @@ export interface OpenedInvitation {
   readonly tenantId: string;
   /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
   readonly tenantName: string;
+  /**
+   * The invitation makes a tenant: none exists yet, `tenantId` is empty, and `tenantName`
+   * is what the new tenant will be called. The first sign-in that accepts the invitation
+   * makes the tenant and seats the person as its first administrator. Absent for an
+   * invitation into a tenant that exists, or into the application's global surface.
+   */
+  readonly newTenant?: boolean;
+  /**
+   * The tenant the invitation makes is entered through its directory only, so the
+   * invitation is accepted through an organization's directory alone: the server refuses
+   * a password and a personal account (`organization_account_required`), and `signUp` is
+   * false. Absent unless `newTenant`.
+   */
+  readonly directoryOnly?: boolean;
   /** When the invitation stops being accepted, as the server wrote it. */
   readonly expiresAt: string;
   /** The person may create an account with a password here (`signUpFromInvitation`); the server offers a password method. */
@@ -241,6 +290,55 @@ export interface NewAccount {
  * old one or fails the server's rule, or the session is an impersonation.
  */
 export type PasswordChangeResult = { readonly outcome: 'changed' } | SignInRefusal;
+
+/**
+ * What a removal of the person's own password answers: `removed`, after which the
+ * password no longer signs them in and the session they hold continues; or the server's
+ * refusal, resolved rather than thrown, with its words: the password given as proof did
+ * not match, no directory sign-in is linked to the person, so the password is their only
+ * way in, or the session is an impersonation.
+ */
+export type PasswordRemovalResult = { readonly outcome: 'removed' } | SignInRefusal;
+
+/**
+ * What asking for the code of a first password answers: `sent`, with the address the
+ * code went to, masked as the server masks it, and when the code stops being accepted,
+ * as the server wrote it; or the server's refusal, resolved rather than thrown, with its
+ * words: the account already has a password, it has no confirmed email address for the
+ * code to go to (409), the mailbox was sent too many codes it did not use (429,
+ * `too_many_emails` and the wait), too many wrong codes were entered (429,
+ * `too_many_attempts` and the wait), or the session is an impersonation (403).
+ */
+export type FirstPasswordCodeResult =
+  { readonly outcome: 'sent'; readonly codeEmail: string; readonly codeExpiresAt?: string } | SignInRefusal;
+
+/**
+ * What choosing a first password answers: `set`, after which the password signs the
+ * person in and the session they hold continues; or the server's refusal, resolved
+ * rather than thrown, with its words: the code is not the one sent or the password fails
+ * the server's rule (400), no code stands or the account already has a password (409),
+ * too many wrong codes were entered (429, `too_many_attempts` and the wait), or the
+ * session is an impersonation (403).
+ */
+export type FirstPasswordResult = { readonly outcome: 'set' } | SignInRefusal;
+
+/**
+ * What a person signs in with, as the server answers it: whether they hold a password,
+ * never the password or its hash, and the sign-in methods the login page offers that a
+ * directory sign-in linked to them goes through, in the page's order. A page offers the
+ * removal of a password only where one is held and a directory is linked, and names what
+ * the removal leaves by each directory's label.
+ */
+export interface SignInMeans {
+  readonly password: boolean;
+  readonly directories: readonly LinkedDirectory[];
+}
+
+/** A sign-in method of the login page that a directory sign-in linked to a person goes through: the registration's name, and the words its button carries. */
+export interface LinkedDirectory {
+  readonly name: string;
+  readonly label: string;
+}
 
 /**
  * What a change of the person's own name answers: `changed`, with the name as the server
@@ -373,9 +471,7 @@ export interface EmailCodeSent {
  * `pending_expired` when the browser's pending sign-in expired or was already used.
  */
 export type PendingStatus =
-  | ({ readonly outcome: 'waiting' } & PendingSignIn)
-  | { readonly outcome: 'none' }
-  | SignInRefusal;
+  ({ readonly outcome: 'waiting' } & PendingSignIn) | { readonly outcome: 'none' } | SignInRefusal;
 
 /** What createClient hands the sign-in client. */
 /** What a redirect method's URL asks of the provider beyond the page to return to. */
@@ -413,6 +509,8 @@ const confirmRefusals: readonly number[] = [401, 403, 404, 409, 429];
 const codeRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 const statusRefusals: readonly number[] = [401, 403];
 const changeRefusals: readonly number[] = [400, 401, 403, 409];
+/** A change or a removal of the person's own password: as a change, and 429 for a name whose failed proofs reached the server's limit. */
+const proofRefusals: readonly number[] = [...changeRefusals, 429];
 /** A mailed link's token posted back: 404 for a link that is dead, 400 for a body that carries none. */
 const linkRefusals: readonly number[] = [400, 404];
 /** An acceptance by a signed-in person: 404 when the browser carries no live invitation. */
@@ -450,6 +548,9 @@ interface MethodsAnswer {
   methods?: Partial<LoginMethod>[] | null;
   pending?: Partial<PendingRoutes> | null;
   changePassword?: string | null;
+  removePassword?: string | null;
+  firstPassword?: Partial<FirstPasswordRoutes> | null;
+  signInMeans?: string | null;
   forgetBrowser?: string | null;
   changeName?: string | null;
   changeLook?: string | null;
@@ -800,7 +901,9 @@ export class AuthClient {
    * the one a person whose operator-set password must change reaches before anything else
    * is served, so a login page that finds `passwordChangeRequired` on the session read
    * posts here, then checks the session again. The result is `changed`, or the server's
-   * refusal with its words (the old password did not match, the new one is the old one).
+   * refusal with its words (the old password did not match, the new one is the old one;
+   * or 429 with `too_many_attempts` and the wait, `retryAfter`, once the wrong old
+   * passwords reached the server's limit).
    * A server whose list names no change path offers no password method, and the call
    * throws saying so.
    */
@@ -814,9 +917,116 @@ export class AuthClient {
     const response = await this.options.request<RefusalAnswer | null>('POST', list.changePassword, {
       body: { oldPassword, newPassword },
       absolute: true,
-      accept: changeRefusals,
+      accept: proofRefusals,
     });
     return response.status >= 400 ? refusalOf(response) : { outcome: 'changed' };
+  }
+
+  /**
+   * Removes the signed-in person's own password: reads the methods list again, then posts
+   * the password, as proof, to the removal path the refreshed list names. Once removed,
+   * the password no longer signs the person in, and they sign in through the directory
+   * linked to them; the session they hold continues. The result is `removed`, or the
+   * server's refusal with its words (the password did not match, or no directory sign-in
+   * is linked to the person, whose password is then their only way in; or 429 with
+   * `too_many_attempts` and the wait once the wrong passwords reached the server's limit;
+   * or 403 with `password_change_required` for a person who must change it first). A server whose
+   * list names no removal path does not serve it, and the call throws saying so.
+   */
+  async removePassword(password: string): Promise<PasswordRemovalResult> {
+    const list = await this.methods();
+    if (!list.removePassword) {
+      throw new Error('this server names no remove-your-password path in its methods list: it does not serve one');
+    }
+    const response = await this.options.request<RefusalAnswer | null>('POST', list.removePassword, {
+      body: { password },
+      absolute: true,
+      accept: proofRefusals,
+    });
+    return response.status >= 400 ? refusalOf(response) : { outcome: 'removed' };
+  }
+
+  /**
+   * Asks for the code of the signed-in person's first password: reads the methods list
+   * again, then posts to the send-code path it names. The server mails the code to the
+   * address the account holds confirmed, in place of any code it sent before; the person
+   * reads it there and gives it to `setFirstPassword`. The result is `sent` with the
+   * masked address, or the server's refusal with its words (see FirstPasswordCodeResult).
+   * A server whose list names no first password paths serves none, and the call throws
+   * saying so.
+   */
+  async sendFirstPasswordCode(): Promise<FirstPasswordCodeResult> {
+    const routes = await this.firstPasswordRoutes();
+    const response = await this.options.request<
+      (Partial<{ codeEmail: string; codeExpiresAt: string }> & RefusalAnswer) | null
+    >('POST', routes.sendCode, { absolute: true, accept: accountRefusals });
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    const codeExpiresAt = response.body?.codeExpiresAt;
+    return {
+      outcome: 'sent',
+      codeEmail: stringOf(response.body?.codeEmail),
+      ...(typeof codeExpiresAt === 'string' && codeExpiresAt !== '' ? { codeExpiresAt } : {}),
+    };
+  }
+
+  /**
+   * Sets the signed-in person's first password: reads the methods list again, then posts
+   * the mailed code and the password to the set path it names. Once set, the password
+   * signs the person in, and the session they hold continues. The result is `set`, or the
+   * server's refusal with its words (see FirstPasswordResult). A server whose list names
+   * no first password paths serves none, and the call throws saying so.
+   */
+  async setFirstPassword(code: string, password: string): Promise<FirstPasswordResult> {
+    const routes = await this.firstPasswordRoutes();
+    const response = await this.options.request<RefusalAnswer | null>('POST', routes.set, {
+      body: { code, password },
+      absolute: true,
+      accept: accountRefusals,
+    });
+    return response.status >= 400 ? refusalOf(response) : { outcome: 'set' };
+  }
+
+  /** The first password paths of the methods list, read again; a list that names none throws. */
+  private async firstPasswordRoutes(): Promise<FirstPasswordRoutes> {
+    const list = await this.methods();
+    if (!list.firstPassword) {
+      throw new Error(
+        'this server names no first password paths in its methods list: it has no password method, or does not serve a first password',
+      );
+    }
+    return list.firstPassword;
+  }
+
+  /**
+   * Reads what the signed-in person signs in with, from the path the methods list names:
+   * whether they hold a password, and the directory sign-ins linked to them, each by the
+   * words its sign-in button carries. The answer is undefined where the server's list
+   * names no such path, or answers something that is not the read: a page then knows
+   * nothing of the person's sign-in and offers what the methods list offers.
+   */
+  async signInMeans(): Promise<SignInMeans | undefined> {
+    const list = await this.methods();
+    if (!list.signInMeans) {
+      return undefined;
+    }
+    const response = await this.options.request<Partial<SignInMeans> | null>('GET', list.signInMeans, {
+      absolute: true,
+    });
+    const answer = response.body;
+    if (typeof answer?.password !== 'boolean' || !Array.isArray(answer.directories)) {
+      return undefined;
+    }
+    return {
+      password: answer.password,
+      directories: answer.directories
+        .filter(
+          (directory: Partial<LinkedDirectory> | null): directory is LinkedDirectory =>
+            typeof directory?.name === 'string' && typeof directory.label === 'string' && directory.label !== '',
+        )
+        .map(({ name, label }) => ({ name, label })),
+    };
   }
 
   /**
@@ -887,7 +1097,8 @@ export class AuthClient {
   /**
    * Opens the invitation a mailed link carried: reads the methods list again, then posts
    * the token to the invitation's open route. The answer describes the invitation (the
-   * address, the tenant, when it expires, whether an account with a password may be
+   * address, the tenant, or the tenant it makes and whether that tenant is entered
+   * through its directory only, when it expires, whether an account with a password may be
    * created here and whether its username is the address), and the browser now carries
    * the invitation, so the sign-in that follows, by any method, or the sign-up, accepts
    * it. A link that has expired or was already used resolves `refused` with 404 and the
@@ -896,11 +1107,15 @@ export class AuthClient {
    */
   async openInvitation(token: string): Promise<InvitationOpenResult> {
     const routes = await this.invitationRoutes();
-    const response = await this.options.request<(Partial<OpenedInvitation> & RefusalAnswer) | null>('POST', routes.open, {
-      body: { token },
-      absolute: true,
-      accept: linkRefusals,
-    });
+    const response = await this.options.request<(Partial<OpenedInvitation> & RefusalAnswer) | null>(
+      'POST',
+      routes.open,
+      {
+        body: { token },
+        absolute: true,
+        accept: linkRefusals,
+      },
+    );
     if (response.status >= 400) {
       return refusalOf(response);
     }
@@ -911,6 +1126,7 @@ export class AuthClient {
       email: stringOf(body.email),
       tenantId: stringOf(body.tenantId),
       tenantName: stringOf(body.tenantName),
+      ...newTenantOf(body),
       expiresAt: stringOf(body.expiresAt),
       signUp: body.signUp === true,
       usernameIsEmail: body.usernameIsEmail === true,
@@ -981,11 +1197,15 @@ export class AuthClient {
    */
   async verifyEmail(token: string): Promise<EmailVerifyResult> {
     const routes = await this.emailRoutes();
-    const response = await this.options.request<(Partial<{ email: string }> & RefusalAnswer) | null>('POST', routes.verify, {
-      body: { token },
-      absolute: true,
-      accept: verifyRefusals,
-    });
+    const response = await this.options.request<(Partial<{ email: string }> & RefusalAnswer) | null>(
+      'POST',
+      routes.verify,
+      {
+        body: { token },
+        absolute: true,
+        accept: verifyRefusals,
+      },
+    );
     if (response.status >= 400) {
       return refusalOf(response);
     }
@@ -1080,7 +1300,9 @@ export class AuthClient {
   private async signUpRoutes(): Promise<SignUpRoutes> {
     const list = await this.methods();
     if (!list.signUp) {
-      throw new Error('this server names no sign-up routes in its methods list: its password method does not offer sign-up');
+      throw new Error(
+        'this server names no sign-up routes in its methods list: its password method does not offer sign-up',
+      );
     }
     return list.signUp;
   }
@@ -1141,6 +1363,18 @@ export class AuthClient {
     if (typeof changePassword === 'string' && changePassword !== '') {
       list.changePassword = changePassword;
     }
+    const removePassword = answer?.removePassword;
+    if (typeof removePassword === 'string' && removePassword !== '') {
+      list.removePassword = removePassword;
+    }
+    const firstPassword = answer?.firstPassword;
+    if (firstPassword?.sendCode && firstPassword.set) {
+      list.firstPassword = { sendCode: firstPassword.sendCode, set: firstPassword.set };
+    }
+    const signInMeans = answer?.signInMeans;
+    if (typeof signInMeans === 'string' && signInMeans !== '') {
+      list.signInMeans = signInMeans;
+    }
     const forgetBrowser = answer?.forgetBrowser;
     if (typeof forgetBrowser === 'string' && forgetBrowser !== '') {
       list.forgetBrowser = forgetBrowser;
@@ -1191,7 +1425,9 @@ export function unknownKindWarning(name: string, kind: string): string {
 
 /** The body an account is posted as: the password, and the username only where one was given. */
 function accountBody(account: NewAccount): { password: string; username?: string } {
-  return account.username === undefined ? { password: account.password } : { password: account.password, username: account.username };
+  return account.username === undefined
+    ? { password: account.password }
+    : { password: account.password, username: account.username };
 }
 
 /** The result of a sign-in step's answer: a refusal for a status the step accepts, else the session or a pending step. */
@@ -1239,11 +1475,27 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
     email: stringOf(value.email),
     tenantId: stringOf(value.tenantId),
     tenantName: stringOf(value.tenantName),
+    ...newTenantOf(value),
     expiresAt: stringOf(value.expiresAt),
     usernameIsEmail: value.usernameIsEmail === true,
     ...(methods === undefined ? {} : { methods }),
     ...accountFactsOf(value),
   };
+}
+
+/**
+ * What an invitation answer says of the tenant it makes, when it makes one: that it does,
+ * and whether the tenant is entered through its directory only. Both are absent for every
+ * other invitation, and under a server that says neither.
+ */
+function newTenantOf(value: { newTenant?: unknown; directoryOnly?: unknown }): {
+  newTenant?: boolean;
+  directoryOnly?: boolean;
+} {
+  if (value.newTenant !== true) {
+    return {};
+  }
+  return { newTenant: true, directoryOnly: value.directoryOnly === true };
 }
 
 /**

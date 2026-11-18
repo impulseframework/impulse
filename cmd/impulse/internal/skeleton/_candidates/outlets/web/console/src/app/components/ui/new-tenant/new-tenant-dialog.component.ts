@@ -1,3 +1,4 @@
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -5,15 +6,11 @@ import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dial
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { Router } from '@angular/router';
-import { injectApi } from '@app/api/api';
-import { apiDescriptor, TenantsCreate } from '@app/service/zz_gen_api';
-import { resourceMeta } from '@app/service/zz_gen_resources';
-import { ApiError } from '@impulseframework/resource';
+import { apiDescriptor, CreateTenant, CreateTenantAnswer, createTenantRoute } from '@app/service/zz_gen_api';
 import { inSentence } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
+import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
-import { tenantsConfig } from '../../../configs/tenants.config';
 
 /** Opens the dialog; it closes with the new tenant's id, or with nothing when cancelled. */
 export function openNewTenantDialog(dialog: MatDialog): MatDialogRef<NewTenantDialogComponent, string | undefined> {
@@ -24,15 +21,23 @@ export function openNewTenantDialog(dialog: MatDialog): MatDialogRef<NewTenantDi
 }
 
 /**
- * The new-tenant dialog, Tenants › New tenant…: an administrator holding Create on Tenants
- * names a tenant, by its name alone, since the tenant's key is an id the server generates
- * and answers; the client's create on the record writes the row and makes them its first
- * administrator, the roster serves it at once, and the dialog opens the record's page.
- * Anyone else enters once someone gives them a role there. The Tenant record here is created by an
- * administrator only (`@tenant`); a record its own people create
- * (`@tenant(creation: self-service)`) has the dashboard offer the same dialog to a person
- * holding no tenant, as the tenanted skeleton does. The session's tenant list is read
- * again first, so an administrator who reaches every tenant finds it in the switcher.
+ * The new-tenant dialog is how a person who signed up creates a tenant of their own. It
+ * asks for the tenant's name alone: the tenant's key is an id the server generates and
+ * answers, which nobody types, and the name is a field its administrators change later.
+ * The home page's card opens it for a person who signed in and holds no tenant: the
+ * generated create-your-tenant route (`POST create-tenant`, the `createTenantRoute`
+ * constant the generated client exports) writes the row, seats them as its administrator
+ * and hands the tenant to the roster, so their next request stands in it, and the dialog
+ * opens the dashboard under the new tenant's URL, where the guard on the tenant segment
+ * enters it. The route serves while an administrator has a sign-in method open to sign-up
+ * (the Sign-in page); while every method is invite only, and for a person who already
+ * holds a tenant, the server refuses, which the dialog reports in place. The route is no
+ * resource or method of the client, so the dialog posts with the application's
+ * HttpClient, and the session's tenant list is read again before the dashboard opens.
+ *
+ * Nobody else creates a tenant here. An administrator brings an organization in by
+ * inviting one person, on the Invited tenants page the library builds among the staff's
+ * pages (System), and that person's first sign-in makes the tenant.
  */
 @Component({
   selector: 'app-new-tenant-dialog',
@@ -42,7 +47,7 @@ export function openNewTenantDialog(dialog: MatDialog): MatDialogRef<NewTenantDi
 })
 export class NewTenantDialogComponent {
   private dialogRef = inject<MatDialogRef<NewTenantDialogComponent, string | undefined>>(MatDialogRef);
-  private api = injectApi();
+  private http = inject(HttpClient);
   private auth = inject(AuthService);
   private router = inject(Router);
 
@@ -62,20 +67,25 @@ export class NewTenantDialogComponent {
     }
     this.busy.set(true);
     this.error.set('');
-    const body: TenantsCreate = this.form.getRawValue();
+    const body: CreateTenant = this.form.getRawValue();
     try {
-      const id = await this.api.tenants.create(body);
-      if (!id) {
-        throw new Error('The server did not answer the id of the new tenant.');
-      }
+      const id = await this.createOwn(body);
       await firstValueFrom(this.auth.refreshPermissions());
       this.dialogRef.close(id);
-      await this.router.navigate(['/', ...resourcePage(tenantsConfig, resourceMeta).route, id]);
+      await this.router.navigate(['/', apiDescriptor.domainRoute.segment, id, 'dashboard']);
     } catch (failure) {
       this.error.set(refusal(failure, body.name));
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** The generated route writes the tenant and seats the person in it as its administrator. */
+  private async createOwn(body: CreateTenant): Promise<string> {
+    const created = await firstValueFrom(
+      this.http.post<CreateTenantAnswer>(`${environment.apiUrl}/${createTenantRoute}`, body),
+    );
+    return created.id;
   }
 }
 
@@ -87,11 +97,15 @@ function withArticle(word: string): string {
 /**
  * The sentence a failed create is reported with. A name another tenant carries is the one
  * conflict the form can cause (the unique index on the name answers 409), so it is said
- * in the form's words; anything else is the server's message.
+ * in the form's words; anything else is the server's message where it gave one.
  */
 function refusal(failure: unknown, name: string): string {
-  if (failure instanceof ApiError && failure.status === 409) {
+  if (failure instanceof HttpErrorResponse && failure.status === 409) {
     return `${withArticle(inSentence(apiDescriptor.domainRoute?.word?.one ?? 'Tenant'))} named ${name} already exists. Choose another name.`;
+  }
+  if (failure instanceof HttpErrorResponse) {
+    const message: unknown = failure.error?.message;
+    return typeof message === 'string' && message ? message : failure.message;
   }
   return failure instanceof Error ? failure.message : String(failure);
 }

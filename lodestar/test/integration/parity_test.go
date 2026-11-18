@@ -37,6 +37,8 @@ import (
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 )
 
@@ -56,6 +58,16 @@ type demoUser struct {
 	User     accesstypes.User `json:"user"`
 	Password string           `json:"password"`
 	Roles    demoRoles        `json:"roles"`
+	Tours    []demoTour       `json:"tours"`
+}
+
+// demoTour is a tour of duty as cmd/bootstrap/users.json declares it: the roles a persona
+// holds in one sector, named by its name, for a number of days from the day the world is
+// made. Each is a role given for a period that ends.
+type demoTour struct {
+	Domain string             `json:"domain"`
+	Roles  []accesstypes.Role `json:"roles"`
+	Days   int                `json:"days"`
 }
 
 // demoAccount is an identity of the file that has no password: a member of the portal,
@@ -66,9 +78,21 @@ type demoAccount struct {
 	Roles demoRoles        `json:"roles"`
 }
 
+// demoGroup is one group of the crew as cmd/bootstrap/users.json declares it: where it is
+// kept (a sector by its name, none for the whole fleet), the roles it holds by where each
+// is held, and the personas in it by their usernames.
+type demoGroup struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Domain      string             `json:"domain"`
+	Roles       demoRoles          `json:"roles"`
+	Members     []accesstypes.User `json:"members"`
+}
+
 // demoIdentities mirrors the bootstrap's identities file.
 type demoIdentities struct {
 	Users           []demoUser    `json:"users"`
+	Groups          []demoGroup   `json:"groups"`
 	Members         []demoAccount `json:"members"`
 	ServiceAccounts []demoAccount `json:"serviceAccounts"`
 }
@@ -112,8 +136,8 @@ func loadCast() {
 			panic(err)
 		}
 		crewAccounts, memberAccounts = map[accesstypes.User]impulse.UUID{}, map[accesstypes.User]impulse.UUID{}
-		for _, user := range identities.Users {
-			crewAccounts[user.User] = user.ID
+		for i := range identities.Users {
+			crewAccounts[identities.Users[i].User] = identities.Users[i].ID
 		}
 		for _, account := range identities.ServiceAccounts {
 			crewAccounts[account.User] = account.ID
@@ -188,18 +212,48 @@ func openEngine(db *initiator.SpannerDB, prefix string, roles access.RoleFile) (
 
 // openEngineWith opens an engine over the store with the given prefix and the release's
 // role file, with further engine options: the policy-signal suite's change signal and
-// heartbeat.
+// heartbeat. The engine is built as the auth's package builds it, with the methods a
+// super administrator always executes (the ones the auth's generated management names)
+// and the roles that administer a sector, so both do in the suites what they do served.
 func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFile, opts ...access.Option) (*access.Client, error) {
 	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(prefix))
 	if err != nil {
 		return nil, fmt.Errorf("spannerstore.New(): %w", err)
 	}
-	client, err := access.New(store, append([]access.Option{access.WithDefaultRoles(router.Collection(), roles)}, opts...)...)
+	built := []access.Option{
+		access.WithDefaultRoles(router.Collection(), roles),
+		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
+		access.WithTenantAdministratorRoles(sectorAdministratorRoles(prefix)...),
+	}
+	client, err := access.New(store, append(built, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("access.New(): %w", err)
 	}
 
 	return client, nil
+}
+
+// sectorAdministratorRoles are the roles that administer a sector in the auth whose
+// store carries the prefix: the crew's SectorMarshal, and none for the members, whose
+// people have no password to come back with.
+func sectorAdministratorRoles(prefix string) []accesstypes.Role {
+	if prefix == members.TablePrefix {
+		return nil
+	}
+	_, sector := crew.AdministratorRoles()
+
+	return sector
+}
+
+// superAdministratorMethods are the methods that give and take the roles of the auth
+// whose store carries the prefix: the crew's, and none for the members, whose roles the
+// directory gives.
+func superAdministratorMethods(prefix string) []accesstypes.Resource {
+	if prefix == members.TablePrefix {
+		return membersidentity.SuperAdministratorMethods()
+	}
+
+	return crewidentity.SuperAdministratorMethods()
 }
 
 // provisionDemoAccess assigns the personas and the droid their roles in the crew store and
@@ -213,8 +267,17 @@ func provisionDemoAccess(ctx context.Context, crewEngine, membersEngine *access.
 		return err
 	}
 	var droid, client accesstypes.User
-	for _, user := range identities.Users {
+	for i := range identities.Users {
+		user := &identities.Users[i]
 		if err := assignDemoRoles(ctx, crewEngine, accesstypes.User(user.ID.String()), user.Roles); err != nil {
+			return err
+		}
+		if err := assignDemoTours(ctx, crewEngine, accesstypes.User(user.ID.String()), user.Tours); err != nil {
+			return err
+		}
+	}
+	for i := range identities.Groups {
+		if err := seedDemoGroup(ctx, crewEngine, &identities.Groups[i]); err != nil {
 			return err
 		}
 	}
@@ -262,8 +325,8 @@ func seedCastAccounts(ctx context.Context, db *initiator.SpannerDB) error {
 		return spanner.InsertMap(table, map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp})
 	}
 	var accounts []*spanner.Mutation
-	for _, user := range identities.Users {
-		accounts = append(accounts, insert("CrewSessionUsers", user.ID, user.User))
+	for i := range identities.Users {
+		accounts = append(accounts, insert("CrewSessionUsers", identities.Users[i].ID, identities.Users[i].User))
 	}
 	for _, account := range identities.ServiceAccounts {
 		accounts = append(accounts, insert("CrewSessionUsers", account.ID, account.User))
@@ -300,6 +363,86 @@ func assignDemoRoles(ctx context.Context, client *access.Client, user accesstype
 		}
 		if err := client.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
 			return fmt.Errorf("AddUserRoles(%s, %s): %w", user, name, err)
+		}
+	}
+
+	return nil
+}
+
+// assignDemoTours gives a persona the roles of each of their tours as the bootstrap gives
+// them: in the tour's sector, for the tour's days from now.
+func assignDemoTours(ctx context.Context, client *access.Client, user accesstypes.User, tours []demoTour) error {
+	for _, tour := range tours {
+		domain, ok := sectorsByName[tour.Domain]
+		if !ok {
+			return fmt.Errorf("AssignUserRole(%s): no seeded sector is named %q", user, tour.Domain)
+		}
+		period := accesstypes.Period{End: time.Now().UTC().AddDate(0, 0, tour.Days)}
+		for _, role := range tour.Roles {
+			if err := client.UserManager().AssignUserRole(ctx, accesstypes.DomainPolicyScope(domain), user, role, period); err != nil {
+				return fmt.Errorf("AssignUserRole(%s, %s, %s): %w", user, tour.Domain, role, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// seedDemoGroup creates one group of the crew as the bootstrap creates it: kept where the
+// file keeps it, holding its roles where each is held, with its personas in it, each by
+// the id of their account.
+func seedDemoGroup(ctx context.Context, client *access.Client, group *demoGroup) error {
+	manager := client.UserManager()
+	sector := func(name string) (accesstypes.PolicyScope, error) {
+		domain, ok := sectorsByName[name]
+		if !ok {
+			return accesstypes.PolicyScope{}, fmt.Errorf("group %s: no seeded sector is named %q", group.Name, name)
+		}
+
+		return accesstypes.DomainPolicyScope(domain), nil
+	}
+	kept := accesstypes.GlobalPolicyScope()
+	if group.Domain != "" {
+		var err error
+		if kept, err = sector(group.Domain); err != nil {
+			return err
+		}
+	}
+	id, err := manager.AddGroup(ctx, kept, group.Name, group.Description)
+	if err != nil {
+		return fmt.Errorf("AddGroup(%s): %w", group.Name, err)
+	}
+	if len(group.Roles.Global) > 0 {
+		if err := manager.AddGroupRoles(ctx, id, accesstypes.GlobalPolicyScope(), group.Roles.Global...); err != nil {
+			return fmt.Errorf("AddGroupRoles(%s, global): %w", group.Name, err)
+		}
+	}
+	if len(group.Roles.EveryDomain) > 0 {
+		if err := manager.AddGroupRoles(ctx, id, accesstypes.EveryDomainPolicyScope(), group.Roles.EveryDomain...); err != nil {
+			return fmt.Errorf("AddGroupRoles(%s, every domain): %w", group.Name, err)
+		}
+	}
+	for name, domainRoles := range group.Roles.Domains {
+		scope, err := sector(name)
+		if err != nil {
+			return err
+		}
+		if err := manager.AddGroupRoles(ctx, id, scope, domainRoles...); err != nil {
+			return fmt.Errorf("AddGroupRoles(%s, %s): %w", group.Name, name, err)
+		}
+	}
+	loadCast()
+	people := make([]accesstypes.User, 0, len(group.Members))
+	for _, username := range group.Members {
+		account, ok := crewAccounts[username]
+		if !ok {
+			return fmt.Errorf("group %s: %s names no crew account under the username %q", group.Name, usersPath, username)
+		}
+		people = append(people, accesstypes.User(account.String()))
+	}
+	if len(people) > 0 {
+		if err := manager.AddGroupUsers(ctx, id, people...); err != nil {
+			return fmt.Errorf("AddGroupUsers(%s): %w", group.Name, err)
 		}
 	}
 

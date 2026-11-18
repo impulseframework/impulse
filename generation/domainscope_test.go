@@ -613,6 +613,11 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 		ResourcePackage: "resources",
 		ReceiverName:    "a",
 	}
+	// The tenant record of an application whose staff bring a tenant in by invitation.
+	invitedSector := fixtureResource(t, tenantStructs, "Sector", func(res *resourceInfo) {
+		res.IsTenant = true
+		res.TenantCreation = tenantCreationBoth
+	})
 	domainCase := consolidatedCaseData{
 		resourceInfo: fixtureResource(t, structs, "Vault", func(res *resourceInfo) {
 			res.IsConsolidated = true
@@ -628,6 +633,9 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 		data            consolidatedPatchData
 		wantContains    []string
 		wantNotContains []string
+		// refusedCreate names the tenant record's decode, which the refusal of a create
+		// op must come before; empty where the case pins no refusal.
+		refusedCreate string
 	}{
 		{
 			name: "global and domain cases dispatch on their own levels",
@@ -695,17 +703,15 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 			},
 		},
 		{
-			name: "the tenant record's create gives its creator the administrator roles in the transaction and waits on them between the roster's reload and the signal",
+			name: "the tenant record's create op is refused before any grant is read, saying how a tenant is made, and nothing seats a creator",
 			data: consolidatedPatchData{
-				Resources: []*resourceInfo{globalCase.resourceInfo, domainCase.resourceInfo},
+				Resources: []*resourceInfo{globalCase.resourceInfo, domainCase.resourceInfo, invitedSector},
 				SegmentCase: &consolidatedCaseData{
-					resourceInfo:    fixtureResource(t, tenantStructs, "Sector", func(res *resourceInfo) { res.IsTenant = true }),
+					resourceInfo:    invitedSector,
 					ResourcePackage: "resources",
 					ReceiverName:    "a",
-					Seated:          true,
 				},
 				HasTenant:           true,
-				Seat:                &tenantSeatData{Record: "Sector", RecordLower: "sector", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "SectorAdministratorRoles"},
 				DomainCases:         []consolidatedCaseData{domainCase},
 				DomainRouteSegment:  "sectors",
 				DomainPatternPrefix: "/sectors/{sectorID}",
@@ -716,27 +722,14 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 				HandlerName:         "PatchResources",
 			},
 			wantContains: []string{
-				"roles := a.SectorAdministratorRoles()",
-				"identity := a.StaffIdentity()",
-				"var created []impulse.UUID",
-				"created = nil",
-				// The create generates the id, which the answer carries: the caller names
-				// none.
-				"patch, err := resources.NewSectorCreatePatchFromPatchSet(patchSet)",
-				`resp["sectors"] = append(resp["sectors"], patch.ID())`,
-				"id := patch.ID()",
-				// The creator's roles, in the transaction that writes the row, under the
-				// generated id, whose text is the tenant's domain.
-				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {",
-				"created = append(created, id)",
-				"for _, id := range created {",
-				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {",
-				`logger.FromCtx(ctx).Errorf("sector %s: %v", id, err)`,
-				"return httpio.NewEncoder(w).ClientMessage(ctx, err)",
+				"if op.Type == resource.OperationCreate {",
+				`return httpio.NewBadRequestMessage("a sector is not created directly: invite one person, and the sector is made when that person first signs in")`,
+				// Create stays registered: it is the grant an invitation is sent under.
+				"sectorDecoder := NewDecoder[resources.Sector, sectorRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)",
 			},
-			// No tenant's create takes its key from the caller, so no row it meets is
-			// there already: nothing is skipped, and no key is converted as a string.
-			wantNotContains: []string{"NewSectorCreatePatchFromPatchSet(id, patchSet)", "RowSkipped", "accesstypes.Domain(id))", "accesstypes.Domain(domain))"},
+			// The creator's seat went with the direct create.
+			wantNotContains: []string{"AdministratorRoles", "AssignRole", "AwaitFirstAdministrator", "var created", "created = "},
+			refusedCreate:   "sectorDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())",
 		},
 		{
 			name: "concealed domains ask the roster, the session's reach, then the caller's foothold",
@@ -801,34 +794,14 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 					t.Errorf("consolidatedPatchTemplate output must not contain %q:\n%s", notWant, out)
 				}
 			}
-			if tt.data.Seat != nil {
-				// The creator's roles inside the transaction; the wait on them between the
-				// roster's reload and the tenants signal, before the answer.
+			if tt.refusedCreate != "" {
+				// The refusal answers before the operation is decoded, so before any grant
+				// is read: a caller learns how a tenant is made whatever they hold.
 				rendered := string(out)
-				given := strings.Index(rendered, "identity.AssignRole(ctx, txn,")
-				commit := strings.Index(rendered, "}); err != nil {")
-				reload := strings.Index(rendered, "a.TenantRoster().Reload(ctx)")
-				seat := strings.Index(rendered, "resource.AwaitFirstAdministrator(")
-				signal := strings.LastIndex(rendered, "Signal(ctx, resource.KindTenants)")
-				answer := strings.Index(rendered, "return httpio.NewEncoder(w).Ok(resp)")
-				if given < 0 || given >= commit || commit >= reload || reload >= seat || seat >= signal || signal >= answer {
-					t.Errorf("order: membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", given, commit, reload, seat, signal, answer, out)
-				}
-				// The membership is the create's own: after the record's row is buffered
-				// and its generated id read, before the update's case of the same arm.
-				_, arm, found := strings.Cut(rendered, "resources.NewSectorCreatePatchFromPatchSet(patchSet)")
-				if !found {
-					t.Fatalf("the record's create is not rendered:\n%s", out)
-				}
-				row := strings.Index(arm, "patch.Buffer(ctx, txn, eventSource)")
-				generated := strings.Index(arm, "id := patch.ID()")
-				membership := strings.Index(arm, "identity.AssignRole(ctx, txn,")
-				update := strings.Index(arm, "case resource.OperationUpdate:")
-				if row < 0 || row >= generated || generated >= membership || membership >= update {
-					t.Errorf("order after the record's create: row %d, generated id %d, membership %d, update %d; want the membership in the record's create, under the id the row was buffered with:\n%s", row, generated, membership, update, out)
-				}
-				if count := strings.Count(rendered, "identity.AssignRole(ctx, txn,"); count != 1 {
-					t.Errorf("the dispatcher writes a membership in %d places, want the record's create alone:\n%s", count, out)
+				refusal := strings.Index(rendered, "is not created directly")
+				decoded := strings.Index(rendered, tt.refusedCreate)
+				if refusal < 0 || decoded < 0 || refusal >= decoded {
+					t.Errorf("order: refusal %d, decode %d; want the create op refused before it is decoded:\n%s", refusal, decoded, out)
 				}
 			}
 		})

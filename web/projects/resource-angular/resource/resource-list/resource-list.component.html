@@ -26,6 +26,12 @@
       </div>
     }
   </div>
+  @if (notice()) {
+    <div class="notice" role="status" [class.indent]="indentTitle()">
+      <mat-icon class="notice-icon" aria-hidden="true">warning</mat-icon>
+      <p class="notice-words">{{ notice() }}</p>
+    </div>
+  }
   @if (showSearchBox()) {
     <div class="search-container" [class.indent]="indentTitle()">
       <impulse-search-box

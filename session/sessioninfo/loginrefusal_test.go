@@ -176,6 +176,24 @@ func TestNewTooManyAttemptsRefusal(t *testing.T) {
 	}
 }
 
+func TestNewTooManyAttemptsRefusalSaying(t *testing.T) {
+	t.Parallel()
+
+	err := NewTooManyAttemptsRefusalSaying(90*time.Second, "Too many wrong codes were entered. Ask for a new code in 2 minutes")
+	if got := LoginRefusalCodeOf(err); got != RefusedTooManyAttempts {
+		t.Errorf("LoginRefusalCodeOf() = %q, want %q", got, RefusedTooManyAttempts)
+	}
+	if !httpio.HasTooManyRequests(err) {
+		t.Errorf("HasTooManyRequests() = false, want the refusal to answer 429")
+	}
+	if got := httpio.Message(err); got != "Too many wrong codes were entered. Ask for a new code in 2 minutes" {
+		t.Errorf("Message() = %q, want the caller's words", got)
+	}
+	if wait, ok := RetryAfterOf(err); !ok || wait != 90*time.Second {
+		t.Errorf("RetryAfterOf() = %s, %t; want the wait the refusal carries", wait, ok)
+	}
+}
+
 func TestNewTooManyEmailsRefusal(t *testing.T) {
 	t.Parallel()
 

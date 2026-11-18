@@ -16,7 +16,7 @@ import (
 )
 
 // mailLinkColumns are the mail links table's columns, in mailLinkRow's order.
-const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "TenantId", "RoleNames", "InvitedByUserId", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name"`
+const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "TenantId", "RoleNames", "InvitedByUserId", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name", "NewTenant"`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
@@ -32,9 +32,10 @@ type mailLinkRow struct {
 	ExpiresAt       time.Time     `db:"ExpiresAt"`
 	ConsumedAt      *time.Time    `db:"ConsumedAt"`
 	Name            *string       `db:"Name"`
+	NewTenant       *string       `db:"NewTenant"`
 }
 
-func (r *mailLinkRow) link() *dbtype.MailLink {
+func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 	l := &dbtype.MailLink{
 		ID: r.ID, TokenHash: r.TokenHash, Kind: dbtype.MailLinkKind(r.Kind), Email: r.Email, RoleNames: r.RoleNames,
 		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt,
@@ -51,8 +52,13 @@ func (r *mailLinkRow) link() *dbtype.MailLink {
 	if r.Name != nil {
 		l.Name = *r.Name
 	}
+	newTenant, err := dbtype.NewTenantFromColumn(r.NewTenant)
+	if err != nil {
+		return nil, errors.Wrap(err, "dbtype.NewTenantFromColumn()")
+	}
+	l.NewTenant = newTenant
 
-	return l
+	return l, nil
 }
 
 func (s *SessionStorageDriver) mailLinksTable() string {
@@ -75,8 +81,12 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if l.InvitedByUserID.Valid {
 		invitedBy = &l.InvitedByUserID.UUID
 	}
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10)`, s.mailLinksTable(), mailLinkColumns)
-	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name)}
+	newTenant, err := dbtype.NewTenantColumn(l.NewTenant)
+	if err != nil {
+		return errors.Wrap(err, "dbtype.NewTenantColumn()")
+	}
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10, $11)`, s.mailLinksTable(), mailLinkColumns)
+	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name), newTenant}
 	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
@@ -92,7 +102,11 @@ func (s *SessionStorageDriver) queryMailLinks(ctx context.Context, query string,
 	}
 	links := make([]*dbtype.MailLink, len(rows))
 	for i, r := range rows {
-		links[i] = r.link()
+		link, err := r.link()
+		if err != nil {
+			return nil, err
+		}
+		links[i] = link
 	}
 
 	return links, nil

@@ -109,7 +109,11 @@ var (
 
 // InsertFactorCode consumes the earlier codes of c's pending sign-in that are live at
 // now and inserts c, in one transaction: one code stands for a pending sign-in at a
-// time.
+// time. Inserts made at once for one pending sign-in leave one code too: the
+// transaction is serializable, Spanner's isolation unless a database is set to another,
+// and its update reads the pending sign-in's live codes under locks that the other's
+// insert conflicts with, so Spanner runs one of the two after the other, where it
+// consumes the first one's code.
 func (s *SessionStorageDriver) InsertFactorCode(ctx context.Context, c *dbtype.FactorCode, now time.Time) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -188,8 +192,9 @@ func (s *SessionStorageDriver) FactorCodeByPending(ctx context.Context, pendingI
 	return codes[0], nil
 }
 
-// RecordFactorCodeAttempt counts a wrong code against the code id, when it is live at
-// now, and returns the count, in one transaction. A code that is not live is NotFound.
+// RecordFactorCodeAttempt counts an attempt against the code id, when it is live at
+// now, and returns the count, in one transaction: attempts counted at once are each
+// counted and answered their own count. A code that is not live is NotFound.
 func (s *SessionStorageDriver) RecordFactorCodeAttempt(ctx context.Context, id impulse.UUID, now time.Time) (int, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

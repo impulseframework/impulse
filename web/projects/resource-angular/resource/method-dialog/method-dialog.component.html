@@ -3,6 +3,21 @@
   @if (question) {
     <p class="question">{{ question }}</p>
   }
+  @if (warned(); as warning) {
+    <div class="warning" role="alert">
+      <mat-icon class="warning-icon" aria-hidden="true">warning</mat-icon>
+      <div class="warning-words">
+        <p class="warning-consequence">{{ warning.consequence }}</p>
+        @if (warning.names?.length) {
+          <ul class="warning-names">
+            @for (name of warning.names; track $index) {
+              <li>{{ name }}</li>
+            }
+          </ul>
+        }
+      </div>
+    </div>
+  }
   @if (elements.length > 0) {
     <div class="resource-container">
       <form [formGroup]="form" (ngSubmit)="run()">
@@ -21,17 +36,34 @@
   }
   @if (uploadLimit) {
     <div class="files">
-      <label class="files-label" for="impulse-method-files">Choose what to send. The files can be up to {{ uploadLimit }} together.</label>
+      <label class="files-label" for="impulse-method-files"
+        >Choose what to send. The files can be up to {{ uploadLimit }} together.</label
+      >
       <input id="impulse-method-files" class="files-input" type="file" multiple (change)="pick($event)" />
     </div>
+  }
+  @if (typedWord) {
+    <mat-form-field class="typed-word">
+      <mat-label>Type {{ typedWord }} to confirm</mat-label>
+      <input matInput type="text" autocomplete="off" autocapitalize="off" spellcheck="false" [formControl]="typed" />
+    </mat-form-field>
   }
   @if (refusal()) {
     <p class="refusal" role="alert">{{ refusal() }}</p>
   }
 </mat-dialog-content>
 <mat-dialog-actions align="end">
-  <button mat-raised-button type="button" color="warn" [mat-dialog-close]="undefined" [disabled]="busy()">Cancel</button>
-  <button mat-raised-button type="button" color="accent" (click)="run()" [disabled]="busy() || form.invalid || !hasFiles()">
-    {{ data.label }}
+  <button mat-raised-button type="button" color="warn" [mat-dialog-close]="undefined" [disabled]="busy()">
+    Cancel
+  </button>
+  <button
+    mat-raised-button
+    type="button"
+    color="accent"
+    class="run"
+    [class.warns]="!!typedWord"
+    (click)="run()"
+    [disabled]="busy() || form.invalid || !hasFiles() || !confirmed()">
+    {{ runLabel() }}
   </button>
 </mat-dialog-actions>

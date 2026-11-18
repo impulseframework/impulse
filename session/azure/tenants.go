@@ -19,8 +19,10 @@ const DefaultAuthority = "https://login.microsoftonline.com"
 
 // ConsumerTenantID is the tenant id of Microsoft personal accounts (outlook.com,
 // hotmail.com, Xbox): the tid claim every personal account's token carries. It is
-// admitted only by PersonalAccounts, and refused as a listed tenant.
-const ConsumerTenantID = "9188040d-6c67-4c5b-b112-36a304b66dad"
+// admitted only by PersonalAccounts, and refused as a listed tenant. It is one of the
+// two values that are no organization's directory (signin.Directory.PersonalAccounts),
+// so no tenant of an application takes it as its own.
+const ConsumerTenantID = signin.MicrosoftPersonalAccountsConnection
 
 // The shared endpoints of the Microsoft identity platform, whose discovery documents
 // name their issuer with a placeholder.
@@ -66,14 +68,14 @@ type namedTenant struct {
 
 // Tenant is one Microsoft Entra tenant, by its tenant id (the tid claim, a GUID): the
 // application that belongs to one organization, as a single-tenant app registration
-// serves it. The tenant id is the tenant key the standard account rules store on the
+// serves it. The tenant id is the tenant key the standard account rule stores on the
 // links made through it.
 func Tenant(id string) TenantSet {
 	return TenantSet{listed: []namedTenant{{id: id}}}
 }
 
 // NamedTenant is Tenant with the application's own name for the tenant, which the
-// standard account rules store as the tenant key of the links made through it in place
+// standard account rule stores as the tenant key of the links made through it in place
 // of the tenant id. The identity key is still (tid, oid).
 func NamedTenant(id, name string) TenantSet {
 	return TenantSet{listed: []namedTenant{{id: id, name: name}}}
@@ -119,10 +121,10 @@ func (s TenantSet) Attesting() TenantSet {
 }
 
 // AnyTenant admits the work or school account of any Microsoft Entra tenant, and no
-// personal account. Members of the directory is refused with it, since every tenant in
-// the world is "the directory": invited users only, open sign-up or a rule of the
-// application's own decides a first sign-in. Role synchronization is refused with it,
-// since a token's application roles are asserted by the tenant that issued it.
+// personal account. Opening the method to sign-up then admits anyone with a Microsoft
+// work or school account, which the warning an administrator confirms says. Role
+// synchronization is refused with it, since a token's application roles are asserted
+// by the tenant that issued it.
 func AnyTenant() TenantSet {
 	return TenantSet{any: true}
 }
@@ -130,10 +132,57 @@ func AnyTenant() TenantSet {
 // PersonalAccounts admits Microsoft personal accounts (ConsumerTenantID): the
 // consumer tenant, which a work or school shape never admits. Beside AnyTenant or
 // listed tenants it is served through Microsoft's common endpoint; alone, through the
-// consumers endpoint. Members of the directory and role synchronization are refused
-// with it, as with AnyTenant.
+// consumers endpoint. Role synchronization is refused with it, as with AnyTenant.
 func PersonalAccounts() TenantSet {
 	return TenantSet{personal: true}
+}
+
+// What identifies whom the slot admits, as an audience's key spells it: a listed tenant
+// by its tenant id, the work or school accounts of every tenant, and Microsoft's
+// personal accounts.
+const (
+	identityTenant           = "microsoft-entra-tenant:"
+	identityAnyTenant        = "microsoft-entra:any-tenant"
+	identityPersonalAccounts = "microsoft:personal-accounts"
+)
+
+// audience is how wide the slot is, for the page where a method is opened to sign-up:
+// the tenants it lists, each by the application's name for it or its tenant id, and
+// what an account outside them is called when the slot admits any.
+//
+// The names are for the page. What the audience is compared by is its identities: each
+// listed tenant by its tenant id, in lower case, since a name is the application's to
+// give and a second tenant can be given the first one's. A slot that admits any tenant
+// admits its listed tenants' people among everyone else's, so its identities are the
+// open entry alone, with the personal accounts where it admits them.
+func (s TenantSet) audience() signin.Audience {
+	var a signin.Audience
+	for _, t := range s.listed {
+		name := t.name
+		if name == "" {
+			name = "the Microsoft Entra tenant " + t.id
+		}
+		a.Organizations = append(a.Organizations, name)
+		if !s.any {
+			a.Identities = append(a.Identities, identityTenant+strings.ToLower(t.id))
+		}
+	}
+	switch {
+	case s.any && s.personal:
+		a.Accounts = "a Microsoft account"
+	case s.any:
+		a.Accounts = "a Microsoft work or school account"
+	case s.personal:
+		a.Accounts = "a personal Microsoft account"
+	}
+	if s.any {
+		a.Identities = append(a.Identities, identityAnyTenant)
+	}
+	if s.personal {
+		a.Identities = append(a.Identities, identityPersonalAccounts)
+	}
+
+	return a
 }
 
 // validate is the slot's startup check: it refuses an empty slot, a tenant id that is
@@ -194,7 +243,7 @@ func (s TenantSet) one() (namedTenant, bool) {
 }
 
 // admits reports whether the set admits a token of tenant tid, and the organization
-// the standard account rules store as the tenant key: the tenant's name when the
+// the standard account rule stores as the tenant key: the tenant's name when the
 // application gave one, the tenant id in lower case otherwise, and "" when the tenant
 // is not admitted. Tenant ids are compared without regard to case.
 func (s TenantSet) admits(tid string) (organization string, ok bool) {
@@ -216,6 +265,21 @@ func (s TenantSet) admits(tid string) (organization string, ok bool) {
 	default:
 		return "", false
 	}
+}
+
+// nameOf answers the application's name for the listed tenant tid (NamedTenant), "" for
+// a tenant listed by its id alone, one the set admits as any tenant, and one it does
+// not admit: a tenant id is nothing a person knows, so a sentence says such a tenant by
+// the label of the registration's button. Tenant ids are compared without regard to
+// case.
+func (s TenantSet) nameOf(tid string) string {
+	for _, t := range s.listed {
+		if strings.EqualFold(t.id, tid) {
+			return t.name
+		}
+	}
+
+	return ""
 }
 
 // attests reports whether the set declares tenant tid as enforcing a second factor
@@ -314,24 +378,6 @@ func (s TenantSet) simulatedTenantID(fallback string) string {
 // issuerOf is the issuer of tenant tid's v2.0 tokens under authority.
 func issuerOf(authority, tid string) string {
 	return authority + "/" + strings.ToLower(tid) + "/v2.0"
-}
-
-// TenantOfIssuer reads a tenant's v2.0 issuer, <authority>/<tenant id>/v2.0, into the
-// authority and the tenant it names, for a configuration that holds the issuer of one
-// tenant as v0.12 did (Config.Authority and Config.Tenants hold them apart). An issuer
-// of another shape is an error.
-func TenantOfIssuer(issuerURL string) (authority string, tenant TenantSet, err error) {
-	base, ok := strings.CutSuffix(strings.TrimSuffix(issuerURL, "/"), "/v2.0")
-	i := strings.LastIndex(base, "/")
-	if !ok || i <= 0 || !tenantIDPattern.MatchString(base[i+1:]) {
-		return "", TenantSet{}, errors.Newf("%q is not the issuer of a Microsoft Entra tenant, <authority>/<tenant id>/v2.0", issuerURL)
-	}
-	authority, err = authorityOf(base[:i])
-	if err != nil {
-		return "", TenantSet{}, errors.Wrap(err, "azure.authorityOf()")
-	}
-
-	return authority, Tenant(base[i+1:]), nil
 }
 
 // tenantOfIssuer reads the tenant id out of an issuer under authority, and reports

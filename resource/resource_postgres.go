@@ -16,16 +16,28 @@ var _ Client = (*PostgresClient)(nil)
 type PostgresClient struct {
 	postgres *pgxpool.Pool
 	stores   *fileStores
+	// secrets are the application's secret keys, nil when the client was built with
+	// none.
+	secrets *SecretKeys
 }
 
 // NewPostgresClient creates a new Client. WithFileStore and WithNamedFileStore hand it
 // the stores the generated handlers read off it, the options the Spanner client takes; a
-// store wired twice, or two stores on one location, panics here.
+// store wired twice, or two stores on one location, panics here. WithSecretKeys hands it
+// the keys a patch's secret fields are sealed with.
 func NewPostgresClient(db *pgxpool.Pool, opts ...ClientOption) *PostgresClient {
+	stores, secrets := applyClientOptions(opts)
+
 	return &PostgresClient{
 		postgres: db,
-		stores:   applyClientOptions(opts),
+		stores:   stores,
+		secrets:  secrets,
 	}
+}
+
+// secretKeys returns the application's secret keys, nil when the client holds none.
+func (c *PostgresClient) secretKeys() *SecretKeys {
+	return c.secrets
 }
 
 // DBType returns the database type.
@@ -50,7 +62,7 @@ func (c *PostgresClient) PostgresReadOnlyTransaction() any {
 
 // ExecuteFunc executes a function within a read-write transaction.
 func (c *PostgresClient) ExecuteFunc(_ context.Context, _ func(ctx context.Context, _ ReadWriteTransaction) error) error {
-	_ = newPostgresPostgresReadWriteTransaction(nil)
+	_ = newPostgresPostgresReadWriteTransaction(nil).WithSecretKeys(c.secrets)
 	panic("ExecuteFunc() not implemented for PostgresClient")
 }
 
@@ -125,13 +137,30 @@ var _ ReadWriteTransaction = (*PostgresReadWriteTransaction)(nil)
 type PostgresReadWriteTransaction struct {
 	postgres         *pgxpool.Pool
 	resourceRowIndex map[string]int
+	// secrets are the secret keys of the client the transaction runs on, nil when it
+	// holds none.
+	secrets *SecretKeys
 }
 
 func newPostgresPostgresReadWriteTransaction(txn *pgxpool.Pool) *PostgresReadWriteTransaction {
 	return &PostgresReadWriteTransaction{
 		postgres:         txn,
 		resourceRowIndex: make(map[string]int),
+		secrets:          nil,
 	}
+}
+
+// WithSecretKeys gives the transaction the application's secret keys, which a patch's
+// secret fields are sealed with, and returns the transaction.
+func (c *PostgresReadWriteTransaction) WithSecretKeys(keys *SecretKeys) *PostgresReadWriteTransaction {
+	c.secrets = keys
+
+	return c
+}
+
+// secretKeys returns the secret keys the transaction seals with, nil when it holds none.
+func (c *PostgresReadWriteTransaction) secretKeys() *SecretKeys {
+	return c.secrets
 }
 
 // Read reads a single resource from the database.

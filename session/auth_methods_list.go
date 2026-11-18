@@ -32,6 +32,17 @@ type MethodList struct {
 	// operator set. It is required when the password method is listed, since every
 	// user an operator gives a password must change it, and refused when it is not.
 	ChangePassword string
+	// RemovePassword is the path of the password method's RemoveUserPassword handler,
+	// where a signed-in person's account page removes their password once they sign in
+	// through a directory, or none. It is refused when the password method is not
+	// listed.
+	RemovePassword string
+	// FirstPassword are the paths of the first password handlers
+	// (FirstPassword().SendCode() and Set()), where the account page of a signed-in
+	// person who holds no password mails them a code and takes the password they
+	// choose with it; both or none. They are refused when the password method is not
+	// listed.
+	FirstPassword FirstPasswordRoutes
 	// ForgetBrowser is the path of the Auth's ForgetBrowser handler, where a signed-in
 	// person's account page forgets the browser the second factor remembered for them,
 	// or none. The page shows the action only where the session says the browser is
@@ -40,6 +51,13 @@ type MethodList struct {
 	// ChangeName is the path of the Auth's ChangeName handler, where a signed-in
 	// person's account page writes their own name, or none.
 	ChangeName string
+	// SignInMeans is the path of the Auth's SignInMeans handler, where a signed-in
+	// person's account page reads what they sign in with (whether they hold a password,
+	// and the directory sign-ins that can sign them in), or none. The read answers in
+	// this list's labels. Without it the page offers the change of a password to
+	// everyone the password method serves and the removal to nobody, since it cannot
+	// say what a removal would leave the person.
+	SignInMeans string
 	// ChangeLook is the path of the Auth's ChangeLook handler, where a signed-in
 	// person's pages keep the look the person chose, or none.
 	ChangeLook string
@@ -51,8 +69,9 @@ type MethodList struct {
 	// both or none.
 	Email EmailRoutes
 	// SignUp are the paths of the sign-up handlers (SignUp().Start(), Open() and
-	// Complete()), all three or none; they need the password method listed and
-	// registered with OpenSignUp.
+	// Complete()), all three or none; they need the password method listed. The page
+	// is told them only while an administrator has the password method open to
+	// sign-up, which the answer reads as each request arrives.
 	SignUp SignUpRoutes
 }
 
@@ -68,6 +87,13 @@ type InvitationRoutes struct {
 type EmailRoutes struct {
 	Add    string
 	Verify string
+}
+
+// FirstPasswordRoutes are the paths of the first password handlers, as a MethodList
+// names them.
+type FirstPasswordRoutes struct {
+	SendCode string
+	Set      string
 }
 
 // SignUpRoutes are the paths of the sign-up handlers, as a MethodList names them.
@@ -107,8 +133,11 @@ type methodsAnswer struct {
 	Methods        []signin.Advertisement `json:"methods"`
 	Pending        *pendingAnswer         `json:"pending,omitempty"`
 	ChangePassword string                 `json:"changePassword,omitempty"`
+	RemovePassword string                 `json:"removePassword,omitempty"`
+	FirstPassword  *firstPasswordAnswer   `json:"firstPassword,omitempty"`
 	ForgetBrowser  string                 `json:"forgetBrowser,omitempty"`
 	ChangeName     string                 `json:"changeName,omitempty"`
+	SignInMeans    string                 `json:"signInMeans,omitempty"`
 	ChangeLook     string                 `json:"changeLook,omitempty"`
 	// UsernameIsEmail says the password method's username is the email address, so
 	// the page asks for the address.
@@ -135,8 +164,13 @@ type standingInvitationAnswer struct {
 	Email string `json:"email"`
 	// TenantID and TenantName are the tenant the invitation seats the person in and
 	// what people call it, as Invitation().Open() answers them.
-	TenantID        string    `json:"tenantId,omitempty"`
-	TenantName      string    `json:"tenantName,omitempty"`
+	TenantID   string `json:"tenantId,omitempty"`
+	TenantName string `json:"tenantName,omitempty"`
+	// NewTenant says the invitation makes a tenant, whose name TenantName then is, and
+	// DirectoryOnly that it is accepted through an organization's directory alone, so
+	// the page offers no account with a password for it.
+	NewTenant       bool      `json:"newTenant"`
+	DirectoryOnly   bool      `json:"directoryOnly"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	UsernameIsEmail bool      `json:"usernameIsEmail"`
 	// Methods are the names of the listed external registrations that could admit the
@@ -148,6 +182,12 @@ type standingInvitationAnswer struct {
 	// holder may know it, since following the link proved they own the address.
 	AccountExists bool `json:"accountExists"`
 	HasPassword   bool `json:"hasPassword"`
+}
+
+// firstPasswordAnswer is the first password block of a methods answer.
+type firstPasswordAnswer struct {
+	SendCode string `json:"sendCode"`
+	Set      string `json:"set"`
 }
 
 // emailAnswer is the email block of a methods answer.
@@ -177,10 +217,13 @@ type pendingAnswer struct {
 // method its name, the method behind it, how it starts (a form for the password
 // method, a redirect for an external one), its label and its path, in the list's
 // order, the pending sign-in routes when the list names them, and the password
-// change route when the password method is listed. When the list names the invitation
+// change route when the password method is listed, with the route that removes the
+// password when the list names it. When the list names the invitation
 // routes and the browser carries a live invitation (the cookie Invitation().Open()
 // set), the invitation block also reports it under "standing": the address it was
-// sent to, its tenant, when it stops being accepted, whether an account created from
+// sent to, its tenant (for an invitation that makes a tenant, "newTenant" with the
+// tenant's name, and "directoryOnly" where it is accepted through an organization's
+// directory alone), when it stops being accepted, whether an account created from
 // it takes the address as its username, and the names of the listed external
 // registrations that could admit the address (see Invitation().Open()), so a page
 // that arrives without the mailed link's token, as it does when an external sign-in
@@ -188,7 +231,10 @@ type pendingAnswer struct {
 // would refuse the person. A browser without the cookie, or whose invitation is no
 // longer live, gets the block without it. The answer is public: route it beside the
 // login routes, behind StartSession and before ValidateSession, and it needs no XSRF
-// token.
+// token. The sign-up block is in the answer only while the password method is open to
+// sign-up: an administrator's choice in the running application, which the answer
+// reads as each request arrives, so a page loaded after the method is opened offers
+// to sign up and one loaded after it is closed does not.
 //
 //	{"methods": [{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
@@ -202,25 +248,49 @@ type pendingAnswer struct {
 // that is not registered on this Auth, a name listed twice, a method without a label
 // or with a path that is not a canonical path in the application, a pending block
 // with some of its paths, the password method without the password change route, or
-// that route without the password method.
+// that route or the remove-password route without the password method.
 func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if answer.Invitation == nil {
+		if answer.Invitation == nil && answer.SignUp == nil {
 			return httpio.NewEncoder(w).Ok(answer)
 		}
 
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		now := answer
+		if answer.SignUp != nil {
+			open, err := a.passwordSignUpOpen(ctx)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			now = answer.withSignUp(open)
+		}
+		if now.Invitation == nil {
+			return httpio.NewEncoder(w).Ok(now)
+		}
 		standing, err := a.standingInvitation(ctx, r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(answer.withStanding(standing))
+		return httpio.NewEncoder(w).Ok(now.withStanding(standing))
 	}))
+}
+
+// withSignUp is the answer as a page reads it now: with its sign-up block while the
+// password method is open to sign-up, and without it, as a copy, while it is not. The
+// answer built at wiring is shared by every request and carries the block.
+func (m *methodsAnswer) withSignUp(open bool) *methodsAnswer {
+	if open {
+		return m
+	}
+	answer := *m
+	answer.SignUp = nil
+
+	return &answer
 }
 
 // standingInvitation is the live invitation the browser carries, for the invitation
@@ -248,9 +318,11 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 		return nil, err
 	}
 
+	makes, directoryOnly := madeTenant(inv.NewTenant)
+
 	return &standingInvitationAnswer{
-		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.tenantName(inv.TenantID), ExpiresAt: inv.ExpiresAt,
-		UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
+		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
+		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
 		AccountExists: exists, HasPassword: hasPassword,
 	}, nil
 }
@@ -273,7 +345,9 @@ func (m *methodsAnswer) withStanding(standing *standingInvitationAnswer) *method
 // advertise builds the methods answer from list, checking each entry against the
 // registry under the methods lock without closing registration: the first request
 // closes it, as for every handler. The names listed are remembered as the methods the
-// login page offers (signInMethods.listed).
+// login page offers (signInMethods.listed), and the list itself with its labels and
+// its sign-in means route (signInMethods.lists), so a read served beside it answers in
+// its words.
 func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	if list == nil || len(list.Methods) == 0 {
 		panic("session: Methods is given no sign-in method: list every method the login page offers, each with its label and the path its Login handler is mounted at")
@@ -306,21 +380,33 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		}
 		answer.Methods = append(answer.Methods, ad)
 	}
+	listing := methodsListing{labels: make(map[string]string, len(list.Methods)), signInMeans: list.SignInMeans}
 	for _, m := range list.Methods {
 		if !slices.Contains(a.methods.listed, m.Name) {
 			a.methods.listed = append(a.methods.listed, m.Name)
 		}
+		if a.methods.labels == nil {
+			a.methods.labels = make(map[string]string, len(list.Methods))
+		}
+		if _, labeled := a.methods.labels[m.Name]; !labeled {
+			a.methods.labels[m.Name] = m.Label
+		}
+		listing.labels[m.Name] = m.Label
 	}
+	a.methods.lists = append(a.methods.lists, listing)
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
 	answer.Pending = pendingAnswerOf(&list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
+	answer.RemovePassword = removePasswordPathOf(list, passwordListed)
+	answer.FirstPassword = firstPasswordAnswerOf(list.FirstPassword, passwordListed)
 	answer.ForgetBrowser = forgetBrowserPathOf(list)
 	answer.ChangeName = changeNamePathOf(list)
+	answer.SignInMeans = signInMeansPathOf(list)
 	answer.ChangeLook = changeLookPathOf(list)
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
-	answer.SignUp = signUpAnswerOf(list.SignUp, passwordListed && a.methods.openSignUp())
+	answer.SignUp = signUpAnswerOf(list.SignUp, passwordListed)
 
 	return answer
 }
@@ -358,13 +444,13 @@ func emailAnswerOf(p EmailRoutes) *emailAnswer {
 }
 
 // signUpAnswerOf validates the sign-up routes: none, or all three as canonical paths,
-// on a password method that offers sign-up.
-func signUpAnswerOf(p SignUpRoutes, offered bool) *signUpAnswer {
+// beside a listed password method.
+func signUpAnswerOf(p SignUpRoutes, passwordListed bool) *signUpAnswer {
 	if p == (SignUpRoutes{}) {
 		return nil
 	}
-	if !offered {
-		panic(fmt.Sprintf("session: Methods is given the sign-up routes %+v but the listed password method does not offer sign-up: register it with OpenSignUp, or drop the routes", p))
+	if !passwordListed {
+		panic(fmt.Sprintf("session: Methods is given the sign-up routes %+v but lists no password method: a person signs up with a password, so list the method, or drop the routes", p))
 	}
 	if !advertisedPath(p.Start) || !advertisedPath(p.Open) || !advertisedPath(p.Complete) {
 		panic(fmt.Sprintf("session: Methods is given the sign-up routes %+v: name the start, open and complete paths together, each a canonical path in the application", p))
@@ -388,6 +474,40 @@ func changePasswordPathOf(list *MethodList, passwordListed bool) string {
 	return list.ChangePassword
 }
 
+// removePasswordPathOf validates the remove-your-password route: none, or a canonical
+// path beside a listed password method.
+func removePasswordPathOf(list *MethodList, passwordListed bool) string {
+	switch {
+	case list.RemovePassword == "":
+		return ""
+	case !passwordListed:
+		panic(fmt.Sprintf("session: Methods is given the remove-your-password route %q but lists no password method: drop it, or list the method", list.RemovePassword))
+	case !advertisedPath(list.RemovePassword):
+		panic(fmt.Sprintf("session: Methods is given the remove-your-password route %q, which is not a canonical path in the application: "+
+			"give it the path the password method's RemoveUserPassword handler is mounted at, such as /api/user/password/remove", list.RemovePassword))
+	}
+
+	return list.RemovePassword
+}
+
+// firstPasswordAnswerOf validates the first password routes: none, or both as canonical
+// paths beside a listed password method.
+func firstPasswordAnswerOf(p FirstPasswordRoutes, passwordListed bool) *firstPasswordAnswer {
+	if p == (FirstPasswordRoutes{}) {
+		return nil
+	}
+	if !passwordListed {
+		panic(fmt.Sprintf("session: Methods is given the first password routes %+v but lists no password method: "+
+			"a person chooses a first password where people sign in with one, so list the method, or drop the routes", p))
+	}
+	if !advertisedPath(p.SendCode) || !advertisedPath(p.Set) {
+		panic(fmt.Sprintf("session: Methods is given the first password routes %+v: name the send-code and set paths together, each a canonical path in the application, "+
+			"such as /api/user/password/first/code and /api/user/password/first", p))
+	}
+
+	return &firstPasswordAnswer{SendCode: p.SendCode, Set: p.Set}
+}
+
 // changeLookPathOf validates the keep-your-look route: none, or a canonical path.
 func changeLookPathOf(list *MethodList) string {
 	if list.ChangeLook != "" && !advertisedPath(list.ChangeLook) {
@@ -406,6 +526,17 @@ func changeNamePathOf(list *MethodList) string {
 	}
 
 	return list.ChangeName
+}
+
+// signInMeansPathOf validates the route a person's sign-in means are read from: none, or
+// a canonical path.
+func signInMeansPathOf(list *MethodList) string {
+	if list.SignInMeans != "" && !advertisedPath(list.SignInMeans) {
+		panic(fmt.Sprintf("session: Methods is given the sign-in means route %q, which is not a canonical path in the application: "+
+			"give it the path its SignInMeans handler is mounted at, such as /api/user/sign-in-means", list.SignInMeans))
+	}
+
+	return list.SignInMeans
 }
 
 // forgetBrowserPathOf validates the forget-this-browser route: none, or a canonical path.

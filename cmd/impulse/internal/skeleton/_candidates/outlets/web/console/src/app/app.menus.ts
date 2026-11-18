@@ -1,12 +1,9 @@
-import { inject } from '@angular/core';
-import { MatDialog } from '@angular/material/dialog';
 import { apiDescriptor } from '@app/service/zz_gen_api';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
 import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
-import { openNewTenantDialog } from '@components/ui/new-tenant/new-tenant-dialog.component';
 import { tenantSignInPage } from '@components/ui/sign-in/sign-in.routes';
 import { tenantsConfig } from './configs/tenants.config';
 
@@ -23,25 +20,19 @@ import { tenantsConfig } from './configs/tenants.config';
  *
  * The frame calls the function once, in an injection context, handing it what the frame
  * does (the feature flags dialog), so an entry of the application's own may use a service
- * it injects: New tenant… opens the new-tenant dialog.
+ * it injects.
  */
 export function appMenus(actions: FrameActions): Menu[] {
-  const dialog = inject(MatDialog);
   return [
     {
       label: 'Tenants',
       groups: [
         {
-          entries: [
-            resourcePage(tenantsConfig, resourceMeta),
-            {
-              label: 'New tenant…',
-              icon: 'add_business',
-              run: () => void openNewTenantDialog(dialog),
-              place: 'outside',
-              permission: { resource: Resources.Tenants, permission: Permissions.Create },
-            },
-          ],
+          // The tenants the application serves. Nobody creates one here: an administrator
+          // brings an organization in by inviting one person, on the Invited tenants page
+          // among the staff's pages under System, and that person's first sign-in makes
+          // the tenant.
+          entries: [resourcePage(tenantsConfig, resourceMeta)],
         },
       ],
     },
@@ -66,8 +57,9 @@ export function appMenus(actions: FrameActions): Menu[] {
       groups: [
         {
           entries: [
-            // The staff's accounts across the whole application, their mailed links,
-            // sessions and failed sign-ins.
+            // The staff's accounts across the whole application, their mailed links, the
+            // Invited tenants page, where an administrator brings a tenant in by inviting
+            // the person who will administer it, sessions and failed sign-ins.
             ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
           ],
         },

@@ -20,6 +20,13 @@ func tenantFixtureTables() map[string]*tableMetadata {
 	compositeKey := columnMeta{IsPrimaryKey: true, IsIndex: true}
 	plain := columnMeta{}
 	nullable := columnMeta{IsNullable: true}
+	// A directories record's table holds the two rules of a tenant's directory with a
+	// unique index each: the tenant column alone, and the method with the connection.
+	oneTenant := columnMeta{IsIndex: true, IsUniqueIndex: true}
+	byTenant := indexMeta{Name: "ByHarborId", Unique: true, Key: []indexColumn{{Column: "HarborId"}}}
+	byDirectory := indexMeta{Name: "ByMethodConnection", Unique: true, Key: []indexColumn{{Column: "Method"}, {Column: "Connection"}}}
+	byTenantAndDirectory := indexMeta{Name: "ByHarborIdMethodConnection", Unique: true, Key: []indexColumn{{Column: "HarborId"}, {Column: "Method"}, {Column: "Connection"}}}
+	directoryIndexes := []indexMeta{byTenant, byDirectory}
 
 	return map[string]*tableMetadata{
 		"Sectors":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain}},
@@ -33,6 +40,16 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		"Colonies":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain}},
 		"Enclaves":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
 		"Outlands":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
+		"Frontiers": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
+		// The records an invitation that makes a tenant is read from: Citadel's secret and
+		// write-only columns take NULL, Keep's secret and Redoubt's write-only column do
+		// not, and Sealed is the server's.
+		"Citadels": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "Name": plain, "Motto": nullable, "Founded": plain, "Walled": plain,
+			"Passphrase": {IsNullable: true, SpannerType: "BYTES(MAX)"}, "Cipher": nullable, "Sealed": plain,
+		}},
+		"Keeps":     {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "Passphrase": {SpannerType: "BYTES(MAX)"}}},
+		"Redoubts":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "Cipher": plain}},
 		"Provinces": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
 		"Bastions":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
 		// The name and the label: the record marking both, and each refused shape.
@@ -44,11 +61,14 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		// The declaration's shapes: the record with its flag, the directories record,
 		// and each shape the annotations refuse.
 		"Harbors":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "DirectoryOnly": plain}},
-		"HarborDirectories": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "DefaultSeat": nullable}},
+		"HarborDirectories": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain, "DefaultSeat": nullable}, Indexes: directoryIndexes},
+		"Causeways":         {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}, Indexes: []indexMeta{byDirectory}},
+		"Seawalls":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: []indexMeta{byTenant, byTenantAndDirectory}},
+		"Pontoons":          {PkCount: 1, Columns: map[string]columnMeta{"Name": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: directoryIndexes},
 		"Slipways":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Seat": plain}},
 		"Wharfs":            {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "Seated": plain}},
-		"Breakwaters":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}},
-		"Marinas":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}},
+		"Breakwaters":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: directoryIndexes},
+		"Marinas":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: directoryIndexes},
 		"Lighthouses":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": nullable, "Method": plain, "Connection": plain}},
 		"Bollards":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "Seat": plain, "Rank": plain}},
 		"Piers":             {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Closed": plain}},
@@ -96,31 +116,24 @@ func Test_resolveTenant(t *testing.T) {
 			name:       "the global record keyed by one generated id is the tenant record",
 			structs:    []string{"Sector", "Berth"},
 			wantTenant: "Sector",
-			wantShape:  tenantCreationAdministrator,
+			wantShape:  tenantCreationNone,
 		},
 		{
-			name:       "creation: self-service is the self-service shape",
+			name:       "a record has neither the invitation nor the create-your-tenant route until the outlets say they can serve",
 			structs:    []string{"Station"},
 			wantTenant: "Station",
-			wantShape:  tenantCreationSelfService,
+			wantShape:  tenantCreationNone,
 		},
 		{
-			name:       "creation: both is both shapes",
-			structs:    []string{"Colony"},
-			wantTenant: "Colony",
-			wantShape:  tenantCreationBoth,
-		},
-		{
-			name:       "creation: administrator spells the default out",
-			structs:    []string{"Enclave"},
-			wantTenant: "Enclave",
-			wantShape:  tenantCreationAdministrator,
+			name:    "the retired creation argument is refused with what replaced it, whatever it named",
+			structs: []string{"Enclave"},
+			wantErr: "struct Enclave: @tenant(creation: administrator) is no longer declared, and nobody creates an enclave directly. Staff holding the record's Create grant invite one person, with the enclave's details, and that person's first sign-in makes the enclave and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
 		},
 		{
 			name:       "label: names the word for one tenant",
 			structs:    []string{"Lagoon"},
 			wantTenant: "Lagoon",
-			wantShape:  tenantCreationAdministrator,
+			wantShape:  tenantCreationNone,
 			wantLabel:  "Service district",
 		},
 		{
@@ -129,9 +142,14 @@ func Test_resolveTenant(t *testing.T) {
 			wantErr: "struct Shoal: @tenant(label: Shoal's) is not a word the screen shows as written; a label is letters, digits, single spaces and hyphens, starting with a letter",
 		},
 		{
-			name:    "a creation shape the generator does not know is refused naming the three",
+			name:    "the argument that let a stranger create a tenant is refused the same way",
 			structs: []string{"Outland"},
-			wantErr: "struct Outland: @tenant(creation: nowhere) names no creation shape; the shapes are administrator (an administrator alone, the default), self-service (the person who becomes its administrator) and both",
+			wantErr: "struct Outland: @tenant(creation: self-service) is no longer declared, and nobody creates an outland directly. Staff holding the record's Create grant invite one person, with the outland's details, and that person's first sign-in makes the outland and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
+		},
+		{
+			name:    "and so is the argument that kept both ways",
+			structs: []string{"Frontier"},
+			wantErr: "struct Frontier: @tenant(creation: both) is no longer declared, and nobody creates a frontier directly. Staff holding the record's Create grant invite one person, with the frontier's details, and that person's first sign-in makes the frontier and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
 		},
 		{
 			name:    "the shape without its key is refused",
@@ -505,12 +523,11 @@ func Test_patchTemplate_tenant(t *testing.T) {
 	structs := fixtureStructs(loadFixture(t, "tenantfixture"))
 
 	tests := []struct {
-		name      string
-		tenant    bool
-		directory bool
-		creation  tenantCreation
-		// auth binds the default outlet to the staff auth, which the record's create
-		// seats its creator through.
+		name     string
+		tenant   bool
+		creation tenantCreation
+		// auth binds the default outlet to the staff auth, whose identity client the
+		// record's delete clears the tenant through.
 		auth            bool
 		wantContains    []string
 		wantNotContains []string
@@ -529,45 +546,26 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			},
 		},
 		{
-			name:     "a self-service record refuses the create path naming the route",
+			name:     "the record's create op is refused before any grant is read, saying how a tenant is made, and nothing seats a creator",
 			tenant:   true,
-			creation: tenantCreationSelfService,
+			creation: tenantCreationBoth,
+			auth:     true,
 			wantContains: []string{
-				`return httpio.NewBadRequestMessage("a Sector is created by the person who becomes its administrator, through the create-sector route (@tenant(creation: self-service)); no administrator creates one")`,
-				"if err := a.TenantRoster().Reload(ctx); err != nil {",
-			},
-		},
-		{
-			name:   "the record's create gives its creator the administrator roles in its transaction, and waits on them between the roster's reload and the signal",
-			tenant: true,
-			auth:   true,
-			wantContains: []string{
-				"roles := a.SectorAdministratorRoles()",
-				`panic("SectorAdministratorRoles() names no role: the person who creates a Sector holds its administrator role, which the application names there")`,
-				"identity := a.StaffIdentity()",
-				"var created []impulse.UUID",
-				"userPermissions := a.UserPermissions(r)",
-				"created = nil",
-				// The create generates the id: the caller names none, and the creator's
-				// roles are given under the id the buffered row carries, whose text is
-				// the tenant's domain.
-				"patch, err := tenantfixture.NewSectorCreatePatchFromPatchSet(patchSet)",
-				"id := patch.ID()",
-				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {",
-				"created = append(created, id)",
-				"for _, id := range created {",
-				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {",
-				`logger.FromCtx(ctx).Errorf("sector %s: %v", id, err)`,
+				"if op.Type == resource.OperationCreate {",
+				`return httpio.NewBadRequestMessage("a sector is not created directly: invite one person, and the sector is made when that person first signs in")`,
+				// Create stays registered: it is the grant an invitation is sent under.
+				"decoder := NewDecoder[tenantfixture.Sector, request](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 			},
-			wantNotContains: []string{
-				// Nothing is removed after the commit: the row and the membership are one
-				// transaction, written through the auth's identity client.
-				"SeatFirstAdministrator", "UserSurface", ".NewSectorDeletePatch(row)",
-				// No create takes its key from the caller, so no row a create meets is
-				// there already: nothing is skipped, and no key is converted as a string.
-				"NewSectorCreatePatchFromPatchSet(id, patchSet)", "RowSkipped", "OrSkip", "RequireCreatePath", "accesstypes.Domain(id))", "accesstypes.Domain(domain))",
+			// The creator's seat went with the direct create.
+			wantNotContains: []string{"AdministratorRoles", "AssignRole", "AwaitFirstAdministrator", "identity := a.StaffIdentity()", "var created", "created = "},
+		},
+		{
+			name:   "a record the generator writes no invitation for says the application makes its tenants",
+			tenant: true,
+			wantContains: []string{
+				`return httpio.NewBadRequestMessage("a sector is not created directly: the application makes one in its own code")`,
 			},
 		},
 		{
@@ -586,22 +584,6 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			wantNotContains: []string{"ClearTenant"},
 		},
 		{
-			name:            "a self-service record's handler seats nobody, since it creates nothing",
-			tenant:          true,
-			auth:            true,
-			creation:        tenantCreationSelfService,
-			wantNotContains: []string{"AwaitFirstAdministrator", "AssignRole", "AdministratorRoles"},
-		},
-		{
-			name:      "the directories record reloads the roster after the commit and signals, as the record does",
-			directory: true,
-			wantContains: []string{
-				"tenantsWritten := false",
-				"if err := a.TenantRoster().Reload(ctx); err != nil {",
-				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
-			},
-		},
-		{
 			name:            "another resource carries none of it",
 			auth:            true,
 			wantNotContains: []string{"tenantsWritten", "TenantRoster()", "KindTenants", "ClearTenant"},
@@ -613,7 +595,7 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			t.Parallel()
 
 			res := fixtureResource(t, structs, "Sector", func(res *resourceInfo) {
-				res.IsTenant, res.IsTenantDirectory, res.TenantCreation = tt.tenant, tt.directory, tt.creation
+				res.IsTenant, res.TenantCreation = tt.tenant, tt.creation
 			})
 			r := &resourceGenerator{client: &client{resource: "testdata/tenantfixture"}, applicationName: "App", receiverName: "a"}
 			if tt.auth {
@@ -638,13 +620,13 @@ func Test_patchTemplate_tenant(t *testing.T) {
 					t.Errorf("patch handler must not contain %q:\n%s", notWant, out)
 				}
 			}
-			if (!tt.tenant && !tt.directory) || tt.creation.SelfService() {
+			if !tt.tenant {
 				return
 			}
 
 			// After the commit means after ExecuteFunc returns; the roster before the
-			// signal, the signal before the answer, and the creator's seat, where the
-			// record's create writes one, between the roster and the signal.
+			// signal, the signal before the answer. The create op's refusal comes before
+			// the operation is decoded, so before any grant is read.
 			s := string(out)
 			commit := strings.Index(s, "}); err != nil {")
 			reload := strings.Index(s, "a.TenantRoster().Reload(ctx)")
@@ -653,20 +635,10 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			if commit >= reload || reload >= signal || signal >= answer {
 				t.Errorf("order: commit %d, roster %d, signal %d, answer %d; want ascending:\n%s", commit, reload, signal, answer, out)
 			}
-			if wait := strings.Index(s, "resource.AwaitFirstAdministrator("); tt.auth && (reload >= wait || wait >= signal) {
-				t.Errorf("order: roster %d, wait %d, signal %d; want the wait between them:\n%s", reload, wait, signal, out)
-			}
-			if given := strings.Index(s, "identity.AssignRole(ctx, txn,"); tt.auth && (given < 0 || given >= commit) {
-				t.Errorf("order: membership %d, commit %d; want the membership written inside the transaction:\n%s", given, commit, out)
-			}
-			// The membership is the create's own: after the row is buffered and its
-			// generated id read, before the update's case begins.
-			row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
-			generated := strings.Index(s, "id := patch.ID()")
-			given := strings.Index(s, "identity.AssignRole(ctx, txn,")
-			update := strings.Index(s, "case resource.OperationUpdate:")
-			if tt.auth && (row < 0 || row >= generated || generated >= given || given >= update) {
-				t.Errorf("order: row %d, generated id %d, membership %d, update %d; want the membership in the create, under the id the row was buffered with:\n%s", row, generated, given, update, out)
+			refusal := strings.Index(s, "is not created directly")
+			decoded := strings.Index(s, "decoder.DecodeOperation(op,")
+			if refusal < 0 || decoded < 0 || refusal >= decoded {
+				t.Errorf("order: refusal %d, decode %d; want the create op refused before it is decoded:\n%s", refusal, decoded, out)
 			}
 		})
 	}

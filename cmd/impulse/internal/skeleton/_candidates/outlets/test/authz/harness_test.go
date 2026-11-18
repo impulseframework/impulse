@@ -17,6 +17,7 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -44,6 +45,15 @@ func (f *fakeAccess) ForUser(user accesstypes.User) *access.UserChecker {
 
 func (f *fakeAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(f, role)
+}
+
+// TenantAdministratorRoles answers what the staff auth's generated identity client asks
+// where it is built, the roles whose holders administer a tenant: the staff auth's own,
+// as its engine is told them.
+func (f *fakeAccess) TenantAdministratorRoles() []accesstypes.Role {
+	_, tenantAdministrators := staff.AdministratorRoles()
+
+	return tenantAdministrators
 }
 
 // UserManager answers the one question a generated handler asks the engine's user
@@ -125,7 +135,9 @@ func (c *testConfigurer) Access() access.Controller {
 func (c *testConfigurer) Staff() *staff.Auth { return nil }
 
 // noSessionAPI stands where the matrix serves no session manager: a denied case is
-// answered before any method runs, so nothing here is ever hashed or mailed.
+// answered before any method runs, so nothing here is ever hashed or mailed, the one
+// list it is asked through (how a person signs in) is asked about nobody, and an
+// invitation whose check passed is told so where its link would be made.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -136,11 +148,29 @@ func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationReques
 	return nil, errors.New("the authorization matrix serves no session manager")
 }
 
+// SignInMethods names no method: the matrix registers none, and a denied case reads none.
+func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return nil
+}
+
+func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
+	return nil
+}
+
+// DirectoryName names no directory: the matrix registers no sign-in method.
+func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
+	return "", ""
+}
+
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix
 // drives the generated methods' routes as it drives every other, and a denied case is
-// answered before any of them runs.
+// answered before any of them runs. The client makes the tenants, so it takes the
+// generated maker over the suites' roster, and the roles a tenant's administrator holds,
+// as the staff auth names them: what reaches the maker is the check of the details an
+// invitation that makes a tenant carries, in a transaction that is rolled back.
 func (c *testConfigurer) StaffIdentity() *staffidentity.Client {
-	client, err := staffidentity.NewClient(c.Access(), noSessionAPI{})
+	_, tenantAdministrators := staff.AdministratorRoles()
+	client, err := staffidentity.NewClient(c.Access(), noSessionAPI{}, app.NewTenantMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		panic(err)
 	}

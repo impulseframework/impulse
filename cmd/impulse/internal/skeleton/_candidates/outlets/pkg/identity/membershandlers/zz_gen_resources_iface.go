@@ -11,12 +11,18 @@ import (
 
 type Resourcer interface {
 	resource.Resourcer
-	membersresources.MembersRole | membersresources.MembersRoleGrant |
+	membersresources.MembersGroup | membersresources.MembersGroupMember |
+		membersresources.MembersGroupRole | membersresources.MembersGroupUser |
+		membersresources.MembersRole | membersresources.MembersRoleGrant |
 		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
 		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
-		membersresources.MembersSessionSignInAttempt | membersresources.MembersSessionToken |
+		membersresources.MembersSessionSignInAttempt |
+		membersresources.MembersSessionSignInMethod | membersresources.MembersSessionToken |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
-		membersresources.MembersTenantIdentity | membersresources.MembersTenantInvitation |
-		membersresources.MembersTenantUser | membersresources.MembersTenantUserRole |
+		membersresources.MembersTenantGroup | membersresources.MembersTenantGroupRole |
+		membersresources.MembersTenantGroupUser | membersresources.MembersTenantIdentity |
+		membersresources.MembersTenantInvitation | membersresources.MembersTenantUser |
+		membersresources.MembersTenantUserGroupRole |
+		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
 		membersresources.MembersUserRole | membersidentity.MembersTenantRole
 }

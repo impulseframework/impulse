@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/session/mock/mock_signin"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -199,43 +198,6 @@ func TestTenantSet_simulatedTenantID(t *testing.T) {
 	}
 }
 
-func TestTenantOfIssuer(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		issuer        string
-		wantAuthority string
-		wantTenant    TenantSet
-		wantErr       bool
-	}{
-		{name: "a tenant's v2.0 issuer", issuer: "https://login.microsoftonline.com/" + tenantLake + "/v2.0", wantAuthority: DefaultAuthority, wantTenant: Tenant(tenantLake)},
-		{name: "a trailing slash is tolerated", issuer: "https://login.microsoftonline.com/" + tenantLake + "/v2.0/", wantAuthority: DefaultAuthority, wantTenant: Tenant(tenantLake)},
-		{name: "another authority", issuer: "https://login.microsoftonline.us/" + tenantLake + "/v2.0", wantAuthority: "https://login.microsoftonline.us", wantTenant: Tenant(tenantLake)},
-		{name: "a v1.0 issuer names no v2.0 tenant", issuer: "https://sts.windows.net/" + tenantLake + "/", wantErr: true},
-		{name: "a shared endpoint is no tenant's issuer", issuer: "https://login.microsoftonline.com/common/v2.0", wantErr: true},
-		{name: "a bare word", issuer: "issuerURL", wantErr: true},
-		{name: "an issuer without a scheme", issuer: "login/" + tenantLake + "/v2.0", wantErr: true},
-		{name: "an authority with a path", issuer: "https://login.microsoftonline.com/extra/" + tenantLake + "/v2.0", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			authority, tenant, err := TenantOfIssuer(tt.issuer)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("TenantOfIssuer() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if authority != tt.wantAuthority {
-				t.Errorf("TenantOfIssuer() authority = %q, want %q", authority, tt.wantAuthority)
-			}
-			if diff := cmp.Diff(tt.wantTenant, tenant, cmp.AllowUnexported(TenantSet{}, namedTenant{})); diff != "" {
-				t.Errorf("TenantOfIssuer() tenant mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestAuthorityOf(t *testing.T) {
 	t.Parallel()
 
@@ -281,37 +243,112 @@ func TestRefuseShape(t *testing.T) {
 		name     string
 		tenants  TenantSet
 		roleSync signin.RoleSyncConfig
-		accounts signin.StandardAccountRule
-		noRule   bool
 		wantErr  string
 	}{
-		{name: "one tenant with role sync and members of the directory", tenants: Tenant(tenantLake), roleSync: sync, accounts: signin.MembersOfDirectory, noRule: true},
-		{name: "several tenants without role sync, invited users only", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: off, accounts: signin.InvitedUsersOnly, noRule: true},
-		{name: "any tenant with invited users only", tenants: AnyTenant(), roleSync: off, accounts: signin.InvitedUsersOnly, noRule: true},
-		{name: "any tenant with open sign-up", tenants: AnyTenant(), roleSync: off, accounts: signin.OpenSignUp, noRule: true},
-		{name: "personal accounts with open sign-up", tenants: PersonalAccounts(), roleSync: off, accounts: signin.OpenSignUp, noRule: true},
-		{name: "any tenant as members of the directory with a rule of the application's own", tenants: AnyTenant(), roleSync: off, accounts: signin.MembersOfDirectory},
-		{name: "the slot's own rules come first", roleSync: sync, accounts: signin.OpenSignUp, noRule: true, wantErr: "Tenants is required"},
-		{name: "a missing role sync slot", tenants: Tenant(tenantLake), accounts: signin.MembersOfDirectory, noRule: true, wantErr: "roleSync is required"},
-		{name: "role sync across several tenants", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: sync, accounts: signin.InvitedUsersOnly, noRule: true, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
-		{name: "role sync across any tenant", tenants: AnyTenant(), roleSync: sync, accounts: signin.InvitedUsersOnly, noRule: true, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
-		{name: "role sync with personal accounts", tenants: PersonalAccounts(), roleSync: sync, accounts: signin.OpenSignUp, noRule: true, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
-		{name: "open sign-up with one tenant", tenants: Tenant(tenantLake), roleSync: off, accounts: signin.OpenSignUp, noRule: true, wantErr: "Accounts: open sign-up is for any tenant or personal accounts"},
-		{name: "open sign-up with listed tenants", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: off, accounts: signin.OpenSignUp, noRule: true, wantErr: "Accounts: open sign-up is for any tenant or personal accounts"},
-		{name: "any tenant as members of the directory with no rule", tenants: AnyTenant(), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "Accounts: members of the directory with any tenant or personal accounts would sign up the world"},
-		{name: "personal accounts as members of the directory with no rule", tenants: PersonalAccounts(), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "would sign up the world"},
-		{name: "a listed tenant beside any tenant is still an open slot", tenants: Tenants(Tenant(tenantLake), AnyTenant()), roleSync: off, accounts: signin.MembersOfDirectory, noRule: true, wantErr: "would sign up the world"},
+		{name: "one tenant with role sync", tenants: Tenant(tenantLake), roleSync: sync},
+		{name: "one tenant without role sync", tenants: Tenant(tenantLake), roleSync: off},
+		{name: "several tenants without role sync", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: off},
+		{name: "any tenant without role sync", tenants: AnyTenant(), roleSync: off},
+		{name: "personal accounts without role sync", tenants: PersonalAccounts(), roleSync: off},
+		{name: "a listed tenant beside any tenant", tenants: Tenants(Tenant(tenantLake), AnyTenant()), roleSync: off},
+		{name: "the slot's own rules come first", roleSync: sync, wantErr: "Tenants is required"},
+		{name: "a missing role sync slot", tenants: Tenant(tenantLake), wantErr: "roleSync is required"},
+		{name: "role sync across several tenants", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), roleSync: sync, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
+		{name: "role sync across any tenant", tenants: AnyTenant(), roleSync: sync, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
+		{name: "role sync with personal accounts", tenants: PersonalAccounts(), roleSync: sync, wantErr: "RoleSync: role synchronization follows one tenant's application roles"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := refuseShape(tt.tenants, tt.roleSync, tt.accounts, tt.noRule)
+			err := refuseShape(tt.tenants, tt.roleSync)
 			if (err != nil) != (tt.wantErr != "") {
 				t.Fatalf("refuseShape() error = %v, wantErr %q", err, tt.wantErr)
 			}
 			if err != nil && !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("refuseShape() error = %q, want it to contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestTenantSet_audience(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tenants TenantSet
+		// want is whom opening the method to sign-up admits, in the page's words.
+		want        string
+		wantLimited bool
+	}{
+		{name: "one tenant the application names", tenants: NamedTenant(tenantLake, "Lakeside"), want: "anyone with an account at Lakeside", wantLimited: true},
+		{name: "one tenant by its id", tenants: Tenant(tenantLake), want: "anyone with an account at the Microsoft Entra tenant " + tenantLake, wantLimited: true},
+		{name: "several tenants", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), NamedTenant(tenantRiver, "Riverside")), want: "anyone with an account at Lakeside or Riverside", wantLimited: true},
+		{name: "any tenant", tenants: AnyTenant(), want: "anyone with a Microsoft work or school account"},
+		{name: "personal accounts", tenants: PersonalAccounts(), want: "anyone with a personal Microsoft account"},
+		{name: "any tenant and personal accounts", tenants: Tenants(AnyTenant(), PersonalAccounts()), want: "anyone with a Microsoft account"},
+		{name: "a listed tenant beside any tenant is as wide as any tenant", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), AnyTenant()), want: "anyone with a Microsoft work or school account"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.tenants.audience()
+			if got.Words() != tt.want || got.Limited() != tt.wantLimited {
+				t.Errorf("audience() = %q (limited %v), want %q (limited %v)", got.Words(), got.Limited(), tt.want, tt.wantLimited)
+			}
+		})
+	}
+}
+
+// TestTenantSet_audienceKey pins what a sign-in method's row is compared by: the tenants
+// a registration admits, each by its tenant id, and the kind of account it admits
+// outside them, never the names they are said by. An administrator opens a method to
+// sign-up for the people it admits then, and the row counts while the registration
+// admits those people and no others. A name is the application's to give, and a second
+// tenant can carry the first one's, so a key written from names reads two
+// registrations that admit different people as one: the method stays open for a tenant
+// nobody opened it for. Every registration here is one the slot's own check accepts.
+func TestTenantSet_audienceKey(t *testing.T) {
+	t.Parallel()
+
+	const tenantHex = "abcdef01-2345-6789-abcd-ef0123456789"
+	labelOfLake := Tenant(tenantLake).audience().Organizations[0]
+
+	tests := []struct {
+		name string
+		// opened is the registration an administrator opened the method under, and now
+		// the registration of a later release.
+		opened, now TenantSet
+		// same says the two admit the same people, so the row stands.
+		same bool
+	}{
+		{name: "a second tenant listed under the first one's label", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), NamedTenant(tenantRiver, labelOfLake))},
+		{name: "another tenant in the first one's place, under its name", opened: NamedTenant(tenantLake, "Lakeside"), now: NamedTenant(tenantRiver, "Lakeside")},
+		{name: "a second tenant", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), Tenant(tenantRiver))},
+		{name: "a tenant fewer", opened: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), now: Tenant(tenantLake)},
+		{name: "any tenant beside the listed one", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), AnyTenant())},
+		{name: "personal accounts beside the listed one", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), PersonalAccounts())},
+		{name: "any tenant in place of personal accounts", opened: PersonalAccounts(), now: AnyTenant()},
+		{name: "the same tenant given a name", opened: Tenant(tenantLake), now: NamedTenant(tenantLake, "Lakeside"), same: true},
+		{name: "the same tenant given another name", opened: NamedTenant(tenantLake, "Lakeside"), now: NamedTenant(tenantLake, "Lakeside University"), same: true},
+		{name: "the same tenant with its id in capitals", opened: Tenant(tenantHex), now: Tenant(strings.ToUpper(tenantHex)), same: true},
+		{name: "the same tenants in another order", opened: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), now: Tenants(Tenant(tenantRiver), Tenant(tenantLake)), same: true},
+		{name: "the same tenants, one declared to enforce a second factor", opened: Tenant(tenantLake), now: Tenant(tenantLake).Attesting(), same: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, set := range []TenantSet{tt.opened, tt.now} {
+				if err := set.validate(); err != nil {
+					t.Fatalf("validate() error = %v, want a registration the slot accepts", err)
+				}
+			}
+			opened, now := tt.opened.audience().Key(), tt.now.audience().Key()
+			if got := opened == now; got != tt.same {
+				t.Errorf("the keys of the two registrations are equal = %v, want %v (%s, %s)", got, tt.same, opened, now)
 			}
 		})
 	}
@@ -343,6 +380,38 @@ func TestTenantSet_admitsAddress(t *testing.T) {
 
 			if got := tt.tenants.admitsAddress(tt.domain); got != tt.want {
 				t.Errorf("admitsAddress(%q) = %v, want %v", tt.domain, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTenantSet_nameOf pins what a sentence calls a tenant: the application's name for
+// a listed tenant, and nothing for a tenant it knows by an id alone, which is said by
+// the registration's label and never by the id.
+func TestTenantSet_nameOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tenants TenantSet
+		tid     string
+		want    string
+	}{
+		{name: "a tenant the application names", tenants: NamedTenant(tenantLake, "Lakeside"), tid: tenantLake, want: "Lakeside"},
+		{name: "its id in another case", tenants: NamedTenant(tenantLake, "Lakeside"), tid: strings.ToUpper(tenantLake), want: "Lakeside"},
+		{name: "a tenant listed by its id alone has no name", tenants: Tenant(tenantLake), tid: tenantLake},
+		{name: "one of several", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), Tenant(tenantRiver)), tid: tenantLake, want: "Lakeside"},
+		{name: "the unnamed one of several", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), Tenant(tenantRiver)), tid: tenantRiver},
+		{name: "a tenant admitted as any tenant has no name", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), AnyTenant()), tid: tenantRiver},
+		{name: "a tenant the set does not admit", tenants: NamedTenant(tenantLake, "Lakeside"), tid: tenantRiver},
+		{name: "no tenant", tenants: NamedTenant(tenantLake, "Lakeside"), tid: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.tenants.nameOf(tt.tid); got != tt.want {
+				t.Errorf("nameOf(%q) = %q, want %q", tt.tid, got, tt.want)
 			}
 		})
 	}

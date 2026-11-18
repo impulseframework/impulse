@@ -43,6 +43,9 @@ func (tn Tenancy) writeBrowser(a *app.App, site *app.Site, ch *Change) error {
 	if err := tn.editMenus(a, source, auth, ch); err != nil {
 		return err
 	}
+	if err := tn.editMenuSpec(a, site, source, auth, ch); err != nil {
+		return err
+	}
 	if err := tn.editFrameConfig(a, source, ch); err != nil {
 		return err
 	}
@@ -71,7 +74,7 @@ func (tn Tenancy) browserSource(a *app.App, g *app.Generator, ch *Change) (sourc
 	rel := strings.TrimPrefix(strings.TrimPrefix(target.Dir, w.Dir), "/")
 	project, found := app.ProjectFor(projects, rel)
 	if !found || project.SourceRoot == "" {
-		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant pages (the tenant's sign-in page, the All %s page's configuration and the New %s dialog), the tenant menus and the tenant segment in the routes", w.Dir, rel, tn.manyLower(), tn.oneLower())
+		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant pages (the tenant's sign-in page, the All %s page's configuration and the dialog a person who signed up creates their own %s through), the tenant menus and the tenant segment in the routes", w.Dir, rel, tn.manyLower(), tn.oneLower())
 
 		return "", false, nil
 	}
@@ -135,7 +138,7 @@ func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) e
 	if tn.Table != referenceTable {
 		renamed = fmt.Sprintf(", with every name and word of the reference's Tenant record the %s record's", tn.Record())
 	}
-	ch.didf("%s, components/ui/new-tenant/ and configs/tenants.config.ts: the %s's sign-in page (who may enter the %s: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the New %s dialog (an administrator holding Create on the record creates one) and the configuration of All %s, the library's list page over the record, from the reference%s; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher",
+	ch.didf("%s, components/ui/new-tenant/ and configs/tenants.config.ts: the %s's sign-in page (who may enter the %s: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher",
 		path.Dir(dst)+"/", tn.oneLower(), tn.oneLower(), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower())
 
 	return nil
@@ -168,7 +171,10 @@ type recordRename struct {
 // recordRenames are the renames from the reference's record to the application's, in
 // order: the quoted words the screen shows, then the names the generator derives from
 // the record (its resources, the types of their bodies, the client's properties, the
-// routes, the route parameter and the directories record's tenant field).
+// routes, the create-your-tenant route with its body and answer, the route parameter,
+// the directories record's tenant field, and the generated methods of the tenant's own:
+// the two that turn the record's directory-only switch and the two that say how it
+// admits its directory's people, each with its route).
 func (tn Tenancy) recordRenames() []recordRename {
 	rec, table := tn.Record(), tn.Table
 	r, t := lowerFirst(rec), lowerFirst(table)
@@ -179,17 +185,30 @@ func (tn Tenancy) recordRenames() []recordRename {
 
 	return []recordRename{
 		quoted("All tenants", "All "+tn.manyLower()),
-		quoted("New tenant…", "New "+tn.oneLower()+"…"),
-		quoted("New tenant", "New "+tn.oneLower()),
 		quoted("Tenants", tn.many()),
 		quoted("Tenant", tn.one()),
 		quoted("tenants", kt),
 		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantRoles\b`), "${1}" + rec + "Roles"},
 		{regexp.MustCompile(`-tenant-roles\b`), "-" + kr + "-roles"},
+		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantDirectoryRoles\b`), "${1}" + rec + "DirectoryRoles"},
+		{regexp.MustCompile(`-tenant-directory-roles\b`), "-" + kr + "-directory-roles"},
 		{regexp.MustCompile(`\bTenantDirectories\b`), rec + "Directories"},
 		{regexp.MustCompile(`\btenantDirectories\b`), r + "Directories"},
 		{regexp.MustCompile(`\btenant-directories\b`), kr + "-directories"},
+		{regexp.MustCompile(`\b(Make|End)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
+		{regexp.MustCompile(`\b(make|end)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
+		{regexp.MustCompile(`\b(make|end)-tenant-directory-only\b`), "${1}-" + kr + "-directory-only"},
+		{regexp.MustCompile(`\bOpenTenantToDirectory\b`), "Open" + rec + "ToDirectory"},
+		{regexp.MustCompile(`\bopenTenantToDirectory\b`), "open" + rec + "ToDirectory"},
+		{regexp.MustCompile(`\bopen-tenant-to-directory\b`), "open-" + kr + "-to-directory"},
+		{regexp.MustCompile(`\bMakeTenantInviteOnly\b`), "Make" + rec + "InviteOnly"},
+		{regexp.MustCompile(`\bmakeTenantInviteOnly\b`), "make" + rec + "InviteOnly"},
+		{regexp.MustCompile(`\bmake-tenant-invite-only\b`), "make-" + kr + "-invite-only"},
 		{regexp.MustCompile(`\bTenantsCreate\b`), table + "Create"},
+		{regexp.MustCompile(`\bCreateTenantAnswer\b`), "Create" + rec + "Answer"},
+		{regexp.MustCompile(`\bCreateTenant\b`), "Create" + rec},
+		{regexp.MustCompile(`\bcreateTenantRoute\b`), "create" + rec + "Route"},
+		{regexp.MustCompile(`\bcreate-tenant\b`), "create-" + kr},
 		{regexp.MustCompile(`\bTenants\b`), table},
 		{regexp.MustCompile(`\.tenants\b`), "." + t},
 		{regexp.MustCompile(`\{ tenants: `), "{ " + t + ": "},
@@ -297,14 +316,15 @@ var (
 )
 
 // editMenus writes the tenant menus into the menu file, ahead of its other menus: the
-// record's menu (All, New…), People (the tenant's side of the auth's people) and the
-// record's own menu (Sign-in settings), each showing in its place only, as the
-// reference's menu file has them, with the imports they need and the dialog service.
+// record's menu (All), People (the tenant's side of the auth's people) and the record's
+// own menu (Sign-in settings), each showing in its place only, as the reference's menu
+// file has them, with the imports they need. The page staff bring a tenant in from is
+// among the auth's pages for the whole application, which the menu file places already.
 func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	rel := path.Join(source, appMenusFile)
 	data, mode, err := readFile(a, rel)
 	if errors.Is(err, os.ErrNotExist) {
-		ch.skipf("%s does not exist, so the tenant menus were not written: the %s menu (All %s, New %s…), People and %s (Sign-in settings)", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.one())
+		ch.skipf("%s does not exist, so the tenant menus were not written: the %s menu (All %s), People and %s (Sign-in settings)", rel, tn.many(), tn.manyLower(), tn.one())
 
 		return nil
 	}
@@ -319,14 +339,14 @@ func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	}
 	opening := menuFunctionRE.FindStringIndex(text)
 	if opening == nil {
-		ch.skipf("%s does not declare the menus as the skeleton's menu file does (export function appMenus(actions: FrameActions): Menu[]), so the tenant menus were not written: put the %s menu (All %s, New %s…), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.one())
+		ch.skipf("%s does not declare the menus as the skeleton's menu file does (export function appMenus(actions: FrameActions): Menu[]), so the tenant menus were not written: put the %s menu (All %s), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.one())
 
 		return nil
 	}
 	body := text[opening[1]:]
 	ret := menuReturnRE.FindStringSubmatchIndex(body)
 	if ret == nil {
-		ch.skipf("%s: appMenus returns no array literal, so the tenant menus were not written: put the %s menu (All %s, New %s…), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.one())
+		ch.skipf("%s: appMenus returns no array literal, so the tenant menus were not written: put the %s menu (All %s), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.one())
 
 		return nil
 	}
@@ -341,19 +361,61 @@ func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	menus = forAuth(menus, auth)
 	menus = tn.inRecordWords(appMenusFile, menus)
 
-	edited := text[:opening[1]]
-	if !strings.Contains(text, "inject(MatDialog)") {
-		edited += body[:ret[0]] + "\n" + body[ret[2]:ret[3]] + "const dialog = inject(MatDialog);" + body[ret[0]:ret[1]]
-	} else {
-		edited += body[:ret[1]]
-	}
-	edited += menus + body[ret[1]:]
+	edited := text[:opening[1]] + body[:ret[1]] + menus + body[ret[1]:]
 	edited = featureFlagsRE.ReplaceAllString(edited, "\n${1}run: () => actions.featureFlags(),\n${1}place: 'outside',\n${2}permission:")
 	edited = addImports(edited, importStatement.FindAllString(tn.inRecordWords(appMenusFile, forAuth(reference, auth)), -1))
 	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
-	ch.didf("%s: the tenant menus ahead of the others, as the reference's: %s (All %s and New %s…, which opens the copied dialog, in the place outside every %s under Create on the record), People (the %s's side of the auth's people) and %s (Sign-in settings), each showing in its place only; Feature flags… stays outside every %s", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.oneLower(), tn.oneLower(), tn.one(), tn.oneLower())
+	ch.didf("%s: the tenant menus ahead of the others, as the reference's: %s (All %s, in the place outside every %s), People (the %s's side of the auth's people) and %s (Sign-in settings), each showing in its place only; Feature flags… stays outside every %s", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.oneLower(), tn.one(), tn.oneLower())
+
+	return nil
+}
+
+// appMenusSpecFile is the menu file's test, beside it under a project's source root.
+const appMenusSpecFile = "app/app.menus.spec.ts"
+
+// systemPagesRE reads where the base skeleton's menu test lists the pages the System menu
+// alone places: the auth's mailed links, then its sessions.
+var systemPagesRE = regexp.MustCompile(`\n([ \t]*)'Mailed links',\n[ \t]*'Sessions',\n`)
+
+// editMenuSpec names the page staff bring a tenant in from in the menu file's test,
+// where the test lists the pages the System menu alone places as the base skeleton's
+// does. The library draws that page for the auth a tenant is made through, among the
+// auth's pages for the whole application, after its mailed links, so a test that pins
+// those pages fails until it names the page. A console whose auth makes no tenant has no
+// such page, and its test is left without a word, as is an application with no such test.
+func (tn Tenancy) editMenuSpec(a *app.App, site *app.Site, source, auth string, ch *Change) error {
+	maker := tn.makerAuth(a, site)
+	if maker == nil || !strings.EqualFold(maker.Name, auth) {
+		return nil
+	}
+	rel := path.Join(source, appMenusSpecFile)
+	data, mode, err := readFile(a, rel)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	label := "Invited " + tn.manyLower()
+	text := string(data)
+	if strings.Contains(text, "'"+label+"'") {
+		return nil
+	}
+	loc := systemPagesRE.FindStringSubmatchIndex(text)
+	if loc == nil {
+		ch.skipf("%s does not list the pages the System menu places as the skeleton's test does ('Mailed links', then 'Sessions'), so it was left as it is: the System menu gains %s, the page staff bring a %s in from, after Mailed links, and a test that pins the menu's pages names it there", rel, label, tn.oneLower())
+
+		return nil
+	}
+	indent := text[loc[2]:loc[3]]
+	at := loc[0] + len("\n"+indent+"'Mailed links',\n")
+	edited := text[:at] + indent + "'" + label + "',\n" + text[at:]
+	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: the pages the System menu places gain %s, the page staff bring a %s in from, after Mailed links", rel, label, tn.oneLower())
 
 	return nil
 }

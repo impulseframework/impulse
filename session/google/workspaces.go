@@ -5,13 +5,16 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // AnyAccountConnection is the connection written on the link of a Google account that
 // is in none of the registration's named Workspaces and is admitted by AnyGoogleAccount:
 // the provider itself, since such an account belongs to no organization the
 // application names. A Workspace account admitted by AnyWorkspace carries its domain.
-const AnyAccountConnection = "accounts.google.com"
+// It is one of the two values that are no organization's directory
+// (signin.Directory.PersonalAccounts), so no tenant takes it as its own.
+const AnyAccountConnection = signin.GoogleAnyAccountConnection
 
 // anyWorkspaceAccount is the hd hint that asks Google's account chooser for any
 // Workspace account, sent when a registration admits more than one domain.
@@ -98,10 +101,9 @@ func (s WorkspaceSet) Attesting() WorkspaceSet {
 // AnyWorkspace admits an account of any Google Workspace organization: a token with any
 // hd claim, none refused. The link's connection is the account's domain, lowercased,
 // since the registration names no Workspace; a Workspace whose users should share one
-// connection across its domains is named with Workspace beside this entry. Members of
-// the directory is refused with it, since every Workspace in the world is "the
-// directory": invited users only, open sign-up or a rule of the application's own
-// decides a first sign-in.
+// connection across its domains is named with Workspace beside this entry. Opening the
+// method to sign-up then admits anyone with a Google Workspace account, which the
+// warning an administrator confirms says.
 func AnyWorkspace() WorkspaceSet {
 	return WorkspaceSet{anyWorkspace: true}
 }
@@ -111,9 +113,49 @@ func AnyWorkspace() WorkspaceSet {
 // name. The link's connection is AnyAccountConnection for an account outside the named
 // Workspaces. The OAuth client's consent screen must be External and published for
 // accounts outside your own Workspace to reach the callback; Internal restricts it to
-// your Workspace. Members of the directory is refused with it, as with AnyWorkspace.
+// your Workspace. Opening the method to sign-up then admits anyone with a Google
+// account.
 func AnyGoogleAccount() WorkspaceSet {
 	return WorkspaceSet{anyAccount: true}
+}
+
+// What identifies whom the slot admits, as an audience's key spells it: a named
+// Workspace by each of its domains, the accounts of every Workspace, and every Google
+// account.
+const (
+	identityWorkspaceDomain = "google-workspace-domain:"
+	identityAnyWorkspace    = "google:any-workspace"
+	identityAnyAccount      = "google:any-account"
+)
+
+// audience is how wide the slot is, for the page where a method is opened to sign-up:
+// the domains of the Workspaces it names, and what an account outside them is called
+// when the slot admits any.
+//
+// What the audience is compared by is its identities: each domain of a named
+// Workspace, in lower case, never the name the application gives the Workspace, which
+// another Workspace can be given in its place. A slot that admits any Workspace, or
+// any Google account, admits its named Workspaces' people among everyone else's, so
+// its identity is the widest open entry alone.
+func (s WorkspaceSet) audience() signin.Audience {
+	var a signin.Audience
+	for _, w := range s.named {
+		a.Organizations = append(a.Organizations, w.domains...)
+	}
+	switch {
+	case s.anyAccount:
+		a.Accounts = "a Google account"
+		a.Identities = []string{identityAnyAccount}
+	case s.anyWorkspace:
+		a.Accounts = "a Google Workspace account"
+		a.Identities = []string{identityAnyWorkspace}
+	default:
+		for _, domain := range a.Organizations {
+			a.Identities = append(a.Identities, identityWorkspaceDomain+strings.ToLower(domain))
+		}
+	}
+
+	return a
 }
 
 // validate is the slot's startup check: it refuses an empty slot, a Workspace without a
@@ -214,6 +256,53 @@ func (s WorkspaceSet) entryFor(hd string) (connection string, attests, ok bool) 
 	}
 
 	return "", false, false
+}
+
+// nameOf answers what a person calls the organization behind a link's connection: the
+// application's name for a named Workspace, which is the connection its links carry,
+// and the domain of an account admitted as any Workspace, which is the connection
+// too. It answers "" for the connection of an account in no Workspace
+// (AnyAccountConnection), which is no organization, and for a connection the set does
+// not admit.
+func (s WorkspaceSet) nameOf(connection string) string {
+	if connection == AnyAccountConnection || !s.admitsConnection(connection) {
+		return ""
+	}
+
+	return connection
+}
+
+// admitsConnection reports whether an account whose link carries connection could
+// sign in through the set and reach that link: whether connectionFor would write the
+// same connection for it today. A named Workspace's link carries the Workspace's name
+// and stands while the set names it. A link made under AnyGoogleAccount carries
+// AnyAccountConnection and stands while the set admits any account. Any other
+// connection is the domain of an account admitted under AnyWorkspace: it stands while
+// the set admits any Workspace and no named Workspace has taken the domain, since an
+// account of that domain would now be written under the Workspace's name and miss the
+// link.
+func (s WorkspaceSet) admitsConnection(connection string) bool {
+	if connection == "" {
+		return false
+	}
+	if connection == AnyAccountConnection {
+		return s.anyAccount
+	}
+	for _, w := range s.named {
+		if w.name == connection {
+			return true
+		}
+	}
+	if !s.anyWorkspace {
+		return false
+	}
+	for _, w := range s.named {
+		if slices.ContainsFunc(w.domains, func(d string) bool { return strings.EqualFold(d, connection) }) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // admitsAddress reports whether the set could admit an account whose email address is

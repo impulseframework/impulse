@@ -220,8 +220,8 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 		want := map[string]any{
 			"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
 			"standing": map[string]any{
-				"email": "pat@lakeside.edu", "tenantId": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false, "methods": []any{},
-				"accountExists": false, "hasPassword": false,
+				"email": "pat@lakeside.edu", "tenantId": "lakeside", "newTenant": false, "directoryOnly": false, "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano),
+				"usernameIsEmail": false, "methods": []any{}, "accountExists": false, "hasPassword": false,
 			},
 		}
 		if diff := cmp.Diff(want, invitationBlock(t, f, invitationList, cookies)); diff != "" {

@@ -26,37 +26,42 @@ func TestSignInAttempts_Failed(t *testing.T) {
 	}{
 		{
 			name: "the first failure opens a window",
-			want: &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute)},
+			want: &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute), Counted: true},
 		},
 		{
 			name:   "a failure in the window counts, keeping the window's end",
 			record: &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(5 * time.Minute)},
-			want:   &SignInAttempts{Name: "pat", Failures: 2, WindowEndsAt: now.Add(5 * time.Minute)},
+			want:   &SignInAttempts{Name: "pat", Failures: 2, WindowEndsAt: now.Add(5 * time.Minute), Counted: true},
 		},
 		{
 			name:   "the failure that reaches the limit locks the name",
 			record: &SignInAttempts{Name: "pat", Failures: 2, WindowEndsAt: now.Add(5 * time.Minute)},
-			want:   &SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: now.Add(5 * time.Minute), LockedUntil: at(10 * time.Minute)},
+			want:   &SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: now.Add(5 * time.Minute), LockedUntil: at(10 * time.Minute), Counted: true},
 		},
 		{
-			name:   "a failure during the lock changes nothing",
+			name:   "a failure during the lock changes nothing and is not counted",
 			record: &SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: now.Add(5 * time.Minute), LockedUntil: at(time.Minute)},
+			want:   &SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: now.Add(5 * time.Minute), LockedUntil: at(time.Minute)},
+		},
+		{
+			name:   "a failure during the lock is not counted, whatever the record it is given says of the failure before it",
+			record: &SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: now.Add(5 * time.Minute), LockedUntil: at(time.Minute), Counted: true},
 			want:   &SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: now.Add(5 * time.Minute), LockedUntil: at(time.Minute)},
 		},
 		{
 			name:   "a failure after the window ended opens a new window",
 			record: &SignInAttempts{Name: "pat", Failures: 2, WindowEndsAt: now.Add(-time.Second)},
-			want:   &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute)},
+			want:   &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute), Counted: true},
 		},
 		{
 			name:   "a failure after the lock passed opens a new window",
 			record: &SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: now.Add(5 * time.Minute), LockedUntil: at(-time.Second)},
-			want:   &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute)},
+			want:   &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute), Counted: true},
 		},
 		{
 			name:  "a limit of one failure locks at the first",
 			limit: SignInAttemptLimit{Failures: 1, Window: 15 * time.Minute, Lock: 10 * time.Minute},
-			want:  &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute), LockedUntil: at(10 * time.Minute)},
+			want:  &SignInAttempts{Name: "pat", Failures: 1, WindowEndsAt: now.Add(15 * time.Minute), LockedUntil: at(10 * time.Minute), Counted: true},
 		},
 	}
 	for _, tt := range tests {

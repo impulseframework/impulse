@@ -12,6 +12,23 @@ import { Account } from './account';
 /** What the password change says when the two new passwords differ, before asking the server. */
 export const passwordsDiffer = 'The two new passwords are not the same.';
 
+/** What the choice of a first password says when the two passwords differ, before asking the server. */
+export const firstPasswordsDiffer = 'The two passwords are not the same.';
+
+/**
+ * What removing their password leaves a person with, said before they confirm it: the
+ * other ways in their sign-in offers, each by the words its button on the login page
+ * carries. Where the page knows of none, the person's organization signs them in.
+ */
+export function passwordRemovalConsequence(otherSignIns: readonly string[]): string {
+  if (otherSignIns.length === 0) {
+    return 'You will sign in through your organization only.';
+  }
+  const last = otherSignIns[otherSignIns.length - 1];
+  const through = otherSignIns.length === 1 ? last : `${otherSignIns.slice(0, -1).join(', ')} or ${last}`;
+  return `You will sign in through ${through} only.`;
+}
+
 /** The longest name the server keeps, in characters; the box holds no more. */
 export const nameMaxLength = 200;
 
@@ -19,6 +36,21 @@ export const nameMaxLength = 200;
  * The person's account page, every place's: their name, their email address, their
  * password and this browser, each section only where their sign-in offers it (Account). Managing a second
  * factor joins the page as the library offers factors a person enrolls.
+ *
+ * Where the server serves it, the password section also removes the password: the person
+ * proves it with the password, is asked once what that leaves them to sign in through,
+ * and is told the server's words when it refuses (a person no directory sign-in is linked
+ * to keeps the password, their only way in). Where the server says what the person signs
+ * in with, the page offers the removal only to a person a directory sign-in is linked to,
+ * names that directory in its question, and offers neither the change nor the removal to
+ * a person who holds no password.
+ *
+ * A person who holds no password, because they have only ever signed in through a
+ * directory, chooses one here where the server serves it: they ask for a code, which the
+ * server mails to the address their account holds confirmed, and set the password with
+ * the code. The code ties the password to that mailbox: whoever asks must read it to
+ * finish. The server's words are shown when it refuses, among them that the account has
+ * no confirmed address yet, which the email section above adds.
  */
 @Component({
   selector: 'impulse-account-page',
@@ -61,7 +93,73 @@ export const nameMaxLength = 200;
         </section>
       }
 
-      @if (account.password()) {
+      @if (passwordRemoved()) {
+        <section class="part password">
+          <h2>Your password</h2>
+          <p class="message" role="status">Your password is removed. {{ removalConsequence() }}</p>
+        </section>
+      } @else if (passwordChosen()) {
+        <section class="part password">
+          <h2>Your password</h2>
+          <p class="message" role="status">Your password is set. You can sign in with it from now on.</p>
+        </section>
+      } @else if (account.firstPassword()) {
+        <section class="part first-password">
+          <h2>Choose a password</h2>
+          <p>
+            You have no password here. To choose one, ask for a code first: we email it to the address on your account.
+          </p>
+          <button
+            mat-stroked-button
+            type="button"
+            class="first-code"
+            [disabled]="busy()"
+            (click)="mailFirstPasswordCode()">
+            {{ codeSentTo() === undefined ? 'Email me a code' : 'Email me a new code' }}
+          </button>
+          @if (codeSentTo(); as address) {
+            <p class="message sent" role="status">We sent a code to {{ address }}. Enter it with your password.</p>
+          }
+          @if (codeSentTo() !== undefined) {
+            <form class="change" (ngSubmit)="setFirstPassword()">
+              <mat-form-field appearance="outline">
+                <mat-label>Code</mat-label>
+                <input
+                  matInput
+                  name="firstPasswordCode"
+                  [(ngModel)]="firstPasswordCode"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  required />
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Password</mat-label>
+                <input
+                  matInput
+                  name="firstPassword"
+                  type="password"
+                  [(ngModel)]="firstPassword"
+                  autocomplete="new-password"
+                  required />
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Password again</mat-label>
+                <input
+                  matInput
+                  name="firstPasswordAgain"
+                  type="password"
+                  [(ngModel)]="firstPasswordAgain"
+                  autocomplete="new-password"
+                  required />
+              </mat-form-field>
+              <button mat-flat-button type="submit" class="first-submit" [disabled]="busy()">Set the password</button>
+            </form>
+          }
+          @if (firstPasswordMessage(); as message) {
+            <p class="message refusal" role="status">{{ message }}</p>
+          }
+        </section>
+      } @else if (account.password()) {
         <section class="part password">
           <h2>Change your password</h2>
           <form class="change" (ngSubmit)="changePassword()">
@@ -101,6 +199,53 @@ export const nameMaxLength = 200;
             <p class="message" role="status">{{ message }}</p>
           }
         </section>
+
+        @if (account.removePassword()) {
+          <section class="part remove-password">
+            <h2>Remove your password</h2>
+            <p>If you also sign in another way, you can do without a password.</p>
+            @if (confirmingRemoval()) {
+              <p class="question">Remove your password? {{ removalConsequence() }}</p>
+              <div class="answers">
+                <button
+                  mat-flat-button
+                  type="button"
+                  class="remove-confirm"
+                  [disabled]="busy()"
+                  (click)="removePassword()">
+                  Remove password
+                </button>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="remove-keep"
+                  [disabled]="busy()"
+                  (click)="keepPassword()">
+                  Keep password
+                </button>
+              </div>
+            } @else {
+              <form class="change" (ngSubmit)="askToRemovePassword()">
+                <mat-form-field appearance="outline">
+                  <mat-label>Current password</mat-label>
+                  <input
+                    matInput
+                    name="removalPassword"
+                    type="password"
+                    [(ngModel)]="removalPassword"
+                    autocomplete="current-password"
+                    required />
+                </mat-form-field>
+                <button mat-stroked-button type="submit" class="remove-submit" [disabled]="busy()">
+                  Remove password
+                </button>
+              </form>
+            }
+            @if (removeMessage(); as message) {
+              <p class="message" role="status">{{ message }}</p>
+            }
+          </section>
+        }
       }
 
       @if (account.browser() || forgotten()) {
@@ -119,7 +264,7 @@ export const nameMaxLength = 200;
         </section>
       }
 
-      @if (!account.any() && !forgotten()) {
+      @if (!account.any() && !forgotten() && !passwordRemoved() && !passwordChosen()) {
         <p class="none">Your sign-in is managed by your organization, so there is nothing to change here.</p>
       }
     </section>
@@ -145,6 +290,9 @@ export const nameMaxLength = 200;
     .part p {
       margin: 0 0 12px;
     }
+    .first-code {
+      margin-bottom: 12px;
+    }
     .change {
       display: flex;
       flex-direction: column;
@@ -153,6 +301,10 @@ export const nameMaxLength = 200;
     }
     .change mat-form-field {
       width: 100%;
+    }
+    .answers {
+      display: flex;
+      gap: 12px;
     }
     .username {
       font-weight: 500;
@@ -186,6 +338,31 @@ export class AccountPageComponent {
   readonly changeMessage = signal<string | undefined>(undefined);
   /** The browser was forgotten on this page. */
   readonly forgotten = signal(false);
+
+  /** The code the person was mailed for their first password, as they type it. */
+  firstPasswordCode = '';
+  firstPassword = '';
+  firstPasswordAgain = '';
+  /** Where the code of a first password went, masked as the server masks it; undefined until one is sent. */
+  readonly codeSentTo = signal<string | undefined>(undefined);
+  /** What the last step of choosing a password came to, in the application's words or the server's. */
+  readonly firstPasswordMessage = signal<string | undefined>(undefined);
+  /** The person chose their first password on this page. */
+  readonly passwordChosen = signal(false);
+
+  /** The password given as proof for its removal. */
+  removalPassword = '';
+  /** The person asked to remove the password and has not answered the question yet. */
+  readonly confirmingRemoval = signal(false);
+  /** What the server said when it refused the removal, in its words. */
+  readonly removeMessage = signal<string | undefined>(undefined);
+  /** The password was removed on this page. */
+  readonly passwordRemoved = signal(false);
+  /**
+   * What the removal leaves the person to sign in through, as the question says it, and
+   * as the notice goes on saying it once the password is gone.
+   */
+  readonly removalConsequence = computed(() => passwordRemovalConsequence(this.account.otherSignIns()));
 
   constructor() {
     // The box starts as the name the session carries and follows it when that name
@@ -235,6 +412,83 @@ export class AccountPageComponent {
         this.changeMessage.set(result.message);
       }
     } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Asks the server to mail the code of a first password, in place of any it sent before. */
+  async mailFirstPasswordCode(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    // What an earlier step came to is not said of this one.
+    this.firstPasswordMessage.set(undefined);
+    try {
+      const result = await this.client.auth.sendFirstPasswordCode();
+      if (result.outcome === 'sent') {
+        this.codeSentTo.set(result.codeEmail);
+      } else {
+        this.firstPasswordMessage.set(result.message);
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async setFirstPassword(): Promise<void> {
+    if (this.busy()) return;
+    if (this.firstPassword !== this.firstPasswordAgain) {
+      this.firstPasswordMessage.set(firstPasswordsDiffer);
+      return;
+    }
+    this.busy.set(true);
+    this.firstPasswordMessage.set(undefined);
+    try {
+      const result = await this.client.auth.setFirstPassword(this.firstPasswordCode, this.firstPassword);
+      if (result.outcome === 'set') {
+        this.firstPasswordCode = this.firstPassword = this.firstPasswordAgain = '';
+        this.codeSentTo.set(undefined);
+        this.passwordChosen.set(true);
+        // The person holds a password now: the choice of a first one goes, here and
+        // wherever else the page is opened, and its change takes its place.
+        this.account.rereadSignInMeans();
+      } else {
+        this.firstPasswordMessage.set(result.message);
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Puts the question before the password is removed; nothing is asked of the server yet. */
+  askToRemovePassword(): void {
+    if (this.busy()) return;
+    // What an earlier removal came to is not said of this one.
+    this.removeMessage.set(undefined);
+    this.confirmingRemoval.set(true);
+  }
+
+  /** The person keeps the password: the question goes, and nothing was asked of the server. */
+  keepPassword(): void {
+    this.confirmingRemoval.set(false);
+  }
+
+  async removePassword(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.removeMessage.set(undefined);
+    try {
+      const result = await this.client.auth.removePassword(this.removalPassword);
+      if (result.outcome === 'removed') {
+        this.removalPassword = '';
+        this.passwordRemoved.set(true);
+        // The person holds no password now: the sections that change and remove one go,
+        // here and wherever else the page is opened.
+        this.account.rereadSignInMeans();
+      } else {
+        this.removeMessage.set(result.message);
+      }
+    } finally {
+      this.confirmingRemoval.set(false);
       this.busy.set(false);
     }
   }

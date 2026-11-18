@@ -83,19 +83,46 @@ func TestUserDomainsNames(t *testing.T) {
 }
 
 // unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
-// its name, into the tenants' domains alone, in the order listed.
+// its name, into the domains of the tenants the session reaches, in the order listed. A
+// tenant the answer marks closed to the session is left out: the person holds a seat in
+// it, and the session cannot enter it (closedDomains reads those).
 func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	var listed []struct {
 		Domain string `json:"domain"`
+		Closed string `json:"closed"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		return err
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
+		if entry.Closed != "" {
+			continue
+		}
 		out = append(out, T(entry.Domain))
 	}
 	*domains = out
 
 	return nil
+}
+
+// closedDomains reads the tenants the user-domains answer marks closed to the session:
+// each tenant's domain with the reason the server gives, a sentence. Empty, never nil,
+// when the answer marks none.
+func closedDomains(body []byte) (map[string]string, error) {
+	var listed []struct {
+		Domain string `json:"domain"`
+		Closed string `json:"closed"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		return nil, err
+	}
+	closed := map[string]string{}
+	for _, entry := range listed {
+		if entry.Closed != "" {
+			closed[entry.Domain] = entry.Closed
+		}
+	}
+
+	return closed, nil
 }

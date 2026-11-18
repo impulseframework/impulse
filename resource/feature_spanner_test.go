@@ -347,10 +347,12 @@ func TestSetFeatureHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		perms       UserPermissions
-		body        string
-		dryRun      bool
+		name   string
+		perms  UserPermissions
+		body   string
+		dryRun bool
+		// warning is the X-Warning header the request carries, none where it is empty.
+		warning     string
 		wantStatus  int
 		wantEnabled bool
 		wantSignals []SignalKind
@@ -408,6 +410,32 @@ func TestSetFeatureHandler(t *testing.T) {
 			body:       `{"name":"debriefs","enabled":true}`,
 			wantStatus: http.StatusForbidden,
 		},
+		{
+			name:       "a request that asks for a warning is refused, since SetFeature declares none, and the flag is not set",
+			perms:      featureGrants(accesstypes.Execute),
+			body:       `{"name":"debriefs","enabled":true}`,
+			warning:    "true",
+			wantStatus: http.StatusBadRequest,
+			wantBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if want := "SetFeature declares no warning: send the call without the X-Warning header"; !strings.Contains(string(body), want) {
+					t.Errorf("the refusal = %s, want it to say %q", body, want)
+				}
+			},
+		},
+		{
+			name:       "an X-Warning header that says anything but true is refused, and the flag is not set",
+			perms:      featureGrants(accesstypes.Execute),
+			body:       `{"name":"debriefs","enabled":true}`,
+			warning:    "1",
+			wantStatus: http.StatusBadRequest,
+			wantBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if want := "the X-Warning header takes the value true, or is left off the request"; !strings.Contains(string(body), want) {
+					t.Errorf("the refusal = %s, want it to say %q", body, want)
+				}
+			},
+		},
 	}
 
 	for i, tt := range tests {
@@ -429,6 +457,9 @@ func TestSetFeatureHandler(t *testing.T) {
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/"+SetFeatureRoute, strings.NewReader(tt.body))
 			if tt.dryRun {
 				req.Header.Set(DryRunHeader, "true")
+			}
+			if tt.warning != "" {
+				req.Header.Set(WarningHeader, tt.warning)
 			}
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)

@@ -91,8 +91,11 @@ type TenantPolicy struct {
 	// (app.NewTenantDeclarationReader), which the package's comments name.
 	Reader string
 	// AdmitWithoutTenant admits a person who holds no tenant (signin.AdmitWithoutTenant):
-	// the record's creation shape lets a stranger sign in first and create their own
-	// (@tenant(creation: self-service) or both).
+	// a person who signs up through a sign-in method an administrator opened signs in
+	// first and creates a tenant of their own, and keeps their account when the method
+	// is made invite only again. Set for the auth whose outlets serve the tenant record,
+	// where the application assigns its roles: the one auth whose people create a
+	// tenant. Any other auth of the application has nobody who signs up.
 	AdmitWithoutTenant bool
 }
 
@@ -102,6 +105,35 @@ type TenantPolicy struct {
 // the auth's directory admission decides a stranger's first sign-in with.
 func (p *TenantPolicy) DirectoryReader() string {
 	return strings.TrimSuffix(p.Reader, "New"+p.Record+"DeclarationReader") + "New" + p.Record + "DirectoryReader"
+}
+
+// Maker is the generated maker's constructor as the data level qualifies it
+// (app.NewTenantMaker), beside the declaration reader: what makes a tenant from an
+// accepted invitation, over the record's own create patch, which the identity client
+// of the auth whose people are invited to make a tenant takes.
+func (p *TenantPolicy) Maker() string {
+	return strings.TrimSuffix(p.Reader, "New"+p.Record+"DeclarationReader") + "New" + p.Record + "Maker"
+}
+
+// MakesTenants reports whether a tenant is made through the auth: staff bring an
+// organization in by inviting one person to it, and that person's first sign-in makes
+// the tenant. It is the auth whose outlets serve the tenant record
+// (TenantPolicy.AdmitWithoutTenant), where the application assigns the roles, since
+// the person who accepts is seated as the tenant's administrator, and the application
+// generates the auth's management, since the invitation and the seat are part of it.
+// The auth's Settings then carry the generated maker, which its identity client is not
+// built without.
+func (s *Spec) MakesTenants() bool {
+	if s.TenantPolicy == nil || !s.TenantPolicy.AdmitWithoutTenant || s.IdentityDir == "" {
+		return false
+	}
+	for i := range s.Methods {
+		if s.Methods[i].SyncsRoles() {
+			return false
+		}
+	}
+
+	return true
 }
 
 // DirectoryAdmission reports whether the auth sets the library's directory admission
@@ -154,16 +186,6 @@ type Method struct {
 	// SlotAnyWorkspace (any Workspace), SlotAny (any Google account), SlotMixed (one
 	// Workspace and any Google account). Empty is SlotOne.
 	Slot string
-	// Accounts is the standard account rule for a first sign-in: AccountsMembers (members
-	// of the directory, the default), AccountsInvited (invited users only) or
-	// AccountsOpen (open sign-up). Empty is AccountsMembers. The password method takes
-	// AccountsOpen alone (a stranger signs up from a link mailed to their address) or
-	// nothing (its users are created in the application, or invited). The persona method
-	// takes AccountsInvited alone, its default: the personas are the accounts the cast
-	// seeds, and the sign-in links to them. An organization's identity provider takes
-	// AccountsMembers or AccountsInvited: everyone it signs in is a member of its
-	// organization, so there is nobody for AccountsOpen to add.
-	Accounts string
 	// UsernameIsEmail marks a password method whose sign-in name is the person's email
 	// address (session.UsernameIsEmail): the generated management derives the address from
 	// the username, a verified change of address renames the user, and the roles held
@@ -183,13 +205,6 @@ const (
 	SlotMixed        = "mixed"
 )
 
-// The standard account rules.
-const (
-	AccountsMembers = "members"
-	AccountsInvited = "invited"
-	AccountsOpen    = "open"
-)
-
 // Slots lists the slots a method kind takes, in the order the help shows them.
 func Slots(kind string) []string {
 	switch kind {
@@ -202,16 +217,13 @@ func Slots(kind string) []string {
 	}
 }
 
-// Accounts lists the standard account rules.
-func Accounts() []string { return []string{AccountsMembers, AccountsInvited, AccountsOpen} }
-
 // Validate checks a method against the library's rules, as the session library enforces
-// them at registration: a slot the kind has, an account rule the slot allows (open sign-up
-// only with any organization or personal accounts; members of the directory not with
-// them), role synchronization only with one organization, for the password method open
-// sign-up or no rule, with the sign-in name as the address on it alone, for the persona
-// method no slot, the application's authority and invited users only, and for an
-// organization's identity provider no slot and members or invited users.
+// them at registration: a slot the kind has, role synchronization only with one
+// organization, the sign-in name as the address on the password method alone, for the
+// persona method no slot and the application's authority, and for an organization's
+// identity provider no slot. Whether a method admits a person with no account and no
+// invitation is no part of it: every method is invite only until an administrator opens
+// it to sign-up in the running application.
 func (m *Method) Validate() error {
 	if m.Kind == app.MethodPassword {
 		return m.validatePassword()
@@ -244,17 +256,6 @@ func (m *Method) Validate() error {
 	if !known {
 		return errors.Newf("slot %q: a %s method takes %s", m.Slot, m.Kind, strings.Join(Slots(m.Kind), ", "))
 	}
-	accounts := m.accounts()
-	if accounts != AccountsMembers && accounts != AccountsInvited && accounts != AccountsOpen {
-		return errors.Newf("accounts %q: members, invited or open", m.Accounts)
-	}
-	open := m.openSlot()
-	switch {
-	case accounts == AccountsOpen && !open:
-		return errors.Newf("open sign-up is for any organization or personal accounts; a registration naming its %s takes members or invited", m.organizations())
-	case accounts == AccountsMembers && open:
-		return errors.Newf("members of the directory with any organization or personal accounts would sign up the world; take invited or open")
-	}
 	switch m.Authority {
 	case app.AuthorityDirectory:
 		if slot != SlotOne {
@@ -268,8 +269,8 @@ func (m *Method) Validate() error {
 	return nil
 }
 
-// validatePassword checks the password method: always registered as password, no slot or
-// authority, and open sign-up or no account rule.
+// validatePassword checks the password method: always registered as password, with no
+// slot or authority.
 func (m *Method) validatePassword() error {
 	if m.Name != "" && m.Name != app.PasswordRegistration {
 		return errors.Newf("the password method is always registered as %q", app.PasswordRegistration)
@@ -277,16 +278,13 @@ func (m *Method) validatePassword() error {
 	if m.Slot != "" || m.Authority != "" {
 		return errors.New("the password method takes no slot or authority")
 	}
-	if m.Accounts != "" && m.Accounts != AccountsOpen {
-		return errors.Newf("accounts %q: the password method takes open (a stranger signs up from a link mailed to their address) or no rule (its users are created in the application, or invited)", m.Accounts)
-	}
 
 	return nil
 }
 
 // validatePersona checks the persona method: a registration name, no slot (the provider
-// is one issuer), the application's authority (the provider asserts who a persona is and
-// nothing about roles) and invited users only (the personas are seeded accounts).
+// is one issuer) and the application's authority (the provider asserts who a persona is
+// and nothing about roles).
 func (m *Method) validatePersona() error {
 	if m.UsernameIsEmail {
 		return errors.New("username-is-email describes the password method's sign-in name; a persona signs in as the login its cast names")
@@ -303,16 +301,13 @@ func (m *Method) validatePersona() error {
 	if m.Authority != "" && m.Authority != app.AuthorityApplication {
 		return errors.Newf("authority %q: the persona method takes the application authority alone, since the persona provider asserts who a persona is and the cast seeds what it may do", m.Authority)
 	}
-	if m.Accounts != "" && m.Accounts != AccountsInvited {
-		return errors.Newf("accounts %q: the persona method admits invited users only, since the personas are the accounts the cast seeds and the sign-in links to them", m.Accounts)
-	}
 
 	return nil
 }
 
 // validateOIDC checks an organization's identity provider: a registration name of the
 // application's choosing, no slot (the provider is one organization's, named by its
-// issuer), an authority, and members of the directory or invited users only.
+// issuer) and an authority.
 func (m *Method) validateOIDC() error {
 	if m.UsernameIsEmail {
 		return errors.New("username-is-email describes the password method's sign-in name; a provider's people sign in as the provider names them")
@@ -333,13 +328,6 @@ func (m *Method) validateOIDC() error {
 	case app.AuthorityDirectory, app.AuthorityApplication:
 	default:
 		return errors.Newf("authority %q: directory or application", m.Authority)
-	}
-	switch m.accounts() {
-	case AccountsMembers, AccountsInvited:
-	case AccountsOpen:
-		return errors.New("open sign-up is for a method anyone can use; an identity provider is one organization's, and everyone it signs in is a member the method admits under members, so take members or invited")
-	default:
-		return errors.Newf("accounts %q: members or invited", m.Accounts)
 	}
 
 	return nil
@@ -363,29 +351,11 @@ func (m *Method) slot() string {
 	return m.Slot
 }
 
-func (m *Method) accounts() string {
-	if m.Accounts == "" {
-		if m.Kind == app.MethodPersona {
-			return AccountsInvited
-		}
-
-		return AccountsMembers
-	}
-
-	return m.Accounts
-}
-
 // slotted reports a method whose registration names the organizations it admits in an
 // organization slot: a Microsoft or a Google method. The persona method and an
 // organization's identity provider have none: each is one issuer.
 func (m *Method) slotted() bool {
 	return m.Kind == app.MethodAzure || m.Kind == app.MethodGoogle
-}
-
-// OpenSignUp reports a method admitting anyone: a directory method under the open
-// sign-up rule, or the password method whose strangers sign up from a mailed link.
-func (m *Method) OpenSignUp() bool {
-	return m.accounts() == AccountsOpen
 }
 
 // SyncsRoles reports a method whose registration writes the person's roles from the
@@ -401,43 +371,28 @@ func (m *Method) SyncsRoles() bool {
 }
 
 // Arg is the method as a generator program declares it on an Auth option: its kind and
-// registration name, with .InvitedUsers() chained under the invited-users rule, so the
-// management the generator emits creates the invitations the method file's
-// signin.InvitedUsersOnly admits, .SyncsRoles() under the directory authority, so that
-// management shows the roles the method file's RoleSync writes as the directory's and
-// never writes them (a role removed by hand would come back at the next sign-in),
-// .OpenSignUp() under the open sign-up rule (the registration a self-service tenant
-// record needs, the method file's signin.OpenSignUp; on the password method the sign-up
-// routes the router serves, the method file's session.OpenSignUp()), and
-// .UsernameIsEmail() on a password method whose sign-in name is the address. The
-// declaration and the method file read the same rule for each.
+// registration name, with .SyncsRoles() chained under the directory authority, so the
+// management the generator emits shows the roles the method file's RoleSync writes as
+// the directory's and never writes them (a role removed by hand would come back at the
+// next sign-in), and .UsernameIsEmail() on a password method whose sign-in name is the
+// address. The declaration and the method file read the same rule for each. Whether the
+// method admits a person with no account and no invitation is declared nowhere: an
+// administrator opens it to sign-up in the running application.
 func (m *Method) Arg() app.AuthMethodArg {
 	return app.AuthMethodArg{
 		Kind:            m.Kind,
 		Name:            m.Name,
-		InvitedUsers:    m.accounts() == AccountsInvited,
 		SyncsRoles:      m.SyncsRoles(),
-		OpenSignUp:      m.OpenSignUp(),
 		UsernameIsEmail: m.UsernameIsEmail,
 	}
 }
 
 // Declaration writes the method as a generator program carries it, package-qualified
-// (generation.GoogleMethod("workspace").InvitedUsers()).
+// (generation.GoogleMethod("workspace").SyncsRoles()).
 func (m *Method) Declaration() string {
 	arg := m.Arg()
 
 	return arg.Declaration()
-}
-
-// openSlot reports a slot that admits the world: any organization or personal accounts.
-func (m *Method) openSlot() bool {
-	switch m.slot() {
-	case SlotAny, SlotPersonal, SlotOnePersonal, SlotAnyPersonal, SlotAnyWorkspace, SlotMixed:
-		return true
-	default:
-		return false
-	}
 }
 
 // organization is the word for the method's organization: tenant or Workspace.
@@ -448,8 +403,6 @@ func (m *Method) organization() string {
 
 	return "tenant"
 }
-
-func (m *Method) organizations() string { return m.organization() + "s" }
 
 // Pascal is the registration name in PascalCase: the handler and settings prefix
 // (DirectoryLogin, DirectorySettings; entra-one is EntraOne).

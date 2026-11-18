@@ -29,6 +29,30 @@ var _ = map[bool]struct{}{false: {}, staff.TablePrefix == staffidentity.TablePre
 // would take every caller for a person of another auth.
 var _ = map[bool]struct{}{false: {}, staff.Name == staffidentity.AuthName: {}}
 
+func (a *App) StaffGroups() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGroups()
+}
+
+func (a *App) StaffGroup() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGroup()
+}
+
+func (a *App) StaffGroupMembers() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGroupMembers()
+}
+
+func (a *App) StaffGroupRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGroupRoles()
+}
+
+func (a *App) StaffGroupUsers() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGroupUsers()
+}
+
+func (a *App) StaffGroupUser() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGroupUser()
+}
+
 func (a *App) StaffRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffRoles()
 }
@@ -93,20 +117,56 @@ func (a *App) StaffSessionUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionUser()
 }
 
+func (a *App) StaffUserGroupRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffUserGroupRoles()
+}
+
+func (a *App) StaffUserGroupRole() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffUserGroupRole()
+}
+
 func (a *App) StaffUserRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffUserRoles()
+}
+
+func (a *App) StaffSignInMethods() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSignInMethods()
+}
+
+func (a *App) StaffSignInWays() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSignInWays()
+}
+
+func (a *App) StaffSignUpRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSignUpRoles()
+}
+
+func (a *App) AddStaffGroupMember() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).AddStaffGroupMember()
 }
 
 func (a *App) AssignStaffRole() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).AssignStaffRole()
 }
 
+func (a *App) CreateStaffGroup() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).CreateStaffGroup()
+}
+
 func (a *App) CreateStaffUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).CreateStaffUser()
 }
 
+func (a *App) DeleteStaffGroup() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).DeleteStaffGroup()
+}
+
 func (a *App) DeleteStaffUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).DeleteStaffUser()
+}
+
+func (a *App) DescribeStaffGroup() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).DescribeStaffGroup()
 }
 
 func (a *App) DisableStaffUser() http.HandlerFunc {
@@ -125,8 +185,28 @@ func (a *App) EndStaffUserSessions() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).EndStaffUserSessions()
 }
 
+func (a *App) GiveStaffGroupRole() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).GiveStaffGroupRole()
+}
+
 func (a *App) InviteStaffUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).InviteStaffUser()
+}
+
+func (a *App) MakeStaffInviteOnly() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).MakeStaffInviteOnly()
+}
+
+func (a *App) OpenStaffSignUp() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).OpenStaffSignUp()
+}
+
+func (a *App) RemoveStaffGroupMember() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).RemoveStaffGroupMember()
+}
+
+func (a *App) RemoveStaffPassword() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).RemoveStaffPassword()
 }
 
 func (a *App) RemoveStaffRole() http.HandlerFunc {
@@ -159,6 +239,10 @@ func (a *App) SetStaffUserEmail() http.HandlerFunc {
 
 func (a *App) SetStaffUserName() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffUserName()
+}
+
+func (a *App) TakeStaffGroupRole() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).TakeStaffGroupRole()
 }
 
 func (a *App) UnlinkStaffSessionIdentity() http.HandlerFunc {

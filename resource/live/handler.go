@@ -2,7 +2,12 @@ package live
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
+	"maps"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -148,6 +153,88 @@ func Subscribe(ctx context.Context, r *http.Request, svc Service, gate Gate, sub
 	}
 }
 
+// AcrossTenantsList is a decoded list across tenants as the live layer reads it: its
+// resource, and the set of tenants a subscription to it is held over with the page's
+// filter on the tenant (nil for every tenant). A QuerySet decoded for a list across
+// tenants is one (resource.QuerySet.TenantsListed).
+type AcrossTenantsList interface {
+	Resource() accesstypes.Resource
+	TenantsListed(ctx context.Context) (set, narrowed []accesstypes.Domain, err error)
+}
+
+// AcrossTenantsLiveness is what SubscribeAcrossTenants answers of a list across tenants:
+// whether it is served as a live one. A list whose set of tenants is larger than
+// MaxSubscriptionTenants is served plain though the page asked for live: no
+// subscription holds it, and its answer is not marked cacheable, so the browser asks
+// again each time, as it does for any list that is not live. The handler marks the
+// response through it (SetCacheControl).
+type AcrossTenantsLiveness struct {
+	plain bool
+}
+
+// Plain reports whether the list is served plain though the page asked for live.
+func (l AcrossTenantsLiveness) Plain() bool {
+	return l.plain
+}
+
+// SetCacheControl marks the response as SetCacheControl does, unless the list is served
+// plain: no change will ever tell the browser to ask a plain list again, so its answer
+// is not the browser's to keep.
+func (l AcrossTenantsLiveness) SetCacheControl(w http.ResponseWriter, r *http.Request) {
+	if l.plain {
+		return
+	}
+	SetCacheControl(w, r)
+}
+
+// SubscribeAcrossTenants registers the subscription of a list across tenants when the
+// request carries the subscribe header, before the handler runs the query: one
+// subscription over the set of tenants the list reads for the person, so a commit in
+// any of them finds it and a commit in a tenant the person cannot enter does not. A list
+// across tenants is plain unless the page asks, so a request without the header
+// registers nothing; neither does a list that reads no tenant, which nothing can change.
+// A set larger than MaxSubscriptionTenants registers nothing either, and the answer says
+// the list is served plain: that is the ceiling's decision and no failure, so nothing is
+// logged for it. As with Subscribe, a set that cannot be worked out or a record that
+// fails to take the subscription is logged and the request is still answered.
+func SubscribeAcrossTenants(ctx context.Context, r *http.Request, svc Service, list AcrossTenantsList) AcrossTenantsLiveness {
+	tab, err := Tab(r)
+	if err != nil || tab == "" {
+		// A malformed tab was refused by the outlet's middleware before the handler ran.
+		return AcrossTenantsLiveness{}
+	}
+	res := list.Resource()
+	set, narrowed, err := list.TenantsListed(ctx)
+	if err != nil {
+		logger.FromCtx(ctx).Errorf("live: working out the tenants of the %s subscription across tenants of tab %s failed; the subscription is not registered: %v", res, tab, err)
+
+		return AcrossTenantsLiveness{}
+	}
+	if len(set) == 0 {
+		return AcrossTenantsLiveness{}
+	}
+	if len(set) > MaxSubscriptionTenants {
+		return AcrossTenantsLiveness{plain: true}
+	}
+	principal, err := PrincipalID(ctx)
+	if err != nil {
+		logger.FromCtx(ctx).Errorf("live: the %s subscription across tenants of tab %s is not registered; the page is served without it: %v", res, tab, err)
+
+		return AcrossTenantsLiveness{}
+	}
+	registered := AcrossTenantsSubscription(res, set, narrowed).Normalized()
+	registered.Principal = principal
+	registered.Tab = tab
+	registered.Expiry = time.Now().Add(SubscriptionTTL)
+	ctx, cancel := context.WithTimeout(ctx, RecordTimeout)
+	defer cancel()
+	if err := svc.Register(ctx, []Subscription{registered}); err != nil {
+		logger.FromCtx(ctx).Errorf("live: registering the %s subscription across tenants of tab %s failed; the page is served without it: %v", res, tab, err)
+	}
+
+	return AcrossTenantsLiveness{}
+}
+
 // SetCacheControl marks a list or read response cacheable by the browser when its
 // request carried the version parameter: Cache-Control private with the subscription's
 // window, and the no-cache Pragma and Expires the outlet's NoCaching middleware set are
@@ -169,17 +256,106 @@ func SetCacheControl(w http.ResponseWriter, r *http.Request) {
 // resources those rows reach (derivations, the generated value; nil reaches none). It is
 // bounded by PublishTimeout, a failure is logged, and the request answers either way.
 // Nothing happens for a request that committed nothing.
-func Publish(ctx context.Context, svc Service, derivations *Derivations, domain accesstypes.Domain, touched *resource.TouchedRows) {
+//
+// The request is one write: Publish mints its id, every document it publishes carries
+// it, and the documents that went into the caller's own change set are named on the
+// answer with it (ChangesHeader on w, which the handler has not written yet), so the tab
+// that wrote fetches them at once and knows the write when its change set reports it. A
+// request with no session principal (a machine's, a scheduled call's), and one that
+// reached nothing the caller holds live, answers without the header. So does a request
+// any of whose publishes failed: a publish that failed may have written some of its
+// documents, and a tab told the write's id would take those for changes it had fetched
+// for; told nothing, it fetches for every document that got through as for anyone's.
+func Publish(ctx context.Context, w http.ResponseWriter, svc Service, derivations *Derivations, domain accesstypes.Domain, touched *resource.TouchedRows) {
 	if touched.Empty() {
 		return
 	}
+	write := rand.Text()
+	caller := callerID(ctx)
+	own := make(Changes)
+	failed := false
 	ctx, cancel := context.WithTimeout(ctx, PublishTimeout)
 	defer cancel()
-	for changeDomain, rows := range touched.Rows(domain) {
-		if err := svc.Publish(ctx, changeDomain, derivations.Expand(rows)); err != nil {
+	byDomain := touched.Rows(domain)
+	for _, changeDomain := range slices.Sorted(maps.Keys(byDomain)) {
+		writes := derivations.Expand(byDomain[changeDomain])
+		writes.ID = write
+		changes, err := svc.Publish(ctx, changeDomain, writes)
+		if err != nil {
 			logger.FromCtx(ctx).Errorf("live: publishing the changes of domain %q failed; the pages refetch at their next change: %v", changeDomain, err)
+			failed = true
+
+			continue
+		}
+		for _, doc := range changes[caller] {
+			own.add(caller, doc)
 		}
 	}
+	if failed {
+		return
+	}
+	if err := setChangesHeader(w, Answer{Write: write, Changes: own[caller]}); err != nil {
+		logger.FromCtx(ctx).Errorf("live: naming the write's changes on its answer failed; the page fetches when its change set reports them: %v", err)
+	}
+}
+
+// Answer is what a write's answer tells the tab that wrote, in ChangesHeader: the
+// write's id, which every change document the write published carries, and the
+// documents that went into the caller's own change set, which the tab fetches at once.
+// All stands for the documents when naming them would outgrow MaxChangesHeaderLength:
+// the tab then fetches everything it holds live.
+type Answer struct {
+	Write   string           `json:"write"`
+	Changes []ChangeDocument `json:"changes,omitempty"`
+	All     bool             `json:"all,omitempty"`
+}
+
+// header renders the answer as ChangesHeader carries it: its JSON, percent-encoded.
+func (a Answer) header() (string, error) {
+	encoded, err := json.Marshal(a)
+	if err != nil {
+		return "", errors.Wrap(err, "json.Marshal()")
+	}
+
+	return url.PathEscape(string(encoded)), nil
+}
+
+// setChangesHeader names the write's changes on its answer. An answer naming no
+// document sets nothing, and one whose documents outgrow MaxChangesHeaderLength names
+// the write alone, with All.
+func setChangesHeader(w http.ResponseWriter, answer Answer) error {
+	if len(answer.Changes) == 0 {
+		return nil
+	}
+	value, err := answer.header()
+	if err != nil {
+		return err
+	}
+	if len(value) > MaxChangesHeaderLength {
+		value, err = Answer{Write: answer.Write, All: true}.header()
+		if err != nil {
+			return err
+		}
+	}
+	w.Header().Set(ChangesHeader, value)
+
+	return nil
+}
+
+// callerID is the principal id of the session the request speaks for, whose change set
+// a write's answer names documents of; empty for a request with no session principal
+// bound (a machine outlet's, a scheduled call's) and for one live pages refuse
+// (PrincipalID), neither of which holds a change set.
+func callerID(ctx context.Context) string {
+	if _, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !ok {
+		return ""
+	}
+	id, err := PrincipalID(ctx)
+	if err != nil {
+		return ""
+	}
+
+	return id
 }
 
 // PrincipalID is the session principal's id as the subscription record, the change set

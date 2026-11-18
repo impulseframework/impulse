@@ -3,7 +3,16 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ActivatedRoute } from '@angular/router';
-import { ApiDescriptor, createClient, Resource, Transport, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  createClient,
+  Method,
+  MethodMeta,
+  Resource,
+  Transport,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
@@ -12,6 +21,7 @@ import {
   CustomConfigComponent,
   FieldName,
   listViewConfig,
+  METHOD_META,
   RESOURCE_META,
   ResourceMeta,
   rootConfig,
@@ -166,10 +176,10 @@ interface Script {
  * spec releases it, so the spec can look at the page before the row is there; every
  * later read of it answers at once.
  */
-function scripted(): Script {
+function scripted(row: object = squadron): Script {
   let firstRead = true;
   let release: ((response: TransportResponse) => void) | undefined;
-  const rowRead: TransportResponse = { status: 200, body: squadron };
+  const rowRead: TransportResponse = { status: 200, body: row };
   const transport = scriptedTransport((request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
     const path = request.url.split('?')[0];
     if (path === '/api/squadrons/sq-1') {
@@ -204,22 +214,30 @@ async function settle(done: () => boolean): Promise<void> {
   TestBed.tick();
 }
 
-async function pageOver(config: ReturnType<typeof viewConfig>, script: Script): Promise<ComponentFixture<CompoundResourceComponent>> {
+async function pageOver(
+  config: ReturnType<typeof viewConfig>,
+  script: Script,
+  api: ApiDescriptor = descriptor,
+  methodMetas: Record<string, MethodMeta> = {},
+): Promise<ComponentFixture<CompoundResourceComponent>> {
   const listPage = listViewConfig({ primaryResource: 'Squadrons' as Resource, elements: [], listColumns: [] });
   await TestBed.configureTestingModule({
     imports: [CompoundResourceComponent],
     providers: [
       provideResourceTesting({
         transport: script.transport,
-        client: (transport: Transport) => createClient(descriptor, { baseUrl: '/api', transport }),
+        client: (transport: Transport) => createClient(api, { baseUrl: '/api', transport }),
       }),
       provideNoopAnimations(),
       { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metadata[resource] },
+      { provide: METHOD_META, useValue: (method: string): MethodMeta => methodMetas[method] ?? ({} as MethodMeta) },
       {
         provide: ActivatedRoute,
         useValue: {
           snapshot: {
-            data: { config: rootConfig({ parentConfig: listPage, routeData: { route: 'squadrons', hasViewRoute: true } }) },
+            data: {
+              config: rootConfig({ parentConfig: listPage, routeData: { route: 'squadrons', hasViewRoute: true } }),
+            },
             params: {},
             queryParams: {},
           },
@@ -304,14 +322,17 @@ describe('CompoundResourceComponent row page', () => {
 
     // A method ran against the page's row: it may have changed anything under the row.
     store.rowChanged();
-    await settle(() => rowReads(script).length === 2 && arrayLists(script).length === 2 && rosterLists(script).length === 2);
+    await settle(
+      () => rowReads(script).length === 2 && arrayLists(script).length === 2 && rosterLists(script).length === 2,
+    );
     expect(rowReads(script)).toHaveLength(2);
     expect(arrayLists(script)).toHaveLength(2);
     expect(rosterLists(script)).toHaveLength(2);
 
     // A method ran from the child list, which has asked for its own rows again already:
     // the page reads the row and its other children, and asks nothing more of that list.
-    const roster = fixture.debugElement.query(By.directive(ResourceListCreateComponent)).componentInstance as ResourceListCreateComponent;
+    const roster = fixture.debugElement.query(By.directive(ResourceListCreateComponent))
+      .componentInstance as ResourceListCreateComponent;
     roster.methodRan();
     await settle(() => rowReads(script).length === 3 && arrayLists(script).length === 3);
     expect(rowReads(script)).toHaveLength(3);
@@ -339,4 +360,69 @@ describe('CompoundResourceComponent row page', () => {
     expect(urls(script).filter((u) => u.startsWith('/api/wings/w-1'))).toHaveLength(1);
     expect(urls(script).filter((u) => u.includes('undefined'))).toEqual([]);
   });
+});
+
+// A method that names the page's row, offered above one of the row's child lists (a
+// person's password, above the identities the person signs in with). The page's read of
+// the row asks for the row's Execute answer, the child list is handed the row with that
+// answer, and the list draws the button while the answer lists the method: the page
+// offers it only where the caller may run it on this row.
+describe('CompoundResourceComponent row page, a method above a child list that names the row', () => {
+  const disband = 'DisbandSquadron' as Method;
+  const withMethod: ApiDescriptor = {
+    ...descriptor,
+    methods: {
+      [disband]: { method: disband, property: 'disbandSquadron', route: 'disband-squadron', scope: 'global' },
+    },
+  };
+  const methodMetas: Record<string, MethodMeta> = {
+    [disband]: {
+      route: 'disband-squadron',
+      target: { resource: 'Squadrons' as Resource, key: { squadronId: 'id' } },
+      fields: [{ fieldName: 'squadronId', displayType: 'uuid' }],
+    },
+  };
+  const page = viewConfig({
+    primaryResource: 'Squadrons' as Resource,
+    elements: [],
+    showBackButton: false,
+    relatedConfigs: [
+      listViewConfig({
+        title: 'Roster',
+        primaryResource: 'SquadronRosters' as Resource,
+        parentRelation: { parentKey: 'id' as FieldName, childKey: 'squadronId' as FieldName },
+        listColumns: [{ id: 'pilotName' as FieldName }],
+        listMethods: [{ method: disband, label: 'Disband' }],
+        elements: [],
+        showBackButton: false,
+      }),
+    ],
+  });
+  const buttons = (fixture: ComponentFixture<unknown>): (string | undefined)[] =>
+    Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button.list-method')).map((button) =>
+      button.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+
+  for (const tt of [
+    {
+      name: 'draws the button where the answer for the row lists the method',
+      execute: ['DisbandSquadron'],
+      want: ['Disband'],
+    },
+    { name: 'draws none where the answer for the row leaves the method out', execute: [], want: [] },
+  ]) {
+    it(tt.name, async () => {
+      const script = scripted({ ...squadron, zzCapabilities: { Update: [], Delete: false, Execute: tt.execute } });
+      const fixture = await pageOver(page, script, withMethod, methodMetas);
+      await settle(() => rowReads(script).length === 1);
+      // A method runs against a row of the page's resource, so the read asks what the caller may run on it.
+      expect(rowReads(script)[0]).toContain('Execute');
+
+      script.releaseRow();
+      await settle(() => rosterLists(script).length === 1);
+      fixture.detectChanges();
+
+      expect(buttons(fixture)).toEqual(tt.want);
+    });
+  }
 });

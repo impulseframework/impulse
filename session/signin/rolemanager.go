@@ -7,7 +7,8 @@ import (
 )
 
 // UserRoleManager defines the role store operations required by OIDC role
-// synchronization (see RoleSync). The sync writes memberships in two places,
+// synchronization (see RoleSync) and by the tenant policy (see TenantPolicy), which
+// reads what a person holds and which tenants they administer. The sync writes memberships in two places,
 // the global partition and every tenant domain: a role that exists in the
 // global partition is held there, a role that exists in every tenant domain is
 // held there, and a membership the directory does not name is removed wherever
@@ -27,6 +28,15 @@ type UserRoleManager interface {
 	// scopes it lists every membership the user holds, keyed by where each is
 	// held.
 	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error)
+	// TenantsAdministered lists the tenants the user administers: the tenant domains
+	// where they hold, in the tenant itself and inside its period, one of the roles the
+	// application names as a tenant's administrator's, by a membership of their own or
+	// through a group kept in that tenant. A role held in every tenant, or through a
+	// group kept for the whole application, lists no tenant. The tenant policy reads it
+	// for the administrators' way into a directory-only tenant
+	// (TenantDeclaration.AdmitsAdministrator); the role synchronization does not. A
+	// store that names no administrator role answers none.
+	TenantsAdministered(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
 	// ResolveRole returns the role held in the place under name, matched without
 	// regard to case, in the spelling the store holds it: in the global
 	// partition for a global role, in every tenant domain for a domain default

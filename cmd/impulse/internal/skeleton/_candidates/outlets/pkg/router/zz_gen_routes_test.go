@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // TestGeneratedRoutes drives every generated route through NewTestRouter: each request
@@ -48,6 +49,38 @@ func TestGeneratedRoutes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGeneratedDryRunAndWarning proves the refusal of a dry run and of a warning lands
+// on exactly the routes whose frames read neither header. A request that asks a call
+// for a dry run (X-Dry-Run: true) or for its warning (X-Warning: true) reaches the
+// handler of a method, an upload or SetFeature, whose frame answers the header itself,
+// and is refused (400) ahead of every other handler, which never runs: a frame that
+// does not read the header would run for real the call the request asked be held back.
+func TestGeneratedDryRunAndWarning(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range generatedRouterTests() {
+		for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {
+			t.Run(tt.method+"-url"+strings.ReplaceAll(tt.url, "/", "-")+"-"+header, func(t *testing.T) {
+				t.Parallel()
+
+				rec := newGeneratedCallRecorder()
+				router := NewTestRouter(newGeneratedHandlersStub(rec.RecordHandlerCall))
+				req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.url, http.NoBody)
+				req.Header.Set(header, "true")
+				rr := httptest.NewRecorder()
+				router.ServeHTTP(rr, req)
+
+				if got, want := rec.handlers[tt.handlerFunc] == 1, tt.readsDryRunAndWarning; got != want {
+					t.Errorf("handler %s reached under %s = %v, want %v", tt.handlerFunc, header, got, want)
+				}
+				if !tt.readsDryRunAndWarning && rr.Code != http.StatusBadRequest {
+					t.Errorf("response.Code = %v under %s, want %v: the route's frame does not read the header", rr.Code, header, http.StatusBadRequest)
+				}
+			})
+		}
 	}
 }
 
@@ -93,6 +126,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		url    string
 		method string
 	}{
+		{url: "/console/api/members-groups", method: http.MethodGet},
+		{url: "/console/api/members-groups", method: http.MethodPost},
+		{url: "/console/api/members-groups/testMembersGroupID", method: http.MethodGet},
+		{url: "/console/api/members-groups/testMembersGroupID", method: http.MethodPost},
+		{url: "/console/api/members-group-members", method: http.MethodGet},
+		{url: "/console/api/members-group-members", method: http.MethodPost},
+		{url: "/console/api/members-group-roles", method: http.MethodGet},
+		{url: "/console/api/members-group-roles", method: http.MethodPost},
+		{url: "/console/api/members-group-users", method: http.MethodGet},
+		{url: "/console/api/members-group-users", method: http.MethodPost},
+		{url: "/console/api/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodGet},
+		{url: "/console/api/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodPost},
 		{url: "/console/api/members-roles", method: http.MethodGet},
 		{url: "/console/api/members-roles", method: http.MethodPost},
 		{url: "/console/api/members-role-grants", method: http.MethodGet},
@@ -125,6 +170,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/members-session-users", method: http.MethodPost},
 		{url: "/console/api/members-session-users/testMembersSessionUserID", method: http.MethodGet},
 		{url: "/console/api/members-session-users/testMembersSessionUserID", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles/testMembersTenantGroupRoleGroupID/testMembersTenantGroupRoleRole", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles/testMembersTenantGroupRoleGroupID/testMembersTenantGroupRoleRole", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodGet},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities/testMembersTenantIdentityID", method: http.MethodGet},
@@ -137,10 +194,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-users", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-users/testMembersTenantUserID", method: http.MethodGet},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-users/testMembersTenantUserID", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles/testMembersTenantUserGroupRoleUserID/testMembersTenantUserGroupRoleGroupID/testMembersTenantUserGroupRoleRole", method: http.MethodGet},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles/testMembersTenantUserGroupRoleUserID/testMembersTenantUserGroupRoleGroupID/testMembersTenantUserGroupRoleRole", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles", method: http.MethodGet},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles/testMembersTenantUserRoleUserID/testMembersTenantUserRoleRole", method: http.MethodGet},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles/testMembersTenantUserRoleUserID/testMembersTenantUserRoleRole", method: http.MethodPost},
+		{url: "/console/api/members-user-group-roles", method: http.MethodGet},
+		{url: "/console/api/members-user-group-roles", method: http.MethodPost},
+		{url: "/console/api/members-user-group-roles/testMembersUserGroupRoleUserID/testMembersUserGroupRoleGroupID/testMembersUserGroupRoleKind/testMembersUserGroupRoleAxis/testMembersUserGroupRoleDomainID/testMembersUserGroupRoleRole", method: http.MethodGet},
+		{url: "/console/api/members-user-group-roles/testMembersUserGroupRoleUserID/testMembersUserGroupRoleGroupID/testMembersUserGroupRoleKind/testMembersUserGroupRoleAxis/testMembersUserGroupRoleDomainID/testMembersUserGroupRoleRole", method: http.MethodPost},
 		{url: "/console/api/members-user-roles", method: http.MethodGet},
 		{url: "/console/api/members-user-roles", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings", method: http.MethodGet},
@@ -149,10 +214,20 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodGet},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodPost},
+		{url: "/console/api/add-members-group-member", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/add-members-tenant-group-member", method: http.MethodPost},
 		{url: "/console/api/assign-members-role", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/assign-members-tenant-role", method: http.MethodPost},
+		{url: "/console/api/create-members-group", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-group", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-user", method: http.MethodPost},
+		{url: "/console/api/create-members-user", method: http.MethodPost},
+		{url: "/console/api/delete-members-group", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-group", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-user", method: http.MethodPost},
 		{url: "/console/api/delete-members-user", method: http.MethodPost},
+		{url: "/console/api/describe-members-group", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/describe-members-tenant-group", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/disable-members-tenant-user", method: http.MethodPost},
 		{url: "/console/api/disable-members-user", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/enable-members-tenant-user", method: http.MethodPost},
@@ -160,9 +235,13 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/end-members-session", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/end-members-tenant-user-sessions", method: http.MethodPost},
 		{url: "/console/api/end-members-user-sessions", method: http.MethodPost},
+		{url: "/console/api/give-members-group-role", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/give-members-tenant-group-role", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/invite-members-tenant-user", method: http.MethodPost},
 		{url: "/console/api/invite-members-user", method: http.MethodPost},
+		{url: "/console/api/remove-members-group-member", method: http.MethodPost},
 		{url: "/console/api/remove-members-role", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-group-member", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-role", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-members-tenant-user", method: http.MethodPost},
 		{url: "/console/api/rename-members-user", method: http.MethodPost},
@@ -173,6 +252,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-name", method: http.MethodPost},
 		{url: "/console/api/set-members-user-email", method: http.MethodPost},
 		{url: "/console/api/set-members-user-name", method: http.MethodPost},
+		{url: "/console/api/take-members-group-role", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/take-members-tenant-group-role", method: http.MethodPost},
 		{url: "/console/api/unlink-members-session-identity", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/unlink-members-tenant-session-identity", method: http.MethodPost},
 		{url: "/console/api/unlock-members-sign-in", method: http.MethodPost},
@@ -182,6 +263,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID", method: http.MethodPost},
+		{url: "/portal/api/staff-groups", method: http.MethodGet},
+		{url: "/portal/api/staff-groups", method: http.MethodPost},
+		{url: "/portal/api/staff-groups/testStaffGroupID", method: http.MethodGet},
+		{url: "/portal/api/staff-groups/testStaffGroupID", method: http.MethodPost},
+		{url: "/portal/api/staff-group-members", method: http.MethodGet},
+		{url: "/portal/api/staff-group-members", method: http.MethodPost},
+		{url: "/portal/api/staff-group-roles", method: http.MethodGet},
+		{url: "/portal/api/staff-group-roles", method: http.MethodPost},
+		{url: "/portal/api/staff-group-users", method: http.MethodGet},
+		{url: "/portal/api/staff-group-users", method: http.MethodPost},
+		{url: "/portal/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodGet},
+		{url: "/portal/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodPost},
 		{url: "/portal/api/staff-roles", method: http.MethodGet},
 		{url: "/portal/api/staff-roles", method: http.MethodPost},
 		{url: "/portal/api/staff-role-grants", method: http.MethodGet},
@@ -214,6 +307,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-session-users", method: http.MethodPost},
 		{url: "/portal/api/staff-session-users/testStaffSessionUserID", method: http.MethodGet},
 		{url: "/portal/api/staff-session-users/testStaffSessionUserID", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles/testStaffTenantGroupRoleGroupID/testStaffTenantGroupRoleRole", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles/testStaffTenantGroupRoleGroupID/testStaffTenantGroupRoleRole", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities/testStaffTenantIdentityID", method: http.MethodGet},
@@ -226,10 +331,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-users", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-users/testStaffTenantUserID", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-users/testStaffTenantUserID", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles/testStaffTenantUserGroupRoleUserID/testStaffTenantUserGroupRoleGroupID/testStaffTenantUserGroupRoleRole", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles/testStaffTenantUserGroupRoleUserID/testStaffTenantUserGroupRoleGroupID/testStaffTenantUserGroupRoleRole", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles/testStaffTenantUserRoleUserID/testStaffTenantUserRoleRole", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles/testStaffTenantUserRoleUserID/testStaffTenantUserRoleRole", method: http.MethodPost},
+		{url: "/portal/api/staff-user-group-roles", method: http.MethodGet},
+		{url: "/portal/api/staff-user-group-roles", method: http.MethodPost},
+		{url: "/portal/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodGet},
+		{url: "/portal/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodPost},
 		{url: "/portal/api/staff-user-roles", method: http.MethodGet},
 		{url: "/portal/api/staff-user-roles", method: http.MethodPost},
 		{url: "/portal/api/tenants", method: http.MethodGet},
@@ -240,14 +353,32 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID", method: http.MethodPost},
+		{url: "/portal/api/staff-invited-tenants", method: http.MethodGet},
+		{url: "/portal/api/staff-invited-tenants", method: http.MethodPost},
+		{url: "/portal/api/staff-sign-in-methods", method: http.MethodGet},
+		{url: "/portal/api/staff-sign-in-methods", method: http.MethodPost},
+		{url: "/portal/api/staff-sign-in-ways", method: http.MethodGet},
+		{url: "/portal/api/staff-sign-in-ways", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodPost},
+		{url: "/portal/api/add-staff-group-member", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/add-staff-tenant-group-member", method: http.MethodPost},
 		{url: "/portal/api/assign-staff-role", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/assign-staff-tenant-role", method: http.MethodPost},
+		{url: "/portal/api/create-staff-group", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-group", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/create-staff-user", method: http.MethodPost},
+		{url: "/portal/api/delete-staff-group", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-staff-tenant-group", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/delete-staff-user", method: http.MethodPost},
+		{url: "/portal/api/describe-staff-group", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/describe-staff-tenant-group", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/disable-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/disable-staff-user", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/enable-staff-tenant-user", method: http.MethodPost},
@@ -255,9 +386,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/end-staff-session", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/end-staff-tenant-user-sessions", method: http.MethodPost},
 		{url: "/portal/api/end-staff-user-sessions", method: http.MethodPost},
+		{url: "/portal/api/give-staff-group-role", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/give-staff-tenant-group-role", method: http.MethodPost},
+		{url: "/portal/api/invite-staff-tenant", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/invite-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/invite-staff-user", method: http.MethodPost},
+		{url: "/portal/api/make-staff-invite-only", method: http.MethodPost},
+		{url: "/portal/api/open-staff-sign-up", method: http.MethodPost},
+		{url: "/portal/api/remove-staff-group-member", method: http.MethodPost},
+		{url: "/portal/api/remove-staff-password", method: http.MethodPost},
 		{url: "/portal/api/remove-staff-role", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-group-member", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-staff-tenant-user", method: http.MethodPost},
 		{url: "/portal/api/rename-staff-user", method: http.MethodPost},
@@ -272,10 +412,13 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-name", method: http.MethodPost},
 		{url: "/portal/api/set-staff-user-email", method: http.MethodPost},
 		{url: "/portal/api/set-staff-user-name", method: http.MethodPost},
+		{url: "/portal/api/take-staff-group-role", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/take-staff-tenant-group-role", method: http.MethodPost},
 		{url: "/portal/api/unlink-staff-session-identity", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/unlink-staff-tenant-session-identity", method: http.MethodPost},
 		{url: "/portal/api/unlock-staff-sign-in", method: http.MethodPost},
 		{url: "/portal/api/withdraw-staff-invitation", method: http.MethodPost},
+		{url: "/portal/api/withdraw-staff-invited-tenant", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/withdraw-staff-tenant-invitation", method: http.MethodPost},
 		{url: "/devices/permission-digest", method: http.MethodGet},
 		{url: "/devices/user-domains", method: http.MethodGet},
@@ -291,6 +434,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID", method: http.MethodPost},
+		{url: "/devices/members-groups", method: http.MethodGet},
+		{url: "/devices/members-groups", method: http.MethodPost},
+		{url: "/devices/members-groups/testMembersGroupID", method: http.MethodGet},
+		{url: "/devices/members-groups/testMembersGroupID", method: http.MethodPost},
+		{url: "/devices/members-group-members", method: http.MethodGet},
+		{url: "/devices/members-group-members", method: http.MethodPost},
+		{url: "/devices/members-group-roles", method: http.MethodGet},
+		{url: "/devices/members-group-roles", method: http.MethodPost},
+		{url: "/devices/members-group-users", method: http.MethodGet},
+		{url: "/devices/members-group-users", method: http.MethodPost},
+		{url: "/devices/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodGet},
+		{url: "/devices/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodPost},
 		{url: "/devices/members-roles", method: http.MethodGet},
 		{url: "/devices/members-roles", method: http.MethodPost},
 		{url: "/devices/members-role-grants", method: http.MethodGet},
@@ -323,6 +478,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/members-session-users", method: http.MethodPost},
 		{url: "/devices/members-session-users/testMembersSessionUserID", method: http.MethodGet},
 		{url: "/devices/members-session-users/testMembersSessionUserID", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles/testMembersTenantGroupRoleGroupID/testMembersTenantGroupRoleRole", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles/testMembersTenantGroupRoleGroupID/testMembersTenantGroupRoleRole", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities/testMembersTenantIdentityID", method: http.MethodGet},
@@ -335,12 +502,32 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-users", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-users/testMembersTenantUserID", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-users/testMembersTenantUserID", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles/testMembersTenantUserGroupRoleUserID/testMembersTenantUserGroupRoleGroupID/testMembersTenantUserGroupRoleRole", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles/testMembersTenantUserGroupRoleUserID/testMembersTenantUserGroupRoleGroupID/testMembersTenantUserGroupRoleRole", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles/testMembersTenantUserRoleUserID/testMembersTenantUserRoleRole", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles/testMembersTenantUserRoleUserID/testMembersTenantUserRoleRole", method: http.MethodPost},
+		{url: "/devices/members-user-group-roles", method: http.MethodGet},
+		{url: "/devices/members-user-group-roles", method: http.MethodPost},
+		{url: "/devices/members-user-group-roles/testMembersUserGroupRoleUserID/testMembersUserGroupRoleGroupID/testMembersUserGroupRoleKind/testMembersUserGroupRoleAxis/testMembersUserGroupRoleDomainID/testMembersUserGroupRoleRole", method: http.MethodGet},
+		{url: "/devices/members-user-group-roles/testMembersUserGroupRoleUserID/testMembersUserGroupRoleGroupID/testMembersUserGroupRoleKind/testMembersUserGroupRoleAxis/testMembersUserGroupRoleDomainID/testMembersUserGroupRoleRole", method: http.MethodPost},
 		{url: "/devices/members-user-roles", method: http.MethodGet},
 		{url: "/devices/members-user-roles", method: http.MethodPost},
+		{url: "/devices/staff-groups", method: http.MethodGet},
+		{url: "/devices/staff-groups", method: http.MethodPost},
+		{url: "/devices/staff-groups/testStaffGroupID", method: http.MethodGet},
+		{url: "/devices/staff-groups/testStaffGroupID", method: http.MethodPost},
+		{url: "/devices/staff-group-members", method: http.MethodGet},
+		{url: "/devices/staff-group-members", method: http.MethodPost},
+		{url: "/devices/staff-group-roles", method: http.MethodGet},
+		{url: "/devices/staff-group-roles", method: http.MethodPost},
+		{url: "/devices/staff-group-users", method: http.MethodGet},
+		{url: "/devices/staff-group-users", method: http.MethodPost},
+		{url: "/devices/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodGet},
+		{url: "/devices/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodPost},
 		{url: "/devices/staff-roles", method: http.MethodGet},
 		{url: "/devices/staff-roles", method: http.MethodPost},
 		{url: "/devices/staff-role-grants", method: http.MethodGet},
@@ -373,6 +560,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-session-users", method: http.MethodPost},
 		{url: "/devices/staff-session-users/testStaffSessionUserID", method: http.MethodGet},
 		{url: "/devices/staff-session-users/testStaffSessionUserID", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles/testStaffTenantGroupRoleGroupID/testStaffTenantGroupRoleRole", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles/testStaffTenantGroupRoleGroupID/testStaffTenantGroupRoleRole", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities/testStaffTenantIdentityID", method: http.MethodGet},
@@ -385,10 +584,18 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-users", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-users/testStaffTenantUserID", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-users/testStaffTenantUserID", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles/testStaffTenantUserGroupRoleUserID/testStaffTenantUserGroupRoleGroupID/testStaffTenantUserGroupRoleRole", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles/testStaffTenantUserGroupRoleUserID/testStaffTenantUserGroupRoleGroupID/testStaffTenantUserGroupRoleRole", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles/testStaffTenantUserRoleUserID/testStaffTenantUserRoleRole", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles/testStaffTenantUserRoleUserID/testStaffTenantUserRoleRole", method: http.MethodPost},
+		{url: "/devices/staff-user-group-roles", method: http.MethodGet},
+		{url: "/devices/staff-user-group-roles", method: http.MethodPost},
+		{url: "/devices/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodGet},
+		{url: "/devices/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodPost},
 		{url: "/devices/staff-user-roles", method: http.MethodGet},
 		{url: "/devices/staff-user-roles", method: http.MethodPost},
 		{url: "/devices/tenants", method: http.MethodGet},
@@ -401,18 +608,46 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles", method: http.MethodPost},
+		{url: "/devices/staff-invited-tenants", method: http.MethodGet},
+		{url: "/devices/staff-invited-tenants", method: http.MethodPost},
+		{url: "/devices/staff-sign-in-methods", method: http.MethodGet},
+		{url: "/devices/staff-sign-in-methods", method: http.MethodPost},
+		{url: "/devices/staff-sign-in-ways", method: http.MethodGet},
+		{url: "/devices/staff-sign-in-ways", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodPost},
+		{url: "/devices/add-members-group-member", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/add-members-tenant-group-member", method: http.MethodPost},
+		{url: "/devices/add-staff-group-member", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/add-staff-tenant-group-member", method: http.MethodPost},
 		{url: "/devices/assign-members-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/assign-members-tenant-role", method: http.MethodPost},
 		{url: "/devices/assign-staff-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/assign-staff-tenant-role", method: http.MethodPost},
+		{url: "/devices/create-members-group", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-group", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-user", method: http.MethodPost},
+		{url: "/devices/create-members-user", method: http.MethodPost},
+		{url: "/devices/create-staff-group", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/create-staff-tenant-user", method: http.MethodPost},
 		{url: "/devices/create-staff-user", method: http.MethodPost},
+		{url: "/devices/delete-members-group", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-members-tenant-user", method: http.MethodPost},
 		{url: "/devices/delete-members-user", method: http.MethodPost},
+		{url: "/devices/delete-staff-group", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-staff-tenant-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-staff-tenant-user", method: http.MethodPost},
 		{url: "/devices/delete-staff-user", method: http.MethodPost},
+		{url: "/devices/describe-members-group", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/describe-members-tenant-group", method: http.MethodPost},
+		{url: "/devices/describe-staff-group", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/describe-staff-tenant-group", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/disable-members-tenant-user", method: http.MethodPost},
 		{url: "/devices/disable-members-user", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/disable-staff-tenant-user", method: http.MethodPost},
@@ -427,13 +662,26 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/end-staff-session", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/end-staff-tenant-user-sessions", method: http.MethodPost},
 		{url: "/devices/end-staff-user-sessions", method: http.MethodPost},
+		{url: "/devices/give-members-group-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/give-members-tenant-group-role", method: http.MethodPost},
+		{url: "/devices/give-staff-group-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/give-staff-tenant-group-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/invite-members-tenant-user", method: http.MethodPost},
 		{url: "/devices/invite-members-user", method: http.MethodPost},
+		{url: "/devices/invite-staff-tenant", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/invite-staff-tenant-user", method: http.MethodPost},
 		{url: "/devices/invite-staff-user", method: http.MethodPost},
+		{url: "/devices/make-staff-invite-only", method: http.MethodPost},
+		{url: "/devices/open-staff-sign-up", method: http.MethodPost},
+		{url: "/devices/remove-members-group-member", method: http.MethodPost},
 		{url: "/devices/remove-members-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-group-member", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-members-tenant-role", method: http.MethodPost},
+		{url: "/devices/remove-staff-group-member", method: http.MethodPost},
+		{url: "/devices/remove-staff-password", method: http.MethodPost},
 		{url: "/devices/remove-staff-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-group-member", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-role", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-members-tenant-user", method: http.MethodPost},
 		{url: "/devices/rename-members-user", method: http.MethodPost},
@@ -457,6 +705,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-name", method: http.MethodPost},
 		{url: "/devices/set-staff-user-email", method: http.MethodPost},
 		{url: "/devices/set-staff-user-name", method: http.MethodPost},
+		{url: "/devices/take-members-group-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/take-members-tenant-group-role", method: http.MethodPost},
+		{url: "/devices/take-staff-group-role", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/take-staff-tenant-group-role", method: http.MethodPost},
 		{url: "/devices/unlink-members-session-identity", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/unlink-members-tenant-session-identity", method: http.MethodPost},
 		{url: "/devices/unlink-staff-session-identity", method: http.MethodPost},
@@ -466,6 +718,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/withdraw-members-invitation", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/withdraw-members-tenant-invitation", method: http.MethodPost},
 		{url: "/devices/withdraw-staff-invitation", method: http.MethodPost},
+		{url: "/devices/withdraw-staff-invited-tenant", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/withdraw-staff-tenant-invitation", method: http.MethodPost},
 	}
 
@@ -572,6 +825,10 @@ type generatedRouterTest struct {
 	// selfBounded marks a route whose handler bounds its own body (live, RPC), which
 	// the router leaves off its bounded group.
 	selfBounded bool
+	// readsDryRunAndWarning marks a route whose frame answers a request that asks for a
+	// dry run or a warning itself (a method's, an upload's, SetFeature's), which the
+	// router leaves off its refusal of the two headers.
+	readsDryRunAndWarning bool
 }
 
 func generatedRouteParameters() []string {
@@ -579,29 +836,63 @@ func generatedRouteParameters() []string {
 		"featureFlagName",
 		"tenantID",
 		"announcementID",
+		"membersGroupID",
+		"membersGroupUserGroupID",
+		"membersGroupUserUserID",
 		"membersSessionID",
 		"membersSessionIdentityID",
 		"membersSessionMailLinkID",
 		"membersSessionTokenID",
 		"membersSessionTrustedDeviceID",
 		"membersSessionUserID",
+		"membersTenantGroupID",
+		"membersTenantGroupRoleGroupID",
+		"membersTenantGroupRoleRole",
+		"membersTenantGroupUserGroupID",
+		"membersTenantGroupUserUserID",
 		"membersTenantIdentityID",
 		"membersTenantInvitationID",
 		"membersTenantUserID",
+		"membersTenantUserGroupRoleUserID",
+		"membersTenantUserGroupRoleGroupID",
+		"membersTenantUserGroupRoleRole",
 		"membersTenantUserRoleUserID",
 		"membersTenantUserRoleRole",
+		"membersUserGroupRoleUserID",
+		"membersUserGroupRoleGroupID",
+		"membersUserGroupRoleKind",
+		"membersUserGroupRoleAxis",
+		"membersUserGroupRoleDomainID",
+		"membersUserGroupRoleRole",
 		"readingID",
+		"staffGroupID",
+		"staffGroupUserGroupID",
+		"staffGroupUserUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
 		"staffSessionMailLinkID",
 		"staffSessionTokenID",
 		"staffSessionTrustedDeviceID",
 		"staffSessionUserID",
+		"staffTenantGroupID",
+		"staffTenantGroupRoleGroupID",
+		"staffTenantGroupRoleRole",
+		"staffTenantGroupUserGroupID",
+		"staffTenantGroupUserUserID",
 		"staffTenantIdentityID",
 		"staffTenantInvitationID",
 		"staffTenantUserID",
+		"staffTenantUserGroupRoleUserID",
+		"staffTenantUserGroupRoleGroupID",
+		"staffTenantUserGroupRoleRole",
 		"staffTenantUserRoleUserID",
 		"staffTenantUserRoleRole",
+		"staffUserGroupRoleUserID",
+		"staffUserGroupRoleGroupID",
+		"staffUserGroupRoleKind",
+		"staffUserGroupRoleAxis",
+		"staffUserGroupRoleDomainID",
+		"staffUserGroupRoleRole",
 		"tenantID",
 		"tenantDirectoryID",
 	}
@@ -673,6 +964,66 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID", method: http.MethodPost,
 			handlerFunc: "Announcement",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
+		},
+		{
+			url: "/portal/api/members-groups", method: http.MethodGet,
+			handlerFunc: "MembersGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-groups", method: http.MethodPost,
+			handlerFunc: "MembersGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-groups/testMembersGroupID", method: http.MethodGet,
+			handlerFunc: "MembersGroup",
+			parameters:  map[string]string{"membersGroupID": "testMembersGroupID"},
+		},
+		{
+			url: "/portal/api/members-groups/testMembersGroupID", method: http.MethodPost,
+			handlerFunc: "MembersGroup",
+			parameters:  map[string]string{"membersGroupID": "testMembersGroupID"},
+		},
+		{
+			url: "/portal/api/members-group-members", method: http.MethodGet,
+			handlerFunc: "MembersGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-group-members", method: http.MethodPost,
+			handlerFunc: "MembersGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-group-roles", method: http.MethodGet,
+			handlerFunc: "MembersGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-group-roles", method: http.MethodPost,
+			handlerFunc: "MembersGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-group-users", method: http.MethodGet,
+			handlerFunc: "MembersGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-group-users", method: http.MethodPost,
+			handlerFunc: "MembersGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodGet,
+			handlerFunc: "MembersGroupUser",
+			parameters:  map[string]string{"membersGroupUserGroupID": "testMembersGroupUserGroupID", "membersGroupUserUserID": "testMembersGroupUserUserID"},
+		},
+		{
+			url: "/portal/api/members-group-users/testMembersGroupUserGroupID/testMembersGroupUserUserID", method: http.MethodPost,
+			handlerFunc: "MembersGroupUser",
+			parameters:  map[string]string{"membersGroupUserGroupID": "testMembersGroupUserGroupID", "membersGroupUserUserID": "testMembersGroupUserUserID"},
 		},
 		{
 			url: "/portal/api/members-roles", method: http.MethodGet,
@@ -835,6 +1186,66 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionUserID": "testMembersSessionUserID"},
 		},
 		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodGet,
+			handlerFunc: "MembersTenantGroups",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups", method: http.MethodPost,
+			handlerFunc: "MembersTenantGroups",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodGet,
+			handlerFunc: "MembersTenantGroup",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantGroupID": "testMembersTenantGroupID"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-groups/testMembersTenantGroupID", method: http.MethodPost,
+			handlerFunc: "MembersTenantGroup",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantGroupID": "testMembersTenantGroupID"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles", method: http.MethodGet,
+			handlerFunc: "MembersTenantGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles", method: http.MethodPost,
+			handlerFunc: "MembersTenantGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles/testMembersTenantGroupRoleGroupID/testMembersTenantGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "MembersTenantGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantGroupRoleGroupID": "testMembersTenantGroupRoleGroupID", "membersTenantGroupRoleRole": "testMembersTenantGroupRoleRole"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-roles/testMembersTenantGroupRoleGroupID/testMembersTenantGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "MembersTenantGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantGroupRoleGroupID": "testMembersTenantGroupRoleGroupID", "membersTenantGroupRoleRole": "testMembersTenantGroupRoleRole"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodGet,
+			handlerFunc: "MembersTenantGroupUsers",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users", method: http.MethodPost,
+			handlerFunc: "MembersTenantGroupUsers",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodGet,
+			handlerFunc: "MembersTenantGroupUser",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantGroupUserGroupID": "testMembersTenantGroupUserGroupID", "membersTenantGroupUserUserID": "testMembersTenantGroupUserUserID"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-group-users/testMembersTenantGroupUserGroupID/testMembersTenantGroupUserUserID", method: http.MethodPost,
+			handlerFunc: "MembersTenantGroupUser",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantGroupUserGroupID": "testMembersTenantGroupUserGroupID", "membersTenantGroupUserUserID": "testMembersTenantGroupUserUserID"},
+		},
+		{
 			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-identities", method: http.MethodGet,
 			handlerFunc: "MembersTenantIdentities",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -895,6 +1306,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantUserID": "testMembersTenantUserID"},
 		},
 		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles", method: http.MethodGet,
+			handlerFunc: "MembersTenantUserGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles", method: http.MethodPost,
+			handlerFunc: "MembersTenantUserGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles/testMembersTenantUserGroupRoleUserID/testMembersTenantUserGroupRoleGroupID/testMembersTenantUserGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "MembersTenantUserGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantUserGroupRoleUserID": "testMembersTenantUserGroupRoleUserID", "membersTenantUserGroupRoleGroupID": "testMembersTenantUserGroupRoleGroupID", "membersTenantUserGroupRoleRole": "testMembersTenantUserGroupRoleRole"},
+		},
+		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-group-roles/testMembersTenantUserGroupRoleUserID/testMembersTenantUserGroupRoleGroupID/testMembersTenantUserGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "MembersTenantUserGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantUserGroupRoleUserID": "testMembersTenantUserGroupRoleUserID", "membersTenantUserGroupRoleGroupID": "testMembersTenantUserGroupRoleGroupID", "membersTenantUserGroupRoleRole": "testMembersTenantUserGroupRoleRole"},
+		},
+		{
 			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles", method: http.MethodGet,
 			handlerFunc: "MembersTenantUserRoles",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -913,6 +1344,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-user-roles/testMembersTenantUserRoleUserID/testMembersTenantUserRoleRole", method: http.MethodPost,
 			handlerFunc: "MembersTenantUserRole",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "membersTenantUserRoleUserID": "testMembersTenantUserRoleUserID", "membersTenantUserRoleRole": "testMembersTenantUserRoleRole"},
+		},
+		{
+			url: "/portal/api/members-user-group-roles", method: http.MethodGet,
+			handlerFunc: "MembersUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-user-group-roles", method: http.MethodPost,
+			handlerFunc: "MembersUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-user-group-roles/testMembersUserGroupRoleUserID/testMembersUserGroupRoleGroupID/testMembersUserGroupRoleKind/testMembersUserGroupRoleAxis/testMembersUserGroupRoleDomainID/testMembersUserGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "MembersUserGroupRole",
+			parameters:  map[string]string{"membersUserGroupRoleUserID": "testMembersUserGroupRoleUserID", "membersUserGroupRoleGroupID": "testMembersUserGroupRoleGroupID", "membersUserGroupRoleKind": "testMembersUserGroupRoleKind", "membersUserGroupRoleAxis": "testMembersUserGroupRoleAxis", "membersUserGroupRoleDomainID": "testMembersUserGroupRoleDomainID", "membersUserGroupRoleRole": "testMembersUserGroupRoleRole"},
+		},
+		{
+			url: "/portal/api/members-user-group-roles/testMembersUserGroupRoleUserID/testMembersUserGroupRoleGroupID/testMembersUserGroupRoleKind/testMembersUserGroupRoleAxis/testMembersUserGroupRoleDomainID/testMembersUserGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "MembersUserGroupRole",
+			parameters:  map[string]string{"membersUserGroupRoleUserID": "testMembersUserGroupRoleUserID", "membersUserGroupRoleGroupID": "testMembersUserGroupRoleGroupID", "membersUserGroupRoleKind": "testMembersUserGroupRoleKind", "membersUserGroupRoleAxis": "testMembersUserGroupRoleAxis", "membersUserGroupRoleDomainID": "testMembersUserGroupRoleDomainID", "membersUserGroupRoleRole": "testMembersUserGroupRoleRole"},
 		},
 		{
 			url: "/portal/api/members-user-roles", method: http.MethodGet,
@@ -943,6 +1394,66 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID", method: http.MethodPost,
 			handlerFunc: "Reading",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "readingID": "testReadingID"},
+		},
+		{
+			url: "/console/api/staff-groups", method: http.MethodGet,
+			handlerFunc: "StaffGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-groups", method: http.MethodPost,
+			handlerFunc: "StaffGroups",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-groups/testStaffGroupID", method: http.MethodGet,
+			handlerFunc: "StaffGroup",
+			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
+		},
+		{
+			url: "/console/api/staff-groups/testStaffGroupID", method: http.MethodPost,
+			handlerFunc: "StaffGroup",
+			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
+		},
+		{
+			url: "/console/api/staff-group-members", method: http.MethodGet,
+			handlerFunc: "StaffGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-group-members", method: http.MethodPost,
+			handlerFunc: "StaffGroupMembers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-group-users", method: http.MethodGet,
+			handlerFunc: "StaffGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-group-users", method: http.MethodPost,
+			handlerFunc: "StaffGroupUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodGet,
+			handlerFunc: "StaffGroupUser",
+			parameters:  map[string]string{"staffGroupUserGroupID": "testStaffGroupUserGroupID", "staffGroupUserUserID": "testStaffGroupUserUserID"},
+		},
+		{
+			url: "/console/api/staff-group-users/testStaffGroupUserGroupID/testStaffGroupUserUserID", method: http.MethodPost,
+			handlerFunc: "StaffGroupUser",
+			parameters:  map[string]string{"staffGroupUserGroupID": "testStaffGroupUserGroupID", "staffGroupUserUserID": "testStaffGroupUserUserID"},
 		},
 		{
 			url: "/console/api/staff-roles", method: http.MethodGet,
@@ -1105,6 +1616,66 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
 		},
 		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodGet,
+			handlerFunc: "StaffTenantGroups",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups", method: http.MethodPost,
+			handlerFunc: "StaffTenantGroups",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodGet,
+			handlerFunc: "StaffTenantGroup",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantGroupID": "testStaffTenantGroupID"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-groups/testStaffTenantGroupID", method: http.MethodPost,
+			handlerFunc: "StaffTenantGroup",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantGroupID": "testStaffTenantGroupID"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffTenantGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffTenantGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles/testStaffTenantGroupRoleGroupID/testStaffTenantGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "StaffTenantGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantGroupRoleGroupID": "testStaffTenantGroupRoleGroupID", "staffTenantGroupRoleRole": "testStaffTenantGroupRoleRole"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-roles/testStaffTenantGroupRoleGroupID/testStaffTenantGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "StaffTenantGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantGroupRoleGroupID": "testStaffTenantGroupRoleGroupID", "staffTenantGroupRoleRole": "testStaffTenantGroupRoleRole"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodGet,
+			handlerFunc: "StaffTenantGroupUsers",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users", method: http.MethodPost,
+			handlerFunc: "StaffTenantGroupUsers",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodGet,
+			handlerFunc: "StaffTenantGroupUser",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantGroupUserGroupID": "testStaffTenantGroupUserGroupID", "staffTenantGroupUserUserID": "testStaffTenantGroupUserUserID"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-group-users/testStaffTenantGroupUserGroupID/testStaffTenantGroupUserUserID", method: http.MethodPost,
+			handlerFunc: "StaffTenantGroupUser",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantGroupUserGroupID": "testStaffTenantGroupUserGroupID", "staffTenantGroupUserUserID": "testStaffTenantGroupUserUserID"},
+		},
+		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-identities", method: http.MethodGet,
 			handlerFunc: "StaffTenantIdentities",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1165,6 +1736,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantUserID": "testStaffTenantUserID"},
 		},
 		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffTenantUserGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffTenantUserGroupRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles/testStaffTenantUserGroupRoleUserID/testStaffTenantUserGroupRoleGroupID/testStaffTenantUserGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "StaffTenantUserGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantUserGroupRoleUserID": "testStaffTenantUserGroupRoleUserID", "staffTenantUserGroupRoleGroupID": "testStaffTenantUserGroupRoleGroupID", "staffTenantUserGroupRoleRole": "testStaffTenantUserGroupRoleRole"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-group-roles/testStaffTenantUserGroupRoleUserID/testStaffTenantUserGroupRoleGroupID/testStaffTenantUserGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "StaffTenantUserGroupRole",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantUserGroupRoleUserID": "testStaffTenantUserGroupRoleUserID", "staffTenantUserGroupRoleGroupID": "testStaffTenantUserGroupRoleGroupID", "staffTenantUserGroupRoleRole": "testStaffTenantUserGroupRoleRole"},
+		},
+		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles", method: http.MethodGet,
 			handlerFunc: "StaffTenantUserRoles",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1183,6 +1774,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-user-roles/testStaffTenantUserRoleUserID/testStaffTenantUserRoleRole", method: http.MethodPost,
 			handlerFunc: "StaffTenantUserRole",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "staffTenantUserRoleUserID": "testStaffTenantUserRoleUserID", "staffTenantUserRoleRole": "testStaffTenantUserRoleRole"},
+		},
+		{
+			url: "/console/api/staff-user-group-roles", method: http.MethodGet,
+			handlerFunc: "StaffUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-user-group-roles", method: http.MethodPost,
+			handlerFunc: "StaffUserGroupRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodGet,
+			handlerFunc: "StaffUserGroupRole",
+			parameters:  map[string]string{"staffUserGroupRoleUserID": "testStaffUserGroupRoleUserID", "staffUserGroupRoleGroupID": "testStaffUserGroupRoleGroupID", "staffUserGroupRoleKind": "testStaffUserGroupRoleKind", "staffUserGroupRoleAxis": "testStaffUserGroupRoleAxis", "staffUserGroupRoleDomainID": "testStaffUserGroupRoleDomainID", "staffUserGroupRoleRole": "testStaffUserGroupRoleRole"},
+		},
+		{
+			url: "/console/api/staff-user-group-roles/testStaffUserGroupRoleUserID/testStaffUserGroupRoleGroupID/testStaffUserGroupRoleKind/testStaffUserGroupRoleAxis/testStaffUserGroupRoleDomainID/testStaffUserGroupRoleRole", method: http.MethodPost,
+			handlerFunc: "StaffUserGroupRole",
+			parameters:  map[string]string{"staffUserGroupRoleUserID": "testStaffUserGroupRoleUserID", "staffUserGroupRoleGroupID": "testStaffUserGroupRoleGroupID", "staffUserGroupRoleKind": "testStaffUserGroupRoleKind", "staffUserGroupRoleAxis": "testStaffUserGroupRoleAxis", "staffUserGroupRoleDomainID": "testStaffUserGroupRoleDomainID", "staffUserGroupRoleRole": "testStaffUserGroupRoleRole"},
 		},
 		{
 			url: "/console/api/staff-user-roles", method: http.MethodGet,
@@ -1245,6 +1856,46 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
+			url: "/console/api/staff-invited-tenants", method: http.MethodGet,
+			handlerFunc: "StaffInvitedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-invited-tenants", method: http.MethodPost,
+			handlerFunc: "StaffInvitedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-sign-in-methods", method: http.MethodGet,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-sign-in-methods", method: http.MethodPost,
+			handlerFunc: "StaffSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet,
+			handlerFunc: "StaffTenantDirectoryRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost,
+			handlerFunc: "StaffTenantDirectoryRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet,
 			handlerFunc: "StaffTenantRoles",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1252,6 +1903,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodPost,
 			handlerFunc: "StaffTenantRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "StaffTenantSignInWays",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "StaffTenantSignInWays",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
@@ -1281,8 +1942,8 @@ func generatedRouterTests() []*generatedRouterTest {
 		},
 		{
 			url: "/console/api/set-feature", method: http.MethodPost,
-			handlerFunc: "SetFeature",
-			parameters:  map[string]string{},
+			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
+			parameters: map[string]string{},
 		},
 		{
 			url: "/portal/api/features", method: http.MethodGet,
@@ -1311,13 +1972,48 @@ func generatedRouterTests() []*generatedRouterTest {
 		},
 		{
 			url: "/portal/api/set-feature", method: http.MethodPost,
-			handlerFunc: "SetFeature",
-			parameters:  map[string]string{},
+			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
+			parameters: map[string]string{},
 		},
 		{
 			url: "/devices/features", method: http.MethodGet,
 			handlerFunc: "Features",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/create-tenant", method: http.MethodPost,
+			handlerFunc: "CreateTenant",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/create-tenant", method: http.MethodGet,
+			handlerFunc: "CreateTenantOffered",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
+			handlerFunc: "DirectoryOnly",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-directory-only", method: http.MethodPost,
+			handlerFunc: "MakeTenantDirectoryOnly", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/end-tenant-directory-only", method: http.MethodPost,
+			handlerFunc: "EndTenantDirectoryOnly", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/open-tenant-to-directory", method: http.MethodPost,
+			handlerFunc: "OpenTenantToDirectory", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-invite-only", method: http.MethodPost,
+			handlerFunc: "MakeTenantInviteOnly", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
 		},
 		{
 			url: "/console/api/resources", method: http.MethodPatch,
@@ -1396,6 +2092,14 @@ func (s *generatedHandlersStub) DomainGuard() func(http.HandlerFunc) http.Handle
 	return func(next http.HandlerFunc) http.HandlerFunc { return next }
 }
 
+func (s *generatedHandlersStub) AddStaffGroupMember() http.HandlerFunc {
+	return s.record("AddStaffGroupMember")
+}
+
+func (s *generatedHandlersStub) AddStaffTenantGroupMember() http.HandlerFunc {
+	return s.record("AddStaffTenantGroupMember")
+}
+
 func (s *generatedHandlersStub) Announcements() http.HandlerFunc {
 	return s.record("Announcements")
 }
@@ -1412,6 +2116,14 @@ func (s *generatedHandlersStub) AssignStaffTenantRole() http.HandlerFunc {
 	return s.record("AssignStaffTenantRole")
 }
 
+func (s *generatedHandlersStub) CreateStaffGroup() http.HandlerFunc {
+	return s.record("CreateStaffGroup")
+}
+
+func (s *generatedHandlersStub) CreateStaffTenantGroup() http.HandlerFunc {
+	return s.record("CreateStaffTenantGroup")
+}
+
 func (s *generatedHandlersStub) CreateStaffTenantUser() http.HandlerFunc {
 	return s.record("CreateStaffTenantUser")
 }
@@ -1420,12 +2132,56 @@ func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
 	return s.record("CreateStaffUser")
 }
 
+func (s *generatedHandlersStub) CreateTenant() http.HandlerFunc {
+	return s.record("CreateTenant")
+}
+
+func (s *generatedHandlersStub) CreateTenantOffered() http.HandlerFunc {
+	return s.record("CreateTenantOffered")
+}
+
+func (s *generatedHandlersStub) DeleteStaffGroup() http.HandlerFunc {
+	return s.record("DeleteStaffGroup")
+}
+
+func (s *generatedHandlersStub) DeleteStaffTenantGroup() http.HandlerFunc {
+	return s.record("DeleteStaffTenantGroup")
+}
+
 func (s *generatedHandlersStub) DeleteStaffTenantUser() http.HandlerFunc {
 	return s.record("DeleteStaffTenantUser")
 }
 
 func (s *generatedHandlersStub) DeleteStaffUser() http.HandlerFunc {
 	return s.record("DeleteStaffUser")
+}
+
+func (s *generatedHandlersStub) DescribeStaffGroup() http.HandlerFunc {
+	return s.record("DescribeStaffGroup")
+}
+
+func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
+	return s.record("DescribeStaffTenantGroup")
+}
+
+func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
+	return s.record("DirectoryOnly")
+}
+
+func (s *generatedHandlersStub) MakeTenantDirectoryOnly() http.HandlerFunc {
+	return s.record("MakeTenantDirectoryOnly")
+}
+
+func (s *generatedHandlersStub) EndTenantDirectoryOnly() http.HandlerFunc {
+	return s.record("EndTenantDirectoryOnly")
+}
+
+func (s *generatedHandlersStub) OpenTenantToDirectory() http.HandlerFunc {
+	return s.record("OpenTenantToDirectory")
+}
+
+func (s *generatedHandlersStub) MakeTenantInviteOnly() http.HandlerFunc {
+	return s.record("MakeTenantInviteOnly")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {
@@ -1468,6 +2224,18 @@ func (s *generatedHandlersStub) Features() http.HandlerFunc {
 	return s.record("Features")
 }
 
+func (s *generatedHandlersStub) GiveStaffGroupRole() http.HandlerFunc {
+	return s.record("GiveStaffGroupRole")
+}
+
+func (s *generatedHandlersStub) GiveStaffTenantGroupRole() http.HandlerFunc {
+	return s.record("GiveStaffTenantGroupRole")
+}
+
+func (s *generatedHandlersStub) InviteStaffTenant() http.HandlerFunc {
+	return s.record("InviteStaffTenant")
+}
+
 func (s *generatedHandlersStub) InviteStaffTenantUser() http.HandlerFunc {
 	return s.record("InviteStaffTenantUser")
 }
@@ -1476,8 +2244,32 @@ func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
 }
 
+func (s *generatedHandlersStub) MakeStaffInviteOnly() http.HandlerFunc {
+	return s.record("MakeStaffInviteOnly")
+}
+
+func (s *generatedHandlersStub) OpenStaffSignUp() http.HandlerFunc {
+	return s.record("OpenStaffSignUp")
+}
+
+func (s *generatedHandlersStub) RemoveStaffGroupMember() http.HandlerFunc {
+	return s.record("RemoveStaffGroupMember")
+}
+
+func (s *generatedHandlersStub) RemoveStaffPassword() http.HandlerFunc {
+	return s.record("RemoveStaffPassword")
+}
+
 func (s *generatedHandlersStub) RemoveStaffRole() http.HandlerFunc {
 	return s.record("RemoveStaffRole")
+}
+
+func (s *generatedHandlersStub) RemoveStaffTenantGroupMember() http.HandlerFunc {
+	return s.record("RemoveStaffTenantGroupMember")
+}
+
+func (s *generatedHandlersStub) RemoveStaffTenantPassword() http.HandlerFunc {
+	return s.record("RemoveStaffTenantPassword")
 }
 
 func (s *generatedHandlersStub) RemoveStaffTenantRole() http.HandlerFunc {
@@ -1538,6 +2330,34 @@ func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
 	return s.record("SetStaffUserName")
+}
+
+func (s *generatedHandlersStub) StaffGroups() http.HandlerFunc {
+	return s.record("StaffGroups")
+}
+
+func (s *generatedHandlersStub) StaffGroup() http.HandlerFunc {
+	return s.record("StaffGroup")
+}
+
+func (s *generatedHandlersStub) StaffGroupMembers() http.HandlerFunc {
+	return s.record("StaffGroupMembers")
+}
+
+func (s *generatedHandlersStub) StaffGroupRoles() http.HandlerFunc {
+	return s.record("StaffGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffGroupUsers() http.HandlerFunc {
+	return s.record("StaffGroupUsers")
+}
+
+func (s *generatedHandlersStub) StaffGroupUser() http.HandlerFunc {
+	return s.record("StaffGroupUser")
+}
+
+func (s *generatedHandlersStub) StaffInvitedTenants() http.HandlerFunc {
+	return s.record("StaffInvitedTenants")
 }
 
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
@@ -1604,6 +2424,42 @@ func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
 }
 
+func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
+	return s.record("StaffSignInMethods")
+}
+
+func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
+	return s.record("StaffSignInWays")
+}
+
+func (s *generatedHandlersStub) StaffTenantDirectoryRoles() http.HandlerFunc {
+	return s.record("StaffTenantDirectoryRoles")
+}
+
+func (s *generatedHandlersStub) StaffTenantGroups() http.HandlerFunc {
+	return s.record("StaffTenantGroups")
+}
+
+func (s *generatedHandlersStub) StaffTenantGroup() http.HandlerFunc {
+	return s.record("StaffTenantGroup")
+}
+
+func (s *generatedHandlersStub) StaffTenantGroupRoles() http.HandlerFunc {
+	return s.record("StaffTenantGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffTenantGroupRole() http.HandlerFunc {
+	return s.record("StaffTenantGroupRole")
+}
+
+func (s *generatedHandlersStub) StaffTenantGroupUsers() http.HandlerFunc {
+	return s.record("StaffTenantGroupUsers")
+}
+
+func (s *generatedHandlersStub) StaffTenantGroupUser() http.HandlerFunc {
+	return s.record("StaffTenantGroupUser")
+}
+
 func (s *generatedHandlersStub) StaffTenantIdentities() http.HandlerFunc {
 	return s.record("StaffTenantIdentities")
 }
@@ -1624,12 +2480,24 @@ func (s *generatedHandlersStub) StaffTenantRoles() http.HandlerFunc {
 	return s.record("StaffTenantRoles")
 }
 
+func (s *generatedHandlersStub) StaffTenantSignInWays() http.HandlerFunc {
+	return s.record("StaffTenantSignInWays")
+}
+
 func (s *generatedHandlersStub) StaffTenantUsers() http.HandlerFunc {
 	return s.record("StaffTenantUsers")
 }
 
 func (s *generatedHandlersStub) StaffTenantUser() http.HandlerFunc {
 	return s.record("StaffTenantUser")
+}
+
+func (s *generatedHandlersStub) StaffTenantUserGroupRoles() http.HandlerFunc {
+	return s.record("StaffTenantUserGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffTenantUserGroupRole() http.HandlerFunc {
+	return s.record("StaffTenantUserGroupRole")
 }
 
 func (s *generatedHandlersStub) StaffTenantUserRoles() http.HandlerFunc {
@@ -1640,8 +2508,24 @@ func (s *generatedHandlersStub) StaffTenantUserRole() http.HandlerFunc {
 	return s.record("StaffTenantUserRole")
 }
 
+func (s *generatedHandlersStub) StaffUserGroupRoles() http.HandlerFunc {
+	return s.record("StaffUserGroupRoles")
+}
+
+func (s *generatedHandlersStub) StaffUserGroupRole() http.HandlerFunc {
+	return s.record("StaffUserGroupRole")
+}
+
 func (s *generatedHandlersStub) StaffUserRoles() http.HandlerFunc {
 	return s.record("StaffUserRoles")
+}
+
+func (s *generatedHandlersStub) TakeStaffGroupRole() http.HandlerFunc {
+	return s.record("TakeStaffGroupRole")
+}
+
+func (s *generatedHandlersStub) TakeStaffTenantGroupRole() http.HandlerFunc {
+	return s.record("TakeStaffTenantGroupRole")
 }
 
 func (s *generatedHandlersStub) Tenants() http.HandlerFunc {
@@ -1676,12 +2560,24 @@ func (s *generatedHandlersStub) WithdrawStaffInvitation() http.HandlerFunc {
 	return s.record("WithdrawStaffInvitation")
 }
 
+func (s *generatedHandlersStub) WithdrawStaffInvitedTenant() http.HandlerFunc {
+	return s.record("WithdrawStaffInvitedTenant")
+}
+
 func (s *generatedHandlersStub) WithdrawStaffTenantInvitation() http.HandlerFunc {
 	return s.record("WithdrawStaffTenantInvitation")
 }
 
 func (s *generatedHandlersStub) PatchResources() http.HandlerFunc {
 	return s.record("PatchResources")
+}
+
+func (s *generatedHandlersStub) AddMembersGroupMember() http.HandlerFunc {
+	return s.record("AddMembersGroupMember")
+}
+
+func (s *generatedHandlersStub) AddMembersTenantGroupMember() http.HandlerFunc {
+	return s.record("AddMembersTenantGroupMember")
 }
 
 func (s *generatedHandlersStub) AssignMembersRole() http.HandlerFunc {
@@ -1692,12 +2588,44 @@ func (s *generatedHandlersStub) AssignMembersTenantRole() http.HandlerFunc {
 	return s.record("AssignMembersTenantRole")
 }
 
+func (s *generatedHandlersStub) CreateMembersGroup() http.HandlerFunc {
+	return s.record("CreateMembersGroup")
+}
+
+func (s *generatedHandlersStub) CreateMembersTenantGroup() http.HandlerFunc {
+	return s.record("CreateMembersTenantGroup")
+}
+
+func (s *generatedHandlersStub) CreateMembersTenantUser() http.HandlerFunc {
+	return s.record("CreateMembersTenantUser")
+}
+
+func (s *generatedHandlersStub) CreateMembersUser() http.HandlerFunc {
+	return s.record("CreateMembersUser")
+}
+
+func (s *generatedHandlersStub) DeleteMembersGroup() http.HandlerFunc {
+	return s.record("DeleteMembersGroup")
+}
+
+func (s *generatedHandlersStub) DeleteMembersTenantGroup() http.HandlerFunc {
+	return s.record("DeleteMembersTenantGroup")
+}
+
 func (s *generatedHandlersStub) DeleteMembersTenantUser() http.HandlerFunc {
 	return s.record("DeleteMembersTenantUser")
 }
 
 func (s *generatedHandlersStub) DeleteMembersUser() http.HandlerFunc {
 	return s.record("DeleteMembersUser")
+}
+
+func (s *generatedHandlersStub) DescribeMembersGroup() http.HandlerFunc {
+	return s.record("DescribeMembersGroup")
+}
+
+func (s *generatedHandlersStub) DescribeMembersTenantGroup() http.HandlerFunc {
+	return s.record("DescribeMembersTenantGroup")
 }
 
 func (s *generatedHandlersStub) DisableMembersTenantUser() http.HandlerFunc {
@@ -1728,12 +2656,44 @@ func (s *generatedHandlersStub) EndMembersUserSessions() http.HandlerFunc {
 	return s.record("EndMembersUserSessions")
 }
 
+func (s *generatedHandlersStub) GiveMembersGroupRole() http.HandlerFunc {
+	return s.record("GiveMembersGroupRole")
+}
+
+func (s *generatedHandlersStub) GiveMembersTenantGroupRole() http.HandlerFunc {
+	return s.record("GiveMembersTenantGroupRole")
+}
+
 func (s *generatedHandlersStub) InviteMembersTenantUser() http.HandlerFunc {
 	return s.record("InviteMembersTenantUser")
 }
 
 func (s *generatedHandlersStub) InviteMembersUser() http.HandlerFunc {
 	return s.record("InviteMembersUser")
+}
+
+func (s *generatedHandlersStub) MembersGroup() http.HandlerFunc {
+	return s.record("MembersGroup")
+}
+
+func (s *generatedHandlersStub) MembersGroupMembers() http.HandlerFunc {
+	return s.record("MembersGroupMembers")
+}
+
+func (s *generatedHandlersStub) MembersGroupRoles() http.HandlerFunc {
+	return s.record("MembersGroupRoles")
+}
+
+func (s *generatedHandlersStub) MembersGroupUser() http.HandlerFunc {
+	return s.record("MembersGroupUser")
+}
+
+func (s *generatedHandlersStub) MembersGroupUsers() http.HandlerFunc {
+	return s.record("MembersGroupUsers")
+}
+
+func (s *generatedHandlersStub) MembersGroups() http.HandlerFunc {
+	return s.record("MembersGroups")
 }
 
 func (s *generatedHandlersStub) MembersRoleGrants() http.HandlerFunc {
@@ -1800,6 +2760,30 @@ func (s *generatedHandlersStub) MembersSessions() http.HandlerFunc {
 	return s.record("MembersSessions")
 }
 
+func (s *generatedHandlersStub) MembersTenantGroup() http.HandlerFunc {
+	return s.record("MembersTenantGroup")
+}
+
+func (s *generatedHandlersStub) MembersTenantGroupRole() http.HandlerFunc {
+	return s.record("MembersTenantGroupRole")
+}
+
+func (s *generatedHandlersStub) MembersTenantGroupRoles() http.HandlerFunc {
+	return s.record("MembersTenantGroupRoles")
+}
+
+func (s *generatedHandlersStub) MembersTenantGroupUser() http.HandlerFunc {
+	return s.record("MembersTenantGroupUser")
+}
+
+func (s *generatedHandlersStub) MembersTenantGroupUsers() http.HandlerFunc {
+	return s.record("MembersTenantGroupUsers")
+}
+
+func (s *generatedHandlersStub) MembersTenantGroups() http.HandlerFunc {
+	return s.record("MembersTenantGroups")
+}
+
 func (s *generatedHandlersStub) MembersTenantIdentities() http.HandlerFunc {
 	return s.record("MembersTenantIdentities")
 }
@@ -1824,6 +2808,14 @@ func (s *generatedHandlersStub) MembersTenantUser() http.HandlerFunc {
 	return s.record("MembersTenantUser")
 }
 
+func (s *generatedHandlersStub) MembersTenantUserGroupRole() http.HandlerFunc {
+	return s.record("MembersTenantUserGroupRole")
+}
+
+func (s *generatedHandlersStub) MembersTenantUserGroupRoles() http.HandlerFunc {
+	return s.record("MembersTenantUserGroupRoles")
+}
+
 func (s *generatedHandlersStub) MembersTenantUserRole() http.HandlerFunc {
 	return s.record("MembersTenantUserRole")
 }
@@ -1834,6 +2826,14 @@ func (s *generatedHandlersStub) MembersTenantUserRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MembersTenantUsers() http.HandlerFunc {
 	return s.record("MembersTenantUsers")
+}
+
+func (s *generatedHandlersStub) MembersUserGroupRole() http.HandlerFunc {
+	return s.record("MembersUserGroupRole")
+}
+
+func (s *generatedHandlersStub) MembersUserGroupRoles() http.HandlerFunc {
+	return s.record("MembersUserGroupRoles")
 }
 
 func (s *generatedHandlersStub) MembersUserRoles() http.HandlerFunc {
@@ -1856,8 +2856,16 @@ func (s *generatedHandlersStub) Readings() http.HandlerFunc {
 	return s.record("Readings")
 }
 
+func (s *generatedHandlersStub) RemoveMembersGroupMember() http.HandlerFunc {
+	return s.record("RemoveMembersGroupMember")
+}
+
 func (s *generatedHandlersStub) RemoveMembersRole() http.HandlerFunc {
 	return s.record("RemoveMembersRole")
+}
+
+func (s *generatedHandlersStub) RemoveMembersTenantGroupMember() http.HandlerFunc {
+	return s.record("RemoveMembersTenantGroupMember")
 }
 
 func (s *generatedHandlersStub) RemoveMembersTenantRole() http.HandlerFunc {
@@ -1898,6 +2906,14 @@ func (s *generatedHandlersStub) SetMembersUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetMembersUserName() http.HandlerFunc {
 	return s.record("SetMembersUserName")
+}
+
+func (s *generatedHandlersStub) TakeMembersGroupRole() http.HandlerFunc {
+	return s.record("TakeMembersGroupRole")
+}
+
+func (s *generatedHandlersStub) TakeMembersTenantGroupRole() http.HandlerFunc {
+	return s.record("TakeMembersTenantGroupRole")
 }
 
 func (s *generatedHandlersStub) UnlinkMembersSessionIdentity() http.HandlerFunc {

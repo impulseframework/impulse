@@ -1,4 +1,4 @@
--- Auth schema for Auth sessions (multi-method sessions, v0.13.0).
+-- Auth schema for Auth sessions (multi-method sessions).
 -- Applies on top of the base migrations set (Sessions, SessionUsers). An application
 -- whose tables are named per auth group applies it under its own names.
 --

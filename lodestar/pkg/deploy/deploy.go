@@ -15,6 +15,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -380,4 +381,26 @@ func foreignKeyReferences(ctx context.Context, client *spanner.Client) ([]foreig
 	}
 
 	return references, nil
+}
+
+// RetireSecret retires one version of the application secret, named by the variable the
+// version is handed over in (APP_SECRET_KEY_1): every stored secret field that names the
+// version (resources.SecretHolders: a ship's transponder key) is opened and written again under the current
+// version, and a final read confirms none is left, which is what makes the version safe
+// to disable. It prints how many values of each field it wrote, never a value. The client
+// holds the secret keys, built from every enabled version; the current version is
+// refused, and a second run writes nothing. The retirement reads the packages named here
+// and no other: a resources package the application gains is added to this call, and
+// impulse check (secret-holders) fails until it is.
+func RetireSecret(ctx context.Context, client resource.Client, variable string, out io.Writer) error {
+	retirement, err := resource.RetireSecretVersion(ctx, client, variable, resources.SecretHolders()...)
+	if err != nil {
+		return errors.Wrap(err, "resource.RetireSecretVersion()")
+	}
+	for _, field := range retirement.Fields {
+		fmt.Fprintf(out, "%s.%s: %d value(s) written again under version %d\n", field.Resource, field.Field, field.Rewritten, retirement.Current)
+	}
+	fmt.Fprintf(out, "Retired %s: no stored value names version %d\n", retirement.Variable, retirement.Version)
+
+	return nil
 }

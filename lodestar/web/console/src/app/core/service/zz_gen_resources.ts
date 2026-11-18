@@ -48,6 +48,46 @@ export interface Consignments {
   releasedAt?: Date;
 }
 
+export interface CrewGroups {
+  id: string;
+  kind?: string;
+  axis?: string;
+  domainId?: string;
+  name?: string;
+  description?: string;
+  updatedAt?: Date;
+}
+
+export interface CrewGroupMembers {
+  groupId: string;
+  userId: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface CrewGroupRoles {
+  groupId: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface CrewGroupUsers {
+  groupId: string;
+  userId: string;
+  username?: string;
+  name?: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface CrewRoles {
   kind: string;
   axis: string;
@@ -67,6 +107,36 @@ export interface CrewRoleGrants {
   field: string;
   condition: string;
   updatedAt?: Date;
+}
+
+export interface CrewSectorGroups {
+  id: string;
+  domainId?: string;
+  name?: string;
+  description?: string;
+  updatedAt?: Date;
+}
+
+export interface CrewSectorGroupRoles {
+  domainId?: string;
+  groupId: string;
+  groupName?: string;
+  role: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
+export interface CrewSectorGroupUsers {
+  domainId?: string;
+  groupId: string;
+  userId: string;
+  username?: string;
+  name?: string;
+  groupName?: string;
+  createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewSectorIdentities {
@@ -111,6 +181,21 @@ export interface CrewSectorUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  outsideDirectory?: boolean;
+  cannotEnter?: string;
+}
+
+export interface CrewSectorUserGroupRoles {
+  domainId?: string;
+  userId: string;
+  username?: string;
+  groupId: string;
+  groupName?: string;
+  role: string;
+  globalGroup?: boolean;
+  everyDomain?: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewSectorUserRoles {
@@ -120,6 +205,8 @@ export interface CrewSectorUserRoles {
   role: string;
   everyDomain?: boolean;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewSessions {
@@ -228,6 +315,19 @@ export interface CrewSessionUsers {
   lastSignInAt?: Date;
 }
 
+export interface CrewUserGroupRoles {
+  userId: string;
+  username?: string;
+  groupId: string;
+  groupName?: string;
+  kind: string;
+  axis: string;
+  domainId: string;
+  role: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface CrewUserRoles {
   kind: string;
   axis: string;
@@ -235,6 +335,8 @@ export interface CrewUserRoles {
   role: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface DistressCalls {
@@ -261,6 +363,16 @@ export interface Hangars {
   sectorId?: string;
   name?: string;
   zone?: string;
+}
+
+export interface HangarPasses {
+  id: string;
+  sectorId?: string;
+  hangarId?: string;
+  userId?: string;
+  squadronId?: string;
+  levelId?: string;
+  expiresAt?: Date;
 }
 
 export interface MembersRoles {
@@ -326,6 +438,8 @@ export interface MembersSectorUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  outsideDirectory?: boolean;
+  cannotEnter?: string;
 }
 
 export interface MembersSectorUserRoles {
@@ -335,6 +449,8 @@ export interface MembersSectorUserRoles {
   role: string;
   everyDomain?: boolean;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface MembersSessions {
@@ -418,6 +534,8 @@ export interface MembersUserRoles {
   role: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface Missions {
@@ -618,9 +736,59 @@ export interface BriefingTemplates {
   layout?: unknown;
 }
 
+export interface CrewInvitedSectors {
+  id: string;
+  email?: string;
+  name?: string;
+  sectorName?: string;
+  sectorRegion?: string;
+  sectorEstablished?: Date;
+  sectorDirectoryOnly?: boolean;
+  defaultRole?: string;
+  invitedByUserId?: string;
+  createdAt?: Date;
+  expiresAt?: Date;
+}
+
+export interface CrewSectorDirectoryRoles {
+  name: string;
+  description?: string;
+}
+
 export interface CrewSectorRoles {
   name: string;
   description?: string;
+}
+
+export interface CrewSectorSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
+  heldElsewhere?: boolean;
+  heldGlobally?: boolean;
+}
+
+export interface CrewSignInMethods {
+  name: string;
+  label?: string;
+  admits?: string;
+  openSignUp?: boolean;
+  defaultRole?: string;
+  directoryGivesRoles?: boolean;
+  ownRule?: boolean;
+  says?: string;
+}
+
+export interface CrewSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
 }
 
 export interface ExpenseManifests {
@@ -761,6 +929,69 @@ const resourceMap = defineResourceMap({
       { fieldName: 'releasedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always' },
     ],
   },
+  [Resources.CrewGroups]: {
+    route: 'crew-groups',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
+      { fieldName: 'axis', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', maxLength: 128 },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.CrewGroupMembers]: {
+    route: 'crew-group-members',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewGroups },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewGroupRoles]: {
+    route: 'crew-group-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewGroups },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewGroupUsers]: {
+    route: 'crew-group-users',
+    live: true,
+    fields: [
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
   [Resources.CrewRoles]: {
     route: 'crew-roles',
     readDisabled: true,
@@ -794,6 +1025,45 @@ const resourceMap = defineResourceMap({
       { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.CrewSectorGroups]: {
+    route: 'sectors/{sectorID}/crew-sector-groups',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.CrewSectorGroupRoles]: {
+    route: 'sectors/{sectorID}/crew-sector-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSectorGroupUsers]: {
+    route: 'sectors/{sectorID}/crew-sector-group-users',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSectorIdentities]: {
@@ -847,6 +1117,24 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSectorUserGroupRoles]: {
+    route: 'sectors/{sectorID}/crew-sector-user-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSectorUserRoles]: {
@@ -859,6 +1147,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSessions]: {
@@ -1023,6 +1313,22 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewUserGroupRoles]: {
+    route: 'crew-user-group-roles',
+    live: true,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
   [Resources.CrewUserRoles]: {
     route: 'crew-user-roles',
     readDisabled: true,
@@ -1037,6 +1343,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.DistressCalls]: {
@@ -1074,6 +1382,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['startswith'] },
       { fieldName: 'zone', displayType: 'string', required: true, isIndex: false },
+    ],
+  },
+  [Resources.HangarPasses]: {
+    route: 'sectors/{sectorID}/hangar-passes',
+    consolidatedRoute: 'resources',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
+      { fieldName: 'hangarId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Hangars },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', maxLength: 36, enumeratedResource: Resources.CrewSectorUsers },
+      { fieldName: 'squadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
+      { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
+      { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersRoles]: {
@@ -1162,6 +1484,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSectorUserRoles]: {
@@ -1174,6 +1498,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSessions]: {
@@ -1308,6 +1634,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.Missions]: {
@@ -1445,6 +1773,7 @@ const resourceMap = defineResourceMap({
   [Resources.Sectors]: {
     route: 'sectors',
     consolidatedRoute: 'resources',
+    createDisabled: true,
     live: true,
     nameField: 'name',
     fields: [
@@ -1452,7 +1781,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
-      { fieldName: 'directoryOnly', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: false, isIndex: false, readOnly: true },
     ],
   },
   [Resources.SectorDirectories]: {
@@ -1462,9 +1791,9 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
-      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
-      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, maxLength: 64 },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
+      { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
     ],
   },
   [Resources.SectorPilots]: {
@@ -1591,6 +1920,39 @@ const resourceMap = defineResourceMap({
       { fieldName: 'layout', displayType: 'object', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewInvitedSectors]: {
+    route: 'crew-invited-sectors',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'sectorName', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'sectorRegion', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'sectorEstablished', displayType: 'civildate', required: false, isIndex: false },
+      { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSectorDirectoryRoles]: {
+    route: 'sectors/{sectorID}/crew-sector-directory-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.CrewSectorRoles]: {
     route: 'sectors/{sectorID}/crew-sector-roles',
     readDisabled: true,
@@ -1601,6 +1963,58 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSectorSignInWays]: {
+    route: 'sectors/{sectorID}/crew-sector-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'heldElsewhere', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSignInMethods]: {
+    route: 'crew-sign-in-methods',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSignInWays]: {
+    route: 'crew-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.ExpenseManifests]: {
@@ -1721,11 +2135,19 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.ClientRosters]: PermissionScopes.domain,
   [Resources.Commendations]: PermissionScopes.global,
   [Resources.Consignments]: PermissionScopes.domain,
+  [Resources.CrewGroups]: PermissionScopes.global,
+  [Resources.CrewGroupMembers]: PermissionScopes.global,
+  [Resources.CrewGroupRoles]: PermissionScopes.global,
+  [Resources.CrewGroupUsers]: PermissionScopes.global,
   [Resources.CrewRoles]: PermissionScopes.global,
   [Resources.CrewRoleGrants]: PermissionScopes.global,
+  [Resources.CrewSectorGroups]: PermissionScopes.domain,
+  [Resources.CrewSectorGroupRoles]: PermissionScopes.domain,
+  [Resources.CrewSectorGroupUsers]: PermissionScopes.domain,
   [Resources.CrewSectorIdentities]: PermissionScopes.domain,
   [Resources.CrewSectorInvitations]: PermissionScopes.domain,
   [Resources.CrewSectorUsers]: PermissionScopes.domain,
+  [Resources.CrewSectorUserGroupRoles]: PermissionScopes.domain,
   [Resources.CrewSectorUserRoles]: PermissionScopes.domain,
   [Resources.CrewSessions]: PermissionScopes.global,
   [Resources.CrewSessionAuthEvents]: PermissionScopes.global,
@@ -1736,10 +2158,12 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewSessionTokens]: PermissionScopes.global,
   [Resources.CrewSessionTrustedDevices]: PermissionScopes.global,
   [Resources.CrewSessionUsers]: PermissionScopes.global,
+  [Resources.CrewUserGroupRoles]: PermissionScopes.global,
   [Resources.CrewUserRoles]: PermissionScopes.global,
   [Resources.DistressCalls]: PermissionScopes.domain,
   [Resources.FeeByKinds]: PermissionScopes.global,
   [Resources.Hangars]: PermissionScopes.domain,
+  [Resources.HangarPasses]: PermissionScopes.domain,
   [Resources.MembersRoles]: PermissionScopes.global,
   [Resources.MembersRoleGrants]: PermissionScopes.global,
   [Resources.MembersSectorIdentities]: PermissionScopes.domain,
@@ -1775,7 +2199,12 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.SquadronRosters]: PermissionScopes.domain,
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
+  [Resources.CrewInvitedSectors]: PermissionScopes.global,
+  [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
+  [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
+  [Resources.CrewSignInMethods]: PermissionScopes.global,
+  [Resources.CrewSignInWays]: PermissionScopes.global,
   [Resources.ExpenseManifests]: PermissionScopes.domain,
   [Resources.PilotCards]: PermissionScopes.global,
   [Resources.SectorHazardBoards]: PermissionScopes.domain,

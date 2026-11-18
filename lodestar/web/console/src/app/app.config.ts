@@ -154,7 +154,7 @@ export const appConfig: ApplicationConfig = {
     // Demonstrates: webapp.theme-choice.
     provideTheme({
       palettes: [
-        { id: 'blue', label: 'Blue' },
+        { id: 'brand', label: 'Lodestar' },
         { id: 'workspace', label: 'Workspace' },
         { id: 'violet', label: 'Violet' },
       ],

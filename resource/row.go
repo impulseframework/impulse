@@ -32,6 +32,18 @@ type Row[Resource Resourcer] struct {
 	// capabilities holds this row's assembled capability answers when the
 	// request opted into the capability envelope, nil otherwise.
 	capabilities map[accesstypes.Permission]any
+
+	// tenant is the tenant the row is in, on a row of a list across tenants;
+	// empty on every other row.
+	tenant accesstypes.Domain
+}
+
+// Tenant returns the tenant the row is in, on a row of a list across tenants
+// (QueryDecoder.DecodeAcrossTenants): the generated handler names it on the row
+// under TenantProperty, so a page groups the rows by tenant and opens each one
+// inside its tenant's routes. Empty on every other row.
+func (r Row[Resource]) Tenant() accesstypes.Domain {
+	return r.tenant
 }
 
 // Masked reports whether the cell with the given JSON name is masked on this row.

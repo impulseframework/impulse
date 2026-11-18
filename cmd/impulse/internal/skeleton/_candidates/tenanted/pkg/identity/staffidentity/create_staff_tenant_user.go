@@ -18,9 +18,9 @@ type (
 	// roles, at least one, in one Tenant: the tenant the request is made
 	// under, and no other. The roles are written in the same transaction as the user,
 	// and each must exist in the tenant.
-	// Password is a temporary password, which the person changes before anything else
-	// is served: the password is the auth's one way in, so a person is created with
-	// one.
+	// Password, when given, is a temporary password, which the person changes before
+	// anything else is served; without one the person signs in another way, or
+	// follows an invitation and chooses their own.
 	// Name is the person's name as people read it, shown in place of the username
 	// where it is given; the person may change it themselves.
 	// It answers the new user's id. An account is one row for the whole application, so
@@ -34,7 +34,7 @@ type (
 		Username string `validate:"required"`
 		Name     *string
 		Email    *string
-		Password string `validate:"required"`
+		Password *string `conditions:"secret"`
 		// Roles are the roles the person is given, picked from the roles that exist in the
 		// tenant (StaffTenantRoles). A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.
@@ -57,7 +57,7 @@ func (m *CreateStaffTenantUser) Execute(ctx context.Context, txn resource.ReadWr
 	}
 	account := &identity.NewAccount{Username: m.Username, Name: m.Name}
 	account.Email = m.Email
-	account.Password, account.PasswordRequired = &m.Password, true
+	account.Password = m.Password
 	for _, role := range m.Roles {
 		account.Roles = append(account.Roles, accesstypes.Role(role))
 	}

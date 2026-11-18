@@ -2,12 +2,15 @@ package live
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -400,11 +403,6 @@ func TestSetCacheControl(t *testing.T) {
 func TestPublish(t *testing.T) {
 	t.Parallel()
 
-	type write struct {
-		domain accesstypes.Domain
-		res    accesstypes.Resource
-		key    string
-	}
 	tests := []struct {
 		name   string
 		writes []write
@@ -413,15 +411,24 @@ func TestPublish(t *testing.T) {
 	}{
 		{
 			name:   "a committed request publishes under its route domain",
-			writes: []write{{res: "Ships", key: "s1"}},
+			writes: []write{{key: "s1"}},
 			domain: "anvil",
 			want:   []FakePublish{{Domain: "anvil", Writes: Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}}}}},
 		},
 		{
 			name:   "rows decoded in their own tenant publish under it",
-			writes: []write{{domain: "bastion", res: "Hangars", key: "h1"}},
+			writes: []write{{domain: "bastion", key: "h1"}},
 			domain: "",
 			want:   []FakePublish{{Domain: "bastion", Writes: Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Hangars": {{Key: "h1"}}}}}},
+		},
+		{
+			name:   "a request that wrote in two tenants publishes once under each, in the tenants' order",
+			writes: []write{{domain: "bastion", key: "h1"}, {domain: "anvil", key: "h2"}},
+			domain: "",
+			want: []FakePublish{
+				{Domain: "anvil", Writes: Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Hangars": {{Key: "h2"}}}}},
+				{Domain: "bastion", Writes: Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Hangars": {{Key: "h1"}}}}},
+			},
 		},
 		{name: "a request that committed nothing publishes nothing", domain: "anvil"},
 	}
@@ -431,40 +438,418 @@ func TestPublish(t *testing.T) {
 			t.Parallel()
 
 			fake := NewFake()
-			ctx, touched := resource.CollectTouchedRows(t.Context())
-			client := resource.NewMockClient(&bufferingTxn{}, nil, nil)
-			for _, w := range tt.writes {
-				if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-					return bufferRow(ctx, txn, w.domain, w.key)
-				}); err != nil {
-					t.Fatalf("ExecuteFunc() error = %v", err)
-				}
-			}
+			ctx, touched := commit(t, tt.writes...)
 
-			Publish(ctx, fake, nil, tt.domain, touched)
+			Publish(ctx, httptest.NewRecorder(), fake, nil, tt.domain, touched)
 
-			if diff := cmp.Diff(tt.want, fake.Publishes(), cmpopts.EquateEmpty()); diff != "" {
+			got := fake.Publishes()
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(Writes{}, "ID")); diff != "" {
 				t.Errorf("Publishes() mismatch (-want +got):\n%s", diff)
 			}
+			// The request is one write: every publish of it carries the same id.
+			for _, publish := range got {
+				if publish.Writes.ID == "" || publish.Writes.ID != got[0].Writes.ID {
+					t.Errorf("the publish under %q carries the write id %q, want the request's one id %q, not empty", publish.Domain, publish.Writes.ID, got[0].Writes.ID)
+				}
+			}
 		})
+	}
+}
+
+// write is one row a test's request commits: a Hangar decoded in domain when one is
+// given, a Ship built by hand otherwise.
+type write struct {
+	domain accesstypes.Domain
+	key    string
+}
+
+// commit runs one request's transactions, one per write, under a collector, and returns
+// the request's context and what it touched.
+func commit(t *testing.T, writes ...write) (context.Context, *resource.TouchedRows) {
+	t.Helper()
+
+	ctx, touched := resource.CollectTouchedRows(t.Context())
+	client := resource.NewMockClient(&bufferingTxn{}, nil, nil)
+	for _, w := range writes {
+		if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return bufferRow(ctx, txn, w.domain, w.key)
+		}); err != nil {
+			t.Fatalf("ExecuteFunc() error = %v", err)
+		}
+	}
+
+	return ctx, touched
+}
+
+// answerOf reads the changes header off a write's answer; nil when the answer carries
+// none.
+func answerOf(t *testing.T, rr *httptest.ResponseRecorder) *Answer {
+	t.Helper()
+
+	value := rr.Header().Get(ChangesHeader)
+	if value == "" {
+		return nil
+	}
+	if len(value) > MaxChangesHeaderLength {
+		t.Errorf("the %s header is %d bytes, over the limit of %d", ChangesHeader, len(value), MaxChangesHeaderLength)
+	}
+	for i := range len(value) {
+		if value[i] <= ' ' || value[i] > '~' {
+			t.Fatalf("the %s header carries the byte %#x at %d, which a header value outside visible ASCII cannot hold: %q", ChangesHeader, value[i], i, value)
+		}
+	}
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		t.Fatalf("url.PathUnescape(%q) error = %v", value, err)
+	}
+	var answer Answer
+	if err := json.Unmarshal([]byte(decoded), &answer); err != nil {
+		t.Fatalf("json.Unmarshal(%s) error = %v", decoded, err)
+	}
+
+	return &answer
+}
+
+// TestPublish_answer pins what a write's answer tells the tab that wrote: the write's
+// id and the documents the write put into the caller's own change set, nobody else's,
+// and nothing at all when the caller holds none of what changed live.
+func TestPublish_answer(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	dispatcher := crewAuth + AuthSeparator + "dispatcher"
+	harbormaster := crewAuth + AuthSeparator + "harbormaster"
+	// A key and a tenant a header cannot carry as they are.
+	const (
+		oddKey    = "s/1 \"é\""
+		oddDomain = accesstypes.Domain("añvil")
+	)
+
+	tests := []struct {
+		name   string
+		subs   []Subscription
+		ctx    func(context.Context) context.Context
+		writes []write
+		domain accesstypes.Domain
+		// want is the answer's documents; nil is an answer with no header.
+		want []ChangeDocument
+	}{
+		{
+			name: "the caller's list and row, and nobody else's",
+			subs: []Subscription{
+				{Principal: dispatcher, Tab: "t1", Resource: "Ships", Domain: "anvil"},
+				{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: "s1"},
+				{Principal: harbormaster, Tab: "t2", Resource: "Ships", Key: "s1"},
+				{Principal: harbormaster, Tab: "t2", Resource: "Ships", Domain: "bastion"},
+			},
+			ctx: func(ctx context.Context) context.Context {
+				return withSession(ctx, crewAuth, "dispatcher")
+			},
+			writes: []write{{key: "s1"}},
+			domain: "anvil",
+			want: []ChangeDocument{
+				{Kind: ListChange, Resource: "Ships", Domain: "anvil"},
+				{Kind: RowChange, Resource: "Ships", Key: "s1"},
+			},
+		},
+		{
+			name: "a caller subscribed through two tabs is named each document once",
+			subs: []Subscription{
+				{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: "s1"},
+				{Principal: dispatcher, Tab: "t2", Resource: "Ships", Key: "s1"},
+			},
+			ctx: func(ctx context.Context) context.Context {
+				return withSession(ctx, crewAuth, "dispatcher")
+			},
+			writes: []write{{key: "s1"}},
+			domain: "anvil",
+			want:   []ChangeDocument{{Kind: RowChange, Resource: "Ships", Key: "s1"}},
+		},
+		{
+			name: "rows written in two tenants are named under each tenant, in the tenants' order",
+			subs: []Subscription{
+				{Principal: dispatcher, Tab: "t1", Resource: "Hangars", Domain: "bastion"},
+				{Principal: dispatcher, Tab: "t1", Resource: "Hangars", Domain: "anvil"},
+			},
+			ctx: func(ctx context.Context) context.Context {
+				return withSession(ctx, crewAuth, "dispatcher")
+			},
+			writes: []write{{domain: "bastion", key: "h1"}, {domain: "anvil", key: "h2"}},
+			want: []ChangeDocument{
+				{Kind: ListChange, Resource: "Hangars", Domain: "anvil"},
+				{Kind: ListChange, Resource: "Hangars", Domain: "bastion"},
+			},
+		},
+		{
+			name: "a key and a tenant outside what a header holds travel encoded",
+			subs: []Subscription{
+				{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: oddKey},
+				{Principal: dispatcher, Tab: "t1", Resource: "Ships", Domain: oddDomain},
+			},
+			ctx: func(ctx context.Context) context.Context {
+				return withSession(ctx, crewAuth, "dispatcher")
+			},
+			writes: []write{{key: oddKey}},
+			domain: oddDomain,
+			want: []ChangeDocument{
+				{Kind: ListChange, Resource: "Ships", Domain: oddDomain},
+				{Kind: RowChange, Resource: "Ships", Key: oddKey},
+			},
+		},
+		{
+			name: "a caller who holds none of what changed gets no header",
+			subs: []Subscription{{Principal: harbormaster, Tab: "t2", Resource: "Ships", Key: "s1"}},
+			ctx: func(ctx context.Context) context.Context {
+				return withSession(ctx, crewAuth, "dispatcher")
+			},
+			writes: []write{{key: "s1"}},
+			domain: "anvil",
+		},
+		{
+			name: "the same user name through another auth is another person",
+			subs: []Subscription{{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: "s1"}},
+			ctx: func(ctx context.Context) context.Context {
+				return withSession(ctx, membersAuth, "dispatcher")
+			},
+			writes: []write{{key: "s1"}},
+			domain: "anvil",
+		},
+		{
+			name: "a request with no session principal gets no header",
+			subs: []Subscription{{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: "s1"}},
+			ctx: func(ctx context.Context) context.Context {
+				return withAuth(ctx, crewAuth)
+			},
+			writes: []write{{key: "s1"}},
+			domain: "anvil",
+		},
+		{
+			name: "a request no auth is bound to gets no header",
+			subs: []Subscription{{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: "s1"}},
+			ctx: func(ctx context.Context) context.Context {
+				return withUser(ctx, "dispatcher")
+			},
+			writes: []write{{key: "s1"}},
+			domain: "anvil",
+		},
+		{
+			name: "a request that committed nothing gets no header",
+			subs: []Subscription{{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: "s1"}},
+			ctx: func(ctx context.Context) context.Context {
+				return withSession(ctx, crewAuth, "dispatcher")
+			},
+			domain: "anvil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := subscribed(t, now, tt.subs...)
+			ctx, touched := commit(t, tt.writes...)
+			rr := httptest.NewRecorder()
+
+			Publish(tt.ctx(ctx), rr, fake, nil, tt.domain, touched)
+
+			answer := answerOf(t, rr)
+			if tt.want == nil {
+				if answer != nil {
+					t.Fatalf("the answer carries %s = %+v, want no header", ChangesHeader, *answer)
+				}
+
+				return
+			}
+			if answer == nil {
+				t.Fatalf("the answer carries no %s header, want one naming %v", ChangesHeader, tt.want)
+			}
+			if diff := cmp.Diff(tt.want, answer.Changes); diff != "" {
+				t.Errorf("the answer's changes mismatch (-want +got):\n%s", diff)
+			}
+			if answer.All {
+				t.Error("the answer says all, want the documents named")
+			}
+			// The id the answer names is the one every document of the write carries, in
+			// the caller's change set and in everybody else's.
+			if answer.Write == "" {
+				t.Fatal("the answer names no write")
+			}
+			for _, sub := range tt.subs {
+				for _, change := range fake.Changes(sub.Principal) {
+					if change.Write != answer.Write {
+						t.Errorf("%s's document %s carries the write %q, want the answer's %q", sub.Principal, change.ID, change.Write, answer.Write)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestAnswer_header pins the header's text for one answer. The browser client's test
+// reads the same text (parseChangesHeader in web/projects/resource/src/live.spec.ts), so
+// the two sides agree on what travels.
+func TestAnswer_header(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		answer Answer
+		want   string
+	}{
+		{
+			name: "a list, a deleted row and a whole resource",
+			answer: Answer{Write: "W1", Changes: []ChangeDocument{
+				{Kind: ListChange, Resource: "Ships", Domain: "añvil"},
+				{Kind: RowChange, Resource: "Ships", Key: `s/1 "é"`, Deleted: true},
+				{Kind: ResourceChange, Resource: "MissionBoards"},
+			}},
+			want: "%7B%22write%22:%22W1%22%2C%22changes%22:%5B%7B%22kind%22:%22list%22%2C%22resource%22:%22Ships%22%2C%22domain%22:%22a%C3%B1vil%22%7D%2C" +
+				"%7B%22kind%22:%22row%22%2C%22resource%22:%22Ships%22%2C%22key%22:%22s%2F1%20%5C%22%C3%A9%5C%22%22%2C%22deleted%22:true%7D%2C" +
+				"%7B%22kind%22:%22resource%22%2C%22resource%22:%22MissionBoards%22%7D%5D%7D",
+		},
+		{
+			name:   "more than the header holds",
+			answer: Answer{Write: "W2", All: true},
+			want:   "%7B%22write%22:%22W2%22%2C%22all%22:true%7D",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.answer.header()
+			if err != nil {
+				t.Fatalf("header() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("header() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPublish_answer_eachWriteItsOwnID pins that two requests are two writes: a tab
+// that wrote one must not take the other's change for its own.
+func TestPublish_answer_eachWriteItsOwnID(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	dispatcher := crewAuth + AuthSeparator + "dispatcher"
+	fake := subscribed(t, now, Subscription{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: "s1"})
+
+	ids := make([]string, 0, 2)
+	for range 2 {
+		ctx, touched := commit(t, write{key: "s1"})
+		rr := httptest.NewRecorder()
+		Publish(withSession(ctx, crewAuth, "dispatcher"), rr, fake, nil, "anvil", touched)
+		answer := answerOf(t, rr)
+		if answer == nil {
+			t.Fatalf("the answer carries no %s header", ChangesHeader)
+		}
+		ids = append(ids, answer.Write)
+	}
+	if ids[0] == ids[1] {
+		t.Errorf("two requests answered the same write id %q", ids[0])
+	}
+	// Both wrote one row within the fake's one second: one document, carrying the later
+	// write's id, so the tab that wrote first sees somebody else's change in it.
+	changes := fake.Changes(dispatcher)
+	if len(changes) != 1 || changes[0].Write != ids[1] {
+		t.Errorf("the change set = %+v, want one document carrying the later write %q", changes, ids[1])
+	}
+}
+
+// TestPublish_answer_tooManyToName pins the header's bound: a write that reached more of
+// the caller's subscriptions than the header holds answers the write's id with all set.
+func TestPublish_answer_tooManyToName(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	dispatcher := crewAuth + AuthSeparator + "dispatcher"
+	const rows = 60
+	subs := make([]Subscription, 0, rows)
+	writes := make([]write, 0, rows)
+	for i := range rows {
+		key := fmt.Sprintf("0b5e9a1c-0000-4000-8000-%012d", i)
+		subs = append(subs, Subscription{Principal: dispatcher, Tab: "t1", Resource: "Ships", Key: key})
+		writes = append(writes, write{key: key})
+	}
+	fake := subscribed(t, now, subs...)
+	ctx, touched := commit(t, writes...)
+	rr := httptest.NewRecorder()
+
+	Publish(withSession(ctx, crewAuth, "dispatcher"), rr, fake, nil, "anvil", touched)
+
+	answer := answerOf(t, rr)
+	if answer == nil {
+		t.Fatalf("the answer carries no %s header", ChangesHeader)
+	}
+	if !answer.All || len(answer.Changes) != 0 {
+		t.Errorf("the answer = %+v, want all set and no document named", *answer)
+	}
+	if changes := fake.Changes(dispatcher); len(changes) != rows || changes[0].Write != answer.Write {
+		t.Errorf("the change set holds %d documents, the first by write %q; want %d by the answer's write %q", len(changes), changes[0].Write, rows, answer.Write)
+	}
+}
+
+// failingIn is a live service whose publishes under one domain fail after the others
+// went through, as a backend that stops answering partway through a request would.
+type failingIn struct {
+	*Fake
+	domain accesstypes.Domain
+}
+
+func (f failingIn) Publish(ctx context.Context, domain accesstypes.Domain, writes Writes) (Changes, error) {
+	if domain == f.domain {
+		return nil, errors.New("firestore down")
+	}
+
+	return f.Fake.Publish(ctx, domain, writes)
+}
+
+// TestPublish_answer_partFailed pins that a request any of whose publishes failed names
+// nothing: a failed publish may have written some of its documents, which a tab told the
+// write's id would take for changes it had fetched for.
+func TestPublish_answer_partFailed(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	dispatcher := crewAuth + AuthSeparator + "dispatcher"
+	fake := subscribed(t, now,
+		Subscription{Principal: dispatcher, Tab: "t1", Resource: "Hangars", Domain: "anvil"},
+		Subscription{Principal: dispatcher, Tab: "t1", Resource: "Hangars", Domain: "bastion"},
+	)
+	ctx, touched := commit(t, write{domain: "anvil", key: "h1"}, write{domain: "bastion", key: "h2"})
+	rr := httptest.NewRecorder()
+
+	Publish(withSession(ctx, crewAuth, "dispatcher"), rr, failingIn{Fake: fake, domain: "bastion"}, nil, "", touched)
+
+	if got := rr.Header().Get(ChangesHeader); got != "" {
+		t.Errorf("%s = %q after a publish that failed in part, want no header", ChangesHeader, got)
+	}
+	// What got through is in the change set, for the tab to hear as anyone's change.
+	if got := len(fake.Changes(dispatcher)); got != 1 {
+		t.Errorf("the change set holds %d documents, want the one of the tenant whose publish went through", got)
 	}
 }
 
 func TestPublish_failureIsLogged(t *testing.T) {
 	t.Parallel()
 
-	fake := NewFake()
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	fake := subscribed(t, now, Subscription{Principal: crewAuth + AuthSeparator + "dispatcher", Tab: "t1", Resource: "Ships", Key: "s1"})
 	fake.Err = errors.New("firestore down")
-	ctx, touched := resource.CollectTouchedRows(t.Context())
-	client := resource.NewMockClient(&bufferingTxn{}, nil, nil)
-	if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return bufferRow(ctx, txn, "", "s1")
-	}); err != nil {
-		t.Fatalf("ExecuteFunc() error = %v", err)
-	}
+	ctx, touched := commit(t, write{key: "s1"})
+	rr := httptest.NewRecorder()
 
-	// The request still answers: Publish returns, nothing panics.
-	Publish(ctx, fake, nil, "anvil", touched)
+	// The request still answers: Publish returns, nothing panics, and the answer names
+	// nothing, since nothing was published.
+	Publish(withSession(ctx, crewAuth, "dispatcher"), rr, fake, nil, "anvil", touched)
+
+	if got := rr.Header().Get(ChangesHeader); got != "" {
+		t.Errorf("%s = %q after a publish that failed, want no header", ChangesHeader, got)
+	}
 }
 
 func TestPrincipalID(t *testing.T) {

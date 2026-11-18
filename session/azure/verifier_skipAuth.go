@@ -30,10 +30,10 @@ const defaultLoginURL = "/login"
 var skipAuthTenantID = uuid.Must(uuid.FromString("034cdd64-5dd9-4a3b-90fb-c76d3a499433"))
 
 // skipAuthOidNamespace is the UUIDv5 namespace the simulated oid claim is derived
-// under. Deriving oid from APP_USERNAME gives each simulated user one durable
-// identity, so repeated logins resolve to the same OIDCUsers anchor row when the
-// anchor is enabled. The namespace is part of the skipAuth contract: changing it
-// changes every simulated oid, orphaning anchor rows in existing dev databases.
+// under. Deriving oid from the simulated username gives each simulated user one
+// durable identity, so repeated logins resolve to the same identity link, which is
+// keyed by tid and oid. The namespace is part of the skipAuth contract: changing it
+// changes every simulated oid, so the links in existing dev databases match no login.
 var skipAuthOidNamespace = uuid.Must(uuid.FromString("2aa10a18-1d51-4dcd-949a-b85cf4e628e3"))
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
@@ -100,8 +100,8 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL s
 // username and roles variables (APP_<NAME>_USERNAME and APP_<NAME>_ROLES, else
 // APP_USERNAME and APP_ROLES), plus a deterministic (tid, oid) pair — the
 // registration's first listed tenant, or the fixed skipAuth tenant when it lists none,
-// and a UUIDv5 of the username — so logins satisfy the OIDC user anchor's fail-closed
-// (tid, oid) requirement and each simulated user maps to one durable anchor row.
+// and a UUIDv5 of the username — so logins carry the tid and oid the method requires of
+// a token and each simulated user keeps one identity link.
 func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
 	type claimsSimulated struct {
 		Iss               string   `json:"iss"`

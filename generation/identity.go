@@ -67,14 +67,34 @@ type identityInstance struct {
 	// password marks an auth that declares the password method: the one kind of auth
 	// whose people may hold a password, and so be required to change it.
 	password bool
+	// signIns are the auth's sign-in registrations as its login page offers them, the
+	// password method among them, in declaration order: the name each is registered
+	// under and the words its button carries. The list of how a person signs in names
+	// each way by them (identity_signinways.go).
+	signIns []identitySignIn
 	// rolesSynced marks an auth whose roles a directory writes at every sign-in
 	// (SyncsRoles): the directory is the authority for every membership the auth holds,
 	// so the instance carries no method that assigns or removes one.
 	rolesSynced bool
-	// invited marks an auth with a registration that admits invited users alone
-	// (InvitedUsers): its people exist before their first sign-in, so someone creates
-	// them.
+	// invited marks an auth with a registration beside or instead of the password
+	// method, whose roles the application assigns: every such registration is invite
+	// only until an administrator opens it, so its people may exist before their first
+	// sign-in, created by hand with no password.
 	invited bool
+	// createsTenant marks the auth whose people create a tenant of their own: the
+	// application has a tenant record, and the session outlets that serve the record
+	// are this auth's, so the create-your-tenant route seats the person who signed up
+	// through this auth's identity client (tenantCreationServes). Another auth of an
+	// application with tenants has nothing to give a person who signs up, neither a
+	// role of the whole application nor a tenant, so it carries no choice to open one
+	// of its methods.
+	createsTenant bool
+	// opensToDirectory marks the auth whose generated management judges the role a
+	// tenant is opened to its directory's people with: the session outlets that serve
+	// the directories record are this auth's, so the two methods that say how a tenant
+	// admits its directory's people ask this instance's client, and the instance
+	// declares the list the role is picked from (identityOpensToDirectory).
+	opensToDirectory bool
 	// session and policy name the auth's tables: the session library's and the
 	// permission store's, each by the library's own rule for the prefix.
 	session session.Tables
@@ -89,6 +109,9 @@ type identityInstance struct {
 	// tenant is the application's tenant record, nil when it declares none: with one
 	// the instance carries the tenant's lists (identity_lists.go).
 	tenant *identityTenant
+	// groupSet is the name of the subject set of a person's groups, "" where the
+	// instance keeps no groups (identity_groups.go).
+	groupSet string
 }
 
 // identityTable names one of an auth's tables by what it holds.
@@ -101,6 +124,7 @@ const (
 	identityTokens         identityTable = "tokens"
 	identityMailLinks      identityTable = "mailLinks"
 	identitySignInAttempts identityTable = "signInAttempts"
+	identitySignInMethods  identityTable = "signInMethods"
 	identityAuthEvents     identityTable = "authEvents"
 	identityImpersonations identityTable = "impersonations"
 	identityTrustedDevices identityTable = "trustedDevices"
@@ -130,12 +154,16 @@ func identityDeclarations() []identityDeclaration {
 		{kind: identityTokens, suffix: "SessionToken", template: identityTokensTemplate},
 		{kind: identityMailLinks, suffix: "SessionMailLink", template: identityMailLinksTemplate},
 		{kind: identitySignInAttempts, suffix: "SessionSignInAttempt", template: identitySignInAttemptsTemplate},
+		{kind: identitySignInMethods, suffix: signInMethodRowSuffix, template: identitySignInMethodsTemplate},
 		{kind: identityAuthEvents, suffix: "SessionAuthEvent", template: identityAuthEventsTemplate},
 		{kind: identityImpersonations, suffix: "SessionImpersonation", template: identityImpersonationsTemplate},
 		{kind: identityTrustedDevices, suffix: "SessionTrustedDevice", template: identityTrustedDevicesTemplate},
 		{kind: identityMemberships, suffix: "UserRole", template: identityMembershipsTemplate},
 		{kind: identityRoles, suffix: "Role", template: identityRolesTemplate},
 		{kind: identityRoleGrants, suffix: "RoleGrant", template: identityRoleGrantsTemplate},
+		{kind: identityGroups, suffix: "Group", template: identityGroupsTemplate},
+		{kind: identityGroupMembers, suffix: "GroupMember", template: identityGroupMembersTemplate},
+		{kind: identityGroupRoles, suffix: "GroupRole", template: identityGroupRolesTemplate},
 	}
 }
 
@@ -154,6 +182,8 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.session.MailLinks
 	case identitySignInAttempts:
 		return i.session.SignInAttempts
+	case identitySignInMethods:
+		return i.session.SignInMethods
 	case identityAuthEvents:
 		return i.session.AuthEvents
 	case identityImpersonations:
@@ -166,6 +196,12 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.policy.Roles
 	case identityRoleGrants:
 		return i.policy.RoleGrants
+	case identityGroups:
+		return i.policy.Groups
+	case identityGroupMembers:
+		return i.policy.GroupMembers
+	case identityGroupRoles:
+		return i.policy.GroupRoles
 	default:
 		panic(fmt.Sprintf("unexpected identityTable: %q", kind))
 	}
@@ -278,10 +314,11 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			inst.password = true
 			inst.usernameIsEmail = m.usernameIsEmail
 		}
+		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label})
 		if m.syncsRoles {
 			inst.rolesSynced = true
 		}
-		if m.invited {
+		if m.kind != methodPassword && !m.syncsRoles {
 			inst.invited = true
 		}
 	}
@@ -295,6 +332,9 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	if inst.has(identityMemberships) != inst.has(identityRoles) {
 		return nil, errors.Newf("Auth(%q): the schema holds one of %s and %s and not the other; they are the permission store's tables under the auth's prefix and are migrated together", auth.importPath, inst.policy.UserRoles, inst.policy.Roles)
 	}
+	if err := inst.settleGroupTables(); err != nil {
+		return nil, err
+	}
 	for _, kind := range []identityTable{identityUsers, identitySessions} {
 		if !inst.has(kind) {
 			return nil, errors.Newf("Auth(%q): the schema holds no table %s, so there is nothing of the auth to manage; its tables are named by its package's name in PascalCase (TablePrefix = %q), each the session library's own name under it", auth.importPath, inst.tableName(kind), name)
@@ -304,9 +344,10 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	return inst, nil
 }
 
-// createsUsers reports whether the auth's people are created by hand: a password method
-// or a registration that admits invited users alone gives it that, and a directory that
-// writes the roles takes it away, since a person is created holding a role.
+// createsUsers reports whether the auth's people are created by hand: every auth whose
+// roles the application assigns, since each of its methods is invite only until an
+// administrator opens it. A directory that writes the roles takes it away, since a
+// person is created holding a role.
 func (inst *identityInstance) createsUsers() bool {
 	return (inst.password || inst.invited) && !inst.rolesSynced
 }
@@ -323,6 +364,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 	if len(instances) == 0 {
 		return nil
 	}
+	nameGroupSets(instances)
 	begin := time.Now()
 
 	if err := r.settleIdentityTree(); err != nil {
@@ -336,7 +378,18 @@ func (r *resourceGenerator) prepareIdentity() error {
 	}
 	for _, inst := range instances {
 		inst.tenant = tenant
+		inst.createsTenant = r.identityCreatesTenant(inst)
+		inst.opensToDirectory = r.identityOpensToDirectory(inst)
 		if err := inst.refuseListNamesTaken(); err != nil {
+			return err
+		}
+		if err := inst.refuseInvitationNamesTaken(); err != nil {
+			return err
+		}
+		if err := r.requireNewTenantColumn(inst); err != nil {
+			return err
+		}
+		if err := r.refuseReservedRole(inst); err != nil {
 			return err
 		}
 		for _, dir := range []packageDir{inst.resources, inst.methods, inst.handlers} {
@@ -565,9 +618,18 @@ func (d *identitySourceData) Password() bool { return d.password }
 // answers none of the hooks that give one.
 func (d *identitySourceData) RolesSynced() bool { return d.rolesSynced }
 
+// GivesRoles reports whether the instance serves the methods that give and take the
+// auth's roles for the whole application (Assign<Auth>Role and Remove<Auth>Role): the
+// application assigns the roles, and the schema holds the memberships. They are the
+// methods a super administrator always executes.
+func (d *identitySourceData) GivesRoles() bool {
+	return !d.rolesSynced && d.has(identityMemberships)
+}
+
 // PasswordOnCreate says what a create does with a password: "required" where the
-// password is the auth's one way in, "optional" beside a registration that admits
-// invited users alone, and "none" where the auth has no password method.
+// password is the auth's one way in, "optional" beside another registration, through
+// which a person created with no password signs in, and "none" where the auth has no
+// password method.
 func (d *identitySourceData) PasswordOnCreate() string {
 	switch {
 	case !d.password:
@@ -616,6 +678,8 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The tenant's lists, beside the tables they read, where the application has a
 	// tenant record.
 	files = append(files, r.listSources(inst)...)
+	// The lists over the groups of people, where the instance keeps groups.
+	files = append(files, r.groupListSources(inst)...)
 	files = append(files, []identitySourceFile{
 		{dir: inst.methods, name: "client", template: identityClientTemplate},
 		{dir: inst.methods, name: "store", template: identityStoreTemplate},
@@ -641,6 +705,12 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "TemporaryPassword"), template: identitySetTemporaryPasswordTemplate, needs: []identityTable{identityUsers}},
 		)
 	}
+	// A password is removed where an identity is unlinked: from a person who signs in
+	// through a directory, so the method is written where the schema holds the
+	// identities, for an auth whose people may hold a password.
+	if inst.password {
+		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem(inst.removePasswordMethod(false)), template: identityRemovePasswordTemplate, needs: []identityTable{identityUsers, identityIdentities}})
+	}
 	// Where the username is the person's address it changes when the person verifies
 	// a new address, never by a rename, which the session library refuses there too.
 	// The address is the person's own entry there too, so nobody sets it by hand.
@@ -650,10 +720,10 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "UserEmail"), template: identitySetUserEmailTemplate, needs: []identityTable{identityUsers}},
 		)
 	}
-	// A person is created by hand where a password is a way in or a registration admits
-	// invited users alone; elsewhere a directory admits its own, and the first sign-in
-	// creates the row. A person is created holding a role, so an auth whose directory
-	// writes the roles creates nobody here either.
+	// A person is created by hand in every auth whose roles the application assigns:
+	// each of its methods is invite only until an administrator opens it. A person is
+	// created holding a role, so an auth whose directory writes the roles creates nobody
+	// here: the directory admits its own, and the first sign-in creates the row.
 	if inst.createsUsers() {
 		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem("Create" + inst.auth + "User"), template: identityCreateUserTemplate, needs: []identityTable{identityUsers, identityMemberships}})
 	}
@@ -668,10 +738,25 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Remove" + inst.auth + "Role"), template: identityRemoveRoleTemplate, needs: []identityTable{identityMemberships}},
 		)
 	}
+	// Who may sign in without an invitation: the list of the auth's sign-in methods and
+	// the two methods that open one to sign-up and make it invite only again.
+	files = append(files, r.signUpSources(inst)...)
+	// The invitation that makes a tenant, for the auth whose people the tenant record's
+	// outlets sign in: the method staff send one with, the list of the ones that stand,
+	// and the method that withdraws one.
+	files = append(files, r.invitedTenantSources(inst)...)
 	// The methods one tenant runs, and the computed resources beside them, where the
 	// application has a tenant record.
 	files = append(files, inst.tenantMethodSources()...)
 	files = append(files, r.tenantComputedSources(inst)...)
+	// How a person signs in, the read the removal of a password is offered from, for
+	// the whole application and for a tenant.
+	files = append(files, r.signInWaySources(inst)...)
+	// The methods that manage the groups of people, the whole application's and one
+	// tenant's.
+	files = append(files, inst.groupMethodSources()...)
+	// What the rules ask of the role file: who may give a role and take one away.
+	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {
 		if slices.ContainsFunc(file.needs, func(kind identityTable) bool { return !inst.has(kind) }) {
 			continue

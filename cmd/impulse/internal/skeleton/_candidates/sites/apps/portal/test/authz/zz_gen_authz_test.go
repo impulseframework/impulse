@@ -32,8 +32,13 @@ type grants map[accesstypes.Permission]bool
 // which runs before required-field validation, defaults, or row reads. Mutation
 // success paths need valid request bodies the generator does not synthesize yet and
 // are left to manual testing. A transaction-form RPC method carries a second denied
-// case under X-Dry-Run: a dry run refuses exactly as the real call does. The features
-// route is open to anyone signed in and carries one case: 200 without a grant.
+// case under X-Dry-Run: a dry run refuses exactly as the real call does. A method that
+// declares a warning carries one more under X-Warning: its warning is refused as the
+// call is. The features
+// route is open to anyone signed in and carries one case: 200 without a grant. A list
+// across tenants (@listAcrossTenants) has no endpoint gate to refuse at: the List grant
+// is asked in each tenant and a tenant in which the caller holds none is left out, so
+// its case without a grant is 200, a list of no tenant.
 //
 // The suite runs on the migrated schema alone; no seed data is required, so it grows
 // with the schema on every regeneration. When the application declares feature flags,

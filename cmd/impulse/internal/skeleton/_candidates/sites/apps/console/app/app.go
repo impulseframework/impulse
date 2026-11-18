@@ -70,9 +70,9 @@ type Configurer interface {
 	// TenantDeclarations reads what a tenant declares about who may enter it, as the
 	// running application knows it: the shared roster's copy, which every write of the
 	// Tenant record or its directories on the console reloads. The session's tenant
-	// list is filtered by it, so a tenant declaring a directory is offered to a session
-	// that came through that directory, and a directory-only tenant to no password
-	// session.
+	// list is filtered by it: a tenant that is not directory only is offered to every
+	// session of a person it seats, and a directory-only tenant to a session that came
+	// through its own directory and no other.
 	TenantDeclarations() resource.TenantDeclarations
 	// Staff returns the auth this surface binds to: the staff auth, whose session manager
 	// the App composes its login and session handlers from.
@@ -223,9 +223,10 @@ func (a *App) Assets() http.HandlerFunc {
 // listing the tenants of the application's roster where the principal holds a grant,
 // and attenuated by the session's permission mask. A tenant is offered only when the
 // session may enter it: the tenant's declaration, read from the shared roster's copy,
-// admits the session's first sign-in (a directory the tenant declares, or a password
-// where the tenant is not directory only), and staff, who hold a grant in the global
-// partition, reach every tenant.
+// admits the session's first sign-in (any sign-in where the tenant is not directory
+// only, a sign-in through the tenant's own directory where it is), and a super
+// administrator reaches every tenant. A tenant that seats the person and is closed to
+// the session stays in its tenant list marked closed, with the reason.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
 	return resource.SessionPermissions(r.Context(), a.access.ForUser, a.access.ForRole, a.tenants.Domains, a.declarations)
 }
@@ -238,8 +239,8 @@ func (a *App) TenantRoster() *resource.TenantRoster {
 	return a.tenants
 }
 
-// TenantAdministratorRoles names the domain roles the person who creates a tenant holds
-// in it from then on, seated by the Tenant record's create path once the row commits:
+// TenantAdministratorRoles names the domain roles the person who creates a tenant
+// through the generated create-your-tenant route holds in it from then on:
 // the staff auth's administrator role in a tenant, the one the development administrator
 // holds in every tenant (pkg/auth/staff, AdministratorRoles), so the first person in a
 // tenant can do there what an administrator can, invite its people included.

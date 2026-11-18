@@ -11,9 +11,42 @@ sets read by the browser.
 `subscriptions/{id}` is the record. One document per subscription; the id is the
 first 32 hex characters of `sha256("principal|tab|resource|key|domain")`, so the same
 interest of the same tab is one document however often it is registered or renewed.
-Fields: `principal`, `tab`, `resource`, `key` (empty for a list), `domain` (empty for
-a row and for a global list), `expiry` (timestamp). No client reads it; the rules deny
-everything outside the change sets.
+Fields: `principal`, `tab`, `resource`, `key` (empty for a list), `domains` (an array,
+the set of tenants the subscription is held over), `expiry` (timestamp). No client
+reads it; the rules deny everything outside the change sets.
+
+A list is held over a set of tenants, and `domains` is the set. One tenant's list is
+the set of that one tenant, `["<tenant>"]`; a global resource's list and a row are
+the empty domain alone, `[""]`. A list across tenants (`@listAcrossTenants`, when its
+page asks for live) is one document whose `domains` holds every tenant the server
+worked out for the person: the tenants the session reaches in which the person may
+list the resource, narrowed by the page's filter on the tenant. Its id names the
+resource and that filter, never the set, so the renewal that works the set out again
+writes the same document with the new set. The publisher's question after a write,
+who is subscribed to this list in this tenant, is `domains array-contains <tenant>`:
+one tenant's list is found as a set of one, and a list across tenants by every tenant
+of its set, from its one document. Firestore indexes an array field once per element,
+so a subscription over n tenants adds n entries to each index that carries `domains`.
+Two indexes carry it: the automatic array-contains index of the field, and the
+`(resource, domains array-contains, expiry)` composite the lookup reads. A subscription
+over n tenants therefore costs 2n index entries, beside a dozen for its other fields,
+and Firestore allows a document 40,000: the write of a subscription's document fails
+near 20,000 tenants. The library never comes near it. One subscription holds at most
+10,000 tenants (`live.MaxSubscriptionTenants`), half of what the document can carry: a
+list across more tenants registers nothing and is answered as a plain list, and a
+subscription whose set has grown past the ceiling is dropped at its renewal, the tab's
+others kept. A document at the ceiling, 10,000 tenant ids of 36 characters, is about
+400 KB of the 1 MiB a document may be.
+
+The batch a renewal writes is judged document by document. A document the store
+refuses as invalid (`InvalidArgument`) is answered to the renewal as refused, which
+drops that one subscription and keeps the rest. A batch travels in requests of several
+documents, and the store may answer a whole request as invalid for one document's sake
+and write none of it (the emulator does, for a value over the size it allows), so every
+document that came back invalid is written again alone: the refusal that remains is
+that document's own, and a document that was only sent beside it is written. A document
+that failed for any other reason, the database out of reach among them, fails the write
+as a whole, and the tab renews again.
 
 `users/{uid}/changes/{id}` is a user's change set; `uid` is the principal id
 (`live.PrincipalID`), the auth's name and the user name joined by `|`, such as
@@ -23,8 +56,10 @@ everything outside the change sets.
 merge, so writes to one target within one second coalesce into one document. Fields:
 `kind` (`row`, `list` or `resource`), `resource`, `key` and `deleted` on a row
 document, `domain` on a list document, `at` (the server timestamp), `expires`
-(timestamp, ten minutes after the write). The browser queries
-`where at > lastSeen order by at` and may read only its own set.
+(timestamp, ten minutes after the write), `write` (the id of the write that published
+the document, the last one's when several became one document: the tab whose write it
+was learned the id from the write's answer and fetches nothing for the document). The
+browser queries `where at > lastSeen order by at` and may read only its own set.
 
 `application/signals` is the application's signals document: the one document the
 server's instances signal each other through. It has a field per kind (`features`,
@@ -52,10 +87,15 @@ document needs no index and no time-to-live.
 
 `firestore.indexes.json` holds the three composite indexes the record's lookups use,
 all on `subscriptions`: `(resource, key, expiry)` for a row's subscribers,
-`(resource, domain, expiry)` for a list's, and `(resource, expiry)` for every
-subscriber of a resource, the bulk path's one lookup. The unsubscribe queries are
+`(resource, domains array-contains, expiry)` for a list's, and `(resource, expiry)` for
+every subscriber of a resource, the bulk path's one lookup. The unsubscribe queries are
 equality-only (`principal`, `principal` and `tab`) and need no composite index. The
 change sets query one field, `at`, which the default single-field index serves.
+
+An application carries its own copy of this file and of `firestore.rules` under
+`schema/firestore`, and its deployment applies that copy. A new application starts with
+the copies of the skeleton it was made from, which a test of the skeleton holds to the
+files here, so a lookup that changes its index changes them in the same change.
 
 ## Time-to-live policies
 
@@ -119,7 +159,7 @@ The package's tests run against the Firestore emulator from the Cloud SDK emulat
 image, which db-initiator starts in a container with the package's rules
 (`NewFirestoreContainer` with `WithFirestoreRules`), as it starts the Spanner emulator
 the resource package's tests use; they skip under `-short`. They prove the record's
-lookups and expiry, the publisher's documents, coalescing and the bulk threshold, the
+lookups and expiry, the publisher's documents and the write's id on them, coalescing and the bulk threshold, the
 emulator token, and, through the emulator's REST API with an unsigned token for a uid,
 that a user reads their own change set and nothing else. The signals tests run two
 instances on one document in a database of their own per test: a signal of a kind

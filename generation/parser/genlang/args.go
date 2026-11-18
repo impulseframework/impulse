@@ -32,6 +32,31 @@ type ArgSpec struct {
 	// following the key attach to it (`from: a, b` reads as from = [a, b])
 	// until the next named argument.
 	Multi []string
+
+	// Expressions is the subset of Keys whose value is an expression of the
+	// condition language, not a name: the commas inside its parentheses and
+	// its single-quoted strings are its own (`where: Level IN ('view', 'edit')`).
+	// An invocation of a spec that names one is split on the commas outside
+	// parentheses and outside quotes of either kind.
+	Expressions []string
+}
+
+// ScanFlags returns the flags a keyword whose arguments the spec parses is scanned
+// with, to be joined to the keyword's own: Expressions where the spec names an
+// expression key. A keyword table that takes them from the spec has the scanner
+// end the keyword's annotation by the quotes the spec splits its arguments by.
+func (s *ArgSpec) ScanFlags() keywordFlag {
+	if s.takesExpressions() {
+		return Expressions
+	}
+
+	return 0
+}
+
+// takesExpressions reports whether an argument of the spec may be an expression of
+// the condition language.
+func (s *ArgSpec) takesExpressions() bool {
+	return len(s.Expressions) > 0
 }
 
 // NamedArgs is one keyword invocation's parsed argument list: the leading
@@ -78,7 +103,7 @@ func (a Arg) ParseInvocations(spec *ArgSpec) ([]NamedArgs, error) {
 func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 	args := NamedArgs{named: make(map[string][]string)}
 
-	parts, err := splitArguments(invocation)
+	parts, err := splitArguments(invocation, spec.takesExpressions())
 	if err != nil {
 		return NamedArgs{}, err
 	}
@@ -150,24 +175,31 @@ func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 
 // splitArguments splits an invocation on the commas outside double quotes, so a
 // quoted value may carry a comma (`from: "a,b"`). An unclosed quote is an error.
-func splitArguments(invocation string) ([]string, error) {
+//
+// With expressions set, an argument may be an expression of the condition
+// language, and the commas inside its parentheses and its single-quoted strings
+// stay with it: `where: Level IN ('view', 'edit'), value: Team` is two arguments.
+// What is quoted is decided by quotes, which the scanner ends an annotation by too.
+func splitArguments(invocation string, expressions bool) ([]string, error) {
 	var (
-		parts  []string
-		start  int
-		quoted bool
+		parts []string
+		start int
+		depth int
 	)
+	quoted := newQuotes(expressions)
 	for i := range len(invocation) {
-		switch invocation[i] {
-		case '"':
-			quoted = !quoted
-		case ',':
-			if !quoted {
-				parts = append(parts, invocation[start:i])
-				start = i + 1
-			}
+		switch c := invocation[i]; {
+		case quoted.read(c):
+		case expressions && c == '(':
+			depth++
+		case expressions && c == ')':
+			depth--
+		case c == ',' && depth == 0:
+			parts = append(parts, invocation[start:i])
+			start = i + 1
 		}
 	}
-	if quoted {
+	if _, _, open := quoted.unclosed(); open {
 		return nil, errors.Newf("unclosed quote in %q", invocation)
 	}
 

@@ -56,10 +56,12 @@ export const issuingDescriptor: ApiDescriptor = {
   },
 };
 
-/** The parts of a methods answer the account page reads: the password change, forgetting this browser and the person's name. */
+/** The parts of a methods answer the account page reads: the password change and removal, what the person signs in with, forgetting this browser and the person's name. */
 export const passwordMethods = {
   methods: [],
   changePassword: '/api/user/password/change',
+  removePassword: '/api/user/password/remove',
+  signInMeans: '/api/user/sign-in-means',
   forgetBrowser: '/api/user/browser/forget',
   changeName: '/api/user/name',
 };
@@ -68,7 +70,7 @@ export const passwordMethods = {
 export interface SpecServer {
   session?: Record<string, unknown>;
   digests?: Record<string, PermissionDigest>;
-  domains?: readonly { domain: string; name: string }[];
+  domains?: readonly { domain: string; name: string; closed?: string }[];
   methods?: Record<string, unknown>;
   /** Any other route the spec plays; undefined falls through to the 404. */
   other?: (url: URL) => TransportResponse | undefined;
@@ -119,6 +121,6 @@ export function provideFrameTesting(
     { provide: RESOURCE_CLIENT, useValue: createClient(descriptor, { baseUrl: '/api', transport }) },
     provideRouter(routes),
     provideNoopAnimations(),
-    provideFrame({ name: 'Redgrade', home: 'dashboard', menus: [], ...config }),
+    provideFrame({ name: 'Lodestar', home: 'dashboard', menus: [], ...config }),
   ];
 }

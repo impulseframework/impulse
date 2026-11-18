@@ -62,9 +62,17 @@ func (r *resourceGenerator) runRouteGeneration() error {
 	// whose creation shape admits self-service.
 	routerTestRoutes = append(routerTestRoutes, r.accumulateTenantCreationRoute(outlets, outletRoutes)...)
 
+	// The read of what a tenant's directory-only switch would do, on the session
+	// outlets serving a tenant record that declares the switch.
+	routerTestRoutes = append(routerTestRoutes, r.accumulateDirectoryOnlyRoute(outlets, outletRoutes)...)
+
 	// Every outlet's routes are known now: none of a shipping outlet's may sit under
 	// the segment its programs route owns.
 	if err := validateShippedProgramRoutes(outlets, outletRoutes); err != nil {
+		return err
+	}
+	// And a list across tenants is served where no other route of its outlet answers.
+	if err := validateAcrossTenantsRoutes(outletRoutes); err != nil {
 		return err
 	}
 
@@ -83,6 +91,9 @@ func (r *resourceGenerator) runRouteGeneration() error {
 				}
 				if !route.SelfBounded {
 					outlet.HasBoundedRoutes = true
+				}
+				if route.ReadsDryRunAndWarning {
+					outlet.HasAskedRoutes = true
 				}
 				if route.RequestLog.Declared() {
 					routeRequestLogs = true
@@ -133,6 +144,7 @@ func (r *resourceGenerator) runRouteGeneration() error {
 		NegativeRouterTests:    negativeTests,
 		ScheduledRoutes:        scheduledRoutes,
 		HasGatedRoutes:         defaultOutlet.HasGatedRoutes,
+		HasAskedRoutes:         defaultOutlet.HasAskedRoutes,
 		RouteRequestLogs:       routeRequestLogs,
 		RouteMinSeverities:     routeMinSeverities,
 		StubFeatureGuard:       stubFeatureGuard,
@@ -294,6 +306,10 @@ func (r *resourceGenerator) accumulateResourceRoutes(outlets []*routerOutlet, ou
 			}
 			outletRoutes[i].RoutesMap[res.Name()] = append(outletRoutes[i].RoutesMap[res.Name()], files...)
 			routerTestRoutes = append(routerTestRoutes, files...)
+
+			across := r.resourceAcrossTenantsRoutes(res, outlet.prefix)
+			outletRoutes[i].RoutesMap[res.Name()] = append(outletRoutes[i].RoutesMap[res.Name()], across...)
+			routerTestRoutes = append(routerTestRoutes, across...)
 		}
 	}
 
@@ -430,6 +446,9 @@ func (r *resourceGenerator) rpcRoute(rpcStruct *rpcMethodInfo, routePrefix strin
 		SelfBounded:  true,
 		RequestLog:   rpcStruct.RequestLog,
 		Traces:       rpcStruct.Traces,
+		// A method's frame reads both headers: it runs a dry run or refuses it, and
+		// answers its warning or refuses one it does not declare.
+		ReadsDryRunAndWarning: true,
 	}
 	if former := rpcStruct.FormerRouteName(); former != "" {
 		route.FormerPath, route.FormerTestURL = r.rpcPaths(rpcStruct, routePrefix, former)
@@ -715,7 +734,7 @@ func (r *resourceGenerator) negativeTestsForOutlet(outlet *routerOutlet) ([]nega
 		if err != nil {
 			return nil, err
 		}
-		for _, route := range files {
+		for _, route := range slices.Concat(files, r.resourceAcrossTenantsRoutes(res, outlet.prefix)) {
 			tests = append(tests, routeNegativeTests(route)...)
 		}
 	}

@@ -91,10 +91,21 @@ func writeScopes() []accesstypes.PolicyScope {
 // tenant domain is held there (a name may be both), and a membership the
 // directory does not name is removed wherever it is held, a membership in one
 // tenant domain included, since the directory is the authority and a membership
-// it does not name does not survive a login. It returns true if the user holds
-// at least one recognized role once the operation is complete.
+// it does not name does not survive a login. It returns true if the directory
+// named at least one recognized role, which the user then holds.
 // A ResolveRole error aborts the sync: flattening it to "not found" would land an existing
 // valid role in removeRoles and delete the user's membership on a transient store blip.
+//
+// The Super Administrator role is the directory's to give and take like any other:
+// where a directory writes an auth's roles it is the authority on them, on who is a
+// super administrator too. A name that resolves to the role is wanted where it
+// resolves, which is the global partition and nowhere else (the role is held there
+// alone, and the store names it in no other place), so the sync writes it there and
+// asks for it nowhere the store would refuse. It counts as a role the directory
+// named: a person the directory names for that role alone signs in. A membership of
+// it the directory does not name is removed at the login as any other is, the last
+// holder's included: such an auth seeds no super administrator, and the directory
+// makes the next one.
 func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.User, roleNames []string) (hasRole bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -140,8 +151,9 @@ func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.Use
 // every tenant domain is wanted there, a name that resolves in both is wanted
 // in both, and a name that resolves in neither is ignored. The directory's name
 // is matched without regard to case, so pilot, Pilot and PILOT are one role,
-// held and written as the store spells it. A ResolveRole error is returned as
-// is, never read as "missing".
+// held and written as the store spells it. A name that resolves to the Super
+// Administrator role is wanted like any other, in the global partition, the one
+// place it resolves. A ResolveRole error is returned as is, never read as "missing".
 func (r *RoleReconciler) wantedRoles(ctx context.Context, roleNames []string) (map[accesstypes.PolicyScope][]accesstypes.Role, error) {
 	wanted := make(map[accesstypes.PolicyScope][]accesstypes.Role)
 	for _, name := range roleNames {

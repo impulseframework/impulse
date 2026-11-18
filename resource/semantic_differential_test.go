@@ -160,6 +160,14 @@ type semanticWorld struct {
 	hubs        map[string]*semanticHub
 	memberships []*semanticMembership
 	profiles    []*semanticProfile
+
+	// The anchors of the subject sets that write a who: or a where: part, and
+	// those sets' values by the reference's reading of the rows (setReference),
+	// computed once the case's collection is drawn.
+	circles  []*semanticCircle
+	passes   []*semanticPass
+	badges   []*semanticBadge
+	partSets map[string][]any
 }
 
 func (w *semanticWorld) scope() accesstypes.Scope {
@@ -224,7 +232,126 @@ func genWorld(rng *rand.Rand, pools *semanticPools, index uint64) *semanticWorld
 	}
 	w.profiles = append(w.profiles, genProfile(rng, pools, fmt.Sprintf("noise-%03d-0", index), hubIDs))
 
+	genPartAnchors(rng, pools, w)
+
 	return w
+}
+
+// genPartAnchors draws the rows behind the subject sets that write a who: or a
+// where: part. Circle names come from a few of the pool's strings, so a pass
+// that names a circle meets a circle the requester is in often enough to
+// matter, and a team is any of the pool's strings, as a parcel's label is. A
+// row names the requester, another user, or nobody; a pass sits in the case's
+// partition or, now and then, in another the tenancy filter must leave out.
+func genPartAnchors(rng *rand.Rand, pools *semanticPools, w *semanticWorld) {
+	circleNames := pools.strings[:4]
+	noise := fmt.Sprintf("noise-%03d-0", w.index)
+	person := func() *string {
+		switch rng.IntN(3) {
+		case 0:
+			return &w.requester
+		case 1:
+			return &noise
+		default:
+			return nil
+		}
+	}
+
+	for i := range 3 + rng.IntN(3) {
+		w.circles = append(w.circles, &semanticCircle{
+			ID:         fmt.Sprintf("c-%03d-%d", w.index, i),
+			Circle:     maybe(rng, circleNames),
+			UserID:     person(),
+			ValidUntil: maybe(rng, pools.times),
+		})
+	}
+	for i := range 3 {
+		w.circles = append(w.circles, &semanticCircle{
+			ID:          fmt.Sprintf("c-%03d-nest-%d", w.index, i),
+			Circle:      maybe(rng, circleNames),
+			InnerCircle: maybe(rng, circleNames),
+			ValidUntil:  maybe(rng, pools.times),
+		})
+	}
+
+	for i := range 12 {
+		pass := &semanticPass{
+			ID:        fmt.Sprintf("p-%03d-%d", w.index, i),
+			Depot:     w.depot,
+			UserID:    person(),
+			Circle:    maybe(rng, circleNames),
+			Team:      maybe(rng, pools.strings),
+			Level:     maybe(rng, []string{"view", "edit", "none"}),
+			Tier:      maybe(rng, pools.ints),
+			Mass:      maybe(rng, pools.floats),
+			Sealed:    maybe(rng, []bool{true, false}),
+			IssuedOn:  maybe(rng, pools.dates),
+			ExpiresAt: maybe(rng, pools.times),
+		}
+		if rng.IntN(6) == 0 {
+			pass.Depot = w.depot + "-other"
+		}
+		if stake := maybe(rng, pools.numerics); stake != nil {
+			pass.Stake = decimal.NewNullDecimal(*stake)
+		}
+		w.passes = append(w.passes, pass)
+	}
+
+	for i := range 6 {
+		w.badges = append(w.badges, &semanticBadge{
+			ID:    fmt.Sprintf("b-%03d-%d", w.index, i),
+			Team:  maybe(rng, pools.strings),
+			Badge: maybe(rng, pools.strings),
+		})
+	}
+}
+
+// setRows is the world's anchor rows as the sets' reference reads them.
+func (w *semanticWorld) setRows() setRows {
+	hubs := make([]*semanticHub, 0, len(w.hubs))
+	for _, hub := range w.hubs {
+		hubs = append(hubs, hub)
+	}
+
+	return setRows{
+		"Hubs":        setRowsOf(hubs),
+		"Memberships": setRowsOf(w.memberships),
+		"Circles":     setRowsOf(w.circles),
+		"Passes":      setRowsOf(w.passes),
+		"Badges":      setRowsOf(w.badges),
+	}
+}
+
+// semanticPartSetNames are the fixture's subject sets that write a who: or a
+// where: part.
+var semanticPartSetNames = []string{"circles", "widerCircles", "editTeams", "viewTeams", "farTeams", "drawnTeams", "passTiers", "badges"}
+
+// readPartSets computes the part sets' values for the case by the reference
+// (setReference), and holds the reference to the fixture's long-standing model
+// of the sets that write neither part, so the two readings of a plain set are
+// one. It adds what the reference saw the parts decide to the tally.
+func (w *semanticWorld) readPartSets(t *testing.T, collection *GeneratedCollection, tally *semanticTally) {
+	t.Helper()
+
+	reference := newSetReference(collection, w.setRows(), w.requester, w.now, w.scope())
+	w.partSets = make(map[string][]any, len(semanticPartSetNames))
+	for _, name := range semanticPartSetNames {
+		values := reference.values(t, name)
+		w.partSets[name] = values
+		tally.partMembers += len(values)
+	}
+	tally.partViaSet += reference.viaSet
+	tally.partFiltered += reference.filtered
+
+	plain := w.image(&semanticParcel{}, nil).SubjectSets
+	for _, name := range []string{"teams", "tiers", "regions"} {
+		got, want := slices.Clone(reference.values(t, name)), slices.Clone(plain[name])
+		slices.SortFunc(got, compareSemantic)
+		slices.SortFunc(want, compareSemantic)
+		if !slices.EqualFunc(got, want, func(a, b any) bool { return compareSemantic(a, b) == 0 }) {
+			t.Fatalf("case %d: the reference reads subject.%s as %v, the fixture's model as %v", w.index, name, got, want)
+		}
+	}
 }
 
 // genParcel draws one row of the checked resource in the world's partition.
@@ -333,6 +460,15 @@ func (w *semanticWorld) mutations() []*spanner.Mutation {
 	for _, profile := range w.profiles {
 		add("Profiles", profile)
 	}
+	for _, circle := range w.circles {
+		add("Circles", circle)
+	}
+	for _, pass := range w.passes {
+		add("Passes", pass)
+	}
+	for _, badge := range w.badges {
+		add("Badges", badge)
+	}
 
 	return muts
 }
@@ -358,6 +494,21 @@ func (w *semanticWorld) deletions() []*spanner.Mutation {
 		profiles = append(profiles, spanner.Key{p.UserID})
 	}
 	del("Profiles", profiles)
+	circles := make([]spanner.Key, 0, len(w.circles))
+	for _, c := range w.circles {
+		circles = append(circles, spanner.Key{c.ID})
+	}
+	del("Circles", circles)
+	passes := make([]spanner.Key, 0, len(w.passes))
+	for _, p := range w.passes {
+		passes = append(passes, spanner.Key{p.ID})
+	}
+	del("Passes", passes)
+	badges := make([]spanner.Key, 0, len(w.badges))
+	for _, b := range w.badges {
+		badges = append(badges, spanner.Key{b.ID})
+	}
+	del("Badges", badges)
 	del("Routes", stringKeys(maps.Keys(w.routes)))
 	del("Carriers", stringKeys(maps.Keys(w.carriers)))
 	del("Hubs", stringKeys(maps.Keys(w.hubs)))
@@ -420,8 +571,9 @@ func (w *semanticWorld) hubRegion(routeID *string) any {
 
 // image assembles the evaluator's view of one row: the pre-image attribute
 // values (join paths resolved), the post-image overlay for a mutation, the
-// requester's subject sets restricted to the partition, the requester's
-// subject values, and the facts.
+// requester's subject sets restricted to the partition (those that write a
+// who: or a where: part as the reference read them, readPartSets), the
+// requester's subject values, and the facts.
 func (w *semanticWorld) image(p *semanticParcel, post map[string]any) *conditiontest.Image {
 	pre := make(map[string]any, len(semanticColumnAttributes)+2)
 	for _, attr := range semanticColumnAttributes {
@@ -458,6 +610,9 @@ func (w *semanticWorld) image(p *semanticParcel, post map[string]any) *condition
 			}
 		}
 	}
+
+	// The sets that write a who: or a where: part, as the reference read them.
+	maps.Copy(sets, w.partSets)
 
 	values := map[string]any{}
 	for _, profile := range w.profiles {
@@ -728,6 +883,12 @@ type semanticTally struct {
 	// attribute decided, by the way it decided: the list column has to decide
 	// both ways for the differential to say anything about it.
 	listShown, listMasked int
+	// What the reference saw of the subject sets that write a who: or a where:
+	// part: the members they held, the anchor rows a who: admitted through
+	// another set alone, and the rows a who: admitted and the where: dropped.
+	// And the cells a condition that names one of those sets decided, each way.
+	partMembers, partViaSet, partFiltered int
+	partShown, partMasked                 int
 }
 
 // semanticHarness holds what every case shares: the client, the collection,
@@ -743,6 +904,7 @@ type semanticHarness struct {
 	readVocab   conditiontest.Vocabulary
 	writeVocab  conditiontest.Vocabulary
 	createVocab conditiontest.Vocabulary
+	whereVocab  conditiontest.Vocabulary
 }
 
 func newSemanticHarness(t *testing.T, client *spanner.Client) *semanticHarness {
@@ -774,7 +936,26 @@ func newSemanticHarness(t *testing.T, client *spanner.Client) *semanticHarness {
 		readVocab:   semanticVocabulary(t, collection, false, true),
 		writeVocab:  semanticVocabulary(t, collection, true, true),
 		createVocab: semanticVocabulary(t, collection, false, false),
+		whereVocab:  semanticWhereVocabulary(),
 	}
+}
+
+// semanticWhereVocabulary is the vocabulary a case's drawn where: is written
+// in: the columns of the Passes table, one of every comparison type.
+func semanticWhereVocabulary() conditiontest.Vocabulary {
+	vocab := conditiontest.Vocabulary{Where: true}
+	for _, column := range semanticPassColumns {
+		vocab.Attributes = append(vocab.Attributes, conditiontest.Attribute{Name: column.Name, Type: column.Type})
+	}
+
+	return vocab
+}
+
+// useCase points the harness at the case's collection: the fixture's, with the
+// drawnTeams set under the where: the case drew.
+func (h *semanticHarness) useCase(c *semanticCase) {
+	h.collection = c.collection
+	h.decoder.collection = c.collection
 }
 
 // semanticCase is one drawn case with its decisions and its fixed
@@ -788,14 +969,18 @@ type semanticCase struct {
 	perms     *semanticPermissions
 	decisions map[accesstypes.Permission]accesstypes.Decisions
 	projected []semanticField
+	// drawnWhere is the where: the case drew for the drawnTeams set, and
+	// collection the fixture's collection under it.
+	drawnWhere string
+	collection *GeneratedCollection
 }
 
 // report prefixes a failure with everything needed to reproduce it.
 func (c *semanticCase) report() string {
 	w := c.world
 
-	return fmt.Sprintf("seed %d case %d: depot %s, requester %s, now %s, zone %s\npolicy:\n%s",
-		semanticSeed, w.index, w.depot, w.requester, w.now.Format(time.RFC3339), w.zone, c.policy)
+	return fmt.Sprintf("seed %d case %d: depot %s, requester %s, now %s, zone %s\nsubject.drawnTeams where: %s\npolicy:\n%s",
+		semanticSeed, w.index, w.depot, w.requester, w.now.Format(time.RFC3339), w.zone, c.drawnWhere, c.policy)
 }
 
 // TestSemanticDifferential runs the differential over the seeded cases, each
@@ -829,10 +1014,10 @@ func TestSemanticDifferential(t *testing.T) {
 	// second; the partition predicate still isolates the case's rows, and the
 	// requester's membership in another partition still has to be excluded.
 	h := newSemanticHarness(t, db.Client)
-	factCollection := semanticFactCollection(t)
 	var facts factTally
 	for i := range semanticCases {
 		c := h.drawCase(t, i)
+		h.useCase(c)
 		if _, err := h.client.Apply(ctx, c.world.mutations()); err != nil {
 			t.Fatalf("%s\nspanner.Client.Apply() error = %v", c.report(), err)
 		}
@@ -840,7 +1025,7 @@ func TestSemanticDifferential(t *testing.T) {
 		h.checkRead(t, c)
 		// The facts about the caller, read for a computed resource's conditions
 		// (subject_facts.go), against the same world before the writes change it.
-		h.checkSubjectFacts(t, c, factCollection, &facts)
+		h.checkSubjectFacts(t, c, semanticFactCollection(t, c.drawnWhere), &facts)
 		h.checkWrites(t, c)
 
 		if _, err := h.client.Apply(ctx, c.world.deletions()); err != nil {
@@ -856,6 +1041,28 @@ func TestSemanticDifferential(t *testing.T) {
 	if h.tally.listShown == 0 || h.tally.listMasked == 0 {
 		t.Errorf("conditions that read the list attribute showed %d cells and masked %d: the differential has to see the list decide both ways", h.tally.listShown, h.tally.listMasked)
 	}
+	if h.tally.partMembers == 0 || h.tally.partViaSet == 0 || h.tally.partFiltered == 0 || h.tally.partShown == 0 || h.tally.partMasked == 0 {
+		t.Errorf("the subject sets that write a who: or a where: part held %d members, took %d rows through another set alone and dropped %d by a where:, and conditions that name them showed %d cells and masked %d: the differential has to see both parts decide, both ways",
+			h.tally.partMembers, h.tally.partViaSet, h.tally.partFiltered, h.tally.partShown, h.tally.partMasked)
+	}
+}
+
+// readsPartSet reports whether a Conditional decision's condition names one of
+// the subject sets that write a who: or a where: part.
+func readsPartSet(t *testing.T, res accesstypes.Resource, decision accesstypes.Decision) bool {
+	t.Helper()
+
+	if !decision.IsConditional() {
+		return false
+	}
+	expr, err := conditionalExpr(res, decision)
+	if err != nil {
+		t.Fatalf("conditionalExpr(%s) error = %v", res, err)
+	}
+
+	return slices.ContainsFunc(condition.SubjectSets(expr), func(name string) bool {
+		return slices.Contains(semanticPartSetNames, name)
+	})
 }
 
 // drawFactRows draws the computed rows the facts about the caller are compared
@@ -903,6 +1110,11 @@ func (h *semanticHarness) drawCase(t *testing.T, index uint64) *semanticCase {
 
 	rng := rand.New(rand.NewPCG(semanticSeed, index))
 	world := genWorld(rng, h.pools, index)
+	// The drawnTeams set's where: for this case, over the columns of its table,
+	// and the collection that carries it.
+	drawnWhere := conditiontest.New(rng, &h.whereVocab).Expr(2).String()
+	collection := semanticCollectionOf(t, semanticResourcesWith(drawnWhere))
+	world.readPartSets(t, collection, &h.tally)
 	readGen := conditiontest.New(rng, &h.readVocab)
 	writeGen := conditiontest.New(rng, &h.writeVocab)
 	createGen := conditiontest.New(rng, &h.createVocab)
@@ -917,11 +1129,13 @@ func (h *semanticHarness) drawCase(t *testing.T, index uint64) *semanticCase {
 	}
 
 	c := &semanticCase{
-		rng:       rng,
-		world:     world,
-		policy:    policy,
-		perms:     &semanticPermissions{user: accesstypes.User(world.requester), decisions: decisions},
-		decisions: decisions,
+		rng:        rng,
+		world:      world,
+		policy:     policy,
+		perms:      &semanticPermissions{user: accesstypes.User(world.requester), decisions: decisions},
+		decisions:  decisions,
+		drawnWhere: drawnWhere,
+		collection: collection,
 	}
 	for _, f := range semanticFields {
 		if !decisions[accesstypes.List][h.listSet.Resource(f.field)].IsDenied() {
@@ -1026,6 +1240,13 @@ func (h *semanticHarness) expectRead(t *testing.T, c *semanticCase, shape *seman
 					h.tally.listShown++
 				} else {
 					h.tally.listMasked++
+				}
+			}
+			if readsPartSet(t, res, c.decisions[accesstypes.List][res]) {
+				if e.visible[f.field] {
+					h.tally.partShown++
+				} else {
+					h.tally.partMasked++
 				}
 			}
 		}

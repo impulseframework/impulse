@@ -58,12 +58,27 @@ func (a *App) AttachMissionDocument() http.HandlerFunc {
 
 		p := (*rpc.AttachMissionDocument)(params)
 
+		// The X-Warning header takes the value true or is left off the request: any
+		// other value is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if asksWarning {
+			// The method declares no warning (@warning): a request that asks for one
+			// is refused, and never runs the call.
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("AttachMissionDocument declares no warning: send the call without the X-Warning header"))
+		}
+
 		// The files stream to the store the method names, wired on the resource client,
 		// under keys the frame minted; the body records the keys, and the transaction's
 		// commit is what claims them. A dry run (X-Dry-Run: true) streams nothing: the
 		// files describe the parts with empty keys, the body runs, and the transaction
 		// rolls back.
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		store := a.ResourceClient().FileStore(resource.StoreNameFor[resources.Documents]())
 		files, err := resource.StreamInto[resources.Documents](ctx, upload, store, dryRun)
 		if err != nil {
@@ -125,7 +140,7 @@ func (a *App) AttachMissionDocument() http.HandlerFunc {
 		// The transaction committed with the keys recorded: the rows claim the
 		// objects, and nothing more happens to the store.
 
-		live.Publish(ctx, a.LiveService(), liveDerivations, domain, touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)
 		if result == nil {
 			return httpio.NewEncoder(w).Ok(nil)
 		}

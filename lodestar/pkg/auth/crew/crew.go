@@ -122,6 +122,7 @@ const (
 	eventsTable         = "CrewSessionAuthEvents"
 	pendingTable        = "CrewSessionPendingSignIns"
 	attemptsTable       = "CrewSessionSignInAttempts"
+	methodsTable        = "CrewSessionSignInMethods"
 	mailLinksTable      = "CrewSessionMailLinks"
 	factorCodesTable    = "CrewSessionFactorCodes"
 	trustedDevicesTable = "CrewSessionTrustedDevices"
@@ -160,15 +161,29 @@ const (
 
 // AdministratorRoles are the roles whose holders administer, by where they are held:
 // Headquarters in the whole service, SectorMarshal in a sector (the governor holds it
-// in every sector). The auth's generated management judges a person who takes a role
-// from themselves by them (identity.WithAdministratorRoles, the last-owner rule): a
-// marshal leaves a sector once another marshal holds it, and the last one is refused;
-// and the Sector record's create gives the creator the sector's
-// (app.SectorAdministratorRoles).
+// in every sector). The auth's generated management judges a person who takes a
+// sector's role from themselves by the sector's (identity.WithAdministratorRoles, the
+// last-owner rule): a marshal leaves a sector once another marshal holds it, and the
+// last one is refused; and the first person into a sector is given the sector's, the
+// person invited to found it at their first sign-in and the pioneer on the
+// create-sector route (app.SectorAdministratorRoles). The whole service is kept by the
+// role the framework defines in every auth instead, Super Administrator
+// (accesstypes.SuperAdministrator), which the governor holds: its last holder keeps the
+// role and the account, whoever asks.
 //
 // Demonstrates: tenancy.creator-seat.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return []accesstypes.Role{"Headquarters"}, []accesstypes.Role{"SectorMarshal"}
+}
+
+// sectorAdministratorRoles are the roles that administer a sector, the ones
+// AdministratorRoles names as held in every sector: what the identity client judges a
+// person who takes a sector's role from themselves by, and what it gives the person
+// whose first sign-in makes a sector from an invitation.
+func sectorAdministratorRoles() []accesstypes.Role {
+	_, everyDomain := AdministratorRoles()
+
+	return everyDomain
 }
 
 // rolesFile is the auth's default roles: the release's own policy for the crew, which
@@ -237,6 +252,30 @@ type Settings struct {
 	// (app.NewSectorDirectoryReader), which the directory admission decides a stranger's
 	// first sign-in with. Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
+	// TenantMaker makes a sector from an accepted invitation: the generated maker over
+	// the Sector record's create patch (app.NewSectorMaker), which the crew's identity
+	// client checks an invitation's details with when Headquarters sends one and makes
+	// the sector with at the invited person's first sign-in. Required; New refuses nil.
+	TenantMaker identity.TenantMaker
+}
+
+// required refuses settings that lack what the auth is not built without, each refusal
+// saying what the missing piece is for.
+func (s *Settings) required() error {
+	switch {
+	case s.ChangeSignal == nil:
+		return errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
+	case s.TenantDeclarations == nil:
+		return errors.New("crew.Settings.TenantDeclarations is required: the sign-in rule reads what each sector declares about who may enter it through the generated reader (app.NewSectorDeclarationReader)")
+	case s.TenantDirectories == nil:
+		return errors.New("crew.Settings.TenantDirectories is required: the directory admission reads what each sector declares about one directory, its default seat included, through the generated reader (app.NewSectorDirectoryReader)")
+	case s.TenantMaker == nil:
+		return errors.New("crew.Settings.TenantMaker is required: a sector is made by an invitation's first sign-in, through the generated maker over the Sector record (app.NewSectorMaker)")
+	case s.Mail.Sender == nil:
+		return errors.New("crew.Settings.Mail.Sender is required: the auth mails its invitations, address verifications and sign-up links through it (the configuration's driver, or mail.Log in development)")
+	}
+
+	return nil
 }
 
 // Session is the auth's session manager: one Auth session over the Spanner store, whose
@@ -397,12 +436,41 @@ func (h *Handlers) PasswordLogin() http.HandlerFunc {
 	return h.password.Login()
 }
 
-// PasswordChange is the password method's change: {"currentPassword", "newPassword"} in
+// PasswordChange is the password method's change: {"oldPassword", "newPassword"} in
 // from a signed-in person, who may be one whose operator-set password must change before
 // anything else is served. It validates the session itself, so the generated router
 // mounts it outside ValidateSession, behind the XSRF guard.
 func (h *Handlers) PasswordChange() http.HandlerFunc {
 	return h.password.ChangeUserPassword()
+}
+
+// PasswordRemove is the password method's removal: {"password"} in from a signed-in
+// person who has moved to signing in through the fleet's directory and no longer wants
+// the password as a second way in. A person with no directory link keeps it, since
+// nothing else would sign them in. It validates the session itself, as the change does,
+// so the generated router mounts it beside the change, outside ValidateSession, behind
+// the XSRF guard.
+func (h *Handlers) PasswordRemove() http.HandlerFunc {
+	return h.password.RemoveUserPassword()
+}
+
+// FirstPasswordSendCode mails the signed-in person who has no password, because they
+// have only ever signed in through the fleet's directory, the code they choose their
+// first one with, at the address their login holds confirmed (no body in). It is how a
+// sector's marshal who came in through the directory gets the password a directory-only
+// sector asks of whoever turns the switch on, and keeps a way in if the directory fails.
+// Whoever asks must read that mailbox to finish, so the password is tied to it.
+//
+// Demonstrates: tenancy.directory-only.
+func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
+	return h.FirstPassword().SendCode()
+}
+
+// FirstPasswordSet gives the signed-in person who has no password the one they choose,
+// with the code they were mailed ({"code", "password"}). A login that has a password
+// changes it with the old one (PasswordChange).
+func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
+	return h.FirstPassword().Set()
 }
 
 // GoogleLogin sends the browser to the fleet's Google directory.
@@ -546,23 +614,33 @@ func (h *Handlers) PendingEnrollEmail() http.HandlerFunc {
 // blocks until its first policy snapshot is loaded. It announces its policy writes and
 // watches the other instances' through the change signal, which is required.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
-	if settings.ChangeSignal == nil {
-		return nil, errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
-	}
-	if settings.TenantDeclarations == nil {
-		return nil, errors.New("crew.Settings.TenantDeclarations is required: the sign-in rule reads what each sector declares about who may enter it through the generated reader (app.NewSectorDeclarationReader)")
-	}
-	if settings.TenantDirectories == nil {
-		return nil, errors.New("crew.Settings.TenantDirectories is required: the directory admission reads what each sector declares about one directory, its default seat included, through the generated reader (app.NewSectorDirectoryReader)")
-	}
-	if settings.Mail.Sender == nil {
-		return nil, errors.New("crew.Settings.Mail.Sender is required: the auth mails its invitations, address verifications and sign-up links through it (the configuration's driver, or mail.Log in development)")
+	if err := settings.required(); err != nil {
+		return nil, err
 	}
 	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
-	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal))
+	// Beside the role file's roles the engine defines the framework's own in every
+	// auth, Super Administrator (accesstypes.SuperAdministrator), held for the whole
+	// service alone. What no role file takes from its holder is named here: the methods
+	// that give and take the crew's roles, as the generated management names them
+	// (access.WithSuperAdministratorMethods), so a super administrator gives any role of
+	// the crew to anyone, in headquarters and in every sector.
+	//
+	// The engine is told who administers a sector as well: a person who holds
+	// SectorMarshal in the sector itself, by a membership of their own or through the
+	// sector's own group (access.WithTenantAdministratorRoles over the roles
+	// AdministratorRoles names for a sector). A directory-only sector still admits its
+	// own marshal with a password and the mailed code, so Bastion's marshal has a way in
+	// when its directory has a problem; the governor, who holds the role in every
+	// sector, administers none of them in this sense and is kept out by the switch like
+	// anyone, but for the Super Administrator role she also holds.
+	//
+	// Demonstrates: auth.super-administrator, tenancy.directory-only.
+	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal),
+		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...),
+		access.WithTenantAdministratorRoles(sectorAdministratorRoles()...))
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
@@ -586,15 +664,25 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// (session.WithMail): the invitations the auth's generated management sends, the
 	// verification of an address a person adds, and the sign-up links, each leading to
 	// the console's login page with its token in the query.
+	//
+	// The Auth is built knowing who holds the Super Administrator role
+	// (session.SuperAdministratorsBy, an argument no Auth is built without): a holder
+	// signs in with a second factor whatever the sign-in rule set below asks of anyone
+	// else, held for the mailed code by a rule of the library's own after the crew's.
+	// Here the crew's rule asks everyone already, so the library's changes nothing a
+	// person sees; it is what keeps the factor on a super administrator if the crew's
+	// rule is ever relaxed.
 	sessionStore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation), sessionstorage.WithAuthEvents(events))
 	crewSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionStore,
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -630,13 +718,17 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// alone is not enough), so the development login APP_GOOGLE_USERNAME names is one
 	// that is not on the manifest.
 	//
-	// The password method is registered with open sign-up (session.OpenSignUp): a
-	// stranger gives an address, follows the mailed link and chooses a username and a
-	// password, and the login holds no role and no sector until they chart their own or
-	// an operator seats them, exactly as the Google sign-up registration's does. The
-	// generator program declares the same (PasswordMethod().OpenSignUp()), so the router
-	// mounts the sign-up routes and the login page is told of them.
-	password := session.PasswordSignIn(crewSession, session.OpenSignUp())
+	// Whether a method admits a person with no account and no invitation is no part of
+	// its registration: every method here starts invite only, and a fleet administrator
+	// opens one to sign-up, or makes it invite only again, on the console's Sign-in page
+	// (the row of the method in CrewSessionSignInMethods, which every sign-in reads in
+	// its own transaction). While the password method is open a stranger gives an
+	// address, follows the mailed link and chooses a username and a password, and the
+	// login holds no role and no sector until they chart their own or an operator
+	// seats them, exactly as a person who signs up through the sign-up registration
+	// does. The router mounts the sign-up routes whatever was chosen, and they answer
+	// 404 while the method is invite only.
+	password := session.PasswordSignIn(crewSession)
 	googleMethod := google.SignIn(crewSession, GoogleRegistration, nil, &google.Config{
 		ClientID:     settings.Directory.ClientID,
 		ClientSecret: settings.Directory.ClientSecret,
@@ -646,19 +738,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		LoginURL:     settings.LoginURL,
 	})
 	// The sign-up registration, under SignUpRegistration: any Google account
-	// (google.AnyGoogleAccount), the open sign-up rule (signin.OpenSignUp: a person the
-	// auth has never seen becomes a crew login under the verified email), and the
-	// application as the authority for roles (google.DisableRoleSync: the sign-in neither
-	// reads nor writes roles, so the person holds nothing until they chart a sector of
-	// their own or an operator seats them). It shares the directory's client; only the
-	// callback is its own.
+	// (google.AnyGoogleAccount), which is how wide the method is, and the application as
+	// the authority for roles (google.DisableRoleSync: the sign-in neither reads nor
+	// writes roles). Once an administrator opens it to sign-up, a person the auth has
+	// never seen becomes a crew login under the verified email and holds nothing until
+	// they chart a sector of their own or an operator seats them; until then they are
+	// refused (not_invited). It shares the directory's client; only the callback is its
+	// own.
 	signUpMethod := google.SignIn(crewSession, SignUpRegistration, nil, &google.Config{
 		ClientID:     settings.Directory.ClientID,
 		ClientSecret: settings.Directory.ClientSecret,
 		RedirectURL:  settings.SignUpRedirectURL,
 		Workspaces:   google.AnyGoogleAccount(),
 		RoleSync:     google.DisableRoleSync(),
-		Accounts:     signin.OpenSignUp,
 		LoginURL:     settings.LoginURL,
 	})
 
@@ -668,16 +760,25 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The sign-in rule: the library's tenant policy. A person's sectors are where they
 	// hold a role (the engine's memberships), and what each sector admits is its
-	// declaration, read in the sign-in's transaction: a password is admitted unless
-	// every one of the person's sectors admits its people through directories only
-	// (the bosun, whose only sector is Bastion, is refused directory_only), a sign-in
-	// through a directory when one of their sectors declares it; the fleet's own staff
-	// (a global role, or one held in every sector) and a sign-in whose directory names
-	// the roles (the navigator's, the client's) are admitted on the library's checks;
+	// declaration, read in the sign-in's transaction. A sector's declaration restricts
+	// its own door alone: a sector that is not directory only admits everyone it
+	// seats, however they signed in, and a directory-only sector admits a sign-in
+	// through its own directory and nothing else. So a person is refused only when
+	// every sector that seats them is directory only and none has the way they signed
+	// in as its directory (the bosun, whose only sector is Bastion, is refused
+	// directory_only by password). A super administrator is admitted whatever a
+	// sector declares; a directory-only sector's own marshal who signs in with a
+	// password is held for the mailed code and then enters that sector (the engine
+	// names who administers a sector); a person holding a role outside any one sector (a global role,
+	// or one held in every sector) is admitted and then enters a sector only where
+	// its declaration admits their session, as anyone does; a sign-in whose directory
+	// names the roles (the client's) is admitted on the library's checks;
 	// a person who holds no sector is admitted too (signin.AdmitWithoutTenant), since
 	// the pioneer signs up first and charts her sector after. Which sectors the session
 	// then reaches is decided again, sector by sector, where its chart is computed
-	// (app.UserPermissions). The memberships are read outside the sign-in's transaction
+	// (app.UserPermissions): every sector that seats the person, but a directory-only
+	// sector whose directory they did not sign in through, which stays on the chart
+	// marked closed, with the reason. The memberships are read outside the sign-in's transaction
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
 	// transaction's context as a nested transaction.
 	// The rule's last word is the second factor every crew session carries
@@ -693,16 +794,26 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// session manager that signs them in, whose hasher makes the hash of a temporary
 	// password one of its methods sets. A membership one of its methods commits is
 	// announced by that engine, on this instance at the commit and on every other
-	// through the policy signal. The client knows the crew's administrator roles
-	// (identity.WithAdministratorRoles), so a person who removes a role from themselves
-	// is judged by the rule on the last administrator: headquarters is never left
-	// without a holder, nor a sector without a marshal. The store under it writes a
+	// through the policy signal. The client knows the roles that administer a sector
+	// (identity.WithAdministratorRoles, the ones held in every sector), so a person who
+	// removes a role from themselves in a sector is judged by the rule on its last
+	// administrator: no sector is left without a marshal. The service as a whole is
+	// kept by the client's own rule on the last super administrator, whose role and
+	// account stay whoever asks. The store under it writes a
 	// membership as a create that leaves a row that is there alone (the generated create
 	// patch's OrSkip), so a role given twice is written once and keeps the time it was
 	// first given.
 	//
-	// Demonstrates: auth.generated-identity, OrSkip.
-	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
+	// The client makes the sectors too. Nobody charts a sector directly: Headquarters
+	// invites one person with the sector's details, which the client checks against the
+	// Sector record's own create under the sender's grants, and that person's first
+	// sign-in makes the sector through the generated maker (settings.TenantMaker), seats
+	// them with the roles that administer it and, where they came through an
+	// organization's directory, makes that directory the sector's own, all in the
+	// transaction that consumes the invitation.
+	//
+	// Demonstrates: auth.generated-identity, OrSkip, tenancy.invited-tenant.
+	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(sectorAdministratorRoles()))
 	if err != nil {
 		return nil, errors.Wrap(err, "crewidentity.NewClient()")
 	}
@@ -712,18 +823,20 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// and hands that transaction, so the role is written with the step or not at all.
 	// They are set here, where the auth is built, so no crew auth is open without them.
 	//
-	// The directory admission: what a fleet member nobody has seated gets at their first
-	// sign-in through a directory a sector declares, before the registration's account
-	// rule is reached. The directory rows the sectors declare for the identity's
-	// connection decide: a row with a default seat creates the person and seats them
-	// with it in one transaction (Cinder seats them SectorCrew), and the sign-in rule
-	// then finds the membership; rows with none refuse them (invitation_only), and no
-	// account is created, unless they followed an invitation link, which is the way in.
-	// A directory no sector declares falls to the registration's rule as before (the
-	// pioneer's sign-up). A person given a role ahead of their first sign-in is no
-	// stranger: a role is held by an account, so they have the account the role was
-	// given to, and the sign-in links their identity to it, under its sign-in name,
-	// before the sectors are asked. The crew's roles are the application's, so the
+	// The directory admission: what a fleet member gets at their first sign-in through
+	// a sector's directory, before the registration's account rule is reached. The row
+	// of the sector whose directory the identity came through decides: a row with a
+	// default seat creates a stranger and seats them with it in one transaction (Cinder
+	// seats them SectorCrew), and the sign-in rule then finds the membership; a row with
+	// none refuses a stranger (invitation_only), and no account is created, unless they
+	// followed an invitation link, which is the way in. A person whose account stood
+	// before is given the default seat too, at the sign-in that links the account to
+	// the directory, where they hold no role in the sector: a persona who signs in
+	// through the fleet's directory for the first time and confirms with their password
+	// is seated at Cinder then. It is given once for a link, so a role a marshal removes
+	// afterwards is not given back by signing in. A directory no sector has falls to
+	// the registration's rule as before (the pioneer's sign-up, a personal account,
+	// which is no sector's directory). The crew's roles are the application's, so the
 	// admission is set on this auth; an auth whose directory writes the roles (the
 	// members' directory) is the authority for everyone it holds and sets none.
 	//
@@ -733,9 +846,24 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// roles given together or neither is, and the sign-in rule sees the new seat: a
 	// stranger invited into Bastion signs in admitted.
 	//
-	// Demonstrates: tenancy.default-seat, auth.invitation.
+	// The sign-up: a person who signs up through a method an administrator opened is
+	// handed to the identity client in the transaction that makes their account
+	// (SignedUp). The fleet has sectors, so an open method names no default role and
+	// the person holds nothing until they chart a sector of their own.
+	//
+	// Demonstrates: tenancy.default-seat, auth.invitation, auth.open-sign-up.
 	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+	crewSession.SetSignUpSeated(identityClient.SignedUp())
+	// What a sign-in clears. A role, a place in a group and a group's role given for a
+	// period count inside it alone, and nothing is written when one ends: the row goes
+	// when its person next signs in. The session library calls this hook once the
+	// session is committed, and the identity client removes the person's ended roles and
+	// places, nothing else and never the account; a failure is logged and the session
+	// stands. The members' roles are their directory's and carry no period: no hook.
+	//
+	// Demonstrates: auth.periods.
+	crewSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
 	// The machine outlet the auth issues tokens for, registered before the first
 	// request as the methods are: the droids' channel, whose token check the generated
@@ -758,9 +886,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 // it). The provider attests (Attesting): the person signed in to the provider's host to
 // pick a persona, which is the whole proof in a test environment, so a persona sign-in is
 // never asked for the code. The application is the authority for roles
-// (signin.DisableRoleSync), and the account rule is invited users only: the persona's
-// identity (its login as the subject) is linked to the crew login seeded under that login
-// (cast.json, SeedCast), and a persona the seed never made is refused. An empty issuer
+// (signin.DisableRoleSync), and the method is left invite only and declares seeded
+// users (SeededUsers): the persona's identity
+// (its login as the subject) is linked to the crew login seeded under that login
+// (cast.json, SeedCast), and a persona the seed never made is refused. The declaration
+// says the provider's names are the application's own. A seeded login has no password
+// and has never signed in, so nothing but its name ties it to a sign-in, and a sector's
+// directory asserts the names it likes: without the declaration such a login is linked
+// only through the directory of the one sector it belongs to, or with its own
+// invitation, and the cast holds its roles in every sector or in none. An empty issuer
 // registers nothing, so a later environment never offers the method and nothing in the
 // build differs.
 //
@@ -777,7 +911,7 @@ func registerPersona(crewSession *Session, settings *Settings) *oidc.Method {
 		Connection:  PersonaRegistration,
 		Attesting:   true,
 		RoleSync:    signin.DisableRoleSync(),
-		Accounts:    signin.InvitedUsersOnly,
+		SeededUsers: true,
 		LoginURL:    settings.LoginURL,
 	})
 }

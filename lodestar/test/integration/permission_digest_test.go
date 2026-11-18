@@ -71,8 +71,12 @@ func TestPermissionDigest(t *testing.T) {
 				"ViewAsUser":    {"Execute": accesstypes.DigestGranted},
 				"AssumeRole":    {"Execute": accesstypes.DigestGranted},
 				"Clients":       {"List": accesstypes.DigestConditional},
+				// No global role names Missions: the one word the global digest has of them
+				// is that she may list them in a sector she reaches, which is who the page
+				// across sectors is for. List itself stays the sector's digest's to answer.
+				"Missions": {"ListAcrossTenants": accesstypes.DigestGranted},
 			},
-			absentKeys: []accesstypes.Resource{"Missions", "Refits"},
+			absentKeys: []accesstypes.Resource{"Refits"},
 		},
 		{
 			name:      "a sector without a foothold digests to nothing",
