@@ -147,10 +147,13 @@ func (c *servedConfigurer) LiveOrigins() []string {
 type served struct {
 	server *httptest.Server
 	// access is the staff auth's engine, members the members auth's, and membersAuth
-	// the members auth itself, for a suite that creates a member as an operator would.
+	// the members auth itself, for a suite that creates a member as an operator would;
+	// staffAuth is the staff auth, for a suite that creates a staff login of its own
+	// beside the development ones.
 	access      *access.Client
 	members     *access.Client
 	membersAuth *members.Auth
+	staffAuth   *staff.Auth
 	// adminID and memberID are the ids of the staff logins' accounts, and clientID the
 	// id of the portal's client's account in the members auth: what each auth's
 	// permission store holds their roles under and what the methods of the auth's
@@ -328,7 +331,7 @@ func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator st
 	server.Config.Handler = router.New(a, router.Hooks{})
 	server.Start()
 
-	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, membersAuth: membersAuth, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, membersAuth: membersAuth, staffAuth: staffAuth, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in

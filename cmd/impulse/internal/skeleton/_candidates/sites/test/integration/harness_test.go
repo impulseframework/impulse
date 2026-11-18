@@ -129,6 +129,9 @@ type served struct {
 	console *httptest.Server
 	portal  *httptest.Server
 	access  *access.Client
+	// auth is the staff auth both sites bind to, for a suite that creates a login of its
+	// own beside the development ones.
+	auth *staff.Auth
 	// adminID and memberID are the ids of the development logins' accounts: what the
 	// permission store holds their roles under and what the methods of the auth's
 	// generated management name them by. The usernames are what they sign in with.
@@ -250,7 +253,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	portal := httptest.NewServer(portalrouter.New(portalApp, portalrouter.Hooks{}))
 	t.Cleanup(portal.Close)
 
-	return &served{console: console, portal: portal, access: accessClient, tenants: roster, adminID: ids[adminUser], memberID: ids[memberUser], db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{console: console, portal: portal, access: accessClient, auth: auth, tenants: roster, adminID: ids[adminUser], memberID: ids[memberUser], db: db, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in
