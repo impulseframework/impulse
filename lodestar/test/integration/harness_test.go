@@ -232,6 +232,15 @@ func (s *staticAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(s, role)
 }
 
+// TenantAdministratorRoles answers what the crew's generated identity client asks where
+// it is built, the roles whose holders administer a sector: the crew's own, as its
+// engine is told them (sectorAdministratorRoles). The list of a sector's people keeps
+// one value of them for the process, so this table names the roles a real engine in the
+// same process does.
+func (s *staticAccess) TenantAdministratorRoles() []accesstypes.Role {
+	return sectorAdministratorRoles(crew.TablePrefix)
+}
+
 // UserHasGrants answers the concealed-tenancy foothold question over the static grant
 // table. The table is domain-blind, so any grant at all is a foothold in every known
 // sector; the domain-guard suite passes empty grants to probe the no-foothold collapse.
