@@ -113,6 +113,16 @@ export interface SignUpRoutes {
 }
 
 /**
+ * The paths of the first password handlers: `sendCode`, where a signed-in person who has
+ * no password asks for the code, and `set`, where they post the code with the password
+ * they chose.
+ */
+export interface FirstPasswordRoutes {
+  readonly sendCode: string;
+  readonly set: string;
+}
+
+/**
  * What the methods route answers: the methods in the order the server lists them, the
  * pending sign-in's routes, and the routes of the mailed links the server serves.
  */
@@ -133,6 +143,14 @@ export interface LoginMethods {
    * serve it.
    */
   readonly removePassword?: string;
+  /**
+   * The paths where a signed-in person who has no password, because they have only ever
+   * signed in through a directory, chooses their first one (`sendFirstPasswordCode()`,
+   * then `setFirstPassword()`): a code is mailed to the address their account holds
+   * confirmed, and the password is set with it. Absent on a server with no password
+   * method, where there is none to choose, and on one that does not serve it.
+   */
+  readonly firstPassword?: FirstPasswordRoutes;
   /**
    * The path where a signed-in person reads what they sign in with (`signInMeans()`):
    * whether they hold a password, and the directory sign-ins linked to them. Absent on a
@@ -264,6 +282,29 @@ export type PasswordChangeResult = { readonly outcome: 'changed' } | SignInRefus
  * way in, or the session is an impersonation.
  */
 export type PasswordRemovalResult = { readonly outcome: 'removed' } | SignInRefusal;
+
+/**
+ * What asking for the code of a first password answers: `sent`, with the address the
+ * code went to, masked as the server masks it, and when the code stops being accepted,
+ * as the server wrote it; or the server's refusal, resolved rather than thrown, with its
+ * words: the account already has a password, it has no confirmed email address for the
+ * code to go to (409), the mailbox was sent too many codes it did not use (429,
+ * `too_many_emails` and the wait), too many wrong codes were entered (429,
+ * `too_many_attempts` and the wait), or the session is an impersonation (403).
+ */
+export type FirstPasswordCodeResult =
+  | { readonly outcome: 'sent'; readonly codeEmail: string; readonly codeExpiresAt?: string }
+  | SignInRefusal;
+
+/**
+ * What choosing a first password answers: `set`, after which the password signs the
+ * person in and the session they hold continues; or the server's refusal, resolved
+ * rather than thrown, with its words: the code is not the one sent or the password fails
+ * the server's rule (400), no code stands or the account already has a password (409),
+ * too many wrong codes were entered (429, `too_many_attempts` and the wait), or the
+ * session is an impersonation (403).
+ */
+export type FirstPasswordResult = { readonly outcome: 'set' } | SignInRefusal;
 
 /**
  * What a person signs in with, as the server answers it: whether they hold a password,
@@ -494,6 +535,7 @@ interface MethodsAnswer {
   pending?: Partial<PendingRoutes> | null;
   changePassword?: string | null;
   removePassword?: string | null;
+  firstPassword?: Partial<FirstPasswordRoutes> | null;
   signInMeans?: string | null;
   forgetBrowser?: string | null;
   changeName?: string | null;
@@ -891,6 +933,59 @@ export class AuthClient {
   }
 
   /**
+   * Asks for the code of the signed-in person's first password: reads the methods list
+   * again, then posts to the send-code path it names. The server mails the code to the
+   * address the account holds confirmed, in place of any code it sent before; the person
+   * reads it there and gives it to `setFirstPassword`. The result is `sent` with the
+   * masked address, or the server's refusal with its words (see FirstPasswordCodeResult).
+   * A server whose list names no first password paths serves none, and the call throws
+   * saying so.
+   */
+  async sendFirstPasswordCode(): Promise<FirstPasswordCodeResult> {
+    const routes = await this.firstPasswordRoutes();
+    const response = await this.options.request<
+      (Partial<{ codeEmail: string; codeExpiresAt: string }> & RefusalAnswer) | null
+    >('POST', routes.sendCode, { absolute: true, accept: accountRefusals });
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    const codeExpiresAt = response.body?.codeExpiresAt;
+    return {
+      outcome: 'sent',
+      codeEmail: stringOf(response.body?.codeEmail),
+      ...(typeof codeExpiresAt === 'string' && codeExpiresAt !== '' ? { codeExpiresAt } : {}),
+    };
+  }
+
+  /**
+   * Sets the signed-in person's first password: reads the methods list again, then posts
+   * the mailed code and the password to the set path it names. Once set, the password
+   * signs the person in, and the session they hold continues. The result is `set`, or the
+   * server's refusal with its words (see FirstPasswordResult). A server whose list names
+   * no first password paths serves none, and the call throws saying so.
+   */
+  async setFirstPassword(code: string, password: string): Promise<FirstPasswordResult> {
+    const routes = await this.firstPasswordRoutes();
+    const response = await this.options.request<RefusalAnswer | null>('POST', routes.set, {
+      body: { code, password },
+      absolute: true,
+      accept: accountRefusals,
+    });
+    return response.status >= 400 ? refusalOf(response) : { outcome: 'set' };
+  }
+
+  /** The first password paths of the methods list, read again; a list that names none throws. */
+  private async firstPasswordRoutes(): Promise<FirstPasswordRoutes> {
+    const list = await this.methods();
+    if (!list.firstPassword) {
+      throw new Error(
+        'this server names no first password paths in its methods list: it has no password method, or does not serve a first password',
+      );
+    }
+    return list.firstPassword;
+  }
+
+  /**
    * Reads what the signed-in person signs in with, from the path the methods list names:
    * whether they hold a password, and the directory sign-ins linked to them, each by the
    * words its sign-in button carries. The answer is undefined where the server's list
@@ -1245,6 +1340,10 @@ export class AuthClient {
     const removePassword = answer?.removePassword;
     if (typeof removePassword === 'string' && removePassword !== '') {
       list.removePassword = removePassword;
+    }
+    const firstPassword = answer?.firstPassword;
+    if (firstPassword?.sendCode && firstPassword.set) {
+      list.firstPassword = { sendCode: firstPassword.sendCode, set: firstPassword.set };
     }
     const signInMeans = answer?.signInMeans;
     if (typeof signInMeans === 'string' && signInMeans !== '') {

@@ -94,6 +94,8 @@ interface Server {
   enrollEmail: TransportResponse;
   change: TransportResponse;
   remove: TransportResponse;
+  firstPasswordCode: TransportResponse;
+  firstPasswordSet: TransportResponse;
   means: TransportResponse;
   name: TransportResponse;
   look: TransportResponse;
@@ -119,6 +121,8 @@ function server(overrides: Partial<Server> = {}): Server {
     enrollEmail: { status: 200, body: codeMailed },
     change: { status: 200, body: undefined },
     remove: { status: 200, body: undefined },
+    firstPasswordCode: { status: 200, body: { codeEmail: 'p•••@fleet.example', codeExpiresAt: '2026-11-17T12:10:00Z' } },
+    firstPasswordSet: { status: 200, body: {} },
     means: { status: 200, body: { password: true, directories: [{ name: 'google', label: 'Fleet Google' }] } },
     name: { status: 200, body: { name: 'Nova Example' } },
     look: { status: 200, body: { scheme: 'dark', palette: 'workspace' } },
@@ -159,6 +163,10 @@ function transportOf(state: Server): ScriptedTransport {
         return state.change;
       case 'POST /console/api/user/password/remove':
         return state.remove;
+      case 'POST /console/api/user/first-password/code':
+        return state.firstPasswordCode;
+      case 'POST /console/api/user/first-password':
+        return state.firstPasswordSet;
       case 'GET /console/api/user/sign-in-means':
         return state.means;
       case 'POST /console/api/user/browser/forget':
@@ -941,6 +949,116 @@ describe('the password change', () => {
   it('keeps the change path off a list that does not name one', async () => {
     const { auth } = authOver(server({ methods: { methods: [google] } }));
     expect(await auth.methods()).toEqual({ methods: [google] });
+  });
+});
+
+describe("choosing the person's first password", () => {
+  const routes = { sendCode: '/console/api/user/first-password/code', set: '/console/api/user/first-password' };
+  const choosing = (overrides: Partial<Server> = {}): Server =>
+    server({ methods: { ...consoleList, firstPassword: routes }, ...overrides });
+
+  it('keeps the first password paths the list names, and none on a list that names one alone', async () => {
+    expect(await authOver(choosing()).auth.methods()).toEqual({ ...consoleList, firstPassword: routes });
+    expect(
+      await authOver(server({ methods: { ...consoleList, firstPassword: { set: routes.set } } })).auth.methods(),
+    ).toEqual(consoleList);
+  });
+
+  it('reads the list again, then asks for the code at the path it names, sending no body', async () => {
+    const { auth, transport, errors } = authOver(choosing());
+    expect(await auth.sendFirstPasswordCode()).toEqual({
+      outcome: 'sent',
+      codeEmail: 'p•••@fleet.example',
+      codeExpiresAt: '2026-11-17T12:10:00Z',
+    });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${routes.sendCode}`]);
+    expect(transport.requests[1].body).toBeUndefined();
+    expect(errors).toEqual([]);
+  });
+
+  it('reads the list again, then posts the code and the password to the path it names', async () => {
+    const { auth, transport, errors } = authOver(choosing());
+    expect(await auth.setFirstPassword('483920', 'a harbor of my own')).toEqual({ outcome: 'set' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${routes.set}`]);
+    expect(transport.requests[1].body).toEqual({ code: '483920', password: 'a harbor of my own' });
+    expect(errors).toEqual([]);
+  });
+
+  for (const tt of [
+    { name: 'an account that already has a password', status: 409, message: 'Your account already has a password.' },
+    { name: 'an account with no confirmed address', status: 409, message: 'Your account has no confirmed email address' },
+    { name: 'a session that acts for someone else', status: 403, message: 'not while impersonating' },
+  ]) {
+    it(`resolves the refusal of the code for ${tt.name} with the server's words, through no error hook`, async () => {
+      const { auth, errors } = authOver(
+        choosing({ firstPasswordCode: { status: tt.status, body: { message: tt.message } } }),
+      );
+      expect(await auth.sendFirstPasswordCode()).toEqual({ outcome: 'refused', status: tt.status, message: tt.message });
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('resolves the refusal of a mailbox sent too many codes with its code and the wait, through no error hook', async () => {
+    const { auth, errors } = authOver(
+      choosing({
+        firstPasswordCode: {
+          status: 429,
+          body: { message: 'Too many emails to this address', code: 'too_many_emails', retryAfter: 900 },
+        },
+      }),
+    );
+    expect(await auth.sendFirstPasswordCode()).toEqual({
+      outcome: 'refused',
+      status: 429,
+      code: 'too_many_emails',
+      message: 'Too many emails to this address',
+      retryAfter: 900,
+    });
+    expect(errors).toEqual([]);
+  });
+
+  for (const tt of [
+    { name: 'a code that is not the one sent', status: 400, message: 'That is not the code we sent.' },
+    { name: 'a code that expired', status: 409, message: 'That code has expired or was already used.' },
+    { name: 'a session that acts for someone else', status: 403, message: 'not while impersonating' },
+  ]) {
+    it(`resolves the refusal of the password for ${tt.name} with the server's words, through no error hook`, async () => {
+      const { auth, errors } = authOver(
+        choosing({ firstPasswordSet: { status: tt.status, body: { message: tt.message } } }),
+      );
+      expect(await auth.setFirstPassword('000000', 'a harbor of my own')).toEqual({
+        outcome: 'refused',
+        status: tt.status,
+        message: tt.message,
+      });
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('resolves the refusal after too many wrong codes with its code and the wait, through no error hook', async () => {
+    const { auth, errors } = authOver(
+      choosing({
+        firstPasswordSet: {
+          status: 429,
+          body: { message: 'Too many wrong codes were entered', code: 'too_many_attempts', retryAfter: 600 },
+        },
+      }),
+    );
+    expect(await auth.setFirstPassword('000000', 'a harbor of my own')).toEqual({
+      outcome: 'refused',
+      status: 429,
+      code: 'too_many_attempts',
+      message: 'Too many wrong codes were entered',
+      retryAfter: 600,
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('throws on a server whose list names no first password paths, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.sendFirstPasswordCode()).rejects.toThrow(/names no first password paths/);
+    await expect(auth.setFirstPassword('483920', 'a harbor of my own')).rejects.toThrow(/names no first password paths/);
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
   });
 });
 
