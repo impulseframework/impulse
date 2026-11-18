@@ -43,20 +43,26 @@ import (
 // it in the sector, and the global Sectors record shows the flag and never writes it, so
 // a patch of the record that carries the flag, and a chart that carries it, change
 // nothing. While the switch is on the sector's routes, the two methods among them, are
-// served to the people the sector admits: a person who holds the grant and signed in
-// another way is answered as for a sector that is not there, so it is turned off by a
-// marshal who signed in through the directory, or by a super administrator, whom no
-// sector's sign-in settings shut out. Turning it off is plain and warns of nothing: the
-// governor, a super administrator, does it by password, the rigger enters Bastion, and
-// no row says anything. Turning it on is refused unless the person is signed in through
-// the sector's directory themselves, and until the sector has a directory, each with a
-// sentence the person can act on, on the method and on the warning a page asks first; a
-// dry run writes nothing; and a caller without the method's grant is refused by the
-// grants, before any rule answers. The warden, signed in through the persona provider,
-// is told what it would do by the method's warning, the sentence, the people it names
-// and the words for the button, and turns it on; once it is on the warning has nothing
-// to say. The persona sign-in sets a process variable, so it holds the lock the other
-// simulated sign-ins hold.
+// served to the people the sector admits: a person who holds the grant in every sector
+// and signed in with a password is answered as for a sector that is not there, since
+// the fleet's own team, seated everywhere, is who the switch shuts out. It is turned
+// off by a marshal who signed in through the directory, by a marshal of that sector
+// itself who signed in with a password and the code (the test beside this one), or by a
+// super administrator, whom no sector's sign-in settings shut out. Turning it off is
+// plain and warns of nothing: the governor, a super administrator, does it by password,
+// the rigger enters Bastion, and no row says anything. Turning it on is refused unless
+// the person is signed in through the sector's directory themselves, until the sector
+// has a directory, and until the person has a password of their own, which is their way
+// back in if the directory has a problem, each with a sentence the person can act on,
+// on the method, on its dry run and on the warning a page asks first; a dry run writes
+// nothing; and a caller without the method's grant is refused by the grants, before any
+// rule answers. The warden, signed in through the persona provider, has never had a
+// password: he is refused, chooses one on a code mailed to his confirmed address (no
+// password without the code, and none for an account that has one), is then told what
+// it would do by the method's warning, the sentence, the people it names and the words
+// for the button, and turns it on; once it is on the warning has nothing to say. The
+// persona sign-in sets a process variable, so it holds the lock the other simulated
+// sign-ins hold.
 //
 // Demonstrates: tenancy.directory-only, tenancy.declaration, auth.persona.
 func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
@@ -183,15 +189,24 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 
 	// While the switch is on, Bastion's routes are served to the people Bastion admits,
-	// the switch's own among them. The rigger is given the marshal's role at Bastion,
-	// so she holds the grant of both methods there, and signed in with a password: the
-	// method that would turn it off, the one that would turn it on and the read answer
-	// her as a sector that is not there, and nothing changes. A marshal who signed in
-	// through the directory turns it off, or a super administrator.
+	// the switch's own among them. The rigger is given the marshal's role in every
+	// sector, as the fleet's own team holds it, so she holds the grant of both methods
+	// at Bastion, and signed in with a password and the code: the method that would
+	// turn it off, the one that would turn it on and the read answer her as a sector
+	// that is not there, and nothing changes. The role held in every sector is not the
+	// role held in Bastion itself, which is what opens the administrators' way in. A
+	// marshal who signed in through the directory turns it off, or a super
+	// administrator.
 	riggerID := crewUserID(ctx, t, governor, "rigger").String()
-	asMarshal := jsonBody(t, map[string]any{"userId": riggerID, "role": "SectorMarshal", "domain": bastion})
+	asMarshal := jsonBody(t, map[string]any{"userId": riggerID, "role": "SectorMarshal", "everyDomain": true})
 	if status, body := governor.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", asMarshal); status != http.StatusOK && status != http.StatusNoContent {
-		t.Fatalf("giving the rigger the marshal's role at Bastion as the governor: status %d: %s", status, body)
+		t.Fatalf("giving the rigger the marshal's role in every sector as the governor: status %d: %s", status, body)
+	}
+	if got, want := rigger.domains(ctx), []string{anvil, cinder}; !slices.Equal(got, want) {
+		t.Fatalf("the rigger's chart as a marshal in every sector, signed in with a password = %v, want %v: the role reaches every sector but the one that is directory only", got, want)
+	}
+	if got := cannotEnter(ctx, t, warden)["rigger"]; got != keptOut {
+		t.Errorf("Bastion's people: the rigger, a marshal in every sector who has a password, is listed saying %q, want %q: the way in is for a marshal of Bastion itself", got, keptOut)
 	}
 	for name, call := range map[string]func() (int, []byte){
 		"turning it off":       func() (int, []byte) { return turn(rigger, bastion, false) },
@@ -202,15 +217,15 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 		},
 	} {
 		if status, body := call(); status != http.StatusNotFound || strings.Contains(string(body), "persona") {
-			t.Errorf("%s at Bastion as a marshal who signed in with a password, while Bastion is directory only: status %d, want 404 that says nothing of its directory: %s", name, status, body)
+			t.Errorf("%s at Bastion as a marshal in every sector who signed in with a password, while Bastion is directory only: status %d, want 404 that says nothing of its directory: %s", name, status, body)
 		}
 	}
 	if status, got := state(warden, bastion); status != http.StatusOK || got != on {
 		t.Fatalf("Bastion's switch after the calls of a marshal it keeps out: status %d %s, want 200 %s: nothing was written", status, got, on)
 	}
-	takeBack := jsonBody(t, map[string]any{"userId": riggerID, "role": "SectorMarshal", "domain": bastion})
+	takeBack := jsonBody(t, map[string]any{"userId": riggerID, "role": "SectorMarshal", "everyDomain": true})
 	if status, body := governor.do(ctx, http.MethodPost, consoleAPI+"/remove-crew-role", takeBack); status != http.StatusOK && status != http.StatusNoContent {
-		t.Fatalf("taking the marshal's role at Bastion back from the rigger: status %d: %s", status, body)
+		t.Fatalf("taking the marshal's role in every sector back from the rigger: status %d: %s", status, body)
 	}
 
 	// Turning it off is plain, and warns of nothing: a request for a warning is refused
@@ -332,6 +347,82 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 		t.Errorf("asking what directory only would do to a sector that does not exist: status %d, want 404: %s", status, body)
 	}
 
+	// Turning it on is refused until the person has a password of their own, where their
+	// auth has passwords: a marshal of a directory-only sector enters it with a password
+	// and a code sent to their email, and that is the way back in if the directory has a
+	// problem. The warden signed in through Bastion's directory and has never had a
+	// password: the warning a page asks first, the dry run and the method are refused in
+	// the same words, which say what to do, and nothing is written.
+	noPassword := "Directory only is turned on by a person who has a password: an administrator of this sector enters it with a password and a code sent to their email, and that is your way back in if the directory has a problem. Choose a password on Your account first, then try again."
+	rehearses := func(b *browser, sector string) (int, []byte) {
+		res := b.doWith(ctx, http.MethodPost, sectorPath(sector, method[true]), []byte(`{}`), map[string]string{"X-Dry-Run": "true"})
+		defer res.Body.Close()
+		said, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return res.StatusCode, said
+	}
+	for name, call := range map[string]func() (int, []byte){
+		"the warning": func() (int, []byte) { return warns(warden, bastion) },
+		"the dry run": func() (int, []byte) { return rehearses(warden, bastion) },
+		"the method":  func() (int, []byte) { return turn(warden, bastion, true) },
+	} {
+		if status, body := call(); status != http.StatusConflict || !strings.Contains(string(body), noPassword) {
+			t.Errorf("%s of turning Bastion's directory only on as the warden, who has no password: status %d, want 409 saying %q: %s", name, status, noPassword, body)
+		}
+	}
+	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
+		t.Fatalf("Bastion's switch after the calls of a marshal who has no password: status %d %s, want 200 %s: nothing was written", status, got, off)
+	}
+
+	// He chooses one on Your account. A person who has no password chooses their first
+	// only on a code mailed to their confirmed address, which the persona provider
+	// attested at his sign-in: a password posted before any code was asked for is
+	// refused, and so is one posted with a code that is not the one mailed. An account
+	// that has a password is refused the code, since its person changes the password
+	// with the one they have. The right code sets the password, ends no session, and
+	// the account takes no second first password.
+	chosen := func(code string) []byte {
+		return jsonBody(t, map[string]string{"code": code, "password": personaPassword})
+	}
+	firstPassword := consoleAPI + "/user/first-password"
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword, chosen("000000")); status != http.StatusConflict || !strings.Contains(string(body), "That code has expired or was already used. Ask for a new one") {
+		t.Errorf("choosing a first password before any code was mailed: status %d, want 409 saying to ask for a code: %s", status, body)
+	}
+	if status, body := rigger.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account already has a password. To change it, enter the one you have and the new one") {
+		t.Errorf("asking for the code of a first password as the rigger, who has a password: status %d, want 409 saying the account has one: %s", status, body)
+	}
+	code := firstPasswordCode(ctx, t, warden)
+	wrong := "000000"
+	if code == wrong {
+		wrong = "111111"
+	}
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword, chosen(wrong)); status != http.StatusBadRequest || !strings.Contains(string(body), "That is not the code we sent. Check it and try again") {
+		t.Errorf("choosing a first password with a code that was not the one mailed: status %d, want 400 saying so: %s", status, body)
+	}
+	for name, call := range map[string]func() (int, []byte){
+		"the warning": func() (int, []byte) { return warns(warden, bastion) },
+		"the method":  func() (int, []byte) { return turn(warden, bastion, true) },
+	} {
+		if status, body := call(); status != http.StatusConflict || !strings.Contains(string(body), noPassword) {
+			t.Errorf("%s of turning Bastion's directory only on after the refused first passwords: status %d, want 409 saying %q, no password was set: %s", name, status, noPassword, body)
+		}
+	}
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword, chosen(code)); status != http.StatusOK {
+		t.Fatalf("choosing a first password with the code that was mailed: status %d: %s", status, body)
+	}
+	if sess := warden.session(ctx); sess["authenticated"] != true || sess["username"] != "warden" {
+		t.Errorf("the warden's session after he chose a password = %v, want it standing: a first password ends no session", sess)
+	}
+	if got := sessionDirectory(t, warden.session(ctx)); got == nil || got.Connection != crew.PersonaRegistration {
+		t.Errorf("the warden's session after he chose a password reports the directory %+v, want the persona provider still: the session is the one his directory opened", got)
+	}
+	if status, body := warden.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account already has a password") {
+		t.Errorf("asking for the code of a first password once the warden has a password: status %d, want 409 saying the account has one: %s", status, body)
+	}
+
 	// The method that the old body named is gone, and neither method takes a body that
 	// says which way: each turns the switch one way. A dry run writes nothing.
 	if status, body := warden.do(ctx, http.MethodPost, sectorPath(bastion, "set-sector-directory-only"), []byte(`{"directoryOnly":true}`)); status != http.StatusNotFound && status != http.StatusMethodNotAllowed {
@@ -376,10 +467,11 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// The warden, signed in through Bastion's directory, asks the method for its warning.
 	// The server writes the words: who will be able to enter, how many of the people
 	// seated there will not, and what the button says, and it names the people to him
-	// in a list of their own, since a marshal lists the sector's people. The warden,
+	// in a list of their own, since a marshal lists the sector's people, and it says
+	// that a marshal of the sector itself who has a password still gets in. The warden,
 	// headquarters and the rookie signed in through the directory and the governor is a
 	// super administrator, so none of them is among them; the rigger, the bosun and the
-	// pilot, who sign in with a password, are.
+	// pilot, who sign in with a password and are no marshal of Bastion's own, are.
 	status, body := warns(warden, bastion)
 	if status != http.StatusOK {
 		t.Fatalf("asking what directory only would do to Bastion, signed in through its directory: status %d: %s", status, body)
@@ -412,7 +504,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// the crew alone: the portal's members seated at Bastion are counted and named to
 	// nobody who may not list them, so the sentence says the list is the people the
 	// warden may list. A part of them is never read as all of them.
-	const onlyPersona = "Only people who sign in through persona will be able to enter this sector."
+	const onlyPersona = "Only people who sign in through persona will be able to enter this sector. An administrator of this sector who has a password can still sign in with it and a code sent to their email."
 	var counted int
 	if _, err := fmt.Sscanf(strings.TrimPrefix(would.Consequence, onlyPersona), " %d people", &counted); err != nil {
 		t.Fatalf("the consequence = %q, want %q and then how many people lose access: %v", would.Consequence, onlyPersona, err)
@@ -482,6 +574,30 @@ func cannotEnter(ctx context.Context, t *testing.T, b *browser) map[string]strin
 	}
 
 	return rows
+}
+
+// firstPasswordCode asks, as the browser's user, for the code a person chooses their
+// first password with, and reads it from the message the auth mailed to their confirmed
+// address. One request at a time asks for a code on the stack, so the message read is
+// this one's.
+func firstPasswordCode(ctx context.Context, t *testing.T, b *browser) string {
+	t.Helper()
+
+	s := b.served
+	s.codeMu.Lock()
+	defer s.codeMu.Unlock()
+	before := len(s.mail.Messages())
+	if status, body := b.do(ctx, http.MethodPost, b.prefix+"/user/first-password/code", nil); status != http.StatusOK {
+		t.Fatalf("asking for the code of a first password: status %d: %s", status, body)
+	}
+	for _, m := range s.mail.Messages()[before:] {
+		if match := codeSubject.FindStringSubmatch(m.Subject); match != nil {
+			return match[1] + match[2]
+		}
+	}
+	t.Fatalf("no code for a first password was mailed after the request (%d messages before)", before)
+
+	return ""
 }
 
 // signInAsPersona signs the browser in on the console as a persona of the cast through

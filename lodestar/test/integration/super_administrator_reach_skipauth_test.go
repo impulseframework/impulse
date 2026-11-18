@@ -14,12 +14,14 @@ import (
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// TestSuperAdministrator_entersEverySector proves the one exemption from a sector's
-// sign-in settings on the served stack. Bastion admits its people through its directory
-// only, and its directory is the persona provider of the test environments, which no
-// password session came through. The governor, a super administrator signed in with
-// the password, charts
-// Bastion and reads it all the same. Nobody else is exempt: the dispatcher, who holds
+// TestSuperAdministrator_entersEverySector proves the super administrator's exemption
+// from a sector's sign-in settings on the served stack. Bastion admits its people
+// through its directory only, and its directory is the persona provider of the test
+// environments, which no password session came through. The governor, a super
+// administrator signed in with the password, charts Bastion and reads it all the same.
+// Nobody else here is exempt, since none of them is a marshal of Bastion itself, the
+// one other person a directory-only sector admits by password
+// (TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword): the dispatcher, who holds
 // global roles and a role at Bastion, and the archivist, who holds a role in every
 // sector, chart the sectors that are not directory only, and Bastion, which their
 // charts name closed with the reason, answers them as a sector that does not exist.
