@@ -37,10 +37,11 @@ func policySignal(channel *signaltest.Channel) ChangeSignal {
 	)
 }
 
-// waitUntil polls check until it passes or the deadline expires.
-func waitUntil(t *testing.T, timeout time.Duration, msg string, check func() bool) {
+// waitUntil polls check until it passes, for five seconds at most: far longer than
+// anything it waits for takes, so a test that reaches the deadline has failed.
+func waitUntil(t *testing.T, msg string, check func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(5 * time.Second)
 	for !check() {
 		if time.Now().After(deadline) {
 			t.Fatal(msg)
@@ -98,7 +99,7 @@ func Test_ChangeSignalFunc(t *testing.T) {
 			go func() {
 				done <- sig.Watch(ctx, func() { hints.Add(1) })
 			}()
-			waitUntil(t, 5*time.Second, "Watch did not deliver the watch func's onChange calls", func() bool {
+			waitUntil(t, "Watch did not deliver the watch func's onChange calls", func() bool {
 				return hints.Load() == int64(tt.hints)
 			})
 			select {
@@ -202,7 +203,7 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 			if tt.withSignal {
 				// Both watches must be subscribed before the write, or the
 				// announce is lost and the pinned heartbeat would hide it.
-				waitUntil(t, 5*time.Second, "the engines never subscribed to the policy kind", func() bool {
+				waitUntil(t, "the engines never subscribed to the policy kind", func() bool {
 					return channel.Subscribers(policyKind) == 2
 				})
 			}
@@ -213,7 +214,7 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 			if got, err := writer.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || !got[0].granted {
 				t.Fatalf("writer checkUserResources() = (%v, %v), want granted immediately", got, err)
 			}
-			waitUntil(t, 5*time.Second, "the change never reached the reader engine", func() bool {
+			waitUntil(t, "the change never reached the reader engine", func() bool {
 				got, err := reader.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
 				if err != nil {
 					t.Fatalf("reader checkUserResources() error = %v", err)
@@ -231,7 +232,7 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 			}
 			// The writer announces on a goroutine of its own, and the reader can have seen
 			// the change already by a load of its own loop, so the signal is waited for.
-			waitUntil(t, 5*time.Second, "the writer never signaled the policy kind", func() bool {
+			waitUntil(t, "the writer never signaled the policy kind", func() bool {
 				return slices.Contains(channel.Signals(), policyKind)
 			})
 		})
