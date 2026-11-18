@@ -1167,6 +1167,21 @@ proves it: in range answered, below or above refused with the header and no hand
 and no body read, no header and `dev` answered, session and file routes answered at any
 release, the machine outlets unchecked, and the refusal landing before the hook.
 
+**The environment's name.** Beside its release a server names the environment it runs in,
+wherever that is not production, so a browser application can show it and a problem
+report can say where it happened. The name is `Handlers.ServerEnvironment()`, which the
+application answers from its configuration's `APP_ENVIRONMENT`: a deployment sets the
+variable to the environment's name (`tst`, `development`) everywhere but production,
+which leaves it unset. The generated router names it on every answer in `X-Environment`
+(`resource.NameEnvironment`, in front of every route, last in the chain every request
+passes), percent-encoded as a path segment is, so a name with a space or a letter outside
+ASCII arrives whole; a server that reports no name sends no such header, which is how
+production reads. The browser's client keeps the name from any answer
+(`client.serverEnvironment`) and the library's About pop-up shows it and copies it, with
+the application's name and the release, as one line for a report. The generated test
+proves both halves: a server told its environment names it on an answer, the answer for
+an address no route serves included, and a server told none names none.
+
 **The release file.** Beside the router the generator writes `zz_gen_release.json`, which
 names every outlet and, for each session outlet, the oldest release it answers, so a
 deploy tells from the checkout alone, without building or running the server, whether a

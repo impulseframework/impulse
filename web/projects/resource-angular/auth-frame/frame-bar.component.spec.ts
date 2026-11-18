@@ -1,11 +1,13 @@
 import { inject } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog } from '@angular/material/dialog';
+import { Router } from '@angular/router';
 import { ListPermission, PermissionDigest, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
 import { FrameBarComponent } from './frame-bar.component';
+import { frameRoutes } from './frame-routes';
 import { provideFrameTesting, specTransport } from './frame-testing';
 import { ShownMenu } from './menu';
 import { MenuService } from './menu.service';
@@ -121,6 +123,23 @@ describe('FrameBarComponent', () => {
     const help = TestBed.inject(MenuService).menus().at(-1);
     expect(help?.label).toBe('Help');
     expect(help?.groups.map((group) => group.entries.map((e) => e.label))).toEqual([['Guides'], ['About Lodestar']]);
-    expect(help?.groups.at(-1)?.entries[0]?.link).toEqual(['about']);
+  });
+
+  it('opens About as a pop-up from Help, and the address stays the same', async () => {
+    await signIn(nobody);
+    const router = TestBed.inject(Router);
+    const before = router.url;
+    const about = TestBed.inject(MenuService).menus().at(-1)?.groups.at(-1)?.entries[0];
+
+    // Something that runs, with no address of its own: no page and no route stand behind it.
+    expect(about?.link).toBeUndefined();
+    expect(frameRoutes().map((route) => route.path)).toEqual(['account', 'api-keys']);
+    about?.run?.();
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const dialog = document.querySelector('mat-dialog-container');
+    expect(dialog?.querySelector('[mat-dialog-title]')?.textContent?.trim()).toBe('About Lodestar');
+    expect(router.url).toBe(before);
   });
 });

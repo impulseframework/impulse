@@ -41,7 +41,7 @@ The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list pa
 record) and System (the staff's accounts, the Invited tenants page and Feature flags…) in
 Configuration, and People and Tenant (Sign-in settings) inside a tenant; the person's own
 menu holds Your account (the email address, Change your password, Forget this browser),
-Appearance and Sign out; Help ends with About, which carries the release. A spec beside
+Appearance and Sign out; Help ends with About, a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production). A spec beside
 the menu file fails on a page the routes carry and no menu places (`unplacedPages`).
 
 How a tenant comes to exist is decided in the running application, apart from who may

@@ -31,6 +31,14 @@ export const warningHeader = 'X-Warning';
 export const apiVersionHeader = 'X-Api-Version';
 
 /**
+ * The header that carries the name of the environment the server runs in, a test
+ * environment's for one, on every answer of a server that is told one; production is told
+ * none and sends no such header. The name is percent-encoded, as a path segment is, so one
+ * with a space or a letter outside ASCII arrives whole.
+ */
+export const environmentHeader = 'X-Environment';
+
+/**
  * The person's time zone, an IANA name such as America/New_York, which the client sends on
  * every request (`ClientOptions.timeZone`, the browser's own zone by default). The server
  * reads a filter value written with no zone of its own, `2026-12-15` or

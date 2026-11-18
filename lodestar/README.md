@@ -204,6 +204,13 @@ Reload (the library's `AppUpdateService`, provided by `provideAppUpdate()` above
 development stack runs `dev` on both sides, so the walkthrough cannot show the refusal;
 `test/integration/apiversion_test.go` proves it over a served router built from a release.
 
+The server names the environment it runs in the same way. `APP_ENVIRONMENT` in the
+configuration (`development` in `.envrc`) is what `App.ServerEnvironment()` hands the
+generated router, which puts it on every answer as `X-Environment`; the client keeps it
+(`client.serverEnvironment`) and the About pop-up, the last entry of the Help menu, shows it
+under the release and copies both for a problem report. Production leaves the variable
+unset: no header, and no environment line in the pop-up.
+
 The console outlet's oldest answered release is declared in `cmd/generate/generator.go`,
 `generation.OldestAnswered("0.1.0")`: the first release, which is what an outlet without
 the option answers from, written out so the place to raise it is on record. The portal

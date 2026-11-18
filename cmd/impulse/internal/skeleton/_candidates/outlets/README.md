@@ -51,7 +51,7 @@ inside a tenant; the portal's shows System (the members' accounts) and People. T
 person's own menu holds Your account (the console's: the email address, Change your
 password, Forget this browser), Your API keys on the console, Appearance and Sign out; a
 portal member signs in through their company's directory and has nothing of their sign-in
-to change there. Help ends with About, which carries the release.
+to change there. Help ends with About, a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production).
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator

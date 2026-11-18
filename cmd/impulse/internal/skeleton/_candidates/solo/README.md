@@ -259,8 +259,8 @@ permission digest over a scripted client from `@impulseframework/resource-angula
 request and answers from the test), and the menu file's spec holds every page the routes
 carry to a place in the menus (`unplacedPages`). The console sits in the library's frame
 (`provideFrame` in `app.config.ts`): the bar with the application's name and the menus of
-`app.menus.ts` (System: the staff's accounts and Feature flags…), Help ending with About,
-which carries the release, and the person's own menu (Your account, with the email address
+`app.menus.ts` (System: the staff's accounts and Feature flags), Help ending with About,
+a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production), and the person's own menu (Your account, with the email address
 and Change your password; Appearance; Sign out); the frame is the library's, tested there.
 
 ## Live pages
