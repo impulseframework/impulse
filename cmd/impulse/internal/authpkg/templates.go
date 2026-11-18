@@ -390,8 +390,14 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // writes through the live service (access.WithChangeSignal over the policy kind), which it
 // refuses to open without. Beside the role file's roles the engine defines one of the
 // framework's in every auth, Super Administrator (accesstypes.SuperAdministrator), held
-// for the whole application alone: its holder gives and takes any role of the auth, enters
+// for the whole application alone
+{{- if .RolesSynced}}: its holder enters every tenant. The directory writes
+// this auth's roles, so the directory decides who is a super administrator: the role is
+// given to a person the directory names for it and taken from one it no longer names,
+// nobody is seeded with it, and the library asks a holder for no second factor of its own.
+{{- else}}: its holder gives and takes any role of the auth, enters
 // every tenant, and signs in with a second factor whatever the sign-in rule asks.
+{{- end}}
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if settings.Signals == nil {
 		return nil, errors.New("{{.Name}}.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
@@ -452,11 +458,20 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// One Auth session every method establishes: one cookie, one session table, one
 	// middleware chain. The methods are registered on it below, before the first request.
+{{- if .RolesSynced}}
+	// The Auth is built knowing who holds the Super Administrator role, as every auth
+	// with roles is, which is why the permission engine opens first. The library's own
+	// second factor for a holder holds nobody who signs in through a directory that
+	// writes the roles: there the directory is the authority, and the sign-in rule set
+	// below asks of a holder what it asks of anyone. The memberships are read outside
+	// the sign-in's transaction (resource.SignInRoles).
+{{- else}}
 	// The Auth is built knowing who holds the Super Administrator role, which is why the
 	// permission engine opens first: a holder signs in with a second factor whatever the
 	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
 	// the library's own after the application's. The memberships are read outside the
 	// sign-in's transaction (resource.SignInRoles).
+{{- end}}
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,

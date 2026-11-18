@@ -14,7 +14,9 @@ import (
 // superAdministratorsTold verifies that every auth package tells its Auth who the auth's
 // own super administrators are. An auth with a role file has the Super Administrator
 // role, which the framework defines in every auth, and the session library holds its
-// holders to a second factor whatever the sign-in rule asks of anyone else; it learns
+// holders to a second factor whatever the sign-in rule asks of anyone else, except at a
+// sign-in through a directory that writes the roles, where the directory decides who
+// holds the role; it learns
 // who they are from the argument session.NewAuth takes after the cookie key. The
 // compiler holds an application to passing the argument, and nothing but this holds it
 // to passing the right one: session.NoSuperAdministrators() compiles in an auth whose
