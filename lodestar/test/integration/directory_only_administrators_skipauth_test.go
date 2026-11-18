@@ -43,6 +43,11 @@ import (
 // names a marshal as Headquarters does, and the governor, a super administrator, gives
 // Bastion's role.
 //
+// The rigger changes her password while Bastion is directory only. Her other sessions
+// end, and the one the change goes on in is the continuation of the session that made
+// it, a password and the code: Bastion admits it still, so its marshal is not closed out
+// of the sector she administers by changing her password.
+//
 // Demonstrates: tenancy.directory-only, auth.second-factor, auth.trusted-device.
 func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	t.Parallel()
@@ -235,6 +240,24 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if status, answer := pilot.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, map[string]any{"userId": riggerID, "role": "SectorMarshal", "domain": anvil})); status != http.StatusNoContent {
 		t.Errorf("making the rigger a marshal of Anvil as the pilot, Headquarters: status %d, want 204: Anvil is not directory only: %s", status, answer)
 	}
+
+	// She changes her password while Bastion is directory only. The change ends every
+	// session she has and goes on in a new one, the continuation of the session that
+	// made the change: a password and the code, so Bastion admits it as its marshal's
+	// and she is not signed out of the sector she administers. Her other sessions are
+	// over, the Workspace's among them.
+	const riggersNext = "a splice in the forestay"
+	change := jsonBody(t, map[string]string{"oldPassword": personaPassword, "newPassword": riggersNext})
+	if status, body := rigger.do(ctx, http.MethodPost, consoleAPI+"/user/password/change", change); status != http.StatusOK {
+		t.Fatalf("the rigger changing her password: status %d: %s", status, body)
+	}
+	stands("the rigger, Bastion's marshal, in the session her password change goes on in", rigger, []string{anvil, bastion, cinder}, "", "")
+	for name, b := range map[string]*browser{"her other browser": another, "her remembered browser": remembered, "her session through the Workspace": through} {
+		if sess := b.session(ctx); sess["authenticated"] != false {
+			t.Errorf("%s once the rigger changed her password = %v, want no session: a change ends the person's other sessions", name, sess)
+		}
+	}
+
 	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || strings.TrimSpace(string(body)) != `{"directoryOnly":true}` {
 		t.Fatalf("Bastion's switch as its marshal reads it, signed in with a password: status %d %s, want 200 saying it is on", status, body)
 	}
@@ -244,5 +267,11 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "directory-only"), nil); status != http.StatusOK || strings.TrimSpace(string(body)) != `{"directoryOnly":false}` {
 		t.Errorf("Bastion's switch once its marshal turned it off: status %d %s, want 200 saying it is off", status, body)
 	}
-	stands("the rigger through the Workspace, once Bastion is not directory only", through, []string{anvil, bastion, cinder}, "", "")
+	// Through the Workspace again, in a session opened since the change ended the one
+	// she had: the link stands, so nothing asks for her password.
+	again := primedBrowser(ctx, t, s)
+	if status, location := again.loginConsoleGoogle(ctx, "rigger"); status != http.StatusFound || location != consolePage {
+		t.Fatalf("the rigger's second sign-in through the fleet's Workspace: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
+	}
+	stands("the rigger through the Workspace, once Bastion is not directory only", again, []string{anvil, bastion, cinder}, "", "")
 }

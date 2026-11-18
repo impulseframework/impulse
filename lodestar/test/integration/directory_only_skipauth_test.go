@@ -58,7 +58,8 @@ import (
 // nothing; and a caller without the method's grant is refused by the grants, before any
 // rule answers. The warden, signed in through the persona provider, has never had a
 // password: he is refused, chooses one on a code mailed to his confirmed address (no
-// password without the code, and none for an account that has one), is then told what
+// password without the code, and none for an account that has one), changes it and
+// goes on in a session that is still the one his directory opened, is then told what
 // it would do by the method's warning, the sentence, the people it names and the words
 // for the button, and turns it on; once it is on the warning has nothing to say. The
 // persona sign-in sets a process variable, so it holds the lock the other simulated
@@ -438,6 +439,23 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 	if status, body := warden.do(ctx, http.MethodPost, firstPassword+"/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account already has a password") {
 		t.Errorf("asking for the code of a first password once the warden has a password: status %d, want 409 saying the account has one: %s", status, body)
+	}
+
+	// He changes the password he chose, with the one he has. The change ends his
+	// sessions and goes on in a new one, which is the continuation of the session that
+	// made the change: still the one his directory opened, never a password's. Every
+	// step from here is taken in it, the switch turned on and a sector entered that
+	// admits its directory alone among them.
+	const wardensNext = "a lantern over the yard"
+	change := jsonBody(t, map[string]string{"oldPassword": personaPassword, "newPassword": wardensNext})
+	if status, body := warden.do(ctx, http.MethodPost, consoleAPI+"/user/password/change", change); status != http.StatusOK {
+		t.Fatalf("the warden changing his password: status %d: %s", status, body)
+	}
+	if sess := warden.session(ctx); sess["authenticated"] != true || sess["username"] != "warden" {
+		t.Fatalf("the warden's session after he changed his password = %v, want him signed in: the change goes on in a new session", sess)
+	}
+	if got := sessionDirectory(t, warden.session(ctx)); got == nil || got.Method != string(sessioninfo.MethodOIDC) || got.Connection != crew.PersonaRegistration {
+		t.Errorf("the warden's session after he changed his password reports the directory %+v, want the persona provider still: the new session carries on the one that made the change", got)
 	}
 
 	// The method that the old body named is gone, and neither method takes a body that
