@@ -1315,10 +1315,9 @@ wiring above. A login page that reads the mark from the session read posts the c
 to the methods list's `changePassword` path before it opens the application. The change
 clears the mark and goes on in a new session that carries the auth events of the one
 that made it (`ChangeSessionUserPassword`, below); an
-impersonated session is the actor's and is not held to the user's mark. The seed user
-of a new application and every user an operator creates with a password carry the
-mark; the password a user chose through `ChangeSessionUserPassword` or
-`SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
+impersonated session is the actor's and is not held to the user's mark. Every user an
+operator creates with a password carries the mark; the password a user chose through
+`ChangeSessionUserPassword` or `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
 
 **Removing a password.** A person who signs in through a directory does not need the

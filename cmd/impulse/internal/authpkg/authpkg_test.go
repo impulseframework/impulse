@@ -3,8 +3,8 @@ package authpkg
 import (
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
-	"go/printer"
 	"go/token"
 	"maps"
 	"os"
@@ -318,8 +318,8 @@ func functionsOf(t *testing.T, src []byte, names ...string) string {
 			}
 			found = true
 			fn.Doc = nil
-			if err := printer.Fprint(&b, fset, fn); err != nil {
-				t.Fatalf("printer.Fprint(%s) error = %v", name, err)
+			if err := format.Node(&b, fset, fn); err != nil {
+				t.Fatalf("format.Node(%s) error = %v", name, err)
 			}
 			b.WriteString("\n")
 		}
