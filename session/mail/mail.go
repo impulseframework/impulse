@@ -84,6 +84,12 @@ func (r *Recorder) Fail(err error) {
 	r.Err = err
 }
 
+// Delivers says the recorder stands for a mailbox: what it is sent reaches the test
+// that reads it and nothing else (Deliverer).
+func (r *Recorder) Delivers() bool {
+	return true
+}
+
 // Messages answers a copy of what was sent so far.
 func (r *Recorder) Messages() []Message {
 	r.mu.Lock()
@@ -108,16 +114,22 @@ func (Log) Send(ctx context.Context, msg Message) error {
 	return nil
 }
 
-// Delivers reports whether sender hands a message to a mail system, so that it reaches
-// its recipient's mailbox and nobody else. Log does not: it writes the message, link
-// included, where whoever reads the log reads it. A flow whose link must reach one person
-// alone asks before it sends, and refuses a sender that does not deliver: the session
-// library's invitation of a deployment's first administrator does.
+// Deliverer is a Sender that says whether it hands its messages to a mail system, so
+// that a message reaches its recipient's mailbox and nobody else. A driver over a mail
+// system declares it (the Workspace relay does); Log declares nothing, since it writes
+// the message, link included, where whoever reads the log reads it.
+type Deliverer interface {
+	Delivers() bool
+}
+
+// Delivers reports whether sender says it delivers (Deliverer). A sender that says
+// nothing does not: Log, a sender that wraps it, and an application's own driver until it
+// declares the method. A flow whose link must reach one person alone asks before it
+// sends, and refuses a sender that does not deliver: the session library's invitation of
+// a deployment's first administrator does. The answer errs toward the refusal, since a
+// link written where it should not be cannot be taken back.
 func Delivers(sender Sender) bool {
-	switch sender.(type) {
-	case nil, Log, *Log:
-		return false
-	default:
-		return true
-	}
+	deliverer, ok := sender.(Deliverer)
+
+	return ok && deliverer.Delivers()
 }

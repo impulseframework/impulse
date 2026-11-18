@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -78,9 +79,13 @@ func TestDelivers(t *testing.T) {
 		sender Sender
 		want   bool
 	}{
-		{name: "a sender over a mail system delivers", sender: &Recorder{}, want: true},
+		{name: "a sender that says it delivers", sender: &Recorder{}, want: true},
 		{name: "the log writes the message where the log's readers read it", sender: Log{}},
 		{name: "the log by its pointer", sender: &Log{}},
+		{name: "a sender that wraps the log says nothing, and does not deliver", sender: struct{ Log }{}},
+		{name: "a sender that says nothing of itself does not deliver", sender: silentSender{}},
+		{name: "a sender that says it does not deliver", sender: declaredSender(false)},
+		{name: "a sender of the application's own that says it delivers", sender: declaredSender(true), want: true},
 		{name: "no sender", sender: nil},
 	}
 	for _, tt := range tests {
@@ -92,6 +97,24 @@ func TestDelivers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// silentSender is a Sender that declares nothing about where its messages go.
+type silentSender struct{}
+
+func (silentSender) Send(context.Context, Message) error {
+	return nil
+}
+
+// declaredSender is a Sender that declares whether it delivers.
+type declaredSender bool
+
+func (declaredSender) Send(context.Context, Message) error {
+	return nil
+}
+
+func (d declaredSender) Delivers() bool {
+	return bool(d)
 }
 
 func contains(s, sub string) bool {

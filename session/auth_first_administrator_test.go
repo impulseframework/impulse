@@ -16,7 +16,7 @@ import (
 )
 
 // firstAdministratorRoles are the roles the cases' first administrator is invited to.
-var firstAdministratorRoles = []string{"Super Administrator", "Administrator"}
+var firstAdministratorRoles = []string{"SuperAdministrator", "Administrator"}
 
 // firstAdministratorFixture is an Auth with mail and the two tables the first
 // administrator's invitation reads: the mail links and the users, which hold nobody
@@ -142,7 +142,29 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 			wantDead: []int{0},
 		},
 		{
-			name: "the Auth has an account: an invitation no user sent that gives other roles is the application's own, as are a user's, a tenant's and one that makes a tenant, and all stand",
+			name: "the Auth has an account and the address changed with the roles: the link mailed to the address taken back no longer opens, whatever else it gave beside the Super Administrator role",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+
+				return []*sessionstorage.MailLink{f.standing(grace, week, "SuperAdministrator", "Retired")}
+			},
+			request:  FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:     FirstAdministrator{Outcome: FirstAdministratorHasAccount, Withdrawn: []string{grace}},
+			wantDead: []int{0},
+		},
+		{
+			name: "the Auth has an account and the roles changed for the address still named: its invitation is left to be accepted, since nobody would be invited in its place",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
+
+				return []*sessionstorage.MailLink{f.standing(ada, week, "SuperAdministrator", "Retired")}
+			},
+			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
+			want:         FirstAdministrator{Outcome: FirstAdministratorHasAccount},
+			wantStanding: []int{0},
+		},
+		{
+			name: "the Auth has an account: an invitation no user of the Auth sent that does not give the Super Administrator role is another's, as are a user's, a tenant's and one that makes a tenant, and all stand",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
 				f.users = []*sessionstorage.SessionUser{{ID: impulse.Must(impulse.NewUUID()), Username: "someone"}}
 				sent := f.standing(grace, week, firstAdministratorRoles...)
@@ -161,7 +183,7 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 		{
 			name: "an invitation to the address stands: a second release mails nothing, whatever case the address and order the roles are written in",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				return []*sessionstorage.MailLink{f.standing(ada, week, "Administrator", "Super Administrator")}
+				return []*sessionstorage.MailLink{f.standing(ada, week, "Administrator", "SuperAdministrator")}
 			},
 			request:      FirstAdministratorRequest{Email: " Ada@Lakeside.edu ", RoleNames: firstAdministratorRoles},
 			want:         FirstAdministrator{Outcome: FirstAdministratorStanding, Email: ada},
@@ -190,7 +212,7 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 		{
 			name: "the release names other roles: the standing invitation, which would give the old ones, is withdrawn and a new one mailed",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
-				return []*sessionstorage.MailLink{f.standing(ada, week, "Super Administrator", "Retired")}
+				return []*sessionstorage.MailLink{f.standing(ada, week, "SuperAdministrator", "Retired")}
 			},
 			request:    FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
 			want:       FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada, Withdrawn: []string{ada}},
@@ -208,21 +230,24 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 			wantDead:     []int{0},
 		},
 		{
-			name: "an invitation a user sent, one into a tenant and one that makes a tenant are nobody's first administrator: they stand, and the address is mailed",
+			name: "an invitation a user sent, one into a tenant, one that makes a tenant and one no user of the Auth sent that does not give the Super Administrator role are nobody's first administrator: they stand, and the address is mailed",
 			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
 				sent := f.standing(grace, week, firstAdministratorRoles...)
 				sent.InvitedByUserID = impulse.NullUUIDFromUUID(impulse.Must(impulse.NewUUID()))
-				tenant := f.standing(grace, week, "TenantAdministrator")
+				tenant := f.standing(grace, week, firstAdministratorRoles...)
 				tenant.TenantID = "lakeside"
-				makes := f.standing(grace, week)
+				makes := f.standing(grace, week, firstAdministratorRoles...)
 				makes.NewTenant = &sessioninfo.NewTenant{Name: "Lakeside High"}
+				// An administrator of another Auth invited a person to a role of this one:
+				// the row names no user of this Auth, and it is not the deployment's.
+				another := f.standing(grace, week, "Administrator")
 
-				return []*sessionstorage.MailLink{sent, tenant, makes}
+				return []*sessionstorage.MailLink{sent, tenant, makes, another}
 			},
 			request:      FirstAdministratorRequest{Email: ada, RoleNames: firstAdministratorRoles},
 			want:         FirstAdministrator{Outcome: FirstAdministratorInvited, Email: ada},
 			wantMailed:   []string{ada},
-			wantStanding: []int{0, 1, 2},
+			wantStanding: []int{0, 1, 2, 3},
 		},
 		{
 			name:        "no address is named: refused, with nothing mailed",
@@ -276,7 +301,16 @@ func TestAuthAPI_InviteFirstAdministrator(t *testing.T) {
 		{
 			name:        "no role is named: refused before anything is read",
 			request:     FirstAdministratorRequest{Email: ada},
-			wantErrText: "names no role",
+			wantErrText: "does not give the SuperAdministrator role",
+		},
+		{
+			name: "the roles named do not give the Super Administrator role: refused before anything is read, since the first administrator is the one who can make another",
+			arrange: func(f *firstAdministratorFixture) []*sessionstorage.MailLink {
+				return []*sessionstorage.MailLink{f.standing(grace, week, firstAdministratorRoles...)}
+			},
+			request:      FirstAdministratorRequest{Email: ada, RoleNames: []string{"Administrator"}},
+			wantErrText:  "does not give the SuperAdministrator role",
+			wantStanding: []int{0},
 		},
 	}
 	for _, tt := range tests {

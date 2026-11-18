@@ -36,7 +36,7 @@ const (
 	sameDirectory      = "grace@lakeside.edu"
 )
 
-var firstAdministratorRoles = []string{"Administrator", "Super Administrator"}
+var firstAdministratorRoles = []string{"Administrator", "SuperAdministrator"}
 
 // firstAdministratorApp is an application a deployment has just released: the password
 // method beside a Google registration, in an application whose tenants have directories

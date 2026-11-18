@@ -1830,9 +1830,8 @@ it withdrew), and never the link or its token, which are in the mailed message a
 
 - The Auth has an account: nobody is invited (`FirstAdministratorHasAccount`); every
   person after the first is invited from the application. One thing is still done: an
-  invitation of the deployment's that still stands, with these roles, for an address the
-  deployment no longer names is withdrawn, so no link stays open for an address it took
-  back.
+  invitation of the deployment's that still stands for an address the deployment no
+  longer names is withdrawn, so no link stays open for an address it took back.
 - An invitation to the address with those roles stands: nothing is mailed
   (`FirstAdministratorStanding`), so a release while the person has not yet accepted
   sends no second message.
@@ -1848,18 +1847,26 @@ has an account (`ErrFirstAdministratorHasAccount`), and a refusal changes nothin
 
 Both refuse, with nothing mailed, an empty address (`ErrFirstAdministratorUnnamed`) and
 an Auth whose sender delivers nothing (`ErrFirstAdministratorNoMailbox`). The second is
-the rule that an invitation's link is never written to a log: `mail.Delivers` reports
-whether a sender hands its messages to a mail system, `mail.Log` does not, and whoever
-reads the link of the first administrator's invitation becomes the administrator. An
+the rule that the release never writes an invitation's link to a log: a sender says
+itself whether it hands its messages to a mail system (`mail.Deliverer`, which the
+Workspace relay declares), `mail.Delivers` takes a sender that says nothing, as
+`mail.Log` and anything that wraps it, for one that does not, and whoever reads the link
+of the first administrator's invitation becomes the administrator. An application's own
+driver declares `Delivers() bool` before it can carry this invitation. An
 invitation the deployment no longer names is withdrawn before either refusal, and the
 error says so. The checks every invitation is held to apply too: an address no sign-in
 method of the Auth could admit is refused, and a message that could not be sent leaves no
 invitation standing.
 
-While the Auth has no account nobody is signed in, so an invitation into the application
-that no user sent is the deployment's own: those are the invitations the two calls read
-and withdraw, and they touch no invitation a user sent, none into a tenant and none that
-makes a tenant. The roles are given by the application's acceptance hook
+The first administrator is the deployment's first super administrator, the one person
+who can make another, so the roles name the Super Administrator role
+(`accesstypes.SuperAdministrator`), and a request without it is refused. That role is
+also how the deployment's own invitation is told from every other: it is an invitation
+into the application that gives the Super Administrator role and that no user of the
+Auth sent, which only the application acting for itself writes. Those are the
+invitations the two calls read and withdraw, and they touch no invitation a user sent,
+none into a tenant, none that makes a tenant and none that gives other roles alone. The
+roles are given by the application's acceptance hook
 (`SetInvitationAccepted`), as any invitation's are; an Auth with no such hook gives an
 accepted invitation nothing, so its application invites no first administrator this way.
 Nothing here locks: a deployment runs one release at a time, and the step is its.

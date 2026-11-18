@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -21,10 +22,17 @@ import (
 // account is created ahead of the person and no password is generated for them, so
 // nothing stands that somebody other than the mailbox's owner could sign in with.
 //
-// While the Auth has no account nobody is signed in, so an invitation into the
-// application that no user sent is the deployment's own: those are the invitations this
-// file reads and withdraws, and it touches no other. An invitation into a tenant, one
-// that makes a tenant and one a user sent are never the first administrator's.
+// The first administrator is the deployment's first super administrator, the one person
+// who can make another, so the invitation gives the Super Administrator role
+// (accesstypes.SuperAdministrator) beside what else the application names. That is also
+// how the deployment's own invitation is told from every other: it is an invitation into
+// the application that gives the Super Administrator role and that no user of the Auth
+// sent. Only the application acting for itself writes one; a user who invites to that
+// role is a super administrator of the Auth and is named on the row. Those are the
+// invitations this file reads and withdraws, and it touches no other: one a user sent,
+// one into a tenant, one that makes a tenant, and one that gives other roles alone (an
+// administrator of another Auth may send such a one, and its row names no user of this
+// Auth) are never the first administrator's.
 //
 // Nothing here locks: a deployment runs one release at a time, and the step is its.
 
@@ -53,7 +61,8 @@ type FirstAdministratorRequest struct {
 	// is mailed.
 	Email string
 	// RoleNames are the roles the acceptance gives, as the application's acceptance
-	// hook understands them (SetInvitationAccepted): at least one.
+	// hook understands them (SetInvitationAccepted): the Super Administrator role
+	// (accesstypes.SuperAdministrator) and what else the application names.
 	RoleNames []string
 }
 
@@ -93,9 +102,8 @@ type FirstAdministrator struct {
 //
 //   - The Auth has an account: nobody is invited (FirstAdministratorHasAccount). Every
 //     person after the first is invited from the application. An invitation of the
-//     deployment's that still stands, with these roles, for an address it no longer
-//     names is withdrawn all the same, so no link stays open for an address the
-//     deployment took back.
+//     deployment's that still stands for an address it no longer names is withdrawn
+//     all the same, so no link stays open for an address the deployment took back.
 //   - An invitation to the address with those roles stands: nothing is mailed
 //     (FirstAdministratorStanding), so a release while the person has not yet accepted
 //     sends no second message.
@@ -145,8 +153,9 @@ func (p *AuthAPI[S, U, Tx]) ReinviteFirstAdministrator(ctx context.Context, req 
 // ReinviteFirstAdministrator, which replaces the standing invitation too.
 func (p *AuthAPI[S, U, Tx]) inviteFirstAdministrator(ctx context.Context, req *FirstAdministratorRequest, fresh bool) (*FirstAdministrator, error) {
 	roles := distinctRoleNames(req.RoleNames)
-	if len(roles) == 0 {
-		return nil, errors.New("the first administrator's invitation names no role: an invitation gives what it names, and a person it gave nothing could administer nothing")
+	if !slices.Contains(roles, superAdministratorRole) {
+		return nil, errors.Newf("the first administrator's invitation does not give the %s role: the first administrator is the deployment's first super administrator, "+
+			"the one person who can make another, so the roles the invitation names begin with that role", superAdministratorRole)
 	}
 	hasAccount, err := p.hasAccount(ctx)
 	if err != nil {
@@ -218,15 +227,13 @@ func (p *AuthAPI[S, U, Tx]) inviteFirstAdministrator(ctx context.Context, req *F
 }
 
 // withdrawTakenBack is what a release does once the Auth has an account. Nobody is
-// invited, and one thing is still done: an invitation the deployment sent earlier that
-// stands for an address the deployment no longer names is withdrawn, so a link mailed
-// to an address the deployment took back does not stay open until it runs out. That is
-// the case where an account came to be before the invited person accepted, as where a
-// test environment's seed creates accounts in the release that invites. An invitation
-// to the address still named is left to be accepted. Only an invitation that gives
-// exactly roles is taken for the deployment's here: once the Auth has accounts, an
-// invitation no user sent may be the application's own, for a purpose of its own, and
-// one that gives the first administrator's roles is the first administrator's.
+// invited, and one thing is still done: an invitation of the deployment's that stands
+// for an address the deployment no longer names is withdrawn, whatever roles it gives
+// beside the Super Administrator role, so a link mailed to an address the deployment
+// took back does not stay open until it runs out. That is the case where an account
+// came to be before the invited person accepted, as where a test environment's seed
+// creates accounts in the release that invites. An invitation to the address still
+// named is left to be accepted, with the roles it was sent with.
 func (p *AuthAPI[S, U, Tx]) withdrawTakenBack(ctx context.Context, email string, roles []string) (*FirstAdministrator, error) {
 	result := &FirstAdministrator{Outcome: FirstAdministratorHasAccount}
 	_, stale, err := p.firstAdministratorInvitations(ctx, email, roles)
@@ -234,7 +241,7 @@ func (p *AuthAPI[S, U, Tx]) withdrawTakenBack(ctx context.Context, email string,
 		return nil, err
 	}
 	for _, inv := range stale {
-		if !slices.Equal(distinctRoleNames(inv.RoleNames), roles) {
+		if email != "" && strings.EqualFold(inv.Email, email) {
 			continue
 		}
 		if _, err := p.withdrawFirstAdministrator(ctx, inv, result); err != nil {
@@ -256,8 +263,12 @@ func (p *AuthAPI[S, U, Tx]) hasAccount(ctx context.Context) (bool, error) {
 	return len(users) > 0, nil
 }
 
+// superAdministratorRole is the Super Administrator role as an invitation names it.
+const superAdministratorRole = string(accesstypes.SuperAdministrator)
+
 // firstAdministratorInvitations reads the deployment's own standing invitations (an
-// invitation into the application that no user sent) and tells them apart: standing is
+// invitation into the application that gives the Super Administrator role and that no
+// user of the Auth sent) and tells them apart: standing is
 // the one mailed to email, a bare address, with exactly roles, nil for none, and stale
 // every other, which the deployment no longer names; with no address ("") every one is
 // stale. Of two that match, the one that stands longest is kept and the other is stale,
@@ -268,7 +279,7 @@ func (p *AuthAPI[S, U, Tx]) firstAdministratorInvitations(ctx context.Context, e
 		return nil, nil, errors.Wrap(err, "sessionstorage.AuthStore.LiveMailLinks()")
 	}
 	for _, link := range links {
-		if link.InvitedByUserID.Valid || link.TenantID != "" || link.NewTenant != nil {
+		if link.InvitedByUserID.Valid || link.TenantID != "" || link.NewTenant != nil || !slices.Contains(link.RoleNames, superAdministratorRole) {
 			continue
 		}
 		inv := invitationOf(link)
