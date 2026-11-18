@@ -728,7 +728,13 @@ Google directory at `/portal/api/user/directory/login`; their roles are the dire
 groups (`google.RoleSync`), reconciled at every login and never assigned in the
 application, a global role held in the global partition and a domain role in every
 sector, each under the id of the client's account; `pkg/auth/members/roles.json` only
-says what a role may do, in the lowercase names Google groups carry. A client's account
+says what a role may do, in the lowercase names Google groups carry. The directory
+decides who is a super administrator of the portal too: a group that names the Super
+Administrator role gives it at the client's sign-in, the role goes at the sign-in
+where the directory no longer names it, the last holder's included, none is seeded, and
+the second factor the library asks of a super administrator in the crew's auth, whose
+roles the application gives, is not asked here beyond what the portal asks of every
+client. A client's account
 is made by their first sign-in; the bootstrap makes the accounts of the clients the demo
 world's rows name ahead of that (the file's `members`: no password, no roles, a fixed
 id), and the first sign-in through the directory finds the account under the directory's
@@ -907,8 +913,10 @@ session reaches their other sectors by those sectors' own declarations. Nor does
 fleet's own team make the way in theirs: Headquarters, which gives the crew's roles and
 manages its accounts for the whole fleet, is refused giving anyone, itself included,
 the marshal's role at Bastion while Bastion is directory only, a place in a group of
-Bastion's that holds it, and any change to the account of the marshal Bastion has (a
-password, an address, a disabled account), each with a sentence that says who does it:
+Bastion's that holds it, and the changes to the account of the marshal Bastion has that
+would hand over her sign-in or shut her out (a password, a sign-in name, an address, an
+identity unlinked, the account disabled, enabled or deleted), each with a sentence that
+says who does it:
 one of Bastion's marshals, or a super administrator, as the governor is. A marshal of
 Bastion who changes her password goes on in the session that made the change, a
 password and the code still, so the change does not close her out of the sector she
@@ -1022,9 +1030,9 @@ holds no seat in it. The
 whole service is kept by the Super Administrator role instead: only a holder makes or
 removes another or changes how another signs in (headquarters, which manages the crew's
 accounts, neither disables nor enables a holder's, sets no password, username or email
-address on a holder and unlinks none of their identities), a person given the role
-signs in again and meets the code afresh since giving it ends their sessions, revokes
-their tokens and forgets their remembered browsers, a holder gives and takes any role
+address on a holder and unlinks none of their identities), giving the role ends
+nothing the person holds (their sessions, tokens and remembered browsers stand, and the
+code is asked at their next sign-in), a holder gives and takes any role
 of the crew whatever the role file
 grants (`access.WithSuperAdministratorMethods`, handed the generated
 `crewidentity.SuperAdministratorMethods`), and the last holder who can sign in keeps the

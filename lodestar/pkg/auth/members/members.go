@@ -5,7 +5,9 @@
 // The directory proves who someone is and says what they may do. Role membership is the
 // directory's (google.RoleSync): every sign-in reconciles the person's roles to the
 // Google Groups the directory places them in and removes any it does not name, so nothing
-// in the application assigns roles in this store and the bootstrap seeds none. The roles
+// in the application assigns roles in this store and the bootstrap seeds none. The
+// directory decides who is a super administrator too: a group that names the Super
+// Administrator role gives it, and the role goes when the directory stops naming it. The roles
 // are held by the id of the member's account, which is how the permission store names a
 // person. A global role is held in the global partition and a domain role in every
 // sector, so one membership reaches every sector, the ones seeded today and the ones
@@ -269,7 +271,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The members' engine defines the framework's Super Administrator role as every
 	// auth's does, and the generated management names no method that gives a role
 	// (membersidentity.SuperAdministratorMethods is empty): the directory's groups name
-	// a client's roles, and the sync neither gives nor takes that one.
+	// a client's roles, that one among them. The directory decides who is a super
+	// administrator of the members, the sync gives the role to a client it names for it
+	// and takes it from one it no longer names, and the bootstrap seeds none.
 	accessClient, err := access.New(store,
 		access.WithDefaultRoles(settings.Collection, Roles()),
 		access.WithChangeSignal(settings.ChangeSignal),
@@ -290,9 +294,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// One Auth session the directory establishes, which mails as the fleet
 	// (session.WithMail): the verification of an address, leading to the portal's login
 	// page with its token in the query. It is built knowing who holds the Super
-	// Administrator role (session.SuperAdministratorsBy): a holder signs in with a second
-	// factor whatever the rule set below asks of anyone else, by a rule of the library's
-	// own after the members'.
+	// Administrator role (session.SuperAdministratorsBy), as every auth with roles is.
+	// The library's own second factor for a holder holds nobody here: every member
+	// signs in through the directory, which writes the roles, and there the directory is
+	// the authority. The members' own rule, set below, asks its factor of every member.
 	membersSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,

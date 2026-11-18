@@ -350,7 +350,9 @@ func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]
 
 // superAdministratorDescription is what the listing says the Super
 // Administrator role is for, beside its name.
-const superAdministratorDescription = "The way back in when everything else is broken. Signs in whatever a tenant's sign-in settings say, always with a second factor, and gives or takes any role for any person. Only a super administrator makes or removes another, and the last one cannot be removed."
+const superAdministratorDescription = "The way back in when everything else is broken. Signs in whatever a tenant's sign-in settings say and gives or takes any role for any person. " +
+	"Where the application gives the roles, a super administrator signs in with a second factor, only a super administrator makes or removes another, and the last one cannot be removed. " +
+	"Where the roles come from the directory, the directory decides who is a super administrator."
 
 // superAdministratorReserved is the rule a role of the reserved name is
 // refused with, in the file and at AddRole alike, after "role NAME: ".

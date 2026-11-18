@@ -309,7 +309,10 @@ type SuperAdministrators struct {
 // the Auth. The Auth then holds a holder's sign-in for the code it mails, whatever the
 // application's sign-in rule asks of anyone else (signin.SuperAdministratorFactor), so
 // the Auth must send mail (WithMail): NewAuth refuses one that sends none, and a nil
-// check.
+// check. A sign-in through a method that synchronizes roles is not held: there the
+// directory is the authority on who is a super administrator, and the application's own
+// rule is asked of that person as of anyone. NewAuth asks such an Auth for mail all the
+// same.
 func SuperAdministratorsBy(check signin.SuperAdministratorCheck) SuperAdministrators {
 	return SuperAdministrators{none: false, checked: true, check: check}
 }

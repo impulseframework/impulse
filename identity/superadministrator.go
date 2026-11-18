@@ -13,8 +13,12 @@ import (
 )
 
 // The rules of the Super Administrator role (accesstypes.SuperAdministrator), the one
-// role the framework defines in every auth. They are held here for every auth, whatever
-// its role file says:
+// role the framework defines in every auth. They are the rules of the user management,
+// held here for every auth whose roles the application gives, whatever its role file
+// says. In an auth whose roles come from its directory nobody gives a role by hand: the
+// directory decides who is a super administrator, the session library's role
+// synchronization writes and removes the role at each sign-in as it does any other, and
+// none is seeded.
 //
 //   - the role is held in the global partition alone (the permission engine refuses a
 //     membership of it anywhere else, access.UserManager.Membership);

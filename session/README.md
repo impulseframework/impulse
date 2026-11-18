@@ -198,7 +198,11 @@ DML what a later rule must read.
   the library mails (`sessioninfo.MethodEmailCode`) when the person holds the role, with
   or without a policy of the application's. The directory's attestation and a remembered
   browser satisfy it as for any account, and a refusal, or a hold for a factor the policy
-  names itself, stands as the policy decided it. Such an Auth must send mail
+  names itself, stands as the policy decided it. The rule is for an Auth whose roles the
+  application gives. A sign-in through a method that synchronizes roles is not held by
+  it: there the directory is the authority, on who is a super administrator as on every
+  role, and the application's own policy is asked of that person as of anyone (see
+  "Role synchronization"). Such an Auth must send mail
   (`WithMail`): `NewAuth` refuses one that sends none, since the code could not be sent
   and a holder would never sign in. It refuses the argument's zero value and a nil check
   too, each saying what to pass. An application with no permission engine, and so no
@@ -1143,7 +1147,9 @@ the person reaches.
    before it is judged: the store counts it on the code's row and answers which
    attempt it was in one step (`AuthStore.RecordFactorCodeAttempt`), and a guess past
    the fifth is answered `code_expired` without being compared with the code, so of
-   guesses entered at once no more than five are ever judged. An address is sent five codes
+   guesses entered at once no more than five are ever judged. A code whose five
+   attempts are taken stands no longer: the pending sign-in's state reports none, so
+   the page offers a new one. An address is sent five codes
    within fifteen minutes that go unused, and the sixth is refused with
    `too_many_emails` and the wait, as a link is; a code that is used resets the count,
    so a person who signs in with each code sent never meets the limit. The code goes to the address the user holds, verified or not:
@@ -1271,14 +1277,15 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
 | `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
-| `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then continues in a new one. The new session is the continuation of the one that made the change: it records that session's auth events, how it was established and the factors it holds, read from the session and never from the request, so a person who signed in through a directory still holds the directory's session and one who entered with a password and the mailed code keeps the code. Where there is none to continue (a call outside a session of the user, or from a session that views the application as them) it records the password the change proved, alone. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
+| `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then continues in a new one. The new session is the continuation of the one that made the change: it records that session's auth events, how it was established and the factors it holds, read from the session and never from the request, so a person who signed in through a directory still holds the directory's session and one who entered with a password and the mailed code keeps the code. Where there is none to continue (a call outside a session of the user, a request a bearer token authenticated, or a session that views the application as them) it records the password the change proved, alone. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`), so no failure leaves the temporary password in place and a session alive, on the act meant to end them. |
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). A password shorter than eight characters is refused, as on every path that sets one. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
-characters, and a shorter one is 400 saying so. A sign-up, the account an invitation's
+characters, counted as characters and not as bytes, and a shorter one is 400 saying so.
+A sign-up, the account an invitation's
 acceptance makes, a first password, a person's own change, a password set by a flow of
 the application's own, an operator's temporary password, an account created with one
 and the hash `HashPassword` hands the generated user management all hash the password
@@ -1305,7 +1312,9 @@ something anyone may come to hold. The generated seed of an auth's first adminis
 and the persona cast's seed work this way, and seed nothing for a user that exists,
 whatever it holds. The first administrator is the deployment's first super administrator:
 the seed writes the Super Administrator role under the id beside the application's own
-administrator roles, since only a holder of that role makes another.
+administrator roles, since only a holder of that role makes another. An auth whose
+roles come from its directory seeds nobody: the directory names its super
+administrators, as it names every role.
 
 A first administrator who signs in through a directory holds no password, and the seed
 creates the account under `session.SeedUserIDThrough(auth, registration, username)`:
@@ -1491,7 +1500,7 @@ What is refused, and how:
 | The `Auth` has no password method | 409: nobody signs in to the application with a password, so there is none to choose. |
 | The account has no confirmed address | 409 from `SendCode()`, saying to add an address and confirm it from the link first (`Email()`, "Users and their email address"). An address nobody confirmed is not mailed the code: the person has not shown it is theirs, and the code would go wherever whoever typed the address pointed it. A confirmed address no message can be sent to is answered the same way: the simulated build's directories vouch for a person under their login name, so a person signed in through one adds their address first. |
 | The session views as someone else | 403, on both routes: an impersonated session changes nothing of the account it looks at, as on every own-account route. |
-| A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged. The right code gives the attempts back. |
+| A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged, on both databases (the PostgreSQL driver takes the account's attempts row and its lock in one statement, so a failure recorded while the count is cleared is the first after the clear). The right code gives the attempts back. |
 | A code entered when none stands | 409: none was sent, or the one sent expired, was used, was replaced by a newer one or was ended by wrong codes. |
 | A password shorter than eight characters | 400: the password is held to the rule a sign-up's is. The code still stands. |
 | A sixth code asked for a mailbox that used none of five | 429 with `too_many_emails` and the wait, the limit every code and link shares. |
@@ -2187,6 +2196,17 @@ holds, and the first sign-in through it seats the person in the roles the direct
 names, with nothing to seed. An application whose people come in two ways with two
 authorities (staff on the directory's groups, members the application seats) keeps two
 `Auth`s, one per population.
+
+The directory decides who is a super administrator too. A name it asserts that
+resolves to the Super Administrator role is written like any other, in the global
+partition, the one place the role is held and the one place it resolves; a person the
+directory names for that role alone holds a role and signs in; and the role goes at the
+sign-in where the directory no longer names it, the last holder's included. So such an
+`Auth` has the super administrators its directory names and no other, and none is
+seeded. The library's own second factor for a super administrator
+(`signin.SuperAdministratorFactor`) does not hold a sign-in through a method that
+synchronizes roles: how the directory's people prove who they are is the directory's
+to say, and the application's sign-in policy still asks what it asks of anyone.
 
 ```go
 entra := azure.SignIn(auth, "azure", nil, &azure.Config{
