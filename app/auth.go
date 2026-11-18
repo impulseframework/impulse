@@ -267,22 +267,23 @@ func oidcKind(cfg *ast.CompositeLit) string {
 // attachMethods gives each method to the Auth its first argument names, and to the only
 // Auth of the set when the identifier does not resolve; it returns the methods left over.
 func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
-	for _, m := range methods {
+	for j := range methods {
+		m := &methods[j]
 		placed := false
 		for i := range auths {
 			if auths[i].Var != "" && auths[i].Var == m.AuthVar {
-				auths[i].Methods = append(auths[i].Methods, m)
+				auths[i].Methods = append(auths[i].Methods, *m)
 				placed = true
 
 				break
 			}
 		}
 		if !placed && len(auths) == 1 {
-			auths[0].Methods = append(auths[0].Methods, m)
+			auths[0].Methods = append(auths[0].Methods, *m)
 			placed = true
 		}
 		if !placed {
-			unattached = append(unattached, m)
+			unattached = append(unattached, *m)
 		}
 	}
 
@@ -294,7 +295,8 @@ func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
 // UnattachedMethods for the session-tables check to report.
 func (a *App) attachPackageMethods() {
 	var left []Method
-	for _, m := range a.unattached {
+	for j := range a.unattached {
+		m := &a.unattached[j]
 		var same []int
 		for i := range a.Auths {
 			if path.Dir(a.Auths[i].File) == path.Dir(m.File) {
@@ -302,11 +304,11 @@ func (a *App) attachPackageMethods() {
 			}
 		}
 		if len(same) == 1 {
-			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, m)
+			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, *m)
 
 			continue
 		}
-		left = append(left, m)
+		left = append(left, *m)
 	}
 	a.UnattachedMethods = left
 }

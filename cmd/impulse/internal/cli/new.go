@@ -65,17 +65,9 @@ type newDeps struct {
 	run   check.Execer
 }
 
-func newNew() *cobra.Command {
-	return newNewWith(newDeps{build: check.RunningBuild, run: check.OSExec{}})
-}
-
-func newNewWith(d newDeps) *cobra.Command {
-	var nf newFlags
-
-	cmd := &cobra.Command{
-		Use:   "new <dir>",
-		Short: "Create an Impulse application: the base skeleton under your module path, its first auth named",
-		Long: `new renders the base skeleton (flat layout, one auth, nothing else on) into a new or empty
+// newLong is the help text of impulse new, which names the shapes its --shape takes.
+func newLong() string {
+	return `new renders the base skeleton (flat layout, one auth, nothing else on) into a new or empty
 directory under the module path you name, and names the application's first auth: the
 population that signs in, as a lowercase plural (staff, members, partners, devices). The
 auth is a package, pkg/auth/<name>, and its name is also the prefix of its tables, its
@@ -127,8 +119,21 @@ installed from a commit, since only a release publishes them. An impulse built f
 checkout (go build, go run) names no version the proxy serves, so new refuses it before
 writing anything, unless --dev-root names the checkout to build against: then go.mod
 requires the framework at a placeholder version and replaces the module with the checkout,
-a line that is not for committing.`,
-		Args: cobra.ExactArgs(1),
+a line that is not for committing.`
+}
+
+func newNew() *cobra.Command {
+	return newNewWith(newDeps{build: check.RunningBuild, run: check.OSExec{}})
+}
+
+func newNewWith(d newDeps) *cobra.Command {
+	var nf newFlags
+
+	cmd := &cobra.Command{
+		Use:   "new <dir>",
+		Short: "Create an Impulse application: the base skeleton under your module path, its first auth named",
+		Long:  newLong(),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			start, err := nf.opts.settleShape(cmd)
 			if err != nil {

@@ -245,25 +245,26 @@ func Test_methodSpec_shape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		shape     string
-		args      []string
-		slot      string
-		authority string
-		want      authpkg.Method
+		name         string
+		shape        string
+		kind         string
+		registration string
+		slot         string
+		authority    string
+		want         authpkg.Method
 	}{
-		{name: "invite only", shape: "invite-only", args: []string{"staff", "google"}, slot: authpkg.SlotAny, want: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Slot: authpkg.SlotAny, Authority: app.AuthorityApplication}},
-		{name: "invite only, the persona method", shape: "invite-only", args: []string{"staff", "persona"}, want: authpkg.Method{Kind: app.MethodPersona, Name: "persona", Authority: app.AuthorityApplication}},
-		{name: "directory members", shape: "directory-members", args: []string{"staff", "azure", "entra"}, slot: authpkg.SlotListed, want: authpkg.Method{Kind: app.MethodAzure, Name: "entra", Slot: authpkg.SlotListed, Authority: app.AuthorityApplication}},
-		{name: "directory roles", shape: "directory-roles", args: []string{"members", "google", "workspace"}, want: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: app.AuthorityDirectory}},
-		{name: "open sign-up, a Microsoft method", shape: "open-sign-up", args: []string{"staff", "azure"}, want: authpkg.Method{Kind: app.MethodAzure, Name: "azure", Slot: authpkg.SlotAnyPersonal, Authority: app.AuthorityApplication}},
-		{name: "open sign-up, the password method", shape: "open-sign-up", args: []string{"staff", "password"}, want: authpkg.Method{Kind: app.MethodPassword}},
+		{name: "invite only", shape: "invite-only", kind: "google", slot: authpkg.SlotAny, want: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Slot: authpkg.SlotAny, Authority: app.AuthorityApplication}},
+		{name: "invite only, the persona method", shape: "invite-only", kind: "persona", want: authpkg.Method{Kind: app.MethodPersona, Name: "persona", Authority: app.AuthorityApplication}},
+		{name: "directory members", shape: "directory-members", kind: "azure", registration: "entra", slot: authpkg.SlotListed, want: authpkg.Method{Kind: app.MethodAzure, Name: "entra", Slot: authpkg.SlotListed, Authority: app.AuthorityApplication}},
+		{name: "directory roles", shape: "directory-roles", kind: "google", registration: "workspace", want: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: app.AuthorityDirectory}},
+		{name: "open sign-up, a Microsoft method", shape: "open-sign-up", kind: "azure", want: authpkg.Method{Kind: app.MethodAzure, Name: "azure", Slot: authpkg.SlotAnyPersonal, Authority: app.AuthorityApplication}},
+		{name: "open sign-up, the password method", shape: "open-sign-up", kind: "password", want: authpkg.Method{Kind: app.MethodPassword}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := methodSpec(newAddMethod(), tt.args, tt.slot, tt.authority, false, methodsShape(t, tt.shape))
+			got, err := methodSpec(newAddMethod(), tt.kind, tt.registration, tt.slot, tt.authority, false, methodsShape(t, tt.shape))
 			if err != nil {
 				t.Fatalf("methodSpec() error = %v", err)
 			}
@@ -275,7 +276,7 @@ func Test_methodSpec_shape(t *testing.T) {
 
 	// Without a shape a directory method's authority is still asked, and required where
 	// nobody is at the terminal.
-	if _, err := methodSpec(newAddMethod(), []string{"staff", "google"}, "", "", false, nil); err == nil || !strings.Contains(err.Error(), "--authority is required for a directory method") {
+	if _, err := methodSpec(newAddMethod(), "google", "", "", "", false, nil); err == nil || !strings.Contains(err.Error(), "--authority is required for a directory method") {
 		t.Errorf("methodSpec() without a shape error = %v, want the authority required", err)
 	}
 }

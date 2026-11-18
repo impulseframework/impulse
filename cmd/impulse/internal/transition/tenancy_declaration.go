@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/ettle/strcase"
@@ -271,7 +272,7 @@ func (tn Tenancy) declareOneTenant(a *app.App, ch *Change) error {
 
 			continue
 		}
-		edited := append(src[:call[3]:call[3]], append([]byte(", "+oneTenantOption), src[call[3]:]...)...)
+		edited := slices.Concat(src[:call[3]], []byte(", "+oneTenantOption), src[call[3]:])
 		if edited, err = app.AddImport(rel, edited, identityImportPath); err != nil {
 			return err
 		}

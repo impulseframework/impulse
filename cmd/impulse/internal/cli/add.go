@@ -635,7 +635,11 @@ func newAddMethod() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			spec, err := methodSpec(cmd, args, slot, authority, usernameIsEmail, start)
+			registration := ""
+			if len(args) == 3 {
+				registration = args[2]
+			}
+			spec, err := methodSpec(cmd, args[1], registration, slot, authority, usernameIsEmail, start)
 			if err != nil {
 				return err
 			}
@@ -659,17 +663,17 @@ func newAddMethod() *cobra.Command {
 }
 
 // methodSpec reads add method's arguments and flags into the method to add: its kind,
-// its registration name (the kind's own when none is given, except for an identity
-// provider, which has no default), its slot and its authority. The password method
+// its registration name (the kind's own when none is given, registration being empty
+// then, except for an identity provider, which has no default), its slot and its
+// authority. The password method
 // takes neither flag, the persona method no slot and the application's authority.
 // Under --shape (start) the shape fills in what the flags left open and refuses a
 // method or a flag that contradicts it; without one, a directory method's authority is
 // asked when the flag did not say.
-func methodSpec(cmd *cobra.Command, args []string, slot, authority string, usernameIsEmail bool, start *shape.Shape) (authpkg.Method, error) {
-	spec := authpkg.Method{Kind: args[1], Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail}
+func methodSpec(cmd *cobra.Command, kind, registration, slot, authority string, usernameIsEmail bool, start *shape.Shape) (authpkg.Method, error) {
+	spec := authpkg.Method{Kind: kind, Name: registration, Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail}
 	switch {
-	case len(args) == 3:
-		spec.Name = args[2]
+	case registration != "":
 	case spec.Kind == app.MethodOIDC:
 		return spec, errors.New("the oidc method needs a registration name: impulse add method <auth> oidc <registration>, the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries")
 	case spec.Kind != app.MethodPassword:

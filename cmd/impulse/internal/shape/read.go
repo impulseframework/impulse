@@ -131,7 +131,7 @@ func (r *Reading) auth(a *app.App, profile *app.Profile, construction *app.Auth)
 	for i := range construction.Methods {
 		m := &construction.Methods[i]
 		width := ReadWidth(m)
-		if rolesUnreadOf(*m) && (m.Kind == app.MethodPersona || m.Kind == app.MethodOIDC) {
+		if rolesUnreadOf(m) && (m.Kind == app.MethodPersona || m.Kind == app.MethodOIDC) {
 			// The scan tells the two registrations of the generic OpenID Connect method
 			// apart by the configuration, and read none here, so which of them this is,
 			// and with it how wide it is open, is not known.
@@ -148,7 +148,7 @@ func (r *Reading) auth(a *app.App, profile *app.Profile, construction *app.Auth)
 			return nil, err
 		}
 		auth.OneTenant = declared
-		auth.MakesTenants = creates && !slices.ContainsFunc(construction.Methods, syncsRoles)
+		auth.MakesTenants = creates && firstMethod(construction.Methods, syncsRoles) < 0
 	}
 	r.judge(auth, construction.Methods)
 
@@ -167,29 +167,40 @@ func importPathOf(a *app.App, dir string) string {
 	return ""
 }
 
+// firstMethod is the place of the first method the test reports, or -1.
+func firstMethod(methods []app.Method, is func(m *app.Method) bool) int {
+	for i := range methods {
+		if is(&methods[i]) {
+			return i
+		}
+	}
+
+	return -1
+}
+
 // syncsRoles reports a method whose directory gives the roles.
-func syncsRoles(m app.Method) bool {
+func syncsRoles(m *app.Method) bool {
 	return m.Authority == app.AuthorityDirectory
 }
 
 // rolesUnreadOf reports a directory method whose authority the scan does not read.
-func rolesUnreadOf(m app.Method) bool {
+func rolesUnreadOf(m *app.Method) bool {
 	return m.Directory() && m.Authority == ""
 }
 
 // givesRolesItself reports a method through an organization's directory whose roles the
 // application gives: the kind of method a tenant's people come through its own
 // directory by. The persona method is the test environments' and no organization's.
-func givesRolesItself(m app.Method) bool {
+func givesRolesItself(m *app.Method) bool {
 	return m.Directory() && m.Kind != app.MethodPersona && m.Authority == app.AuthorityApplication
 }
 
 // rolesOf says who gives a method's roles.
 func rolesOf(m *app.Method) string {
 	switch {
-	case rolesUnreadOf(*m):
+	case rolesUnreadOf(m):
 		return rolesUnread
-	case syncsRoles(*m):
+	case syncsRoles(m):
 		return rolesDirectory
 	default:
 		return rolesApplication
@@ -202,9 +213,9 @@ func rolesOf(m *app.Method) string {
 // tenant of their own carries the choice.
 func choiceOf(m *app.Method, tenanted, creates bool) string {
 	switch {
-	case rolesUnreadOf(*m):
+	case rolesUnreadOf(m):
 		return choiceUnread
-	case syncsRoles(*m):
+	case syncsRoles(m):
 		return choiceDirectory
 	case m.Kind == app.MethodPersona:
 		return choicePersona
@@ -339,8 +350,8 @@ func (r *Reading) judge(auth *Auth, methods []app.Method) {
 	none := func(format string, args ...any) {
 		auth.Shape, auth.Says = nil, fmt.Sprintf(format, args...)
 	}
-	synced := slices.IndexFunc(methods, syncsRoles)
-	switch unread := slices.IndexFunc(methods, rolesUnreadOf); {
+	synced := firstMethod(methods, syncsRoles)
+	switch unread := firstMethod(methods, rolesUnreadOf); {
 	case len(methods) == 0:
 		none("no sign-in method is read on its Auth")
 	case unread >= 0:
@@ -409,7 +420,7 @@ func whenOpened(methods []app.Method) string {
 func (r *Reading) judgeTenants(auth *Auth, methods []app.Method) {
 	var through []string
 	for i := range methods {
-		if givesRolesItself(methods[i]) {
+		if givesRolesItself(&methods[i]) {
 			through = append(through, methods[i].Name)
 		}
 	}
@@ -442,7 +453,7 @@ func DirectoryMethods(a *app.App) []string {
 			name = path.Dir(construction.File)
 		}
 		for j := range construction.Methods {
-			if m := &construction.Methods[j]; givesRolesItself(*m) {
+			if m := &construction.Methods[j]; givesRolesItself(m) {
 				found = append(found, fmt.Sprintf("the %s auth's %s method (%s:%d)", name, m.Name, m.File, m.Line))
 			}
 		}
