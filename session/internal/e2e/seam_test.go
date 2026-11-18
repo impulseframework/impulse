@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -251,17 +252,28 @@ func (b *browser) xsrfToken() string {
 func (b *browser) do(ctx context.Context, method, path string, body any, xsrfHeader ...string) (status int, response []byte) {
 	b.t.Helper()
 
+	status, response, err := b.send(ctx, method, path, body, xsrfHeader...)
+	if err != nil {
+		b.t.Fatalf("%s %s: %v", method, path, err)
+	}
+
+	return status, response
+}
+
+// send is do for a caller that is not the test's own goroutine: a request that could
+// not be made is its error, for the test to report, and never fails the test from here.
+func (b *browser) send(ctx context.Context, method, path string, body any, xsrfHeader ...string) (status int, response []byte, err error) {
 	var payload io.Reader = http.NoBody
 	if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
-			b.t.Fatalf("json.Marshal() error = %v", err)
+			return 0, nil, fmt.Errorf("json.Marshal() error = %w", err)
 		}
 		payload = bytes.NewReader(buf)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, b.base.String()+path, payload)
 	if err != nil {
-		b.t.Fatalf("http.NewRequestWithContext() error = %v", err)
+		return 0, nil, fmt.Errorf("http.NewRequestWithContext() error = %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if method != http.MethodGet && method != http.MethodHead {
@@ -274,15 +286,15 @@ func (b *browser) do(ctx context.Context, method, path string, body any, xsrfHea
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		b.t.Fatalf("http.Client.Do(%s %s) error = %v", method, path, err)
+		return 0, nil, fmt.Errorf("http.Client.Do() error = %w", err)
 	}
 	defer resp.Body.Close()
 	got, err := io.ReadAll(resp.Body)
 	if err != nil {
-		b.t.Fatalf("io.ReadAll() error = %v", err)
+		return 0, nil, fmt.Errorf("io.ReadAll() error = %w", err)
 	}
 
-	return resp.StatusCode, got
+	return resp.StatusCode, got, nil
 }
 
 // expect sends the request and fails the test unless the status matches.

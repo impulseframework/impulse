@@ -470,14 +470,20 @@ func seamEmailCodeGuessesAtOnce[Tx any](ctx context.Context, t *testing.T, a *au
 			copies[i] = b.clone()
 		}
 		statuses, bodies = make([]int, guesses), make([]string, guesses)
+		failed := make([]error, guesses)
 		var wg sync.WaitGroup
 		for i, c := range copies {
 			wg.Go(func() {
-				status, body := c.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
-				statuses[i], bodies[i] = status, string(body)
+				status, body, err := c.send(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code})
+				statuses[i], bodies[i], failed[i] = status, string(body), err
 			})
 		}
 		wg.Wait()
+		for i, err := range failed {
+			if err != nil {
+				t.Fatalf("guess %d of %d at once: %v", i, guesses, err)
+			}
+		}
 
 		return statuses, bodies
 	}

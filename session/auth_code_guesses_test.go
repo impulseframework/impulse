@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,7 +36,9 @@ func newTogether() *together {
 }
 
 // arrive holds the guess of ctx until every guess has arrived. A guess arrives once: a
-// later write of the same guess is not held, and neither is a context with no guess.
+// later write of the same guess is not held, and neither is a context with no guess. A
+// guess the others never join goes on after a while, so a change that makes a guess
+// write nothing fails the test's counts and does not hang it.
 func (g *together) arrive(ctx context.Context) {
 	guess, ok := ctx.Value(guessKey{}).(int)
 	if !ok {
@@ -51,7 +52,10 @@ func (g *together) arrive(ctx context.Context) {
 		}
 	}
 	g.mu.Unlock()
-	<-g.all
+	select {
+	case <-g.all:
+	case <-time.After(10 * time.Second):
+	}
 }
 
 // fire makes guessesAtOnce guesses in parallel and returns what each was answered.
@@ -75,10 +79,12 @@ type factorCodeRow struct {
 	mu       sync.Mutex
 	row      sessionstorage.FactorCode
 	together *together
-	// taken counts the attempts the store counted, and consumes the consumes it was
-	// asked for, whatever it answered.
-	taken    int
-	consumes atomic.Int64
+	// taken counts the attempts the store counted.
+	taken int
+	// everyConsumeLands makes the store answer each consume as it answers the first, so
+	// that every guess the Auth judged right is accepted and the guesses accepted are
+	// the guesses judged. The real store lets one land, as the row does without it.
+	everyConsumeLands bool
 }
 
 // expectFactorCode gives the fixture's store one code standing for pending.
@@ -133,10 +139,9 @@ func (c *factorCodeRow) count() (int, error) {
 
 func (c *factorCodeRow) consume(ctx context.Context, _ impulse.UUID) error {
 	c.together.arrive(ctx)
-	c.consumes.Add(1)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.row.ConsumedAt != nil {
+	if c.row.ConsumedAt != nil && !c.everyConsumeLands {
 		return httpio.NewNotFoundMessage("no live factor code")
 	}
 	now := time.Now()
@@ -153,76 +158,113 @@ func TestAuth_verifyEmailCode_guessesAtOnce(t *testing.T) {
 	t.Parallel()
 
 	const sent = "314159"
-
-	t.Run("twelve guesses of the right code at once: five are judged, one is accepted and the rest find no code standing", func(t *testing.T) {
-		t.Parallel()
+	// guess makes guessesAtOnce guesses of entered at once against one code standing,
+	// and returns the code's row and how each guess was answered: accepted, told the
+	// code is wrong, or told none stands.
+	guess := func(t *testing.T, entered string, everyConsumeLands bool) (code *factorCodeRow, accepted, wrong, dead int) {
+		t.Helper()
 		f := newAuthFixture(t, gomock.NewController(t))
 		pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
-		code := expectFactorCode(f, pending, sent)
+		code = expectFactorCode(f, pending, sent)
+		code.everyConsumeLands = everyConsumeLands
 
 		answers := fire(func(ctx context.Context, _ int) error {
-			_, err := f.auth.verifyEmailCode(ctx, pending, sent)
+			_, err := f.auth.verifyEmailCode(ctx, pending, entered)
 
 			return err
 		})
-
-		// A guess of the right code that was judged asked the store to consume the code.
-		if judged := code.consumes.Load(); judged != emailCodeAttempts {
-			t.Errorf("%d of %d guesses made at once were judged, want %d: the attempts the code is given", judged, guessesAtOnce, emailCodeAttempts)
-		}
-		if code.taken != guessesAtOnce {
-			t.Errorf("%d attempts were taken, want %d: one for each guess", code.taken, guessesAtOnce)
-		}
-		accepted := 0
 		for n, err := range answers {
 			switch {
 			case err == nil:
 				accepted++
-			case sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedCodeExpired:
-				t.Errorf("guess %d was answered %v, want it accepted or told no code stands", n, err)
+			case sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedInvalidCode:
+				wrong++
+			case sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedCodeExpired:
+				dead++
+			default:
+				t.Errorf("guess %d was answered %v, want it accepted or refused as a code is", n, err)
 			}
 		}
-		if accepted != 1 {
-			t.Errorf("%d guesses were accepted, want one", accepted)
+
+		return code, accepted, wrong, dead
+	}
+
+	t.Run("of twelve guesses of the right code at once, five are judged: the attempts the code is given", func(t *testing.T) {
+		t.Parallel()
+
+		// Every guess judged right is accepted here (everyConsumeLands), so the guesses
+		// accepted are the guesses that were compared with the code.
+		code, judged, _, _ := guess(t, sent, true)
+		if judged != emailCodeAttempts {
+			t.Errorf("%d of %d guesses made at once were judged, want %d", judged, guessesAtOnce, emailCodeAttempts)
+		}
+		if code.taken != guessesAtOnce {
+			t.Errorf("%d attempts were taken, want %d: one for each guess", code.taken, guessesAtOnce)
 		}
 	})
 
-	t.Run("twelve wrong guesses at once: each takes an attempt, four are told the code is wrong, the fifth kills the code and the rest are not judged", func(t *testing.T) {
+	t.Run("of twelve guesses of the right code at once, one is accepted and the rest find no code standing", func(t *testing.T) {
+		t.Parallel()
+
+		code, accepted, wrong, dead := guess(t, sent, false)
+		if accepted != 1 || wrong != 0 || dead != guessesAtOnce-1 {
+			t.Errorf("%d accepted, %d told the code is wrong, %d told none stands; want 1, 0 and %d", accepted, wrong, dead, guessesAtOnce-1)
+		}
+		if code.taken != guessesAtOnce {
+			t.Errorf("%d attempts were taken, want %d: one for each guess", code.taken, guessesAtOnce)
+		}
+	})
+
+	t.Run("twelve wrong guesses at once each take an attempt: four are told the code is wrong, the fifth kills the code and the rest are not judged", func(t *testing.T) {
+		t.Parallel()
+
+		code, accepted, wrong, dead := guess(t, "271828", false)
+		if accepted != 0 || wrong != emailCodeAttempts-1 || dead != guessesAtOnce-emailCodeAttempts+1 {
+			t.Errorf("%d accepted, %d told the code is wrong, %d told none stands; want 0, %d and %d", accepted, wrong, dead, emailCodeAttempts-1, guessesAtOnce-emailCodeAttempts+1)
+		}
+		if code.taken != guessesAtOnce {
+			t.Errorf("%d attempts were taken, want %d: one for each guess", code.taken, guessesAtOnce)
+		}
+		if code.row.ConsumedAt == nil {
+			t.Error("the code stands after its attempts were spent")
+		}
+	})
+
+	t.Run("a code whose last attempt was taken by a request that ended before it consumed the code does not stand: the right code is not judged, and the status says to ask for a new one", func(t *testing.T) {
+		t.Parallel()
+		f := newAuthFixture(t, gomock.NewController(t))
+		userID := impulse.Must(impulse.NewUUID())
+		pending := &pendingState{ID: impulse.Must(impulse.NewUUID()), UserID: impulse.NullUUIDFromUUID(userID)}
+		code := expectFactorCode(f, pending, sent)
+		code.taken, code.row.Attempts = emailCodeAttempts, emailCodeAttempts
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", Email: strPtr("pat@lakeside.edu")}, nil).AnyTimes()
+
+		_, err := f.auth.verifyEmailCode(context.Background(), pending, sent)
+		if sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedCodeExpired {
+			t.Errorf("the right code past the code's attempts was answered %v, want told no code stands", err)
+		}
+		state, err := f.auth.emailCodeState(context.Background(), pending)
+		if err != nil {
+			t.Fatalf("emailCodeState() error = %v", err)
+		}
+		if state.CodeSent || state.CodeExpiresAt != nil || state.CodeEmail != "p•••@lakeside.edu" {
+			t.Errorf("the status = %+v, want no code standing and the address a new one goes to", state)
+		}
+	})
+
+	t.Run("a code with an attempt left stands in the status", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		pending := &pendingState{ID: impulse.Must(impulse.NewUUID())}
 		code := expectFactorCode(f, pending, sent)
+		code.taken, code.row.Attempts = emailCodeAttempts-1, emailCodeAttempts-1
 
-		answers := fire(func(ctx context.Context, _ int) error {
-			_, err := f.auth.verifyEmailCode(ctx, pending, "271828")
-
-			return err
-		})
-
-		if code.taken != guessesAtOnce {
-			t.Errorf("%d attempts were taken, want %d: one for each guess", code.taken, guessesAtOnce)
+		state, err := f.auth.emailCodeState(context.Background(), pending)
+		if err != nil {
+			t.Fatalf("emailCodeState() error = %v", err)
 		}
-		// Only the guess that took the last attempt consumes the code: a guess past the
-		// limit touches nothing.
-		if consumes := code.consumes.Load(); consumes != 1 {
-			t.Errorf("the store was asked to consume the code %d times, want once, by the guess that took the last attempt", consumes)
-		}
-		wrong, dead := 0, 0
-		for n, err := range answers {
-			switch sessioninfo.LoginRefusalCodeOf(err) {
-			case sessioninfo.RefusedInvalidCode:
-				wrong++
-			case sessioninfo.RefusedCodeExpired:
-				dead++
-			default:
-				t.Errorf("guess %d was answered %v, want a refusal of the code", n, err)
-			}
-		}
-		if wrong != emailCodeAttempts-1 || dead != guessesAtOnce-emailCodeAttempts+1 {
-			t.Errorf("%d guesses were told the code is wrong and %d that none stands, want %d and %d", wrong, dead, emailCodeAttempts-1, guessesAtOnce-emailCodeAttempts+1)
-		}
-		if code.row.ConsumedAt == nil {
-			t.Error("the code stands after its attempts were spent")
+		if !state.CodeSent || state.CodeExpiresAt == nil {
+			t.Errorf("the status = %+v, want the code standing", state)
 		}
 	})
 }

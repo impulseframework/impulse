@@ -64,16 +64,9 @@ func (s *SessionStorageDriver) RecordSignInFailure(ctx context.Context, name str
 
 	var record *dbtype.SignInAttempts
 	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		// The placeholder row serializes the first failures of one name: a concurrent
-		// insert of the same name waits for this transaction, then finds the row.
-		placeholder := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, 0, now(), NULL, now()) ON CONFLICT ("Name") DO NOTHING`, s.attemptsTable(), attemptsColumns)
-		if _, err := tx.Exec(ctx, placeholder, name); err != nil {
-			return errors.Wrap(err, "pgx.Tx.Exec()")
-		}
-
-		var row attemptsRow
-		if err := pgxscan.Get(ctx, tx, &row, fmt.Sprintf(`SELECT %s FROM %s WHERE "Name" = $1 FOR UPDATE`, attemptsColumns, s.attemptsTable()), name); err != nil {
-			return errors.Wrap(err, "pgxscan.Get()")
+		row, err := s.lockAttempts(ctx, tx, name)
+		if err != nil {
+			return err
 		}
 		var current *dbtype.SignInAttempts
 		if row.Failures > 0 {
@@ -94,6 +87,38 @@ func (s *SessionStorageDriver) RecordSignInFailure(ctx context.Context, name str
 	}
 
 	return record, nil
+}
+
+// lockAttemptsTries is how often lockAttempts makes the placeholder again when a clear
+// took the row from under it: each try loses only to a clear that commits in the instant
+// between its two statements.
+const lockAttemptsTries = 5
+
+// lockAttempts returns name's row, locked for the transaction, making a row with no
+// failures first when the name has none. The placeholder serializes the first failures
+// of one name: a concurrent insert of the same name waits for this transaction, then
+// finds the row. A clear of the name that commits after the placeholder found the row
+// and before the lock read it leaves nothing to lock, so the placeholder is made again:
+// a failure recorded while the name is cleared counts as the first after the clear, and
+// is never an error.
+func (s *SessionStorageDriver) lockAttempts(ctx context.Context, tx pgx.Tx, name string) (*attemptsRow, error) {
+	placeholder := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, 0, now(), NULL, now()) ON CONFLICT ("Name") DO NOTHING`, s.attemptsTable(), attemptsColumns)
+	locked := fmt.Sprintf(`SELECT %s FROM %s WHERE "Name" = $1 FOR UPDATE`, attemptsColumns, s.attemptsTable())
+	for range lockAttemptsTries {
+		if _, err := tx.Exec(ctx, placeholder, name); err != nil {
+			return nil, errors.Wrap(err, "pgx.Tx.Exec()")
+		}
+		var row attemptsRow
+		err := pgxscan.Get(ctx, tx, &row, locked, name)
+		if err == nil {
+			return &row, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.Wrap(err, "pgxscan.Get()")
+		}
+	}
+
+	return nil, errors.Newf("the sign-in attempts row was cleared %d times while a failure was being recorded on it", lockAttemptsTries)
 }
 
 // ClearSignInAttempts deletes the sign-in attempts record of name, if there is one.

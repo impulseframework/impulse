@@ -119,7 +119,11 @@ func (a *Auth[S, U, Tx]) emailCodeState(ctx context.Context, p *pendingState) (*
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
 	}
 	answer := &emailCodeAnswer{}
-	if code != nil {
+	// A code whose attempts are spent does not stand, though its row is live until the
+	// guess that took the last one consumes it: no guess is judged against it any more
+	// (verifyEmailCode), so the page asks for a new one, as it does where that guess's
+	// request ended before it consumed the code.
+	if code != nil && code.Attempts < emailCodeAttempts {
 		answer.CodeSent, answer.CodeExpiresAt, answer.CodeEmail = true, &code.ExpiresAt, maskAddress(code.Email)
 
 		return answer, nil
@@ -309,9 +313,10 @@ func errCodeExpired() error {
 //
 // A guess takes its attempt before it is judged: the store counts it on the code's row
 // in one statement and answers which attempt it was, and a guess past the limit is not
-// compared with the code at all. Guesses made at once are each counted, so no more than
-// the limit are ever judged, however many arrive together; the right code spends an
-// attempt like any other, on a code it then consumes.
+// compared with the code at all, nor does it touch the code. Guesses made at once are
+// each counted, so no more than the limit are ever judged, however many arrive
+// together; the right code spends an attempt like any other, on a code it then
+// consumes, and of several right guesses within the limit one is accepted.
 func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, code string) (string, error) {
 	standing, err := a.storage.FactorCode(ctx, p.ID)
 	if err != nil {
@@ -330,8 +335,9 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, c
 		return "", errors.Wrap(err, "sessionstorage.AuthStore.RecordFactorCodeAttempt()")
 	}
 	if attempts > emailCodeAttempts {
-		// Past the limit: the guess is not judged. The guess that took the last attempt
-		// consumed the code, right or wrong.
+		// Past the limit: the guess is not judged and touches nothing. The guess that
+		// took the last attempt consumes the code, right or wrong, and a consume from
+		// here would race the right code of a guess within the limit.
 		return "", errCodeExpired()
 	}
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")

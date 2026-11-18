@@ -255,6 +255,49 @@ func testSignInAttemptsCountedAtOnce(ctx context.Context, t *testing.T, h *AuthH
 	}
 }
 
+// testSignInAttemptsRecordedBesideClears records failures of one name while the name is
+// cleared, over and over and at once, and checks that no call fails: a failure recorded
+// in the instant a clear deletes the name's row counts as the first after the clear. A
+// right guess at a code takes its attempt and then clears the name, so two entries of
+// the right code at once are a failure recorded beside a clear.
+func testSignInAttemptsRecordedBesideClears(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	limit := dbtype.SignInAttemptLimit{Failures: 1000000, Window: time.Hour, Lock: time.Hour}
+	now := time.Now()
+
+	const (
+		racers = 8
+		rounds = 100
+	)
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		failed []error
+	)
+	for range racers {
+		wg.Go(func() {
+			for range rounds {
+				_, err := in.Driver.RecordSignInFailure(ctx, "pat@lakeside.edu", now, limit)
+				if err == nil {
+					err = in.Driver.ClearSignInAttempts(ctx, "pat@lakeside.edu")
+				}
+				if err != nil {
+					mu.Lock()
+					failed = append(failed, err)
+					mu.Unlock()
+
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	if len(failed) != 0 {
+		t.Fatalf("failures recorded beside clears of the name, %d at once: %d failed, the first with %v", racers, len(failed), failed[0])
+	}
+}
+
 // testSignInAttemptsMissingTable points the driver at a sign-in attempts table that is
 // not there and checks that every operation says so: an error naming the table, never a
 // success, never the NotFound of a name with no record, and never the Spanner client's

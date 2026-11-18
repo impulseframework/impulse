@@ -582,6 +582,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
 		{name: "of failed attempts recorded at once on one name, as many as the limit are told they were counted and no more", run: testSignInAttemptsCountedAtOnce},
+		{name: "a failed attempt recorded while the name is cleared is the first after the clear, never an error", run: testSignInAttemptsRecordedBesideClears},
 		{name: "a driver whose sign-in attempts table is not there says so: an error naming the table, never a count of nothing", run: testSignInAttemptsMissingTable},
 		{name: "a user's email address is stored in two states, unique among every address held, and read back with the user", run: testUserEmail},
 		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
