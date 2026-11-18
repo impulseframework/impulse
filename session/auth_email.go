@@ -106,11 +106,25 @@ func (a *Auth[S, U, Tx]) directoryPerson(ctx context.Context, userID impulse.UUI
 	return false, nil
 }
 
-// refuseDirectoryAddress refuses a change of the address userID holds confirmed when
-// the person signs in through an organization's directory. A directory person who holds
-// no confirmed address yet is given their first: that changes none.
-func (a *Auth[S, U, Tx]) refuseDirectoryAddress(ctx context.Context, userID impulse.UUID, confirmed bool) error {
-	if !confirmed {
+// holdsAddress reports whether an account holds a confirmed address a message can be
+// sent to. A confirmed value that is no address counts as none, as it does for the code
+// of a first password (sendFirstPasswordCode): the simulated build's directories vouch
+// for a person under their login name.
+func holdsAddress(email *string, confirmed bool) bool {
+	if email == nil || !confirmed {
+		return false
+	}
+	_, err := address(*email)
+
+	return err == nil
+}
+
+// refuseDirectoryAddress refuses a change of the address userID holds when the person
+// signs in through an organization's directory. A directory person who holds no
+// confirmed address a message can be sent to (holdsAddress) is given their first: that
+// changes none.
+func (a *Auth[S, U, Tx]) refuseDirectoryAddress(ctx context.Context, userID impulse.UUID, holds bool) error {
+	if !holds {
 		return nil
 	}
 	directory, err := a.directoryPerson(ctx, userID)
@@ -185,7 +199,7 @@ func (a *Auth[S, U, Tx]) sendVerification(ctx context.Context, user *sessioninfo
 	if err != nil {
 		return err
 	}
-	if err := a.refuseDirectoryAddress(ctx, user.ID, user.EmailVerified()); err != nil {
+	if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, user.EmailVerified())); err != nil {
 		return err
 	}
 	if err := a.limitMail(ctx, bare); err != nil {
@@ -249,7 +263,7 @@ func (a *Auth[S, U, Tx]) emailVerify() http.HandlerFunc {
 		}
 		// A person who came to sign in through a directory since they asked keeps the
 		// address they hold: the link stands unused and dies with its time.
-		if err := a.refuseDirectoryAddress(ctx, user.ID, user.EmailVerified()); err != nil {
+		if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, user.EmailVerified())); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := a.storage.ConsumeMailLink(ctx, link.TokenHash); err != nil {
@@ -338,7 +352,7 @@ func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID imp
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
 	confirmed := user.EmailVerified()
-	if err := a.refuseDirectoryAddress(ctx, user.ID, confirmed); err != nil {
+	if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, confirmed)); err != nil {
 		return err
 	}
 	if confirmed && strings.EqualFold(*user.Email, bare) {
@@ -424,7 +438,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 		return "", errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
 	confirmed := user.EmailVerified()
-	if err := a.refuseDirectoryAddress(ctx, user.ID, confirmed); err != nil {
+	if err := a.refuseDirectoryAddress(ctx, user.ID, holdsAddress(user.Email, confirmed)); err != nil {
 		return "", errLinkDead()
 	}
 	// The link changes the address the account held when it was mailed: once the

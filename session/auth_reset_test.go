@@ -530,6 +530,19 @@ func authAddressCase2(t *testing.T) {
 	if msgs := recorder.Messages(); len(msgs) != before+1 || msgs[before].To != "first@lakeside.edu" {
 		t.Errorf("the first address mailed %+v, want its confirmation link", msgs[before:])
 	}
+
+	// So is one whose directory vouched for a value no message can be sent to, as the
+	// simulated build's directories do under a login name: the person adds their first
+	// address themselves, and it is no change of one.
+	vouched := time.Now().Add(-time.Hour)
+	user.Email, user.EmailVerifiedAt = strPtr("pat"), &vouched
+	before = len(recorder.Messages())
+	if rr := f.asUser(f.auth.Email().Add(), sessionID, map[string]string{"email": "own@lakeside.edu"}, nil); rr.Code != http.StatusOK {
+		t.Errorf("Add() by a directory person whose confirmed address is no address = %d %s, want 200", rr.Code, rr.Body.String())
+	}
+	if msgs := recorder.Messages(); len(msgs) != before+1 || msgs[before].To != "own@lakeside.edu" {
+		t.Errorf("that Add() mailed %+v, want the verification link at the address given", msgs[before:])
+	}
 }
 
 func authAddressCase3(t *testing.T) {

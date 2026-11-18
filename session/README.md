@@ -1561,9 +1561,12 @@ you a link". There is no second mail.
   own request answers the same whether or not the address has an account, mails
   nothing where there is none, and does its work after the answer, so neither the
   answer nor its timing says which.
-- **One limit.** The message counts against the one limit on mail to an address (five
-  in fifteen minutes, then fifteen minutes closed), whoever asked, so everyone who asks
-  for the same person shares one count; a link that is used resets it.
+- **A limit of their own.** Reset links are counted per address, five in fifteen
+  minutes, then fifteen minutes closed, whoever asked: an administrator's link and the
+  person's own request share the one count, and a link that is used resets it. The
+  count is kept apart from the one for sign-in codes and the other links: a request
+  anyone can make for an address never uses up the codes a person who is past their
+  password needs, and a code that is used does not reopen the address to reset links.
 - **Self-service is a setting, read on each request.** The person's own request is
   served only while the password method's row of the sign-in methods table says so
   (`SelfServiceReset`, false until an administrator turns it on, and false with no
@@ -1572,7 +1575,9 @@ you a link". There is no second mail.
   the row says as it is.
   While it is off the request is NotFound, in words that say to ask an administrator,
   and the methods listing leaves the request route out, so the page draws no "Forgot
-  your password?".
+  your password?". A link a person asked for while it was on still works once it is
+  turned off, until it is used or runs out: turning it off stops new requests, and
+  takes back nothing already mailed.
 
 The methods listing names the routes (`MethodList.PasswordReset`, and
 `MethodList.Email.Confirm` for the confirmation of an address an administrator set).
@@ -1629,7 +1634,8 @@ How an address gets onto a user:
   the directory. Their own add and verify, an administrator's request and the
   confirmation of a link sent before the identity was linked are each refused
   (Conflict); a directory person who holds no confirmed address may still confirm
-  their first.
+  their first, and so may one whose directory vouched for a value no message can be
+  sent to, as the simulated build's directories do under a login name.
 - **A directory that does not vouch for an address leaves it to a code**: a sign-in
   through an external method whose identity does not assert a verified address
   (Entra, WorkOS, an OpenID Connect provider that says nothing) is held for the email
@@ -1637,8 +1643,10 @@ How an address gets onto a user:
   whatever the sign-in policy says about a second factor (`PendingMFA`, the email code
   its one factor). The person gives the address where the account has none
   (`Pending().EnrollEmail()`), and the code confirms it; their next sign-in is not held
-  for it. An Auth that sends no mail holds nobody, and neither does a registration of
-  seeded users.
+  for it. An Auth that sends no mail holds nobody: nothing is ever mailed there, no
+  code, no link and no notice, so there is no unconfirmed address that could be mailed
+  to, and no code that could confirm one. A registration of seeded users holds nobody
+  either.
 - **Google writes its own**: a Google sign-in writes the address Google verified
   onto the user, verified at the time of the sign-in, when the user holds no verified
   address yet and no other user holds it (any method that asserts
@@ -2209,7 +2217,12 @@ sign-in code of the second factor. It also sends notices, which carry no link an
 not counted against the limit on mail to an address: that an account's address changed
 (to the old address), that an administrator reset a person's second factor, and that an
 administrator removed a person from a tenant, which says so when the account went with
-it. A link, a code or a notice goes to a confirmed address or, where it is what
+it. The removal notice is for an administrator's act that leaves the person with no role
+in the tenant, of their own or through a group: a role taken, the person taken out of a
+group, or a role taken from a group; where that was the last thing the person held
+anywhere and the account went with it, the notice says so. It is not sent when an
+administrator deletes the account outright or a tenant is cleared, for a role that ends
+by itself, or when the person leaves themselves. A link, a code or a notice goes to a confirmed address or, where it is what
 confirms one, to the address being confirmed. It writes
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
