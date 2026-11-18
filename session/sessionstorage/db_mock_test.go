@@ -1046,6 +1046,20 @@ func (mr *MockdbMockRecorder) SetFactorCodesTableName(name any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFactorCodesTableName", reflect.TypeOf((*Mockdb)(nil).SetFactorCodesTableName), name)
 }
 
+// SetFirstUserPassword mocks base method.
+func (m *Mockdb) SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetFirstUserPassword", ctx, id, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetFirstUserPassword indicates an expected call of SetFirstUserPassword.
+func (mr *MockdbMockRecorder) SetFirstUserPassword(ctx, id, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFirstUserPassword", reflect.TypeOf((*Mockdb)(nil).SetFirstUserPassword), ctx, id, hash)
+}
+
 // SetIdentitiesTableName mocks base method.
 func (m *Mockdb) SetIdentitiesTableName(name string) error {
 	m.ctrl.T.Helper()
