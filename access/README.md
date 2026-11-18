@@ -1,6 +1,6 @@
 # access
 
-Go library for role-based access control (RBAC) with domain-partitioned permission management. The release's default roles travel with the release, in a role file embedded in the application binary; custom roles and role memberships live in typed tables owned by this library. Permission checks are answered by an immutable in-memory snapshot compiled from both — lock-free, allocation-free, and never touching the database on the request path.
+Go library for role-based access control (RBAC) with domain-partitioned permission management. The release's default roles travel with the release, in a role file embedded in the application binary; custom roles and role memberships live in typed tables owned by this library. Permission checks are answered by an immutable in-memory snapshot compiled from both — lock-free and allocation-free while the snapshot is fresh, and read again from the store, before the check answers, once it is older than its bound or a change was announced.
 
 ## Overview
 
@@ -137,14 +137,43 @@ func main() {
 
 ## Policy Snapshot, Freshness, and Lifecycle
 
-Permission checks are served from an immutable in-memory snapshot: lock-free,
-allocation-free, and never touching the database on the request path. Policy
-changes propagate between instances in near-realtime through a change signal
-the application supplies (see Change signal below), with a background heartbeat
-as the correctness backstop: it re-reads the policy store (default every 1m) and
-swaps in a new snapshot only when the content changed, so cross-instance
-staleness is bounded by the heartbeat interval even if the signal breaks. Writes
-made through this client are visible to its own checks immediately.
+Permission checks are served from an immutable in-memory snapshot. A check that
+finds the snapshot fresh is lock-free and allocation-free and does not touch the
+database. Policy changes propagate between instances in near-realtime through a
+change signal the application supplies (see Change signal below), and the
+heartbeat interval (default 1m) bounds the staleness whatever happens to the
+signal. Writes made through this client are visible to its own checks
+immediately.
+
+**Freshness is the check's own.** A check reads the policy store before it
+answers in three cases: no snapshot is loaded yet; the snapshot's store read
+began longer ago than the heartbeat interval; or a change was announced, by a
+policy write on this instance or a hint from another, and no store read that
+began after the announcement has landed. One read serves every check waiting at
+that moment, so a burst of requests costs one read and not one each, and the
+snapshot is swapped only when the content changed. A hint that arrives while a
+read is already in flight is not cleared by that read: the next check reads
+once more.
+
+**The background loop is an accelerator.** It re-reads the store on every
+heartbeat tick and on every hint, ahead of the checks, so on an instance that is
+serving a check seldom finds the snapshot due and seldom reads. Nothing depends
+on it. On a platform that gives a process CPU only while a request is in flight
+(Cloud Run's default) the loop does not run between requests, and the first
+check after an idle spell still answers from a store read no older than the
+heartbeat interval, because the check makes that read itself. An instance can
+record a hint only once it has CPU to receive it; one that sat idle is covered
+by the interval until its listener has run.
+
+**No read runs on the caller's context.** The engine reads the store under its
+own context, with its own timeout (ten seconds), whoever asked. A check made
+inside a database transaction is therefore safe: the Spanner client refuses a
+second read under a transaction's context, and the engine's read is not under
+it. A caller that goes away does not cancel a read other checks are waiting on.
+
+**A read that fails** is reported to the reload-error hook, the last good
+snapshot answers, and the next check tries the store again. Only the first load
+has no snapshot to fall back on: its failure is the check's error.
 
 The snapshot compiles the release's default roles from the role file beside the
 store's rows, in three parts: the global partition; the policy held in every
@@ -167,19 +196,21 @@ client, err := access.New(store,
     // Recommended: propagate changes between instances in near-realtime over
     // the application's signal channel (see Change signal).
     access.WithChangeSignal(policySignal),
-    // Optional: tune the heartbeat backstop (default 1m).
+    // Optional: tune the heartbeat interval, the bound on staleness
+    // (default 1m).
     access.WithHeartbeatInterval(30*time.Second),
-    // Optional: replace the hook that receives background reload/signal
-    // failures and the findings a load reports. The default writes each one
-    // to the standard log; while reloads fail, checks keep serving the last
-    // good snapshot.
+    // Optional: replace the hook that receives reload/signal failures and
+    // the findings a load reports. The default writes each one to the
+    // standard log; while reloads fail, checks keep serving the last good
+    // snapshot.
     access.WithReloadErrorHandler(func(err error) { alert(err) }),
 )
 
 // Readiness: block until the first policy snapshot has loaded.
 if err := client.WaitReady(ctx); err != nil { ... }
 
-// Shutdown: stop background reloading (checks keep serving the last snapshot).
+// Shutdown: stop reloading (checks keep serving the last snapshot, and read
+// the store no more).
 defer client.Close()
 ```
 
@@ -210,9 +241,13 @@ with neither its old grant nor its new one.
 ### Change signal
 
 The engine announces on the change signal after every successful policy write
-and watches it for the hints other instances announce. A hint only nudges the
-background loop to re-read the policy store: the signal carries no policy, so a
-lost or duplicated hint costs latency and nothing else. Announce failures and
+and watches it for the hints other instances announce. A hint is recorded the
+moment it arrives, before any reload is tried, and wakes the background loop:
+from then the next check reads the policy store before it answers, whether or
+not the loop got there first, so a change that was announced is never answered
+from the old snapshot on an instance that heard the announcement. The signal
+carries no policy, so a lost hint costs latency, bounded by the heartbeat
+interval, and a duplicated one costs a read. Announce failures and
 watch errors reach the reload-error hook and never fail the write. `Close`
 waits for an announcement still in flight, bounded by a few seconds, so a write
 made right before it (a migrate command's seed) is heard by the other instances
@@ -227,11 +262,13 @@ the client, its stop running when `watch` returns. Whenever `watch` returns
 early (a subscription that ended), the engine re-invokes it after a delay, so a
 `watch` that returns on connection loss is enough.
 
-The heartbeat is the backstop. With or without a signal, the engine re-reads the
-policy store every heartbeat interval (default 1m, `WithHeartbeatInterval`) and
-swaps in a new snapshot only when the content changed, so cross-instance
-staleness is bounded by that interval while the signal is broken or absent.
-Correctness never depends on the signal.
+The heartbeat interval is the bound. With or without a signal, no check is
+answered from a snapshot whose store read began longer ago than the interval
+(default 1m, `WithHeartbeatInterval`): the loop re-reads on every tick of it,
+and a check that finds it passed re-reads before it answers. So cross-instance
+staleness is bounded by that interval while the signal is broken or absent, on
+an instance that is serving and on one that sat idle alike. Correctness never
+depends on the signal, and never on the loop.
 
 An application built on the resource package has the channel already: its
 `live.Service` (package `github.com/impulseframework/impulse/resource/live`) carries

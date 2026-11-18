@@ -30,26 +30,32 @@ func defaultClientOptions() *clientOptions {
 	}
 }
 
-// logReloadError is the default reload-error hook: every background failure
-// and every policy finding reaches the log, so none is silent.
+// logReloadError is the default reload-error hook: every reload that failed,
+// a check's or the background loop's, and every policy finding reaches the
+// log, so none is silent.
 func logReloadError(err error) {
 	log.Printf("access: %v", err)
 }
 
 // WithChangeSignal wires a push hint that propagates policy changes between
-// instances in near-realtime. This is the intended configuration: the
-// application adapts its one signal channel through ChangeSignalFunc. Without
-// it, changes propagate within one heartbeat interval.
+// instances in near-realtime: an instance that receives a hint reads the
+// policy store before its next check answers. This is the intended
+// configuration: the application adapts its one signal channel through
+// ChangeSignalFunc. Without it, changes propagate within one heartbeat
+// interval.
 func WithChangeSignal(s ChangeSignal) Option {
 	return func(o *clientOptions) {
 		o.signal = s
 	}
 }
 
-// WithHeartbeatInterval overrides how often the policy store is re-read for
-// changes (default 1m). It bounds cross-instance staleness when no
-// ChangeSignal is configured, and otherwise backstops a broken signal.
-// Non-positive values keep the default.
+// WithHeartbeatInterval overrides the bound on cross-instance staleness
+// (default 1m): no check is answered from a snapshot whose store read began
+// longer ago than this. The background loop re-reads the policy store at this
+// interval, and a check that finds the interval passed, as the first check
+// after an instance sat idle does, re-reads before it answers. It is the
+// whole bound when no ChangeSignal is configured, and otherwise backstops a
+// broken signal. Non-positive values keep the default.
 func WithHeartbeatInterval(d time.Duration) Option {
 	return func(o *clientOptions) {
 		if d > 0 {
@@ -58,8 +64,10 @@ func WithHeartbeatInterval(d time.Duration) Option {
 	}
 }
 
-// WithReloadErrorHandler replaces the hook that receives background failures
-// (policy reloads and change-signal announce/watch errors) and what a load
+// WithReloadErrorHandler replaces the hook that receives the failures that
+// fail no request (a policy reload that failed or was refused, whether a
+// check or the background loop made it, and change-signal announce/watch
+// errors) and what a load
 // found in the store that this release cannot use as written: a grant it
 // skipped (*SkippedGrant), a custom role a default shadows (*ShadowedRole),
 // memberships naming a role nothing defines (*OrphanedMembership). While

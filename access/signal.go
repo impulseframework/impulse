@@ -4,10 +4,12 @@ import "context"
 
 // ChangeSignal is the engine's seam for propagating policy-change hints
 // between instances. The Client announces after every successful policy write
-// and watches for the hints other instances announce; a hint only nudges the
-// background loop to re-read the policy store. Correctness never depends on
-// it: the heartbeat re-reads the policy store on a fixed interval regardless,
-// so a broken signal only costs propagation latency, never accuracy.
+// and watches for the hints other instances announce; a hint is recorded as it
+// arrives, so the next check reads the policy store before it answers, and
+// wakes the background loop to read ahead of it. Correctness never depends on
+// it: no check is answered from a snapshot older than the heartbeat interval
+// regardless, so a broken signal only costs propagation latency, never
+// accuracy.
 //
 // The application supplies the implementation as an adapter over its one
 // signal channel, through ChangeSignalFunc.

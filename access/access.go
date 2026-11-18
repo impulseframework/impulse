@@ -34,10 +34,16 @@ type Client struct {
 // subpackages (spannerstore, postgresstore).
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
-// from the release's default roles (WithDefaultRoles) and the policy store,
-// and kept fresh by a background heartbeat plus an optional push hint (see
-// WithChangeSignal). All policy writes (user management) go through the same
-// store and refresh the snapshot immediately on this instance.
+// from the release's default roles (WithDefaultRoles) and the policy store.
+// The snapshot is kept fresh by the checks themselves: one that finds it older
+// than the heartbeat interval (WithHeartbeatInterval), or behind a change this
+// instance wrote or was hinted of (WithChangeSignal), reads the store before
+// it answers, on the engine's own context and never the caller's, so a check
+// is safe inside a database transaction. A background heartbeat and the push
+// hint do the same ahead of the checks; nothing depends on them, so an
+// instance that got no CPU between requests is no staler than the interval.
+// All policy writes (user management) go through the same store and refresh
+// the snapshot immediately on this instance.
 //
 // The store's values — domains, users, resources — are opaque labels to
 // access: referential validity belongs to the callers that write them, and
@@ -105,11 +111,12 @@ func (c *Client) WaitReady(ctx context.Context) error {
 	return c.snapEngine.waitReady(ctx)
 }
 
-// Close stops the Client's background policy reloading and change-signal
-// watch, and waits for a change announcement still in flight (bounded by a
-// few seconds), so a policy write made right before Close reaches the other
-// instances before the application closes the channel the signal rides on.
-// Permission checks keep answering from the last loaded snapshot.
+// Close stops the Client's policy reloading, the background loop's and the
+// checks' own, and its change-signal watch, and waits for a change
+// announcement still in flight (bounded by a few seconds), so a policy write
+// made right before Close reaches the other instances before the application
+// closes the channel the signal rides on. Permission checks keep answering
+// from the last loaded snapshot, and read the store no more.
 func (c *Client) Close() error {
 	return c.snapEngine.close()
 }
@@ -336,8 +343,9 @@ func (c *Client) CheckRoleResources(
 }
 
 // UserHasGrants reports whether user holds at least one grant in scope,
-// answered from the in-memory policy snapshot (safe inside transactions; no
-// store read). It is the visibility question concealed tenancy asks: an
+// answered from the in-memory policy snapshot (safe inside transactions: a
+// reload it waits on runs on the engine's own context). It is the visibility
+// question concealed tenancy asks: an
 // application hiding tenant existence answers a caller with no grants in a
 // domain exactly as if the domain did not exist, while a caller with any
 // foothold proceeds to ordinary permission checks. It is also the predicate a
@@ -354,7 +362,7 @@ func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope
 
 // UserIsSuperAdministrator reports whether user holds the Super Administrator
 // role (accesstypes.SuperAdministrator), answered from the in-memory policy
-// snapshot like the checks (safe inside transactions; no store read). It is
+// snapshot like the checks (safe inside transactions). It is
 // the question a session's reach into a tenant asks of the session's actor:
 // a super administrator enters every tenant, whatever the tenant's sign-in
 // settings say. The one other person a tenant's sign-in settings do not keep

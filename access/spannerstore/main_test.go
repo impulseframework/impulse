@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/db"
 )
 
@@ -83,4 +85,33 @@ func applyDDL(t *testing.T, database *db.SpannerDB, store *Store) error {
 	}
 
 	return nil
+}
+
+// errRolledBack ends the transaction openTransaction opens: nothing it wrote is kept.
+var errRolledBack = errors.New("rolled back by the test")
+
+// openTransaction is the open transaction of another request the engine's suite makes
+// its checks inside: a read-write transaction on the store's database that has read
+// the roles table and changed a row of it, so it holds locks on rows the engine's
+// reload reads, with f run under the context the Spanner client marks as the
+// transaction's. It is rolled back.
+func openTransaction(database *db.SpannerDB) storetest.Transaction {
+	return func(t *testing.T, f func(ctx context.Context)) {
+		t.Helper()
+
+		_, err := database.ReadWriteTransaction(t.Context(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			if err := txn.Query(ctx, spanner.Statement{SQL: "SELECT Role FROM AccessRoles"}).Do(func(*spanner.Row) error { return nil }); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Query()")
+			}
+			if _, err := txn.Update(ctx, spanner.Statement{SQL: "UPDATE AccessRoles SET Description = 'Held by an open transaction.' WHERE Role = 'Editor'"}); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
+			f(ctx)
+
+			return errRolledBack
+		})
+		if !errors.Is(err, errRolledBack) {
+			t.Fatalf("ReadWriteTransaction() error = %v, want the test's own rollback", err)
+		}
+	}
 }
