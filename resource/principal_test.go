@@ -28,6 +28,22 @@ type stubPermissions struct {
 	// super makes the user a super administrator: a holder of the Super
 	// Administrator role.
 	super bool
+	// administers are the tenants the user administers, administersErr fails the
+	// question, and administersAsked counts how often it was asked, when set.
+	administers      []accesstypes.Domain
+	administersErr   error
+	administersAsked *int
+}
+
+func (s *stubPermissions) AdministersTenant(_ context.Context, domain accesstypes.Domain) (bool, error) {
+	if s.administersAsked != nil {
+		*s.administersAsked++
+	}
+	if s.administersErr != nil {
+		return false, s.administersErr
+	}
+
+	return slices.Contains(s.administers, domain), nil
 }
 
 func (s *stubPermissions) SuperAdministrator(context.Context) (bool, error) {
@@ -678,8 +694,9 @@ func (d *declarationReader) read(_ context.Context, domain accesstypes.Domain) (
 // TestSessionPermissions_admission pins the reach-time admission: a session
 // reaches every tenant it holds a grant in, except a tenant that is directory
 // only and whose directory is not the one the session was established through,
-// unless the session's actor is a super administrator, and nobody else is
-// exempt; in a tenant the session does not reach it holds nothing, on every
+// unless the session's actor is a super administrator, or the tenant's own
+// administrator come with a password and a second factor, and nobody else
+// enters it another way; in a tenant the session does not reach it holds nothing, on every
 // question the composed permissions answer, and the tenant is listed closed
 // (ClosedDomains).
 func TestSessionPermissions_admission(t *testing.T) {
@@ -699,10 +716,16 @@ func TestSessionPermissions_admission(t *testing.T) {
 	lockedOut := &signin.TenantDeclaration{DirectoryOnly: true}
 	asBob := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")}
 	asRole := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")}
+	mailedCode := sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode}
+	rememberedBrowser := sessioninfo.AuthEvent{Method: sessioninfo.MethodTrustedDevice}
 
 	tests := []struct {
 		name string
 		ctx  context.Context
+		// administers are the tenants the session's actor administers, and
+		// administersErr fails the question.
+		administers    []accesstypes.Domain
+		administersErr error
 		// declarations is nil for an application that keeps none; reader scripts
 		// one that does.
 		reader *declarationReader
@@ -880,6 +903,101 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
 		},
 		{
+			name:        "the tenant's administrator who signed in with a password and gave the mailed code enters the directory-only tenant",
+			ctx:         sessionCtx("alice", nil, password, mailedCode),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil, bastion},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{anvil, bastion},
+			wantReaches: map[accesstypes.Domain]bool{anvil: true, bastion: true},
+		},
+		{
+			name:        "a remembered browser stands in for the code",
+			ctx:         sessionCtx("alice", nil, password, rememberedBrowser),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{anvil},
+			wantReaches: map[accesstypes.Domain]bool{anvil: true},
+		},
+		{
+			name:        "the tenant's administrator enters a tenant that is directory only and lists no directory: the tenant nobody else can mend",
+			ctx:         sessionCtx("alice", nil, password, mailedCode),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: lockedOut}},
+			holds:       []accesstypes.Domain{anvil},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{anvil},
+			wantReaches: map[accesstypes.Domain]bool{anvil: true},
+		},
+		{
+			name:        "the same administrator without the second factor does not enter",
+			ctx:         sessionCtx("alice", nil, password),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil, bastion},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{bastion},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantClosed:  []accesstypes.Domain{anvil},
+		},
+		{
+			name:        "a member with a password and the mailed code does not enter: the way in is the administrator's",
+			ctx:         sessionCtx("alice", nil, password, mailedCode),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil, bastion},
+			wantDomains: []accesstypes.Domain{bastion},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantClosed:  []accesstypes.Domain{anvil},
+		},
+		{
+			name: "the administrator of one directory-only tenant enters that one and not the other they hold a seat in",
+			ctx:  sessionCtx("alice", nil, password, mailedCode),
+			reader: &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{
+				anvil: workspaceOnly, bastion: lockedOut,
+			}},
+			holds:       []accesstypes.Domain{anvil, bastion},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{anvil},
+			wantReaches: map[accesstypes.Domain]bool{anvil: true, bastion: false},
+			wantClosed:  []accesstypes.Domain{bastion},
+		},
+		{
+			name:        "the tenant's administrator who signed in through another organization's directory does not enter, attested or not",
+			ctx:         sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "other"}, sessioninfo.AuthEvent{Method: sessioninfo.MethodAttestedByEvidence, Connection: "other"}),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false},
+			wantClosed:  []accesstypes.Domain{anvil},
+		},
+		{
+			name:        "the tenant's administrator who signed in with a personal account does not enter",
+			ctx:         sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection}, mailedCode),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false},
+			wantClosed:  []accesstypes.Domain{anvil},
+		},
+		{
+			name:        "a session that views the application as the tenant's administrator does not enter by their password: it was established by the impersonation",
+			ctx:         sessionCtx("bob", asBob, impersonation, mailedCode),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:       []accesstypes.Domain{anvil},
+			administers: []accesstypes.Domain{anvil},
+			wantDomains: []accesstypes.Domain{},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false},
+		},
+		{
+			name:           "a failure to learn who administers the tenant is the answer's error",
+			ctx:            sessionCtx("alice", nil, password, mailedCode),
+			reader:         &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:          []accesstypes.Domain{anvil},
+			administersErr: errors.New("engine unavailable"),
+			wantErr:        true,
+		},
+		{
 			name:        "a tenant the session holds no grant in is not asked",
 			ctx:         sessionCtx("alice", nil, password),
 			reader:      &declarationReader{},
@@ -903,7 +1021,10 @@ func TestSessionPermissions_admission(t *testing.T) {
 			t.Parallel()
 
 			forUser := func(user accesstypes.User) *stubPermissions {
-				return &stubPermissions{user: user, digest: accesstypes.PermissionDigest{"documents": {accesstypes.Read: accesstypes.DigestGranted}}, domains: tt.holds, global: tt.global, super: tt.super}
+				return &stubPermissions{
+					user: user, digest: accesstypes.PermissionDigest{"documents": {accesstypes.Read: accesstypes.DigestGranted}}, domains: tt.holds, global: tt.global, super: tt.super,
+					administers: tt.administers, administersErr: tt.administersErr,
+				}
 			}
 			forRole := func(accesstypes.Role) *stubRolePermissions {
 				return &stubRolePermissions{}
@@ -1027,6 +1148,65 @@ func TestSessionPermissions_admissionReadsOnce(t *testing.T) {
 	}
 	if users != 1 {
 		t.Errorf("forUser was called %d times, want once: an ordinary session's actor is its user", users)
+	}
+}
+
+// TestSessionPermissions_administratorAskedWhereItCouldAdmit pins when the engine is
+// asked who administers a tenant: only for a session the administrators' way in could
+// admit, a password with a second factor, in a tenant that is directory only, and then
+// once for the tenant in one composed value. A session it could not admit asks nothing,
+// so nothing is learned from it and nothing is spent on it.
+func TestSessionPermissions_administratorAskedWhereItCouldAdmit(t *testing.T) {
+	t.Parallel()
+
+	const (
+		anvil   accesstypes.Domain = "anvil"
+		bastion accesstypes.Domain = "bastion"
+	)
+	password := sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}
+	mailedCode := sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode}
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		wantAsked int
+	}{
+		{name: "a password with the mailed code asks once for the directory-only tenant, and never for the open one", ctx: sessionCtx("alice", nil, password, mailedCode), wantAsked: 1},
+		{name: "a password alone asks nothing", ctx: sessionCtx("alice", nil, password)},
+		{name: "a sign-in through another directory asks nothing", ctx: sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "other"}, mailedCode)},
+		{
+			name: "an actor another application authenticated is never asked about",
+			ctx: sessionCtx("bob", &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "support-portal", Principal: accesstypes.UserPrincipal("bob")},
+				password, mailedCode),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			asked := 0
+			reader := &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: {DirectoryOnly: true}}}
+			forUser := func(user accesstypes.User) *stubPermissions {
+				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil, bastion}, administers: []accesstypes.Domain{anvil, bastion}, administersAsked: &asked}
+			}
+			roster := func(context.Context) ([]accesstypes.Domain, error) {
+				return []accesstypes.Domain{anvil, bastion}, nil
+			}
+			perms := SessionPermissions(tt.ctx, forUser, RolePrincipalsUnsupported, roster, reader.read)
+
+			for range 3 {
+				for _, domain := range []accesstypes.Domain{anvil, bastion} {
+					if _, err := perms.Reaches(context.Background(), domain); err != nil {
+						t.Fatalf("Reaches(%s) error = %v", domain, err)
+					}
+				}
+				if _, err := perms.Domains(context.Background()); err != nil {
+					t.Fatalf("Domains() error = %v", err)
+				}
+			}
+			if asked != tt.wantAsked {
+				t.Errorf("the engine was asked who administers a tenant %d times, want %d", asked, tt.wantAsked)
+			}
+		})
 	}
 }
 

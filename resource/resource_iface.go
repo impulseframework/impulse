@@ -105,6 +105,16 @@ type SessionUserChecker interface {
 	// whatever the tenant's sign-in settings say. Holding another role in the
 	// global partition, or a role in every tenant, is not it.
 	SuperAdministrator(ctx context.Context) (bool, error)
+
+	// AdministersTenant reports whether the user administers the tenant: they
+	// hold one of the roles the application names as a tenant's
+	// administrator's in the tenant itself, inside its period, by a membership
+	// of their own in the tenant's domain or through a group kept in that
+	// tenant. A role held in every tenant, or through a group kept for the
+	// whole application, is not it. A tenant that admits its people through
+	// its directory only still admits its own administrators with a password
+	// and a second factor (signin.TenantDeclaration.AdmitsAdministrator).
+	AdministersTenant(ctx context.Context, domain accesstypes.Domain) (bool, error)
 }
 
 // RolePermissions is the permission surface of a session that operates as a

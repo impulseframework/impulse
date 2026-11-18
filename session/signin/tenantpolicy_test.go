@@ -203,6 +203,45 @@ func TestTenantDeclaration_Admits(t *testing.T) {
 	}
 }
 
+// TestTenantDeclaration_AdmitsAdministrator pins the administrators' way into a
+// directory-only tenant: the password, a second factor and the tenant's own
+// administrator, all three, and a tenant that is directory only. Take one away and the
+// declaration admits nobody by it.
+func TestTenantDeclaration_AdmitsAdministrator(t *testing.T) {
+	t.Parallel()
+
+	directoryOnly := &TenantDeclaration{Directories: []Directory{lakesideEntra}, DirectoryOnly: true}
+	tests := []struct {
+		name         string
+		declaration  *TenantDeclaration
+		method       sessioninfo.AuthMethod
+		secondFactor bool
+		administers  bool
+		want         bool
+	}{
+		{name: "the tenant's administrator, by password, with a second factor", declaration: directoryOnly, method: sessioninfo.MethodPassword, secondFactor: true, administers: true, want: true},
+		{name: "without the second factor", declaration: directoryOnly, method: sessioninfo.MethodPassword, administers: true},
+		{name: "a person who does not administer the tenant", declaration: directoryOnly, method: sessioninfo.MethodPassword, secondFactor: true},
+		{name: "an administrator who came through another organization's directory", declaration: directoryOnly, method: sessioninfo.MethodAzure, secondFactor: true, administers: true},
+		{name: "an administrator who came through Google, a personal account or a Workspace", declaration: directoryOnly, method: sessioninfo.MethodGoogle, secondFactor: true, administers: true},
+		{name: "an administrator in a session the application started itself", declaration: directoryOnly, method: sessioninfo.MethodApplication, secondFactor: true, administers: true},
+		{name: "an administrator viewed as by someone else", declaration: directoryOnly, method: sessioninfo.MethodImpersonation, secondFactor: true, administers: true},
+		{name: "a session that records no establishment", declaration: directoryOnly, secondFactor: true, administers: true},
+		{name: "a directory-only tenant with no directory still has its administrators", declaration: &TenantDeclaration{DirectoryOnly: true}, method: sessioninfo.MethodPassword, secondFactor: true, administers: true, want: true},
+		{name: "a tenant that is not directory only has no such way in: Admits answers for it", declaration: &TenantDeclaration{Directories: []Directory{lakesideEntra}}, method: sessioninfo.MethodPassword, secondFactor: true, administers: true},
+		{name: "a tenant that declares nothing", method: sessioninfo.MethodPassword, secondFactor: true, administers: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.declaration.AdmitsAdministrator(tt.method, tt.secondFactor, tt.administers); got != tt.want {
+				t.Errorf("AdmitsAdministrator(%q, %v, %v) = %v, want %v", tt.method, tt.secondFactor, tt.administers, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTenantPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -221,6 +260,10 @@ func TestTenantPolicy(t *testing.T) {
 		// held are the memberships the role store answers; heldErr fails the read.
 		held    accesstypes.RoleCollection
 		heldErr error
+		// administered are the tenants the role store says the person administers;
+		// administeredErr fails that read.
+		administered    []accesstypes.Domain
+		administeredErr error
 		// roleNames is what the sign-in method asserted; nil when it synchronizes no
 		// roles.
 		roleNames []string
@@ -236,7 +279,105 @@ func TestTenantPolicy(t *testing.T) {
 		wantErr     bool
 		// wantRead are the tenants the reader was asked for, in order.
 		wantRead []accesstypes.Domain
+		// wantFactors are the factors a held sign-in waits for.
+		wantFactors []sessioninfo.AuthMethod
 	}{
+		{
+			name:         "the administrator of a directory-only tenant who signs in with a password is held for the mailed code, though every tenant of theirs is directory only",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome:  HoldForMFA,
+			wantFactors:  []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:         "the administrator is held for the code though another tenant of theirs would admit the password: the session reaches the directory-only tenant only with the factor",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}, riverside: member},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome:  HoldForMFA,
+			wantFactors:  []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:         "the administrator who also holds a role for the whole application is held for the code too",
+			held:         accesstypes.RoleCollection{global: {"Administrator"}, lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome:  HoldForMFA,
+			wantFactors:  []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:         "the administrator of a tenant that is not directory only signs in as anyone does",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": open},
+			wantOutcome:  AllowSignIn,
+			wantRead:     []accesstypes.Domain{"lakeside", "lakeside"},
+		},
+		{
+			name:         "the administrator of one directory-only tenant among the tenants they administer is held, the tenants read in the store's order until one is directory only",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}, riverside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside", "riverside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"riverside": {DirectoryOnly: true}},
+			wantOutcome:  HoldForMFA,
+			wantFactors:  []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+			wantRead:     []accesstypes.Domain{"lakeside", "riverside"},
+		},
+		{
+			name:         "an administrator who signs in through another organization's directory is kept out, and nobody asks what they administer",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     workspaceIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome:  DenySignIn,
+			wantCode:     sessioninfo.RefusedConnectionNotInTenant,
+			wantCause:    ErrConnectionNotInTenant,
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:         "an administrator who signs in with a personal account is kept out",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: GoogleAnyAccountConnection, Subject: "sub-pat"},
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome:  DenySignIn,
+			wantCode:     sessioninfo.RefusedDirectoryOnly,
+			wantCause:    ErrDirectoryOnly,
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:         "an administrator in a session the application starts itself is kept out: the way in is the password",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     ownIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome:  DenySignIn,
+			wantCode:     sessioninfo.RefusedDirectoryOnly,
+			wantCause:    ErrDirectoryOnly,
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:        "a person who holds the administrator's role in every tenant administers none of them: the password is admitted by the rule on a role outside any one tenant, with no hold, and the session then reaches no directory-only tenant",
+			held:        accesstypes.RoleCollection{every: {"TenantAdministrator"}},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome: AllowSignIn,
+		},
+		{
+			name:            "a failure to read what the person administers fails the sign-in",
+			held:            accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administeredErr: errors.New("store blip"),
+			identity:        passwordIdentity,
+			wantErr:         true,
+		},
 		{
 			name:        "a super administrator is admitted by password when every tenant of theirs is directory only, and no declaration is read",
 			held:        accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}, lakeside: member},
@@ -432,7 +573,7 @@ func TestTenantPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			roles := &fakeRoleManager{held: tt.held, heldErr: tt.heldErr}
+			roles := &fakeRoleManager{held: tt.held, heldErr: tt.heldErr, administered: tt.administered, administeredErr: tt.administeredErr}
 			reader := &fakeDeclarations{declared: tt.declared, err: tt.readErr}
 			policy := TenantPolicy(roles, reader.read, tt.opts...)
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, UserID: patID, Username: "pat@lakeside.edu", Identity: tt.identity, RoleNames: tt.roleNames}
@@ -454,8 +595,21 @@ func TestTenantPolicy(t *testing.T) {
 			if diff := cmp.Diff(tt.wantRead, reader.asked, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("tenants read mismatch (-want +got):\n%s", diff)
 			}
+			// What a person administers is read for a password sign-in alone, under the
+			// id of their account, once the memberships are read, and never for a super
+			// administrator or a method that synchronizes roles.
+			var wantAdministeredAsked []accesstypes.User
+			if tt.roleNames == nil && tt.heldErr == nil && !tt.held.HoldsSuperAdministrator() && tt.identity.Method == sessioninfo.MethodPassword {
+				wantAdministeredAsked = []accesstypes.User{accesstypes.User(patID.String())}
+			}
+			if diff := cmp.Diff(wantAdministeredAsked, roles.administeredAsked, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("users the role store was asked what they administer mismatch (-want +got):\n%s", diff)
+			}
 			if tt.wantErr {
 				return
+			}
+			if diff := cmp.Diff(tt.wantFactors, decision.Factors(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Factors() mismatch (-want +got):\n%s", diff)
 			}
 			if decision.Outcome() != tt.wantOutcome {
 				t.Errorf("Outcome() = %v, want %v", decision.Outcome(), tt.wantOutcome)
@@ -520,10 +674,38 @@ func TestPolicy_Then(t *testing.T) {
 			wantDecision: denyBecause("no_tenant", ErrNoTenant),
 		},
 		{
-			name:         "a RequireMFA is answered as it is and the next rule is not asked",
-			first:        func(asked *int) Policy[fakeTx] { return answer(RequireMFA("email-otp"), asked) },
-			next:         func(asked *int) Policy[fakeTx] { return answer(Deny("app_denied"), asked) },
-			wantDecision: RequireMFA("email-otp"),
+			name:          "a RequireMFA still asks the next rule, whose refusal stands: a person held for a factor is refused by the rule that refuses them",
+			first:         func(asked *int) Policy[fakeTx] { return answer(RequireMFA("email-otp"), asked) },
+			next:          func(asked *int) Policy[fakeTx] { return answer(Deny("app_denied"), asked) },
+			wantDecision:  Deny("app_denied"),
+			wantNextAsked: true,
+		},
+		{
+			name:          "a RequireMFA stands when the next rule allows",
+			first:         func(asked *int) Policy[fakeTx] { return answer(RequireMFA("email-otp"), asked) },
+			next:          func(asked *int) Policy[fakeTx] { return answer(Allow(), asked) },
+			wantDecision:  RequireMFA("email-otp"),
+			wantNextAsked: true,
+		},
+		{
+			name:          "a hold of the next rule's own stands over the first rule's: the application names its factor",
+			first:         func(asked *int) Policy[fakeTx] { return answer(RequireMFA("email-otp"), asked) },
+			next:          func(asked *int) Policy[fakeTx] { return answer(RequireMFA("totp"), asked) },
+			wantDecision:  RequireMFA("totp"),
+			wantNextAsked: true,
+		},
+		{
+			name:          "no decision of the next rule denies a sign-in the first rule held",
+			first:         func(asked *int) Policy[fakeTx] { return answer(RequireMFA("email-otp"), asked) },
+			next:          func(asked *int) Policy[fakeTx] { return answer(nil, asked) },
+			wantNextAsked: true,
+		},
+		{
+			name:          "an error of the next rule fails a sign-in the first rule held",
+			first:         func(asked *int) Policy[fakeTx] { return answer(RequireMFA("email-otp"), asked) },
+			next:          fail,
+			wantErr:       true,
+			wantNextAsked: true,
 		},
 		{
 			name:  "no decision denies and the next rule is not asked",

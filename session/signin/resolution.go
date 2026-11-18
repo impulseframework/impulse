@@ -70,11 +70,14 @@ type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSe
 // returned, so a DenySignIn or RequireMFA answer keeps the policy's own writes.
 type Policy[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Decision, error)
 
-// Then returns the policy that asks p and, when p allows the sign-in, asks next and
-// answers its decision: the library's tenant policy (TenantPolicy) first, then the
-// application's own rule for what the tenant policy cannot know. A Deny or a
-// RequireMFA from p is answered as it is, and next is not asked. A nil next is a
-// wiring mistake and panics.
+// Then returns the policy that asks p and, unless p refuses the sign-in, asks next:
+// the library's tenant policy (TenantPolicy) first, then the application's own rule
+// for what the tenant policy cannot know. A Deny from p is answered as it is, and next
+// is not asked. When p allows, next's decision is the answer. When p holds the sign-in
+// for a second factor (RequireMFA), next is asked all the same, so a person p holds is
+// still refused by the rule that refuses them: next's refusal stands, and so does a
+// hold of its own, for the factor the application names; when next allows, p's hold is
+// the answer. A nil next is a wiring mistake and panics.
 func (p Policy[Tx]) Then(next Policy[Tx]) Policy[Tx] {
 	if next == nil {
 		panic("signin: Policy.Then was given nil: pass the application's rule")
@@ -85,11 +88,18 @@ func (p Policy[Tx]) Then(next Policy[Tx]) Policy[Tx] {
 		if err != nil {
 			return nil, err
 		}
-		if decision == nil || decision.Outcome() != AllowSignIn {
+		if decision == nil || decision.Outcome() == DenySignIn {
+			return decision, nil
+		}
+		after, err := next(ctx, tx, req)
+		if err != nil {
+			return nil, err
+		}
+		if decision.Outcome() == HoldForMFA && after != nil && after.Outcome() == AllowSignIn {
 			return decision, nil
 		}
 
-		return next(ctx, tx, req)
+		return after, nil
 	}
 }
 
