@@ -252,6 +252,10 @@ type routerFileData struct {
 	// router-test stub's pass-through when any outlet has a gated route.
 	HasGatedRoutes   bool
 	StubFeatureGuard bool
+	// HasAskedRoutes emits the default outlet's asked router, the one before the
+	// refusal of a dry run and a warning, when a route's frame answers the two headers
+	// itself (generatedRoute.ReadsDryRunAndWarning).
+	HasAskedRoutes bool
 	// BodyLimit is the request body limit the routes file declares as the router
 	// package's BodyLimit (WithBodyLimit; DefaultBodyLimit when the application sets
 	// none); BodyLimitText is it in words, and BodyLimitDefault whether it is the
@@ -317,6 +321,9 @@ type outletRouteData struct {
 	// HasGatedRoutes emits the FeatureGuard requirement and the wrapping for the
 	// outlet's gated routes.
 	HasGatedRoutes bool
+	// HasAskedRoutes emits the outlet's asked router, the one before the refusal of a
+	// dry run and a warning, when a route's frame answers the two headers itself.
+	HasAskedRoutes bool
 	// HasConsolidatedHandler emits the outlet's consolidated patch dispatcher
 	// (ConsolidatedHandlerFunc) at ConsolidatedPath.
 	HasConsolidatedHandler  bool

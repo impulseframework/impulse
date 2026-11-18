@@ -201,12 +201,14 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 		},
 		[]string{"DefaultRole", "accesstypes"},
 	)
-	// No default role is picked and the auth keeps no groups, so nothing asks the role
-	// file who may give a role: the package answers none, and the client hands none on.
-	if holdsRoleGrants(t) {
-		t.Error("the crew's package was written grants.go, want none where no default role is picked and no group is kept")
+	// No default role is picked and the auth keeps no groups, and the crew's roles in a
+	// ship are given by hand: the list a role is picked from asks the role file which
+	// roles the caller could give, so the package answers and the client hands it on.
+	if !holdsRoleGrants(t) {
+		t.Error("the crew's package was written no grants.go, want one where a tenant's role is picked from a list: the list asks which roles the caller could give")
 	}
-	assertFileContains(t, "crewidentity/client.go", nil, []string{"WithRoleGrants"})
+	assertFileContains(t, "crewidentity/client.go", []string{"identity.WithRoleGrants(grants{})"}, nil)
+	assertFileContains(t, "crewidentity/grants.go", []string{"{method: AssignCrewShipRole{}.Method(), request: &AssignCrewShipRole{Role: string(role)}},"}, []string{"GroupRole"})
 }
 
 // Test_prepareIdentity_signUpWithoutTheTable pins an auth whose schema holds no sign-in

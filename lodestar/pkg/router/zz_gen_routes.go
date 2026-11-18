@@ -198,8 +198,6 @@ type GeneratedHandlers interface {
 	CrewGroupUsers() http.HandlerFunc
 	CrewGroupUser() http.HandlerFunc
 
-	CrewInvitedSectors() http.HandlerFunc
-
 	CrewRoles() http.HandlerFunc
 
 	CrewRoleGrants() http.HandlerFunc
@@ -355,8 +353,6 @@ type GeneratedHandlers interface {
 	HoldMission() http.HandlerFunc
 
 	InspectShip() http.HandlerFunc
-
-	InviteCrewSector() http.HandlerFunc
 
 	InviteCrewSectorUser() http.HandlerFunc
 
@@ -569,8 +565,6 @@ type GeneratedHandlers interface {
 
 	WithdrawCrewInvitation() http.HandlerFunc
 
-	WithdrawCrewInvitedSector() http.HandlerFunc
-
 	WithdrawCrewSectorInvitation() http.HandlerFunc
 
 	PatchResources() http.HandlerFunc
@@ -583,8 +577,17 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	// share one; a request carrying X-Subscribe is noted on its request log line and
 	// refused when its tab id is malformed. The auth's name is crew.Name.
 	r = r.With(live.Subscribing(crew.Name))
+	// A request that asks a call for a dry run (X-Dry-Run) or for its warning
+	// (X-Warning) asks that the call be held back, and a frame that never reads the
+	// header would run it for real. So every route registered on r from here on, and
+	// on the bounded group drawn from it, refuses such a request naming the header,
+	// and nothing runs. The routes whose frames answer the two headers
+	// themselves (a method's, an upload's, SetFeature's) register on asked, the router
+	// before the refusal.
+	asked := r
+	r = r.With(resource.NoDryRunOrWarning())
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 	domainGuard := h.DomainGuard()
 
@@ -596,25 +599,25 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/live/unsubscribe", h.LiveUnsubscribe())
 	r.Get("/console/api/live/token", h.LiveToken())
 
-	r.Post("/console/api/add-crew-group-member", h.AddCrewGroupMember())
+	asked.Post("/console/api/add-crew-group-member", h.AddCrewGroupMember())
 
-	r.Post("/console/api/sectors/{sectorID}/add-crew-sector-group-member", domainGuard(h.AddCrewSectorGroupMember()))
+	asked.Post("/console/api/sectors/{sectorID}/add-crew-sector-group-member", domainGuard(h.AddCrewSectorGroupMember()))
 
-	r.Post("/console/api/assign-crew-role", h.AssignCrewRole())
+	asked.Post("/console/api/assign-crew-role", h.AssignCrewRole())
 
-	r.Post("/console/api/sectors/{sectorID}/assign-crew-sector-role", domainGuard(h.AssignCrewSectorRole()))
+	asked.Post("/console/api/sectors/{sectorID}/assign-crew-sector-role", domainGuard(h.AssignCrewSectorRole()))
 
-	r.Post("/console/api/sectors/{sectorID}/attach-mission-document", domainGuard(h.AttachMissionDocument()))
+	asked.Post("/console/api/sectors/{sectorID}/attach-mission-document", domainGuard(h.AttachMissionDocument()))
 
-	r.Post("/console/api/sectors/{sectorID}/attach-refit-photo", domainGuard(h.AttachRefitPhoto()))
+	asked.Post("/console/api/sectors/{sectorID}/attach-refit-photo", domainGuard(h.AttachRefitPhoto()))
 
-	r.Post("/console/api/sectors/{sectorID}/begin-refit", domainGuard(h.BeginRefit()))
+	asked.Post("/console/api/sectors/{sectorID}/begin-refit", domainGuard(h.BeginRefit()))
 
 	briefingTemplatesHandler := h.BriefingTemplates()
 	bounded.Get("/console/api/briefing-templates", briefingTemplatesHandler)
 	bounded.Post("/console/api/briefing-templates", briefingTemplatesHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/claim-mission", domainGuard(h.ClaimMission()))
+	asked.Post("/console/api/sectors/{sectorID}/claim-mission", domainGuard(h.ClaimMission()))
 
 	clientsHandler := h.Clients()
 	bounded.Get("/console/api/clients", clientsHandler)
@@ -650,9 +653,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/commendations/{commendationID}", commendationHandler)
 	bounded.Post("/console/api/commendations/{commendationID}", commendationHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/compile-briefing", domainGuard(h.CompileBriefing()))
+	asked.Post("/console/api/sectors/{sectorID}/compile-briefing", domainGuard(h.CompileBriefing()))
 
-	r.Post("/console/api/sectors/{sectorID}/complete-mission", domainGuard(h.CompleteMission()))
+	asked.Post("/console/api/sectors/{sectorID}/complete-mission", domainGuard(h.CompleteMission()))
 
 	consignmentsHandler := domainGuard(h.Consignments())
 	bounded.Get("/console/api/sectors/{sectorID}/consignments", consignmentsHandler)
@@ -662,13 +665,13 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/consignments/{consignmentID}", consignmentHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/consignments/{consignmentID}", consignmentHandler)
 
-	r.Post("/console/api/create-crew-group", h.CreateCrewGroup())
+	asked.Post("/console/api/create-crew-group", h.CreateCrewGroup())
 
-	r.Post("/console/api/sectors/{sectorID}/create-crew-sector-group", domainGuard(h.CreateCrewSectorGroup()))
+	asked.Post("/console/api/sectors/{sectorID}/create-crew-sector-group", domainGuard(h.CreateCrewSectorGroup()))
 
-	r.Post("/console/api/sectors/{sectorID}/create-crew-sector-user", domainGuard(h.CreateCrewSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/create-crew-sector-user", domainGuard(h.CreateCrewSectorUser()))
 
-	r.Post("/console/api/create-crew-user", h.CreateCrewUser())
+	asked.Post("/console/api/create-crew-user", h.CreateCrewUser())
 
 	bounded.Post("/console/api/create-sector", h.CreateSector())
 
@@ -697,10 +700,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewGroupUserHandler := h.CrewGroupUser()
 	bounded.Get("/console/api/crew-group-users/{crewGroupUserGroupID}/{crewGroupUserUserID}", crewGroupUserHandler)
 	bounded.Post("/console/api/crew-group-users/{crewGroupUserGroupID}/{crewGroupUserUserID}", crewGroupUserHandler)
-
-	crewInvitedSectorsHandler := h.CrewInvitedSectors()
-	bounded.Get("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
-	bounded.Post("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
 
 	crewRolesHandler := h.CrewRoles()
 	bounded.Get("/console/api/crew-roles", crewRolesHandler)
@@ -870,39 +869,39 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-user-roles", crewUserRolesHandler)
 	bounded.Post("/console/api/crew-user-roles", crewUserRolesHandler)
 
-	r.Post("/console/api/delete-crew-group", h.DeleteCrewGroup())
+	asked.Post("/console/api/delete-crew-group", h.DeleteCrewGroup())
 
-	r.Post("/console/api/sectors/{sectorID}/delete-crew-sector-group", domainGuard(h.DeleteCrewSectorGroup()))
+	asked.Post("/console/api/sectors/{sectorID}/delete-crew-sector-group", domainGuard(h.DeleteCrewSectorGroup()))
 
-	r.Post("/console/api/sectors/{sectorID}/delete-crew-sector-user", domainGuard(h.DeleteCrewSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/delete-crew-sector-user", domainGuard(h.DeleteCrewSectorUser()))
 
-	r.Post("/console/api/delete-crew-user", h.DeleteCrewUser())
+	asked.Post("/console/api/delete-crew-user", h.DeleteCrewUser())
 
-	r.Post("/console/api/sectors/{sectorID}/delete-members-sector-user", domainGuard(h.DeleteMembersSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/delete-members-sector-user", domainGuard(h.DeleteMembersSectorUser()))
 
-	r.Post("/console/api/delete-members-user", h.DeleteMembersUser())
+	asked.Post("/console/api/delete-members-user", h.DeleteMembersUser())
 
-	r.Post("/console/api/describe-crew-group", h.DescribeCrewGroup())
+	asked.Post("/console/api/describe-crew-group", h.DescribeCrewGroup())
 
-	r.Post("/console/api/sectors/{sectorID}/describe-crew-sector-group", domainGuard(h.DescribeCrewSectorGroup()))
+	asked.Post("/console/api/sectors/{sectorID}/describe-crew-sector-group", domainGuard(h.DescribeCrewSectorGroup()))
 
 	bounded.Get("/console/api/sectors/{sectorID}/directory-only", domainGuard(h.DirectoryOnly()))
 
-	r.Post("/console/api/sectors/{sectorID}/make-sector-directory-only", domainGuard(h.MakeSectorDirectoryOnly()))
+	asked.Post("/console/api/sectors/{sectorID}/make-sector-directory-only", domainGuard(h.MakeSectorDirectoryOnly()))
 
-	r.Post("/console/api/sectors/{sectorID}/end-sector-directory-only", domainGuard(h.EndSectorDirectoryOnly()))
+	asked.Post("/console/api/sectors/{sectorID}/end-sector-directory-only", domainGuard(h.EndSectorDirectoryOnly()))
 
-	r.Post("/console/api/sectors/{sectorID}/open-sector-to-directory", domainGuard(h.OpenSectorToDirectory()))
+	asked.Post("/console/api/sectors/{sectorID}/open-sector-to-directory", domainGuard(h.OpenSectorToDirectory()))
 
-	r.Post("/console/api/sectors/{sectorID}/make-sector-invite-only", domainGuard(h.MakeSectorInviteOnly()))
+	asked.Post("/console/api/sectors/{sectorID}/make-sector-invite-only", domainGuard(h.MakeSectorInviteOnly()))
 
-	r.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
 
-	r.Post("/console/api/disable-crew-user", h.DisableCrewUser())
+	asked.Post("/console/api/disable-crew-user", h.DisableCrewUser())
 
-	r.Post("/console/api/sectors/{sectorID}/disable-members-sector-user", domainGuard(h.DisableMembersSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/disable-members-sector-user", domainGuard(h.DisableMembersSectorUser()))
 
-	r.Post("/console/api/disable-members-user", h.DisableMembersUser())
+	asked.Post("/console/api/disable-members-user", h.DisableMembersUser())
 
 	distressCallsHandler := domainGuard(h.DistressCalls())
 	bounded.Get("/console/api/sectors/{sectorID}/distress-calls", distressCallsHandler)
@@ -912,27 +911,27 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/enable-crew-sector-user", domainGuard(h.EnableCrewSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/enable-crew-sector-user", domainGuard(h.EnableCrewSectorUser()))
 
-	r.Post("/console/api/enable-crew-user", h.EnableCrewUser())
+	asked.Post("/console/api/enable-crew-user", h.EnableCrewUser())
 
-	r.Post("/console/api/sectors/{sectorID}/enable-members-sector-user", domainGuard(h.EnableMembersSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/enable-members-sector-user", domainGuard(h.EnableMembersSectorUser()))
 
-	r.Post("/console/api/enable-members-user", h.EnableMembersUser())
+	asked.Post("/console/api/enable-members-user", h.EnableMembersUser())
 
-	r.Post("/console/api/sectors/{sectorID}/end-crew-sector-user-sessions", domainGuard(h.EndCrewSectorUserSessions()))
+	asked.Post("/console/api/sectors/{sectorID}/end-crew-sector-user-sessions", domainGuard(h.EndCrewSectorUserSessions()))
 
-	r.Post("/console/api/end-crew-session", h.EndCrewSession())
+	asked.Post("/console/api/end-crew-session", h.EndCrewSession())
 
-	r.Post("/console/api/end-crew-session-impersonation", h.EndCrewSessionImpersonation())
+	asked.Post("/console/api/end-crew-session-impersonation", h.EndCrewSessionImpersonation())
 
-	r.Post("/console/api/end-crew-user-sessions", h.EndCrewUserSessions())
+	asked.Post("/console/api/end-crew-user-sessions", h.EndCrewUserSessions())
 
-	r.Post("/console/api/sectors/{sectorID}/end-members-sector-user-sessions", domainGuard(h.EndMembersSectorUserSessions()))
+	asked.Post("/console/api/sectors/{sectorID}/end-members-sector-user-sessions", domainGuard(h.EndMembersSectorUserSessions()))
 
-	r.Post("/console/api/end-members-session", h.EndMembersSession())
+	asked.Post("/console/api/end-members-session", h.EndMembersSession())
 
-	r.Post("/console/api/end-members-user-sessions", h.EndMembersUserSessions())
+	asked.Post("/console/api/end-members-user-sessions", h.EndMembersUserSessions())
 
 	expenseManifestsHandler := domainGuard(h.ExpenseManifests())
 	bounded.Get("/console/api/sectors/{sectorID}/expense-manifests", expenseManifestsHandler)
@@ -944,9 +943,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/console/api/sectors/{sectorID}/expense-manifests/{expenseManifestMissionID}/content", domainGuard(h.ExpenseManifestContent()))
 
-	r.Post("/console/api/sectors/{sectorID}/fail-flight-test", domainGuard(h.FailFlightTest()))
+	asked.Post("/console/api/sectors/{sectorID}/fail-flight-test", domainGuard(h.FailFlightTest()))
 
-	r.Post("/console/api/sectors/{sectorID}/fail-mission", domainGuard(h.FailMission()))
+	asked.Post("/console/api/sectors/{sectorID}/fail-mission", domainGuard(h.FailMission()))
 
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/console/api/feature-flags", featureFlagsHandler)
@@ -966,11 +965,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/fee-by-kinds/{feeByKindKindID}", feeByKindHandler)
 	bounded.Post("/console/api/fee-by-kinds/{feeByKindKindID}", feeByKindHandler)
 
-	r.Post("/console/api/give-crew-group-role", h.GiveCrewGroupRole())
+	asked.Post("/console/api/give-crew-group-role", h.GiveCrewGroupRole())
 
-	r.Post("/console/api/sectors/{sectorID}/give-crew-sector-group-role", domainGuard(h.GiveCrewSectorGroupRole()))
+	asked.Post("/console/api/sectors/{sectorID}/give-crew-sector-group-role", domainGuard(h.GiveCrewSectorGroupRole()))
 
-	r.Post("/console/api/sectors/{sectorID}/hail-ship", domainGuard(h.HailShip()))
+	asked.Post("/console/api/sectors/{sectorID}/hail-ship", domainGuard(h.HailShip()))
 
 	hangarsHandler := domainGuard(h.Hangars())
 	bounded.Get("/console/api/sectors/{sectorID}/hangars", hangarsHandler)
@@ -990,21 +989,19 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/hangar-passes/{hangarPassID}", hangarPassHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/hangar-passes/{hangarPassID}", hangarPassHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/hold-mission", domainGuard(h.HoldMission()))
+	asked.Post("/console/api/sectors/{sectorID}/hold-mission", domainGuard(h.HoldMission()))
 
-	r.Post("/console/api/sectors/{sectorID}/inspect-ship", domainGuard(h.InspectShip()))
+	asked.Post("/console/api/sectors/{sectorID}/inspect-ship", domainGuard(h.InspectShip()))
 
-	r.Post("/console/api/invite-crew-sector", h.InviteCrewSector())
+	asked.Post("/console/api/sectors/{sectorID}/invite-crew-sector-user", domainGuard(h.InviteCrewSectorUser()))
 
-	r.Post("/console/api/sectors/{sectorID}/invite-crew-sector-user", domainGuard(h.InviteCrewSectorUser()))
+	asked.Post("/console/api/invite-crew-user", h.InviteCrewUser())
 
-	r.Post("/console/api/invite-crew-user", h.InviteCrewUser())
+	asked.Post("/console/api/issue-bulletin", h.IssueBulletin())
 
-	r.Post("/console/api/issue-bulletin", h.IssueBulletin())
+	asked.Post("/console/api/sectors/{sectorID}/launch-mission", domainGuard(h.LaunchMission()))
 
-	r.Post("/console/api/sectors/{sectorID}/launch-mission", domainGuard(h.LaunchMission()))
-
-	r.Post("/console/api/make-crew-invite-only", h.MakeCrewInviteOnly())
+	asked.Post("/console/api/make-crew-invite-only", h.MakeCrewInviteOnly())
 
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/console/api/members-roles", membersRolesHandler)
@@ -1128,7 +1125,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/console/api/sectors/{sectorID}/mission-documents/{missionDocumentID}/content", domainGuard(h.MissionDocumentContent()))
 
-	r.Post("/console/api/open-crew-sign-up", h.OpenCrewSignUp())
+	asked.Post("/console/api/open-crew-sign-up", h.OpenCrewSignUp())
 
 	openMissionsBySquadronsHandler := domainGuard(h.OpenMissionsBySquadrons())
 	bounded.Get("/console/api/sectors/{sectorID}/open-missions-by-squadrons", openMissionsBySquadronsHandler)
@@ -1138,7 +1135,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/open-missions-by-squadrons/{openMissionsBySquadronSquadronID}/{openMissionsBySquadronSectorID}", openMissionsBySquadronHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/open-missions-by-squadrons/{openMissionsBySquadronSquadronID}/{openMissionsBySquadronSectorID}", openMissionsBySquadronHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/pass-flight-test", domainGuard(h.PassFlightTest()))
+	asked.Post("/console/api/sectors/{sectorID}/pass-flight-test", domainGuard(h.PassFlightTest()))
 
 	pilotsHandler := h.Pilots()
 	bounded.Get("/console/api/pilots", pilotsHandler)
@@ -1186,47 +1183,47 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/console/api/sectors/{sectorID}/refit-tasks/{refitTaskRefitID}/{refitTaskTaskNumber}/photo", domainGuard(h.RefitTaskPhoto()))
 
-	r.Post("/console/api/sectors/{sectorID}/release-consignment", domainGuard(h.ReleaseConsignment()))
+	asked.Post("/console/api/sectors/{sectorID}/release-consignment", domainGuard(h.ReleaseConsignment()))
 
-	r.Post("/console/api/remove-crew-group-member", h.RemoveCrewGroupMember())
+	asked.Post("/console/api/remove-crew-group-member", h.RemoveCrewGroupMember())
 
-	r.Post("/console/api/remove-crew-password", h.RemoveCrewPassword())
+	asked.Post("/console/api/remove-crew-password", h.RemoveCrewPassword())
 
-	r.Post("/console/api/remove-crew-role", h.RemoveCrewRole())
+	asked.Post("/console/api/remove-crew-role", h.RemoveCrewRole())
 
-	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-group-member", domainGuard(h.RemoveCrewSectorGroupMember()))
+	asked.Post("/console/api/sectors/{sectorID}/remove-crew-sector-group-member", domainGuard(h.RemoveCrewSectorGroupMember()))
 
-	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-password", domainGuard(h.RemoveCrewSectorPassword()))
+	asked.Post("/console/api/sectors/{sectorID}/remove-crew-sector-password", domainGuard(h.RemoveCrewSectorPassword()))
 
-	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-role", domainGuard(h.RemoveCrewSectorRole()))
+	asked.Post("/console/api/sectors/{sectorID}/remove-crew-sector-role", domainGuard(h.RemoveCrewSectorRole()))
 
-	r.Post("/console/api/sectors/{sectorID}/rename-crew-sector-user", domainGuard(h.RenameCrewSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/rename-crew-sector-user", domainGuard(h.RenameCrewSectorUser()))
 
-	r.Post("/console/api/rename-crew-user", h.RenameCrewUser())
+	asked.Post("/console/api/rename-crew-user", h.RenameCrewUser())
 
-	r.Post("/console/api/sectors/{sectorID}/rename-members-sector-user", domainGuard(h.RenameMembersSectorUser()))
+	asked.Post("/console/api/sectors/{sectorID}/rename-members-sector-user", domainGuard(h.RenameMembersSectorUser()))
 
-	r.Post("/console/api/rename-members-user", h.RenameMembersUser())
+	asked.Post("/console/api/rename-members-user", h.RenameMembersUser())
 
-	r.Post("/console/api/sectors/{sectorID}/replace-mission-document", domainGuard(h.ReplaceMissionDocument()))
+	asked.Post("/console/api/sectors/{sectorID}/replace-mission-document", domainGuard(h.ReplaceMissionDocument()))
 
-	r.Post("/console/api/require-crew-password-change", h.RequireCrewPasswordChange())
+	asked.Post("/console/api/require-crew-password-change", h.RequireCrewPasswordChange())
 
-	r.Post("/console/api/sectors/{sectorID}/require-crew-sector-password-change", domainGuard(h.RequireCrewSectorPasswordChange()))
+	asked.Post("/console/api/sectors/{sectorID}/require-crew-sector-password-change", domainGuard(h.RequireCrewSectorPasswordChange()))
 
-	r.Post("/console/api/sectors/{sectorID}/resume-mission", domainGuard(h.ResumeMission()))
+	asked.Post("/console/api/sectors/{sectorID}/resume-mission", domainGuard(h.ResumeMission()))
 
-	r.Post("/console/api/sectors/{sectorID}/revoke-crew-sector-user-trusted-devices", domainGuard(h.RevokeCrewSectorUserTrustedDevices()))
+	asked.Post("/console/api/sectors/{sectorID}/revoke-crew-sector-user-trusted-devices", domainGuard(h.RevokeCrewSectorUserTrustedDevices()))
 
-	r.Post("/console/api/revoke-crew-session-token", h.RevokeCrewSessionToken())
+	asked.Post("/console/api/revoke-crew-session-token", h.RevokeCrewSessionToken())
 
-	r.Post("/console/api/revoke-crew-user-trusted-devices", h.RevokeCrewUserTrustedDevices())
+	asked.Post("/console/api/revoke-crew-user-trusted-devices", h.RevokeCrewUserTrustedDevices())
 
-	r.Post("/console/api/sectors/{sectorID}/revoke-members-sector-user-trusted-devices", domainGuard(h.RevokeMembersSectorUserTrustedDevices()))
+	asked.Post("/console/api/sectors/{sectorID}/revoke-members-sector-user-trusted-devices", domainGuard(h.RevokeMembersSectorUserTrustedDevices()))
 
-	r.Post("/console/api/revoke-members-user-trusted-devices", h.RevokeMembersUserTrustedDevices())
+	asked.Post("/console/api/revoke-members-user-trusted-devices", h.RevokeMembersUserTrustedDevices())
 
-	r.Post("/console/api/sectors/{sectorID}/scrap-ship", domainGuard(h.ScrapShip()))
+	asked.Post("/console/api/sectors/{sectorID}/scrap-ship", domainGuard(h.ScrapShip()))
 
 	sectorsHandler := h.Sectors()
 	bounded.Get("/console/api/sectors", sectorsHandler)
@@ -1264,29 +1261,29 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/service-ledgers", serviceLedgersHandler)
 	bounded.Post("/console/api/service-ledgers", serviceLedgersHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/set-crew-sector-temporary-password", domainGuard(h.SetCrewSectorTemporaryPassword()))
+	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-temporary-password", domainGuard(h.SetCrewSectorTemporaryPassword()))
 
-	r.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-email", domainGuard(h.SetCrewSectorUserEmail()))
+	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-email", domainGuard(h.SetCrewSectorUserEmail()))
 
-	r.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-name", domainGuard(h.SetCrewSectorUserName()))
+	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-name", domainGuard(h.SetCrewSectorUserName()))
 
-	r.Post("/console/api/set-crew-temporary-password", h.SetCrewTemporaryPassword())
+	asked.Post("/console/api/set-crew-temporary-password", h.SetCrewTemporaryPassword())
 
-	r.Post("/console/api/set-crew-user-email", h.SetCrewUserEmail())
+	asked.Post("/console/api/set-crew-user-email", h.SetCrewUserEmail())
 
-	r.Post("/console/api/set-crew-user-name", h.SetCrewUserName())
+	asked.Post("/console/api/set-crew-user-name", h.SetCrewUserName())
 
-	bounded.Post("/console/api/set-feature", h.SetFeature())
+	asked.With(resource.BodyLimit(BodyLimit)).Post("/console/api/set-feature", h.SetFeature())
 
-	r.Post("/console/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
+	asked.Post("/console/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
 
-	r.Post("/console/api/sectors/{sectorID}/set-members-sector-user-name", domainGuard(h.SetMembersSectorUserName()))
+	asked.Post("/console/api/sectors/{sectorID}/set-members-sector-user-name", domainGuard(h.SetMembersSectorUserName()))
 
-	r.Post("/console/api/set-members-user-email", h.SetMembersUserEmail())
+	asked.Post("/console/api/set-members-user-email", h.SetMembersUserEmail())
 
-	r.Post("/console/api/set-members-user-name", h.SetMembersUserName())
+	asked.Post("/console/api/set-members-user-name", h.SetMembersUserName())
 
-	r.Post("/console/api/sectors/{sectorID}/set-sector-pilot-clearance", domainGuard(h.SetSectorPilotClearance()))
+	asked.Post("/console/api/sectors/{sectorID}/set-sector-pilot-clearance", domainGuard(h.SetSectorPilotClearance()))
 
 	shipsHandler := domainGuard(h.Ships())
 	bounded.Get("/console/api/sectors/{sectorID}/ships", shipsHandler)
@@ -1344,29 +1341,29 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/squadron-rosters/{squadronRosterSquadronID}/{squadronRosterUserID}", squadronRosterHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/squadron-rosters/{squadronRosterSquadronID}/{squadronRosterUserID}", squadronRosterHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/stand-down-mission", domainGuard(h.StandDownMission()))
+	asked.Post("/console/api/sectors/{sectorID}/stand-down-mission", domainGuard(h.StandDownMission()))
 
 	standingOrdersHandler := h.StandingOrders()
 	bounded.Get("/console/api/standing-orders", standingOrdersHandler)
 	bounded.Post("/console/api/standing-orders", standingOrdersHandler)
 
-	r.Post("/console/api/sectors/{sectorID}/start-flight-test", domainGuard(h.StartFlightTest()))
+	asked.Post("/console/api/sectors/{sectorID}/start-flight-test", domainGuard(h.StartFlightTest()))
 
-	r.Post("/console/api/take-crew-group-role", h.TakeCrewGroupRole())
+	asked.Post("/console/api/take-crew-group-role", h.TakeCrewGroupRole())
 
-	r.Post("/console/api/sectors/{sectorID}/take-crew-sector-group-role", domainGuard(h.TakeCrewSectorGroupRole()))
+	asked.Post("/console/api/sectors/{sectorID}/take-crew-sector-group-role", domainGuard(h.TakeCrewSectorGroupRole()))
 
-	r.Post("/console/api/sectors/{sectorID}/unlink-crew-sector-session-identity", domainGuard(h.UnlinkCrewSectorSessionIdentity()))
+	asked.Post("/console/api/sectors/{sectorID}/unlink-crew-sector-session-identity", domainGuard(h.UnlinkCrewSectorSessionIdentity()))
 
-	r.Post("/console/api/unlink-crew-session-identity", h.UnlinkCrewSessionIdentity())
+	asked.Post("/console/api/unlink-crew-session-identity", h.UnlinkCrewSessionIdentity())
 
-	r.Post("/console/api/sectors/{sectorID}/unlink-members-sector-session-identity", domainGuard(h.UnlinkMembersSectorSessionIdentity()))
+	asked.Post("/console/api/sectors/{sectorID}/unlink-members-sector-session-identity", domainGuard(h.UnlinkMembersSectorSessionIdentity()))
 
-	r.Post("/console/api/unlink-members-session-identity", h.UnlinkMembersSessionIdentity())
+	asked.Post("/console/api/unlink-members-session-identity", h.UnlinkMembersSessionIdentity())
 
-	r.Post("/console/api/unlock-crew-sign-in", h.UnlockCrewSignIn())
+	asked.Post("/console/api/unlock-crew-sign-in", h.UnlockCrewSignIn())
 
-	r.Post("/console/api/unlock-members-sign-in", h.UnlockMembersSignIn())
+	asked.Post("/console/api/unlock-members-sign-in", h.UnlockMembersSignIn())
 
 	wingsHandler := domainGuard(h.Wings())
 	bounded.Get("/console/api/sectors/{sectorID}/wings", wingsHandler)
@@ -1376,11 +1373,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/wings/{wingID}", wingHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/wings/{wingID}", wingHandler)
 
-	r.Post("/console/api/withdraw-crew-invitation", h.WithdrawCrewInvitation())
+	asked.Post("/console/api/withdraw-crew-invitation", h.WithdrawCrewInvitation())
 
-	r.Post("/console/api/withdraw-crew-invited-sector", h.WithdrawCrewInvitedSector())
-
-	r.Post("/console/api/sectors/{sectorID}/withdraw-crew-sector-invitation", domainGuard(h.WithdrawCrewSectorInvitation()))
+	asked.Post("/console/api/sectors/{sectorID}/withdraw-crew-sector-invitation", domainGuard(h.WithdrawCrewSectorInvitation()))
 
 	bounded.Patch("/console/api/resources", h.PatchResources())
 }
@@ -1396,9 +1391,10 @@ type GeneratedScheduledHandlers interface {
 // /_scheduled/<method in kebab case>. The generated router mounts them behind the
 // scheduler's token check (SchedulerAuth) and no outlet's guards: a scheduled call
 // carries no session, so it serves no live pages, and a request carrying X-Subscribe is
-// refused naming the header.
+// refused naming the header. A scheduled call has no dry run and no warning, so a
+// request that asks for either is refused naming the header, and the method is not run.
 func generatedScheduledRoutes(r chi.Router, h GeneratedScheduledHandlers) {
-	r = r.With(live.Refusing(), resource.BodyLimit(BodyLimit))
+	r = r.With(live.Refusing(), resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 	r.Post("/_scheduled/clean-up-files", h.CleanUpFiles())
 	r.Post("/_scheduled/prune-droid-reports", h.PruneDroidReports())
 }
@@ -1428,8 +1424,17 @@ func generatedDroidsRoutes(r chi.Router, h GeneratedDroidsHandlers) {
 	// The outlet serves no browser sessions, so it serves no live pages: a request
 	// carrying X-Subscribe is refused naming the header.
 	r = r.With(live.Refusing())
+	// A request that asks a call for a dry run (X-Dry-Run) or for its warning
+	// (X-Warning) asks that the call be held back, and a frame that never reads the
+	// header would run it for real. So every route registered on r from here on, and
+	// on the bounded group drawn from it, refuses such a request naming the header,
+	// and nothing runs. The routes whose frames answer the two headers
+	// themselves (a method's, an upload's, SetFeature's) register on asked, the router
+	// before the refusal.
+	asked := r
+	r = r.With(resource.NoDryRunOrWarning())
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 	domainGuard := h.DomainGuard()
 
@@ -1448,9 +1453,9 @@ func generatedDroidsRoutes(r chi.Router, h GeneratedDroidsHandlers) {
 	bounded.Get("/droids/features", h.Features())
 
 	// IngestDroidReports writes its request log on event: the route's own word, set ahead of the handler.
-	r.With(logger.WithPolicy(logger.OnEvent())).Post("/droids/sectors/{sectorID}/ingest-droid-reports", domainGuard(h.IngestDroidReports()))
+	asked.With(logger.WithPolicy(logger.OnEvent())).Post("/droids/sectors/{sectorID}/ingest-droid-reports", domainGuard(h.IngestDroidReports()))
 
-	r.Post("/droids/sectors/{sectorID}/release-consignment", domainGuard(h.ReleaseConsignment()))
+	asked.Post("/droids/sectors/{sectorID}/release-consignment", domainGuard(h.ReleaseConsignment()))
 
 	bounded.Patch("/droids/resources", h.PatchDroidsResources())
 }
@@ -1592,8 +1597,17 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	// share one; a request carrying X-Subscribe is noted on its request log line and
 	// refused when its tab id is malformed. The auth's name is members.Name.
 	r = r.With(live.Subscribing(members.Name))
+	// A request that asks a call for a dry run (X-Dry-Run) or for its warning
+	// (X-Warning) asks that the call be held back, and a frame that never reads the
+	// header would run it for real. So every route registered on r from here on, and
+	// on the bounded group drawn from it, refuses such a request naming the header,
+	// and nothing runs. The routes whose frames answer the two headers
+	// themselves (a method's, an upload's, SetFeature's) register on asked, the router
+	// before the refusal.
+	asked := r
+	r = r.With(resource.NoDryRunOrWarning())
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 	domainGuard := h.DomainGuard()
 
@@ -1623,13 +1637,13 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/sectors/{sectorID}/client-rosters/{clientRosterID}", clientRosterHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/client-rosters/{clientRosterID}", clientRosterHandler)
 
-	r.Post("/portal/api/sectors/{sectorID}/delete-members-sector-user", domainGuard(h.DeleteMembersSectorUser()))
+	asked.Post("/portal/api/sectors/{sectorID}/delete-members-sector-user", domainGuard(h.DeleteMembersSectorUser()))
 
-	r.Post("/portal/api/delete-members-user", h.DeleteMembersUser())
+	asked.Post("/portal/api/delete-members-user", h.DeleteMembersUser())
 
-	r.Post("/portal/api/sectors/{sectorID}/disable-members-sector-user", domainGuard(h.DisableMembersSectorUser()))
+	asked.Post("/portal/api/sectors/{sectorID}/disable-members-sector-user", domainGuard(h.DisableMembersSectorUser()))
 
-	r.Post("/portal/api/disable-members-user", h.DisableMembersUser())
+	asked.Post("/portal/api/disable-members-user", h.DisableMembersUser())
 
 	distressCallsHandler := domainGuard(h.DistressCalls())
 	bounded.Get("/portal/api/sectors/{sectorID}/distress-calls", distressCallsHandler)
@@ -1639,15 +1653,15 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
 
-	r.Post("/portal/api/sectors/{sectorID}/enable-members-sector-user", domainGuard(h.EnableMembersSectorUser()))
+	asked.Post("/portal/api/sectors/{sectorID}/enable-members-sector-user", domainGuard(h.EnableMembersSectorUser()))
 
-	r.Post("/portal/api/enable-members-user", h.EnableMembersUser())
+	asked.Post("/portal/api/enable-members-user", h.EnableMembersUser())
 
-	r.Post("/portal/api/sectors/{sectorID}/end-members-sector-user-sessions", domainGuard(h.EndMembersSectorUserSessions()))
+	asked.Post("/portal/api/sectors/{sectorID}/end-members-sector-user-sessions", domainGuard(h.EndMembersSectorUserSessions()))
 
-	r.Post("/portal/api/end-members-session", h.EndMembersSession())
+	asked.Post("/portal/api/end-members-session", h.EndMembersSession())
 
-	r.Post("/portal/api/end-members-user-sessions", h.EndMembersUserSessions())
+	asked.Post("/portal/api/end-members-user-sessions", h.EndMembersUserSessions())
 
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/portal/api/feature-flags", featureFlagsHandler)
@@ -1773,31 +1787,31 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	bounded.Get("/portal/api/sectors/{sectorID}/mission-documents/{missionDocumentID}/content", domainGuard(h.MissionDocumentContent()))
 
-	r.Post("/portal/api/sectors/{sectorID}/rename-members-sector-user", domainGuard(h.RenameMembersSectorUser()))
+	asked.Post("/portal/api/sectors/{sectorID}/rename-members-sector-user", domainGuard(h.RenameMembersSectorUser()))
 
-	r.Post("/portal/api/rename-members-user", h.RenameMembersUser())
+	asked.Post("/portal/api/rename-members-user", h.RenameMembersUser())
 
-	r.Post("/portal/api/sectors/{sectorID}/revoke-members-sector-user-trusted-devices", domainGuard(h.RevokeMembersSectorUserTrustedDevices()))
+	asked.Post("/portal/api/sectors/{sectorID}/revoke-members-sector-user-trusted-devices", domainGuard(h.RevokeMembersSectorUserTrustedDevices()))
 
-	r.Post("/portal/api/revoke-members-user-trusted-devices", h.RevokeMembersUserTrustedDevices())
+	asked.Post("/portal/api/revoke-members-user-trusted-devices", h.RevokeMembersUserTrustedDevices())
 
-	bounded.Post("/portal/api/set-feature", h.SetFeature())
+	asked.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/set-feature", h.SetFeature())
 
-	r.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
+	asked.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
 
-	r.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-name", domainGuard(h.SetMembersSectorUserName()))
+	asked.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-name", domainGuard(h.SetMembersSectorUserName()))
 
-	r.Post("/portal/api/set-members-user-email", h.SetMembersUserEmail())
+	asked.Post("/portal/api/set-members-user-email", h.SetMembersUserEmail())
 
-	r.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
+	asked.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
 
-	r.Post("/portal/api/sectors/{sectorID}/stand-down-mission", domainGuard(h.StandDownMission()))
+	asked.Post("/portal/api/sectors/{sectorID}/stand-down-mission", domainGuard(h.StandDownMission()))
 
-	r.Post("/portal/api/sectors/{sectorID}/unlink-members-sector-session-identity", domainGuard(h.UnlinkMembersSectorSessionIdentity()))
+	asked.Post("/portal/api/sectors/{sectorID}/unlink-members-sector-session-identity", domainGuard(h.UnlinkMembersSectorSessionIdentity()))
 
-	r.Post("/portal/api/unlink-members-session-identity", h.UnlinkMembersSessionIdentity())
+	asked.Post("/portal/api/unlink-members-session-identity", h.UnlinkMembersSessionIdentity())
 
-	r.Post("/portal/api/unlock-members-sign-in", h.UnlockMembersSignIn())
+	asked.Post("/portal/api/unlock-members-sign-in", h.UnlockMembersSignIn())
 
 	bounded.Patch("/portal/api/resources", h.PatchPortalResources())
 }

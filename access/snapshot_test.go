@@ -1181,6 +1181,44 @@ func settle(e *snapshotEngine) {
 	e.tryReload(context.Background())
 }
 
+// ownCheck marks the context of a check a test makes itself, so a store that counts
+// its reads tells the ones of the engine's own loop from the ones a check set off.
+type ownCheck struct{}
+
+// loopCountingStore counts the reads a policy store makes under a context that is not
+// one of the test's own checks (ownCheck): the engine's loop's, and the ones a test
+// asks the engine for outright (settle).
+type loopCountingStore struct {
+	*fakeStore
+	loop atomic.Int64
+}
+
+func (s *loopCountingStore) ReadPolicy(ctx context.Context) (*policy.Records, error) {
+	if ctx.Value(ownCheck{}) == nil {
+		s.loop.Add(1)
+	}
+
+	return s.fakeStore.ReadPolicy(ctx)
+}
+
+// settleFirstLoad waits until the engine's loop has made its first load and is idle.
+// The loop loads once as it starts, on a goroutine of its own that may not have run
+// when a test's first check returns, and settle alone waits only for a reload already
+// in flight. A test that then changes the store and expects the engine not to have seen
+// the change yet would have that first load land after it and show it. The load's read
+// is waited for, and then its end, since settle takes the lock the read is made under.
+// loop counts the store's reads made under no context of the test's own.
+func settleFirstLoad(t *testing.T, e *snapshotEngine, loop *atomic.Int64) {
+	t.Helper()
+
+	for deadline := time.Now().Add(10 * time.Second); loop.Load() == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the engine's loop made no first load")
+		}
+	}
+	settle(e)
+}
+
 func Test_snapshotEngine_checkUserResources(t *testing.T) {
 	t.Parallel()
 
@@ -1265,16 +1303,17 @@ func Test_snapshotEngine_waitReady(t *testing.T) {
 func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	store := engineFakeStore(t)
+	ctx := context.WithValue(context.Background(), ownCheck{}, true)
+	store := &loopCountingStore{fakeStore: engineFakeStore(t)}
 	e := testEngine(t, store, nil)
 
 	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the write", got, err)
 	}
-	settle(e)
+	// The stale answer below holds only once the loop's first load is over.
+	settleFirstLoad(t, e, &store.loop)
 
-	grantWidgets(t, store)
+	grantWidgets(t, store.fakeStore)
 
 	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", got, err)
@@ -1312,6 +1351,110 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	}
 	if !got[0].granted {
 		t.Fatalf("checkUser() = %v, want granted from stale snapshot", got)
+	}
+}
+
+// transactionMark marks a context as the one a database transaction's function runs
+// under, as the Spanner client marks it.
+type transactionMark struct{}
+
+// transactionRefusingStore is a policy store whose client refuses a read under a
+// transaction's context, as the Spanner client refuses a read of its own there
+// ("Cloud Spanner does not support nested transactions"; the Spanner store's own test
+// shows it against the emulator). It counts the reads it refused and the ones it made,
+// and among those the ones made under no context of the test's own: the engine's
+// loop's, and the ones the test asks the engine for outright (settle).
+type transactionRefusingStore struct {
+	*fakeStore
+	refused atomic.Int64
+	read    atomic.Int64
+	loop    atomic.Int64
+}
+
+func (s *transactionRefusingStore) ReadPolicy(ctx context.Context) (*policy.Records, error) {
+	if ctx.Value(transactionMark{}) != nil {
+		s.refused.Add(1)
+
+		return nil, errors.New("Cloud Spanner does not support nested transactions")
+	}
+	s.read.Add(1)
+	if ctx.Value(ownCheck{}) == nil {
+		s.loop.Add(1)
+	}
+
+	return s.fakeStore.ReadPolicy(ctx)
+}
+
+// Test_snapshotEngine_checkUnderATransactionAfterALocalWrite pins what a check made
+// under a transaction's context does when it is the first check after a local policy
+// write, on a store whose client refuses a read there. The engine reloads on the check
+// path with the caller's context, so the read is refused: the check is answered from
+// the snapshot that predates the write, with no error returned and none reported, and
+// the engine remembers the failed generation, so the checks that follow, another
+// request's among them, are answered from the same snapshot without reading the store
+// again. The write shows once the engine's own loop has reloaded, which every local
+// write nudges; where that read fails too, at the next heartbeat or the next write.
+//
+// A check whose context is no transaction's reloads and sees the write
+// (Test_snapshotEngine_invalidateReloadsOnNextCheck), and so does every check on a
+// store whose client reads under a transaction's context, as the PostgreSQL store's
+// does.
+func Test_snapshotEngine_checkUnderATransactionAfterALocalWrite(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.WithValue(context.Background(), ownCheck{}, true)
+	store := &transactionRefusingStore{fakeStore: engineFakeStore(t)}
+	var reported atomic.Int64
+	opts := defaultClientOptions()
+	opts.onReloadError = func(error) { reported.Add(1) }
+	e := testEngine(t, store, opts)
+	widgets := func(ctx context.Context) bool {
+		t.Helper()
+		got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
+		if err != nil {
+			t.Fatalf("checkUserResources() error = %v, want an answer from a snapshot", err)
+		}
+
+		return got[0].granted
+	}
+
+	if widgets(ctx) {
+		t.Fatal("widgets granted before the write")
+	}
+	// No load of the loop's is left to land after the write below and show it ahead of
+	// the check this test is about.
+	settleFirstLoad(t, e, &store.loop)
+
+	// A request commits a policy write and the engine is told (policyChanged). The
+	// first check after it is another request's, already inside its transaction.
+	grantWidgets(t, store.fakeStore)
+	e.invalidate()
+	read := store.read.Load()
+
+	if widgets(context.WithValue(ctx, transactionMark{}, true)) {
+		t.Error("the check under a transaction's context was granted widgets, want the answer of the snapshot before the write: the store's client refuses the reload there")
+	}
+	if got := store.refused.Load(); got != 1 {
+		t.Errorf("reads refused under the transaction's context = %d, want 1", got)
+	}
+	if got := reported.Load(); got != 0 {
+		t.Errorf("reload errors reported = %d, want 0: the check path reports none", got)
+	}
+
+	// The next request's check is outside any transaction, and is answered from the
+	// same snapshot without a read: the engine remembers the generation that failed.
+	if widgets(ctx) {
+		t.Error("the next request's check was granted widgets before the engine's own loop reloaded")
+	}
+	if got := store.read.Load(); got != read {
+		t.Errorf("store reads after the refused reload = %d, want %d: no check retries the generation that failed", got, read)
+	}
+
+	// The engine's own loop reloads, as every local write nudges it to, and the write
+	// shows.
+	settle(e)
+	if !widgets(ctx) {
+		t.Error("widgets denied after the engine's own loop reloaded")
 	}
 }
 

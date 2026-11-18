@@ -337,6 +337,9 @@ func Test_prepareIdentity_grants(t *testing.T) {
 			"return settled(gate, \"AssignCrewRole\")",
 			"caller.ExecuteGate(ctx, RemoveCrewRole{}.Method(), &RemoveCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
 			"return settled(gate, \"RemoveCrewRole\")",
+			// No tenant, so no list a role is picked from: the question of one is answered
+			// by the method that gives a role, of nobody.
+			"func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\treturn g.MayGive(ctx, nil, scope, impulse.NilUUID, role)\n}",
 			// A refusal is an answer, and anything else is an error, never a pass.
 			"case httpio.HasForbidden(err), httpio.HasNotFound(err):\n\t\treturn false, nil\n\tdefault:\n\t\treturn false, errors.Wrap(err, \"resource.Caller.ExecuteGate()\")",
 		},
@@ -397,6 +400,15 @@ func Test_prepareIdentity_grants_tenant(t *testing.T) {
 			"return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{\"role\": string(role), \"everyDomain\": false}))",
 			// The whole application's request is answered by its own methods still.
 			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
+			// The list a tenant's role is picked from asks each method whose role field
+			// picks from it, with the role and nothing else: a refusal is that method's no,
+			// and a grant that admits the role, or leaves the row to decide, is a yes.
+			"func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {",
+			"{method: AssignCrewShipRole{}.Method(), request: &AssignCrewShipRole{Role: string(role)}},\n\t\t\t{method: CreateCrewShipUser{}.Method(), request: &CreateCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t" +
+				"{method: InviteCrewShipUser{}.Method(), request: &InviteCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t{method: GiveCrewShipGroupRole{}.Method(), request: &GiveCrewShipGroupRole{Role: string(role)}},\n\t\t} {",
+			"gate, err := caller.ExecuteGate(ctx, by.method, by.request)\n\t\t\tif err != nil {",
+			"if _, err := granted(err); err != nil {\n\t\t\t\t\treturn false, err\n\t\t\t\t}\n\n\t\t\t\tcontinue",
+			"if may, settled := gate.Settled(); may || !settled {\n\t\t\t\treturn true, nil\n\t\t\t}\n\t\t}\n\n\t\treturn false, nil\n\t}\n\n\treturn g.MayGive(ctx, nil, scope, impulse.NilUUID, role)",
 		},
 		"crewidentity/store.go": {
 			"func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {",

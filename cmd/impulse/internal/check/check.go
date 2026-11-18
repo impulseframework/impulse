@@ -197,6 +197,7 @@ func All() []Check {
 		superAdministratorsTold{},
 		personaCast{},
 		directoryAdmission{},
+		firstAdministrator{},
 		tenantAccounts{},
 		secondFactor{},
 		changeSignal{},

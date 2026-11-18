@@ -1006,7 +1006,9 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)", "type CrewShipRole struct {",
 			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", "return \"CrewShipRoles\"",
 			"func ListCrewShipRole(ctx context.Context, qSet *resource.QuerySet[CrewShipRole], _ resource.Client, client *Client) iter.Seq2[*CrewShipRole, error] {",
-			"domain, ok := qSet.Scope().Domain()", "client.manager.TenantRoles(ctx, domain)",
+			"domain, ok := qSet.Scope().Domain()", "client.manager.RolesToGive(ctx, domain)",
+			// The list offers the roles the caller could give, and says by which methods.
+			"role field picks from this list:\n//\n//\tAssignCrewShipRole, CreateCrewShipUser, InviteCrewShipUser\n//\n// A condition there reads the role",
 		},
 		"crewhandlers/handlers.go":    {"func (h *Handlers) RPCClient() *crewidentity.Client {", "func (h *Handlers) ComputedClient() *crewidentity.Client {\n\treturn h.CrewIdentity()\n}"},
 		"membershandlers/handlers.go": {"func (h *Handlers) ComputedClient() *membersidentity.Client {"},

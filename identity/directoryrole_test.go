@@ -261,6 +261,92 @@ func TestManager_DirectoryRoles(t *testing.T) {
 	})
 }
 
+// TestManager_RolesToGive pins the list a role is picked from to give one in a tenant by
+// hand: the roles of the tenant that the request's caller could give there by one of the
+// methods that give a role, asked of the role file's grants before anybody is named
+// (RoleGrants.CouldGive), and no other. A call outside any request is the application's
+// own and lists every role of the tenant; a manager that cannot ask refuses the
+// request, never lists; and no tenant named is an error. The question reads no row, so
+// the list opens no transaction and asks under none.
+func TestManager_RolesToGive(t *testing.T) {
+	t.Parallel()
+
+	reader := access.RoleInfo{Name: "Reader", Description: "the Reader role"}
+	warden := access.RoleInfo{Name: "Warden", Description: "the Warden role"}
+	asked := []string{"could give alpha Reader", "could give alpha Warden"}
+	tests := []struct {
+		name string
+		// noneGives are the roles no method that gives a role takes from the caller.
+		noneGives []accesstypes.Role
+		// outside says the call is made outside any request.
+		outside   bool
+		want      []access.RoleInfo
+		wantAsked []string
+	}{
+		{name: "a caller is listed the roles of the tenant a method takes from them", noneGives: []accesstypes.Role{"Warden"}, want: []access.RoleInfo{reader}, wantAsked: asked},
+		{name: "a caller every role is taken from is listed every role of the tenant", want: []access.RoleInfo{reader, warden}, wantAsked: asked},
+		{name: "a caller no method takes a role from is listed none", noneGives: []accesstypes.Role{"Reader", "Warden"}, want: []access.RoleInfo{}, wantAsked: asked},
+		{name: "a call outside any request lists every role of the tenant and asks nothing", noneGives: []accesstypes.Role{"Warden"}, outside: true, want: []access.RoleInfo{reader, warden}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			grants := &fakeGrants{noneGives: tt.noneGives}
+			m, _ := newManager(t, store, wardenRoles, WithRoleGrants(grants))
+
+			ctx := t.Context()
+			if !tt.outside {
+				ctx = asCallerThrough(ctx, managedAuth, erin)
+			}
+			got, err := m.RolesToGive(ctx, "alpha")
+			if err != nil {
+				t.Fatalf("RolesToGive() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("RolesToGive() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
+				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: the list writes nothing", store.writes)
+			}
+		})
+	}
+
+	t.Run("a manager with no grants refuses a request it cannot judge", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles)
+		_, err := m.RolesToGive(asCallerThrough(t.Context(), managedAuth, erin), "alpha")
+		if err == nil || !strings.Contains(err.Error(), "identity.WithRoleGrants") {
+			t.Errorf("RolesToGive() error = %v, want an error naming identity.WithRoleGrants", err)
+		}
+	})
+
+	t.Run("a grant that cannot be read fails the list", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{err: errStore}))
+		_, err := m.RolesToGive(asCallerThrough(t.Context(), managedAuth, erin), "alpha")
+		if !errors.Is(err, errStore) {
+			t.Errorf("RolesToGive() error = %v, want the grants' own error", err)
+		}
+	})
+
+	t.Run("no tenant named is an error", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{}))
+		_, err := m.RolesToGive(t.Context(), "")
+		if err == nil || !strings.Contains(err.Error(), "no tenant was named") {
+			t.Errorf("RolesToGive() error = %v, want one that says no tenant was named", err)
+		}
+	})
+}
+
 // ranTwice is a database that runs a transaction's function twice before it commits, as
 // the application's database does when it takes the transaction back and tries again.
 type ranTwice struct{}

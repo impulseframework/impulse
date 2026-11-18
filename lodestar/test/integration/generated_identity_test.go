@@ -60,12 +60,20 @@ func newIdentityWorld(t *testing.T) *identityWorld {
 // the test makes and nobody else.
 func buildIdentityWorld(t *testing.T, castAccounts bool) *identityWorld {
 	t.Helper()
+
+	return buildIdentityWorldOver(t, castAccounts, crew.Roles())
+}
+
+// buildIdentityWorldOver builds the world over the crew's role file as given: the one
+// the release ships, or a suite's variant of it.
+func buildIdentityWorldOver(t *testing.T, castAccounts bool, crewRoles access.RoleFile) *identityWorld {
+	t.Helper()
 	ctx := t.Context()
 	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	crewEngine, err := openEngine(db, crew.TablePrefix, crew.Roles())
+	crewEngine, err := openEngine(db, crew.TablePrefix, crewRoles)
 	if err != nil {
 		t.Fatal(err)
 	}

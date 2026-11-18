@@ -54,6 +54,15 @@ type RoleGrants interface {
 	// MayTake reports whether the caller may take the role the person holds in the scope
 	// away: the grant of the method that takes a role away admits it for that role.
 	MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
+	// CouldGive reports whether the caller could give the role in the scope by hand, to
+	// somebody: one of the methods a person gives a role with (the one that gives a
+	// person a role, the create and the invitation that start a person with one, the
+	// one that gives a group a role) does not refuse this caller the role. It is the
+	// question of a list a role is picked from (Manager.RolesToGive), asked before
+	// anybody is named: where what is left of a grant's condition reads the row a
+	// method names (the person, the group), the role could be given to some of them,
+	// and the answer is yes. It reads no row, and so takes no transaction.
+	CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 }
 
 // WithRoleGrants hands the manager the answers of the role file's grants on the methods

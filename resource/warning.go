@@ -26,7 +26,8 @@ import (
 // own would, so a caller who may not run the method reads no warning of it. A method
 // that declares no warning refuses the header (400): a request that asks for a warning
 // never runs the call. The header takes the value true or is left off the request, and
-// a frame refuses any other value (400) without running the call.
+// a frame refuses any other value (400) without running the call. A route whose frame
+// does not read the header refuses a request that carries it (NoDryRunOrWarning).
 const WarningHeader = "X-Warning"
 
 // AsksWarning reports whether the request asks for the method's warning in place of
