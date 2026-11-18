@@ -197,6 +197,32 @@ describe('AppGridComponent', () => {
     expect(asked).toHaveLength(1);
   });
 
+  it('draws the header of a column that opts out of sorting as words, and leaves the other headers buttons', async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'debriefs', updatedAt: 'Nov 17, 2026, 3:42 PM' }]);
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'name', header: 'Flag' },
+      { id: 'updatedAt', header: 'Last changed', sortable: false },
+    ]);
+    const asked: unknown[] = [];
+    fixture.componentInstance.sortChange.subscribe((sorts) => asked.push(sorts));
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const words = (selector: string): string[] =>
+      Array.from(element.querySelectorAll(selector)).map((h) => h.textContent?.trim() ?? '');
+
+    expect(words('th button.header-label .col-header')).toEqual(['Flag']);
+    expect(words('th span.header-words .col-header')).toEqual(['Last changed']);
+    element.querySelector<HTMLElement>('th span.header-words')?.click();
+    expect(asked).toHaveLength(0);
+    element.querySelector<HTMLButtonElement>('th button.header-label')?.click();
+    expect(asked).toEqual([[{ field: 'name', direction: 'asc' }]]);
+  });
+
   it('draws a yes-or-no value as a check or a dash, each named for a screen reader, and every other value as its text', async () => {
     const rows: RecordData[] = [
       { username: 'ada', disabled: true, count: 0, note: 'false' },

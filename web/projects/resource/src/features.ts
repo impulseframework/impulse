@@ -20,11 +20,14 @@ export interface FeatureFlag {
   /** What the flag is for, as a person reads it: it opens with the flag's name in words. */
   description: string;
   enabled: boolean;
-  /** When the flag was last flipped (or first written), as the server wrote it. */
-  updatedAt: string;
   /**
-   * Who last flipped the flag, by the name they sign in under; empty for a flag nobody has
-   * flipped, whose row the deploy step wrote.
+   * When the flag was last flipped, as the server wrote it: the time of its newest change,
+   * as its history has it. Null for a flag nobody has flipped.
+   */
+  updatedAt: string | null;
+  /**
+   * Who last flipped the flag, by the name they sign in under; empty for a flag nobody
+   * has flipped.
    */
   updatedBy: string;
 }

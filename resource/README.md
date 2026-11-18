@@ -2466,17 +2466,24 @@ the Feature flags page is the library's list over it and reads it through an ord
 handle; the routes are the library's handlers (`resource.FeatureFlagsHandler`,
 `resource.FeatureFlagHandler`), delegated to from the generated `zz_gen_features.go` in
 the handler package, and a struct or a manual registration that would take the name
-`FeatureFlags` is refused. Two of its fields are served as a person reads them. The
+`FeatureFlags` is refused. Three of its fields are served as a person reads them. The
 `description` is the constant's doc comment with the flag's name in words in the
 constant's place where the comment opens with it, as a Go comment does
 (`FeatureDeclaration.Words`: "CargoManifest shows a ship's cargo bays." is served as
 "Cargo manifest shows a ship's cargo bays."), which is how `MigrateFeatures` writes the
-table. `updatedBy` is who last flipped the flag: the name the person signs in under, read
-out of the event source the flip recorded (`resource.EventActor`; the session and the
-account's id stay in the table as evidence), a process's source as it was recorded where
-a process flipped it, and nothing for a flag nobody has flipped, which is told by the
-change records and not by the row, since the deploy step that declares a flag writes the
-row under a process's name too.
+table. `updatedAt` and `updatedBy` are when the flag was last flipped and by whom, read
+from the flag's newest change record and not from the row's columns of those names,
+since the deploy step that declares a flag writes the row too, under a process's name
+and at the time of the deploy: so the list says what the flag's history says.
+`updatedAt` is the moment of the last flip, and `null` for a flag nobody has flipped.
+`updatedBy` is the name the person signs in under, read out of the event source the flip
+recorded (`resource.EventActor`; the session and the account's id stay in the table as
+evidence), a process's source as it was recorded where a process flipped it, and the
+empty string for a flag nobody has flipped. `EventActor` reads the words of a sentence
+in which nothing is escaped, so the name is for showing to a reader and for no decision.
+A sort the request asks on `updatedAt` or `updatedBy` orders the rows by the row's own
+columns, the last write of any kind, which is why the Feature flags page offers none on
+them.
 
 **A flag's history.** `GET <prefix>/feature-flags/{featureFlagName}/changes`
 (`resource.FeatureFlagChangesHandler`) reads the flag's change records back newest
@@ -2488,7 +2495,9 @@ refused with 403 and an undeclared flag is 404. Each flip carries what the calle
 of the flag: its facts ride the grants on the flag's fields that hold the same facts
 today (`changedAt` under `updatedAt`, `enabled` under `enabled`, `changedBy` under
 `updatedBy`), so a grant that leaves out who last flipped a flag leaves `changedBy` out
-of every flip. The request's query is not read; nothing asked of the list (`columns`, a
+of every flip, and a caller who may list none of the three (the description alone, say)
+is refused with 403, since the answer would tell them only how often the flag was
+flipped. The request's query is not read; nothing asked of the list (`columns`, a
 filter, a page) narrows the history. One read answers the newest
 `resource.FeatureFlagChangesLimit` flips (100) and says with `more` when older ones are
 left out; a flag nobody has flipped answers an empty list. The route reads the change

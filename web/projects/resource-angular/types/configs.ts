@@ -265,6 +265,13 @@ interface ColumnConfigBase {
    * it there too. It never adds one where the server would refuse the filter.
    */
   filterable?: boolean;
+  /**
+   * Opt the column out of sorting: its header is drawn as words, with nothing to press.
+   * For a column whose shown value is not the value the server orders the field by (a
+   * moment the server works out for each row), where a sort would order the rows by
+   * something the person cannot see. It never makes a table sortable that is not.
+   */
+  sortable?: boolean;
   hideHeader?: boolean;
 }
 

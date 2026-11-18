@@ -4,13 +4,9 @@
     <p class="feature-flag-history-error" role="alert">{{ message }}</p>
   }
   @if (history()) {
-    @if (unseen(); as words) {
-      <p class="feature-flag-history-unseen">{{ words }}</p>
-    } @else {
-      <impulse-grid [rowData]="rows()" [columnDefs]="columns()" [sortable]="false" [emptyMessage]="empty" />
-      @if (leftOut(); as note) {
-        <p class="feature-flag-history-note">{{ note }}</p>
-      }
+    <impulse-grid [rowData]="rows()" [columnDefs]="columns()" [sortable]="false" [emptyMessage]="empty" />
+    @if (leftOut(); as note) {
+      <p class="feature-flag-history-note">{{ note }}</p>
     }
   }
 </mat-dialog-content>

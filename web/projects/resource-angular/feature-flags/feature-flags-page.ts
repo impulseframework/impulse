@@ -31,19 +31,12 @@ export const featureFlagsPath = 'feature-flags';
 /** What the page says of an application that declares no flag. */
 export const noFeatureFlags = 'This application declares no feature flags.';
 
+/** What the page says in place of a time for a flag nobody has turned on or off. */
+export const neverChanged = 'Never';
+
 /** A flag's name in words, as the page lists it: `cargo_manifest` is "Cargo manifest". */
 export function flagInWords(row: RecordData): string {
   return nameInWords(String(row['name'] ?? ''));
-}
-
-/**
- * When the flag was last turned on or off: the row's timestamp where somebody has flipped
- * it, and nothing where nobody has, since the timestamp of such a row is only when the
- * flag was declared. The server answers who flipped it last with nothing for a flag
- * nobody has flipped.
- */
-export function lastFlippedAt(row: RecordData): string {
-  return row['updatedBy'] ? String(row['updatedAt'] ?? '') : '';
 }
 
 /** The question asked before a flip: it applies to everyone in the environment at once. */
@@ -107,13 +100,15 @@ export const featureFlagsConfig: RootConfig = rootConfig({
       column('description', 'Description'),
       // A check or a dash: the column is as narrow as its heading, and the words get the room.
       { ...column('enabled', 'On'), width: onColumnWidth },
+      // The server answers when a flag was last flipped, and nothing for a flag nobody has.
+      // It works the two out of the flag's history, and orders by neither: no sort is offered.
       {
         ...column('updatedAt', 'Last changed'),
-        valueGetter: lastFlippedAt,
         formatType: dayAndMinuteFormat,
-        emptyDataValue: 'Never',
+        emptyDataValue: neverChanged,
+        sortable: false,
       },
-      column('updatedBy', 'Changed by'),
+      { ...column('updatedBy', 'Changed by'), sortable: false },
     ],
     rowMethods: [turn(true), turn(false)],
     rowButtons: [{ label: 'History', icon: 'history', run: openHistory }],

@@ -450,9 +450,10 @@ flag's own route (`<feature flags route>/<name>/changes`): `{ changes, more }`, 
 under, or what the server recorded of a flip no person made), newest first, with `more` true where
 the flag was flipped more often than one answer lists. A fact the caller's grant leaves out of
 the flag (who last flipped it, under `updatedBy`) is absent from every flip, so the three are
-optional. Whoever may list the flags may read it; the
+optional. Whoever may list the flags and see any of the three of a flag may read it; the
 server refuses anyone else (403) and a flag the application does not declare (404) with its
-`ApiError`. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
+`ApiError`. In what `flags()` answers, `updatedAt` and `updatedBy` are when the flag was last
+flipped and by whom: `updatedAt` is `null` and `updatedBy` empty for a flag nobody has flipped. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
 logout, and `subscribe` notifies a UI framework. `descriptor.features` is optional: a descriptor
 from a generator that predates feature flags carries none, and the API then serves no flags.
 `served` is false, the set stays empty and unloaded, `refresh()` resolves to nothing without a

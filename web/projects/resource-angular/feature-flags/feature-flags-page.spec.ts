@@ -43,7 +43,6 @@ import {
   featureFlagsRoute,
   flagInWords,
   flipQuestion,
-  lastFlippedAt,
   noFeatureFlags,
 } from './feature-flags-page';
 
@@ -118,12 +117,12 @@ const flags: FeatureFlag[] = [
     updatedAt: '2026-11-17T15:42:10Z',
     updatedBy: 'morgan',
   },
-  // Nobody has flipped it: the server answers nobody, and its timestamp is when it was declared.
+  // Nobody has flipped it: the server answers no time and nobody.
   {
     name: 'persona_entry',
     description: 'Persona entry opens the persona sign-in.',
     enabled: false,
-    updatedAt: '2026-10-01T08:00:00Z',
+    updatedAt: null,
     updatedBy: '',
   },
 ];
@@ -219,13 +218,19 @@ describe('the Feature flags page', () => {
         format(new Date('2026-11-17T15:42:10Z'), dayAndMinuteFormat),
         'morgan',
       ],
-      // A flag nobody has flipped has no last change: its timestamp is when it was declared,
-      // and the cell of who changed it is left empty.
+      // A flag nobody has flipped has no last change, and the cell of who changed it is
+      // left empty.
       ['Persona entry', 'Persona entry opens the persona sign-in.', false, 'Never', undefined],
     ]);
     // The page draws no search box and no count, and the flags' names as stored appear nowhere.
     expect(element().querySelector('impulse-search-box')).toBeNull();
     expect(element().textContent).not.toContain('cargo_manifest');
+    // The last change and who made it are worked out of a flag's history, which the server
+    // orders by neither: their headers are words, and the other three offer a sort.
+    const pressed = Array.from(element().querySelectorAll('th button.header-label .col-header'));
+    expect(pressed.map((header) => header.textContent?.trim())).toEqual(['Flag', 'Description', 'On']);
+    const read = Array.from(element().querySelectorAll('th span.header-words .col-header'));
+    expect(read.map((header) => header.textContent?.trim())).toEqual(['Last changed', 'Changed by']);
   });
 
   it('offers a person who may flip the one flip a row can take, and asks first', async () => {
@@ -253,8 +258,26 @@ describe('the Feature flags page', () => {
         confirm: 'Turn Persona entry on for everyone in this environment?',
       },
     ]);
-    // Declining the question sends nothing: the list was read once and no flip was posted.
-    expect(transport.requests.filter((request) => request.method === 'POST')).toEqual([]);
+    // Both questions were declined (the dialog closed with no answer): the page stays as it
+    // was, and the flags are not read again. The flip itself is the method dialog's to
+    // send, and its own spec holds that a declined question sends none.
+    expect(transport.requests.filter((request) => request.url.startsWith('/api/feature-flags'))).toHaveLength(1);
+  });
+
+  it('says when a flag was last changed to a person whose role does not show who changed it', async () => {
+    // The role lists the flags without who last flipped them: the server serves no such
+    // field, and when a flag was last changed is still the server's answer, not a guess
+    // from who changed it.
+    const withoutWho: PermissionDigest = { ...listsFlags };
+    delete (withoutWho as Record<string, unknown>)[`${featureFlagsResource}.updatedBy`];
+    const served = flags.map((flag) => ({ ...flag, updatedBy: undefined }) as unknown as FeatureFlag);
+    await create(withoutWho, served);
+
+    expect(headers()).toEqual(['Flag', 'Description', 'On', 'Last changed']);
+    expect(cells().map((row) => [row[0], row[3]])).toEqual([
+      ['Cargo manifest', format(new Date('2026-11-17T15:42:10Z'), dayAndMinuteFormat)],
+      ['Persona entry', 'Never'],
+    ]);
   });
 
   it('shows a person who may list the flags and not flip them the list and the history, and no way to flip', async () => {
@@ -331,11 +354,6 @@ describe('the words of the Feature flags page', () => {
     expect(flipQuestion({ name: 'cargo_manifest' }, false)).toBe(
       'Turn Cargo manifest off for everyone in this environment?',
     );
-  });
-
-  it('says when a flag was last flipped only where somebody has flipped it', () => {
-    expect(lastFlippedAt({ updatedAt: '2026-11-17T15:42:10Z', updatedBy: 'morgan' })).toBe('2026-11-17T15:42:10Z');
-    expect(lastFlippedAt({ updatedAt: '2026-10-01T08:00:00Z', updatedBy: '' })).toBe('');
   });
 });
 

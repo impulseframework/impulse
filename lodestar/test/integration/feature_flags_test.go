@@ -166,7 +166,7 @@ func TestFeatureFlags_commendationsDesk(t *testing.T) {
 				if len(rows) != 1 {
 					t.Fatalf("%s: flags = %d, want 1: %s", step, len(rows), body)
 				}
-				assertFlag(t, step, rows[0], string(resources.Commendations), false, declared[0].Words())
+				assertFlag(t, step, rows[0], string(resources.Commendations), false, false, declared[0].Words())
 				if by := cell[string](t, rows[0], "updatedBy"); by != "" {
 					t.Errorf("%s: updatedBy = %q, want nobody: the deploy step that declared the flag flipped nothing", step, by)
 				}
@@ -262,7 +262,7 @@ func TestFeatureFlags_commendationsDesk(t *testing.T) {
 			check: func(t *testing.T, step string, body []byte) {
 				t.Helper()
 				row := decodeRow(t, body)
-				assertFlag(t, step, row, string(resources.Commendations), true, declared[0].Words())
+				assertFlag(t, step, row, string(resources.Commendations), true, true, declared[0].Words())
 				if by := cell[string](t, row, "updatedBy"); by != string(featureAdjutant) {
 					t.Errorf("%s: updatedBy = %q, want the adjutant by the name she signs in under", step, by)
 				}
@@ -419,8 +419,9 @@ func assertEnabled(t *testing.T, step string, body []byte, want []string) {
 }
 
 // assertFlag pins one row of the FeatureFlags resource, what the Feature flags page
-// lists: the name, the state, the description, and a stamp within the last day.
-func assertFlag(t *testing.T, step string, row map[string]any, name string, enabled bool, description string) {
+// lists: the name, the state, the description, and when it was last flipped, within the
+// last day for a flag somebody has flipped and nothing (null) for one nobody has.
+func assertFlag(t *testing.T, step string, row map[string]any, name string, enabled, flipped bool, description string) {
 	t.Helper()
 
 	if got := cell[string](t, row, "name"); got != name {
@@ -431,6 +432,13 @@ func assertFlag(t *testing.T, step string, row map[string]any, name string, enab
 	}
 	if got := cell[string](t, row, "description"); got != description {
 		t.Errorf("%s: description = %q, want %q", step, got, description)
+	}
+	if !flipped {
+		if at, served := row["updatedAt"]; !served || at != nil {
+			t.Errorf("%s: updatedAt = %v (served %t), want null: nobody has flipped the flag", step, at, served)
+		}
+
+		return
 	}
 	assertRecent(t, step, cell[string](t, row, "updatedAt"))
 }

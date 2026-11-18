@@ -23,7 +23,7 @@
             <th class="data-col" [style.width.px]="widthFor(col)">
               <div class="header-cell">
                 @if (!col.buttonConfig) {
-                  @if (sortable()) {
+                  @if (sortable() && col.sortable !== false) {
                     <button
                       type="button"
                       class="header-label"

@@ -201,12 +201,16 @@ export interface StaffSignUpRoles {
   description?: string;
 }
 
-/** A feature flag: one declared flag's row, as the Feature flags page lists it. */
+/**
+ * A feature flag: one declared flag's row, as the Feature flags page lists it. updatedAt
+ * and updatedBy are when the flag was last turned on or off and by whom: null and empty
+ * for a flag nobody has flipped.
+ */
 export interface FeatureFlags {
   name: string;
   description?: string;
   enabled?: boolean;
-  updatedAt?: Date;
+  updatedAt?: Date | null;
   updatedBy?: string;
 }
 

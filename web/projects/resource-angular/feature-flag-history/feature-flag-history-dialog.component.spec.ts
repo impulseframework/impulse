@@ -14,7 +14,6 @@ import { dayAndMinuteFormat } from '@impulseframework/resource-angular/types';
 import { format } from 'date-fns';
 
 import {
-  featureFlagChangesUnseen,
   FeatureFlagHistoryData,
   FeatureFlagHistoryDialogComponent,
   historyColumns,
@@ -145,16 +144,6 @@ describe('FeatureFlagHistoryDialogComponent', () => {
     ]);
   });
 
-  it('says how often the flag was flipped, in place of an empty table, where the role shows nothing of a flip', async () => {
-    const { fixture } = await historyOver({ status: 200, body: { changes: [{}, {}, {}], more: false } });
-
-    expect(element(fixture).querySelector('impulse-grid')).toBeNull();
-    expect(element(fixture).querySelector('.feature-flag-history-unseen')?.textContent?.trim()).toBe(
-      'This flag has been turned on or off 3 times. Your role does not show when, how, or by whom.',
-    );
-    expect(element(fixture).textContent).not.toContain(noFeatureFlagChanges);
-  });
-
   it("shows a refusal in the server's words in place of the table", async () => {
     const { fixture } = await historyOver({ status: 403, body: { message: 'no List on FeatureFlags' } });
 
@@ -212,17 +201,6 @@ describe('historyColumns', () => {
       'By',
     ]);
     expect(historyColumns([{}])).toEqual([]);
-  });
-});
-
-describe('featureFlagChangesUnseen', () => {
-  it('counts the flips as far as one read answers', () => {
-    expect(featureFlagChangesUnseen(1, false)).toBe(
-      'This flag has been turned on or off once. Your role does not show when, how, or by whom.',
-    );
-    expect(featureFlagChangesUnseen(100, true)).toBe(
-      'This flag has been turned on or off more than 100 times. Your role does not show when, how, or by whom.',
-    );
   });
 });
 

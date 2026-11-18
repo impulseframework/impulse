@@ -70,7 +70,7 @@ export const COMPANION_FILTER_HINT =
  * filters, and the pager emits a turn — the source asks the server and hands back the
  * page. Nothing here filters, sorts, or slices rows in the browser: one paging model, the
  * server's; a table told its rows have one order (`sortable` false) draws its headers as
- * words. A filter control is drawn only on a column the generated metadata says the
+ * words, and so does one column that opts out (`sortable: false` on the column). A filter control is drawn only on a column the generated metadata says the
  * server filters (`filterability`), with a companion-only column waiting until an indexed
  * filter is in the request, and its menu offers the text matches the column's field
  * answers (`searches`), which stand alone; the page's search box (`boxActive`) counts as

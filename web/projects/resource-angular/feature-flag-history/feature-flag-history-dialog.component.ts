@@ -19,15 +19,6 @@ export interface FeatureFlagHistoryData {
 export const noFeatureFlagChanges = 'Nobody has turned this flag on or off.';
 
 /**
- * What the pop-up says to a person whose role shows nothing of a flip, not when, not what
- * and not who: how often the flag was flipped, as far as one read answers (`more`).
- */
-export function featureFlagChangesUnseen(count: number, more: boolean): string {
-  const times = more ? `more than ${count} times` : count === 1 ? 'once' : `${count} times`;
-  return `This flag has been turned on or off ${times}. Your role does not show when, how, or by whom.`;
-}
-
-/**
  * The columns of a flag's history: when, what the flag was turned to, and by whom. What
  * it was turned to is one of two short phrases, so its column is as wide as the longer one
  * and the moment and the name share the rest, which holds a whole moment at a desk's width.
@@ -74,8 +65,8 @@ export function historyRow(change: FeatureFlagChange): RecordData {
  * with who did it, in the library's table. It reads the flag's flips through the
  * application's client, from the flag's own route, which the server serves to whoever
  * may list the flags, each flip with the facts the person may see of the flag: a column
- * the person's role shows nothing of is not drawn, and a role that shows none of them
- * reads how often the flag was flipped. The table is drawn once the answer is known; a
+ * the person's role shows nothing of is not drawn, and a role that shows none of them is
+ * refused by the server, in its words. The table is drawn once the answer is known; a
  * refusal, by the server or by the network, is shown in its place in the server's words.
  * Where the flag was flipped more often than one read answers, the pop-up says the older
  * flips are left out. Open it with `openFeatureFlagHistory`.
@@ -96,14 +87,6 @@ export class FeatureFlagHistoryDialogComponent implements OnInit {
   readonly columns = computed(() => {
     const changes = this.history()?.changes ?? [];
     return changes.length === 0 ? featureFlagHistoryColumns : historyColumns(changes);
-  });
-  /** What stands in the table's place where the person's role shows nothing of the flips. */
-  readonly unseen = computed(() => {
-    const history = this.history();
-    const changes = history?.changes ?? [];
-    return changes.length > 0 && this.columns().length === 0
-      ? featureFlagChangesUnseen(changes.length, history?.more === true)
-      : undefined;
   });
   readonly empty = noFeatureFlagChanges;
   /** The flag's history as the server answered it; undefined until it has. */

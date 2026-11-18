@@ -1,6 +1,11 @@
 package resource
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+)
 
 // TestFeatureWords pins a flag's name in words: the underscores are the spaces and the
 // first letter is a capital, with nothing declared beside the flag.
@@ -91,30 +96,35 @@ func TestFeatureDeclaration_Words(t *testing.T) {
 	}
 }
 
-// TestFlippedBy pins who a flag's row is served as last flipped by: the person's name,
-// or a process's source as it was recorded, for a flag with a flip on record, and nobody
-// for a flag with none, whoever wrote its row.
+// TestFlippedBy pins what the flags' list and read serve as who last flipped a flag and
+// when, read from the flag's newest change record: a person by the name they sign in
+// under, a process's source as it was recorded, at the time the record holds; and nobody
+// and no time for a flag with no record, whoever wrote its row.
 func TestFlippedBy(t *testing.T) {
 	t.Parallel()
 
+	at := time.Date(2026, 11, 17, 15, 42, 10, 0, time.UTC)
 	tests := []struct {
 		name    string
-		source  string
+		flip    lastFlip
 		flipped bool
 		want    string
+		wantAt  *time.Time
 	}{
-		{name: "a person's flip", source: UserEvent(accountCtx("gale", aliceID, nil)), flipped: true, want: "gale"},
-		{name: "a process's flip, as it was recorded", source: ProcessEvent("bootstrap"), flipped: true, want: "Process bootstrap"},
-		{name: "a caller's own words for a flip", source: "harbormaster (test)", flipped: true, want: "harbormaster (test)"},
-		{name: "the deploy step's declaration of a flag nobody has flipped", source: ProcessEvent("MigrateFeatures"), want: ""},
-		{name: "a seeded row of a flag nobody has flipped", source: ProcessEvent("devseed"), want: ""},
+		{name: "a person's flip", flip: lastFlip{ChangedAt: at, ChangedBy: UserEvent(accountCtx("gale", aliceID, nil))}, flipped: true, want: "gale", wantAt: &at},
+		{name: "a process's flip, as it was recorded", flip: lastFlip{ChangedAt: at, ChangedBy: ProcessEvent("bootstrap")}, flipped: true, want: "Process bootstrap", wantAt: &at},
+		{name: "a caller's own words for a flip", flip: lastFlip{ChangedAt: at, ChangedBy: "harbormaster (test)"}, flipped: true, want: "harbormaster (test)", wantAt: &at},
+		{name: "a flag nobody has flipped: nobody, and no time", want: "", wantAt: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := flippedBy(tt.source, tt.flipped); got != tt.want {
-				t.Errorf("flippedBy(%q, %v) = %q, want %q", tt.source, tt.flipped, got, tt.want)
+			if got := flippedBy(tt.flip, tt.flipped); got != tt.want {
+				t.Errorf("flippedBy(%+v, %v) = %q, want %q", tt.flip, tt.flipped, got, tt.want)
+			}
+			if diff := cmp.Diff(tt.wantAt, flippedAt(tt.flip, tt.flipped)); diff != "" {
+				t.Errorf("flippedAt(%+v, %v) mismatch (-want +got):\n%s", tt.flip, tt.flipped, diff)
 			}
 		})
 	}

@@ -86,3 +86,32 @@ func TestEventActor(t *testing.T) {
 		})
 	}
 }
+
+// TestEventActorReadsTheWordsOfASource pins the limit EventActor's documentation states:
+// an event source is a sentence with nothing escaped, so a username that holds the
+// words UserEvent writes between the parts is read as the name that stands before
+// them. The answer is for showing to a reader, never for deciding who may do what.
+func TestEventActorReadsTheWordsOfASource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		username string
+		want     string
+	}{
+		{name: "a username that holds the impersonating words", username: "gale impersonating wells", want: "gale"},
+		{name: "a username that holds the role words", username: "gale as role Administrator", want: "gale"},
+		{name: "a username that holds the session words", username: "gale, session 7", want: "gale, session 7"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			source := UserEvent(accountCtx(tt.username, aliceID, nil))
+			name, person := EventActor(source)
+			if name != tt.want || !person {
+				t.Errorf("EventActor(%q) = (%q, %v), want (%q, true)", source, name, person, tt.want)
+			}
+		})
+	}
+}

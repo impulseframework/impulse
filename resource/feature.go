@@ -674,15 +674,19 @@ func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.Han
 			}
 			rows = append(rows, row)
 		}
-		// Who flipped a flag is read once the list has run: a request that names no
-		// columns learns the fields the caller may list as the list is read.
-		flipped, err := flippedFlags(ctx, a.ResourceClient(), querySet.Fields())
+		// The last flips are read once the list has run: a request that names no columns
+		// learns the fields the caller may list as the list is read.
+		names := make([]string, 0, len(rows))
+		for _, row := range rows {
+			names = append(names, row.Data.Name)
+		}
+		flips, err := lastFlips(ctx, a.ResourceClient(), querySet.Fields(), names)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		resp := make([]map[string]any, 0, len(rows))
 		for _, row := range rows {
-			resp = append(resp, featureFlagMap(querySet.Fields(), row, flipped))
+			resp = append(resp, featureFlagMap(querySet.Fields(), row, flips))
 		}
 		if page.Reversed() {
 			slices.Reverse(resp)
@@ -716,22 +720,34 @@ func FeatureFlagHandler(a FeatureApp, collection *GeneratedCollection) http.Hand
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		flipped, err := flippedFlags(ctx, a.ResourceClient(), querySet.Fields())
+		flips, err := lastFlips(ctx, a.ResourceClient(), querySet.Fields(), []string{row.Data.Name})
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(featureFlagMap(querySet.Fields(), row, flipped))
+		return httpio.NewEncoder(w).Ok(featureFlagMap(querySet.Fields(), row, flips))
 	})
 }
 
-// flippedFlags reads which flags have been flipped at least once: the names the audit
-// table, FeatureFlagChanges, holds a row for. A flag's row alone cannot say: the deploy
-// step that declares a flag and a process that flips one both write the row under a
-// process's name. Nothing is read, and nothing answered, for a request that does not ask
-// for who last flipped a flag (updatedBy).
-func flippedFlags(ctx context.Context, client Client, fields []accesstypes.Field) (map[string]bool, error) {
-	if !slices.Contains(fields, flagUpdatedByColumn) {
+// lastFlip is the newest change record of one flag: when it was last flipped, and the
+// event source of who flipped it.
+type lastFlip struct {
+	Name      string    `spanner:"Name"`
+	ChangedAt time.Time `spanner:"ChangedAt"`
+	ChangedBy string    `spanner:"ChangedBy"`
+}
+
+// lastFlips reads the newest change record of each named flag from the audit table,
+// FeatureFlagChanges, keyed by the flag's name; a flag nobody has flipped has none. It is
+// what the list and the read serve as a flag's updatedAt and updatedBy, so they say what
+// the flag's history says. The flag's own row cannot: the deploy step that declares a
+// flag writes the row too, under a process's name and at the time of the deploy. Only the
+// named flags' records are read, and nothing for a request that asks neither when a flag
+// was last flipped nor by whom. The read follows the read of the rows, so a flip made
+// between the two is served as the last flip beside the state the rows held a moment
+// earlier; the next read agrees with itself.
+func lastFlips(ctx context.Context, client Client, fields []accesstypes.Field, names []string) (map[string]lastFlip, error) {
+	if len(names) == 0 || (!slices.Contains(fields, flagUpdatedAtColumn) && !slices.Contains(fields, flagUpdatedByColumn)) {
 		return nil, nil
 	}
 	if client.DBType() != SpannerDBType {
@@ -740,42 +756,55 @@ func flippedFlags(ctx context.Context, client Client, fields []accesstypes.Field
 	txn := client.ReadOnlyTransaction()
 	defer txn.Close()
 
-	var rows []struct {
-		Name string `spanner:"Name"`
+	var rows []lastFlip
+	stmt := spanner.Statement{
+		SQL: "SELECT c.Name, c.ChangedAt, c.ChangedBy FROM FeatureFlagChanges AS c WHERE c.Name IN UNNEST(@names)" +
+			" AND c.ChangedAt = (SELECT MAX(d.ChangedAt) FROM FeatureFlagChanges AS d WHERE d.Name = c.Name)",
+		Params: map[string]any{"names": names},
 	}
-	stmt := spanner.Statement{SQL: "SELECT DISTINCT Name FROM FeatureFlagChanges"}
 	if err := spxscan.Select(ctx, txn.SpannerReadOnlyTransaction(), &rows, stmt); err != nil {
 		return nil, errors.Wrap(err, "spxscan.Select()")
 	}
-	flipped := make(map[string]bool, len(rows))
+	flips := make(map[string]lastFlip, len(rows))
 	for _, row := range rows {
-		flipped[row.Name] = true
+		flips[row.Name] = row
 	}
 
-	return flipped, nil
+	return flips, nil
 }
 
-// flippedBy is who last flipped a flag, as the routes serve the row's UpdatedBy: for a
-// flag that has been flipped, the name the person signs in under (EventActor), read out
-// of the event source the flip recorded, or the source as it was recorded where a
-// process flipped it; and nothing for a flag nobody has flipped, whose row the deploy
-// step wrote when it declared the flag. The session and the account's id the column
-// keeps as evidence stay in the table.
-func flippedBy(eventSource string, flipped bool) string {
+// flippedAt is when a flag was last flipped, as the routes serve updatedAt: the time of
+// its newest change record, and nothing (null on the wire) for a flag nobody has flipped,
+// whose row holds only when the deploy step declared it.
+func flippedAt(flip lastFlip, flipped bool) *time.Time {
+	if !flipped {
+		return nil
+	}
+
+	return &flip.ChangedAt
+}
+
+// flippedBy is who last flipped a flag, as the routes serve updatedBy: the name the
+// person signs in under (EventActor), read out of the event source the flip recorded, or
+// the source as it was recorded where a process flipped it; and nothing for a flag nobody
+// has flipped. The session and the account's id the audit table keeps as evidence stay
+// there.
+func flippedBy(flip lastFlip, flipped bool) string {
 	if !flipped {
 		return ""
 	}
-	name, _ := EventActor(eventSource)
+	name, _ := EventActor(flip.ChangedBy)
 
 	return name
 }
 
 // featureFlagMap renders a flag's row the way the generated handlers render theirs: the
 // requested fields by wire name, a masked cell left out, the capability envelope when
-// the request asked for one. updatedBy is served as who last flipped the flag
-// (flippedBy), not as the event source the column holds; flipped names the flags that
-// have been flipped at all (flippedFlags).
-func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag], flipped map[string]bool) map[string]any {
+// the request asked for one. updatedAt and updatedBy are served as when the flag was last
+// flipped and by whom (flippedAt, flippedBy), read from the flag's newest change record
+// in flips (lastFlips), not from the row's columns of those names.
+func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag], flips map[string]lastFlip) map[string]any {
+	flip, flipped := flips[row.Data.Name]
 	rmap := make(map[string]any, len(fields))
 	for _, field := range fields {
 		switch field {
@@ -793,11 +822,11 @@ func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag], flipped m
 			}
 		case flagUpdatedAtColumn:
 			if !row.Masked("updatedAt") {
-				rmap["updatedAt"] = row.Data.UpdatedAt
+				rmap["updatedAt"] = flippedAt(flip, flipped)
 			}
 		case flagUpdatedByColumn:
 			if !row.Masked("updatedBy") {
-				rmap["updatedBy"] = flippedBy(row.Data.UpdatedBy, flipped[row.Data.Name])
+				rmap["updatedBy"] = flippedBy(flip, flipped)
 			}
 		}
 	}

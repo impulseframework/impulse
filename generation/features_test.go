@@ -799,7 +799,8 @@ func Test_typescriptMetadata_features(t *testing.T) {
 		t.Fatalf("generateTemplateOutput(resources) error = %v", err)
 	}
 	assertContains(t, "typescriptResourcesTemplate", string(resources), []string{
-		"export interface FeatureFlags {\n  name: string;\n  description?: string;\n  enabled?: boolean;\n  updatedAt?: Date;\n  updatedBy?: string;\n}",
+		"export interface FeatureFlags {\n  name: string;\n  description?: string;\n  enabled?: boolean;\n  updatedAt?: Date | null;\n  updatedBy?: string;\n}",
+		"updatedAt\n * and updatedBy are when the flag was last turned on or off and by whom: null and empty\n * for a flag nobody has flipped.",
 		"[Resources.FeatureFlags]: {\n    route: 'feature-flags',\n    createDisabled: true,\n    updateDisabled: true,\n    deleteDisabled: true,",
 		"{ fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },",
 		"[Resources.FeatureFlags]: PermissionScopes.global,",

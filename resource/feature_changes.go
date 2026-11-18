@@ -152,7 +152,9 @@ func readFeatureFlagChanges(ctx context.Context, txn ReadOnlyTransaction, dbType
 // NotFound for a flag the table does not hold or the grant does not reach. No other
 // grant is asked: whoever may see the flags may see a flag's history, and sees of each
 // flip what they may see of the flag, so a grant that leaves a field of the flag out
-// (who last flipped it, say) leaves the same fact out of every flip. The request's query
+// (who last flipped it, say) leaves the same fact out of every flip, and a caller who may
+// see none of the three facts is refused, Forbidden, since the answer would tell them
+// only how often the flag was flipped. The request's query
 // is not read: the history is the flag's whole, and nothing asked of the list (columns,
 // a filter, a page) narrows it. It reads the FeatureFlagChanges table, which every flip
 // writes a row to in the transaction that flips the flag, and writes nothing; the
@@ -183,6 +185,13 @@ func FeatureFlagChangesHandler(a FeatureApp, collection *GeneratedCollection) ht
 		fields := querySet.Fields()
 		shown := func(field accesstypes.Field, wire string) bool {
 			return slices.Contains(fields, field) && !row.Masked(wire)
+		}
+		// A caller who may see none of the three facts would learn from the answer only
+		// how often the flag was flipped, which the list never tells them: it is refused.
+		if !shown(flagUpdatedAtColumn, "updatedAt") && !shown(flagEnabledColumn, "enabled") && !shown(flagUpdatedByColumn, "updatedBy") {
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessagef(
+				"a flag's history says when the flag was turned on or off, what to, and by whom, and user (%s) may list none of those of %s for this flag (the fields updatedAt, enabled and updatedBy): a grant of List on any of them shows that much of the history",
+				a.UserPermissions(r).User(), FeatureFlagsResource))
 		}
 
 		client := a.ResourceClient()

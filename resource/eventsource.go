@@ -64,6 +64,14 @@ var eventAccountRE = regexp.MustCompile(`^(.*) \([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4
 // answers its actor, the real person who made the change. Any other source names no
 // person, a process's (ProcessEvent) and a caller's own words among them: person is
 // false and name is the source as written.
+//
+// An event source is a sentence, not a record, and EventActor reads its words: the
+// username in it is written as the person signed in, with nothing escaped. A username
+// that itself holds the words UserEvent writes between the parts (" impersonating ",
+// " as role ", ", session ") is read as the name that stands before those words, so the
+// answer is for showing to a reader and never for deciding who may do what. An
+// application whose sign-in names are not addresses or plain words keeps who acted in a
+// column of its own.
 func EventActor(source string) (name string, person bool) {
 	end := strings.LastIndex(source, eventSessionWords)
 	if end < 0 {

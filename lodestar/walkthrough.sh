@@ -654,7 +654,7 @@ r=$(req adjutant GET "$API/features"); check "the features route answers anyone 
 assert_py "the enabled set is empty" "$r" "rows=={'enabled':[]}"
 r=$(req cadet GET "$API/features"); assert_py "the cadet reads the same set with no grant on the flags" "$r" "rows=={'enabled':[]}"
 r=$(req adjutant GET "$API/feature-flags"); check "the adjutant lists the flags (List on FeatureFlags): the Feature flags page's rows" 200 "$r"
-assert_py "one flag, commendations, off, with its description, flipped by nobody (the deploy step declared it within the last day)" "$r" "len(rows)==1 and rows[0]['name']=='commendations' and rows[0]['enabled'] is False and rows[0]['description'].startswith('Commendations lets headquarters cite a pilot') and rows[0]['updatedBy']=='' and $RECENT(rows[0]['updatedAt'])"
+assert_py "one flag, commendations, off, with its description, flipped by nobody and never: the deploy step that declared it is no flip" "$r" "len(rows)==1 and rows[0]['name']=='commendations' and rows[0]['enabled'] is False and rows[0]['description'].startswith('Commendations lets headquarters cite a pilot') and rows[0]['updatedBy']=='' and rows[0]['updatedAt'] is None"
 r=$(req adjutant GET "$API/feature-flags/commendations/changes"); check "the flag's history, under the grant that lists the flags" 200 "$r"
 assert_py "nobody has flipped it: an empty list" "$r" "rows=={'changes':[],'more':False}"
 r=$(req adjutant GET "$API/commendations"); check "the desk is dark while the flag is off: the router's own 404" 404 "$r"
