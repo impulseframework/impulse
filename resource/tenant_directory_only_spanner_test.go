@@ -303,6 +303,100 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 		})
 	}
 
+	// The switch is turned on by a person who has a password, where their auth has a
+	// password method: the write and the warning refuse alike, so a page that asks
+	// first shows the refusal before the person types the word; an auth that asks
+	// nothing of the caller stands the rule down.
+	t.Run("turning it on is refused until the caller has a password, where their auth has passwords", func(t *testing.T) {
+		t.Parallel()
+
+		const noPassword = "Directory only is turned on by a person who has a password: an administrator of this station enters it with a password and a code sent to their email, and that is the way back in if the directory has a problem. Choose a password on Your account first, then try again."
+		answers := func(has, applies bool) CallerPassword {
+			return func(context.Context, ReadWriteTransaction) (bool, bool, error) {
+				return has, applies, nil
+			}
+		}
+		fails := func(context.Context, ReadWriteTransaction) (bool, bool, error) {
+			return false, false, errors.New("users unavailable")
+		}
+		tests := []struct {
+			name    string
+			readers []CallerPassword
+			ctx     context.Context
+			// wantRefusal is the Conflict's sentence; empty where the switch may be turned.
+			wantRefusal string
+			wantErr     bool
+		}{
+			{name: "a caller with no password is refused, and told to choose one", readers: []CallerPassword{answers(false, true)}, ctx: through(entra), wantRefusal: noPassword},
+			{name: "a caller with a password turns it on", readers: []CallerPassword{answers(true, true)}, ctx: through(entra)},
+			{name: "an auth with no password method asks nothing, and the switch is turned on without one", readers: []CallerPassword{answers(false, false)}, ctx: through(entra)},
+			{name: "the auth the caller is a person of answers, whatever the other says of them", readers: []CallerPassword{answers(false, false), answers(false, true)}, ctx: through(entra), wantRefusal: noPassword},
+			{name: "a reader that was never set asks nothing", readers: []CallerPassword{nil}, ctx: through(entra)},
+			{name: "rules built without readers ask nothing", ctx: through(entra)},
+			{
+				name: "a caller who is not signed in through the directory is told that first", readers: []CallerPassword{answers(false, true)}, ctx: password,
+				wantRefusal: strings.Replace(notThrough, "%s", "You signed in with a password.", 1),
+			},
+			{name: "a failure to read the caller's account fails the call", readers: []CallerPassword{fails}, ctx: through(entra), wantErr: true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				asked := rules.PasswordsBy(tt.readers...)
+				writeErr := client.ExecuteFunc(tt.ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+					return asked.DirectoryOnly(ctx, txn, "beta", true)
+				})
+				warningErr := client.ExecuteFunc(asks(tt.ctx, &switchPermissions{}), func(ctx context.Context, txn ReadWriteTransaction) error {
+					_, err := asked.DirectoryOnlyWarning(ctx, txn, "beta", people(reader(zed))...)
+
+					return err
+				})
+				for call, err := range map[string]error{"DirectoryOnly()": writeErr, "DirectoryOnlyWarning()": warningErr} {
+					switch {
+					case tt.wantErr:
+						if err == nil || httpio.HasConflict(err) {
+							t.Errorf("%s error = %v, want the reader's failure", call, err)
+						}
+					case tt.wantRefusal != "":
+						if !httpio.HasConflict(err) || httpio.Message(err) != tt.wantRefusal {
+							t.Errorf("%s error = %v, want the Conflict %q", call, err, tt.wantRefusal)
+						}
+					case err != nil:
+						t.Errorf("%s error = %v, want none", call, err)
+					}
+				}
+			})
+		}
+	})
+
+	// The warning tells the person about to close the tenant of the one other way into
+	// it, where an auth's people keep it.
+	t.Run("the warning says the administrators' way in where an auth keeps it", func(t *testing.T) {
+		t.Parallel()
+
+		entries := people(reader(zed), reader())
+		entries[1].AdministratorsEnter = true
+		var warning *Warning
+		err := client.ExecuteFunc(asks(through(entra), &switchPermissions{}), func(ctx context.Context, txn ReadWriteTransaction) error {
+			var err error
+			warning, err = rules.DirectoryOnlyWarning(ctx, txn, "beta", entries...)
+
+			return err
+		})
+		if err != nil {
+			t.Fatalf("DirectoryOnlyWarning() error = %v", err)
+		}
+		want := &Warning{
+			Consequence: entraOnly + " An administrator of this station who has a password can still sign in with it and a code sent to their email. 1 person seated here signs in another way and will lose access.",
+			Names:       []string{"zed"},
+			Confirm:     entraConfirm,
+		}
+		if diff := cmp.Diff(want, warning); diff != "" {
+			t.Errorf("DirectoryOnlyWarning() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	// Rules the application's registrations name say a directory by its name, and by
 	// the label of its button where none names it; no sentence says the tenant's id.
 	t.Run("rules named by the sign-in registrations say a directory in words a person knows", func(t *testing.T) {

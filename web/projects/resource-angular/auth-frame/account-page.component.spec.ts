@@ -6,15 +6,24 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { ScriptedTransport } from '@impulseframework/resource/testing';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
-import { AccountPageComponent, passwordRemovalConsequence, passwordsDiffer } from './account-page.component';
+import {
+  AccountPageComponent,
+  firstPasswordsDiffer,
+  passwordRemovalConsequence,
+  passwordsDiffer,
+} from './account-page.component';
 import { passwordMethods, provideFrameTesting, SpecServer, specTransport } from './frame-testing';
 
 // The person's account page holds a section only where their sign-in offers it: their name
 // where the server serves its change and the session is their own, the password change
 // where the auth has the password method, the removal of the password where the server
 // serves it and the session is their own, forgetting this browser where it is remembered
-// for them and the server serves forgetting it. A server that offers none of them leaves
-// the page saying there is nothing to change.
+// for them and the server serves forgetting it. A person who holds no password chooses a
+// first one where the server serves it and the session is their own. A server that offers
+// none of them leaves the page saying there is nothing to change.
+
+/** Where the spec's server serves the choice of a first password. */
+const firstPasswordRoutes = { sendCode: '/api/user/first-password/code', set: '/api/user/first-password' };
 
 interface Setup {
   methods?: Record<string, unknown>;
@@ -31,6 +40,13 @@ interface Setup {
    * makes is answered from then on: the person holds no password.
    */
   means?: TransportResponse;
+  /** What the server answers a request for the code of a first password with; unset, it mails one. */
+  firstPasswordCode?: TransportResponse;
+  /**
+   * What the server answers the first password with; unset, it sets it, and the read of
+   * what the person signs in with answers a password from then on.
+   */
+  firstPasswordSet?: TransportResponse;
 }
 
 describe('AccountPageComponent', () => {
@@ -55,6 +71,8 @@ describe('AccountPageComponent', () => {
     nameAnswer,
     removeAnswer,
     means,
+    firstPasswordCode,
+    firstPasswordSet,
   }: Setup): Promise<void> => {
     let meansNow = means;
     // The session the spec's server answers: a saved name is answered from then on, in an
@@ -77,6 +95,18 @@ describe('AccountPageComponent', () => {
             meansNow = { status: 200, body: { ...(meansNow.body as object), password: false } };
           }
           return { status: 200, body: null };
+        }
+        if (url.pathname === firstPasswordRoutes.sendCode) {
+          return firstPasswordCode ?? { status: 200, body: { codeEmail: 'g•••@lakeside.edu' } };
+        }
+        if (url.pathname === firstPasswordRoutes.set) {
+          if (firstPasswordSet) {
+            return firstPasswordSet;
+          }
+          if (meansNow?.status === 200) {
+            meansNow = { status: 200, body: { ...(meansNow.body as object), password: true } };
+          }
+          return { status: 200, body: {} };
         }
         if (url.pathname === passwordMethods.signInMeans && meansNow) {
           return meansNow;
@@ -384,6 +414,137 @@ describe('AccountPageComponent', () => {
     expect(TestBed.inject(Account).password()).toBe(false);
     expect(TestBed.inject(Account).removePassword()).toBe(false);
     expect(text('.none')).toBe('Your sign-in is managed by your organization, so there is nothing to change here.');
+  });
+
+  // The server serves the choice of a first password, as one whose auth has the password
+  // method does.
+  const choosing = { ...told, firstPassword: firstPasswordRoutes };
+  const click = (selector: string): void => {
+    const button = element().querySelector<HTMLButtonElement>(selector);
+    if (!button) throw new Error(`no ${selector} button`);
+    button.click();
+  };
+
+  it('offers a person who holds no password the choice of one where the server serves it, asking for the code first', async () => {
+    await open({ methods: choosing, means: signsInWith(false, true) });
+    expect(text('.first-password h2')).toBe('Choose a password');
+    expect(text('.first-password p')).toBe(
+      'You have no password here. To choose one, ask for a code first: we email it to the address on your account.',
+    );
+    expect(text('button.first-code')).toBe('Email me a code');
+    // Nothing is typed until a code is on its way.
+    expect(box('firstPasswordCode')).toBeNull();
+    expect(box('firstPassword')).toBeNull();
+    expect(element().querySelector('.password')).toBeNull();
+    expect(element().querySelector('.none')).toBeNull();
+    expect(TestBed.inject(Account).any()).toBe(true);
+    expect(posted()).toEqual([]);
+  });
+
+  for (const tt of [
+    {
+      name: 'a person who holds a password, who changes it',
+      setup: { methods: choosing, means: signsInWith(true, true) },
+    },
+    {
+      name: 'a session that acts for someone else',
+      setup: {
+        methods: choosing,
+        means: signsInWith(false, true),
+        session: {
+          impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
+        },
+      },
+    },
+    {
+      name: 'a read of what the person signs in with that fails: no answer is no offer',
+      setup: { methods: choosing, means: { status: 500, body: { message: 'the database is away' } } },
+    },
+    { name: 'a server that serves no first password', setup: { methods: told, means: signsInWith(false, true) } },
+  ]) {
+    it(`offers no choice of a first password to ${tt.name}`, async () => {
+      await open(tt.setup);
+      expect(element().querySelector('.first-password')).toBeNull();
+      expect(TestBed.inject(Account).firstPassword()).toBe(false);
+    });
+  }
+
+  it('mails the code at the path the server names and says where it went, then sets the password with the code and says so', async () => {
+    await open({ methods: choosing, means: signsInWith(false, true) });
+    click('button.first-code');
+    await settle();
+    expect(posted()).toEqual([firstPasswordRoutes.sendCode]);
+    expect(text('.first-password .sent')).toBe('We sent a code to g•••@lakeside.edu. Enter it with your password.');
+    expect(text('button.first-code')).toBe('Email me a new code');
+    expect(text('button.first-submit')).toBe('Set the password');
+
+    type('firstPasswordCode', '483920');
+    type('firstPassword', 'a harbor of my own');
+    type('firstPasswordAgain', 'a harbor of my own');
+    await fixture.componentInstance.setFirstPassword();
+    await settle();
+    expect(posted()).toEqual([firstPasswordRoutes.sendCode, firstPasswordRoutes.set]);
+    expect(transport.requests.filter((r) => r.method === 'POST')[1].body).toEqual({
+      code: '483920',
+      password: 'a harbor of my own',
+    });
+    expect(text('.password h2')).toBe('Your password');
+    expect(text('.password .message')).toBe('Your password is set. You can sign in with it from now on.');
+    // The choice is gone, and nothing says there is nothing to change.
+    expect(element().querySelector('.first-password')).toBeNull();
+    expect(element().querySelector('.none')).toBeNull();
+    // The person holds a password now, wherever else the page is opened.
+    expect(TestBed.inject(Account).firstPassword()).toBe(false);
+    expect(TestBed.inject(Account).password()).toBe(true);
+  });
+
+  it('refuses two passwords that differ without asking the server', async () => {
+    await open({ methods: choosing, means: signsInWith(false, true) });
+    click('button.first-code');
+    await settle();
+    type('firstPasswordCode', '483920');
+    type('firstPassword', 'a harbor of my own');
+    type('firstPasswordAgain', 'a harbor of my owm');
+    await fixture.componentInstance.setFirstPassword();
+    await settle();
+    expect(text('.first-password .refusal')).toBe(firstPasswordsDiffer);
+    expect(posted()).toEqual([firstPasswordRoutes.sendCode]);
+  });
+
+  it("shows the server's words when it refuses the code, and asks for nothing more", async () => {
+    const noAddress =
+      'Your account has no confirmed email address, and the code to choose a password is sent to one. Add your email address, confirm it from the link we send you, then choose your password';
+    await open({
+      methods: choosing,
+      means: signsInWith(false, true),
+      firstPasswordCode: { status: 409, body: { message: noAddress } },
+    });
+    click('button.first-code');
+    await settle();
+    expect(text('.first-password .refusal')).toBe(noAddress);
+    expect(element().querySelector('.first-password .sent')).toBeNull();
+    expect(box('firstPasswordCode')).toBeNull();
+    expect(text('button.first-code')).toBe('Email me a code');
+  });
+
+  it("shows the server's words when it refuses the password, and keeps the choice open with what was typed", async () => {
+    const wrongCode = 'That is not the code we sent. Check it and try again';
+    await open({
+      methods: choosing,
+      means: signsInWith(false, true),
+      firstPasswordSet: { status: 400, body: { message: wrongCode } },
+    });
+    click('button.first-code');
+    await settle();
+    type('firstPasswordCode', '000000');
+    type('firstPassword', 'a harbor of my own');
+    type('firstPasswordAgain', 'a harbor of my own');
+    await fixture.componentInstance.setFirstPassword();
+    await settle();
+    expect(text('.first-password .refusal')).toBe(wrongCode);
+    expect(box('firstPasswordCode')?.value).toBe('000000');
+    expect(text('.first-password h2')).toBe('Choose a password');
+    expect(TestBed.inject(Account).firstPassword()).toBe(true);
   });
 
   it('offers the change and no removal where the read of what the person signs in with fails: no answer is no offer', async () => {

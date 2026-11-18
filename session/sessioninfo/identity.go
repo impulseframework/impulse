@@ -62,6 +62,23 @@ func (m AuthMethod) Attests() bool {
 	return m == MethodAttestedByEvidence || m == MethodAttestedByDeclaration
 }
 
+// SecondFactor reports whether m records a second factor on a session: a step beyond
+// the sign-in that established it. The library's own are the mailed code
+// (MethodEmailCode), a remembered browser standing in for it (MethodTrustedDevice) and a
+// connection's attestation (Attests); a step the application records under a name of
+// its own is one too, since that is what such a name is for. The methods that establish
+// a session or link an identity are none: a password, a directory, an impersonation, a
+// link confirmation, a session the application starts itself, a token.
+func (m AuthMethod) SecondFactor() bool {
+	switch m {
+	case "", MethodPassword, MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC,
+		MethodImpersonation, MethodLinkConfirmation, MethodApplication, MethodToken:
+		return false
+	default:
+		return true
+	}
+}
+
 // Attestation is what a sign-in's connection says about a second factor: nothing,
 // evidence or a declaration. A sign-in method sets it on the Identity it verifies, and
 // the Auth records it as the session's second auth event (MethodAttestedByEvidence or

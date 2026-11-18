@@ -522,7 +522,7 @@ describe('SectorSignInComponent', () => {
       "Directory only: only people who sign in through this sector's directory enter this sector.",
     );
     expect(texts('.kept-out')).toEqual([
-      'Everyone else seated in this sector is kept out while this is on, and keeps their roles. The People page says who they are.',
+      'Everyone else seated in this sector is kept out while this is on, and keeps their roles, but for a marshal of this sector who has a password: they still get in with it and a code sent to their email. The People page says who is kept out.',
     ]);
     expect(element().querySelector('.make-directory-only')).toBeNull();
 

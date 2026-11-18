@@ -27,6 +27,10 @@ const (
 	userInvitationSuffix = "/user/invitation"
 	userEmailSuffix      = "/user/email"
 	userSignUpSuffix     = "/user/sign-up"
+	// userFirstPasswordSuffix is where a signed-in person who has no password chooses
+	// one (session.Auth.FirstPassword): the code is asked for under /code, and the
+	// password is set, with the code, at the suffix itself.
+	userFirstPasswordSuffix = "/user/first-password"
 	// userForgetBrowserSuffix is where a signed-in person's account page forgets the
 	// browser the second factor remembered for them (session.Auth.ForgetBrowser).
 	userForgetBrowserSuffix = "/user/browser/forget"
@@ -69,6 +73,10 @@ const (
 	signUpStartHandler      = "SignUpStart"
 	signUpOpenHandler       = "SignUpOpen"
 	signUpCompleteHandler   = "SignUpComplete"
+	// The first password's handlers on a session outlet's surface whose auth declares
+	// the password method (session.FirstPasswordHandlers).
+	firstPasswordSendCodeHandler = "FirstPasswordSendCode"
+	firstPasswordSetHandler      = "FirstPasswordSet"
 	// The device flow's and the token page's handlers on an issuing session outlet's
 	// surface (session.DeviceHandlers, ApplicationTokenHandlers).
 	deviceAuthorizeHandler = "DeviceAuthorize"
@@ -149,6 +157,14 @@ type servedSignUp struct {
 	Start    string
 	Open     string
 	Complete string
+}
+
+// servedFirstPassword are the first password routes of a session outlet whose auth
+// declares the password method: where a signed-in person who has no password is mailed
+// a code, and where they set the password with it.
+type servedFirstPassword struct {
+	SendCode string
+	Set      string
 }
 
 // servedSessionHandler is one handler of the session surface beyond the methods' and
@@ -629,6 +645,9 @@ type servedOutlet struct {
 	Invitation servedInvitation
 	Email      servedEmail
 	SignUp     *servedSignUp
+	// FirstPassword are the first password routes the account page is told beside the
+	// methods, with a password method (nil otherwise).
+	FirstPassword *servedFirstPassword
 	// Routes are the session routes under the prefix, in mount order: OpenRoutes, the
 	// ones outside the XSRF guard, GuardedRoutes, the POSTs behind it, then
 	// ValidatedRoutes, the ones a signed-in person calls, inside the validated group
@@ -1232,12 +1251,13 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 	so.AuthLabel += " (" + strings.Join(kinds, ", ") + ")"
 }
 
-// servedMailRoutesOf adds the invitation, email address and sign-up routes
-// (session.Auth.Invitation, Email and SignUp) to the outlet: the login page opens an
-// invitation and, with a password method, an invited stranger signs up at it, behind
-// the XSRF guard alone; a signed-in person accepts it and adds or verifies an address
-// inside the validated group; a sign-up, with a password method, starts, opens and
-// completes behind the XSRF guard alone. It answers the guarded
+// servedMailRoutesOf adds the invitation, email address, sign-up and first password
+// routes (session.Auth.Invitation, Email, SignUp and FirstPassword) to the outlet: the
+// login page opens an invitation and, with a password method, an invited stranger
+// signs up at it, behind the XSRF guard alone; a signed-in person accepts it, adds or
+// verifies an address and, with a password method, chooses their first password where
+// they have none, inside the validated group; a sign-up, with a password method,
+// starts, opens and completes behind the XSRF guard alone. It answers the guarded
 // routes with the mail ones appended, and the validated routes.
 func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute, route func(method, suffix, handler string, xsrf bool) servedRoute) (guardedRoutes, validatedRoutes []servedRoute) {
 	prefix := "/" + o.prefix
@@ -1273,6 +1293,15 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 		validated(userEmailSuffix+"/verify", emailVerifyHandler),
 	}
 	if hasPassword {
+		so.FirstPassword = &servedFirstPassword{SendCode: prefix + userFirstPasswordSuffix + "/code", Set: prefix + userFirstPasswordSuffix}
+		validatedRoutes = append(validatedRoutes,
+			validated(userFirstPasswordSuffix+"/code", firstPasswordSendCodeHandler),
+			validated(userFirstPasswordSuffix, firstPasswordSetHandler),
+		)
+		so.SessionHandlers = append(so.SessionHandlers,
+			servedSessionHandler{Name: firstPasswordSendCodeHandler, Description: "The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode)"},
+			servedSessionHandler{Name: firstPasswordSetHandler, Description: "The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set)"},
+		)
 		so.SignUp = &servedSignUp{Start: prefix + userSignUpSuffix, Open: prefix + userSignUpSuffix + "/open", Complete: prefix + userSignUpSuffix + "/complete"}
 		guarded = append(guarded,
 			route(http.MethodPost, userSignUpSuffix, signUpStartHandler, true),
@@ -1896,6 +1925,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- if $outlet.RemovePassword }}
 			RemovePassword: "{{ $outlet.RemovePassword }}",
 {{- end }}
+{{- if $outlet.FirstPassword }}
+			FirstPassword: session.FirstPasswordRoutes{SendCode: "{{ $outlet.FirstPassword.SendCode }}", Set: "{{ $outlet.FirstPassword.Set }}"},
+{{- end }}
 			ForgetBrowser: "{{ $outlet.ForgetBrowser }}",
 			ChangeName: "{{ $outlet.ChangeName }}",
 			SignInMeans: "{{ $outlet.SignInMeans }}",
@@ -1936,7 +1968,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 			// The session routes a signed-in person calls on their own account: the
 			// acceptance of an invitation the browser carries, the address they add and
-			// verify, and their tokens and device authorizations where the auth issues
+			// verify, their first password where the auth has passwords and they have
+			// none, and their tokens and device authorizations where the auth issues
 			// tokens. They stand in front of the application's hook, which gates the
 			// generated routes alone: a person reaches their own account whatever the
 			// application asks of them elsewhere. What holds for them is mounted here and

@@ -579,8 +579,10 @@ func TestAuthApply(t *testing.T) {
 					"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\tif settings.TenantMaker == nil {",
 					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
 					"\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n\t\tsession.WithSessionTableName(sessionsTable),\n",
-					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n\t)",
-					"\t_, tenantAdministrators := AdministratorRoles()\n\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
+					"\t_, tenantAdministrators := AdministratorRoles()\n\taccessClient, err := access.New(store,",
+					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n",
+					"\t\t// its directory has a problem; the sign-in rule and each request ask the engine.\n\t\taccess.WithTenantAdministratorRoles(tenantAdministrators...),\n\t)",
+					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
 					// What a sign-in clears is set before what a sign-in gives: the identity
 					// client's hook for a sign-in that stands, over the application's database.
 					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// The directory admission",

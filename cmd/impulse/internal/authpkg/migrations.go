@@ -267,12 +267,14 @@ func mailLinksUp(p, who string) string {
 -- document: the tenant's name, whether it is entered through its directory only, and
 -- its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
--- Email the address); or a sign-up a person starts by giving their address. The mail
--- carries an opaque token and the row keeps its hash; the row is accepted only while it
--- is live, not expired and not consumed, and is consumed by a conditional update so one
--- link completes once. A revoked invitation is consumed by hand. A verification link
--- goes with its user. CreatedAt and ConsumedAt take the commit time; ExpiresAt is the
--- library's deadline, written as given.
+-- Email the address); a sign-up a person starts by giving their address; or the code a
+-- signed-in person who has no password is mailed to choose their first one (UserId
+-- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- The mail carries an opaque token and the row keeps its hash; the row is accepted only
+-- while it is live, not expired and not consumed, and is consumed by a conditional
+-- update so one link completes once. A revoked invitation is consumed by hand. A
+-- verification link and a first-password code go with their user. CreatedAt and
+-- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE %[1]sSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -288,7 +290,7 @@ CREATE TABLE %[1]sSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up')),
+    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
     CONSTRAINT FK_%[1]sSessionMailLinks_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 

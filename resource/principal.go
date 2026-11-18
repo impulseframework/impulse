@@ -9,6 +9,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // roleSessionUser returns the person a session with a role principal answers for. A
@@ -55,9 +56,20 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // the decision), or the session's actor is a super administrator, a holder of
 // the Super Administrator role (SessionUserChecker.SuperAdministrator), who
 // enters every tenant whatever its sign-in settings say, as the sign-in policy
-// admits them (signin.TenantPolicy). Nobody else is exempt: a person holding
-// another global role, or a role in every tenant, is held to each tenant's
-// declaration like anyone. An impersonated session is established by its
+// admits them (signin.TenantPolicy), or the session's actor administers the
+// tenant and came by the administrators' way in: a tenant that is directory
+// only still admits its own administrators, in a session established with a
+// password that carries a second factor
+// (signin.TenantDeclaration.AdmitsAdministrator is the decision, the one the
+// sign-in policy asks; SessionUserChecker.AdministersTenant says who
+// administers, asked at every request, so the way in closes at the next
+// request once the role is taken away or its period ends). Nobody else enters
+// a directory-only tenant another way than through its directory: a person
+// holding another global role, or a role in every tenant, the administrator's
+// among them, is held to each tenant's declaration like anyone, and so is the
+// tenant's administrator who signed in through another organization's
+// directory, with a personal account, or with a password and no second
+// factor. An impersonated session is established by its
 // impersonation event, so a directory-only tenant refuses it unless the
 // actor, the real person behind it, is a super administrator; whom the session
 // is viewed as changes nothing. In a tenant the session does not
@@ -132,10 +144,12 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 		// name, which the question is never asked under.
 		imp, impersonated := sessioninfo.ImpersonationFromCtx(ctx)
 		establishment, _ := sessioninfo.DataFromCtx(ctx).EstablishedBy()
+		_, secondFactor := sessioninfo.DataFromCtx(ctx).SecondFactor()
 		perms.admission = &admittedPermissions{
 			UserPermissionChecker: checker,
 			declarations:          declarations,
 			establishment:         establishment,
+			secondFactor:          secondFactor,
 			actor:                 actorChecker,
 			foreignActor:          impersonated && !imp.IsLocalActor(),
 			reached:               map[accesstypes.Domain]bool{},
@@ -225,10 +239,16 @@ func (p rosterPermissions) Reaches(ctx context.Context, domain accesstypes.Domai
 // (UserPermissions.Reaches): in a tenant whose declaration refuses the way the
 // session was established the session holds nothing — every check Denied, an
 // empty digest, no foothold — unless the session's actor is a super
-// administrator, the one person no tenant's sign-in settings bind. The global
-// partition is never attenuated: a declaration is a tenant's. One value serves
-// one request, so a tenant's declaration is read once and the super
-// administrator question asked once, whatever is asked about the tenant after.
+// administrator, whom no tenant's sign-in settings bind, or the tenant's own
+// administrator come by the administrators' way in, a password and a second
+// factor. The global partition is never attenuated: a declaration is a
+// tenant's. One value serves one request, so a tenant's declaration is read
+// once, the super administrator question asked once and the tenant
+// administrator question once for a tenant, whatever is asked about the tenant
+// after; the next request asks again. The session's tenant list alone asks
+// once more of a tenant that is closed to a password session, to tell the
+// tenant's own administrator that the code is all that is missing
+// (opensWithSecondFactor).
 type admittedPermissions struct {
 	UserPermissionChecker
 	declarations TenantDeclarations
@@ -236,13 +256,17 @@ type admittedPermissions struct {
 	// connection; the zero event for a session that records none, which a tenant that
 	// is directory only refuses and any other tenant admits.
 	establishment sessioninfo.AuthEvent
-	// actor builds the checker the super administrator question is asked of: the
-	// session's actor, the real person behind an impersonated or role-principal
-	// session.
+	// secondFactor says the session carries a second factor
+	// (sessioninfo.SessionData.SecondFactor), which the administrators' way into a
+	// directory-only tenant asks for beside the password.
+	secondFactor bool
+	// actor builds the checker the super administrator question and the tenant
+	// administrator question are asked of: the session's actor, the real person
+	// behind an impersonated or role-principal session.
 	actor func() SessionUserChecker
 	// foreignActor marks a session whose actor another application authenticated:
 	// a person with no account here, who is no super administrator of this
-	// application.
+	// application and administers no tenant of it.
 	foreignActor bool
 
 	mu      sync.Mutex
@@ -252,7 +276,8 @@ type admittedPermissions struct {
 
 // Reaches reports whether the session may enter domain: the tenant's declaration
 // admits the session's establishment, or the session's actor is a super
-// administrator.
+// administrator, or the actor administers the tenant and the declaration admits
+// the session by the administrators' way in.
 func (a *admittedPermissions) Reaches(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -271,15 +296,72 @@ func (a *admittedPermissions) Reaches(ctx context.Context, domain accesstypes.Do
 			return false, err
 		}
 	}
+	if !reaches {
+		reaches, err = a.administratorsWayIn(ctx, declaration, domain)
+		if err != nil {
+			return false, err
+		}
+	}
 	a.reached[domain] = reaches
 
 	return reaches, nil
 }
 
+// administratorsWayIn answers whether the tenant's declaration admits the session
+// by the administrators' way in (signin.TenantDeclaration.AdmitsAdministrator, the
+// decision the sign-in policy made when it held the sign-in for its second factor):
+// a tenant that is directory only, a session established with a password that
+// carries a second factor, and an actor who administers the tenant. The engine is
+// asked who administers only where the rest of the decision already holds, and it is
+// asked at every request, so a role taken away, or one whose period has ended, closes
+// the way at the next request. The caller holds the lock.
+func (a *admittedPermissions) administratorsWayIn(ctx context.Context, declaration *signin.TenantDeclaration, domain accesstypes.Domain) (bool, error) {
+	if a.foreignActor || !declaration.AdmitsAdministrator(a.establishment.Method, a.secondFactor, true) {
+		return false, nil
+	}
+	administers, err := a.actor().AdministersTenant(ctx, domain)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.SessionUserChecker.AdministersTenant()")
+	}
+
+	return declaration.AdmitsAdministrator(a.establishment.Method, a.secondFactor, administers), nil
+}
+
+// opensWithSecondFactor answers whether the tenant's declaration would admit the
+// session by the administrators' way in had the session a second factor, which it
+// does not carry: a tenant that is directory only, a session established with a
+// password, and an actor who administers the tenant. The decision is the one Reaches
+// asks (signin.TenantDeclaration.AdmitsAdministrator), with the factor taken as given,
+// so what the tenant list tells the person and what a sign-in with the code then
+// reaches cannot disagree. A session that carries a second factor is answered no: the
+// factor is not what keeps it out.
+func (a *admittedPermissions) opensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.foreignActor || a.secondFactor {
+		return false, nil
+	}
+	declaration, err := a.declarations(ctx, domain)
+	if err != nil {
+		return false, errors.Wrapf(err, "resource.TenantDeclarations(%q)", domain)
+	}
+	if !declaration.AdmitsAdministrator(a.establishment.Method, true, true) {
+		return false, nil
+	}
+	administers, err := a.actor().AdministersTenant(ctx, domain)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.SessionUserChecker.AdministersTenant()")
+	}
+
+	return declaration.AdmitsAdministrator(a.establishment.Method, true, administers), nil
+}
+
 // actorIsSuperAdministrator answers, once per value, whether the session's actor
-// holds the Super Administrator role: the one exemption from a tenant's sign-in
-// settings, and the question the sign-in policy asks of the person signing in
-// (accesstypes.RoleCollection.HoldsSuperAdministrator is the test both come to).
+// holds the Super Administrator role: the exemption from a tenant's sign-in
+// settings that holds in every tenant, and the question the sign-in policy asks of
+// the person signing in (accesstypes.RoleCollection.HoldsSuperAdministrator is the
+// test both come to).
 // The caller holds the lock.
 func (a *admittedPermissions) actorIsSuperAdministrator(ctx context.Context) (bool, error) {
 	if a.super != nil {

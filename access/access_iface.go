@@ -56,6 +56,20 @@ type Controller interface {
 	// (see Client.UserIsSuperAdministrator).
 	UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
 
+	// UserAdministersTenant reports whether user administers the tenant: they
+	// hold one of the application's tenant administrator roles in the tenant
+	// itself, inside its period, answered from the in-memory policy snapshot:
+	// the question a session's reach into a directory-only tenant asks of
+	// the session's actor (see Client.UserAdministersTenant).
+	UserAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error)
+
+	// TenantAdministratorRoles returns the roles whose holders administer a
+	// tenant, as the engine was told them (WithTenantAdministratorRoles), none
+	// where it was told none: the names UserAdministersTenant and
+	// UserManager.TenantsAdministered answer by, for whatever else must agree
+	// with them, such as a tenant's list of its people.
+	TenantAdministratorRoles() []accesstypes.Role
+
 	// UserPermissionDigest returns user's structural grant enumeration within
 	// scope — the frontend digest payload: resource → permission → granted or
 	// conditional, denied targets absent, nothing folded (see
@@ -171,6 +185,18 @@ type UserManager interface {
 	// group alone is somebody. The Super Administrator role is listed only
 	// where the user's own membership holds it: no group gives it.
 	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error)
+
+	// TenantsAdministered lists the tenants user administers now, sorted: the
+	// tenant domains where they hold one of the application's tenant
+	// administrator roles (WithTenantAdministratorRoles) in the tenant itself,
+	// by a membership of their own in the tenant's domain or through a group
+	// kept in that tenant, and none that is outside its period. A role held
+	// in every tenant, or through a group kept for the whole application,
+	// lists no tenant. It reads the store, as UserRoles does: it is what a
+	// sign-in decides the administrators' way into a directory-only tenant
+	// by, and Controller.UserAdministersTenant answers the same question of
+	// one tenant at each request.
+	TenantsAdministered(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
 
 	// AddGroup creates a group of people kept in scope, the global partition
 	// or one tenant domain, and answers the id the store names it by. The

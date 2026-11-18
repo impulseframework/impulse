@@ -101,6 +101,8 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
 		{url: "/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "EmailAdd", xsrf: true, validated: true},
 		{url: "/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "EmailVerify", xsrf: true, validated: true},
+		{url: "/api/user/first-password/code", suffix: "/user/first-password/code", method: http.MethodPost, handler: "FirstPasswordSendCode", xsrf: true, validated: true},
+		{url: "/api/user/first-password", suffix: "/user/first-password", method: http.MethodPost, handler: "FirstPasswordSet", xsrf: true, validated: true},
 	}
 }
 
@@ -871,6 +873,14 @@ func (s *routerDefaultSessionStub) EmailAdd() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) EmailVerify() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "EmailVerify")
+}
+
+func (s *routerDefaultSessionStub) FirstPasswordSendCode() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "FirstPasswordSendCode")
+}
+
+func (s *routerDefaultSessionStub) FirstPasswordSet() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "FirstPasswordSet")
 }
 
 func (s *routerDefaultSessionStub) StartSession(next http.Handler) http.Handler {

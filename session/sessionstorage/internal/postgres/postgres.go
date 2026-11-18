@@ -842,6 +842,42 @@ func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID im
 	return nil
 }
 
+// SetFirstUserPassword gives a user who holds no password hash, the one they chose,
+// and clears the password change mark. The write names the absent hash, so it lands
+// only while the row holds none: a user who holds a password keeps it (ErrPasswordHeld,
+// a Conflict), and an unknown user is NotFound. No session is ended.
+func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("SetFirstUserPassword needs the auth schema: use Auth storage")
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE %s SET "PasswordHash" = $2, "PasswordChangeRequired" = FALSE
+		WHERE "Id" = $1 AND "PasswordHash" IS NULL`, s.userTable())
+
+	cmdTag, err := s.conn.Exec(ctx, query, userID, hash)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	}
+	if cmdTag.RowsAffected() == 0 {
+		var exists bool
+		query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE "Id" = $1)`, s.userTable())
+		if err := s.conn.QueryRow(ctx, query, userID).Scan(&exists); err != nil {
+			return errors.Wrap(err, "QueryRow().Scan()")
+		}
+		if !exists {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		}
+
+		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, "the user already has a password: it is changed with the old one")
+	}
+
+	return nil
+}
+
 // rowQuerier is the one-row read a connection and a transaction share.
 type rowQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row

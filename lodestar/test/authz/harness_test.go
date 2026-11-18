@@ -52,6 +52,15 @@ func (f *fakeAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(f, role)
 }
 
+// TenantAdministratorRoles answers what the crew's generated identity client asks where
+// it is built, the roles whose holders administer a sector: the crew's own, as its
+// engine is told them.
+func (f *fakeAccess) TenantAdministratorRoles() []accesstypes.Role {
+	_, sectorAdministrators := crew.AdministratorRoles()
+
+	return sectorAdministrators
+}
+
 // UserManager answers the one question a generated handler asks the engine's user
 // manager: the roles that exist in a sector, which the crew's generated management
 // lists for a role picker (CrewSectorRoles). Every other method panics through

@@ -195,6 +195,35 @@ func (mr *MockControllerMockRecorder) RolePermissionDigest(ctx, role, scope any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RolePermissionDigest", reflect.TypeOf((*MockController)(nil).RolePermissionDigest), ctx, role, scope)
 }
 
+// TenantAdministratorRoles mocks base method.
+func (m *MockController) TenantAdministratorRoles() []accesstypes.Role {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TenantAdministratorRoles")
+	ret0, _ := ret[0].([]accesstypes.Role)
+	return ret0
+}
+
+// TenantAdministratorRoles indicates an expected call of TenantAdministratorRoles.
+func (mr *MockControllerMockRecorder) TenantAdministratorRoles() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TenantAdministratorRoles", reflect.TypeOf((*MockController)(nil).TenantAdministratorRoles))
+}
+
+// UserAdministersTenant mocks base method.
+func (m *MockController) UserAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserAdministersTenant", ctx, user, domain)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserAdministersTenant indicates an expected call of UserAdministersTenant.
+func (mr *MockControllerMockRecorder) UserAdministersTenant(ctx, user, domain any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserAdministersTenant", reflect.TypeOf((*MockController)(nil).UserAdministersTenant), ctx, user, domain)
+}
+
 // UserHasGrants mocks base method.
 func (m *MockController) UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
 	m.ctrl.T.Helper()
@@ -849,6 +878,21 @@ func (m *MockUserManager) Roles(ctx context.Context, scope accesstypes.PolicySco
 func (mr *MockUserManagerMockRecorder) Roles(ctx, scope any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Roles", reflect.TypeOf((*MockUserManager)(nil).Roles), ctx, scope)
+}
+
+// TenantsAdministered mocks base method.
+func (m *MockUserManager) TenantsAdministered(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TenantsAdministered", ctx, user)
+	ret0, _ := ret[0].([]accesstypes.Domain)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TenantsAdministered indicates an expected call of TenantsAdministered.
+func (mr *MockUserManagerMockRecorder) TenantsAdministered(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TenantsAdministered", reflect.TypeOf((*MockUserManager)(nil).TenantsAdministered), ctx, user)
 }
 
 // UserGroups mocks base method.

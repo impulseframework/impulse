@@ -47,6 +47,10 @@ type TenantDirectoryRules struct {
 	// namers say what the application's sign-in registrations call a directory, for
 	// the sentences that name one (NamedBy).
 	namers []DirectoryNamer
+	// passwords answer, one for each auth, whether the person behind the request holds
+	// a password (PasswordsBy): the directory-only switch is turned on by a person who
+	// has one.
+	passwords []CallerPassword
 }
 
 // NewTenantDirectoryRules builds the rules over the tenant record's table and key
@@ -72,6 +76,28 @@ func (r *TenantDirectoryRules) NamedBy(namers ...DirectoryNamer) *TenantDirector
 	named.namers = namers
 
 	return &named
+}
+
+// CallerPassword answers, for one auth, whether the person behind the request holds a
+// password in it, in the caller's transaction. applies is false where the auth asks
+// nothing of the request: its caller is another auth's person, or the auth has no
+// password method, so nobody of it could have a password. The generated identity
+// client of each auth supplies it (CallerPassword); an application names none.
+type CallerPassword func(ctx context.Context, txn ReadWriteTransaction) (has, applies bool, err error)
+
+// PasswordsBy answers the rules with what each of the application's auths says of the
+// caller's password: a tenant is made directory only by a person who has a password,
+// since a tenant's own administrator enters a directory-only tenant with a password and
+// a second factor (signin.TenantDeclaration.AdmitsAdministrator), and that is the way
+// back in if the directory has a problem. The generated frames of a tenant's own
+// methods pass the reader of each auth's generated identity client. Where no auth's
+// answer applies, as in an application whose people have no passwords, the rule stands
+// down and nothing is said of it; rules built without readers ask nothing.
+func (r *TenantDirectoryRules) PasswordsBy(readers ...CallerPassword) *TenantDirectoryRules {
+	asked := *r
+	asked.passwords = readers
+
+	return &asked
 }
 
 // directoryWords says a directory as the middle of one of the rules' sentences names

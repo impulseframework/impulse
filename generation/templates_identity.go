@@ -528,6 +528,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/signin"
+	{{ .LocalPackageImports }}
 )
 
 // TablePrefix is the prefix of the auth's tables the package was generated from: the
@@ -597,6 +598,12 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
+	{{- if .AdministratorsEnter }}
+	// The {{ .TenantWord }}'s list of its people says who its directory-only switch keeps out, and
+	// reads who administers a {{ .TenantWord }} by the engine's own names, the ones the sign-in and
+	// the session's reach decide by.
+	{{ .ResourcesPackage }}.Set{{ .TenantUser }}AdministratorRoles(manager.TenantAdministratorRoles())
+	{{- end }}
 
 	return &Client{manager: manager}, nil
 }
@@ -672,6 +679,31 @@ func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransact
 // connection, which for a Microsoft Entra tenant is an id.
 func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {
 	return c.manager.DirectoryName(directory)
+}
+
+// CallerPassword answers whether the person behind the request holds a password in the
+// {{ .Auth }} auth, and whether the question applies to them at all: it does not where
+// the request came through another auth, or where this auth has no password method
+// (identity.Manager.CallerPassword). It is a resource.CallerPassword: the generated frame
+// of the method that makes a tenant directory only hands it to the rule that the switch
+// is turned on by a person who has a password, their way back in
+// (resource.TenantDirectoryRules.PasswordsBy).
+func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {
+	has, applies, err = c.manager.CallerPassword(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.CallerPassword()")
+	}
+
+	return has, applies, nil
+}
+
+// AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
+// {{ .Auth }} auth keep a way into a tenant that is directory only: the auth registers
+// the password method and its permission engine names the roles that administer a
+// tenant (identity.Manager.AdministratorsEnterWithPassword). The warning of the method
+// that makes a tenant directory only says so (resource.DirectoryPeople).
+func (c *Client) AdministratorsEnterWithPassword() bool {
+	return c.manager.AdministratorsEnterWithPassword()
 }
 {{- if not .RolesSynced }}
 
@@ -1622,7 +1654,9 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 // DirectoryOutsiders lists the people of the {{ .Auth }} auth who hold a role in the
 // {{ .TenantWord }}, in it or in every {{ .TenantWord }}, and have no sign-in through its directory: the
 // people the {{ .TenantWord }}'s directory-only switch keeps out while it is on, and who turning
-// it on would shut out. A super administrator is never one of them. It reads the
+// it on would shut out. A super administrator is never one of them{{ if .AdministratorsEnter }}, and neither is the
+// {{ .TenantWord }}'s own administrator who has a password, who enters with it and a code mailed to
+// them{{ end }}. It reads the
 // {{ .TenantWord }}'s own list of its people ({{ .TenantUser }}, whose OutsideDirectory column is the
 // fact), in the caller's transaction, by username. The warning of the generated method
 // that turns the switch on asks every auth's client

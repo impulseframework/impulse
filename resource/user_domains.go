@@ -20,7 +20,11 @@ import (
 // (ClosedDomains), with the reason in a sentence for the person: what the tenant
 // admits and how they signed in ("Acme admits only people who sign in through its own
 // directory. You signed in with a password."), a directory said in the words a person
-// knows it by (WithDirectoryNames). It is empty, and absent from the JSON,
+// knows it by (WithDirectoryNames). The tenant's own administrator, who signed in
+// with a password and whose session carries no second factor, is told the way in they
+// hold as well ("As one of its administrators you can still enter it: sign out, then
+// sign in again with your password and the code we email you."): the code is all that
+// is missing, and the reason says what to do. It is empty, and absent from the JSON,
 // for a tenant the session reaches. A picker shows a closed tenant marked, with the
 // reason, and never as a place to open. Only a person's own sign-in is told of one: a
 // session that views the application as someone else, and one that acts as a role,
@@ -115,7 +119,11 @@ func UserDomainsHandler(userPermissions func(r *http.Request) UserPermissions, o
 			// to say how it was established.
 			session := sessioninfo.DataFromCtx(ctx)
 			for _, tenant := range userDomains(closed, settings.names) {
-				tenant.Closed = closedReason(tenant.Name, session, settings.directories)
+				administrator, err := opensWithSecondFactor(ctx, perms, tenant.Domain)
+				if err != nil {
+					return httpio.NewEncoder(w).ClientMessage(ctx, err)
+				}
+				tenant.Closed = closedReason(tenant.Name, session, settings.directories, administrator)
 				out = append(out, tenant)
 			}
 			slices.SortFunc(out, func(a, b UserDomain) int {

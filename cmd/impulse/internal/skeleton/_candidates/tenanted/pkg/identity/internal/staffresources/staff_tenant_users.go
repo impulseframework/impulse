@@ -4,9 +4,11 @@
 package staffresources
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 type (
@@ -38,7 +40,11 @@ type (
 	// directory only"), and nothing on every other row: the sentence never says the
 	// directory's connection, which is a key and no name. The list is made from who holds a role in the tenant,
 	// not from who can sign in, so a person the switch keeps out stays in it with their
-	// roles. A super administrator is outside no tenant's directory.
+	// roles. A super administrator is outside no tenant's directory. Neither is the
+	// tenant's own administrator who has a password: a person who holds one of the roles
+	// the application names as a tenant's administrator's in the tenant itself enters it
+	// with the password and a code mailed to them, so the switch keeps them out of nothing
+	// (SetStaffTenantUserAdministratorRoles names the roles).
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -112,7 +118,22 @@ SELECT
     SELECT 1 FROM StaffUserRoles sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
-  )) AS OutsideDirectory,
+  ) AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
+    SELECT 1 FROM StaffUserRoles ta
+    WHERE ta.UserId = u.Id AND ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = t.DomainId
+      AND ta.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (ta.StartsAt IS NULL OR ta.StartsAt <= CURRENT_TIMESTAMP()) AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupRoles tr
+    JOIN StaffGroups tg ON tg.Id = tr.GroupId
+    JOIN StaffGroupMembers tm ON tm.GroupId = tr.GroupId
+    WHERE tm.UserId = u.Id
+      AND tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = t.DomainId
+      AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = t.DomainId
+      AND tr.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (tr.StartsAt IS NULL OR tr.StartsAt <= CURRENT_TIMESTAMP()) AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+      AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
+  )))) AS OutsideDirectory,
   IF(ts.DirectoryOnly AND td.TenantId IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM StaffSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
@@ -120,7 +141,22 @@ SELECT
     SELECT 1 FROM StaffUserRoles sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
-  ),
+  ) AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
+    SELECT 1 FROM StaffUserRoles ta
+    WHERE ta.UserId = u.Id AND ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = t.DomainId
+      AND ta.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (ta.StartsAt IS NULL OR ta.StartsAt <= CURRENT_TIMESTAMP()) AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupRoles tr
+    JOIN StaffGroups tg ON tg.Id = tr.GroupId
+    JOIN StaffGroupMembers tm ON tm.GroupId = tr.GroupId
+    WHERE tm.UserId = u.Id
+      AND tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = t.DomainId
+      AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = t.DomainId
+      AND tr.Role IN UNNEST(@tenantAdministratorRoles)
+      AND (tr.StartsAt IS NULL OR tr.StartsAt <= CURRENT_TIMESTAMP()) AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
+      AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
+  ))),
     'Has not signed in through this tenant\'s directory, so cannot enter while this tenant is directory only',
     NULL) AS CannotEnter
 FROM (
@@ -163,7 +199,32 @@ LEFT JOIN Tenants ts ON ts.Id = t.DomainId
 LEFT JOIN TenantDirectories td ON td.TenantId = ts.Id
 `
 
+// staffTenantUserAdministrators are the roles whose holders administer a tenant, as the
+// Staff auth's permission engine names them: what the list's query reads as
+// @tenantAdministratorRoles. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var staffTenantUserAdministrators atomic.Pointer[[]string]
+
+// SetStaffTenantUserAdministratorRoles tells the list which roles administer a tenant: the
+// ones the Staff auth's permission engine answers who administers a tenant by
+// (access.WithTenantAdministratorRoles). The auth's generated identity client calls it
+// where it is built, so the list says who the directory-only switch keeps out by the
+// names the sign-in and the session's reach decide by. It is one value for the process,
+// as the auth's engine is.
+func SetStaffTenantUserAdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	staffTenantUserAdministrators.Store(&names)
+}
+
 // Subquery is the query the rows are read from.
 func (StaffTenantUser) Subquery() (query string, params map[string]any) {
-	return staffTenantUserQuery, nil
+	administrators := []string{}
+	if named := staffTenantUserAdministrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return staffTenantUserQuery, map[string]any{"tenantAdministratorRoles": administrators}
 }

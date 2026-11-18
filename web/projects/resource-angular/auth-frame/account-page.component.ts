@@ -12,6 +12,9 @@ import { Account } from './account';
 /** What the password change says when the two new passwords differ, before asking the server. */
 export const passwordsDiffer = 'The two new passwords are not the same.';
 
+/** What the choice of a first password says when the two passwords differ, before asking the server. */
+export const firstPasswordsDiffer = 'The two passwords are not the same.';
+
 /**
  * What removing their password leaves a person with, said before they confirm it: the
  * other ways in their sign-in offers, each by the words its button on the login page
@@ -41,6 +44,13 @@ export const nameMaxLength = 200;
  * in with, the page offers the removal only to a person a directory sign-in is linked to,
  * names that directory in its question, and offers neither the change nor the removal to
  * a person who holds no password.
+ *
+ * A person who holds no password, because they have only ever signed in through a
+ * directory, chooses one here where the server serves it: they ask for a code, which the
+ * server mails to the address their account holds confirmed, and set the password with
+ * the code. The code ties the password to that mailbox: whoever asks must read it to
+ * finish. The server's words are shown when it refuses, among them that the account has
+ * no confirmed address yet, which the email section above adds.
  */
 @Component({
   selector: 'impulse-account-page',
@@ -87,6 +97,67 @@ export const nameMaxLength = 200;
         <section class="part password">
           <h2>Your password</h2>
           <p class="message" role="status">Your password is removed. {{ removalConsequence() }}</p>
+        </section>
+      } @else if (passwordChosen()) {
+        <section class="part password">
+          <h2>Your password</h2>
+          <p class="message" role="status">Your password is set. You can sign in with it from now on.</p>
+        </section>
+      } @else if (account.firstPassword()) {
+        <section class="part first-password">
+          <h2>Choose a password</h2>
+          <p>
+            You have no password here. To choose one, ask for a code first: we email it to the address on your account.
+          </p>
+          <button
+            mat-stroked-button
+            type="button"
+            class="first-code"
+            [disabled]="busy()"
+            (click)="mailFirstPasswordCode()">
+            {{ codeSentTo() === undefined ? 'Email me a code' : 'Email me a new code' }}
+          </button>
+          @if (codeSentTo(); as address) {
+            <p class="message sent" role="status">We sent a code to {{ address }}. Enter it with your password.</p>
+          }
+          @if (codeSentTo() !== undefined) {
+            <form class="change" (ngSubmit)="setFirstPassword()">
+              <mat-form-field appearance="outline">
+                <mat-label>Code</mat-label>
+                <input
+                  matInput
+                  name="firstPasswordCode"
+                  [(ngModel)]="firstPasswordCode"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  required />
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Password</mat-label>
+                <input
+                  matInput
+                  name="firstPassword"
+                  type="password"
+                  [(ngModel)]="firstPassword"
+                  autocomplete="new-password"
+                  required />
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Password again</mat-label>
+                <input
+                  matInput
+                  name="firstPasswordAgain"
+                  type="password"
+                  [(ngModel)]="firstPasswordAgain"
+                  autocomplete="new-password"
+                  required />
+              </mat-form-field>
+              <button mat-flat-button type="submit" class="first-submit" [disabled]="busy()">Set the password</button>
+            </form>
+          }
+          @if (firstPasswordMessage(); as message) {
+            <p class="message refusal" role="status">{{ message }}</p>
+          }
         </section>
       } @else if (account.password()) {
         <section class="part password">
@@ -193,7 +264,7 @@ export const nameMaxLength = 200;
         </section>
       }
 
-      @if (!account.any() && !forgotten() && !passwordRemoved()) {
+      @if (!account.any() && !forgotten() && !passwordRemoved() && !passwordChosen()) {
         <p class="none">Your sign-in is managed by your organization, so there is nothing to change here.</p>
       }
     </section>
@@ -218,6 +289,9 @@ export const nameMaxLength = 200;
     }
     .part p {
       margin: 0 0 12px;
+    }
+    .first-code {
+      margin-bottom: 12px;
     }
     .change {
       display: flex;
@@ -264,6 +338,17 @@ export class AccountPageComponent {
   readonly changeMessage = signal<string | undefined>(undefined);
   /** The browser was forgotten on this page. */
   readonly forgotten = signal(false);
+
+  /** The code the person was mailed for their first password, as they type it. */
+  firstPasswordCode = '';
+  firstPassword = '';
+  firstPasswordAgain = '';
+  /** Where the code of a first password went, masked as the server masks it; undefined until one is sent. */
+  readonly codeSentTo = signal<string | undefined>(undefined);
+  /** What the last step of choosing a password came to, in the application's words or the server's. */
+  readonly firstPasswordMessage = signal<string | undefined>(undefined);
+  /** The person chose their first password on this page. */
+  readonly passwordChosen = signal(false);
 
   /** The password given as proof for its removal. */
   removalPassword = '';
@@ -325,6 +410,49 @@ export class AccountPageComponent {
         await firstValueFrom(this.auth.checkUserSession());
       } else {
         this.changeMessage.set(result.message);
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Asks the server to mail the code of a first password, in place of any it sent before. */
+  async mailFirstPasswordCode(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    // What an earlier step came to is not said of this one.
+    this.firstPasswordMessage.set(undefined);
+    try {
+      const result = await this.client.auth.sendFirstPasswordCode();
+      if (result.outcome === 'sent') {
+        this.codeSentTo.set(result.codeEmail);
+      } else {
+        this.firstPasswordMessage.set(result.message);
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async setFirstPassword(): Promise<void> {
+    if (this.busy()) return;
+    if (this.firstPassword !== this.firstPasswordAgain) {
+      this.firstPasswordMessage.set(firstPasswordsDiffer);
+      return;
+    }
+    this.busy.set(true);
+    this.firstPasswordMessage.set(undefined);
+    try {
+      const result = await this.client.auth.setFirstPassword(this.firstPasswordCode, this.firstPassword);
+      if (result.outcome === 'set') {
+        this.firstPasswordCode = this.firstPassword = this.firstPasswordAgain = '';
+        this.codeSentTo.set(undefined);
+        this.passwordChosen.set(true);
+        // The person holds a password now: the choice of a first one goes, here and
+        // wherever else the page is opened, and its change takes its place.
+        this.account.rereadSignInMeans();
+      } else {
+        this.firstPasswordMessage.set(result.message);
       }
     } finally {
       this.busy.set(false);

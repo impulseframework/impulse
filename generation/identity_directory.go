@@ -67,6 +67,27 @@ func (d *identitySourceData) TenantWordLiteral() string {
 	return literal[1 : len(literal)-1]
 }
 
+// tenantAdministratorsParam is the query parameter a tenant's list of its people reads
+// the roles that administer a tenant from: the names the auth's permission engine
+// answers who administers a tenant by, handed to the list by the generated client.
+const tenantAdministratorsParam = "tenantAdministratorRoles"
+
+// AdministratorsEnter reports whether the tenant's list of its people knows the
+// administrators' way into a directory-only tenant: the instance carries the list and
+// the tenant record declares the switch (listsDirectoryOutsiders), and the auth
+// declares the password method, the one sign-in a tenant's own administrator enters
+// with beside the directory. The list then leaves such a person out of the people the
+// switch keeps out, and the instance's client hands the list the roles that administer
+// a tenant; an instance that writes no such list has nothing to hand them to.
+func (d *identitySourceData) AdministratorsEnter() bool {
+	return d.listsDirectoryOutsiders() && d.password
+}
+
+// TenantAdministratorsParam is tenantAdministratorsParam for the list's template.
+func (d *identitySourceData) TenantAdministratorsParam() string {
+	return tenantAdministratorsParam
+}
+
 // listsDirectoryOutsiders reports whether the instance's client answers who a tenant's
 // directory-only switch keeps out: the tenant record declares the switch and the
 // instance carries the tenant's list of its people.

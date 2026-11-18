@@ -49,12 +49,15 @@ const (
 // its start with nothing written and nothing run on a schedule: the first
 // check past the instant compiles the next window.
 type snapshotEngine struct {
-	store             Store
-	defaults          *defaultRoles        // may be nil: no default roles
-	collection        PermissionCollection // may be nil: grant names are then not checked
-	heartbeatInterval time.Duration
-	signal            ChangeSignal // may be nil
-	onError           func(error)  // never nil
+	store      Store
+	defaults   *defaultRoles        // may be nil: no default roles
+	collection PermissionCollection // may be nil: grant names are then not checked
+	// tenantAdministrators are the roles whose holders administer a tenant
+	// (WithTenantAdministratorRoles); none where the application named none.
+	tenantAdministrators []accesstypes.Role
+	heartbeatInterval    time.Duration
+	signal               ChangeSignal // may be nil
+	onError              func(error)  // never nil
 
 	// writeGen counts local policy writes. A snapshot is trusted for
 	// read-your-writes only when its recorded generation has caught up to
@@ -105,15 +108,16 @@ type snapshotEngine struct {
 
 func newSnapshotEngine(store Store, defaults *defaultRoles, opts *clientOptions) *snapshotEngine {
 	return &snapshotEngine{
-		store:             store,
-		defaults:          defaults,
-		collection:        opts.collection,
-		heartbeatInterval: opts.heartbeatInterval,
-		signal:            opts.signal,
-		onError:           opts.onReloadError,
-		clock:             time.Now,
-		ready:             make(chan struct{}),
-		hintCh:            make(chan struct{}, 1),
+		store:                store,
+		defaults:             defaults,
+		collection:           opts.collection,
+		tenantAdministrators: slices.Clone(opts.tenantAdministrators),
+		heartbeatInterval:    opts.heartbeatInterval,
+		signal:               opts.signal,
+		onError:              opts.onReloadError,
+		clock:                time.Now,
+		ready:                make(chan struct{}),
+		hintCh:               make(chan struct{}, 1),
 	}
 }
 
@@ -411,6 +415,9 @@ func (s *snapshotEngine) windowAt(current *snapshot, at time.Time) (*snapshot, e
 			return nil, errors.Wrap(err, "newSnapshotAt()")
 		}
 		fresh.writeGen = current.writeGen
+		// The window is compiled from the current snapshot's records, so the
+		// same people administer the same tenants in the same periods.
+		fresh.administrators = current.administrators
 		if len(s.windows) == maxWindows {
 			s.windows = slices.Delete(s.windows, 0, 1)
 		}
@@ -524,6 +531,7 @@ func (s *snapshotEngine) reload(ctx context.Context) (*snapshot, error) {
 		return nil, errors.Wrap(err, "newSnapshot()")
 	}
 	snap.writeGen = gen
+	snap.administrators = compileTenantAdministrators(records, s.tenantAdministrators)
 	s.snap.Store(snap)
 	s.readyOnce.Do(func() { close(s.ready) })
 

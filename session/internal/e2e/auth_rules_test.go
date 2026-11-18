@@ -98,6 +98,12 @@ func (r rolesNeverAsked) UserRoles(context.Context, accesstypes.User, ...accesst
 	return accesstypes.RoleCollection{}, nil
 }
 
+func (r rolesNeverAsked) TenantsAdministered(context.Context, accesstypes.User) ([]accesstypes.Domain, error) {
+	r.t.Error("the role store was asked which tenants a user administers, want the sign-in refused first")
+
+	return nil, nil
+}
+
 func (r rolesNeverAsked) ResolveRole(context.Context, accesstypes.PolicyScope, string) (accesstypes.Role, bool, error) {
 	r.t.Error("the role store was asked to resolve a role, want the sign-in refused first")
 

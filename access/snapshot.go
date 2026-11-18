@@ -73,6 +73,12 @@ type snapshot struct {
 	// assignment carries a period, so the snapshot for an instant outside the
 	// window compiles without a store read; nil where none does.
 	timed *policy.Records
+
+	// administrators are the people who administer each tenant, with the
+	// periods their holdings count in (compileTenantAdministrators): nil where
+	// the application named no administrator role. The engine sets it on the
+	// snapshot it compiles, before the snapshot is anyone's.
+	administrators tenantAdministrators
 }
 
 // holdsAt reports whether the snapshot answers for the instant: the

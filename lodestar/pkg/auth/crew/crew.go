@@ -436,7 +436,7 @@ func (h *Handlers) PasswordLogin() http.HandlerFunc {
 	return h.password.Login()
 }
 
-// PasswordChange is the password method's change: {"currentPassword", "newPassword"} in
+// PasswordChange is the password method's change: {"oldPassword", "newPassword"} in
 // from a signed-in person, who may be one whose operator-set password must change before
 // anything else is served. It validates the session itself, so the generated router
 // mounts it outside ValidateSession, behind the XSRF guard.
@@ -452,6 +452,25 @@ func (h *Handlers) PasswordChange() http.HandlerFunc {
 // the XSRF guard.
 func (h *Handlers) PasswordRemove() http.HandlerFunc {
 	return h.password.RemoveUserPassword()
+}
+
+// FirstPasswordSendCode mails the signed-in person who has no password, because they
+// have only ever signed in through the fleet's directory, the code they choose their
+// first one with, at the address their login holds confirmed (no body in). It is how a
+// sector's marshal who came in through the directory gets the password a directory-only
+// sector asks of whoever turns the switch on, and keeps a way in if the directory fails.
+// Whoever asks must read that mailbox to finish, so the password is tied to it.
+//
+// Demonstrates: tenancy.directory-only.
+func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
+	return h.FirstPassword().SendCode()
+}
+
+// FirstPasswordSet gives the signed-in person who has no password the one they choose,
+// with the code they were mailed ({"code", "password"}). A login that has a password
+// changes it with the old one (PasswordChange).
+func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
+	return h.FirstPassword().Set()
 }
 
 // GoogleLogin sends the browser to the fleet's Google directory.
@@ -609,9 +628,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// (access.WithSuperAdministratorMethods), so a super administrator gives any role of
 	// the crew to anyone, in headquarters and in every sector.
 	//
-	// Demonstrates: auth.super-administrator.
+	// The engine is told who administers a sector as well: a person who holds
+	// SectorMarshal in the sector itself, by a membership of their own or through the
+	// sector's own group (access.WithTenantAdministratorRoles over the roles
+	// AdministratorRoles names for a sector). A directory-only sector still admits its
+	// own marshal with a password and the mailed code, so Bastion's marshal has a way in
+	// when its directory has a problem; the governor, who holds the role in every
+	// sector, administers none of them in this sense and is kept out by the switch like
+	// anyone, but for the Super Administrator role she also holds.
+	//
+	// Demonstrates: auth.super-administrator, tenancy.directory-only.
 	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal),
-		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...))
+		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...),
+		access.WithTenantAdministratorRoles(sectorAdministratorRoles()...))
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
@@ -738,7 +767,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// every sector that seats them is directory only and none has the way they signed
 	// in as its directory (the bosun, whose only sector is Bastion, is refused
 	// directory_only by password). A super administrator is admitted whatever a
-	// sector declares; a person holding a role outside any one sector (a global role,
+	// sector declares; a directory-only sector's own marshal who signs in with a
+	// password is held for the mailed code and then enters that sector (the engine
+	// names who administers a sector); a person holding a role outside any one sector (a global role,
 	// or one held in every sector) is admitted and then enters a sector only where
 	// its declaration admits their session, as anyone does; a sign-in whose directory
 	// names the roles (the client's) is admitted on the library's checks;

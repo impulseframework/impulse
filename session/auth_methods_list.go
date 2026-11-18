@@ -37,6 +37,12 @@ type MethodList struct {
 	// through a directory, or none. It is refused when the password method is not
 	// listed.
 	RemovePassword string
+	// FirstPassword are the paths of the first password handlers
+	// (FirstPassword().SendCode() and Set()), where the account page of a signed-in
+	// person who holds no password mails them a code and takes the password they
+	// choose with it; both or none. They are refused when the password method is not
+	// listed.
+	FirstPassword FirstPasswordRoutes
 	// ForgetBrowser is the path of the Auth's ForgetBrowser handler, where a signed-in
 	// person's account page forgets the browser the second factor remembered for them,
 	// or none. The page shows the action only where the session says the browser is
@@ -83,6 +89,13 @@ type EmailRoutes struct {
 	Verify string
 }
 
+// FirstPasswordRoutes are the paths of the first password handlers, as a MethodList
+// names them.
+type FirstPasswordRoutes struct {
+	SendCode string
+	Set      string
+}
+
 // SignUpRoutes are the paths of the sign-up handlers, as a MethodList names them.
 type SignUpRoutes struct {
 	Start    string
@@ -121,6 +134,7 @@ type methodsAnswer struct {
 	Pending        *pendingAnswer         `json:"pending,omitempty"`
 	ChangePassword string                 `json:"changePassword,omitempty"`
 	RemovePassword string                 `json:"removePassword,omitempty"`
+	FirstPassword  *firstPasswordAnswer   `json:"firstPassword,omitempty"`
 	ForgetBrowser  string                 `json:"forgetBrowser,omitempty"`
 	ChangeName     string                 `json:"changeName,omitempty"`
 	SignInMeans    string                 `json:"signInMeans,omitempty"`
@@ -168,6 +182,12 @@ type standingInvitationAnswer struct {
 	// holder may know it, since following the link proved they own the address.
 	AccountExists bool `json:"accountExists"`
 	HasPassword   bool `json:"hasPassword"`
+}
+
+// firstPasswordAnswer is the first password block of a methods answer.
+type firstPasswordAnswer struct {
+	SendCode string `json:"sendCode"`
+	Set      string `json:"set"`
 }
 
 // emailAnswer is the email block of a methods answer.
@@ -378,6 +398,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.Pending = pendingAnswerOf(&list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
 	answer.RemovePassword = removePasswordPathOf(list, passwordListed)
+	answer.FirstPassword = firstPasswordAnswerOf(list.FirstPassword, passwordListed)
 	answer.ForgetBrowser = forgetBrowserPathOf(list)
 	answer.ChangeName = changeNamePathOf(list)
 	answer.SignInMeans = signInMeansPathOf(list)
@@ -467,6 +488,24 @@ func removePasswordPathOf(list *MethodList, passwordListed bool) string {
 	}
 
 	return list.RemovePassword
+}
+
+// firstPasswordAnswerOf validates the first password routes: none, or both as canonical
+// paths beside a listed password method.
+func firstPasswordAnswerOf(p FirstPasswordRoutes, passwordListed bool) *firstPasswordAnswer {
+	if p == (FirstPasswordRoutes{}) {
+		return nil
+	}
+	if !passwordListed {
+		panic(fmt.Sprintf("session: Methods is given the first password routes %+v but lists no password method: "+
+			"a person chooses a first password where people sign in with one, so list the method, or drop the routes", p))
+	}
+	if !advertisedPath(p.SendCode) || !advertisedPath(p.Set) {
+		panic(fmt.Sprintf("session: Methods is given the first password routes %+v: name the send-code and set paths together, each a canonical path in the application, "+
+			"such as /api/user/password/first/code and /api/user/password/first", p))
+	}
+
+	return &firstPasswordAnswer{SendCode: p.SendCode, Set: p.Set}
 }
 
 // changeLookPathOf validates the keep-your-look route: none, or a canonical path.

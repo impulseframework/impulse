@@ -47,6 +47,15 @@ func (f *fakeAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(f, role)
 }
 
+// TenantAdministratorRoles answers what the staff auth's generated identity client asks
+// where it is built, the roles whose holders administer a tenant: the staff auth's own,
+// as its engine is told them.
+func (f *fakeAccess) TenantAdministratorRoles() []accesstypes.Role {
+	_, tenantAdministrators := staff.AdministratorRoles()
+
+	return tenantAdministrators
+}
+
 // UserManager answers the one question a generated handler asks the engine's user
 // manager: the roles that exist in a tenant, which the Auth's generated management
 // lists for a role picker. Every other method panics through the embedded nil

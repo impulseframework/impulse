@@ -36,6 +36,19 @@ type fakeRoleManager struct {
 	removeErr  error
 	writes     []roleWrite
 	asked      []accesstypes.User
+	// administered are the tenants the store says the person administers,
+	// administeredErr fails the read, and administeredAsked records who it was asked
+	// for.
+	administered      []accesstypes.Domain
+	administeredErr   error
+	administeredAsked []accesstypes.User
+}
+
+// TenantsAdministered answers the tenants the fake was told the person administers.
+func (f *fakeRoleManager) TenantsAdministered(_ context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	f.administeredAsked = append(f.administeredAsked, user)
+
+	return f.administered, f.administeredErr
 }
 
 func (f *fakeRoleManager) UserRoles(_ context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {

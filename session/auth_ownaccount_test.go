@@ -23,8 +23,8 @@ import (
 // its user. Every request carries a body that does not parse, so a handler that read it
 // first would answer 400. The address a person adds and verifies is where the code of
 // their second factor is mailed, a token and an approved device act as them for as long
-// as they live, and an accepted invitation gives them roles, so none of them is for
-// whoever is looking at the account.
+// as they live, an accepted invitation gives them roles, and a first password signs
+// in as them from then on, so none of them is for whoever is looking at the account.
 func TestAuth_ownAccountRoutes_refuseAViewOfThePerson(t *testing.T) {
 	t.Parallel()
 
@@ -40,6 +40,8 @@ func TestAuth_ownAccountRoutes_refuseAViewOfThePerson(t *testing.T) {
 		{"Device().Approve()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Device().Approve() }},
 		{"Device().Deny()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Device().Deny() }},
 		{"Invitation().Accept()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.Invitation().Accept() }},
+		{"FirstPassword().SendCode()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.FirstPassword().SendCode() }},
+		{"FirstPassword().Set()", func(a *Auth[NoCustomData, NoCustomData, mockTx]) http.Handler { return a.FirstPassword().Set() }},
 	}
 	readOnly := accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
 	sessions := map[string]sessioninfo.Impersonation{

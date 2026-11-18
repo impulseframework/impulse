@@ -317,6 +317,9 @@ type db interface {
 	// ChangeUserPassword replaces the proven password hash with hash, clears the password change mark and expires the user's
 	// sessions, in one transaction, while the row still holds the proven hash.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	// SetFirstUserPassword writes hash and clears the password change mark while the row holds no password hash, and leaves
+	// the user's sessions as they are.
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.

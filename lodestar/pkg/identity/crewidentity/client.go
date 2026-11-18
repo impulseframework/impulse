@@ -20,6 +20,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/crewresources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/signin"
@@ -84,6 +85,10 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
+	// The sector's list of its people says who its directory-only switch keeps out, and
+	// reads who administers a sector by the engine's own names, the ones the sign-in and
+	// the session's reach decide by.
+	crewresources.SetCrewSectorUserAdministratorRoles(manager.TenantAdministratorRoles())
 
 	return &Client{manager: manager}, nil
 }
@@ -152,6 +157,31 @@ func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransact
 // connection, which for a Microsoft Entra tenant is an id.
 func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {
 	return c.manager.DirectoryName(directory)
+}
+
+// CallerPassword answers whether the person behind the request holds a password in the
+// Crew auth, and whether the question applies to them at all: it does not where
+// the request came through another auth, or where this auth has no password method
+// (identity.Manager.CallerPassword). It is a resource.CallerPassword: the generated frame
+// of the method that makes a tenant directory only hands it to the rule that the switch
+// is turned on by a person who has a password, their way back in
+// (resource.TenantDirectoryRules.PasswordsBy).
+func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {
+	has, applies, err = c.manager.CallerPassword(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.CallerPassword()")
+	}
+
+	return has, applies, nil
+}
+
+// AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
+// Crew auth keep a way into a tenant that is directory only: the auth registers
+// the password method and its permission engine names the roles that administer a
+// tenant (identity.Manager.AdministratorsEnterWithPassword). The warning of the method
+// that makes a tenant directory only says so (resource.DirectoryPeople).
+func (c *Client) AdministratorsEnterWithPassword() bool {
+	return c.manager.AdministratorsEnterWithPassword()
 }
 
 // InvitationAccepted answers the session library's hook for an accepted invitation

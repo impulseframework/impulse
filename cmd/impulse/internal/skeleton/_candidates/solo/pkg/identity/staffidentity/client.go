@@ -142,6 +142,31 @@ func (c *Client) DirectoryName(directory signin.Directory) (name, label string) 
 	return c.manager.DirectoryName(directory)
 }
 
+// CallerPassword answers whether the person behind the request holds a password in the
+// Staff auth, and whether the question applies to them at all: it does not where
+// the request came through another auth, or where this auth has no password method
+// (identity.Manager.CallerPassword). It is a resource.CallerPassword: the generated frame
+// of the method that makes a tenant directory only hands it to the rule that the switch
+// is turned on by a person who has a password, their way back in
+// (resource.TenantDirectoryRules.PasswordsBy).
+func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {
+	has, applies, err = c.manager.CallerPassword(ctx, txn)
+	if err != nil {
+		return false, false, errors.Wrap(err, "identity.Manager.CallerPassword()")
+	}
+
+	return has, applies, nil
+}
+
+// AdministratorsEnterWithPassword reports whether a tenant's own administrators of the
+// Staff auth keep a way into a tenant that is directory only: the auth registers
+// the password method and its permission engine names the roles that administer a
+// tenant (identity.Manager.AdministratorsEnterWithPassword). The warning of the method
+// that makes a tenant directory only says so (resource.DirectoryPeople).
+func (c *Client) AdministratorsEnterWithPassword() bool {
+	return c.manager.AdministratorsEnterWithPassword()
+}
+
 // InvitationAccepted answers the session library's hook for an accepted invitation
 // (session.Auth.SetInvitationAccepted) over the Staff auth's tables: the roles the
 // invitation carries are given to the person in the transaction that consumes the

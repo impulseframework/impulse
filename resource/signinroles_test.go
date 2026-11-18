@@ -13,8 +13,15 @@ import (
 // recordingRoleManager is a signin.UserRoleManager that records the context each
 // operation received, by the operation's name, and answers a fixed collection.
 type recordingRoleManager struct {
-	held accesstypes.RoleCollection
-	ctxs map[string]context.Context
+	held         accesstypes.RoleCollection
+	administered []accesstypes.Domain
+	ctxs         map[string]context.Context
+}
+
+func (m *recordingRoleManager) TenantsAdministered(ctx context.Context, _ accesstypes.User) ([]accesstypes.Domain, error) {
+	m.ctxs["TenantsAdministered"] = ctx
+
+	return m.administered, nil
 }
 
 func (m *recordingRoleManager) UserRoles(ctx context.Context, _ accesstypes.User, _ ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
@@ -45,9 +52,10 @@ func (m *recordingRoleManager) DeleteUserRoles(ctx context.Context, _ accesstype
 // sign-in's context carries and the adapter's read must not.
 type transactionKey struct{}
 
-// TestSignInRoles pins the adapter: UserRoles runs under a context that carries the
-// sign-in's deadline and cancellation and none of its values, answering the manager's
-// collection; the other operations receive the sign-in's context as it is.
+// TestSignInRoles pins the adapter: UserRoles and TenantsAdministered run under a
+// context that carries the sign-in's deadline and cancellation and none of its values,
+// answering what the manager answers; the other operations receive the sign-in's
+// context as it is.
 func TestSignInRoles(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +79,21 @@ func TestSignInRoles(t *testing.T) {
 				}
 				if diff := cmp.Diff(held, got); diff != "" {
 					t.Errorf("UserRoles() mismatch (-want +got):\n%s", diff)
+				}
+			},
+			wantOutside: true,
+		},
+		{
+			name:      "TenantsAdministered reads outside the transaction and answers the tenants",
+			operation: "TenantsAdministered",
+			call: func(t *testing.T, ctx context.Context, manager signin.UserRoleManager) {
+				t.Helper()
+				got, err := manager.TenantsAdministered(ctx, "someone")
+				if err != nil {
+					t.Fatalf("TenantsAdministered() error = %v", err)
+				}
+				if diff := cmp.Diff([]accesstypes.Domain{"north"}, got); diff != "" {
+					t.Errorf("TenantsAdministered() mismatch (-want +got):\n%s", diff)
 				}
 			},
 			wantOutside: true,
@@ -110,7 +133,7 @@ func TestSignInRoles(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			recorder := &recordingRoleManager{held: held, ctxs: map[string]context.Context{}}
+			recorder := &recordingRoleManager{held: held, administered: []accesstypes.Domain{"north"}, ctxs: map[string]context.Context{}}
 			deadline := time.Now().Add(time.Hour)
 			parent, cancel := context.WithDeadline(context.WithValue(context.Background(), transactionKey{}, "open"), deadline)
 			defer cancel()

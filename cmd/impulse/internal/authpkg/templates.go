@@ -166,7 +166,8 @@ type Settings struct {
 	// SessionTimeout is the idle timeout of a browser session.
 	SessionTimeout time.Duration
 	// Mail sends the auth's mail: the invitation an administrator sends to an address{{if .Password}},
-	// the link that verifies an address a person adds, and the link a sign-up starts from.{{else}}
+	// the link that verifies an address a person adds, the link a sign-up starts from, and
+	// the code a person who has no password chooses their first one with.{{else}}
 	// and the link that verifies an address a person adds.{{end}}
 	// The application's one sender, which the data level opens: the Workspace relay
 	// (session/mail/workspace) where the deployment names a mailbox, and the log (mail.Log)
@@ -417,6 +418,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
+{{- if .Foothold}}
+	_, tenantAdministrators := AdministratorRoles()
+{{- end}}
 	accessClient, err := access.New(store,
 		access.WithDefaultRoles(settings.Collection, Roles()),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
@@ -424,6 +428,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		// What no role file takes from a super administrator: the methods that give and
 		// take the auth's roles, as the generated management names them.
 		access.WithSuperAdministratorMethods({{.Name}}identity.SuperAdministratorMethods()...),
+{{- end}}
+{{- if .Foothold}}
+		// Who administers a tenant: a person holding one of these roles in the tenant
+		// itself, by a membership of their own or through the tenant's own group. A
+		// tenant that admits its people through its directory only still admits them,
+		// with a password and a second factor, so its administrators have a way in when
+		// its directory has a problem; the sign-in rule and each request ask the engine.
+		access.WithTenantAdministratorRoles(tenantAdministrators...),
 {{- end}}
 	)
 	if err != nil {
@@ -505,7 +517,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// else, so a person is refused only when every tenant that seats them is closed to
 	// the way they signed in; a person who holds a role outside any one
 	// tenant (a global role, or one held in every tenant) is admitted on the library's
-	// checks, and a super administrator before any of it.
+	// checks, and a super administrator before any of it. A directory-only tenant's own
+	// administrator who signs in with a password is not refused either: the sign-in is
+	// held for the mailed code, and the session then enters that tenant
+	// (access.WithTenantAdministratorRoles names the roles).
 {{- if .TenantPolicy.AdmitWithoutTenant}}
 	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a
 	// person who signs up through a sign-in method an administrator opened signs in
@@ -519,8 +534,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 {{- end}}
 	// Which tenants the session then reaches is decided again, tenant by tenant, where
 	// its tenant list is computed (UserPermissions): a super administrator's session
-	// reaches every tenant, and nobody else's reaches one whose declaration their
-	// sign-in does not meet. The memberships are read outside the sign-in's transaction
+	// reaches every tenant, a tenant's own administrator's reaches theirs with a
+	// password and a second factor, and nobody else's reaches one whose declaration
+	// their sign-in does not meet. The memberships are read outside the sign-in's transaction
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
 	// transaction's context as a nested transaction. A sign-in the rule admits then
 	// carries a second factor (requireSecondFactor).
@@ -549,9 +565,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// roles that administer it and, where they came through an organization's
 	// directory, makes that directory the tenant's own, all in the transaction that
 	// consumes the invitation.
-{{- end}}
-{{- if .Foothold}}
-	_, tenantAdministrators := AdministratorRoles()
 {{- end}}
 	identityClient, err := {{.Name}}identity.NewClient(accessClient, authSession.API(){{if .MakesTenants}}, settings.TenantMaker{{end}}{{if .Foothold}}, identity.WithAdministratorRoles(tenantAdministrators){{end}})
 	if err != nil {
@@ -726,6 +739,21 @@ func (h *Handlers) PasswordChange() http.HandlerFunc {
 // sign in through a directory; a user with no other way in keeps it.
 func (h *Handlers) PasswordRemove() http.HandlerFunc {
 	return h.{{.Field}}.RemoveUserPassword()
+}
+
+// FirstPasswordSendCode mails the signed-in person who has no password, because they
+// have only ever signed in through a directory, the code they choose their first one
+// with, at the address their account holds confirmed. Whoever asks must read that
+// mailbox to finish, so the password is tied to it.
+func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
+	return h.FirstPassword().SendCode()
+}
+
+// FirstPasswordSet gives the signed-in person who has no password the one they choose,
+// with the code they were mailed. An account that has a password changes it with the
+// old one (PasswordChange).
+func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
+	return h.FirstPassword().Set()
 }
 
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee

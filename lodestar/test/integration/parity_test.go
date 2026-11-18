@@ -213,8 +213,8 @@ func openEngine(db *initiator.SpannerDB, prefix string, roles access.RoleFile) (
 // openEngineWith opens an engine over the store with the given prefix and the release's
 // role file, with further engine options: the policy-signal suite's change signal and
 // heartbeat. The engine is built as the auth's package builds it, with the methods a
-// super administrator always executes (the ones the auth's generated management names),
-// so the role does in the suites what it does served.
+// super administrator always executes (the ones the auth's generated management names)
+// and the roles that administer a sector, so both do in the suites what they do served.
 func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFile, opts ...access.Option) (*access.Client, error) {
 	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(prefix))
 	if err != nil {
@@ -223,6 +223,7 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 	built := []access.Option{
 		access.WithDefaultRoles(router.Collection(), roles),
 		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
+		access.WithTenantAdministratorRoles(sectorAdministratorRoles(prefix)...),
 	}
 	client, err := access.New(store, append(built, opts...)...)
 	if err != nil {
@@ -230,6 +231,18 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 	}
 
 	return client, nil
+}
+
+// sectorAdministratorRoles are the roles that administer a sector in the auth whose
+// store carries the prefix: the crew's SectorMarshal, and none for the members, whose
+// people have no password to come back with.
+func sectorAdministratorRoles(prefix string) []accesstypes.Role {
+	if prefix == members.TablePrefix {
+		return nil
+	}
+	_, sector := crew.AdministratorRoles()
+
+	return sector
 }
 
 // superAdministratorMethods are the methods that give and take the roles of the auth

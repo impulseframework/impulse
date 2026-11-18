@@ -64,6 +64,8 @@ type TenantDeclaration struct {
 	// DirectoryOnly says the tenant's people enter through its directory only: a
 	// password, a personal account, any other sign-in that is not through a directory,
 	// and a sign-in through another organization's directory do not reach the tenant.
+	// The tenant's own administrators alone keep a way in beside the directory, with a
+	// password and a second factor (AdmitsAdministrator).
 	DirectoryOnly bool
 }
 
@@ -73,7 +75,8 @@ type TenantDeclaration struct {
 // every establishment: a password, a personal account, a step the application recorded
 // under its own name, and a sign-in through any organization's directory, the tenant's
 // own or another's. A tenant that is directory only admits a sign-in through its own
-// directory, the (method, connection) it declares, and nothing else. A personal
+// directory, the (method, connection) it declares, and nothing else, but for its own
+// administrators, who are asked of AdmitsAdministrator. A personal
 // account (Directory.PersonalAccounts: any Google account, a Microsoft personal
 // account) is no directory, which no tenant can declare, so a directory-only tenant
 // refuses it as it refuses a password. The
@@ -87,6 +90,29 @@ func (d *TenantDeclaration) Admits(method sessioninfo.AuthMethod, connection str
 	}
 
 	return throughDirectory(method, connection) && d.declares(Directory{Method: method, Connection: connection})
+}
+
+// AdmitsAdministrator reports whether the declaration admits a session by the
+// administrators' way in: a tenant that is directory only still admits its own
+// administrators, so a tenant whose directory is broken, or whose settings went wrong,
+// is not a tenant nobody can mend. It holds when the tenant is directory only, the
+// session was established by the password method (method), the session carries a second
+// factor (secondFactor: the mailed code, or a remembered browser standing in for it,
+// sessioninfo.SessionData.SecondFactor), and the person administers the tenant
+// (administers): they hold one of the roles the application names as a tenant's
+// administrator's in the tenant itself, inside its period, by a membership of their own
+// or through a group kept in that tenant (the access library's
+// Controller.UserAdministersTenant). A role held in every tenant, or through a group
+// kept for the whole application, is no such holding, so the application's own people
+// are kept out with everyone else. An administrator who signed in through another
+// organization's directory or with a personal account is kept out too: the way in is
+// the password, and nothing wider. It is the one decision both places ask: the tenant
+// policy at sign-in, with the second factor it is about to demand taken as given, and
+// the application when the session reaches the tenant, with the session's own. It
+// opens no other tenant: the same session reaches the person's other tenants by those
+// tenants' own declarations.
+func (d *TenantDeclaration) AdmitsAdministrator(method sessioninfo.AuthMethod, secondFactor, administers bool) bool {
+	return d != nil && d.DirectoryOnly && method == sessioninfo.MethodPassword && secondFactor && administers
 }
 
 // throughDirectory reports whether a sign-in by method through connection came through
@@ -143,33 +169,50 @@ type tenantPolicy[Tx any] struct {
 // only when every tenant that seats them is closed to the way they signed in. The
 // policy decides what the session may be; which of the person's tenants the session
 // then reaches is decided again, tenant by tenant, where the session's tenant list is
-// computed, with TenantDeclaration.Admits over the session's first auth event. It
+// computed, with TenantDeclaration.Admits over the session's first auth event, and
+// with TenantDeclaration.AdmitsAdministrator for the tenant's own administrators. It
 // never writes. Set it with session.Auth.SetSignInPolicy; Then chains the
-// application's own rule after it.
+// application's own rule after it, which still refuses whom it refuses.
 //
 // The rules, in order, once the user is known:
 //
 //  1. A super administrator, a person holding the Super Administrator role
 //     (accesstypes.RoleCollection.HoldsSuperAdministrator), is admitted on the
 //     library's own checks, whatever any tenant declares: the role is the way back in,
-//     and no tenant's sign-in settings shut its holder out. Nobody else is exempt from
-//     them. A sign-in whose method synchronizes roles is admitted here too (the
-//     directory names the person's roles, and the synchronization, which runs once the
-//     session stands, refuses a person with none); the application's own directories
-//     are admitted by the registration's organization slot already.
-//  2. A person holding a role outside any one tenant is admitted: in the global
+//     and no tenant's sign-in settings shut its holder out. A sign-in whose method
+//     synchronizes roles is admitted here too (the directory names the person's roles,
+//     and the synchronization, which runs once the session stands, refuses a person
+//     with none); the application's own directories are admitted by the registration's
+//     organization slot already.
+//  2. A tenant's own administrators keep a way into their tenant: a person who signs
+//     in with a password and administers a tenant that is directory only
+//     (UserRoleManager.TenantsAdministered, TenantDeclaration.AdmitsAdministrator) is
+//     not refused, and the sign-in is held for the library's second factor, the code
+//     it mails (RequireMFA with sessioninfo.MethodEmailCode), whatever else would have
+//     admitted it and though the application's own rule would hold nobody: the session
+//     reaches that tenant only while it carries a second factor, so one is asked at
+//     the sign-in. A rule chained after this one (Then) that holds the sign-in for a
+//     factor of its own has its hold stand in this one's place, and the session then
+//     carries that factor. A browser the person asked to be remembered passes it, for the
+//     period the library remembers one. Nobody but a super administrator and a
+//     tenant's own administrators, in their own tenant, enters a directory-only tenant
+//     another way than through its directory: a person who holds the administrator's
+//     role in every tenant, or through a group kept for the whole application, is
+//     held to the declaration like anyone, and so is an administrator who signed in
+//     through another organization's directory or with a personal account.
+//  3. A person holding a role outside any one tenant is admitted: in the global
 //     partition, which is no tenant's and which no declaration governs, or in every
 //     tenant domain, whose tenants the policy has no list of. It is no exemption: the
 //     session then reaches a tenant only where the tenant's declaration admits it, as
 //     anyone's does.
-//  3. A person who is a member of no tenant is refused (no_tenant), unless the policy
+//  4. A person who is a member of no tenant is refused (no_tenant), unless the policy
 //     was built with AdmitWithoutTenant.
-//  4. The sign-in is admitted when one of the person's tenants admits it
+//  5. The sign-in is admitted when one of the person's tenants admits it
 //     (TenantDeclaration.Admits): a tenant that is not directory only admits every
 //     sign-in, a password, a personal account, a session the application starts for a
 //     user it authenticated itself, and a sign-in through any directory; a tenant that
 //     is directory only admits a sign-in through its own directory alone.
-//  5. Otherwise every tenant of the person is directory only and none has the way they
+//  6. Otherwise every tenant of the person is directory only and none has the way they
 //     signed in as its directory: nothing would be reachable, and the sign-in is
 //     refused. A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect
 //     provider) is refused with connection_not_in_tenant, and any other with
@@ -214,6 +257,14 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	if held.HoldsSuperAdministrator() {
 		return Allow(), nil
 	}
+	method, connection := establishment(req)
+	enters, err := p.administratorsWayIn(ctx, tx, req, method)
+	if err != nil {
+		return nil, err
+	}
+	if enters {
+		return RequireMFA(sessioninfo.MethodEmailCode), nil
+	}
 	outside, tenants := membership(held)
 	if outside {
 		return Allow(), nil
@@ -226,7 +277,6 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 		return denyBecause(sessioninfo.RefusedNoTenant, ErrNoTenant), nil
 	}
 
-	method, connection := establishment(req)
 	for _, tenant := range tenants {
 		declaration, err := p.declarations(ctx, tx, tenant)
 		if err != nil {
@@ -241,6 +291,34 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	}
 
 	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly), nil
+}
+
+// administratorsWayIn reports whether the sign-in is one the administrators' way in
+// admits once it carries a second factor: a sign-in by the password method of a person
+// who administers a tenant that is directory only. The tenants the person administers
+// are read through the role store, and each one's declaration decides
+// (TenantDeclaration.AdmitsAdministrator, the decision the session's reach into the
+// tenant asks again with the session's own second factor). A sign-in by any other
+// method reads nothing: the way in is the password.
+func (p *tenantPolicy[Tx]) administratorsWayIn(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest, method sessioninfo.AuthMethod) (bool, error) {
+	if method != sessioninfo.MethodPassword {
+		return false, nil
+	}
+	administered, err := p.roles.TenantsAdministered(ctx, accesstypes.User(req.UserID.String()))
+	if err != nil {
+		return false, errors.Wrap(err, "UserRoleManager.TenantsAdministered()")
+	}
+	for _, tenant := range administered {
+		declaration, err := p.declarations(ctx, tx, tenant)
+		if err != nil {
+			return false, errors.Wrapf(err, "DeclarationReader(%q)", tenant)
+		}
+		if declaration.AdmitsAdministrator(method, true, true) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // membership reads the person's memberships: outside when a role is held outside any

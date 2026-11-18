@@ -744,7 +744,9 @@ defines it too.
   (`accesstypes.RoleCollection.HoldsSuperAdministrator`): the question a session's reach
   into a tenant asks of its actor, and the sign-in policy's first rule asks of the person
   signing in. A super administrator's session enters every tenant whatever the tenant's
-  sign-in settings say, and nobody else is exempt from them
+  sign-in settings say. The one other person a tenant's sign-in settings do not keep out
+  is that tenant's own administrator, in that tenant alone (see A Tenant's
+  Administrators)
 - Who may hold it is the identity library's rule, not this one's: only a holder makes or
   removes another, a holder's account disabled or enabled included, or changes how
   another signs in, a person given the role signs in again with their tokens revoked
@@ -756,6 +758,34 @@ defines it too.
 - It takes no end and no start (see Periods): `AssignUserRole` and `ValidatePeriod`
   refuse any period on it, since there is always a super administrator and a period could
   leave none
+
+### A Tenant's Administrators
+
+An application names the roles whose holders administer a tenant with
+`access.WithTenantAdministratorRoles(roles...)`, and the engine answers who administers
+which tenant. It is the question a tenant's sign-in settings ask before they keep a
+person out: a tenant that admits its people through its directory only still admits its
+own administrators with a password and a second factor, so a tenant whose directory has a
+problem can be mended by the people who run it (the session library's
+`signin.TenantDeclaration.AdmitsAdministrator` is the decision, and its README says what
+the person signs in with).
+
+- A person administers a tenant when they hold one of the named roles in the tenant
+  itself, inside its period (see Periods): by a membership of their own in the tenant's
+  domain, or through a group kept in that tenant, which is written in the tenant, its
+  people and its roles alike
+- A role held in every tenant does not count, and neither does one a group kept for the
+  whole application holds in the tenant: both are how the application's own people are
+  seated everywhere, and a tenant's sign-in settings shut those people out with everyone
+  else
+- `Client.UserAdministersTenant` and `UserChecker.AdministersTenant` answer for one person
+  and one tenant from the snapshot, on every request, so the answer follows a role taken
+  away or a period that ended at the next request. `UserManager.TenantsAdministered`
+  answers every tenant a person administers from the store, which is what the sign-in
+  decision reads. Both come to one statement of where a role must be held to count
+- `Client.TenantAdministratorRoles` answers what the client was built with. A client built
+  without the option answers that nobody administers any tenant, and a generated auth
+  package passes the role file's tenant administrator roles (`AdministratorRoles()`)
 
 **Note**: `CheckPolicy` writes nothing, so it is safe to run on every deploy and from any tool. A rollback's binary carries its own role file, and what the store holds that the older release cannot use is reported the same way.
 

@@ -95,6 +95,25 @@ func (s *SessionData) EstablishedBy() (event AuthEvent, ok bool) {
 	return s.AuthEvents[0], true
 }
 
+// SecondFactor returns the second factor the session carries: the first auth event
+// after the one that established it that records one (AuthMethod.SecondFactor), such as
+// the mailed code or a remembered browser standing in for it. It is what the
+// administrators' way into a directory-only tenant asks for beside the password
+// (signin.TenantDeclaration.AdmitsAdministrator). ok is false for a session whose
+// sign-in was all there was, and for one that records no events.
+func (s *SessionData) SecondFactor() (event AuthEvent, ok bool) {
+	if s == nil || len(s.AuthEvents) < 2 {
+		return AuthEvent{}, false
+	}
+	for _, e := range s.AuthEvents[1:] {
+		if e.Method.SecondFactor() {
+			return e, true
+		}
+	}
+
+	return AuthEvent{}, false
+}
+
 // UserInfo struct contains information about a user
 type UserInfo struct {
 	ID       impulse.UUID `spanner:"Id"           db:"Id"`

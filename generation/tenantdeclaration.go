@@ -426,6 +426,26 @@ func (r *resourceGenerator) namedDirectoryRules(record *resourceInfo) string {
 	return rules + ".NamedBy(" + strings.Join(namers, ", ") + ")"
 }
 
+// switchDirectoryRules is the expression of the rules the frame of a tenant's
+// directory-only switch asks: the named rules (namedDirectoryRules), told what each of
+// the program's auths says of the caller's password
+// (resource.TenantDirectoryRules.PasswordsBy), the CallerPassword of the generated
+// identity client of every auth whose management the program generates, in declaration
+// order. The switch is turned on by a person who has a password, where their auth has
+// passwords; a program that generates no auth's management asks nothing.
+func (r *resourceGenerator) switchDirectoryRules(record *resourceInfo) string {
+	rules := r.namedDirectoryRules(record)
+	if len(r.identity) == 0 {
+		return rules
+	}
+	readers := make([]string, 0, len(r.identity))
+	for _, inst := range r.identity {
+		readers = append(readers, fmt.Sprintf("%s.%s().CallerPassword", r.receiverName, inst.accessor()))
+	}
+
+	return rules + ".PasswordsBy(" + strings.Join(readers, ", ") + ")"
+}
+
 // DirectoryRules is the expression of the rules of a tenant's directory the
 // directories record's write paths ask: a call of New<Record>DirectoryRules, which the
 // tenant record's roster file declares in the handler package, named by the program's

@@ -572,6 +572,21 @@ continues, or `refused` with the server's words (the password did not match, or 
 sign-in is linked to the person, whose password is then their only way in). A server whose
 list names no such path does not serve it, and the call throws saying so.
 
+A person who has only ever signed in through a directory holds no password, and the change
+asks for the old one, so they choose their first one another way. Where the server offers a
+password method the methods list names two paths as `firstPassword` (`sendCode` and `set`).
+`sendFirstPasswordCode()` posts to the first, reading the list again: the server mails a code
+to the address the account holds confirmed, in place of any it sent before, and the call
+answers `sent` with that address masked (`codeEmail`) and when the code stops being accepted
+(`codeExpiresAt`), or `refused` with the server's words (the account already has a password,
+it has no confirmed address for the code to go to, the mailbox was sent too many codes it did
+not use). `setFirstPassword(code, password)` posts the code and the password to the second:
+`set`, after which the password signs the person in and the session they hold continues, or
+`refused` with the server's words (the code is not the one sent, it expired, the password is
+too short, or too many wrong codes were entered, a 429 with the wait). The code ties the
+password to the mailbox the account holds confirmed: whoever asks must read it to finish. A
+server whose list names no such paths serves none, and both calls throw saying so.
+
 A page offers the removal only where it can happen. Where the methods list names
 `signInMeans`, `signInMeans()` reads what the signed-in person signs in with: `{ password,
 directories }`, whether they hold a password and the sign-in methods of the login page that

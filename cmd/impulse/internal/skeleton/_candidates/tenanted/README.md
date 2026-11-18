@@ -90,9 +90,15 @@ the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
 transaction): a tenant's declaration restricts its own door alone, so a tenant that is
 not directory only admits everyone it seats, however they signed in, a directory-only
-tenant admits a sign-in through its own directory and nothing else, and a person is
+tenant admits a sign-in through its own directory and, of its own administrators alone, a
+password with a code sent to their email, and nothing else, and a person is
 refused only when every tenant that seats them is closed to the way they signed in. A
-super administrator is admitted whatever a tenant declares, a person holding a role
+super administrator is admitted whatever a tenant declares, an administrator of a
+directory-only tenant (a holder of `TenantAdministrator` in that tenant itself, by a role
+of their own or through one of the tenant's own groups, never one held in every tenant)
+who signs in with a password is held for the code sent to their email and then enters
+that tenant, which is the tenant's way back in when its directory has a problem, a person
+holding a role
 outside any one tenant (a global role, or one held in every tenant) is admitted and then
 enters a tenant only where its declaration admits their session, and a person holding no
 tenant is admitted too, since
@@ -118,7 +124,9 @@ and `EndTenantDirectoryOnly`; the `Tenants` record, which the application's
 `Administrator` writes, shows the flag and takes no write of it, and the page reads the
 switch in the tenant (`GET /api/tenants/{tenantID}/directory-only`). The server allows
 turning it on only once the tenant has its directory, and only to a person who is signed
-in through that directory themselves. Opening the tenant and making it directory only
+in through that directory themselves and has a password of their own, which is their way
+back in if the directory has a problem: a person who has only ever signed in through a
+directory chooses one on Your account first, with a code sent to their confirmed address. Opening the tenant and making it directory only
 each warn first: the dialog shows what the server says the call will do (who will
 enter and with what role; who will be able to enter, the count of the people it would
 keep out and, to a person who may list the tenant's people, their names as a list) and
@@ -130,7 +138,8 @@ tenant its registration lists by id alone reads "your organization's Microsoft
 directory", by the label of its button). Making the tenant invite only and
 turning directory only off are plain confirmations; while a tenant is directory only its
 routes answer the people it admits, so a tenant whose directory has stopped working is
-opened again by a super administrator. The tenant's People page marks the people it
+opened again by its own administrator, signed in with a password and the code, or by a
+super administrator. The tenant's People page marks the people it
 keeps out for as long as it is on. Both records write change events, the audit of every
 edit. Nobody types a directory in. It is set from a sign-in: an invitation that makes a
 tenant, accepted through an organization's directory, sets it as the tenant is made, the

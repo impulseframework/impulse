@@ -134,6 +134,12 @@ func (r *tenantRoles) UserRoles(_ context.Context, user accesstypes.User, scopes
 	return r.held[user], nil
 }
 
+// TenantsAdministered answers that nobody administers a tenant: the cases here are of
+// members.
+func (r *tenantRoles) TenantsAdministered(context.Context, accesstypes.User) ([]accesstypes.Domain, error) {
+	return nil, nil
+}
+
 func (r *tenantRoles) ResolveRole(context.Context, accesstypes.PolicyScope, string) (accesstypes.Role, bool, error) {
 	return "", false, errors.New("the tenant policy never resolves a role")
 }

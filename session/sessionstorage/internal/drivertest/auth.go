@@ -30,6 +30,7 @@ type AuthDriver interface {
 	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
 	DeactivateUser(ctx context.Context, id impulse.UUID) error
 	DeleteUser(ctx context.Context, id impulse.UUID) error
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
@@ -540,6 +541,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the custom session data resolver of a provisioning sign-in reads the new user and knows it was provisioned", run: testCustomDataSeesProvisionedUser},
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
 		{name: "the tenant policy decides a sign-in by the person's memberships and the declarations their tenants make, read in the sign-in's transaction", run: testTenantPolicy},
+		{name: "a directory-only tenant's own administrator signs in with a password once the mailed code is given, and nobody else does", run: testTenantAdministratorsWayIn},
 		{name: "a tenant's sign-in settings restrict its own door alone: a session reaches every tenant that seats the person but a directory-only tenant whose directory they did not sign in through", run: testTenantDoor},
 		{name: "a first link made on a name alone, to an account that has never signed in, is made only through the directory of the one tenant the account belongs to or with the account's own invitation", run: testFirstLinkByName},
 		{name: "an identity the application has not seen is linked on a name alone only as an account's first link, never as a second identity: a colleague is not linked into an account another person made under their name", run: testSecondIdentityByName},
@@ -568,6 +570,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a hash upgrade, a user's own change and a user's own removal write nothing once another write of the password has committed since the user was read", run: testProvenPasswordWriteAfterAnotherWrite},
 		{name: "a temporary password an operator sets stands, with its change mark, whatever write on proof of the password it replaces is asked at once", run: testProvenPasswordWriteRacesReset},
 		{name: "a user's own change writes the password and ends the user's sessions in one transaction: both, or neither", run: testOwnChangeEndsSessions},
+		{name: "a first password is written for a user who holds none, once, and ends no session; a user who holds one keeps it", run: testFirstPassword},
 		{name: "a sign-in on proof of a password inserts its session only while the user holds that password: refused after a change, a temporary password or a removal, before the policy is asked", run: testProvenSignIn},
 		{name: "a pending sign-in a password started keeps the proof, is inserted only while the user holds that password, and completes only while they do; one no password proved is untouched", run: testProvenPendingSignIn},
 		{name: "a link confirmed with a password is made only while the user holds that password", run: testProvenLinkConfirmed},

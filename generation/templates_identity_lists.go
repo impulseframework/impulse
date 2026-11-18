@@ -81,6 +81,19 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 	// the sign-in keeps out). The library's writes give the role no period
 	// (access.ValidatePeriod); the test is here so that a row written past them is read
 	// as every other reader reads it.
+	//
+	// The tenant's own administrator who has a password is outside no directory either,
+	// where the auth has a password method: they enter a directory-only tenant with the
+	// password and a second factor (signin.TenantDeclaration.AdmitsAdministrator). The
+	// administrator is who the permission engine says it is (access.administersTenant):
+	// a person holding, inside its period, one of the roles the application names as a
+	// tenant's administrator's in the tenant itself, by a membership of their own or
+	// through a group kept in that tenant, and never one held in every tenant or
+	// through a group kept for the whole application. The names are the engine's own,
+	// read as a parameter the generated client hands the list, so the list, the sign-in
+	// and the session's reach answer over one set of names; with none named nobody is
+	// exempt. Whether the person gave the second factor is a session's to say, not a
+	// person's, so the list reads the password alone.
 	identityTenantOutsideDirectory = `td.{{ .TenantDirectory.TenantColumn }} IS NOT NULL{{ if .HasIdentities }} AND NOT EXISTS (
     SELECT 1 FROM {{ .Tables.Identities }} di
     WHERE di.UserId = u.Id AND di.Method = td.{{ .TenantDirectory.MethodColumn }} AND di.Connection = td.{{ .TenantDirectory.ConnectionColumn }}
@@ -88,7 +101,22 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
     SELECT 1 FROM {{ .Policy.UserRoles }} sa
     WHERE sa.UserId = u.Id AND sa.Kind = {{ .KindGlobal }} AND sa.Role = {{ .SuperAdministratorRole }}
       AND {{ .Counting "sa" }}
-  )`
+  ){{ if .AdministratorsEnter }} AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
+    SELECT 1 FROM {{ .Policy.UserRoles }} ta
+    WHERE ta.UserId = u.Id AND ta.Kind = {{ .KindDomain }} AND ta.Axis = {{ .ScopeAxis }} AND ta.DomainId = t.DomainId
+      AND ta.Role IN UNNEST(@{{ .TenantAdministratorsParam }})
+      AND {{ .Counting "ta" }}
+  ){{ if .KeepsGroups }} OR EXISTS (
+    SELECT 1 FROM {{ .Policy.GroupRoles }} tr
+    JOIN {{ .Policy.Groups }} tg ON tg.Id = tr.GroupId
+    JOIN {{ .Policy.GroupMembers }} tm ON tm.GroupId = tr.GroupId
+    WHERE tm.UserId = u.Id
+      AND tg.Kind = {{ .KindDomain }} AND tg.Axis = {{ .ScopeAxis }} AND tg.DomainId = t.DomainId
+      AND tr.Kind = {{ .KindDomain }} AND tr.Axis = {{ .ScopeAxis }} AND tr.DomainId = t.DomainId
+      AND tr.Role IN UNNEST(@{{ .TenantAdministratorsParam }})
+      AND {{ .Counting "tr" }}
+      AND {{ .Counting "tm" }}
+  ){{ end }})){{ end }}`
 
 	// identityTenantDirectoryFacts are the two columns a tenant's list of its people
 	// carries where the tenant record declares the directory-only switch, after the
@@ -121,9 +149,15 @@ LEFT JOIN {{ .TenantDirectory.Table }} td ON td.{{ .TenantDirectory.TenantColumn
 package {{ .Package }}
 
 import (
+	{{- if .AdministratorsEnter }}
+	"sync/atomic"
+	{{- end }}
 	"time"
 
 	"github.com/impulseframework/impulse"
+	{{- if .AdministratorsEnter }}
+	"github.com/impulseframework/impulse/accesstypes"
+	{{- end }}
 )
 
 type (
@@ -157,6 +191,12 @@ type (
 	// directory's connection, which is a key and no name. The list is made from who holds a role in the tenant,
 	// not from who can sign in, so a person the switch keeps out stays in it with their
 	// roles. A super administrator is outside no tenant's directory.
+	{{- if .AdministratorsEnter }} Neither is the
+	// {{ .TenantWord }}'s own administrator who has a password: a person who holds one of the roles
+	// the application names as a {{ .TenantWord }}'s administrator's in the {{ .TenantWord }} itself enters it
+	// with the password and a code mailed to them, so the switch keeps them out of nothing
+	// (Set{{ .TenantUser }}AdministratorRoles names the roles).
+	{{- end }}
 	{{- end }}
 	//
 	// @virtual
@@ -208,9 +248,41 @@ SELECT
 ` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
 ` + "`" + `
 
+{{- if .AdministratorsEnter }}
+
+// {{ GoCamel .TenantUser }}Administrators are the roles whose holders administer a {{ .TenantWord }}, as the
+// {{ .Auth }} auth's permission engine names them: what the list's query reads as
+// @{{ .TenantAdministratorsParam }}. None until the auth's identity client is built, and then
+// nobody is taken for an administrator.
+var {{ GoCamel .TenantUser }}Administrators atomic.Pointer[[]string]
+
+// Set{{ .TenantUser }}AdministratorRoles tells the list which roles administer a {{ .TenantWord }}: the
+// ones the {{ .Auth }} auth's permission engine answers who administers a {{ .TenantWord }} by
+// (access.WithTenantAdministratorRoles). The auth's generated identity client calls it
+// where it is built, so the list says who the directory-only switch keeps out by the
+// names the sign-in and the session's reach decide by. It is one value for the process,
+// as the auth's engine is.
+func Set{{ .TenantUser }}AdministratorRoles(roles []accesstypes.Role) {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, string(role))
+	}
+	{{ GoCamel .TenantUser }}Administrators.Store(&names)
+}
+{{- end }}
+
 // Subquery is the query the rows are read from.
 func ({{ .TenantUser }}) Subquery() (query string, params map[string]any) {
+	{{- if .AdministratorsEnter }}
+	administrators := []string{}
+	if named := {{ GoCamel .TenantUser }}Administrators.Load(); named != nil {
+		administrators = *named
+	}
+
+	return {{ GoCamel .TenantUser }}Query, map[string]any{ {{- printf "%q" .TenantAdministratorsParam }}: administrators}
+	{{- else }}
 	return {{ GoCamel .TenantUser }}Query, nil
+	{{- end }}
 }
 `
 
