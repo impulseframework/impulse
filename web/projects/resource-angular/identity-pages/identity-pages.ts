@@ -587,7 +587,7 @@ class SideBuilder {
           // Whether a person may ask for a reset link themselves, where the Auth has a
           // password to reset: the password method's row says, and the other rows say nothing.
           ...(methods.setSelfServiceReset
-            ? this.columns(resource, [['selfServiceReset', 'People reset their own password']]).map((column) => ({
+            ? this.columns(resource, [['selfServiceReset', 'People can reset their own password']]).map((column) => ({
                 ...column,
                 valueGetter: ownReset,
                 filterable: false,

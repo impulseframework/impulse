@@ -7,6 +7,7 @@ import {
   passwordChangeRequiredCode,
   refusedForPasswordChange,
   returnPath,
+  SELF_SERVICE_RESET_OFF,
   unknownKindWarning,
 } from './auth';
 import { createClient } from './client';
@@ -66,6 +67,12 @@ const invitationRoutes = {
   signUp: '/console/api/user/invitation/sign-up',
 };
 const emailRoutes = { add: '/console/api/user/email', verify: '/console/api/user/email/verify' };
+const emailConfirmRoute = '/console/api/user/email/confirm';
+const resetRoutes = {
+  request: '/console/api/user/password-reset',
+  open: '/console/api/user/password-reset/open',
+  complete: '/console/api/user/password-reset/complete',
+};
 const signUpRoutes = {
   start: '/console/api/user/sign-up',
   open: '/console/api/user/sign-up/open',
@@ -88,6 +95,12 @@ const opened = {
   usernameIsEmail: true,
 };
 const dead = { status: 404, body: { message: 'the link has expired or was already used' } };
+/** The list of a server whose people reset their own password and confirm an address an administrator set. */
+const resettingList: LoginMethods = {
+  ...mailingList,
+  email: { ...emailRoutes, confirm: emailConfirmRoute },
+  passwordReset: resetRoutes,
+};
 
 /** What the server answers each route with; a spec changes an entry to script a step's answer. */
 interface Server {
@@ -111,6 +124,10 @@ interface Server {
   invitationSignUp: TransportResponse;
   emailAdd: TransportResponse;
   emailVerify: TransportResponse;
+  emailConfirm: TransportResponse;
+  resetRequest: TransportResponse;
+  resetOpen: TransportResponse;
+  resetComplete: TransportResponse;
   signUpStart: TransportResponse;
   signUpOpen: TransportResponse;
   signUpComplete: TransportResponse;
@@ -141,6 +158,10 @@ function server(overrides: Partial<Server> = {}): Server {
     invitationSignUp: { status: 200, body: { mfaIsRequired: false } },
     emailAdd: { status: 200, body: {} },
     emailVerify: { status: 200, body: { email: 'pax@fleet.example' } },
+    emailConfirm: { status: 200, body: { email: 'pax@fleet.example' } },
+    resetRequest: { status: 200, body: {} },
+    resetOpen: { status: 200, body: { username: 'pax' } },
+    resetComplete: { status: 200, body: { username: 'pax' } },
     signUpStart: { status: 200, body: {} },
     signUpOpen: { status: 200, body: { email: 'rookie@fleet.example', usernameIsEmail: true } },
     signUpComplete: { status: 200, body: { mfaIsRequired: false } },
@@ -195,6 +216,14 @@ function transportOf(state: Server): ScriptedTransport {
         return state.emailAdd;
       case 'POST /console/api/user/email/verify':
         return state.emailVerify;
+      case 'POST /console/api/user/email/confirm':
+        return state.emailConfirm;
+      case 'POST /console/api/user/password-reset':
+        return state.resetRequest;
+      case 'POST /console/api/user/password-reset/open':
+        return state.resetOpen;
+      case 'POST /console/api/user/password-reset/complete':
+        return state.resetComplete;
       case 'POST /console/api/user/sign-up':
         return state.signUpStart;
       case 'POST /console/api/user/sign-up/open':
@@ -1238,6 +1267,24 @@ describe('the mailed links in the list', () => {
     expect(await auth.methods()).toEqual(mailingList);
   });
 
+  it('keeps the route that confirms an address an administrator set, and the password reset routes', async () => {
+    const { auth } = authOver(server({ methods: resettingList }));
+    expect(await auth.methods()).toEqual(resettingList);
+  });
+
+  it('keeps the reset routes of a server whose people do not reset their own password, without the request route', async () => {
+    const administratorsOnly = { open: resetRoutes.open, complete: resetRoutes.complete };
+    const { auth } = authOver(server({ methods: { ...mailingList, passwordReset: administratorsOnly } }));
+    expect((await auth.methods()).passwordReset).toEqual(administratorsOnly);
+  });
+
+  it('leaves off reset routes named in part: a link the page could open and not complete is no reset', async () => {
+    const { auth } = authOver(
+      server({ methods: { ...mailingList, passwordReset: { request: resetRoutes.request, open: resetRoutes.open } } }),
+    );
+    expect(await auth.methods()).toEqual(mailingList);
+  });
+
   it('are left off a list that names none, or names a block in part', async () => {
     const { auth } = authOver(
       server({
@@ -1650,6 +1697,136 @@ describe('the email address', () => {
     const { auth } = authOver(server());
     await expect(auth.addEmail('pax@fleet.example')).rejects.toThrow(/names no email address routes/);
     await expect(auth.verifyEmail('tok-v')).rejects.toThrow(/names no email address routes/);
+  });
+
+  it('is confirmed, where an administrator set it, after the list is read again, posting the token', async () => {
+    const { auth, transport } = authOver(server({ methods: resettingList }));
+    expect(await auth.confirmEmail('tok-c')).toEqual({ outcome: 'confirmed', email: 'pax@fleet.example' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${emailConfirmRoute}`]);
+    expect(transport.requests[1].body).toEqual({ token: 'tok-c' });
+  });
+
+  it('resolves a dead confirmation link and an address taken meanwhile as refusals', async () => {
+    const gone = authOver(server({ methods: resettingList, emailConfirm: dead }));
+    expect(await gone.auth.confirmEmail('tok-c')).toEqual({
+      outcome: 'refused',
+      status: 404,
+      message: dead.body.message,
+    });
+    const taken = authOver(
+      server({ methods: resettingList, emailConfirm: { status: 409, body: { message: 'the address is taken' } } }),
+    );
+    expect(await taken.auth.confirmEmail('tok-c')).toEqual({
+      outcome: 'refused',
+      status: 409,
+      message: 'the address is taken',
+    });
+    expect(taken.errors).toEqual([]);
+  });
+
+  it('throws on a server whose list names no route that confirms an address', async () => {
+    const { auth, transport } = authOver(server({ methods: mailingList }));
+    await expect(auth.confirmEmail('tok-c')).rejects.toThrow(/names no route that confirms an address/);
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`]);
+  });
+});
+
+describe('a password reset', () => {
+  it('is asked for after the list is read again, posting the address, and answers sent whatever its state', async () => {
+    const { auth, transport } = authOver(server({ methods: resettingList }));
+    expect(await auth.requestPasswordReset('pax@fleet.example')).toEqual({ outcome: 'sent' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${resetRoutes.request}`]);
+    expect(transport.requests[1].body).toEqual({ email: 'pax@fleet.example' });
+  });
+
+  it('resolves the refusals of a request: turned off since the list was read, and a mailbox sent too many links, with the wait', async () => {
+    const off = authOver(
+      server({ methods: resettingList, resetRequest: { status: 404, body: { message: SELF_SERVICE_RESET_OFF } } }),
+    );
+    expect(await off.auth.requestPasswordReset('pax@fleet.example')).toEqual({
+      outcome: 'refused',
+      status: 404,
+      message: SELF_SERVICE_RESET_OFF,
+    });
+    const tooMany = authOver(
+      server({
+        methods: resettingList,
+        resetRequest: { status: 429, body: { message: 'Too many links', code: 'too_many_emails', retryAfter: 600 } },
+      }),
+    );
+    expect(await tooMany.auth.requestPasswordReset('pax@fleet.example')).toEqual({
+      outcome: 'refused',
+      status: 429,
+      code: 'too_many_emails',
+      message: 'Too many links',
+      retryAfter: 600,
+    });
+    expect(tooMany.errors).toEqual([]);
+  });
+
+  it('posts nothing where the list names no request route, and throws the sentence the server refuses such a request with', async () => {
+    const { auth, transport } = authOver(
+      server({
+        methods: { ...mailingList, passwordReset: { open: resetRoutes.open, complete: resetRoutes.complete } },
+      }),
+    );
+    await expect(auth.requestPasswordReset('pax@fleet.example')).rejects.toThrow(SELF_SERVICE_RESET_OFF);
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`]);
+    expect(SELF_SERVICE_RESET_OFF).toBe(
+      'Resetting your own password is turned off here. Ask an administrator to send you a reset link',
+    );
+  });
+
+  it('is opened after the list is read again, posting the token, and answers the username', async () => {
+    const { auth, transport } = authOver(server({ methods: resettingList }));
+    expect(await auth.openPasswordReset('tok-r')).toEqual({ outcome: 'opened', username: 'pax' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${resetRoutes.open}`]);
+    expect(transport.requests[1].body).toEqual({ token: 'tok-r' });
+  });
+
+  it('resolves a dead link as a refusal when opened', async () => {
+    const { auth, errors } = authOver(server({ methods: resettingList, resetOpen: dead }));
+    expect(await auth.openPasswordReset('tok-r')).toEqual({
+      outcome: 'refused',
+      status: 404,
+      message: dead.body.message,
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('is completed after the list is read again, posting the token and the new password', async () => {
+    const { auth, transport } = authOver(server({ methods: resettingList }));
+    expect(await auth.completePasswordReset('tok-r', 'a new password')).toEqual({ outcome: 'reset', username: 'pax' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${resetRoutes.complete}`]);
+    expect(transport.requests[1].body).toEqual({ token: 'tok-r', password: 'a new password' });
+  });
+
+  for (const tt of [
+    { name: 'a password too short', answer: { status: 400, body: { message: 'at least eight characters' } } },
+    { name: 'a dead link', answer: dead },
+    {
+      name: 'a password that changed while the reader was choosing',
+      answer: { status: 409, body: { message: 'Your password was changed while you were choosing a new one' } },
+    },
+  ]) {
+    it(`resolves ${tt.name} as a refusal of the completion, with the server's sentence, and reports no error`, async () => {
+      const { auth, errors } = authOver(server({ methods: resettingList, resetComplete: tt.answer }));
+      expect(await auth.completePasswordReset('tok-r', 'a new password')).toEqual({
+        outcome: 'refused',
+        status: tt.answer.status,
+        message: tt.answer.body.message,
+      });
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('throws on a server whose list names no password reset routes', async () => {
+    const { auth } = authOver(server({ methods: mailingList }));
+    await expect(auth.requestPasswordReset('pax@fleet.example')).rejects.toThrow(/names no password reset routes/);
+    await expect(auth.openPasswordReset('tok-r')).rejects.toThrow(/names no password reset routes/);
+    await expect(auth.completePasswordReset('tok-r', 'a new password')).rejects.toThrow(
+      /names no password reset routes/,
+    );
   });
 });
 

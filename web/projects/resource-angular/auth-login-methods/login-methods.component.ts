@@ -256,11 +256,19 @@ export class LoginMethodsComponent implements OnInit {
   busy = signal(false);
   /**
    * The server holds its mail to the address: a code or link asked for was refused with
-   * `too_many_emails`, and the wait it named has not passed. The buttons that ask for mail
-   * (Send code, Send a new code, Send me a link) stay disabled until it has.
+   * `too_many_emails`, and the wait it named has not passed. The buttons that ask for that
+   * mail (Send code, Send a new code, the sign-up's Send me a link) stay disabled until it
+   * has.
    */
   private mailHold = new MailHold();
   mailHeld = this.mailHold.held;
+  /**
+   * The server holds the reset links to the address, which it counts apart from the
+   * codes and the other links: a refused request for one holds the reset form's button
+   * and nothing else, so a person closed to reset links still asks for their sign-in code.
+   */
+  private resetHold = new MailHold();
+  resetHeld = this.resetHold.held;
 
   /** The methods list as the client last read it; undefined before the first read answers. */
   private list = storeSignal(this.client.auth.snapshot);
@@ -768,13 +776,13 @@ export class LoginMethodsComponent implements OnInit {
 
   /** Posts the address: the note says a link is on its way if the address has an account, whatever its state. */
   sendResetLink(): Promise<void> {
-    if (this.busy() || this.mailHeld() || !this.forgetting()) {
+    if (this.busy() || this.resetHeld() || !this.forgetting()) {
       return Promise.resolve();
     }
     return this.step(async () => {
       const result = await this.client.auth.requestPasswordReset(this.resetEmail);
       if (result.outcome === 'refused') {
-        this.mailHold.hold(result);
+        this.resetHold.hold(result);
         this.refusal.set(this.sentenceOf(result));
         return;
       }

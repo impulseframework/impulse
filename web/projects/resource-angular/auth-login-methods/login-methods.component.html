@@ -227,7 +227,7 @@
         <mat-label>Email address</mat-label>
         <input matInput name="resetEmail" type="email" [(ngModel)]="resetEmail" autocomplete="email" required />
       </mat-form-field>
-      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy() || mailHeld()">
+      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy() || resetHeld()">
         Send me a link
       </button>
     </form>

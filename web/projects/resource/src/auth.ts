@@ -545,6 +545,8 @@ const changeRefusals: readonly number[] = [400, 401, 403, 409];
 const proofRefusals: readonly number[] = [...changeRefusals, 429];
 /** A mailed link's token posted back: 404 for a link that is dead, 400 for a body that carries none. */
 const linkRefusals: readonly number[] = [400, 404];
+/** A new password posted with a reset link's token: as a link, and 409 for a password that changed while the reader was choosing. */
+const resetRefusals: readonly number[] = [...linkRefusals, 409];
 /** An acceptance by a signed-in person: 404 when the browser carries no live invitation. */
 const acceptRefusals: readonly number[] = [401, 403, 404, 409];
 /** An account created from a link: the sign-in's refusals, 400 for a short password or no username, 404 for a dead link, 409 for a taken name or address. */
@@ -1276,14 +1278,14 @@ export class AuthClient {
    * is mailed nothing. The refusal is not an address (400), too many unused reset links to
    * one mailbox (429 with `too_many_emails` and the wait), or the application not letting
    * people reset their own password (404). A server whose list names no request route
-   * does not offer it, and the call throws saying so.
+   * does not offer it, and the call throws `SELF_SERVICE_RESET_OFF`, the sentence the
+   * server answers such a request with, since a page that offered the form before an
+   * administrator turned it off shows the reader what is thrown.
    */
   async requestPasswordReset(email: string): Promise<MailLinkResult> {
     const routes = await this.passwordResetRoutes();
     if (!routes.request) {
-      throw new Error(
-        'this server does not let people ask for their own password reset link: ask an administrator to send one',
-      );
+      throw new Error(SELF_SERVICE_RESET_OFF);
     }
     return this.requestLink(routes.request, { email });
   }
@@ -1312,14 +1314,16 @@ export class AuthClient {
    * new password to the complete route. The link is spent, the old password is refused
    * from then on, and every session of the person ends, this browser's with them: the
    * person signs in with the new password. The refusal is a password under eight
-   * characters (400, which spends nothing) or a dead link (404).
+   * characters (400, which spends nothing), a dead link (404), or a password that changed
+   * while the reader was choosing (409, which leaves that password as it is: the server's
+   * sentence says to sign in with it or ask for a new link).
    */
   async completePasswordReset(token: string, password: string): Promise<PasswordResetResult> {
     const routes = await this.passwordResetRoutes();
     const response = await this.options.request<(Partial<{ username: string }> & RefusalAnswer) | null>(
       'POST',
       routes.complete,
-      { body: { token, password }, absolute: true, accept: linkRefusals },
+      { body: { token, password }, absolute: true, accept: resetRefusals },
     );
     if (response.status >= 400) {
       return refusalOf(response);
@@ -1545,6 +1549,13 @@ export class AuthClient {
     return list;
   }
 }
+
+/**
+ * What a person reads who asks for their own password reset link where the application
+ * does not let them: the server's own sentence for the request, word for word.
+ */
+export const SELF_SERVICE_RESET_OFF =
+  'Resetting your own password is turned off here. Ask an administrator to send you a reset link';
 
 /**
  * What the client announces, once, for a listed method whose kind it cannot drive: the

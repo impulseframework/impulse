@@ -326,7 +326,7 @@ describe("identityPages, the whole application's side", () => {
         // With tenants a person who signs up creates a sector of their own: no role is chosen here.
         ['says', 'A person with no invitation', false],
         // The Auth has a password to reset, so the page says whether a person may ask for a link themselves.
-        ['selfServiceReset', 'People reset their own password', false],
+        ['selfServiceReset', 'People can reset their own password', false],
         ['name', 'Name', true],
         ['directoryGivesRoles', 'Directory gives roles', true],
         ['ownRule', 'Decided by its own rule', true],

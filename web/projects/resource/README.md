@@ -678,11 +678,16 @@ the running application. A page offers "Forgot your password?" only while `reque
 there. `requestPasswordReset(email)` asks for the link, answering `sent` whether or not the
 address has an account (one with none is mailed nothing), or the refusal: not an address
 (400), a mailbox sent five reset links within fifteen minutes and using none (429 with
-`too_many_emails` and the wait), or not offered (404). `openPasswordReset(token)` answers
+`too_many_emails` and the wait), or not offered (404). Where the list has stopped naming
+`request` since the page was drawn, the call posts nothing and throws
+`SELF_SERVICE_RESET_OFF`, the sentence the server refuses such a request with, which is
+what the page shows. `openPasswordReset(token)` answers
 the username the link resets the password of, for a link the person asked for or one an
-administrator sent; `completePasswordReset(token, password)` sets the new password. Every
-session of the person ends with it, this browser's too, and nobody is signed in by it: the
-person signs in with the new password.
+administrator sent; `completePasswordReset(token, password)` sets the new password, or
+resolves the refusal: a password under eight characters (400), a dead link (404), or a
+password that changed while the reader was choosing (409, which changes nothing). Every
+session of the person ends with a reset, this browser's too, and nobody is signed in by it:
+the person signs in with the new password.
 
 An address an administrator set (`?address=<token>`): `confirmEmail(token)` posts the token
 to the list's `email.confirm`, with or without a session, and answers the address the

@@ -466,10 +466,15 @@ carries a "Create an account" step, which asks for an address and tells the pers
 its way, whatever the address's state. Under the password form the component draws "Forgot your
 password?" only while the list names where a reset link is asked for (`passwordReset.request`),
 which an administrator turns on and off in the running application: it asks for the address and
-says a link is on its way if the address is an account's with a password, whatever its state. A
+says a link is on its way if the address is an account's with a password, whatever its state. An
+address sent too many reset links is refused with the wait and Send me a link stays disabled until
+it has passed; the server counts reset links apart from sign-in codes, and so does the page, which
+holds the reset form alone. Where an administrator turned resetting off after the page was drawn,
+the form says so and to ask an administrator for a link. A
 reset link (`?reset=<token>`), the person's own or one an administrator sent, opens a form for the
 new password in the list's place; once it is set the component says the person is signed out
-everywhere and shows the list again with the username filled in, and nobody is signed in by it. A
+everywhere and shows the list again with the username filled in, and nobody is signed in by it; a
+password that changed while the person was choosing shows the server's sentence, the form staying. A
 link to an address an administrator set (`?address=<token>`) shows a question first and posts
 nothing on arrival; Confirm this email address posts it, with or without a session, and the
 component names the address the account now holds. A confirmation link (`?verify=<token>`) is posted once a

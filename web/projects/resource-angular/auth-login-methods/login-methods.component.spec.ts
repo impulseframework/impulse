@@ -2483,7 +2483,7 @@ describe('LoginMethodsComponent resets a password', () => {
     expect(none.element.querySelector('.impulse-login-forgot')).toBeNull();
   });
 
-  it('asks for a link with the address and says the same whatever the address is', async () => {
+  it("asks for a link with the address, and promises one only if the address is an account's", async () => {
     const page = await pageOver(server({ methods: selfService }));
     page.component.beginReset();
     await page.settle();
@@ -2517,7 +2517,43 @@ describe('LoginMethodsComponent resets a password', () => {
     expect(page.component.resetAsked()).toBeUndefined();
     expect(page.element.querySelector('input[name="resetEmail"]')).not.toBeNull();
     expect(messageOf(page)).not.toBeNull();
-    expect(page.component.mailHeld()).toBe(true);
+    // The server counts reset links apart from codes: the hold is the reset form's alone.
+    expect(page.component.resetHeld()).toBe(true);
+    expect(page.component.mailHeld()).toBe(false);
+    const send = page.element.querySelector<HTMLButtonElement>('.impulse-login-forgetting .impulse-login-submit');
+    expect(send?.disabled).toBe(true);
+  });
+
+  it('says to ask an administrator when resetting was turned off after the page was drawn, and posts no address', async () => {
+    const state = server({ methods: selfService });
+    const page = await pageOver(state);
+    page.component.beginReset();
+    await page.settle();
+    state.methods = administratorOnly;
+    page.transport.requests.length = 0;
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(sent(page.transport)).toEqual(['GET /console/api/user/methods']);
+    expect(messageOf(page)).toBe(
+      'Resetting your own password is turned off here. Ask an administrator to send you a reset link',
+    );
+    expect(page.component.resetAsked()).toBeUndefined();
+  });
+
+  it("a password that changed while the reader was choosing shows the server's words, the form staying", async () => {
+    const changed = 'Your password was changed while you were choosing a new one, so this link did not change it.';
+    const page = await pageOver(
+      server({ methods: administratorOnly, resetComplete: { status: 409, body: { message: changed } } }),
+      { reset: 'tok-reset' },
+    );
+    page.component.resetPassword = 'a new password';
+    page.component.resetPasswordAgain = 'a new password';
+    await page.component.completeReset();
+    await page.settle();
+    expect(messageOf(page)).toBe(changed);
+    expect(page.component.resetDone()).toBe(false);
+    expect(page.component.resetting()).toBeDefined();
   });
 
   it('a reset link opens the new password form, and completing it sends the person back to sign in', async () => {
