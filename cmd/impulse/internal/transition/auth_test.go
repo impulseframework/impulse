@@ -253,6 +253,7 @@ func TestAuthCommand(t *testing.T) {
 		{name: "password", auth: Auth{Name: "partners", Outlet: "default"}, want: "impulse add auth partners --outlet default"},
 		{name: "directory methods with their authority", auth: Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodPassword}, {Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}, Outlet: "portal"}, want: "impulse add auth members --method password --method google:workspace --authority application --outlet portal"},
 		{name: "a directory method whose directory gives the roles", auth: Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityDirectory}}, Outlet: "portal"}, want: "impulse add auth members --method azure:directory --authority directory --outlet portal"},
+		{name: "a starting point, which is what says the slot its method was written with", auth: Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Slot: authpkg.SlotAny}}, Outlet: "portal", Shape: "open-sign-up"}, want: "impulse add auth members --method google:google --authority application --outlet portal --shape open-sign-up"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

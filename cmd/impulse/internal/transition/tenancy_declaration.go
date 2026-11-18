@@ -228,6 +228,65 @@ var identityClientRE = regexp.MustCompile(`(?m)^\tidentityClient, err := \w+iden
 // tenant is the client's third.
 var identityClientHeadRE = regexp.MustCompile(`(?m)^(\tidentityClient, err := \w+identity\.NewClient\(\w+, \w+\.API\(\))`)
 
+// identityClientCallRE matches the whole call that builds an auth's identity client, as
+// the rendered auth packages write it on one line, up to its closing parenthesis: the
+// identity package's options are the call's last arguments, so one more goes there.
+var identityClientCallRE = regexp.MustCompile(`(?m)^(\tidentityClient, err := \w+identity\.NewClient\(.*)\)$`)
+
+// oneTenantOption is the identity package's option that says a person belongs to one
+// tenant, as an auth's New passes it.
+const oneTenantOption = "identity.WithOneTenantPerPerson()"
+
+// declareOneTenant says a person belongs to one tenant on every auth whose roles the
+// application assigns: the identity client its New builds gains the identity package's
+// option, which every way a person comes to hold a role in a tenant is then held to (a
+// role given by hand, an invitation sent or accepted, a directory's default role). An
+// auth whose directory writes the roles gives none of its own, so it is left as it is;
+// an auth whose New builds the client in another form is recorded as the agent's.
+func (tn Tenancy) declareOneTenant(a *app.App, ch *Change) error {
+	const rule = "a role in a second tenant is refused however it would be given, and the application's own people, who hold a role for the whole application or in every tenant, are outside the rule"
+	held := 0
+	for i := range a.AuthPackages {
+		pkg := &a.AuthPackages[i]
+		var auth *app.Auth
+		for j := range a.Auths {
+			if path.Dir(a.Auths[j].File) == pkg.Dir {
+				auth = &a.Auths[j]
+
+				break
+			}
+		}
+		if auth == nil || directoryAuthority(auth) {
+			continue
+		}
+		held++
+		rel := auth.File
+		src, mode, err := readFile(a, rel)
+		if err != nil {
+			return err
+		}
+		call := identityClientCallRE.FindSubmatchIndex(src)
+		if call == nil {
+			ch.skipf("%s: New builds no identity client in the form the tool reads (identityClient, err := %sidentity.NewClient(...) on one line), so one tenant per person was not declared on the %s auth; pass %s among the options of its identity client: %s", rel, pkg.Name, pkg.Name, oneTenantOption, rule)
+
+			continue
+		}
+		edited := append(src[:call[3]:call[3]], append([]byte(", "+oneTenantOption), src[call[3]:]...)...)
+		if edited, err = app.AddImport(rel, edited, identityImportPath); err != nil {
+			return err
+		}
+		if err := os.WriteFile(a.Abs(rel), edited, mode); err != nil {
+			return errors.Wrap(err, "os.WriteFile()")
+		}
+		ch.didf("%s: the %s auth's identity client is built with %s, so a person belongs to one tenant: %s", rel, pkg.Name, oneTenantOption, rule)
+	}
+	if held == 0 {
+		ch.skipf("no auth whose roles the application assigns constructs a session.Auth the scan reads, so one tenant per person was declared nowhere; where an auth builds its identity client, pass %s among its options: %s", oneTenantOption, rule)
+	}
+
+	return nil
+}
+
 // servesRecord reports the auth the default outlet binds: the tenant record is written
 // with no @outlet, so that outlet serves it.
 func servesRecord(site *app.Site, pkg *app.AuthPackage) bool {

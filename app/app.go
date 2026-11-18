@@ -266,6 +266,18 @@ type Method struct {
 	// accounts (azure.PersonalAccounts), alone (TenantsPersonal) or beside the tenants
 	// Tenants describes.
 	PersonalAccounts bool
+	// Workspaces is the Workspace shape of a Google registration, read from the building
+	// blocks its configuration's Workspaces slot is made of (readWorkspaces):
+	// WorkspacesOne for google.Workspace alone, WorkspacesListed for google.Workspaces of
+	// several Workspaces or a Workspace built in a loop, WorkspacesAny for
+	// google.AnyWorkspace (alone or beside listed Workspaces) and WorkspacesAccounts for
+	// google.AnyGoogleAccount alone. Empty for another method, and for a slot written any
+	// other way.
+	Workspaces string
+	// GoogleAccounts reports a Google registration admitting any Google account
+	// (google.AnyGoogleAccount), alone (WorkspacesAccounts) or beside the Workspaces
+	// Workspaces describes.
+	GoogleAccounts bool
 	// AuthVar is the identifier the registration's first argument names: the Auth it is
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.

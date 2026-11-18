@@ -815,3 +815,98 @@ func TestTenancyApply_theAuthATenantIsMadeThrough(t *testing.T) {
 		}
 	})
 }
+
+// TestTenancyApply_oneTenantPerPerson pins what add tenancy writes when a person belongs
+// to one tenant: every auth whose roles the application assigns builds its identity
+// client with the identity package's option, as its last argument, after the maker and
+// the administrator roles the command hands the client of the auth a tenant is made
+// through. Without the choice the client is left as it was, so a person can be in
+// several tenants. An auth whose New builds the client in a form the tool does not read
+// is recorded as the agent's, with the rule the option holds.
+func TestTenancyApply_oneTenantPerPerson(t *testing.T) {
+	t.Parallel()
+
+	const (
+		option = "identity.WithOneTenantPerPerson()"
+		did    = "pkg/auth/staff/staff.go: the staff auth's identity client is built with identity.WithOneTenantPerPerson(), so a person belongs to one tenant: a role in a second tenant is refused however it would be given, and the application's own people, who hold a role for the whole application or in every tenant, are outside the rule"
+	)
+	fixture := func(t *testing.T, staff string) *app.App {
+		t.Helper()
+
+		files := tenancyFiles()
+		files["pkg/config/data.go"] = makerConfig
+		files["pkg/auth/staff/staff.go"] = staff
+		files["cmd/generate/resourcegenerator/main.go"] = boundProgram(t)
+
+		return beacon(t, files)
+	}
+
+	t.Run("each auth whose roles the application assigns builds its identity client with the option", func(t *testing.T) {
+		t.Parallel()
+
+		a := fixture(t, staffPackage(t, "staff.go"))
+		tn := Tenancy{Table: "Tenants", OneTenantPerPerson: true}
+		ch, err := tn.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		staff := read(t, a, "pkg/auth/staff/staff.go")
+		if want := "\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators), " + option + ")\n"; !strings.Contains(staff, want) {
+			t.Errorf("staff.go lacks %q:\n%s", want, staff)
+		}
+		if !slices.Contains(ch.Did, did) {
+			t.Errorf("Did lacks %q; got:\n%s", did, strings.Join(ch.Did, "\n"))
+		}
+		if want := "impulse add tenancy --tenant-table Tenants --one-tenant-per-person"; ch.Command != want {
+			t.Errorf("Command = %q, want %q", ch.Command, want)
+		}
+		if want := "One tenant per person. This command declared it where it could"; !strings.Contains(tn.Meaning(), want) {
+			t.Errorf("Meaning() lacks %q", want)
+		}
+	})
+
+	t.Run("without the choice a person can be in several tenants", func(t *testing.T) {
+		t.Parallel()
+
+		a := fixture(t, staffPackage(t, "staff.go"))
+		tn := Tenancy{Table: "Tenants"}
+		ch, err := tn.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		if staff := read(t, a, "pkg/auth/staff/staff.go"); strings.Contains(staff, option) {
+			t.Errorf("staff.go holds %q, which nobody chose:\n%s", option, staff)
+		}
+		if want := "impulse add tenancy --tenant-table Tenants"; ch.Command != want {
+			t.Errorf("Command = %q, want %q", ch.Command, want)
+		}
+		if strings.Contains(tn.Meaning(), "One tenant per person.") {
+			t.Error("Meaning() speaks of one tenant per person, which nobody chose")
+		}
+	})
+
+	t.Run("an auth whose New builds its client another way is the agent's", func(t *testing.T) {
+		t.Parallel()
+
+		built := "\tidentityClient, err := staffidentity.NewClient("
+		staff := staffPackage(t, "staff.go")
+		if !strings.Contains(staff, built) {
+			t.Fatal("the skeleton's staff auth no longer builds its identity client as this test rewrites it")
+		}
+		a := fixture(t, strings.Replace(staff, built, "\tidentityClient, err := staffidentity.NewClient(\n\t\t", 1))
+		ch, err := Tenancy{Table: "Tenants", OneTenantPerPerson: true}.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		if got := read(t, a, "pkg/auth/staff/staff.go"); strings.Contains(got, option) {
+			t.Errorf("staff.go holds %q in a call the tool does not read:\n%s", option, got)
+		}
+		want := "pkg/auth/staff/staff.go: New builds no identity client in the form the tool reads (identityClient, err := staffidentity.NewClient(...) on one line), so one tenant per person was not declared on the staff auth; pass identity.WithOneTenantPerPerson() among the options of its identity client: a role in a second tenant is refused however it would be given, and the application's own people, who hold a role for the whole application or in every tenant, are outside the rule"
+		if !slices.Contains(ch.Skipped, want) {
+			t.Errorf("Skipped lacks %q; got:\n%s", want, strings.Join(ch.Skipped, "\n"))
+		}
+		if slices.Contains(ch.Did, did) {
+			t.Errorf("Did says the option was declared:\n%s", strings.Join(ch.Did, "\n"))
+		}
+	})
+}

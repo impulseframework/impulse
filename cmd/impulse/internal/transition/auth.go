@@ -35,9 +35,14 @@ type Auth struct {
 	Name string
 	// Methods are the sign-in methods the Auth starts with, at least one; the password
 	// method when none is given. A directory method here takes one organization, with the
-	// authority and the account rule add auth takes once for all of them; impulse add
-	// method composes the other slots.
+	// authority add auth takes once for all of them; impulse add method composes the other
+	// slots, and so does a starting point that needs a wider one (Shape).
 	Methods []authpkg.Method
+	// Shape is the name of the sign-in shape the command started from (--shape), which
+	// filled in the methods' choices; empty without one. The transition reads the
+	// methods, never the shape: it is kept for the command line the change records,
+	// since add auth has no flag of its own for a method's slot.
+	Shape string
 	// Outlet is the outlet the auth serves, by the key OutletChoices gives it: the
 	// outlet's name in the flat layout (default for the one GenerateRoutes declares), the
 	// site's name for a site's default outlet in the sites layout. Required: an auth is
@@ -69,6 +74,9 @@ func (au Auth) Command() string {
 	}
 	if au.Outlet != "" {
 		cmd += " --outlet " + au.Outlet
+	}
+	if au.Shape != "" {
+		cmd += " --shape " + au.Shape
 	}
 
 	return cmd
