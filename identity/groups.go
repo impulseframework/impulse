@@ -355,6 +355,26 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	return m.policyChangesAtCommit(txn)
 }
 
+// judgeTakingPlace holds a person's removal from the group to what the caller may take
+// away, for a call that is judged (judged): each role the group holds is one the caller
+// could take from the person directly, where the group is kept (refuseTakingThrough).
+func (m *Manager) judgeTakingPlace(ctx context.Context, txn resource.ReadWriteTransaction, group *Group, roles []access.GroupRoleKey, user accesstypes.User) error {
+	judged, err := m.judged(ctx)
+	if err != nil {
+		return err
+	}
+	if !judged {
+		return nil
+	}
+	kept, err := group.kept()
+	if err != nil {
+		return err
+	}
+	act := fmt.Sprintf("taking a person out of the group %s takes away", group.Name)
+
+	return m.refuseTakingThrough(ctx, txn, kept, roles, []accesstypes.User{user}, act)
+}
+
 // refuseTakingPlace applies the rules of a role's removal to a person's removal from a
 // group, which takes each role the group holds from them (RemoveGroupMember).
 func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) error {
@@ -369,17 +389,8 @@ func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteT
 	}
 	user := User(userID)
 	if !holding.periods.Members[user].Ended(now) {
-		if judged, err := m.judged(ctx); err != nil {
+		if err := m.judgeTakingPlace(ctx, txn, group, holding.roles, user); err != nil {
 			return err
-		} else if judged {
-			kept, err := group.kept()
-			if err != nil {
-				return err
-			}
-			act := fmt.Sprintf("taking a person out of the group %s takes away", group.Name)
-			if err := m.refuseTakingThrough(ctx, txn, kept, holding.roles, []accesstypes.User{user}, act); err != nil {
-				return err
-			}
 		}
 		if m.callerIs(ctx, userID) {
 			for i := range holding.roles {

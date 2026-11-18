@@ -242,7 +242,8 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 		{"taking the role from Bastion's marshal", "remove-crew-role", atBastion, roleKept},
 		{
 			"making an account that starts as Bastion's marshal", "create-crew-user",
-			map[string]any{"username": "pilots-friend", "password": "a password the pilot chose", "roles": []string{"SectorMarshal"}, "domain": bastion}, roleKept,
+			map[string]any{"username": "pilots-friend", "password": "a password the pilot chose", "roles": []string{"SectorMarshal"}, "domain": bastion},
+			roleKept,
 		},
 		{"inviting someone to be Bastion's marshal", "invite-crew-user", map[string]any{"email": "friend@example.com", "roles": []string{"SectorMarshal"}, "domain": bastion}, roleKept},
 		{"giving Bastion's group the role", "give-crew-group-role", map[string]any{"groupId": wardroom, "role": "SectorMarshal", "domain": bastion}, roleKept},
