@@ -3,6 +3,7 @@ package cli
 import (
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -459,10 +460,10 @@ func Test_methodStartingPoints(t *testing.T) {
 			return authStartingPoint(open, solo, app.DefaultOutletName, []authpkg.Method{google})
 		}, want: role},
 		{name: "add auth bound to the outlet that serves the tenant record", start: func() (*startingPoint, error) {
-			return authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{google})
+			return authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{{Kind: app.MethodPassword}, google})
 		}, want: creates},
 		{name: "add auth bound to another outlet of an application with tenants", start: func() (*startingPoint, error) {
-			return authStartingPoint(open, outlets, "portal", []authpkg.Method{google})
+			return authStartingPoint(open, outlets, "portal", []authpkg.Method{{Kind: app.MethodPassword}, google})
 		}, want: never},
 	}
 	for _, tt := range tests {
@@ -473,10 +474,18 @@ func Test_methodStartingPoints(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the starting point error = %v", err)
 			}
-			if len(start.says) != 1 || !strings.Contains(start.says[0], tt.want) {
-				t.Errorf("the starting point says %q, want one line saying %q", start.says, tt.want)
+			if !slices.ContainsFunc(start.says, func(line string) bool { return strings.Contains(line, tt.want) }) {
+				t.Errorf("the starting point says %q, want a line saying %q", start.says, tt.want)
 			}
 		})
+	}
+
+	// Open sign-up on an auth with no password method, where the application's tenants
+	// have directories, is refused before anything is written: its first administrator
+	// could not sign in. The same methods are a starting point where no tenant has a
+	// directory (above), and with the password method beside them.
+	if _, err := authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{google}); err == nil || !strings.Contains(err.Error(), "could not sign in, and impulse check refuses it (first-administrator)") {
+		t.Errorf("add auth with a directory method alone under Open sign-up, where tenants have directories: error = %v, want the first administrator's refusal", err)
 	}
 
 	// Under Directory members add auth says the password method beside the directory

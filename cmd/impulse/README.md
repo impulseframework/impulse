@@ -1311,10 +1311,13 @@ directory-roles --authority application`, `--shape open-sign-up` with an identit
 provider's method, `--shape directory-roles` with two methods), and a name the command
 does not know is refused with the names it knows; the four shapes of an application with
 tenants are `impulse new`'s and `add tenancy`'s. In an application whose tenants have
-directories, a starting point that leaves the auth with no password method and a
-directory method open to more than one organization seeds a first administrator who
-cannot sign in, which `impulse check` refuses (`first-administrator`): the command says
-so after the check's report, with what to do next in the check's words.
+directories, Open sign-up on an auth with no password method would seed a first
+administrator who cannot sign in, since the shape opens every directory method to more
+than one organization, and `impulse check` refuses that (`first-administrator`): the
+command refuses it before anything is written and says what to give instead, the
+password method beside the others (`--method password`), or the auth without the shape
+and `impulse add method` afterward. Any other starting point the check refuses for its
+first administrator is said after the check's report, in the check's words.
 
 ```sh
 impulse add outlet partners --prefix partners/api --auth staff

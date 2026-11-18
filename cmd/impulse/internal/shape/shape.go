@@ -87,6 +87,12 @@ func (s Shape) Flag() string {
 	return "--" + FlagName + " " + s.Key
 }
 
+// OpenSignUp reports the shape Open sign-up: the one that opens a method anyone can
+// use, so every directory method it fills in admits more than one organization.
+func (s Shape) OpenSignUp() bool {
+	return s.Number == openSignUp
+}
+
 // DirectoryMembers reports the shape Directory members: the one that is a directory
 // method's and is chosen method by method, so a password method beside the directory
 // method stays as it is.
