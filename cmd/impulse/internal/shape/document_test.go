@@ -12,8 +12,9 @@ import (
 )
 
 // documentFile is the framework's document of the sign-in shapes, from this package's
-// directory.
-var documentFile = filepath.Join("..", "..", "..", "..", "docs", "sign-in-shapes.md")
+// directory: the path the --shape flag's help names (Document), under the repository's
+// root.
+var documentFile = filepath.Join("..", "..", "..", "..", filepath.FromSlash(Document))
 
 // Where the document names a shape.
 var (
@@ -78,6 +79,20 @@ func TestDocumentNamesTheShapes(t *testing.T) {
 	for _, flag := range shapeFlagRE.FindAllStringSubmatch(document, -1) {
 		if _, err := Find(flag[1], shapes, "impulse"); err != nil {
 			t.Errorf("%s: %q names a shape the command does not know: %v", documentFile, flag[0], err)
+		}
+	}
+}
+
+// TestUsage_pointsAtTheDocument holds the help of every command's --shape flag to its
+// last words: where the shapes are described, by the path of the document from the
+// root of the framework's repository, which TestDocumentNamesTheShapes reads there.
+func TestUsage_pointsAtTheDocument(t *testing.T) {
+	t.Parallel()
+
+	const want = "; the shapes are described in docs/sign-in-shapes.md of the framework's repository"
+	for _, offered := range [][]Shape{OfMethods(), OfTenants()} {
+		if got := Usage(offered, "the choices"); !strings.HasSuffix(got, want) {
+			t.Errorf("Usage() = %q, want it to end %q", got, want)
 		}
 	}
 }
