@@ -74,7 +74,7 @@ func authResetCase1(t *testing.T) {
 	if msgs := recorder.Messages(); len(msgs) != 0 {
 		t.Fatalf("messages while self-service reset is off = %+v, want none", msgs)
 	}
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("reset:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after a refused request = %+v, want none", record)
 	}
 
@@ -196,6 +196,11 @@ func authResetCase3(t *testing.T) {
 	if got := len(recorder.Messages()); got != 5 {
 		t.Errorf("messages after the refusals = %d, want still 5", got)
 	}
+	// Reset links have a count of their own: what anyone may ask for an address takes
+	// nothing from the sign-in codes a person past their password is mailed there.
+	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+		t.Errorf("the address's count of sign-in codes after six reset requests = %+v, want none: a reset request must not use up the codes", record)
+	}
 }
 
 func authResetCase4(t *testing.T) {
@@ -288,7 +293,7 @@ func authResetCase5(t *testing.T) {
 	}
 	// The person is not signed in: the mocked store expects no sign-in and no session,
 	// so one started here fails the test.
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("reset:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the link was used = %+v, want none", record)
 	}
 	for i, row := range links.rows {

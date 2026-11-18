@@ -334,8 +334,24 @@ func seamResetLimit[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 		t.Errorf("mailed messages after the refusals = %d, want still 5", got)
 	}
 
-	// A link that is used resets the address: the next one is sent.
 	_, token := a.lastLink(t, "pat@lakeside.edu", "reset")
+
+	// Reset links are counted apart from sign-in codes: with the address closed to
+	// reset links, the person who is past their password is still mailed their code.
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	signing := a.browser(t)
+	signing.prime(ctx)
+	if status, mfa := signing.loginAs(ctx, "pat"); status != http.StatusOK || !mfa {
+		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 requiring MFA", status, mfa)
+	}
+	signing.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	signing.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, "pat@lakeside.edu")})
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = nil })
+	if err := a.api.SendPasswordReset(ctx, pat, session.AskedByApplication()); err == nil {
+		t.Error("a reset link after a sign-in code was used error = nil, want the refusal still: a code that is used resets the count of codes, not of reset links")
+	}
+
+	// A link that is used resets the address: the next one is sent.
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword})
 	if err := a.api.SendPasswordReset(ctx, pat, session.AskedByApplication()); err != nil {
 		t.Errorf("a link after one was used error = %v, want it sent: the used link reset the address's count", err)

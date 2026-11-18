@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -37,7 +38,8 @@ import (
 // password has none to reset, and a link would hand whoever reads the mailbox a way in
 // that the directory does not govern. A link counts only while the account still holds
 // the address it was mailed to, confirmed, and still holds a password. Every link
-// counts against the one limit on mail to an address (mailLimit), whoever asked for it.
+// counts against the address's limit on reset links, whoever asked for it: a count of
+// their own (resetLimitKey), apart from the sign-in codes and other links of mailLimit.
 // See "Password reset" in the README.
 
 // PasswordResetHandlers are the HTTP handlers of a password reset.
@@ -52,7 +54,7 @@ type PasswordResetHandlers struct {
 // whatever the address's state, and takes as long, so the screen reveals nothing: an
 // address no account holds, one an account holds unconfirmed, and one whose account has
 // no password are mailed nothing. An address that is not one is 400; a mailbox sent
-// five links and codes within fifteen minutes and using none is refused with
+// five reset links within fifteen minutes and using none is refused with
 // too_many_emails and the wait, whether or not it has an account; and every request is
 // 404 while an administrator has not turned self-service reset on. Route it behind
 // StartSession and ValidateXSRFToken.
@@ -149,7 +151,7 @@ func (a *Auth[S, U, Tx]) passwordResetRequest() http.HandlerFunc {
 }
 
 // requestOwnReset takes a person's own request for a reset link to email. The request
-// takes its place under the address's mail limit first, and its refusal there is the
+// takes its place under the address's limit on reset links first, and its refusal there is the
 // one answer that is not {}: it is given whether or not the address has an account.
 // Whether an account holds the address is then read, and the link mailed, once the
 // request is answered (later), so neither the answer nor the time it takes says which
@@ -162,7 +164,7 @@ func (a *Auth[S, U, Tx]) requestOwnReset(ctx context.Context, email string) erro
 	if err != nil {
 		return err
 	}
-	if err := a.limitMail(ctx, bare); err != nil {
+	if err := a.limitResetMail(ctx, bare); err != nil {
 		return err
 	}
 	a.later(ctx, func(ctx context.Context) {
@@ -236,7 +238,7 @@ func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.Ses
 // ask for themselves. Nothing about the account changes until the person uses the link.
 // The link goes to the address the account holds confirmed, and to an account that
 // holds a password: any other account is refused (Conflict), in one sentence that names
-// both causes. An address sent five links and codes within fifteen minutes and using
+// both causes. An address sent five reset links within fifteen minutes and using
 // none is refused with a *sessioninfo.LoginRefusal carrying RefusedTooManyEmails and
 // the wait (sessioninfo.RetryAfterOf), whoever asked for them. Who may ask for whom is
 // the caller's to decide before it calls. It needs mail (WithMail) and the password
@@ -259,7 +261,7 @@ func (p *AuthAPI[S, U, Tx]) SendPasswordReset(ctx context.Context, userID impuls
 	if !user.EmailVerified() || !resettable(user, *user.Email) {
 		return errNoPasswordToReset()
 	}
-	if err := a.limitMail(ctx, *user.Email); err != nil {
+	if err := a.limitResetMail(ctx, *user.Email); err != nil {
 		return err
 	}
 
@@ -379,7 +381,7 @@ func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password stri
 	}
 	a.clearAttempts(ctx, user.Username)
 	// The link reached the person: the address's mail count is reset.
-	a.clearMailLimit(ctx, link.Email)
+	a.clearResetLimit(ctx, link.Email)
 	a.endResetLinks(ctx, user.ID)
 	logger.FromCtx(ctx).Infof("user %s chose a new password from a reset link", user.ID)
 
@@ -480,4 +482,40 @@ func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) er
 	}
 
 	return nil
+}
+
+// resetLimitKey is the key the reset links mailed to an address are counted under in
+// the sign-in attempts table, folded as mailLimitKey folds an address. Reset links have
+// a count of their own: a request anyone can make for an address must never use up the
+// sign-in codes a person who is past their password needs, which mailLimitKey counts.
+func resetLimitKey(email string) string {
+	return "reset:" + attempts.Normalize(email)
+}
+
+// limitResetMail counts one reset link for the address, and refuses once the address
+// was sent five within fifteen minutes that went unused, for fifteen minutes: the
+// bounds of mailLimit, kept apart from it. An administrator's link and a person's own
+// request for the same address share the one count, whoever asked. The refusal is a
+// *sessioninfo.LoginRefusal carrying RefusedTooManyEmails and the wait.
+func (a *Auth[S, U, Tx]) limitResetMail(ctx context.Context, email string) error {
+	record, err := a.storage.RecordSignInFailure(ctx, resetLimitKey(email), mailLimit)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	if !record.Counted {
+		wait, _ := record.Locked(time.Now())
+
+		return sessioninfo.NewTooManyEmailsRefusal(wait)
+	}
+
+	return nil
+}
+
+// clearResetLimit resets the address's count of reset links once one is used: the mail
+// reached the person. It is bookkeeping after the proof: a failure is logged, and the
+// request goes on.
+func (a *Auth[S, U, Tx]) clearResetLimit(ctx context.Context, email string) {
+	if err := a.storage.ClearSignInAttempts(ctx, resetLimitKey(email)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
 }
