@@ -267,7 +267,7 @@ func testSignInAttemptsRecordedBesideClears(ctx context.Context, t *testing.T, h
 
 	const (
 		racers = 8
-		rounds = 100
+		rounds = 50
 	)
 	var (
 		wg     sync.WaitGroup

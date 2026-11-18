@@ -36,12 +36,18 @@ import (
 //
 // The fleet's own people do not make the way in theirs. The pilot is made Headquarters,
 // the role that gives the crew's roles and manages its accounts for the whole fleet,
-// and her session, a password's, does not enter Bastion: she is refused giving herself
-// Bastion's marshal's role, taking it from the marshal Bastion has, a place in Bastion's
-// group that holds it, and a password, an address or a disabled account for Bastion's
-// marshal, each in a sentence that says who does it. In Anvil, which admits her, she
+// and her session, a password's, does not enter Bastion: she is refused every act that
+// would change who administers Bastion or hand her its marshal's account. Those are
+// giving herself Bastion's marshal's role, taking it from the marshal Bastion has, an
+// account that starts with it, an invitation that carries it, giving it to Bastion's
+// group or taking it from the group, a place in the group or the marshal's place taken
+// from it, and for Bastion's marshal a password set, required to change or removed, a
+// new username, a new address, an identity unlinked, and the account disabled, enabled
+// or deleted, each in a sentence that says who does it. In Anvil, which admits her, she
 // names a marshal as Headquarters does, and the governor, a super administrator, gives
-// Bastion's role.
+// Bastion's role. A session that views the application as Bastion's marshal gains
+// nothing either: it does not enter Bastion, and the call that Bastion's marshal makes
+// in her own session is refused it.
 //
 // The rigger changes her password while Bastion is directory only. Her other sessions
 // end, and the one the change goes on in is the continuation of the session that made
@@ -207,6 +213,18 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	pilot.signIn(ctx, "pilot")
 	pilotID := crewUserID(ctx, t, governor, "pilot").String()
 	give("making the pilot Headquarters", "assign-crew-role", map[string]any{"userId": pilotID, "role": "Headquarters"})
+	// The rigger is in Bastion's group again, beside the role of her own, and the link
+	// her sign-in through the Workspace made is the identity an unlink would name.
+	give("putting the rigger in Bastion's group again", "add-crew-group-member", place)
+	var riggersLink string
+	for _, row := range crewList(ctx, t, governor, "crew-session-identities") {
+		if row["userId"] == riggerID {
+			riggersLink = cell[string](t, row, "id")
+		}
+	}
+	if riggersLink == "" {
+		t.Fatal("the rigger has no identity link, want the one her sign-in through the Workspace made")
+	}
 	if status, body := pilot.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
 		t.Fatalf("GET Bastion's wings as the pilot, Headquarters signed in with a password: status %d, want 404: Bastion keeps the fleet's own people out: %s", status, body)
 	}
@@ -222,10 +240,24 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	}{
 		{"giving herself Bastion's marshal's role", "assign-crew-role", map[string]any{"userId": pilotID, "role": "SectorMarshal", "domain": bastion}, roleKept},
 		{"taking the role from Bastion's marshal", "remove-crew-role", atBastion, roleKept},
+		{
+			"making an account that starts as Bastion's marshal", "create-crew-user",
+			map[string]any{"username": "pilots-friend", "password": "a password the pilot chose", "roles": []string{"SectorMarshal"}, "domain": bastion}, roleKept,
+		},
+		{"inviting someone to be Bastion's marshal", "invite-crew-user", map[string]any{"email": "friend@example.com", "roles": []string{"SectorMarshal"}, "domain": bastion}, roleKept},
+		{"giving Bastion's group the role", "give-crew-group-role", map[string]any{"groupId": wardroom, "role": "SectorMarshal", "domain": bastion}, roleKept},
+		{"taking the role from Bastion's group", "take-crew-group-role", map[string]any{"groupId": wardroom, "role": "SectorMarshal", "domain": bastion}, roleKept},
 		{"putting herself in Bastion's group, which holds the role", "add-crew-group-member", map[string]any{"groupId": wardroom, "userId": pilotID}, roleKept},
+		{"taking Bastion's marshal out of Bastion's group", "remove-crew-group-member", place, roleKept},
 		{"setting a password for Bastion's marshal", "set-crew-temporary-password", map[string]any{"userId": riggerID, "password": "a password the pilot chose"}, accountKept},
+		{"requiring Bastion's marshal to change her password", "require-crew-password-change", map[string]any{"userId": riggerID}, accountKept},
+		{"removing the password of Bastion's marshal", "remove-crew-password", map[string]any{"userId": riggerID}, accountKept},
+		{"renaming Bastion's marshal", "rename-crew-user", map[string]any{"userId": riggerID, "username": "rigger-renamed"}, accountKept},
 		{"changing the address of Bastion's marshal", "set-crew-user-email", map[string]any{"userId": riggerID, "email": "pilot@elsewhere.example"}, accountKept},
+		{"unlinking the sign-in identity of Bastion's marshal", "unlink-crew-session-identity", map[string]any{"identityId": riggersLink}, accountKept},
 		{"disabling the account of Bastion's marshal", "disable-crew-user", map[string]any{"userId": riggerID}, accountKept},
+		{"enabling the account of Bastion's marshal", "enable-crew-user", map[string]any{"userId": riggerID}, accountKept},
+		{"deleting the account of Bastion's marshal", "delete-crew-user", map[string]any{"userId": riggerID}, accountKept},
 	} {
 		status, answer := pilot.do(ctx, http.MethodPost, crewMethod(refused.method), jsonBody(t, refused.body))
 		if status != http.StatusForbidden || !strings.Contains(string(answer), refused.says) {
@@ -240,6 +272,34 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if status, answer := pilot.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, map[string]any{"userId": riggerID, "role": "SectorMarshal", "domain": anvil})); status != http.StatusNoContent {
 		t.Errorf("making the rigger a marshal of Anvil as the pilot, Headquarters: status %d, want 204: Anvil is not directory only: %s", status, answer)
 	}
+
+	// Nor does viewing the application as Bastion's marshal make her way in the viewer's.
+	// The governor makes the rigger Headquarters too, so the whole fleet's method that
+	// gives a role is hers to run, and in her own session, a password and the code, she
+	// gives the bosun Bastion's marshal's role. The fleet's marshal views the application
+	// as her with the right to run methods kept: that session is established by the
+	// impersonation, so Bastion does not admit it, and the same call is refused it.
+	give("making the rigger Headquarters", "assign-crew-role", map[string]any{"userId": riggerID, "role": "Headquarters"})
+	viewing := newBrowser(t, s, consoleAPI)
+	viewing.signIn(ctx, "marshal")
+	asRigger := fmt.Sprintf(`{"kind":"user","principal":%q,"reason":"walkthrough","mask":["List","Read","Execute"]}`, riggerID)
+	if status, body := viewing.impersonate(ctx, asRigger); status != http.StatusOK {
+		t.Fatalf("the fleet's marshal viewing as the rigger with Execute kept: status %d: %s", status, body)
+	}
+	if info := viewing.session(ctx); info["username"] != "rigger" || info["impersonation"] == nil {
+		t.Fatalf("the session after the fleet's marshal views as the rigger = %v, want the rigger's, impersonated", info)
+	}
+	if status, body := viewing.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
+		t.Errorf("GET Bastion's wings viewing as its marshal: status %d, want 404: the way in is a password sign-in's, never a session that views as the person: %s", status, body)
+	}
+	bosunToBastion := jsonBody(t, map[string]any{"userId": crewUserID(ctx, t, governor, "bosun").String(), "role": "SectorMarshal", "domain": bastion})
+	if status, answer := viewing.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), bosunToBastion); status != http.StatusForbidden || !strings.Contains(string(answer), roleKept) {
+		t.Errorf("giving Bastion's marshal's role viewing as Bastion's marshal: status %d, want 403 saying %q: %s", status, roleKept, answer)
+	}
+	if status, answer := rigger.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), bosunToBastion); status != http.StatusNoContent {
+		t.Errorf("giving Bastion's marshal's role as Bastion's marshal herself, signed in with a password and the code: status %d, want 204: %s", status, answer)
+	}
+	give("taking Bastion's marshal's role back from the bosun", "remove-crew-role", map[string]any{"userId": crewUserID(ctx, t, governor, "bosun").String(), "role": "SectorMarshal", "domain": bastion})
 
 	// She changes her password while Bastion is directory only. The change ends every
 	// session she has and goes on in a new one, the continuation of the session that
