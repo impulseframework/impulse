@@ -64,6 +64,18 @@ func (s *countedStore) holdReads() (entered <-chan struct{}, release func()) {
 	}
 }
 
+// awaitRead waits for a read the store holds open to begin, and fails the test when
+// none does: the read the test was written to see was never made.
+func awaitRead(t *testing.T, entered <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no read of the policy store began")
+	}
+}
+
 // idleEngine builds an engine as an instance that gets no CPU between requests has it:
 // no reload loop and no signal watch run (noLoops), so nothing but a check reads the
 // store, on a clock the test moves, with idleBound as the heartbeat interval. The
@@ -165,7 +177,7 @@ func Test_snapshotEngine_idleInstance_bound(t *testing.T) {
 			answers <- answer{granted: granted, err: err}
 		}()
 	}
-	<-entered
+	awaitRead(t, entered)
 	// The other checks arrive while the read is in flight. The counts below hold
 	// whenever they arrive: one that comes after the read has landed reads nothing.
 	time.Sleep(50 * time.Millisecond)
@@ -241,7 +253,7 @@ func Test_snapshotEngine_idleInstance_hint(t *testing.T) {
 		granted, err := lists(e, "gadgets")
 		inFlight <- answer{granted: granted, err: err}
 	}()
-	<-entered
+	awaitRead(t, entered)
 	if err := store.InsertGrant(context.Background(), tenant1Policy, "Editor", "List", "gadgets", "", ""); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
@@ -427,6 +439,35 @@ func Test_snapshotEngine_servingInstance(t *testing.T) {
 			return peeks(e)
 		})
 	})
+}
+
+// Test_snapshotEngine_tick pins the loop's heartbeat: every tick reads the store,
+// whatever the snapshot's age, so on an instance that is serving it is the loop that
+// reads as each interval ends and not the check that finds it ended; and the check
+// after a tick reads nothing.
+func Test_snapshotEngine_tick(t *testing.T) {
+	t.Parallel()
+
+	store := newCountedStore(engineFakeStore(t))
+	e, _, _ := idleEngine(t, store)
+	if listsWidgets(t, e) {
+		t.Fatal("widgets granted before the change")
+	}
+
+	// The clock does not move: the snapshot stays inside its bound throughout.
+	grantWidgets(t, store.fakeStore)
+	for tick := int64(1); tick <= 3; tick++ {
+		e.tick()
+		if got := store.reads.Load(); got != 1+tick {
+			t.Errorf("store reads after tick %d = %d, want %d: the first load and one read a tick", tick, got, 1+tick)
+		}
+	}
+	if !listsWidgets(t, e) {
+		t.Error("the check after a tick did not see the change the tick read")
+	}
+	if got := store.reads.Load(); got != 4 {
+		t.Errorf("store reads after the check behind the ticks = %d, want still 4", got)
+	}
 }
 
 // Test_snapshotEngine_closed pins that a closed engine reads the store no more: its

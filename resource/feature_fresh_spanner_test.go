@@ -105,7 +105,7 @@ func TestFeatureSet_idleInstance_backstop(t *testing.T) {
 			seen <- features.Enabled(debriefsFlag)
 		}()
 	}
-	<-entered
+	awaitRead(t, entered)
 	// The other lookups arrive while the reread is in flight. The counts below hold
 	// whenever they arrive: one that comes after the reread has landed reads nothing.
 	time.Sleep(50 * time.Millisecond)
@@ -229,7 +229,7 @@ func TestFeatureSet_idleInstance_signal(t *testing.T) {
 	go func() {
 		inFlight <- features.Enabled(beaconsFlag)
 	}()
-	<-entered
+	awaitRead(t, entered)
 	flip(t, base, beaconsFlag)
 	if err := signals.Signal(ctx, KindFeatures); err != nil {
 		t.Fatalf("Signal() error = %v", err)
@@ -359,6 +359,33 @@ func TestFeatureSet_keptLife(t *testing.T) {
 			t.Errorf("failures logged = %q, want none", got)
 		}
 	})
+}
+
+// TestFeatureSet_tick pins the loop's backstop tick, on the Spanner emulator: every tick
+// rereads the table, whatever the copy's age, so on an instance that is serving it is
+// the loop that rereads as each backstop ends and not the request that finds it ended;
+// and the lookup after a tick reads nothing.
+func TestFeatureSet_tick(t *testing.T) {
+	t.Parallel()
+
+	_, base := featureDatabase(t, "features-tick")
+	held := newHeldClient(base)
+	features, _, _ := idleFeatures(t, base, held, &fakeSignals{})
+
+	// The clock does not move: the copy stays inside its backstop throughout.
+	flip(t, base, debriefsFlag)
+	for tick := int64(1); tick <= 3; tick++ {
+		features.tick()
+		if got := held.reads.Load(); got != 1+tick {
+			t.Errorf("reads after tick %d = %d, want %d: the load's and one reread a tick", tick, got, 1+tick)
+		}
+	}
+	if !features.Enabled(debriefsFlag) {
+		t.Error("the lookup after a tick did not see the flip the tick read")
+	}
+	if got := held.reads.Load(); got != 4 {
+		t.Errorf("reads after the lookup behind the ticks = %d, want still 4", got)
+	}
 }
 
 // TestFeatureSet_servingInstance pins what the loop still does on an instance that is

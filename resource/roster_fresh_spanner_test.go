@@ -139,6 +139,18 @@ func (c *heldClient) holdAfter() (entered <-chan struct{}, release func()) {
 	}
 }
 
+// awaitRead waits for a read the client holds open to begin, and fails the test when
+// none does: the reread the test was written to see was never made.
+func awaitRead(t *testing.T, entered <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no read of the table began")
+	}
+}
+
 // heldTransaction is a read-only transaction that waits, as it is closed, for the hold
 // its client was under when it was opened: the copy closes it once its rows are read.
 type heldTransaction struct {
@@ -211,7 +223,7 @@ func TestTenantRoster_idleInstance_backstop(t *testing.T) {
 			seen <- r.Has("beta")
 		}()
 	}
-	<-entered
+	awaitRead(t, entered)
 	// The other lookups arrive while the reread is in flight. The counts below hold
 	// whenever they arrive: one that comes after the reread has landed reads nothing.
 	time.Sleep(50 * time.Millisecond)
@@ -359,7 +371,7 @@ func TestTenantRoster_idleInstance_signal(t *testing.T) {
 	go func() {
 		inFlight <- r.Has("gamma")
 	}()
-	<-entered
+	awaitRead(t, entered)
 	insertStations(t, db, "gamma")
 	if err := signals.Signal(ctx, KindTenants); err != nil {
 		t.Fatalf("Signal() error = %v", err)
@@ -441,6 +453,33 @@ func TestTenantRoster_idleInstance_failedReread(t *testing.T) {
 		if !strings.Contains(line, "rereading the "+stationsTable+" table failed") {
 			t.Errorf("logged %q, want it to say the reread of the %s table failed", line, stationsTable)
 		}
+	}
+}
+
+// TestTenantRoster_tick pins the loop's backstop tick, on the Spanner emulator: every
+// tick rereads the table, whatever the copy's age, so on an instance that is serving it
+// is the loop that rereads as each backstop ends and not the request that finds it
+// ended; and the lookup after a tick reads nothing.
+func TestTenantRoster_tick(t *testing.T) {
+	t.Parallel()
+
+	db, client := tenantDatabase(t, "roster-tick", "alpha")
+	held := newHeldClient(client)
+	r, _, _ := idleRoster(t, held)
+
+	// The clock does not move: the copy stays inside its backstop throughout.
+	insertStations(t, db, "beta")
+	for tick := int64(1); tick <= 3; tick++ {
+		r.tick()
+		if got := held.reads.Load(); got != 1+tick {
+			t.Errorf("reads after tick %d = %d, want %d: the start's and one reread a tick", tick, got, 1+tick)
+		}
+	}
+	if !r.Has("beta") {
+		t.Error("the lookup after a tick did not see the tenant the tick read")
+	}
+	if got := held.reads.Load(); got != 4 {
+		t.Errorf("reads after the lookup behind the ticks = %d, want still 4", got)
 	}
 }
 

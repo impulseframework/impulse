@@ -293,14 +293,22 @@ func (s *snapshotEngine) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// The tick asks for a read as a hint does, so the loop reads as
-			// the interval ends and not the check that would find it ended.
-			s.fresh.Nudge()
+			s.tick()
 		case <-s.hintCh:
 			// Whoever hinted recorded it already (invalidate, hinted).
+			s.refresh()
 		}
-		s.refresh()
 	}
+}
+
+// tick is the loop's heartbeat: it reads the store whatever the snapshot's
+// age. The tick asks for the read as a hint does, since the snapshot the
+// loop read one interval ago is not yet past the interval when the tick
+// fires: left to the bound alone the loop would read on every other tick,
+// and the check that found the interval ended would read on the rest.
+func (s *snapshotEngine) tick() {
+	s.fresh.Nudge()
+	s.refresh()
 }
 
 // refresh reads the store unless a read that holds everything announced has

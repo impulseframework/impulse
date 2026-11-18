@@ -286,15 +286,23 @@ func (r *TenantRoster) refresh(ctx context.Context, signals <-chan struct{}, sto
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// The tick asks for a reread as a signal does, so the loop rereads as the
-			// backstop ends and not the request that would find it ended.
-			r.fresh.Nudge()
+			r.tick()
 		case <-signals:
-			// The subscription recorded the signal as it arrived.
+			// The subscription recorded the signal as it arrived. A failure of the
+			// reread is logged where it happens (rereadFailed).
+			r.freshen()
 		}
-		// A failure was logged where it happened (rereadFailed).
-		r.freshen()
 	}
+}
+
+// tick is the loop's backstop tick: it rereads the table whatever the copy's age. The
+// tick asks for the reread as a signal does, since the copy the loop read one backstop
+// ago is not yet past the backstop when the tick fires: left to the bound alone the
+// loop would reread on every other tick, and the request that found the backstop ended
+// would reread on the rest.
+func (r *TenantRoster) tick() {
+	r.fresh.Nudge()
+	r.freshen()
 }
 
 // Reload rereads the table now, the declarations with it, and replaces the set whole:

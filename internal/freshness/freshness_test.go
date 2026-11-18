@@ -169,6 +169,18 @@ func keptGate(t *testing.T) (*Gate, *testStore, *testClock, *testReports) {
 	return g, store, clock, reports
 }
 
+// awaitRead waits for a read the store holds open to begin, and fails the test when
+// none does: the read the test was written to see was never made.
+func awaitRead(t *testing.T, entered <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no read of the store began")
+	}
+}
+
 // waitFor polls until the condition holds, and fails the test when it does not in time.
 func waitFor(t *testing.T, what string, condition func() bool) {
 	t.Helper()
@@ -258,7 +270,7 @@ func TestGate_Freshen_oneReadServesEveryRequestWaiting(t *testing.T) {
 					errs <- g.Freshen()
 				}()
 			}
-			<-entered
+			awaitRead(t, entered)
 			// Every request has arrived while the read is in flight: each read the clock
 			// once as it came, and the one that got the lock twice more, for its second
 			// look at the copy and for the beginning of its read.
@@ -347,7 +359,7 @@ func TestGate_Nudge_duringARead(t *testing.T) {
 			go func() {
 				first <- g.Freshen()
 			}()
-			<-entered
+			awaitRead(t, entered)
 			if tt.nudge {
 				g.Nudge()
 			}
@@ -493,7 +505,7 @@ func TestGate_Keep_endsDuringARead(t *testing.T) {
 	go func() {
 		done <- g.Freshen()
 	}()
-	<-entered
+	awaitRead(t, entered)
 	end()
 
 	if err := <-done; !errors.Is(err, context.Canceled) {
@@ -542,8 +554,17 @@ func TestGate_Freshen_readContext(t *testing.T) {
 		_, release := store.holdReads()
 		defer release()
 
-		if err := g.Freshen(); !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("Freshen() error = %v, want %v", err, context.DeadlineExceeded)
+		done := make(chan error, 1)
+		go func() {
+			done <- g.Freshen()
+		}()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("Freshen() error = %v, want %v", err, context.DeadlineExceeded)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("Freshen() did not return: the read was not held to the Gate's timeout")
 		}
 		if got := reports.count.Load(); got != 1 {
 			t.Errorf("failed reads reported = %d, want 1", got)
@@ -605,7 +626,7 @@ func TestGate_Read(t *testing.T) {
 		if err := g.Read(ended); !errors.Is(err, context.Canceled) {
 			t.Errorf("Read() under a context that has ended error = %v, want %v", err, context.Canceled)
 		}
-		<-entered
+		awaitRead(t, entered)
 	})
 
 	t.Run("its failure is the caller's alone", func(t *testing.T) {
@@ -621,7 +642,7 @@ func TestGate_Read(t *testing.T) {
 		go func() {
 			asked <- g.Read(t.Context())
 		}()
-		<-entered
+		awaitRead(t, entered)
 		// The reads that begin from now succeed; the one in flight began failing.
 		store.fail(nil)
 		waiting := make(chan error, 1)
@@ -657,7 +678,7 @@ func TestGate_Read(t *testing.T) {
 		go func() {
 			asked <- g.Read(t.Context())
 		}()
-		<-entered
+		awaitRead(t, entered)
 		g.Nudge()
 		release()
 		if err := <-asked; err != nil {
