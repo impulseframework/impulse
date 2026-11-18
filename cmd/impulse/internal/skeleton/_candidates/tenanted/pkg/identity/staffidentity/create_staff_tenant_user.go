@@ -34,7 +34,7 @@ type (
 		Username string `validate:"required"`
 		Name     *string
 		Email    *string
-		Password *string
+		Password *string `conditions:"secret"`
 		// Roles are the roles the person is given, picked from the roles that exist in the
 		// tenant (StaffTenantRoles). A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.

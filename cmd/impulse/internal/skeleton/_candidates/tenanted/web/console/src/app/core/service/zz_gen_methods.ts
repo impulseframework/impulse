@@ -834,7 +834,7 @@ const methodMap: MethodMap = {
       { fieldName: 'username', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', optional: true },
+      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffTenantRoles, attribute: 'role' },
     ],
   },

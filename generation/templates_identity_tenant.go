@@ -488,9 +488,9 @@ type (
 		Email    *string
 		{{- end }}
 		{{- if eq .PasswordOnCreate "required" }}
-		Password string ` + "`validate:\"required\"`" + `
+		Password string ` + "`validate:\"required\" conditions:\"secret\"`" + `
 		{{- else if eq .PasswordOnCreate "optional" }}
-		Password *string
+		Password *string ` + "`conditions:\"secret\"`" + `
 		{{- end }}
 		// Roles are the roles the person is given, picked from the roles that exist in the
 		// tenant ({{ Pluralize .TenantRoleChoice }}). A grant's condition reads each of them as

@@ -41,7 +41,8 @@ import {
 // disabled account and Disable on an enabled one.
 
 /** The pages of one side of an Auth's management, by what each lists. */
-export type IdentityPage = 'users' | 'groups' | 'invitations' | 'invitedTenants' | 'sessions' | 'signInAttempts' | 'signIn';
+export type IdentityPage =
+  'users' | 'groups' | 'invitations' | 'invitedTenants' | 'sessions' | 'signInAttempts' | 'signIn';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -216,7 +217,10 @@ class SideBuilder {
         listColumns: this.columns(users, fields),
         rowMethods: this.onPerson(),
         listMethods: this.present([
-          [methods.create, { label: this.tenant ? 'Add a person' : 'Add an account', icon: 'person_add', labels: this.where() }],
+          [
+            methods.create,
+            { label: this.tenant ? 'Add a person' : 'Add an account', icon: 'person_add', labels: this.where() },
+          ],
           [methods.invite, { label: 'Invite', icon: 'send', labels: this.where() }],
         ]),
         elements: [
@@ -248,7 +252,9 @@ class SideBuilder {
       ['description', 'Description'],
     ];
     const named = (row: RecordData): string => String(row['name'] ?? 'this group');
-    const related = [this.peopleOfGroup(), this.rolesOfGroup()].filter((config): config is ChildResourceConfig => config !== undefined);
+    const related = [this.peopleOfGroup(), this.rolesOfGroup()].filter(
+      (config): config is ChildResourceConfig => config !== undefined,
+    );
     return rootConfig({
       page: { label: 'Groups', icon: 'groups' },
       routeData: { route: this.route('groups', 'groups'), hasViewRoute: true },
@@ -270,22 +276,38 @@ class SideBuilder {
         ],
         rowMethods: this.present([
           [methods.describeGroup, { label: 'Change the description', icon: 'edit' }],
-          [methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds }],
-          [methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords }, throughDay: periodEnds }],
+          [
+            methods.addGroupMember,
+            { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds },
+          ],
+          [
+            methods.giveGroupRole,
+            {
+              label: 'Give a role',
+              icon: 'badge',
+              labels: { ...this.where(), ...periodWords },
+              throughDay: periodEnds,
+            },
+          ],
           [
             methods.deleteGroup,
             {
               label: 'Delete',
               icon: 'delete',
-              confirm: (row) => `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
+              confirm: (row) =>
+                `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
             },
           ],
         ]),
-        listMethods: this.present([[methods.createGroup, { label: 'Add a group', icon: 'group_add', labels: this.where() }]]),
+        listMethods: this.present([
+          [methods.createGroup, { label: 'Add a group', icon: 'group_add', labels: this.where() }],
+        ]),
         elements: [
           section({
             label: 'Group',
-            children: this.known(groups, fields).map(([name, label]) => field({ name: name as FieldName, label, cols: 6 })),
+            children: this.known(groups, fields).map(([name, label]) =>
+              field({ name: name as FieldName, label, cols: 6 }),
+            ),
           }),
         ],
       }),
@@ -321,7 +343,10 @@ class SideBuilder {
         ];
     return rootConfig({
       page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
-      routeData: { route: this.route('invitations', this.tenant ? 'invitations' : 'mailed-links'), hasViewRoute: false },
+      routeData: {
+        route: this.route('invitations', this.tenant ? 'invitations' : 'mailed-links'),
+        hasViewRoute: false,
+      },
       parentConfig: listViewConfig({
         title: this.tenant ? 'Invitations' : `${this.identity.label} mailed links`,
         primaryResource: resource,
@@ -329,7 +354,9 @@ class SideBuilder {
         showRowCount: true,
         // The tenant a link invites into is named, where the tenant record can be read.
         listColumns: this.columns(resource, fields).map((column) =>
-          column.id === 'tenantId' ? this.tenantNamed(column.id, column.header ?? '', (row) => String(row['tenantId'] ?? '')) : column,
+          column.id === 'tenantId'
+            ? this.tenantNamed(column.id, column.header ?? '', (row) => String(row['tenantId'] ?? ''))
+            : column,
         ),
         rowMethods: this.present([
           [
@@ -377,7 +404,9 @@ class SideBuilder {
     const directoryOnly = `${prefix}DirectoryOnly`;
     const ofRecord = (this.resourceMeta(resource)?.fields ?? [])
       .map((candidate) => String(candidate.fieldName))
-      .filter((name) => name !== directoryOnly && name.startsWith(prefix) && /^[A-Z0-9]/.test(name.slice(prefix.length)));
+      .filter(
+        (name) => name !== directoryOnly && name.startsWith(prefix) && /^[A-Z0-9]/.test(name.slice(prefix.length)),
+      );
     const fields: Named[] = [
       ...ofRecord.map((name): Named => [name, words(name)]),
       [directoryOnly, 'Directory only'],
@@ -755,7 +784,12 @@ class SideBuilder {
         ],
       ]),
       // The method runs against the group the list sits under.
-      listMethods: this.present([[methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds }]]),
+      listMethods: this.present([
+        [
+          methods.addGroupMember,
+          { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds },
+        ],
+      ]),
       elements: [],
     });
   }
@@ -769,7 +803,12 @@ class SideBuilder {
     const resource = lists.groupRoles as Resource;
     const lost = 'Everyone in the group loses it, unless they hold it some other way.';
     // The method runs against the group the list sits under.
-    const give = this.present([[methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords }, throughDay: periodEnds }]]);
+    const give = this.present([
+      [
+        methods.giveGroupRole,
+        { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords }, throughDay: periodEnds },
+      ],
+    ]);
     if (this.tenant) {
       return listViewConfig({
         title: 'Roles the group holds',
@@ -781,7 +820,11 @@ class SideBuilder {
         rowMethods: this.present([
           [
             methods.takeGroupRole,
-            { label: 'Take the role away', icon: 'remove_moderator', confirm: (row) => `Take ${String(row['role'])} away from the group? ${lost}` },
+            {
+              label: 'Take the role away',
+              icon: 'remove_moderator',
+              confirm: (row) => `Take ${String(row['role'])} away from the group? ${lost}`,
+            },
           ],
         ]),
         listMethods: give,
@@ -941,7 +984,13 @@ class SideBuilder {
         this.tenant
           ? { label: 'Give a role', icon: 'badge', labels: periodWords, throughDay: periodEnds }
           : // The whole application's method takes the id of the person's account, which the row fills.
-            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: { ...this.where(), ...periodWords }, throughDay: periodEnds },
+            {
+              label: 'Give a role',
+              icon: 'badge',
+              fill: (row) => ({ userId: row['id'] }),
+              labels: { ...this.where(), ...periodWords },
+              throughDay: periodEnds,
+            },
       ],
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
@@ -953,14 +1002,19 @@ class SideBuilder {
         {
           label: 'Require a new password',
           icon: 'lock_reset',
-          confirm: (row) => `Make ${named(row)} choose a new password the next time they sign in?`,
+          confirm: (row) =>
+            `Make ${named(row)} choose a new password? They are asked at once, in any session they have open, and can do nothing else until they have.`,
         },
       ],
       // Offered above the ways the person signs in, on the person's page.
       [methods.removePassword, { hidden: true }],
       [
         methods.endUserSessions,
-        { label: 'Sign out everywhere', icon: 'logout', confirm: (row) => `Sign ${named(row)} out of every browser and device?` },
+        {
+          label: 'Sign out everywhere',
+          icon: 'logout',
+          confirm: (row) => `Sign ${named(row)} out of every browser and device?`,
+        },
       ],
       [
         methods.revokeTrustedDevices,
@@ -1019,7 +1073,9 @@ class SideBuilder {
   }
 
   /** The presentations of the methods the description names; one it does not name presents nothing. */
-  private present(entries: [method: string | undefined, presentation: Omit<MethodPresentation, 'method'>][]): MethodPresentation[] {
+  private present(
+    entries: [method: string | undefined, presentation: Omit<MethodPresentation, 'method'>][],
+  ): MethodPresentation[] {
     return entries
       .filter((entry): entry is [string, Omit<MethodPresentation, 'method'>] => entry[0] !== undefined)
       .map(([method, presentation]) => ({ method: method as Method, ...presentation }));
