@@ -222,9 +222,18 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 				return got[0].granted
 			})
 
-			if signals := channel.Signals(); tt.withSignal != slices.Contains(signals, policyKind) {
-				t.Fatalf("channel.Signals() = %v, want the policy kind signaled = %v", signals, tt.withSignal)
+			if !tt.withSignal {
+				if signals := channel.Signals(); slices.Contains(signals, policyKind) {
+					t.Fatalf("channel.Signals() = %v, want no signal of the policy kind", signals)
+				}
+
+				return
 			}
+			// The writer announces on a goroutine of its own, and the reader can have seen
+			// the change already by a load of its own loop, so the signal is waited for.
+			waitUntil(t, 5*time.Second, "the writer never signaled the policy kind", func() bool {
+				return slices.Contains(channel.Signals(), policyKind)
+			})
 		})
 	}
 }
