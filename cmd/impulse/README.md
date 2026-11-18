@@ -526,6 +526,27 @@ impulse check --only prettier --fix             # once the web roots' packages a
 impulse check --list
 ```
 
+The scan the checks are built on reads the Go files the application's builds compile, as
+`go build ./...` and `go test ./...` find them. A directory `./...` matches nothing under
+is not read: one whose name begins with `_` or `.`, and one named `testdata`. Nor is a Go
+file whose own name begins with `_` or `.`, nor any Go file of a directory under the root
+that holds a `go.mod` of its own, which is another module (the skeleton's `web/` is one).
+So a scratch program kept beside the application (`tmp/_sqlrun/main.go`), a test's
+fixture and a tool's own directory fail no check. Two things are the application's all
+the same. A Go file placed directly in a directory the Go tool reads, `tmp/` among them,
+is read, as `go build ./...` compiles it. And a package under a passed-over directory that
+the application imports by its path (`internal/_cfg`, a fixture package a test imports
+from `testdata`) is read, with what it imports in turn, since the build compiles it: a
+read of the environment does not pass `env-reads` by living there. A file a build
+constraint leaves out (a `//go:build` line, a `_windows.go` name) is read, since some
+build compiles it, and a directory named `vendor` or `dist` is left alone as dependencies
+and build output. The uses of a feature flag's constant are found in the same Go files,
+and in every source file of a browser application whatever its directory is called, since
+the Go tool's rule about names is no rule of the browser's build. The rule is the scan's:
+a check that reads one package's directory for itself (an auth package's for its role
+file and its policy calls, a handlers directory's for the live service, the formatting
+check's walk) still takes every `.go` file it finds there.
+
 | Check | Verifies |
 | --- | --- |
 | `generator-program` | Every generator program uses options this release knows, with literal arguments: strings, booleans, lists and maps; a whole number or a constant expression of literals for `WithBodyLimit` (`2<<20`); and, for a request log word or a trace setting, the generation package's own constructor (`generation.LogOnEvent()`, `generation.TracesCapped(0.1)`, with `.MinSeverity(logging.Warning)` chained when wanted). A program the tool cannot read completely is one it cannot later edit or migrate. An option the framework has since removed (`WithDomainRoute`) is named with where its declaration went. A program that never reads `Warnings()` after it generates (in its own package, or in the main package that runs a declaring package) warns: the schema warnings a generation raises go unseen. The skeletons' runner prints them and pins the accepted set in a test. |
@@ -1632,9 +1653,9 @@ nowhere, and the brief hands the agent what is left: what to gate (`@feature(<Co
 on a resource, a field or a method, or a read in Go or in the browser), the description to
 write in place of the stub, how a flag is flipped (the generated `SetFeature` method
 under the `FeatureAdministrator` role, which the development login holds), and that the
-menu file's Feature flags… entry opens the library's `FeatureFlagsDialog`
-(`actions.featureFlags`, which the frame hands the menu file, shown under List on
-`FeatureFlags`).
+menu file places the library's Feature flags page (`featureFlagsPage(resourceMeta)`,
+shown under List on `FeatureFlags`), which lists each flag with who last turned it on or
+off, flips one after asking, and opens a flag's history in a pop-up.
 
 ```sh
 impulse add feature cargo_manifest --agent

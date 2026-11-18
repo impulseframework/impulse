@@ -3,12 +3,6 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { IconName } from '@impulseframework/resource-angular/types';
 import { Menu, MenuGroup } from './menu';
 
-/** What the frame does for a menu entry rather than going somewhere. */
-export interface FrameActions {
-  /** Opens the library's feature flags dialog. */
-  featureFlags(): void;
-}
-
 /**
  * What an application tells the frame (provideFrame): its name, where every place opens,
  * the place outside every tenant, and its menu file. The tenant word is not here: it is
@@ -22,12 +16,11 @@ export interface FrameConfig {
   /** The place outside every tenant: its name and icon. Absent, Configuration with a gear. */
   readonly outside?: { readonly label: string; readonly icon: IconName };
   /**
-   * The application's menu file: the menus across the top, in order. A function is handed
-   * the frame's actions, for an entry that opens the feature flags dialog, and is called
+   * The application's menu file: the menus across the top, in order. A function is called
    * once, in an injection context, so an action of the application's own may use a
    * service it injects (`inject(MatDialog)` for an entry that opens a dialog).
    */
-  readonly menus: readonly Menu[] | ((actions: FrameActions) => readonly Menu[]);
+  readonly menus: readonly Menu[] | (() => readonly Menu[]);
   /** The application's own entries in the Help menu, above About. */
   readonly help?: readonly MenuGroup[];
   /** The application's own entries in the person's menu, above Appearance. */

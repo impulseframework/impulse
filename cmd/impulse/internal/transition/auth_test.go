@@ -1138,10 +1138,16 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 				renderedConfig,
 			},
 			wantSkipped: []string{portalProgram + ": the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the members auth, so the tool adds none: the members auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does; impulse check refuses an auth whose roles the application gives while it builds no identity client (first-administrator). To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does"},
+			// The generated metadata stays imported: the Feature flags page, which is no page
+			// of the management, reads it in both files.
+			wantText: map[string][]string{
+				portalRoutes: {"import { resourceMeta } from '@app/service/zz_gen_resources';\n", "      featureFlagsRoute(resourceMeta),\n"},
+				portalMenus:  {"import { resourceMeta } from '@app/service/zz_gen_resources';\n", "            featureFlagsPage(resourceMeta),\n"},
+			},
 			neverText: map[string][]string{
 				portalProgram:                 {"GenerateIdentity"},
-				portalRoutes:                  {"identityRoutes", "apiDescriptor", "resourceMeta"},
-				portalMenus:                   {"identityMenuPages", "apiDescriptor", "resourceMeta"},
+				portalRoutes:                  {"identityRoutes", "apiDescriptor"},
+				portalMenus:                   {"identityMenuPages", "apiDescriptor"},
 				"pkg/auth/members/members.go": {"identityClient", "membersidentity"},
 			},
 		},

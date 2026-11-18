@@ -3,10 +3,15 @@ import { addDays, isValid, startOfDay } from 'date-fns';
 import {
   MethodMeta,
   MethodPresentation,
+  nameInWords,
   RecordData,
   Resource,
   RPCFieldMeta,
 } from '@impulseframework/resource-angular/types';
+
+// A name in words lives with the types, where a page that draws no list reads it too; it
+// is exported from here as it always was.
+export { nameInWords };
 
 // A generated method that declares a target row (@target) runs against one row of a
 // resource. The generated method metadata names the resource and, for each request
@@ -44,27 +49,30 @@ export function methodsTargeting(
   return targeting;
 }
 
-/**
- * A name in words: `DisableCrewSectorUser` is "Disable crew sector user", `userId` is
- * "User id". What a method or a request field is called on a page that gives it no words
- * of its own.
- */
-export function nameInWords(name: string): string {
-  const words = name
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .trim()
-    .toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
 /** The method as the page offers it: the page's words and icon where its configuration names the method, the name in words otherwise. */
 export function offered(
   method: string,
   meta: MethodMeta,
   presentations: readonly MethodPresentation[] | undefined,
 ): OfferedMethod {
-  const presentation = presentations?.find((p) => p.method === method);
+  return offeredAs(
+    method,
+    meta,
+    presentations?.find((p) => p.method === method),
+  );
+}
+
+/**
+ * The method as one presentation offers it. A page may name a method more than once,
+ * each time with its own words, predicate and fill (a flag turned on, and the same
+ * method turning it off), so the presentation offered is the one given, not the first
+ * that names the method.
+ */
+export function offeredAs(
+  method: string,
+  meta: MethodMeta,
+  presentation: MethodPresentation | undefined,
+): OfferedMethod {
   return {
     method,
     meta,
@@ -74,11 +82,17 @@ export function offered(
   };
 }
 
+/** Whether a presentation offers its method on the row: the page has not hidden it and its row predicate does not say no. */
+function presents(presentation: MethodPresentation, row: RecordData): boolean {
+  return !presentation.hidden && presentation.when?.(row) !== false;
+}
+
 /**
  * The methods one row offers: of the methods that target the listed resource, those the
  * row's capability answer lists, less the ones the page hides and the ones whose row
- * predicate says no. A row read without its capability answer offers none: nothing is
- * known about what the caller may run on it.
+ * predicate says no. A method the page names more than once is offered once for each
+ * presentation that holds for the row. A row read without its capability answer offers
+ * none: nothing is known about what the caller may run on it.
  */
 export function rowMethods(
   row: RecordData,
@@ -95,11 +109,16 @@ export function rowMethods(
     if (!admitted.includes(method)) {
       continue;
     }
-    const entry = offered(method, metaOf(method), presentations);
-    if (entry.presentation?.hidden || entry.presentation?.when?.(row) === false) {
+    const named = (presentations ?? []).filter((presentation) => presentation.method === method);
+    if (named.length === 0) {
+      methods.push(offeredAs(method, metaOf(method), undefined));
       continue;
     }
-    methods.push(entry);
+    for (const presentation of named) {
+      if (presents(presentation, row)) {
+        methods.push(offeredAs(method, metaOf(method), presentation));
+      }
+    }
   }
   return methods;
 }
@@ -108,7 +127,9 @@ export function rowMethods(
  * The methods a row offers that name no target row and are filled from it: the ones the
  * page names with a `fill`, each while the caller holds Execute on the method (the
  * digest's answer; the server gives none for a row the method does not name), less the
- * ones the page hides and the ones whose row predicate says no.
+ * ones the page hides and the ones whose row predicate says no. Each presentation is
+ * offered as itself, so a method named twice is offered under each one's own words and
+ * filled as each one fills it.
  */
 export function filledMethods(
   row: RecordData,
@@ -119,11 +140,11 @@ export function filledMethods(
   const methods: OfferedMethod[] = [];
   for (const presentation of presentations ?? []) {
     const meta = metaOf(presentation.method);
-    if (!presentation.fill || !meta || meta.target || presentation.hidden || presentation.when?.(row) === false) {
+    if (!presentation.fill || !meta || meta.target || !presents(presentation, row)) {
       continue;
     }
     if (granted(presentation.method)) {
-      methods.push(offered(presentation.method, meta, presentations));
+      methods.push(offeredAs(presentation.method, meta, presentation));
     }
   }
   return methods;

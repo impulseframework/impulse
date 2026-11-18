@@ -88,6 +88,10 @@ type Configurer interface {
 	// release built it): what the generated router checks a browser application's
 	// X-Api-Version against.
 	AppVersion() string
+	// Environment is the name of the environment the application runs in
+	// (APP_ENVIRONMENT, unset in production): what every answer of the server names and
+	// the About pop-up shows.
+	Environment() string
 	ConsoleDist() string
 	PortalDist() string
 	// DroidsAPIKey is the droid service account's configured key, which Start seeds as
@@ -178,6 +182,7 @@ type App struct {
 	validate       *validator.Validate
 	logExporter    logger.Exporter
 	version        string
+	environment    string
 	// consoleApp and portalApp serve the two built browser applications
 	// (resource.BrowserApp): the console under /console and the portal under /portal, each
 	// from the directory the configuration names, with the resource package's cache rule
@@ -224,6 +229,7 @@ func New(cfg Configurer) *App {
 		validate:        cfg.Validator(),
 		logExporter:     cfg.LogExporter(),
 		version:         cfg.AppVersion(),
+		environment:     cfg.Environment(),
 		consoleApp:      resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
 		portalApp:       resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
 		droidsAPIKey:    cfg.DroidsAPIKey(),
@@ -307,6 +313,13 @@ func (a *App) LogExporter() logger.Exporter {
 // nothing.
 func (a *App) ServerVersion() string {
 	return a.version
+}
+
+// ServerEnvironment is the name of the environment this server runs in, the
+// configuration's APP_ENVIRONMENT: what the generated router names on every answer
+// (X-Environment) and the About pop-up shows. Production is told none and reports none.
+func (a *App) ServerEnvironment() string {
+	return a.environment
 }
 
 // SecurityHeaders is a middleware that sets security-related headers on the response,

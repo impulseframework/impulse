@@ -51,6 +51,8 @@ import {
   RootConfig,
   RowAction,
   rowActionsKey,
+  rowAnswerKey,
+  rowButtonKey,
   rowRouteTarget,
   writeResource,
 } from '@impulseframework/resource-angular/types';
@@ -69,7 +71,7 @@ import { applyFormatting, formatByDisplayType, formatDateString } from '../forma
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
-import { filledMethods, offered, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
+import { filledMethods, offeredAs, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -330,7 +332,7 @@ export class ResourceListComponent implements OnInit {
           ? parentOffers(this.relatedData(), presentation, this.store.page().rows)
           : this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
       )
-      .map((presentation) => offered(presentation.method, this.store.methodMeta(presentation.method), presentations));
+      .map((presentation) => offeredAs(presentation.method, this.store.methodMeta(presentation.method), presentation));
   });
 
   /** The row field an expanded row is opened by: the listed resource's single key, none on a key-less resource. */
@@ -471,9 +473,17 @@ export class ResourceListComponent implements OnInit {
   /**
    * What the empty table says: the refusal when the digest leaves no column, the server's
    * own message when the request was refused (the list, a filter, or a page size) or
-   * failed, otherwise the plain empty-list text. A refusal must never read as an empty list.
+   * failed, otherwise the page's own sentence for a list that holds nothing (the config's
+   * `emptyMessage`), said only while neither a column filter nor the search box narrows
+   * the list, else the plain empty-list text. A refusal must never read as an empty list.
    */
-  emptyMessage = computed(() => listEmptyMessage(this.store.pageError(), this.noListableColumns()));
+  emptyMessage = computed(() =>
+    listEmptyMessage(
+      this.store.pageError(),
+      this.noListableColumns(),
+      this.boxActive() || this.store.columnFilters().length > 0 ? undefined : this.config().emptyMessage,
+    ),
+  );
 
   /**
    * Which columns the server filters, from the listed resource's metadata: the grid draws
@@ -639,8 +649,10 @@ export class ResourceListComponent implements OnInit {
           header: col.header,
           width: col.width,
           resizable: col.resizable,
-          // A column that opts out of its filter control says so to the table.
+          // A column that opts out of its filter control says so to the table, and so
+          // does one that opts out of sorting.
           ...(col.filterable === false ? { filterable: false } : {}),
+          ...(col.sortable === false ? { sortable: false } : {}),
           valueGetter: (data) => {
             const concatArray: string[] = [];
 
@@ -712,8 +724,10 @@ export class ResourceListComponent implements OnInit {
           // author chose how the cell is written.
           ...(col.formatType ? { formatType: col.formatType } : {}),
           ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
-          // A column that opts out of its filter control says so to the table.
+          // A column that opts out of its filter control says so to the table, and so
+          // does one that opts out of sorting.
           ...(col.filterable === false ? { filterable: false } : {}),
+          ...(col.sortable === false ? { sortable: false } : {}),
         };
         // An icon column keeps its map and tooltip position for the grid; the cell itself is
         // resolved with the display row (processedRowData), never at render time.
@@ -746,6 +760,27 @@ export class ResourceListComponent implements OnInit {
             },
       });
     }
+
+    this.rowButtons().forEach((button, index) => {
+      // A button of the page's own on every row, ahead of the row's menu: it is handed
+      // the row as the server answered it, which rides the display row (processedRowData).
+      columns.push({
+        id: rowButtonKey(index) as FieldName,
+        header: button.label,
+        hideHeader: true,
+        buttonConfig: {
+          label: button.label,
+          icon: button.icon,
+          actionType: 'function',
+          action: (displayed): void => {
+            const answered = (displayed as Record<string, unknown>)[rowAnswerKey] as RecordData | undefined;
+            if (answered) {
+              button.run(answered, this.injector);
+            }
+          },
+        },
+      });
+    });
 
     if (this.rowMethodNames().length > 0 || this.filledMethodNames().length > 0) {
       // The methods a row offers, in one menu at its end: the entries ride the display
@@ -804,12 +839,16 @@ export class ResourceListComponent implements OnInit {
     this.store.reloadPage();
   }
 
+  /** The buttons every row carries, as the page names them (`rowButtons`); none on a list across tenants, which only reads rows into their tenants. */
+  rowButtons = computed(() => (this.across() ? [] : (this.config().rowButtons ?? [])));
+
   /** The page's rows with each column's getter and formatter applied. */
   processedRowData = computed(() => {
     const data = this.store.page().rows;
     const columns = this.columns();
     const methods = this.rowMethodNames();
     const filled = this.filledMethodNames();
+    const buttons = this.rowButtons().length > 0;
 
     const target = this.across() ? this.rowTarget() : undefined;
     const rowRoute = this.acrossRowRoute();
@@ -858,6 +897,11 @@ export class ResourceListComponent implements OnInit {
         // raw row it runs against.
         (updatedRow as Record<string, unknown>)[rowActionsKey] = this.rowActions(row, methods, filled);
       }
+      if (buttons) {
+        // The row as the server answered it, for the page's own buttons: a column's
+        // getter and formatter have written over the cells of the display row.
+        (updatedRow as Record<string, unknown>)[rowAnswerKey] = row;
+      }
       return updatedRow;
     });
   });
@@ -869,8 +913,13 @@ export class ResourceListComponent implements OnInit {
       ...rowMethods(row, methods, this.store.methodMeta, presentations),
       ...filledMethods(row, presentations, this.store.methodMeta, (method) => filled.includes(method)),
     ];
-    return offeredHere.map((method) => ({
-      id: method.method,
+    // A method the page presents more than once may be offered twice on one row: each
+    // entry after the first carries its position, so the menu tells them apart.
+    return offeredHere.map((method, index) => ({
+      id:
+        offeredHere.findIndex((other) => other.method === method.method) === index
+          ? method.method
+          : `${method.method}:${index}`,
       label: method.label,
       icon: method.icon,
       run: (): void => this.runMethod(method, row),

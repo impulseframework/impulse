@@ -62,6 +62,12 @@ func (c *coreConfiguration) AppVersion() string {
 	return c.env.AppVersion
 }
 
+// Environment returns the name of the environment the process runs in, as a person
+// reads it: none in production, which is told no name.
+func (c *coreConfiguration) Environment() string {
+	return c.env.Environment
+}
+
 // ServiceName returns the name the process reports in logs.
 func (c *coreConfiguration) ServiceName() string {
 	return c.env.ServiceName
@@ -71,6 +77,12 @@ func (c *coreConfiguration) ServiceName() string {
 type coreConfig struct {
 	// AppVersion is the build-time or runtime application version.
 	AppVersion string `env:"APP_VERSION,default=dev"`
+
+	// Environment names the environment the process runs in wherever that is not
+	// production: a deployment sets it to the environment's name everywhere but there.
+	// Every answer of the server carries it and the About pop-up of the browser
+	// application shows it. Unset, as in production, none is named.
+	Environment string `env:"APP_ENVIRONMENT"`
 
 	// ServiceName names the process in logs.
 	ServiceName string `env:"APP_SERVICE_NAME,required"`

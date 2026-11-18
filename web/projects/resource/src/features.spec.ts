@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import { Domain, Method, Resource } from './brands';
-import { ClientBase, createClient } from './client';
+import { ClientBase, createClient, methodHandle } from './client';
 import { ApiDescriptor } from './descriptor';
 import {
   FeatureFlag,
+  FeatureFlagHistory,
   FeatureFlip,
   FeatureState,
+  SetFeatureRequest,
+  featureFlagChangesRoute,
   featureFlagsResource,
   noFeaturesRouteWarning,
   setFeatureMethod,
@@ -16,7 +19,9 @@ import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource
 // The enabled set of feature flags: loaded from the features route and asked
 // synchronously, empty and off before it loads or when the load fails, flipped through
 // the generated method with the set and the digest refreshed after the write, and the
-// declared flags listed through the client's own handle on the flags resource. An API
+// declared flags listed through the client's own handle on the flags resource, and one
+// flag's history read from the flag's own route. The generated flip method's handle is
+// followed by the same refresh, so a page that runs it by name is followed too. An API
 // whose descriptor carries no features route serves no flags: nothing loads, every flag
 // is off, a read or a flip is refused before any request, and each ask of a flag reaches
 // the client's warn hook once, naming the regeneration that would serve it.
@@ -84,7 +89,17 @@ const flags: FeatureFlag[] = [
   },
 ];
 
-/** The features route, the digest and domains, the flip method and the flags resource, each answering. */
+/** The history of the debriefs flag as the server answers it: newest first. */
+const debriefsHistory: FeatureFlagHistory = {
+  changes: [
+    { changedAt: '2026-09-29T08:00:00Z', enabled: true, changedBy: 'hollis' },
+    { changedAt: '2026-09-20T16:45:00Z', enabled: false, changedBy: 'morgan' },
+    { changedAt: '2026-09-02T11:10:00Z', enabled: true, changedBy: 'Process bootstrap' },
+  ],
+  more: false,
+};
+
+/** The features route, the digest and domains, the flip method, the flags resource and one flag's history, each answering. */
 function serverWith(enabled: () => string[]): ScriptedTransport {
   return scriptedTransport((request: TransportRequest): TransportResponse => {
     const path = request.url.replace(/\?.*$/, '');
@@ -104,6 +119,13 @@ function serverWith(enabled: () => string[]): ScriptedTransport {
       }
       case '/api/feature-flags':
         return { status: 200, body: flags };
+      case '/api/feature-flags/debriefs/changes':
+        return { status: 200, body: debriefsHistory };
+      case '/api/feature-flags/manifests/changes':
+        // A server that writes nothing for a flag nobody flipped.
+        return { status: 200, body: null };
+      case '/api/feature-flags/telemetry/changes':
+        return { status: 404, body: { message: 'no feature flag named telemetry' } };
       default:
         return { status: 404, body: { message: `unscripted ${request.url}` } };
     }
@@ -265,6 +287,92 @@ describe('FeatureState.setFeature', () => {
   });
 });
 
+describe("the generated flip method's handle", () => {
+  it('reloads the set, the domains, and every cached digest once its write succeeds, as setFeature does', async () => {
+    const enabled = ['debriefs'];
+    const transport = serverWith(() => enabled);
+    const api = createClient(descriptor, { baseUrl: '/api', transport });
+    await api.features.refresh();
+    await api.permissions.loadDigest();
+    await api.permissions.loadDigest('anvil' as Domain);
+    transport.requests.length = 0;
+
+    enabled.push('manifests');
+    const flip = await methodHandle<SetFeatureRequest, FeatureFlip>(api, setFeatureMethod).execute({
+      name: 'manifests',
+      enabled: true,
+    });
+
+    expect(flip).toEqual({ name: 'manifests', enabled: true, updatedAt: '2026-10-02T09:30:00Z' });
+    const [first] = transport.requests;
+    expect([first.method, first.url, first.body]).toEqual([
+      'POST',
+      '/api/set-feature',
+      { name: 'manifests', enabled: true },
+    ]);
+    expect(
+      transport.requests
+        .slice(1)
+        .map((r) => r.url)
+        .sort(),
+    ).toEqual(['/api/features', '/api/permission-digest', '/api/permission-digest?domain=anvil', '/api/user-domains']);
+    // The set has followed by the time the call resolves, so the page that made it draws the new state.
+    expect(api.features.enabled('manifests')).toBe(true);
+  });
+
+  it('a refused flip rejects and reloads nothing', async () => {
+    const transport = serverWith(() => ['debriefs']);
+    const api = createClient(descriptor, { baseUrl: '/api', transport });
+    await api.features.refresh();
+    transport.requests.length = 0;
+
+    const handle = methodHandle<SetFeatureRequest, FeatureFlip>(api, setFeatureMethod);
+    await expect(handle.execute({ name: 'telemetry', enabled: true })).rejects.toBeInstanceOf(ApiError);
+    expect(transport.requests.map((r) => r.url)).toEqual(['/api/set-feature']);
+  });
+
+  it('no other method is followed by a reload', async () => {
+    const transport = scriptedTransport({ status: 200, body: null });
+    const api = createClient(descriptor, { baseUrl: '/api', transport });
+    await methodHandle(api, 'FileDebrief', 'anvil').execute({});
+    expect(transport.requests.map((r) => [r.method, r.url])).toEqual([['POST', '/api/sectors/anvil/file-debrief']]);
+  });
+});
+
+describe('FeatureState.changes', () => {
+  it("reads one flag's history from the flag's own route, newest first as the server answers it", async () => {
+    const transport = serverWith(() => []);
+    const api = createClient(descriptor, { baseUrl: '/api', transport });
+    expect(featureFlagChangesRoute).toBe('changes');
+    expect(await api.features.changes('debriefs')).toEqual(debriefsHistory);
+    expect(transport.requests.map((r) => [r.method, r.url])).toEqual([['GET', '/api/feature-flags/debriefs/changes']]);
+  });
+
+  it('an answer that carries nothing is a flag nobody has flipped', async () => {
+    const api = createClient(descriptor, { baseUrl: '/api', transport: serverWith(() => []) });
+    expect(await api.features.changes('manifests')).toEqual({ changes: [], more: false });
+  });
+
+  it('the name travels as one segment of the address', async () => {
+    const transport = scriptedTransport({ status: 200, body: { changes: [], more: true } });
+    const api = createClient(descriptor, { baseUrl: '/api', transport });
+    expect(await api.features.changes('a/b c')).toEqual({ changes: [], more: true });
+    expect(transport.requests.map((r) => r.url)).toEqual(['/api/feature-flags/a%2Fb%20c/changes']);
+  });
+
+  it("the server's refusal rejects with its error", async () => {
+    const api = createClient(descriptor, { baseUrl: '/api', transport: serverWith(() => []) });
+    await expect(api.features.changes('telemetry')).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('an API that declares no flags resource refuses before any request', async () => {
+    const transport = serverWith(() => []);
+    const api = createClient({ ...descriptor, resources: {} }, { baseUrl: '/api', transport });
+    await expect(api.features.changes('debriefs')).rejects.toThrow(/declares no FeatureFlags resource/);
+    expect(transport.requests).toHaveLength(0);
+  });
+});
+
 describe('FeatureState.flags', () => {
   it('reads every declared flag through the flags resource, whole and by name', async () => {
     const transport = serverWith(() => []);
@@ -331,6 +439,7 @@ describe('FeatureState on an API that serves no feature flags', () => {
   const refusals: { name: string; call: (api: ClientBase) => Promise<unknown> }[] = [
     { name: 'flags', call: (api) => api.features.flags() },
     { name: 'setFeature', call: (api) => api.features.setFeature('debriefs', true) },
+    { name: 'changes', call: (api) => api.features.changes('debriefs') },
   ];
 
   for (const tt of refusals) {

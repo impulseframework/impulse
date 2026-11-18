@@ -121,14 +121,14 @@ export const routes = [
 `,
 		},
 		{
-			name: "the base's menu file: the spread and the names it alone used go, the group stays",
+			name: "the base's menu file: the spread and the names it alone used go, the group and a name another entry uses stay",
 			text: `import { apiDescriptor } from '@app/service/zz_gen_api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
+import { Menu } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
 import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
 
-export function appMenus(actions: FrameActions): Menu[] {
+export function appMenus(): Menu[] {
   return [
     {
       label: 'System',
@@ -141,11 +141,8 @@ export function appMenus(actions: FrameActions): Menu[] {
         },
         {
           entries: [
-            {
-              label: 'Feature flags…',
-              run: () => actions.featureFlags(),
-              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
-            },
+            // The feature flags the application declares: the library's page.
+            featureFlagsPage(resourceMeta),
           ],
         },
       ],
@@ -153,10 +150,12 @@ export function appMenus(actions: FrameActions): Menu[] {
   ];
 }
 `,
-			want: `import { Permissions, Resources } from '@app/service/zz_gen_constants';
-import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
+			// The metadata stays: the Feature flags page reads it too.
+			want: `import { resourceMeta } from '@app/service/zz_gen_resources';
+import { Menu } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
 
-export function appMenus(actions: FrameActions): Menu[] {
+export function appMenus(): Menu[] {
   return [
     {
       label: 'System',
@@ -167,11 +166,8 @@ export function appMenus(actions: FrameActions): Menu[] {
         },
         {
           entries: [
-            {
-              label: 'Feature flags…',
-              run: () => actions.featureFlags(),
-              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
-            },
+            // The feature flags the application declares: the library's page.
+            featureFlagsPage(resourceMeta),
           ],
         },
       ],

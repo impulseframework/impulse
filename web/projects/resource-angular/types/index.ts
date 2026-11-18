@@ -8,3 +8,4 @@ export * from './resource-types';
 export * from './session-info';
 export * from './tokens';
 export * from './validators';
+export * from './words';

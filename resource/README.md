@@ -1167,6 +1167,21 @@ proves it: in range answered, below or above refused with the header and no hand
 and no body read, no header and `dev` answered, session and file routes answered at any
 release, the machine outlets unchecked, and the refusal landing before the hook.
 
+**The environment's name.** Beside its release a server names the environment it runs in,
+wherever that is not production, so a browser application can show it and a problem
+report can say where it happened. The name is `Handlers.ServerEnvironment()`, which the
+application answers from its configuration's `APP_ENVIRONMENT`: a deployment sets the
+variable to the environment's name (`tst`, `development`) everywhere but production,
+which leaves it unset. The generated router names it on every answer in `X-Environment`
+(`resource.NameEnvironment`, in front of every route, last in the chain every request
+passes), percent-encoded as a path segment is, so a name with a space or a letter outside
+ASCII arrives whole; a server that reports no name sends no such header, which is how
+production reads. The browser's client keeps the name from any answer
+(`client.serverEnvironment`) and the library's About pop-up shows it and copies it, with
+the application's name and the release, as one line for a report. The generated test
+proves both halves: a server told its environment names it on an answer, the answer for
+an address no route serves included, and a server told none names none.
+
 **The release file.** Beside the router the generator writes `zz_gen_release.json`, which
 names every outlet and, for each session outlet, the oldest release it answers, so a
 deploy tells from the checkout alone, without building or running the server, whether a
@@ -2461,6 +2476,9 @@ through the configuration's database client when the App is built and follows it
 GET  <prefix>/features                       → 200 {"enabled":["debriefs", ...]}     anyone signed in, every outlet
 GET  <prefix>/feature-flags                  → the FeatureFlags list, sort=name       List on FeatureFlags (global)
 GET  <prefix>/feature-flags/{featureFlagName} → one flag                              Read on FeatureFlags (global)
+GET  <prefix>/feature-flags/{featureFlagName}/changes
+                                             → 200 {"changes":[{"changedAt","enabled","changedBy"}, ...],"more":false}
+                                                                                      List on FeatureFlags (global)
 POST <prefix>/set-feature                    {"name":"debriefs","enabled":true}      Execute on SetFeature (global)
                                              → 200 {"name","enabled","updatedAt"}; an undeclared flag is 404
 ```
@@ -2471,10 +2489,47 @@ again after a flip, and what the client's `features` state (`enabled(name)`,
 generator registers in every application's collection (List and Read over `description`,
 `enabled`, `updatedAt` and `updatedBy`, `name` the key, listed by name) and carries in
 the TypeScript constants, metadata and descriptor exactly as a generated resource, so
-the feature flags dialog reads it through an ordinary handle; the routes are the
-library's handlers (`resource.FeatureFlagsHandler`, `resource.FeatureFlagHandler`),
-delegated to from the generated `zz_gen_features.go` in the handler package, and a
-struct or a manual registration that would take the name `FeatureFlags` is refused.
+the Feature flags page is the library's list over it and reads it through an ordinary
+handle; the routes are the library's handlers (`resource.FeatureFlagsHandler`,
+`resource.FeatureFlagHandler`), delegated to from the generated `zz_gen_features.go` in
+the handler package, and a struct or a manual registration that would take the name
+`FeatureFlags` is refused. Three of its fields are served as a person reads them. The
+`description` is the constant's doc comment with the flag's name in words in the
+constant's place where the comment opens with it, as a Go comment does
+(`FeatureDeclaration.Words`: "CargoManifest shows a ship's cargo bays." is served as
+"Cargo manifest shows a ship's cargo bays."), which is how `MigrateFeatures` writes the
+table. `updatedAt` and `updatedBy` are when the flag was last flipped and by whom, read
+from the flag's newest change record and not from the row's columns of those names,
+since the deploy step that declares a flag writes the row too, under a process's name
+and at the time of the deploy: so the list says what the flag's history says.
+`updatedAt` is the moment of the last flip, and `null` for a flag nobody has flipped.
+`updatedBy` is the name the person signs in under, read out of the event source the flip
+recorded (`resource.EventActor`; the session and the account's id stay in the table as
+evidence), a process's source as it was recorded where a process flipped it, and the
+empty string for a flag nobody has flipped. `EventActor` reads the words of a sentence
+in which nothing is escaped, so the name is for showing to a reader and for no decision.
+A sort the request asks on `updatedAt` or `updatedBy` orders the rows by the row's own
+columns, the last write of any kind, which is why the Feature flags page offers none on
+them.
+
+**A flag's history.** `GET <prefix>/feature-flags/{featureFlagName}/changes`
+(`resource.FeatureFlagChangesHandler`) reads the flag's change records back newest
+first: when each flip was committed, what the flag was turned to, and who did it, by the
+same rule as `updatedBy`. It asks no grant of its own. The flag is read first as the
+list reads it, under List on `FeatureFlags` with whatever condition the grant carries, so
+whoever may see the flag in the list may see its history, a caller without the grant is
+refused with 403 and an undeclared flag is 404. Each flip carries what the caller may see
+of the flag: its facts ride the grants on the flag's fields that hold the same facts
+today (`changedAt` under `updatedAt`, `enabled` under `enabled`, `changedBy` under
+`updatedBy`), so a grant that leaves out who last flipped a flag leaves `changedBy` out
+of every flip, and a caller who may list none of the three (the description alone, say)
+is refused with 403, since the answer would tell them only how often the flag was
+flipped. The request's query is not read; nothing asked of the list (`columns`, a
+filter, a page) narrows the history. One read answers the newest
+`resource.FeatureFlagChangesLimit` flips (100) and says with `more` when older ones are
+left out; a flag nobody has flipped answers an empty list. The route reads the change
+table and never the `FeatureSet`, so it adds nothing to how the instances keep their
+copies.
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
 one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
@@ -2498,8 +2553,9 @@ Read on `FeatureFlags` with its four non-key fields, in the global scope:
 }
 ```
 
-The digest decides what the dialog may do: a user without Execute sees the flags and
-cannot flip them; a user without List is never shown the dialog.
+The digest decides what the Feature flags page may do: a user without Execute sees the
+flags and each flag's history and cannot flip one; a user without List is never shown the
+page.
 
 **Tests.** The generated authorization matrix carries the features route as an open
 case (200 without a grant), the FeatureFlags routes as query pairs, and SetFeature as

@@ -7,6 +7,11 @@
 # --- core: every process ---
 export APP_SERVICE_NAME=lodestar
 export APP_VERSION=dev
+# APP_ENVIRONMENT names the environment wherever it is not production: every answer of the
+# server carries the name and the About pop-up shows it, so a problem report says where it
+# happened. A deployment sets it to the environment's name everywhere but production, which
+# leaves it unset and names none.
+export APP_ENVIRONMENT=development
 # GOOGLE_CLOUD_LOGGING_PROJECT ships request logs to Cloud Logging; unset logs to the console.
 # export GOOGLE_CLOUD_LOGGING_PROJECT=
 # APP_TRACE_SAMPLING exports every request's spans (all) or the ones the caller sampled (edge,

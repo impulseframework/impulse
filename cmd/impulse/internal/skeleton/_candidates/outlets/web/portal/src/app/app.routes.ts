@@ -64,7 +64,7 @@ export const routes: Routes = [
           // pages from it, each placed in the menus behind the List grant on its resource,
           // each row offering the methods the caller may run on it.
           ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),
-          // The person's account and About pages: the library's, in every place.
+          // The person's account page: the library's, in every place.
           ...frameRoutes(),
         ],
       },

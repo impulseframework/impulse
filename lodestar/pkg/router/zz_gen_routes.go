@@ -333,6 +333,7 @@ type GeneratedHandlers interface {
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
+	FeatureFlagChanges() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
@@ -965,6 +966,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/feature-flags/{featureFlagName}", featureFlagHandler)
 	bounded.Post("/console/api/feature-flags/{featureFlagName}", featureFlagHandler)
 
+	bounded.Get("/console/api/feature-flags/{featureFlagName}/changes", h.FeatureFlagChanges())
+
 	bounded.Get("/console/api/features", h.Features())
 
 	feeByKindsHandler := h.FeeByKinds()
@@ -1527,6 +1530,7 @@ type GeneratedPortalHandlers interface {
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
+	FeatureFlagChanges() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
@@ -1684,6 +1688,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	featureFlagHandler := h.FeatureFlag()
 	bounded.Get("/portal/api/feature-flags/{featureFlagName}", featureFlagHandler)
 	bounded.Post("/portal/api/feature-flags/{featureFlagName}", featureFlagHandler)
+
+	bounded.Get("/portal/api/feature-flags/{featureFlagName}/changes", h.FeatureFlagChanges())
 
 	bounded.Get("/portal/api/features", h.Features())
 
