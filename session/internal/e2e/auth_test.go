@@ -782,7 +782,7 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name:     "a person with a directory link removes their password: it no longer signs them in, the link does, their sessions stand and the name's failed attempts start over; a person with no link keeps it",
 			run:      seamPasswordRemoval[Tx],
-			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
+			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, lockForCases)},
 		},
 		{
 			name: "a password sign-in held for the email code completes only while the password it proved is the person's: after their own change, an operator's temporary password or a removal the right code is refused as a wrong password is",
@@ -795,12 +795,12 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name:     "failed password attempts on a name are limited: the attempt past the limit is refused with 429 and the wait from any browser, known or unknown name alike, the lock passes, and a matching password resets the count",
 			run:      seamPasswordAttemptLimit[Tx],
-			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
+			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, lockForCases)},
 		},
 		{
 			name:     "a dozen wrong passwords for one name entered at once each ask for an attempt: three are compared, the limit, and the rest are refused unjudged; a dozen copies of the right password entered at once sign the person in",
 			run:      seamPasswordGuessesAtOnce[Tx],
-			password: []session.PasswordOption{session.AttemptLimit(3, time.Minute, 2*time.Second)},
+			password: []session.PasswordOption{session.AttemptLimit(3, time.Minute, lockForCases)},
 		},
 		{
 			name: "the after-sign-in hook is told of every session a sign-in establishes, once, and of no refused or held sign-in",
