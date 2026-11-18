@@ -409,7 +409,7 @@ page that cannot render what the server asks; a new step is added to the compone
 the declaration together.
 
 A session the sign-in establishes may carry `passwordChangeRequired`: an operator set the password
-(the seed's first administrator, an account created with a password or given a temporary one), and
+(an account created with a password or given a temporary one), and
 the server serves nothing but the password change, the session read and the logout until the person
 sets a password of their own, refusing everything else with a 403 and the code
 `password_change_required`. The component renders the change form in the list's place, with the

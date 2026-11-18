@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -53,7 +54,7 @@ func TestPortalOutlet(t *testing.T) {
 	// a sign-in carries the tenant's second factor: once the account holds its confirmed
 	// address the callback opens the session and sends the browser to the page, asking
 	// for no sign-in code and mailing nothing.
-	mailed := len(s.mail.Messages())
+	mailed := len(s.membersMail.Messages())
 	later := newBrowser(t, s, portalAPI)
 	if status, body := later.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
 		t.Fatalf("GET session before the second login: status %d: %s", status, body)
@@ -61,7 +62,7 @@ func TestPortalOutlet(t *testing.T) {
 	if status, location := later.loginPortal(ctx, clientUser); status != http.StatusFound || location != portalPage {
 		t.Fatalf("the client's second portal login: status %d to %q, want %d straight to %q", status, location, http.StatusFound, portalPage)
 	}
-	if n := len(s.mail.Messages()); n != mailed {
+	if n := len(s.membersMail.Messages()); n != mailed {
 		t.Fatalf("the client's second portal login mailed %d messages, want none: the address is confirmed and the tenant's own second factor is carried", n-mailed)
 	}
 	status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil)
@@ -139,77 +140,88 @@ func TestPortalOutlet_aRoleUnderANameAdmitsNobody(t *testing.T) {
 	}
 }
 
-// TestPortalOutlet_theFirstAdministratorSignsIn proves the members auth's foothold end
-// to end: the first administrator the deployment seeds can sign in. The members auth's
-// people sign in through a directory and the application gives its roles, so the seed
-// creates the administrator with no password under the sign-in name the directory will
-// present, holding the Super Administrator role for the whole application and
-// belonging to no tenant. The application's tenants have directories, and an account
-// that has never signed in is linked on its name only when something vouches for it: no
-// tenant's directory vouches for this one, whose roles are no tenant's. The deployment
-// does: the seed creates the account under the id that names the registration the
-// person comes through (session.SeedUserIDThrough), which the sign-in rule recognizes,
-// and the registration admits one organization alone. So the first sign-in through the
-// directory links the account and opens its session.
-func TestPortalOutlet_theFirstAdministratorSignsIn(t *testing.T) {
+// TestPortalOutlet_theFirstAdministratorIsInvited proves the members auth's foothold as
+// far as the simulated directory shows it: the deployment invites the first
+// administrator, makes no account ahead of them, and nobody else gets in. The members
+// auth's people sign in through a directory and the application gives its roles, so the
+// release has an invitation mailed to the address the placement names, while nobody of
+// the auth holds the Super Administrator role: the portal's client, an account that
+// holds no such role, stops nothing. The application's tenants have directories, and the
+// first administrator belongs to no tenant, so no tenant's directory vouches for them:
+// the invitation does. Another person of the same directory who signs in first is a
+// stranger without the link, and with it the invitation is for another address; neither
+// makes an account, and the invitation stands. An account somebody created ahead under
+// a name, for the whole application, is nobody's invitation either, and its name links
+// nothing; holding the Super Administrator role, it is somebody who administers the
+// auth, so from then on a release invites nobody and a fresh invitation is refused.
+//
+// The acceptance itself is not played here. An invitation is accepted by the account
+// whose address it was mailed to, and the simulated Microsoft directory asserts no
+// address for anyone, so nobody accepts an invitation through it. The invited person's
+// first sign-in through a directory, linked and holding the roles, is proven where the
+// directory asserts an address: the tenanted skeleton's google registration, and the
+// session library's own suites on both databases.
+func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	const administrator = "first.administrator@north.example"
-	s := newServedSeeding(ctx, t, administrator)
+	s := newServedInviting(ctx, t, administrator)
 
-	// The seed made the account under the id it derives for the registration, with the
-	// role every first administrator holds, and no link: nobody has signed in.
-	seeded := session.SeedUserIDThrough(members.Name, members.DirectoryRegistration, administrator)
-	if !accountExists(ctx, t, s, membersUsers, administrator) {
-		t.Fatal("the seed made no account for the members auth's first administrator")
+	// The release mailed one invitation and made no account.
+	if sent := s.membersMail.Messages(); len(sent) != 1 || sent[0].To != administrator {
+		t.Fatalf("the release mailed %d message(s), want one, to %s: a message's text holds its link and is not printed", len(sent), administrator)
 	}
-	held, err := s.members.UserManager().UserRoles(ctx, accesstypes.User(seeded.String()))
-	if err != nil {
-		t.Fatalf("UserRoles(%s) in the members store error = %v", seeded, err)
-	}
-	if !held.HoldsSuperAdministrator() {
-		t.Fatalf("the account under the seed's id holds %v, want the Super Administrator role: the seed did not create the administrator under the id that names its registration", held)
-	}
-	if n := identityLinks(ctx, t, s, seeded.String()); n != 0 {
-		t.Fatalf("the first administrator's account holds %d identity links before the first sign-in, want none", n)
+	if accountExists(ctx, t, s, membersUsers, administrator) {
+		t.Fatal("the release made an account for the members auth's first administrator, want none ahead of the person")
 	}
 
-	b := newBrowser(t, s, portalAPI)
-	if status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+	// Another person of the directory signs in first, with no link: a stranger.
+	const other = "someone.else@north.example"
+	stranger := newBrowser(t, s, portalAPI)
+	if status, body := stranger.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
 		t.Fatalf("GET session before login: status %d: %s", status, body)
 	}
-	if status, location := b.loginPortal(ctx, administrator); status != http.StatusFound || location != portalPage {
-		t.Fatalf("the first administrator's first sign-in through the directory: status %d to %q, want %d to %q: a deployment whose first administrator cannot sign in has nobody who can admit anyone", status, location, http.StatusFound, portalPage)
+	if status, location := stranger.loginPortal(ctx, other); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedInvitationOnly)) {
+		t.Errorf("another person of the directory signing in first, with no link: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedInvitationOnly)
 	}
-	status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET session after login: status %d: %s", status, body)
+	// The same person with the link: the invitation is for another address.
+	stranger = newBrowser(t, s, portalAPI)
+	if status, body := stranger.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before login: status %d: %s", status, body)
 	}
-	var sess struct {
-		Authenticated bool   `json:"authenticated"`
-		Username      string `json:"username"`
+	if status, body := stranger.do(ctx, http.MethodPost, portalAPI+"/user/invitation", []byte(`{"token":"`+mailedMembersInvitation(t, s, administrator)+`"}`)); status != http.StatusOK {
+		t.Fatalf("opening the invitation as another person: status %d: %s", status, body)
 	}
-	if err := json.Unmarshal(body, &sess); err != nil {
-		t.Fatal(err)
+	if status, location := stranger.loginPortal(ctx, other); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedInvitationAddress)) {
+		t.Errorf("another person of the directory accepting the first administrator's invitation: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedInvitationAddress)
 	}
-	if !sess.Authenticated || sess.Username != administrator {
-		t.Fatalf("session after login = %+v, want authenticated as %s", sess, administrator)
+	if accountExists(ctx, t, s, membersUsers, other) {
+		t.Error("an account was made for the person the invitation was not for")
 	}
-	// The sign-in linked the directory's identity to the seeded account, and to no
-	// other: the session is the first administrator's.
-	if n := identityLinks(ctx, t, s, seeded.String()); n != 1 {
-		t.Errorf("the first administrator's account holds %d identity links after the first sign-in, want the directory's one", n)
+	if standing, err := s.membersAuth.Session().API().Invitations(ctx); err != nil || len(standing) != 1 || standing[0].Email != administrator {
+		t.Errorf("the invitations that stand after the refused sign-ins = %+v, %v, want the first administrator's alone", standing, err)
 	}
-	// A super administrator enters every tenant: the portal lists them.
-	if status, body := b.do(ctx, http.MethodGet, portalAPI+"/user-domains", nil); status != http.StatusOK || !strings.Contains(string(body), north) {
-		t.Errorf("GET user-domains as the first administrator: status %d: %s, want 200 naming north", status, body)
+
+	// The next release finds an account in the members auth, the portal's client, who
+	// holds no Super Administrator role: nobody administers the auth, so the first
+	// administrator is invited still, by the invitation that stands, and nothing is
+	// mailed.
+	if !accountExists(ctx, t, s, membersUsers, clientUser) {
+		t.Fatalf("the members auth has no account for %s, want the portal's client there", clientUser)
+	}
+	again, err := s.membersAuth.InviteAdministrator(ctx, administrator)
+	if err != nil || again.Outcome != session.FirstAdministratorStanding || again.Email != administrator {
+		t.Errorf("the release beside an account that holds no role = %+v, %v, want the first administrator's invitation left standing", again, err)
+	}
+	if sent := len(s.membersMail.Messages()); sent != 1 {
+		t.Errorf("%d message(s) mailed in all, want the first release's one", sent)
 	}
 
 	// An account an administrator created ahead under a name, with a role for the whole
-	// application and no password, is no seed's: its id is generated. The directory
-	// presents the name and nothing vouches for the account, so the sign-in is refused
-	// as a stranger's is and links nothing.
+	// application and no password, is nobody's invitation. The directory presents the
+	// name and nothing vouches for the account, so the sign-in is refused as a stranger's
+	// is and links nothing.
 	const createdAhead = "created.ahead@north.example"
 	ahead, err := s.membersAuth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: createdAhead})
 	if err != nil {
@@ -218,16 +230,49 @@ func TestPortalOutlet_theFirstAdministratorSignsIn(t *testing.T) {
 	if err := s.members.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(ahead.String()), accesstypes.SuperAdministrator); err != nil {
 		t.Fatalf("AddUserRoles(%s) in the members store error = %v", createdAhead, err)
 	}
-	other := newBrowser(t, s, portalAPI)
-	if status, body := other.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+	aheadBrowser := newBrowser(t, s, portalAPI)
+	if status, body := aheadBrowser.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
 		t.Fatalf("GET session before login: status %d: %s", status, body)
 	}
-	if status, location := other.loginPortal(ctx, createdAhead); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedInvitationOnly)) {
+	if status, location := aheadBrowser.loginPortal(ctx, createdAhead); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedInvitationOnly)) {
 		t.Errorf("a directory sign-in under the name of an account created ahead for the whole application: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedInvitationOnly)
 	}
 	if n := identityLinks(ctx, t, s, ahead.String()); n != 0 {
 		t.Errorf("the account created ahead holds %d identity links after the refused sign-in, want none", n)
 	}
+
+	// That account holds the Super Administrator role, so somebody administers the
+	// members auth: the next release invites nobody, and a fresh invitation is refused.
+	// The invitation that stands for the address still named is left to be accepted.
+	held, err := s.membersAuth.InviteAdministrator(ctx, administrator)
+	if err != nil || held.Outcome != session.FirstAdministratorRoleHeld || len(held.Withdrawn) != 0 {
+		t.Errorf("the release once an account holds the Super Administrator role = %+v, %v, want nobody invited and nothing withdrawn", held, err)
+	}
+	if _, err := s.membersAuth.ReinviteAdministrator(ctx, administrator); !errors.Is(err, session.ErrFirstAdministratorRoleHeld) {
+		t.Errorf("members.Auth.ReinviteAdministrator() once an account holds the Super Administrator role: error = %v, want %v", err, session.ErrFirstAdministratorRoleHeld)
+	}
+	if sent := len(s.membersMail.Messages()); sent != 1 {
+		t.Errorf("%d message(s) mailed in all, want the first release's one", sent)
+	}
+}
+
+// mailedMembersInvitation reads the token of the invitation link the members auth mailed
+// to the address, which opens the portal's login page.
+func mailedMembersInvitation(t *testing.T, s *served, email string) string {
+	t.Helper()
+
+	link := regexp.MustCompile(`http://outlets\.test/portal/login\?invitation=([A-Za-z0-9_-]+)`)
+	for _, m := range s.membersMail.Messages() {
+		if m.To != email {
+			continue
+		}
+		if match := link.FindStringSubmatch(m.Text); match != nil {
+			return match[1]
+		}
+	}
+	t.Fatalf("no invitation link was mailed to %s by the members auth (%d messages)", email, len(s.membersMail.Messages()))
+
+	return ""
 }
 
 // TestConsoleSessionOnPortal signs a staff login in on the console and confirms its

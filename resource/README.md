@@ -2342,7 +2342,9 @@ reopen every kind that advanced while it was down wakes once. A signal carries n
 but the fact of a change, so the signaler coalesces: while a write of a kind is in
 flight, later signals of the kind are absorbed into one following write. A signal's
 failure is returned for the caller to log and never fails the request, since every
-subscriber also rereads at its own backstop. The kinds are `resource.SignalKind`
+subscriber also holds its copy to its own backstop, on the request's path and not only
+on a loop's (sections 15 and 16: the feature flags and the tenant roster; the permission
+engine's heartbeat interval in the access package). The kinds are `resource.SignalKind`
 (`KindFeatures`, `KindTenants`, `KindPolicy`), re-exported by the live package as
 `live.Kind`; the document needs no index, no time-to-live and no rules exposure, since
 no client reads it.
@@ -2426,10 +2428,27 @@ bootstrap commands.
 **The copy every instance holds.** `resource.LoadFeatures(ctx, client)` reads the table
 into a `FeatureSet`, and `FeatureSet.Follow(ctx, liveService)` keeps it current until
 ctx ends: the flags ride the `features` kind of the live service's signals document
-(section 14), so on every signal of that kind, and at the five-minute backstop
-regardless, the table is reread; a failed reread is logged and the copy stays as it
-was. A flip therefore reaches every instance within a moment, and the backstop is the
-guard should a signal be missed. The subscriber is the application's live service,
+(section 14). The freshness is the request's own: a lookup (`Enabled`, `Flag`,
+`EnabledNames`) that finds the copy older than the backstop
+(`resource.WithFeatureBackstop`, five minutes by default), or behind a signal of that
+kind this instance received, rereads the table before it answers, under the context
+`Follow` was given and never the request's, and one reread serves every request waiting
+at that moment. A signal is recorded the moment it arrives, before any reread is tried,
+and a reread already in flight then does not clear it. `Follow`'s loop rereads on every
+signal and at the backstop interval too, ahead of the requests, so on an instance that
+is serving a lookup finds the copy fresh and reads nothing; nothing depends on the loop,
+so an instance that got no CPU between requests (Cloud Run's default) answers its next
+one from a read no older than the backstop. A failed reread is logged, the copy stays as
+it was, and the table is left alone for one second: lookups in that pause are answered
+from the copy without a read, so a database that is down is read, and its failure
+logged, once a pause and not once a lookup, and the first lookup after the pause tries
+again. `Reload`, which a flip's handler calls after
+its commit, records the flip before it reads, so a reload that fails (the request that
+flipped had ended) is made good by the next lookup (the first after the pause, where a
+reread has just failed), under the set's own context. A
+database that does not answer holds a lookup for less than twice the read's timeout
+(ten seconds): the read in flight when the lookup came, and at most one after it. A flip therefore reaches every instance that
+is serving within a moment, and the backstop bounds the rest. The subscriber is the application's live service,
 which every application wires; `Follow` refuses a nil one. The application exposes the
 copy as `FeatureSet() *resource.FeatureSet`, asserted on the application type beside
 `LiveService`, and the generated decoders, routes and digest read it. Lodestar reads it
@@ -2551,9 +2570,10 @@ holds, built by the generated constructor in the handler package,
 `New<Record>Roster(client, opts...)` (`NewSectorRoster` for `Sector`), which carries the
 record's table and key column so the application names neither. `Start(ctx)` reads the
 set once, failing the start when the read fails, and then keeps it current until ctx
-ends. `Has(domain)` answers from the set behind an atomic pointer, so it never waits and
-performs no read: a domain the set does not hold is unknown, whatever the table says at
-that moment. `Domains(ctx)` lists the set sorted, in `DomainRoster`'s signature, so the
+ends. `Has(domain)` answers from the set behind an atomic pointer: while the copy is
+inside its backstop and no tenants signal has arrived since its last read, it waits on
+nothing and performs no read (Keeping up, below, says when it rereads first). A domain
+the set does not hold is unknown. `Domains(ctx)` lists the set sorted, in `DomainRoster`'s signature, so the
 roster's `Domains` is what the application hands `SessionPermissions`. `Add` and
 `Remove` change the set at once. The read is one statement selecting the key column,
 rendered for Spanner and for PostgreSQL and run outside any request transaction. The
@@ -2584,10 +2604,25 @@ the application's one signals document, after the commit and before the response
 feature flip signals the features kind; a failure to reload or to signal is logged and
 never fails the request. Every instance's roster reloads on the signal: `Start`
 subscribes to the application's one watch when `resource.WithTenantSignals(liveService)`
-is passed, and never opens a listener of its own. Behind the push, a backstop reread
-(`resource.WithTenantBackstop`, five minutes by default) is the correctness guard, so an
-instance that missed a signal is at most that far behind; a failed reread is logged and
-the set stays as it was until the next. A role held in every tenant domain reaches a new
+is passed, and never opens a listener of its own. The freshness is the request's own: a
+lookup (`Has`, `Domains`, `Declarations`, `Name`, `Named`) that finds the copy older
+than the backstop (`resource.WithTenantBackstop`, five minutes by default), or behind a
+tenants signal this instance received, rereads the table before it answers, under the
+context `Start` was given and never the request's, and one reread serves every request
+waiting at that moment. A signal is recorded the moment it arrives, before any reread is
+tried, and a reread already in flight then does not clear it. `Start`'s loop rereads on
+every signal and at the backstop interval too, ahead of the requests, so on an instance
+that is serving a lookup finds the copy fresh; nothing depends on the loop, so an
+instance that got no CPU between requests (Cloud Run's default) answers its next one
+from a read no older than the backstop, and an instance that missed a signal is at most
+that far behind. A failed reread is logged, the set stays as it was, and the table is
+left alone for one second: lookups in that pause are answered from the set without a
+read, so a database that is down is read, and its failure logged, once a pause and not
+once a lookup, and the first lookup after the pause tries again. `Reload` records the change before it reads, so a reload that fails
+(the request that wrote had ended) is made good by the next lookup (the first after the
+pause, where a reread has just failed), under the roster's own context. A database that does not answer holds a lookup for less than twice the
+read's timeout (ten seconds): the read in flight when the lookup came, and at most one
+after it. A role held in every tenant domain reaches a new
 tenant with nothing written for it; the one membership written when a tenant is made is
 its first administrator's. `Add` stays for a test harness that seeds a roster without a
 table; the generated paths never call it.

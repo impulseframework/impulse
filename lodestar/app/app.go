@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -420,10 +421,12 @@ func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
 
 // TenantRoster is the application's tenant roster (resource.TenantRoster): the sectors
 // every instance serves, which the generated DomainGuard and the consolidated dispatcher
-// ask before a sector-scoped request runs (Has: no read, no wait) and the generated
-// Sector write paths add to and remove from after their commit. The configuration builds
-// it with the generated NewSectorRoster and starts it over the live service's signals,
-// so a sector charted on any instance is served here at the next request.
+// ask before a sector-scoped request runs (Has: no read and no wait while the copy is
+// inside its backstop and behind no signal; a reread of the table first otherwise), and
+// the generated Sector write paths add to and remove from after their commit. The
+// configuration builds it with the generated NewSectorRoster and starts it over the live
+// service's signals, so a sector charted on any instance is served here at the next
+// request.
 //
 // Demonstrates: tenancy.run-time-tenant.
 func (a *App) TenantRoster() *resource.TenantRoster {
@@ -508,11 +511,12 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	// The persona cast: where the persona method is registered (the test environments),
 	// the cast's logins exist for the persona sign-in to link to, seated in their roles;
-	// a login seeded already is left as it is.
+	// a login seeded already is given the roles its entry names that it does not hold,
+	// each said on the standard output, and keeps what it holds.
 	//
 	// Demonstrates: auth.persona.
 	if a.crew != nil && a.crew.PersonaRegistered() {
-		if _, err := a.crew.SeedCast(ctx); err != nil {
+		if _, err := a.crew.SeedCast(ctx, os.Stdout); err != nil {
 			return errors.Wrap(err, "crew.Auth.SeedCast()")
 		}
 	}

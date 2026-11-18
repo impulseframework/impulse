@@ -1383,7 +1383,8 @@ var liveDerivations = live.Merge(
 
 	// domainGuardTemplate emits the application's DomainGuard middleware once; generated
 	// route registration wraps every domain-scoped route in it. The guard reads the
-	// application's tenant roster first (TenantRoster().Has: no read, no wait), the
+	// application's tenant roster first (TenantRoster().Has: answered from the roster's
+	// copy, with no read while the copy is inside its backstop and behind no signal), the
 	// session's reach next (UserPermissions.Reaches: whether the tenant admits the way
 	// the session was established) and, under WithConcealedDomains, the caller's
 	// foothold last, answering the same not-found every time. No marker check is

@@ -149,11 +149,6 @@ func TestAudienceOf(t *testing.T) {
 			if got.Words() != tt.want || !got.Limited() {
 				t.Errorf("audienceOf() = %q (limited %v), want %q, limited to the provider", got.Words(), got.Limited(), tt.want)
 			}
-			// A provider reads as one organization whatever its issuer serves: a seed made
-			// for its registration is its author's word that it is the deployment's own.
-			if !got.OneOrganization() {
-				t.Error("audienceOf().OneOrganization() = false, want the provider read as the one organization")
-			}
 		})
 	}
 }

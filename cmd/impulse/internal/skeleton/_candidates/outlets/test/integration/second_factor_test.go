@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -178,8 +179,8 @@ func (b *browser) verifyCodeLocked(ctx context.Context, user, code string, remem
 func (b *browser) askCodeLocked(ctx context.Context, enroll bool, address string) string {
 	b.t.Helper()
 
-	s := b.served
-	before := len(s.mail.Messages())
+	sent := b.recorder()
+	before := len(sent.Messages())
 	if enroll {
 		give, err := json.Marshal(map[string]string{"email": address})
 		if err != nil {
@@ -191,7 +192,7 @@ func (b *browser) askCodeLocked(ctx context.Context, enroll bool, address string
 	} else if status, body := b.do(ctx, http.MethodPost, b.prefix+"/user/pending/code", nil); status != http.StatusOK {
 		b.t.Fatalf("asking for the sign-in code: status %d: %s", status, body)
 	}
-	for _, m := range s.mail.Messages()[before:] {
+	for _, m := range sent.Messages()[before:] {
 		if match := codeSubject.FindStringSubmatch(m.Subject); match != nil {
 			return match[1] + match[2]
 		}
@@ -199,4 +200,14 @@ func (b *browser) askCodeLocked(ctx context.Context, enroll bool, address string
 	b.t.Fatalf("no sign-in code was mailed after the request (%d messages before)", before)
 
 	return ""
+}
+
+// recorder is where the auth the browser signs in to sends its mail: the members auth's
+// recorder for a browser on the portal, the staff auth's for one on the console.
+func (b *browser) recorder() *mail.Recorder {
+	if b.prefix == portalAPI {
+		return b.served.membersMail
+	}
+
+	return b.served.mail
 }

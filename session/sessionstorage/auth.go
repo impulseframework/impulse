@@ -605,13 +605,6 @@ type SignInRules[Tx any] struct {
 	// for none): with Directories it decides a first link made on a name alone to an
 	// account that has never signed in.
 	OnlyIn signinflow.OnlyInTenant[Tx]
-	// Seeded reports whether an account is the deployment's own seed for the
-	// registration the sign-in came through (nil for none), and OneOrganization says
-	// that registration admits exactly one organization and nobody else
-	// (signin.Audience.OneOrganization): with Directories the two admit the seed's
-	// first link on the name.
-	Seeded          signinflow.SeededAccount
-	OneOrganization bool
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
@@ -639,7 +632,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
-		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, Seeded: rules.Seeded, OneOrganization: rules.OneOrganization,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn,
 		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {

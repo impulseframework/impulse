@@ -127,12 +127,6 @@ type DirectorySeater[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUI
 // is held to what InvitationAcceptor is for its reads: tx alone.
 type OnlyInTenant[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
 
-// SeededAccount is the application's word on an account the deployment's own seed
-// created for a person who signs in through a directory: whether the account with this
-// id and username is the one a seed made for the registration named
-// (session.SeedUserIDThrough). It reads nothing. See firstLink.
-type SeededAccount func(userID impulse.UUID, username, registration string) bool
-
 // SignUpSeater is the application's half of a sign-up through a method an administrator
 // opened: it gives userID, named by id and by username, the default role the method's
 // row names, inside the transaction that makes the account, which it is handed: the
@@ -187,13 +181,6 @@ type Rules[Tx any] struct {
 	Directories signin.DirectoryReader[Tx]
 	Seat        DirectorySeater[Tx]
 	OnlyIn      OnlyInTenant[Tx]
-	// Seeded reports whether an account is the deployment's own seed for the
-	// registration the sign-in came through, nil for none, and OneOrganization says
-	// that registration admits the people of exactly one organization and nobody else
-	// (signin.Audience.OneOrganization): with Directories the two admit the seed's
-	// first link on the name; see firstLink.
-	Seeded          SeededAccount
-	OneOrganization bool
 	// SeededUsers says the registration declared its provider's names the
 	// application's own (signin.Registration.SeededUsers): the standard rule's first
 	// link of a user created ahead is then made on the name alone; see firstLink.
@@ -1368,19 +1355,10 @@ func holdsAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impul
 //   - the sign-in carries the user's own invitation (ownInvitation): the person holds
 //     the link mailed to the account's address. byInvitation then says the invitation
 //     admitted the link, so a dead one ends the sign-in and links nothing. A disabled
-//     user accepts no invitation, so theirs vouches for nothing;
-//   - the account is the deployment's own seed for the registration the sign-in came
-//     through (rules.Seeded: the first administrator of an auth whose people sign in
-//     through a directory, created with no password under the name the directory will
-//     present), and that registration admits one organization and nobody else
-//     (rules.OneOrganization). The deployment named the account and, by the id it
-//     seeded it under, the registration its name is believed from; a registration of
-//     one organization lets no other directory present the name. The same name through
-//     another registration of the Auth, a customer's own provider among them, or
-//     through a registration open to several organizations, to any organization or to
-//     personal accounts, is not the deployment's word and links nothing. A disabled
-//     seed is vouched for by nothing, as a disabled user's invitation vouches for
-//     nothing: no link is left on an account nobody may sign in to.
+//     user accepts no invitation, so theirs vouches for nothing.
+//
+// The deployment's own first administrator is no such account: no account is made ahead
+// of the person, who is invited, and the invitation is what vouches.
 //
 // Any other sign-in under the name is refused as a person no account was created for
 // is, with that refusal's code and words, which say nothing of the account: by
@@ -1391,9 +1369,6 @@ func firstLink[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, rules Rules[Tx],
 ) (byInvitation bool, stop, err error) {
 	if rules.Directories == nil || rules.SeededUsers {
-		return false, nil, nil
-	}
-	if rules.Seeded != nil && rules.OneOrganization && !user.Disabled && rules.Seeded(user.ID, user.Username, rules.Method) {
 		return false, nil, nil
 	}
 	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)

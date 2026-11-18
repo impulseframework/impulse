@@ -278,14 +278,6 @@ type Method struct {
 	// (google.AnyGoogleAccount), alone (WorkspacesAccounts) or beside the Workspaces
 	// Workspaces describes.
 	GoogleAccounts bool
-	// SeveralDomains reports a Google registration that names a Workspace with more
-	// than one domain, or with a spread of them (google.Workspace(name, domains...)).
-	// It changes nothing of Workspaces, which counts Workspaces: such a registration
-	// may still read WorkspacesOne. It is for a rule that counts organizations as the
-	// sign-in does, which lists a Workspace by each of its domains
-	// (signin.Audience.OneOrganization), so one Workspace of two domains is not one
-	// organization to it.
-	SeveralDomains bool
 	// AuthVar is the identifier the registration's first argument names: the Auth it is
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.

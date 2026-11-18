@@ -37,7 +37,7 @@ var candidateAuths = map[string][]authpkg.Spec{
 }
 
 // staffSpec is the staff auth of each candidate: a password auth whose first administrator
-// holds what the development administrator holds (cmd/bootstrap/users.json): the global
+// is invited to what the development administrator holds (cmd/bootstrap/users.json): the global
 // roles, and the domain role in every domain where the candidate has tenants, with the
 // sign-in rule over the tenant record's declaration where the candidate has one. The
 // roles that count as an administrator's are the ones that give a role back:

@@ -233,10 +233,11 @@ func (c *DataConfiguration) StaffIdentity() *staffidentity.Client {
 	return c.staff.Identity()
 }
 
-// StaffAdministratorPassword returns the password the staff auth's first administrator is
-// seeded with, the stack's generated secret; empty where the deployment carries none.
-func (c *DataConfiguration) StaffAdministratorPassword() string {
-	return c.env.StaffAdministratorPassword
+// StaffAdministrator returns the email address of the staff auth's first administrator,
+// which the placement names and the migrate command has the invitation mailed to; empty
+// where the deployment names none.
+func (c *DataConfiguration) StaffAdministrator() string {
+	return c.env.StaffAdministrator
 }
 
 // Live returns the live service the generated handlers subscribe through and publish
@@ -260,7 +261,8 @@ func (c *DataConfiguration) LiveOrigins() []string {
 // ctx ends, rereading on the tenants signal the record's generated write paths publish
 // through the live service (a tenant made or deleted on any instance) and at its
 // backstop. The generated DomainGuard and the consolidated dispatcher ask it before a
-// tenant-scoped request runs, with no read and no wait, so a new tenant is usable at
+// tenant-scoped request runs, and it rereads the table first when its copy is past the
+// backstop or behind a signal, so a new tenant is usable at
 // once, on every instance, without a restart.
 func (c *DataConfiguration) startTenants(ctx context.Context) error {
 	if err := c.tenants.Start(ctx); err != nil {
@@ -341,12 +343,14 @@ type dataConfig struct {
 	MailFrom        string `env:"APP_MAIL_FROM"`
 	MailAppPassword string `env:"APP_MAIL_APP_PASSWORD" secret:"true"`
 
-	// StaffAdministratorPassword is the password of the staff auth's first administrator
-	// (staff.Administrator), which the migrate command seeds while the auth's users table
-	// holds no rows: a secret the stack generates, read like any other setting, that
-	// nobody types and the first sign-in changes. Unset in development, where the
-	// bootstrap creates the development logins instead.
-	StaffAdministratorPassword string `env:"APP_STAFF_ADMINISTRATOR_PASSWORD" secret:"generated"`
+	// StaffAdministrator is the email address of the staff auth's first administrator
+	// (staff.AdministratorVariable), which the placement names for each environment:
+	// while nobody of the auth holds the Super Administrator role the migrate command
+	// has an invitation mailed there (staff.Auth.InviteAdministrator), and the person
+	// signs in from its link. It is an address, not a secret, and no password is
+	// generated for the person. Unset in development, where the bootstrap creates the
+	// development logins instead, one of them holding the role.
+	StaffAdministrator string `env:"APP_STAFF_ADMINISTRATOR"`
 	// The staff auth's google registration: how the application is known to Google. Under
 	// the session library's skipAuth build tag (the Procfile's) Google is simulated and
 	// only the redirect URL is read.
@@ -393,9 +397,12 @@ func (env *dataConfig) staffSettings(collection access.PermissionCollection, sig
 // or the log where none is named, as in development, where nothing is sent and a
 // developer follows the link from the log. A mailbox named without its app password is
 // the first environment before an operator adds the secret's version (the stack's
-// secret_versions, where no entry means not yet): the log stands in there too, so the
-// environment runs and its migrations seed, and the relay takes over once the version
-// is pinned; a release to any other environment is refused until it is.
+// secret_versions, where no entry means not yet): the log stands in there too, and the
+// relay takes over once the version is pinned; a release to any other environment is
+// refused until it is. The log is no mailbox (mail.Delivers): while nobody of an auth
+// holds the Super Administrator role the migrate command refuses to invite its first
+// administrator through it, since an invitation's link is never written to a log, so
+// the mailbox and its app password come before the first release.
 func openMailSender(env *dataConfig) (mail.Sender, error) {
 	if env.MailMailbox == "" || env.MailAppPassword == "" {
 		return mail.Log{}, nil
