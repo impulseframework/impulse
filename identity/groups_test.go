@@ -1003,3 +1003,92 @@ func TestManager_groups_noWayToTheSuperAdministratorRole(t *testing.T) {
 		})
 	}
 }
+
+// TestManager_groups_removalNotice pins the notice of a removal from a tenant where an
+// administrator takes a person's last role in it through a group: by taking the person
+// out of the group, or by taking the role from the group. It is mailed after the
+// commit, to the address the person confirmed, and only when nothing else of theirs
+// reaches the tenant.
+func TestManager_groups_removalNotice(t *testing.T) {
+	t.Parallel()
+
+	reader := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
+	takeOut := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+		return m.RemoveGroupMember(ctx, txn, nightID, userID)
+	}
+	takeRole := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+		return m.TakeGroupRole(ctx, txn, nightID, alphaScope, "Reader")
+	}
+	tests := []struct {
+		name   string
+		act    func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		caller accesstypes.User
+		// held are the person's own memberships, and roles the roles the group holds
+		// beside Reader in alpha.
+		held      []access.MembershipKey
+		roles     []access.GroupRoleKey
+		wantAsked []string
+	}{
+		{
+			name: "taken out of the group that gave their one role in the tenant, with nothing else anywhere: the account goes too", act: takeOut, caller: erin,
+			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=true"},
+		},
+		{
+			name: "taken out of the group, with a role of their own in another tenant: the account stays", act: takeOut, caller: erin,
+			held:      []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Reader")},
+			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
+		},
+		{
+			name: "taken out of the group while a role of their own holds them in the tenant is no removal from it", act: takeOut, caller: erin,
+			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Clerk")},
+		},
+		{name: "a person who takes themselves out of the group is told nothing", act: takeOut, caller: dana, held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Reader")}},
+		{
+			name: "the group's one role in the tenant is taken: everyone in the group it held there is told", act: takeRole, caller: erin,
+			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
+		},
+		{
+			name: "the group keeps another role in the tenant: taking one is no removal from it", act: takeRole, caller: erin,
+			roles: []access.GroupRoleKey{access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Clerk")},
+		},
+		{
+			name: "the group's role is taken while a role of their own holds the person in the tenant", act: takeRole, caller: erin,
+			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Clerk")},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			store.emails = map[string]impulse.UUID{"dana@example.com": userID}
+			store.groupMembers[memberKey(nightID, userID)] = true
+			store.groupRoles[reader] = true
+			for _, key := range tt.roles {
+				store.groupRoles[key] = true
+			}
+			for _, key := range tt.held {
+				store.memberships[key] = true
+			}
+			mail := &fakeMail{}
+			m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, fakeSessions{mail: mail}, administrators, WithRoleGrants(&fakeGrants{}))
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				err := tt.act(asCaller(ctx, tt.caller), txn, m)
+				if len(mail.asked) != 0 {
+					t.Errorf("before the commit the session library was asked %v, want nothing", mail.asked)
+				}
+
+				return err
+			}); err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantAsked, mail.asked); diff != "" {
+				t.Errorf("notices after the commit (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
