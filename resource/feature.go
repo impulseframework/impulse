@@ -878,7 +878,9 @@ type SetFeatureResult struct {
 // failure is logged, since the other instances reload at their backstop), and the
 // answer is the flag from the reloaded copy. The reload comes first so that this
 // instance answers from the flip while the signal is being sent, which waits for the
-// channel. An unknown name is 404. A dry run (X-Dry-Run: true)
+// channel; the signal does not run under the request's context, so a request that ends
+// once the flip is committed still tells the other instances. An unknown name is 404. A
+// dry run (X-Dry-Run: true)
 // runs the frame and rolls back, as every transaction-form method does. The signaler is
 // the application's live service, which every application wires; the handler refuses
 // to be built without one. The generated router registers it at
@@ -937,7 +939,7 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 		// This instance first: the flip is on its copy, or recorded for its next lookup
 		// to read, before the other instances are told, so a request that comes while the
 		// signal is being sent is answered from the flip. The signal is sent whatever
-		// became of the reload.
+		// became of the reload, and of the request while it reloaded.
 		reloadErr := features.Reload(ctx)
 		signalFeatures(ctx, signals)
 		if reloadErr != nil {
@@ -953,9 +955,14 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 }
 
 // signalFeatures signals the other instances that the flags changed, within the
-// timeout; a failure is logged and never fails the request.
+// timeout; a failure is logged and never fails the request. The flip is committed by
+// now, so the signal is sent whatever has become of the request: it keeps the request's
+// values and runs under the timeout alone, not under the request's context. A request
+// that ended while this instance reloaded (the page that flipped is gone) would
+// otherwise leave every other instance on the old flag until its backstop. The signal
+// is sent inside the handler's call, and nothing is left running when it returns.
 func signalFeatures(ctx context.Context, signals Signaler) {
-	ctx, cancel := context.WithTimeout(ctx, FeatureSignalTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), FeatureSignalTimeout)
 	defer cancel()
 	if err := signals.Signal(ctx, KindFeatures); err != nil {
 		logger.FromCtx(ctx).Errorf("feature flags: signaling the change failed; the other instances reload at their backstop: %v", err)

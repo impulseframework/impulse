@@ -2491,7 +2491,9 @@ one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning
 reloads this instance's copy, then signals the other instances through the live
 service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
 logged), and answers the flag as written. The reload comes first, so this instance
-answers from the flip while the signal is being sent. An `@rpc` struct named `SetFeature`
+answers from the flip while the signal is being sent; the signal does not run under the
+request's context, so a request that ends once the flip is committed still tells the
+other instances. An `@rpc` struct named `SetFeature`
 is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and
