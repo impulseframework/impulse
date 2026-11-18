@@ -317,6 +317,10 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 		edited = append(edited[:here[3]:here[3]], append([]byte(", "+spec.Name), edited[here[3]:]...)...)
 		listed = ", and the package doc lists it"
 	}
+	if retold, ok := retellPopulation(edited, spec); ok {
+		edited = retold
+		listed += fmt.Sprintf(", and its first sentence says the auth's people also sign in %s", signInHow(spec))
+	}
 	loc := returnAuthRE.FindIndex(edited)
 	if loc == nil {
 		ch.skipf("%s: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does (identity where the application generates the auth's management), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
@@ -339,6 +343,110 @@ var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{access: accessCli
 // hereRE matches the package doc's list of the methods registered on the Auth, which a
 // method added joins.
 var hereRE = regexp.MustCompile(`methods registered on it \(here ([^)]*)\)`)
+
+// signInHow is how the people of an auth sign in through a method, as the package doc's
+// first sentence says it after "the people who sign in to the console": the base's
+// sentence says "with a password", and each method added joins it.
+func signInHow(m *authpkg.Method) string {
+	switch m.Kind {
+	case app.MethodPassword:
+		return "with a password"
+	case app.MethodOIDC:
+		return "through the organization's own identity provider"
+	case app.MethodPersona:
+		return "as a persona of the test environments"
+	case app.MethodGoogle:
+		switch m.Slot {
+		case authpkg.SlotListed:
+			return "with an account of a named Google Workspace"
+		case authpkg.SlotAnyWorkspace:
+			return "with any Google Workspace account"
+		case authpkg.SlotAny:
+			return "with any Google account"
+		case authpkg.SlotMixed:
+			return "with an account of the organization's Google Workspace or any Google account"
+		default:
+			return "with an account of the organization's Google Workspace"
+		}
+	default:
+		switch m.Slot {
+		case authpkg.SlotListed:
+			return "with an account of a named Microsoft Entra tenant"
+		case authpkg.SlotAny:
+			return "with a work or school account of any Microsoft Entra tenant"
+		case authpkg.SlotPersonal:
+			return "with a Microsoft personal account"
+		case authpkg.SlotOnePersonal:
+			return "with an account of the organization's Microsoft Entra tenant or a Microsoft personal account"
+		case authpkg.SlotAnyPersonal:
+			return "with any Microsoft account"
+		default:
+			return "with an account of the organization's Microsoft Entra tenant"
+		}
+	}
+}
+
+// populationRE reads the package doc's first paragraph of an auth file where it is the
+// rendered sentence: who the auth's people are, then where they hold their roles.
+var populationRE = regexp.MustCompile(`^Package (\w+) is the (\w+) auth: (.+), who hold their roles in the (.+)$`)
+
+// docWidth is the column the retold paragraph is wrapped at, and commentMark what
+// opens each of its lines.
+const (
+	docWidth    = 90
+	commentMark = "//"
+)
+
+// retellPopulation adds the way a new method's people sign in to the package doc's first
+// sentence, where that sentence says how they sign in: the base's says "with a
+// password", which stopped being the whole of it the moment a second method was added.
+// A sentence that names no way (an auth's generic one, or the application's own words)
+// is left as it is, and so is one that says the way already. The paragraph is wrapped
+// again, since the sentence grew.
+func retellPopulation(src []byte, spec *authpkg.Method) ([]byte, bool) {
+	text := string(src)
+	if !strings.HasPrefix(text, "// Package ") {
+		return src, false
+	}
+	// The first paragraph ends at the comment's first empty line, and is looked for in
+	// the comment that opens the file alone: a comment that is one paragraph has none,
+	// and an empty comment line further down the file is some other comment's.
+	doc := 0
+	for line := range strings.Lines(text) {
+		if !strings.HasPrefix(line, commentMark) {
+			break
+		}
+		doc += len(line)
+	}
+	end := strings.Index(text[:doc], "\n"+commentMark+"\n")
+	if end < 0 {
+		return src, false
+	}
+	var words []string
+	for line := range strings.Lines(text[:end+1]) {
+		words = append(words, strings.Fields(strings.TrimPrefix(line, commentMark))...)
+	}
+	// The whole match and its four parts: the package, the auth, who its people are, and
+	// where they hold their roles.
+	m := populationRE.FindStringSubmatch(strings.Join(words, " "))
+	how := signInHow(spec)
+	if len(m) != 5 || !strings.Contains(m[3], " with a password") || strings.Contains(m[3], how) {
+		return src, false
+	}
+	sentence := fmt.Sprintf("Package %s is the %s auth: %s, or %s, who hold their roles in the %s", m[1], m[2], m[3], how, m[4])
+	var b strings.Builder
+	line := commentMark
+	for _, word := range strings.Fields(sentence) {
+		if len(line)+1+len(word) > docWidth && line != commentMark {
+			b.WriteString(line + "\n")
+			line = commentMark
+		}
+		line += " " + word
+	}
+	b.WriteString(line)
+
+	return []byte(b.String() + text[end:]), true
+}
 
 func settingsNote(spec *authpkg.Method) string {
 	if !spec.Directory() {

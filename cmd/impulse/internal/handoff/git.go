@@ -113,12 +113,23 @@ func (r Repo) Staged(ctx context.Context) ([]string, error) {
 }
 
 // StageAll stages every change in the tree, so the index holds the tree at the handoff.
+// The brief is left out whether or not the application ignores it: it is transient, and
+// one left standing from an earlier handoff is never staged with the next change, nor
+// committed with an upgrade's step.
 func (r Repo) StageAll(ctx context.Context) error {
-	if _, err := r.Exec.Run(ctx, r.Root, nil, "git", "add", "-A"); err != nil {
+	if _, err := r.Exec.Run(ctx, r.Root, nil, "git", StageAllArgs()...); err != nil {
 		return errors.Wrap(err, "git add -A")
 	}
 
 	return nil
+}
+
+// StageAllArgs are git's arguments for StageAll: every change of the repository (:/),
+// a brief excepted wherever one stands. The exception is a pattern and not the brief's
+// path, since git add refuses a path that is named to it and ignored, which the brief
+// is in an application rendered since the skeleton ignored it.
+func StageAllArgs() []string {
+	return []string{"add", "-A", "--", ":/", ":(exclude,glob)**/" + File}
 }
 
 // FromIndex reads files as the index holds them: the tree at the handoff, when the

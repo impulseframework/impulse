@@ -42,14 +42,14 @@ Next steps
   3. overmind start -l spanner,firestore,server
      The Go side alone. The first run compiles and bootstraps before it listens; wait for
      "Starting Server", then sign in against the API as admin with the password "password".
-  4. (cd web && ./weblib.sh local)
-     Once, for the browser apps: builds the framework's web packages, publishes them to the local
-     yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside
-     this application as impulse; set IMPULSE otherwise.
+  4. (cd web && bun install)
+     Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,
+     which the workflows install from (bun ci, with bun 1.4.0). Commit bun.lock: impulse check fails
+     while a web root has none.
   5. impulse check --only prettier --fix
-     Once, after the install: formats the browser files with the prettier each web root pins,
-     which the install brings. They were written under your names and are not wrapped yet, and
-     impulse check fails on the ones it names until this has run.
+     Once, after the install: holds the browser files to the prettier each web root pins, which
+     the install brings, and wraps again any line your names made longer or shorter. Where they
+     left every line as it was, it changes nothing; impulse check fails on a file that needs it.
   6. overmind start
      Everything, with ng serve for the console at http://127.0.0.1:4300/.
 `,
@@ -83,9 +83,9 @@ Next steps
 				"     yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside\n" +
 				"     this application as impulse; set IMPULSE otherwise.\n" +
 				"  \x1b[1m6.\x1b[0m impulse check --only prettier --fix\n" +
-				"     Once, after the install: formats the browser files with the prettier each web root pins,\n" +
-				"     which the install brings. They were written under your names and are not wrapped yet, and\n" +
-				"     impulse check fails on the ones it names until this has run.\n" +
+				"     Once, after the install: holds the browser files to the prettier each web root pins, which\n" +
+				"     the install brings, and wraps again any line your names made longer or shorter. Where they\n" +
+				"     left every line as it was, it changes nothing; impulse check fails on a file that needs it.\n" +
 				"  \x1b[1m7.\x1b[0m overmind start\n" +
 				"     Everything, with ng serve for the console at http://127.0.0.1:4304/ and the portal at http://127.0.0.1:4305/portal/.\n",
 		},
@@ -112,19 +112,45 @@ Next steps
   3. overmind start -l spanner,server
      The Go side alone. The first run compiles and bootstraps before it listens; wait for
      "Starting Server", then sign in against the API as admin with the password "password".
-  4. (cd web && ./weblib.sh local)
-     Once, for the browser apps: builds the framework's web packages, publishes them to the local
-     yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside
-     this application as impulse; set IMPULSE otherwise.
+  4. (cd web && bun install)
+     Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,
+     which the workflows install from (bun ci, with bun 1.4.0). Commit bun.lock: impulse check fails
+     while a web root has none.
   5. impulse check --only prettier --fix
-     Once, after the install: formats the browser files with the prettier each web root pins,
-     which the install brings. They were written under your names and are not wrapped yet, and
-     impulse check fails on the ones it names until this has run.
+     Once, after the install: holds the browser files to the prettier each web root pins, which
+     the install brings, and wraps again any line your names made longer or shorter. Where they
+     left every line as it was, it changes nothing; impulse check fails on a file that needs it.
   6. overmind start
      Everything, with ng serve for the console at http://127.0.0.1:4300/.
   7. impulse add tenancy | impulse add outlet <name> --prefix <p> --auth <auth> | impulse add auth <name> --outlet <outlet>
      Options are added one at a time from a clean tree; each ends in a handoff brief for the
      wiring the tool cannot do and a check that says when it is done.
+`,
+		},
+		{
+			// The format step says "after the install", so the install is a step too.
+			name: "browser apps and no process that runs without them: the install comes first",
+			report: renderReport{
+				candidate: "solo", dir: "x", modulePath: "example.com/x",
+				rendered: &skeleton.Rendered{Files: 1},
+				web:      []webWorkspace{{Dir: "web", Projects: []webProject{{Name: "console", Port: 4300, Path: "/"}}}},
+			},
+			want: `Rendered solo into x as example.com/x (1 files).
+
+Next steps
+  1. cd x
+  2. cp .envrc.template .envrc && direnv allow
+  3. (cd web && bun install)
+     Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,
+     which the workflows install from (bun ci, with bun 1.4.0). Commit bun.lock: impulse check fails
+     while a web root has none.
+  4. overmind start
+     The first run compiles and bootstraps before it listens. Wait for "Starting Server",
+     then sign in as admin with the password "password".
+  5. impulse check --only prettier --fix
+     Once, after the install: holds the browser files to the prettier each web root pins, which
+     the install brings, and wraps again any line your names made longer or shorter. Where they
+     left every line as it was, it changes nothing; impulse check fails on a file that needs it.
 `,
 		},
 		{

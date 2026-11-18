@@ -2,6 +2,7 @@ package transition
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
 const beaconConfig = `package config
@@ -389,6 +391,7 @@ func TestTenancyApply(t *testing.T) {
 	withAuthDid[6] = "app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()), App.TenantRoster() and App.TenantAdministratorRoles() (the staff auth's AdministratorRoles held in every tenant: the domain roles the Tenant record's generated create-your-own route gives the person who creates a tenant of their own, through the auth's identity client, which the generated contract asks the handlers for); app/app.go gained the fields and their assignments"
 	withAuthDid = slices.Insert(withAuthDid, 6,
 		"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and the directory reader (TenantDirectories), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) and the directory admission (session.Auth.SetDirectoryAdmission over the directory reader, the default role given by the identity client's DirectorySeated in the transaction that creates the person)",
+		"pkg/auth/staff/staff.go: New's one sign-in rule is the tenant policy with the second factor chained last (.Then(requireSecondFactor)); the call that set the second factor alone is gone, since an Auth has one rule and a second SetSignInPolicy call panics when the auth opens",
 		"pkg/config/data.go: the staff.Settings literal in NewDataConfiguration (an application composed before the staffSettings method) passes the declaration reader (app.NewTenantDeclarationReader()) and the directory reader (app.NewTenantDirectoryReader()) to the staff auth",
 	)
 	tests = append(tests, struct {
@@ -429,7 +432,9 @@ func TestTenancyApply(t *testing.T) {
 				"\tTenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]\n}",
 				"\tif settings.TenantDeclarations == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in\")\n\t}\n",
 				"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\n\tstore, err := spannerstore.New(",
-				"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))\n\n\t// The directory admission",
+				// One rule: the tenant policy, with the second factor the base set alone
+				// chained last.
+				"\t// engine's read under the transaction's context as a nested transaction. A sign-in\n\t// the rule admits then carries a second factor (requireSecondFactor), chained last:\n\t// an Auth has one rule.\n\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))\n\n\t// The directory admission",
 				"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 				"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				"\t\"github.com/impulseframework/impulse/resource\"\n",
@@ -568,10 +573,343 @@ func TestTenancyMeaningSaysToFormat(t *testing.T) {
 	t.Parallel()
 
 	meaning := Tenancy{Table: "ServiceAreas"}.Meaning()
-	for _, want := range []string{"after the install, run `impulse check --only prettier --fix` once", "until then the `prettier` check names them"} {
+	for _, want := range []string{"after the install, run `impulse check --only prettier --fix` once", "which wraps again any line those names made longer or shorter and changes nothing where they left every line as it was", "a file that needs it fails the `prettier` check until then"} {
 		if !strings.Contains(meaning, want) {
 			t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
 		}
+	}
+}
+
+// TestTenancyApply_theBaseSuites pins what add tenancy says of the integration tests an
+// application without tenants starts with: each one the application still carries is
+// named with what becomes of it, so its author learns it from the change and not from
+// one compile error after another; an application that carries none is told nothing.
+func TestTenancyApply_theBaseSuites(t *testing.T) {
+	t.Parallel()
+
+	fates := map[string]string{
+		"test/integration/sign_up_test.go":             "test/integration/sign_up_test.go proves sign-up in an application without tenants, where opening a sign-in method names the role each new person gets; a tenanted application opens a method with no role, and a person who signs up creates a tenant of their own, so remove the file and prove sign-up as the reference's self_service_test.go does",
+		"test/integration/sign_up_role_test.go":        "test/integration/sign_up_role_test.go proves the list the role of a person who signs up is picked from, which the generator no longer writes once the application has tenants (its generated file is removed by the regeneration); remove the file",
+		"test/integration/first_administrator_test.go": "test/integration/first_administrator_test.go still holds, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
+	}
+	tests := []struct {
+		name  string
+		files []string
+	}{
+		{name: "the base's three suites are each named", files: []string{"test/integration/sign_up_test.go", "test/integration/sign_up_role_test.go", "test/integration/first_administrator_test.go"}},
+		{name: "a suite the application no longer carries is not named", files: []string{"test/integration/first_administrator_test.go"}},
+		{name: "an application with none of them is told nothing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			for _, file := range tt.files {
+				files[file] = "package integration\n"
+			}
+			ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), beacon(t, files), &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			for file, fate := range fates {
+				if got, want := slices.Contains(ch.Skipped, fate), slices.Contains(tt.files, file); got != want {
+					t.Errorf("Skipped names %s = %t, want %t; got:\n%s", file, got, want, strings.Join(ch.Skipped, "\n"))
+				}
+			}
+		})
+	}
+	// The brief's list of the tests to write points at those lines.
+	if meaning := (Tenancy{Table: "Tenants"}).Meaning(); !strings.Contains(meaning, "under what the change could not make, say what becomes of `sign_up_test.go`, `sign_up_role_test.go` and `first_administrator_test.go`") {
+		t.Errorf("Meaning() does not point at what becomes of the base's suites:\n%s", meaning)
+	}
+}
+
+// TestBaseSuitesAreTheBasesOwn holds the suites the tenancy change says the fate of to
+// the skeletons themselves: every suite of the served stack the base carries and the
+// tenanted skeleton does not is one the change names, and it names no other. A suite
+// added to the base alone therefore fails here until the change says what becomes of it
+// in a tenanted application, before an author meets it as a compile error.
+func TestBaseSuitesAreTheBasesOwn(t *testing.T) {
+	t.Parallel()
+
+	suites := func(candidate string) []string {
+		t.Helper()
+		tree, err := skeleton.FS(candidate)
+		if err != nil {
+			t.Fatalf("skeleton.FS(%s) error = %v", candidate, err)
+		}
+		entries, err := fs.ReadDir(tree, integrationSuite)
+		if err != nil {
+			t.Fatalf("%s: reading %s: %v", candidate, integrationSuite, err)
+		}
+		var names []string
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), "_test.go") {
+				names = append(names, e.Name())
+			}
+		}
+
+		return names
+	}
+	tenanted := suites(TenancyReferenceCandidate)
+	var want []string
+	for _, name := range suites(skeleton.Base) {
+		if !slices.Contains(tenanted, name) {
+			want = append(want, name)
+		}
+	}
+	var got []string
+	for _, suite := range baseSuites {
+		got = append(got, suite.file)
+	}
+	slices.Sort(want)
+	slices.Sort(got)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("the suites the change names differ from the base's own, the ones the %s skeleton does not carry (-the skeletons +the change):\n%s", TenancyReferenceCandidate, diff)
+	}
+}
+
+// TestTenancyApply_theReadme holds the README's opening to the change: the base's says
+// the application has no tenancy and no resources, which add tenancy makes untrue, so
+// the sentence says what the application has now in the record's own names, and the
+// change says the rest of the README is the application's to bring up. The fixture is
+// the base skeleton's own README, so the sentence the transition reads is the one a
+// rendered application carries. A README in the application's own words is left alone.
+func TestTenancyApply_theReadme(t *testing.T) {
+	t.Parallel()
+
+	tree, err := skeleton.FS(skeleton.Base)
+	if err != nil {
+		t.Fatalf("skeleton.FS() error = %v", err)
+	}
+	base, err := fs.ReadFile(tree, "README.md")
+	if err != nil {
+		t.Fatalf("reading the base's README: %v", err)
+	}
+	const (
+		did  = "README.md: the opening says the application has tenancy (the ServiceArea record over ServiceAreas, its routes under /api/service-areas) where it said it had none"
+		left = "README.md describes the application as it was rendered beyond that sentence: say what its service areas hold and who its people are as the tenant-scoped resources arrive (the reference's README is the pattern)"
+		own  = "# beacon\n\nThe lighthouse keepers' rota.\n"
+	)
+	tests := []struct {
+		name     string
+		readme   string
+		want     string
+		wantSaid bool
+	}{
+		{
+			name: "the base's opening", readme: string(base), wantSaid: true,
+			want: "One site, one browser application, tenancy as data: the `ServiceArea` record (`@tenant`) over the\n`ServiceAreas` table is the domain universe, a tenant's key is an id the server generates, and\ntenant-scoped routes live under `/api/service-areas/{serviceAreaID}/`.\n",
+		},
+		{name: "a README in the application's own words", readme: own, want: own},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			files["README.md"] = tt.readme
+			a := beacon(t, files)
+			ch, err := Tenancy{Table: "ServiceAreas"}.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			got := read(t, a, "README.md")
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("README.md lacks %q:\n%s", tt.want, got[:min(len(got), 700)])
+			}
+			if strings.Contains(got, "no tenancy") != (!tt.wantSaid && strings.Contains(tt.readme, "no tenancy")) {
+				t.Errorf("README.md says the application has no tenancy = %t after the change:\n%s", strings.Contains(got, "no tenancy"), got[:min(len(got), 700)])
+			}
+			if got := slices.Contains(ch.Did, did); got != tt.wantSaid {
+				t.Errorf("Did names the README's opening = %t, want %t; got:\n%s", got, tt.wantSaid, strings.Join(ch.Did, "\n"))
+			}
+			if got := slices.Contains(ch.Skipped, left); got != tt.wantSaid {
+				t.Errorf("Skipped says the rest of the README is the application's = %t, want %t; got:\n%s", got, tt.wantSaid, strings.Join(ch.Skipped, "\n"))
+			}
+		})
+	}
+}
+
+// TestTenancyApply_oneSignInRule pins the sign-in rule add tenancy leaves on an auth:
+// one call. The base's auth package sets the second factor alone, and an Auth has one
+// rule, a second SetSignInPolicy call panicking when the auth opens, so the transition
+// takes that call out and writes the tenant policy with the second factor chained last,
+// and says so. Where New set a rule in a form the tool does not read, both calls stand
+// and the change says they must become one, in the words the second-factor check uses.
+func TestTenancyApply_oneSignInRule(t *testing.T) {
+	t.Parallel()
+
+	chainedDid := "pkg/auth/staff/staff.go: New's one sign-in rule is the tenant policy with the second factor chained last (.Then(requireSecondFactor)); the call that set the second factor alone is gone, since an Auth has one rule and a second SetSignInPolicy call panics when the auth opens"
+	twoRules := "pkg/auth/staff/staff.go: New set a sign-in rule before this change, in a form the tool does not read, and now sets the tenant policy beside it; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the two one call: the tenant policy first, the rule that stood chained after it with .Then, and requireSecondFactor last"
+	base := staffPackage(t, "staff.go")
+	const lone = "authSession.SetSignInPolicy(requireSecondFactor)"
+	if strings.Count(base, lone) != 1 {
+		t.Fatalf("the base's auth package sets the second factor alone %d time(s), want once: the fixture of this test", strings.Count(base, lone))
+	}
+	// An auth package whose New ends in a form of its own: the tool writes no rule there.
+	const skeletonEnd, ownEnd = "\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n", "\tauth := &Auth{access: accessClient, handlers: handlers, identity: identityClient}\n\n\treturn auth, nil\n"
+	if strings.Count(base, skeletonEnd) != 1 {
+		t.Fatalf("the base's auth package ends New as the skeleton does %d time(s), want once: the fixture of this test", strings.Count(base, skeletonEnd))
+	}
+	ownForm := strings.Replace(base, skeletonEnd, ownEnd, 1)
+	oneAlready := "pkg/auth/staff/staff.go: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does, so the sign-in rule was not changed, and New sets one already; an Auth has one rule and a second SetSignInPolicy call panics when the auth opens, so make the call New makes now the tenant policy with the rule that stood chained after it: authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(<the rule New sets now>))"
+	tests := []struct {
+		name        string
+		staff       string
+		wantCalls   int
+		wantRule    string
+		wantDid     bool
+		wantSkipped bool
+		// wantLeft is a line the change leaves for the reader, beside the two above.
+		wantLeft string
+	}{
+		{
+			// The reader is told to make the one call the tenant policy, never to add a
+			// second call beside the rule that stands.
+			name: "a New of another form keeps its one rule, and the change says to make that call the tenant policy", staff: ownForm, wantCalls: 1, wantLeft: oneAlready,
+			wantRule: lone,
+		},
+		{
+			name: "the base's rule is chained into the tenant policy", staff: base, wantCalls: 1, wantDid: true,
+			wantRule: "authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))",
+		},
+		{
+			name: "a rule of another form is left, and the change says the two must become one", staff: strings.Replace(base, lone, "authSession.SetSignInPolicy(houseRule)", 1), wantCalls: 2, wantSkipped: true,
+			wantRule: "authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations))",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			files["pkg/config/data.go"] = authConfig
+			files["pkg/auth/staff/staff.go"] = tt.staff
+			a := beacon(t, files)
+			ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			staff := read(t, a, "pkg/auth/staff/staff.go")
+			if n := strings.Count(staff, ".SetSignInPolicy("); n != tt.wantCalls {
+				t.Errorf("staff.go calls SetSignInPolicy %d time(s), want %d:\n%s", n, tt.wantCalls, staff)
+			}
+			if !strings.Contains(staff, tt.wantRule) {
+				t.Errorf("staff.go lacks %q:\n%s", tt.wantRule, staff)
+			}
+			if got := slices.Contains(ch.Did, chainedDid); got != tt.wantDid {
+				t.Errorf("Did says the rule was chained = %t, want %t; got:\n%s", got, tt.wantDid, strings.Join(ch.Did, "\n"))
+			}
+			if got := slices.Contains(ch.Skipped, twoRules); got != tt.wantSkipped {
+				t.Errorf("Skipped says the two rules must become one = %t, want %t; got:\n%s", got, tt.wantSkipped, strings.Join(ch.Skipped, "\n"))
+			}
+			if tt.wantLeft != "" && !slices.Contains(ch.Skipped, tt.wantLeft) {
+				t.Errorf("Skipped lacks %q; got:\n%s", tt.wantLeft, strings.Join(ch.Skipped, "\n"))
+			}
+			for _, line := range ch.Skipped {
+				if tt.wantLeft != "" && strings.Contains(line, "so the sign-in rule was not set; call ") {
+					t.Errorf("the change tells the reader to call SetSignInPolicy beside the rule that stands, which panics when the auth opens: %s", line)
+				}
+			}
+		})
+	}
+}
+
+// Test_retellPermissions pins the UserPermissions comment add tenancy leaves: the base
+// skeleton's says the application has no tenants, and once the function is handed the
+// roster and the declarations it says what the reference's says. A comment that is not
+// the skeleton's is left as its author wrote it.
+func Test_retellPermissions(t *testing.T) {
+	t.Parallel()
+
+	comment := func(candidate string) string {
+		t.Helper()
+		sub, err := skeleton.FS(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := fs.ReadFile(sub, "app/app.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(data)
+		start, end := strings.Index(src, "// UserPermissions returns"), strings.Index(src, "func (a *App) UserPermissions(")
+		if start < 0 || end < start {
+			t.Fatalf("the %s skeleton's app/app.go carries no UserPermissions comment", candidate)
+		}
+
+		return src[start:end]
+	}
+	base, reference := comment("solo"), comment(TenancyReferenceCandidate)
+	if got := string(retellPermissions([]byte(base))); got != reference {
+		t.Errorf("the base's comment retold (-want +got):\n%s", cmp.Diff(reference, got))
+	}
+	own := "// UserPermissions answers who may do what.\n"
+	if got := string(retellPermissions([]byte(own))); got != own {
+		t.Errorf("an author's own comment was rewritten to %q", got)
+	}
+}
+
+// TestTenancyApply_theCommentFollowsTheDeclarations holds the UserPermissions comment to
+// what the function was handed: it is retold as the reference's once the roster and the
+// declarations are passed, and it is left as it was where the declarations could not be
+// handed over, since a comment saying a tenant is offered by its declaration would not
+// be true of that function.
+func TestTenancyApply_theCommentFollowsTheDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tree, err := skeleton.FS(skeleton.Base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(tree, "app/app.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start, end := strings.Index(src, "// UserPermissions returns"), strings.Index(src, "func (a *App) UserPermissions(")
+	if start < 0 || end < start {
+		t.Fatal("the base skeleton's app/app.go carries no UserPermissions comment")
+	}
+	const plain, untenanted, retold = "// UserPermissions returns the permission checker for a request.\n", "The application has no tenants", "A tenant is offered only when the"
+	both := strings.Replace(permissionsApp, plain, src[start:end], 1)
+	if both == permissionsApp || !strings.Contains(both, untenanted) {
+		t.Fatal("the fixture App no longer carries the comment this test replaces with the base's")
+	}
+	rosterAlone := strings.Replace(both, "a.access.ForRole, nil, nil)", "a.access.ForRole, nil)", 1)
+	if rosterAlone == both {
+		t.Fatal("the fixture App no longer passes the two nils this test reduces to one")
+	}
+	tests := []struct {
+		name       string
+		app        string
+		wantRetold bool
+	}{
+		{name: "the roster and the declarations are handed over", app: both, wantRetold: true},
+		{name: "the declarations could not be handed over", app: rosterAlone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			files["app/app.go"] = tt.app
+			a := beacon(t, files)
+			ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			got := read(t, a, "app/app.go")
+			if strings.Contains(got, retold) != tt.wantRetold || strings.Contains(got, untenanted) == tt.wantRetold {
+				t.Errorf("the comment is retold = %t and says the application has no tenants = %t, want retold = %t:\n%s", strings.Contains(got, retold), strings.Contains(got, untenanted), tt.wantRetold, got)
+			}
+			left := slices.ContainsFunc(ch.Skipped, func(line string) bool { return strings.Contains(line, "so the declarations were not handed to it") })
+			if left == tt.wantRetold {
+				t.Errorf("the change says the declarations were not handed over = %t, want %t; got:\n%s", left, !tt.wantRetold, strings.Join(ch.Skipped, "\n"))
+			}
+		})
 	}
 }
 
@@ -601,11 +939,19 @@ func TestTenancyApply_whoIsAdmittedWithoutATenant(t *testing.T) {
 	staff := read(t, a, "pkg/auth/staff/staff.go")
 	for _, want := range []string{
 		"\t// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a\n\t// person who signs up through a sign-in method an administrator opened signs in\n\t// first and creates a tenant of their own, and keeps their account when the method\n\t// is made invite only again.",
-		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))\n",
+		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n",
 	} {
 		if !strings.Contains(staff, want) {
 			t.Errorf("staff.go lacks %q:\n%s", want, staff)
 		}
+	}
+	// An Auth has one rule: the call that set the second factor alone is gone, and a
+	// second call would panic when the auth opens.
+	if n := strings.Count(staff, ".SetSignInPolicy("); n != 1 {
+		t.Errorf("staff.go calls SetSignInPolicy %d time(s), want once:\n%s", n, staff)
+	}
+	if lone := "authSession.SetSignInPolicy(requireSecondFactor)"; strings.Contains(staff, lone) {
+		t.Errorf("staff.go still holds %q beside the tenant policy", lone)
 	}
 	if refused := "A person who holds no tenant is refused (no_tenant)"; strings.Contains(staff, refused) {
 		t.Errorf("staff.go says %q of the auth whose people create a tenant of their own", refused)
@@ -736,7 +1082,13 @@ func TestTenancyApply_theAuthATenantIsMadeThrough(t *testing.T) {
 		// startTenants starts the roster the level built and constructs none, so its file
 		// imports no handlers package.
 		tenancy := read(t, a, "pkg/config/tenancy.go")
-		for _, want := range []string{"// startTenants starts the tenant roster, built over the Tenant record with the generated\n// constructor where the level is opened, ahead of the auth a tenant is made through", "\tif err := c.tenants.Start(ctx); err != nil {\n", "\tc.staff.Session().SetTenantNames(c.tenants)\n"} {
+		for _, want := range []string{
+			"// startTenants starts the tenant roster, built over the Tenant record with the generated\n// constructor where the level is opened, ahead of the auth a tenant is made through",
+			// The function builds nothing here, and opens with the start: no blank line
+			// stands after its brace, which the application's own lint refuses.
+			"func (c *DataConfiguration) startTenants(ctx context.Context) error {\n\tif err := c.tenants.Start(ctx); err != nil {\n",
+			"\tc.staff.Session().SetTenantNames(c.tenants)\n",
+		} {
 			if !strings.Contains(tenancy, want) {
 				t.Errorf("tenancy.go lacks %q:\n%s", want, tenancy)
 			}

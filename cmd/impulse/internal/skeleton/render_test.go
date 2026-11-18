@@ -54,7 +54,7 @@ func TestRender(t *testing.T) {
 		{name: "outlets", candidate: "outlets", script: "web/weblib.sh"},
 		{name: "sites", candidate: "sites", script: "apps/console/web/weblib.sh"},
 	}
-	static := []string{"generator-program", "options", "tenancy-wired", "outlet-wired", "outlet-shape", "sites-wired", "web-wired", "login-pages", "session-tables", "migrations-reader", "auths-wired", "directory-admission", "first-administrator", "tenant-accounts", "emulator-version", "prettier-ignore", "eslint-ignore", "package-manager", "test-runner", "installable", "sites-generators", "env-template", "secret-holders"}
+	static := []string{"generator-program", "options", "tenancy-wired", "outlet-wired", "outlet-shape", "sites-wired", "web-wired", "login-pages", "session-tables", "migrations-reader", "auths-wired", "directory-admission", "first-administrator", "tenant-accounts", "emulator-version", "prettier-ignore", "eslint-ignore", "test-runner", "installable", "sites-generators", "env-template", "secret-holders"}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,6 +137,30 @@ func TestRender(t *testing.T) {
 				if r.Status == check.Fail {
 					t.Errorf("%s: check %s failed: %s\n%s", tt.name, r.Name, r.Summary, strings.Join(r.Details, "\n"))
 				}
+			}
+
+			// One thing is the author's before the application's pipeline can pass: the
+			// install that writes each web root's lockfile, which no rendering carries.
+			// package-manager fails until then, names every web root and the install, and
+			// passes once each root holds the bun.lock the install writes.
+			manager, err := check.Select([]string{"package-manager"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			unlocked := check.Run(context.Background(), &check.Env{App: a}, manager)[0]
+			if unlocked.Status != check.Fail || !strings.Contains(unlocked.Summary, "have no lockfile, and the workflows install from one: run bun install in each web root, which writes the bun.lock the repository keeps") {
+				t.Errorf("%s: package-manager on the tree as rendered = %s %q, want a failure that names the install", tt.name, unlocked.Status, unlocked.Summary)
+			}
+			if len(unlocked.Details) != len(a.WebApps) || len(a.WebApps) == 0 {
+				t.Errorf("%s: package-manager names %d web root(s) of %d: %v", tt.name, len(unlocked.Details), len(a.WebApps), unlocked.Details)
+			}
+			for _, w := range a.WebApps {
+				if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(w.Dir), "bun.lock"), []byte("{}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if locked := check.Run(context.Background(), &check.Env{App: a}, manager)[0]; locked.Status != check.Pass {
+				t.Errorf("%s: package-manager once every web root holds its bun.lock = %s %q, want a pass\n%s", tt.name, locked.Status, locked.Summary, strings.Join(locked.Details, "\n"))
 			}
 		})
 	}

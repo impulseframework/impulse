@@ -671,10 +671,29 @@ jobs:
           golangci-lint run --timeout 10m $aside ./...
           # shellcheck disable=SC2086
           golangci-lint run --timeout 10m $aside --build-tags skipAuth ./...
+      - name: The author's path leaves nothing the brief does not name
+        # An application made the way its author makes one, by the commands at this commit
+        # and nothing else: impulse new with a sign-in shape that composes tenancy, then
+        # two sign-in methods added. What the commands wrote is held to the application's
+        # own formatters and lint (in every package that compiles), and the tests that do
+        # not compile yet to the brief, which must name each. The rendered skeleton above
+        # proves a candidate; this proves what the transitions write over one, which
+        # nothing else lints. The test is asked for (it starts the emulator for each
+        # regeneration), so this job, which has the emulator and the lint, sets the
+        # variable; it adds about a minute and a half to the solo leg.
+        if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.GO_PART == 'true' && matrix.candidate == 'solo' }}
+        working-directory: impulse
+        env:
+          IMPULSE_AUTHORED: "1"
+        run: go test ./cmd/impulse/internal/cli -run TestAuthoredApplication -count=1 -v -timeout 20m
       - name: impulse check
         # The same binary that rendered: the check reads the application against the
-        # framework it was rendered from.
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' }}
+        # framework it was rendered from. The head leg's application builds against this
+        # checkout (--dev-root), so the check runs here, with the Go work and before any
+        # install: package-manager skips an application whose go.mod replaces the framework
+        # module with a directory. The pins leg's check runs after its browser apps are
+        # installed (below).
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' && matrix.framework == 'head' }}
         working-directory: app
         run: |
           "$RUNNER_TEMP/impulse" check
@@ -770,6 +789,17 @@ jobs:
               grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::$dir: the prettier check did not run over an installed web root"; exit 1; }
             fi
           done
+      - name: impulse check (the pins leg, once the install has written each web root's lockfile)
+        # The release's own check over the application as its author has it after the one
+        # install the next steps name. No rendering carries a lockfile, since the versions
+        # one would lock are the release's own, and package-manager fails an application
+        # whose web roots have none: its workflows install from the lockfile exactly. The
+        # step above installed every web root, so each holds the bun.lock the author
+        # commits, and the check reads the application whole.
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && matrix.framework == 'pins' }}
+        working-directory: app
+        run: |
+          "$RUNNER_TEMP/impulse" check
       - name: impulse brand over the rendered application
         # impulse brand over the declarations the skeleton carries, where the browser
         # packages are installed: Angular Material's theme-color schematic generates the
