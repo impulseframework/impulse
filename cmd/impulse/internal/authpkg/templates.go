@@ -166,7 +166,8 @@ type Settings struct {
 	// SessionTimeout is the idle timeout of a browser session.
 	SessionTimeout time.Duration
 	// Mail sends the auth's mail: the invitation an administrator sends to an address{{if .Password}},
-	// the link that verifies an address a person adds, and the link a sign-up starts from.{{else}}
+	// the link that verifies an address a person adds, the link a sign-up starts from, and
+	// the code a person who has no password chooses their first one with.{{else}}
 	// and the link that verifies an address a person adds.{{end}}
 	// The application's one sender, which the data level opens: the Workspace relay
 	// (session/mail/workspace) where the deployment names a mailbox, and the log (mail.Log)
@@ -713,6 +714,22 @@ func (h *Handlers) PasswordChange() http.HandlerFunc {
 // sign in through a directory; a user with no other way in keeps it.
 func (h *Handlers) PasswordRemove() http.HandlerFunc {
 	return h.{{.Field}}.RemoveUserPassword()
+}
+
+// FirstPasswordSendCode mails the signed-in person who has no password, because they
+// have only ever signed in through a directory, the code they choose their first one
+// with, at the address their account holds confirmed. A person at a browser someone
+// else left signed in does not read that mailbox, so they add no password to the
+// account.
+func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
+	return h.FirstPassword().SendCode()
+}
+
+// FirstPasswordSet gives the signed-in person who has no password the one they choose,
+// with the code they were mailed. An account that has a password changes it with the
+// old one (PasswordChange).
+func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
+	return h.FirstPassword().Set()
 }
 
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
