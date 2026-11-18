@@ -1152,7 +1152,12 @@ the person reaches.
    the page offers a new one. An address is sent five codes
    within fifteen minutes that go unused, and the sixth is refused with
    `too_many_emails` and the wait, as a link is; a code that is used resets the count,
-   so a person who signs in with each code sent never meets the limit. The code goes to the address the user holds, verified or not:
+   so a person who signs in with each code sent never meets the limit. A request takes
+   its place under the address's limit before its code is mailed, counted in the
+   store's one transaction (`AuthStore.RecordSignInFailure`, `SignInAttempts.Counted`),
+   so of codes asked for at once no more than five are mailed; and of codes recorded at
+   once for one pending sign-in one stands, so there is never a second code to guess
+   at with attempts of its own. The code goes to the address the user holds, verified or not:
    an address an operator entered is proven by the code as a link would prove it, and
    the user holds it verified once the code is entered. A user who holds no address
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
@@ -1184,7 +1189,9 @@ are not touched by the reset; `DestroyUserSessions` ends them.
 **What the tables hold.** A code is a row of `SessionFactorCodes`: the pending sign-in
 it was sent for, the address, the code's hash salted by the pending sign-in, the wrong
 attempts, and when it was created, expires and was consumed; one code stands for a
-pending sign-in at a time, and the codes go with the pending sign-in. A trusted device
+pending sign-in at a time, however many are recorded at once (the PostgreSQL driver
+takes the pending sign-in's row for the insert, and Spanner's transaction is
+serializable), and the codes go with the pending sign-in. A trusted device
 is a row of `SessionTrustedDevices`: the user, the token's hash, and when it was
 created, expires, was last used and revoked; the devices go with the user. Expired and
 consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
@@ -1546,8 +1553,10 @@ How an address gets onto a user:
   state, so the screen reveals nothing: an address another account holds is told so
   by mail to that address, and an address the user already holds verified gets no
   mail. A mailbox is sent at most five links within fifteen minutes that go unused; the
-  sixth is refused with `too_many_emails` and the wait. A link that is followed resets
-  the count, as a sign-in code that is used does.
+  sixth is refused with `too_many_emails` and the wait. A request takes its place under
+  the limit before anything is mailed, so of links asked for at once no more than five
+  are mailed. A link that is followed resets the count, as a sign-in code that is used
+  does.
 - **An operator enters one**, unverified: `CreateUserRequest.Email` or
   `SetSessionUserEmail`. The entry reserves the address within the auth: a later
   sign-up with it is pointed at this account by mail, and the person verifies it
@@ -1864,7 +1873,9 @@ The password method limits failed attempts itself. Five wrong passwords on a nam
 within fifteen minutes lock the name for fifteen minutes, whether a user exists under
 the name or not; an attempt during the lock is refused with `too_many_attempts` and the
 wait, before the user is looked up or the password hashed; the right password resets
-the count. The thresholds are an option of `PasswordSignIn`:
+the count. An attempt takes its place under the limit before its password is compared,
+so the limit holds however many attempts arrive together (see "Attempts made at once"
+below). The thresholds are an option of `PasswordSignIn`:
 
 ```go
 password := session.PasswordSignIn(auth, session.AttemptLimit(5, 15*time.Minute, 15*time.Minute))
@@ -1899,16 +1910,39 @@ the generated user management's unlock method does in a transaction of the
 application's, lifts the lock on every instance within five seconds, since no instance
 trusts what it remembers of a name for longer.
 
+**Attempts made at once.** An attempt takes its place under the limit before its
+password is compared: the store counts it against the name in one transaction and says
+whether it was counted (`AuthStore.RecordSignInFailure`, `SignInAttempts.Counted`), and
+an attempt that was not, because others made at once with it reached the limit first,
+is refused with `too_many_attempts` and the wait without being compared. Of any number
+of attempts on a name made together, no more than the limit are ever compared with a
+password, on both databases; the one that reaches the limit is compared itself. A wrong
+password leaves its place taken, which is its count. A right password gives the place
+back and resets the name: the row is deleted, whatever lock the attempts in flight
+beside it earned included, so a person's own sign-ins leave nothing held, and the place
+is given back though the request was canceled once the password was compared. The
+client's address and cookie are counted the same way, in memory, in the step that finds
+them free, and a right password gives that count back too, so the sign-ins of people
+who share an address leave nothing held against it. The limit so bounds the attempts on
+a name that are compared at one time, right ones among them: when more sign-ins with
+the right password than the limit arrive together for one name, the ones past the limit
+are refused with `too_many_attempts` until one of the others finishes and resets the
+name, which an instance that cached the lock learns within five seconds. An application
+that checks one account's password many times at once (`ValidateCredentials` for an
+account its services share) meets those refusals; a higher `AttemptLimit` avoids them
+at the price of as many more guesses at every name.
+
 **The three layers.** The name's count is durable: a row of the sign-in attempts table
 (`SessionSignInAttempts`, keyed by the name, never a column on the user row), written
-on failures and locks only and read through a per-instance cache that trusts a record,
-a lock included, for five seconds, so every instance refuses a locked name and a lock
-cleared in the table is gone from every instance within that time. Over it, each instance holds three kinds of key in
+by each attempt that takes its place, deleted by a right password, and kept per
+instance in a cache that trusts a lock for five seconds, so every instance refuses a
+locked name and a lock cleared in the table is gone from every instance within that
+time. Over it, each instance holds three kinds of key in
 memory, in a bounded table: the name, the client's address and the login's XSRF cookie
 token, the cookie the XSRF guard reads (a POST without it never reaches the handler).
 During a name's lock every attempt on it is refused the moment it arrives, from memory,
-with the same answer and the remaining wait: nothing is written or hashed, and the
-name's row is read at most once in five seconds per instance. An
+with the same answer and the remaining wait: nothing is counted or hashed, and the
+store is asked about the name at most once in five seconds per instance. An
 early retry during a wait counts against the client's address and cookie, never against
 the name, so a script that ignores the wait extends its own lock while the name's stays
 as it was, and a person who waits is not locked out by someone hammering their name.

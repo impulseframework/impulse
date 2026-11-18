@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,6 +117,87 @@ func seamPasswordAttemptLimit[Tx any](ctx context.Context, t *testing.T, a *auth
 	}
 	if status, _ := b.passwordLogin(ctx, seedPassword); status != http.StatusOK {
 		t.Errorf("the right password after one failure = %d, want 200: the count started over at the success", status)
+	}
+}
+
+// seamPasswordGuessesAtOnce: the password attempt limit holds under guesses made at
+// once, through the real handlers and the database's own counting. A dozen wrong
+// passwords for one name sent together each ask for an attempt before the password is
+// compared: three are compared and told what a wrong password is told, every other is
+// refused with too_many_attempts unjudged, and none is answered with a failure of the
+// server. Once the lock has passed, a dozen copies of the right password sent together
+// are each signed in or refused as an attempt past the limit is, and the person signs
+// in.
+func seamPasswordGuessesAtOnce[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	a.seed(ctx, t, "pat@lakeside.edu")
+	b := a.browser(t)
+	b.prime(ctx)
+
+	const (
+		guesses = 12
+		limit   = 3
+	)
+	// atOnce enters password for pat from a dozen copies of b's cookies together and
+	// returns what each was answered.
+	atOnce := func(password string) (statuses []int, bodies []string) {
+		copies := make([]*browser, guesses)
+		for i := range copies {
+			copies[i] = b.clone()
+		}
+		statuses, bodies = make([]int, guesses), make([]string, guesses)
+		failed := make([]error, guesses)
+		var wg sync.WaitGroup
+		for i, c := range copies {
+			wg.Go(func() {
+				status, body, err := c.send(ctx, http.MethodPost, "/login", map[string]string{"username": "pat@lakeside.edu", "password": password})
+				statuses[i], bodies[i], failed[i] = status, string(body), err
+			})
+		}
+		wg.Wait()
+		for i, err := range failed {
+			if err != nil {
+				t.Fatalf("guess %d of %d at once: %v", i, guesses, err)
+			}
+		}
+
+		return statuses, bodies
+	}
+
+	statuses, bodies := atOnce("wrong")
+	wrong, refused := 0, 0
+	for i, status := range statuses {
+		switch {
+		case status == http.StatusUnauthorized && strings.Contains(bodies[i], "Invalid Credentials"):
+			wrong++
+		case status == http.StatusTooManyRequests && strings.Contains(bodies[i], `"code":"too_many_attempts"`):
+			refused++
+		default:
+			t.Errorf("wrong password %d of %d at once = %d %s, want 401 Invalid Credentials or 429 too_many_attempts", i, guesses, status, bodies[i])
+		}
+	}
+	if wrong != limit || refused != guesses-limit {
+		t.Errorf("%d wrong passwords at once: %d were compared and told so and %d were refused unjudged, want %d and %d", guesses, wrong, refused, limit, guesses-limit)
+	}
+
+	// The lock passes. The right password, entered from a dozen copies of the browser
+	// at once: each is signed in or refused as an attempt past the limit is, and at
+	// least one is signed in.
+	time.Sleep(2*time.Second + 200*time.Millisecond)
+	statuses, bodies = atOnce(seedPassword)
+	accepted := 0
+	for i, status := range statuses {
+		switch {
+		case status == http.StatusOK:
+			accepted++
+		case status == http.StatusTooManyRequests && strings.Contains(bodies[i], `"code":"too_many_attempts"`):
+		default:
+			t.Errorf("right password %d of %d at once = %d %s, want 200 or 429 too_many_attempts", i, guesses, status, bodies[i])
+		}
+	}
+	if accepted == 0 {
+		t.Errorf("%d copies of the right password at once: none was signed in, want at least one", guesses)
 	}
 }
 

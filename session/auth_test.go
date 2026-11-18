@@ -99,6 +99,10 @@ type authFixture struct {
 	// afterFailure, when set, is called with a failure's context once the store counted
 	// it, before the store answers: where a test holds guesses made at once.
 	afterFailure func(ctx context.Context)
+	// afterRead, when set, is called with a read's context and name once the store read
+	// the name's record, before the store answers: where a test holds requests made at
+	// once that would read a record before they count against it.
+	afterRead func(ctx context.Context, name string)
 	// signedInCalls records the SignedInHook's calls, and signedInErr is what it answers.
 	signedInCalls []*SignedIn
 	signedInErr   error
@@ -200,18 +204,32 @@ func (f *authFixture) advance(d time.Duration) {
 }
 
 // attemptsOf answers the store's read of a name's attempts as the table would.
-func (f *authFixture) attemptsOf(_ context.Context, name string) (*sessionstorage.SignInAttempts, error) {
+func (f *authFixture) attemptsOf(ctx context.Context, name string) (*sessionstorage.SignInAttempts, error) {
+	copied := f.readAttempts(name)
+	if f.afterRead != nil {
+		f.afterRead(ctx, name)
+	}
+	if copied == nil {
+		return nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")
+	}
+
+	return copied, nil
+}
+
+// readAttempts reads a name's record in the fixture's table and returns a copy of it,
+// nil for none.
+func (f *authFixture) readAttempts(name string) *sessionstorage.SignInAttempts {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.attemptReads++
 	r, found := f.attempts[name]
 	if !found {
-		return nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")
+		return nil
 	}
 	copied := *r
 
-	return &copied, nil
+	return &copied
 }
 
 // recordFailure answers the store's record of a failure as the table would, under
@@ -3154,8 +3172,10 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		if err == nil || httpio.HasConflict(err) {
 			t.Errorf("ChangeSessionUserPassword() error = %v, want the store's failure", err)
 		}
-		if _, _, clears := f.counts(); clears != 0 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was changed", clears)
+		// The old password matched and gave its attempt back; the change that was not
+		// made clears nothing more.
+		if _, _, clears := f.counts(); clears != 1 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once, by the old password's match: nothing was changed", clears)
 		}
 	})
 
@@ -3174,8 +3194,10 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		if !errors.Is(err, sessionstorage.ErrPasswordChanged) || !httpio.HasConflict(err) || httpio.Message(err) != want {
 			t.Errorf("ChangeSessionUserPassword() error = %v (message %q), want ErrPasswordChanged as a Conflict saying %q", err, httpio.Message(err), want)
 		}
-		if _, _, clears := f.counts(); clears != 0 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was changed", clears)
+		// The old password matched and gave its attempt back; the change that was not
+		// made clears nothing more.
+		if _, _, clears := f.counts(); clears != 1 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once, by the old password's match: nothing was changed", clears)
 		}
 	})
 

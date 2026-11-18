@@ -374,18 +374,20 @@ func optionalAddress(email *string) (*string, error) {
 
 // limitMail bounds the codes and links sent to an address (mailLimit): the address's
 // record in the sign-in attempts table counts each one, and an address at the limit is
-// refused with too_many_emails and the wait.
+// refused with too_many_emails and the wait. A request takes its place under the limit
+// before anything is mailed: the store counts it in one transaction and says whether it
+// was counted (dbtype.SignInAttempts.Counted), and a request that was not, because the
+// address is at the limit already, mails nothing. Requests made at once are so each
+// counted, and no more of them than the limit are ever mailed.
 func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
-	key := mailLimitKey(email)
-	record, err := a.storage.SignInAttempts(ctx, key)
-	if err != nil && !httpio.HasNotFound(err) {
-		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
-	}
-	if wait, locked := record.Locked(time.Now()); locked {
-		return sessioninfo.NewTooManyEmailsRefusal(wait)
-	}
-	if _, err := a.storage.RecordSignInFailure(ctx, key, mailLimit); err != nil {
+	record, err := a.storage.RecordSignInFailure(ctx, mailLimitKey(email), mailLimit)
+	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	if !record.Counted {
+		wait, _ := record.Locked(time.Now())
+
+		return sessioninfo.NewTooManyEmailsRefusal(wait)
 	}
 
 	return nil

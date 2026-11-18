@@ -748,6 +748,14 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamEmailCodeGuessesAtOnce[Tx],
 		},
 		{
+			name: "a dozen codes asked for at once for one sign-in: five are mailed, the address's limit, and the rest are refused with too_many_emails; one of the five signs the person in",
+			run:  seamEmailCodesAskedAtOnce[Tx],
+		},
+		{
+			name: "a dozen codes recorded at once for one sign-in, each mailed to another address: one stands, so five wrong guesses end it and no code mailed is left to be guessed at",
+			run:  seamEmailCodesRecordedAtOnce[Tx],
+		},
+		{
 			name: "a person who signs in with each code sent is mailed one every time: a used code resets the address's mail count",
 			run:  seamEmailCodeUsedResetsLimit[Tx],
 		},
@@ -788,6 +796,11 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name:     "failed password attempts on a name are limited: the attempt past the limit is refused with 429 and the wait from any browser, known or unknown name alike, the lock passes, and a matching password resets the count",
 			run:      seamPasswordAttemptLimit[Tx],
 			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
+		},
+		{
+			name:     "a dozen wrong passwords for one name entered at once each ask for an attempt: three are compared, the limit, and the rest are refused unjudged; a dozen copies of the right password entered at once sign the person in",
+			run:      seamPasswordGuessesAtOnce[Tx],
+			password: []session.PasswordOption{session.AttemptLimit(3, time.Minute, 2*time.Second)},
 		},
 		{
 			name: "the after-sign-in hook is told of every session a sign-in establishes, once, and of no refused or held sign-in",
