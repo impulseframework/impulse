@@ -1330,7 +1330,8 @@ true`, and the logout and the password change go through, since they validate th
 session on their own, which is why the three sit outside `ValidateSession` in the
 wiring above. A login page that reads the mark from the session read posts the change
 to the methods list's `changePassword` path before it opens the application. The change
-clears the mark, regenerates the session and records a `password` event; an
+clears the mark and goes on in a new session that carries the auth events of the one
+that made it (`ChangeSessionUserPassword`, below); an
 impersonated session is the actor's and is not held to the user's mark. The seed user
 of a new application and every user an operator creates with a password carry the
 mark; the password a user chose through `ChangeSessionUserPassword` or
@@ -1497,8 +1498,9 @@ What is refused, and how:
 
 A first password ends no session: the person added a way to sign in, and nothing
 they held is in doubt. Where the `Auth` records auth events, the session the person
-chose it in records a password event, as the session a password change continues in
-does; the name's count of failed sign-ins is cleared, as a change clears it. The code is
+chose it in records a password event beside the ones it had, since the person proved
+the password is theirs there; the name's count of failed sign-ins is cleared, as a
+change clears it. The code is
 kept in the mail links table as a row of the kind `first-password` that names the
 account (its hash where a link's row keeps its token's), so it goes with the user, and
 the guesses are counted in the sign-in attempts table under the account.

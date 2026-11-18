@@ -84,8 +84,8 @@ func (h *FirstPasswordHandlers) SendCode() http.HandlerFunc {
 // expired, was used or was ended, is 409. It is refused (409) for an account that holds
 // a password and on an Auth with no password method, and in an impersonated session.
 // No session of the user ends, this one among them; where the Auth records auth
-// events, this session records a password event, as the session a password change
-// continues in does. It answers {}. Route it behind ValidateSession.
+// events, this session records a password event beside the ones it had. It answers {}.
+// Route it behind ValidateSession.
 func (h *FirstPasswordHandlers) Set() http.HandlerFunc {
 	return h.set
 }
@@ -429,9 +429,9 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 }
 
 // recordFirstPassword records that user chose their first password in the session of
-// the request: a password event on it, the event the session a password change
-// continues in records, where the Auth records auth events. It is bookkeeping after
-// the write: a failure is logged, and the password stands.
+// the request: a password event on it, beside the events it had, where the Auth records
+// auth events. It is bookkeeping after the write: a failure is logged, and the password
+// stands.
 func (a *Auth[S, U, Tx]) recordFirstPassword(ctx context.Context, user *sessionstorage.SessionUser) {
 	logger.FromCtx(ctx).Infof("user %s chose their first password", user.ID)
 	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)

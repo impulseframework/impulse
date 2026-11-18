@@ -128,6 +128,13 @@ func TestAuthAPI_ChangeSessionUserPassword_nothingToContinue(t *testing.T) {
 				Impersonation: &sessioninfo.Impersonation{Actor: "sam"},
 			},
 		},
+		{
+			name: "a request a bearer token of the person's stands in for is no session to continue",
+			session: &sessioninfo.SessionData{
+				SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat"}, UserID: impulse.NullUUIDFromUUID(userID), AuthEvents: strong,
+				Token: &sessioninfo.TokenInfo{},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -230,6 +237,15 @@ func TestAuth_passwordRule_everyPath(t *testing.T) {
 		f := newAuthFixture(t, gomock.NewController(t))
 		if _, err := f.auth.API().HashPassword("eight888"); err != nil {
 			t.Errorf("HashPassword() of eight characters: error = %v, want a hash", err)
+		}
+	})
+	t.Run("the length is counted in characters: seven that take two bytes each are refused, eight are a password", func(t *testing.T) {
+		t.Parallel()
+		f := newAuthFixture(t, gomock.NewController(t))
+		_, err := f.auth.API().HashPassword(strings.Repeat("é", 7))
+		refused(t, err)
+		if _, err := f.auth.API().HashPassword(strings.Repeat("é", 8)); err != nil {
+			t.Errorf("HashPassword() of eight characters of two bytes each: error = %v, want a hash", err)
 		}
 	})
 }

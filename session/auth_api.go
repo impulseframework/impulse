@@ -297,11 +297,13 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 // tenant's administrator who entered with a password and a second factor still carries
 // the factor. Nothing of it comes from the request. A change made with no session of the
 // person's own in the context (a call of the application's, a session that views as
-// someone else, one that recorded no event) has nothing to continue, and the new session
-// records what the change proved: the password.
+// someone else, a request a bearer token stands in for, which has no session row, one
+// that recorded no event) has nothing to continue, and the new session records what the
+// change proved: the password.
 func continuedAuthEvents(ctx context.Context, userID impulse.UUID) []sessioninfo.AuthEvent {
 	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
-	if !ok || current == nil || current.Impersonation != nil || !current.UserID.Valid || current.UserID.UUID != userID || len(current.AuthEvents) == 0 {
+	if !ok || current == nil || current.Impersonation != nil || current.Token != nil ||
+		!current.UserID.Valid || current.UserID.UUID != userID || len(current.AuthEvents) == 0 {
 		return []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}
 	}
 

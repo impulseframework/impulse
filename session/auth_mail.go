@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -403,7 +404,8 @@ func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
 const minPasswordLength = 8
 
 // acceptedPassword is the one rule for a password's shape: it refuses a password
-// shorter than eight characters. Every path that sets a password is held to it, since
+// shorter than eight characters, counted as characters and not as the bytes that
+// encode them. Every path that sets a password is held to it, since
 // each hashes the password through hashToSet: a sign-up and an invitation's acceptance,
 // a person's first password, their own change, a password set or reset for them, an
 // account created with one, and the hash the generated user management asks for
@@ -411,7 +413,7 @@ const minPasswordLength = 8
 // first as well, so a refused password costs nothing. The rules beyond the length are
 // the application's, on its page.
 func acceptedPassword(password string) error {
-	if len(password) < minPasswordLength {
+	if utf8.RuneCountInString(password) < minPasswordLength {
 		return httpio.NewBadRequestMessagef("the password is at least %d characters", minPasswordLength)
 	}
 
