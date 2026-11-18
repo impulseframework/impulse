@@ -898,10 +898,13 @@ const placeholderIssuer = "https://persona.example.com"
 const placeholderProviderIssuer = "https://provider.example.com"
 
 // literalPlace is where an auth's Settings literal is built on the data level: add
-// appends an element to it, and name is how a did line names it.
+// appends an element to it, and name is how a did line names it. method is the settings
+// function's name where the literal is built in one, empty where it stands inline in
+// NewDataConfiguration.
 type literalPlace struct {
-	name string
-	add  func(src []byte, element string) ([]byte, error)
+	name   string
+	method string
+	add    func(src []byte, element string) ([]byte, error)
 }
 
 // settingsPlace finds where the auth's Settings literal is built: the auth's settings
@@ -914,7 +917,8 @@ func settingsPlace(rel string, src []byte, structName, auth string) literalPlace
 	method := auth + "Settings"
 	if methods, err := app.MethodNames(rel, src, structName); err == nil && slices.Contains(methods, method) {
 		return literalPlace{
-			name: fmt.Sprintf("%s.%s", structName, method),
+			name:   fmt.Sprintf("%s.%s", structName, method),
+			method: method,
 			add: func(src []byte, element string) ([]byte, error) {
 				return app.AddMethodLiteralElement(rel, src, structName, method, settingsType, element)
 			},

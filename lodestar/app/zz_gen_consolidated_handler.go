@@ -235,15 +235,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 
 	type response map[string][]impulse.UUID
 
-	// The creator of a Sector is its first administrator: the roles SectorAdministratorRoles
-	// names, given in the create's transaction through the Crew auth's generated
-	// identity client.
-	roles := a.SectorAdministratorRoles()
-	if len(roles) == 0 {
-		panic("SectorAdministratorRoles() names no role: the person who creates a Sector holds its administrator role, which the application names there")
-	}
-	identity := a.CrewIdentity()
-
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -257,9 +248,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// The roster follows the commit: a tenant or a declaration this transaction
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
-		// The Sectors this transaction creates with their creator's membership,
-		// which the answer waits on after the commit.
-		var created []impulse.UUID
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
@@ -268,7 +256,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			tenantsWritten = false
-			created = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -473,6 +460,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 					}
 				case "sectors":
 					if op.PathDepth() <= 2 {
+						if op.Type == resource.OperationCreate {
+							// A row comes in another way (a NOT NULL @file key: the @upload
+							// method that stores its file; the tenant record: an invitation's
+							// first sign-in), so a create op is refused naming it, with the
+							// status an unknown resource answers.
+							return httpio.NewBadRequestMessage("a sector is not created directly: invite one person, and the sector is made when that person first signs in")
+						}
 						patchSet, err := sectorDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 						if err != nil {
 							return errors.Wrap(err, "sectorDecoder.DecodeOperation()")
@@ -494,13 +488,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 								return errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 							}
 							resp["sectors"] = append(resp["sectors"], patch.ID())
-							id := patch.ID()
-							for _, role := range roles {
-								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
-									return errors.Wrap(err, "the auth's identity client: AssignRole()")
-								}
-							}
-							created = append(created, id)
 						case resource.OperationUpdate:
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewSectorUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
@@ -676,8 +663,9 @@ func (a *App) PatchResources() http.HandlerFunc {
 					case "mission-documents":
 						if op.Type == resource.OperationCreate {
 							// A row comes in another way (a NOT NULL @file key: the @upload
-							// method that stores its file; a self-service tenant record: the
-							// create-your-tenant route), so a create op is refused naming it.
+							// method that stores its file; the tenant record: an invitation's
+							// first sign-in), so a create op is refused naming it, with the
+							// status an unknown resource answers.
 							return httpio.NewBadRequestMessage("a MissionDocument row is added by the @upload method that stores its file; a create cannot supply the file's key")
 						}
 						patchSet, err := missionDocumentDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
@@ -1088,11 +1076,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 		if tenantsWritten {
 			if err := a.TenantRoster().Reload(ctx); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
-			}
-		}
-		for _, id := range created {
-			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {
-				logger.FromCtx(ctx).Errorf("sector %s: %v", id, err)
 			}
 		}
 		if tenantsWritten {

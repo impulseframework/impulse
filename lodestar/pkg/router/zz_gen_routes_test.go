@@ -391,6 +391,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost},
 		{url: "/droids/briefing-templates", method: http.MethodGet},
 		{url: "/droids/briefing-templates", method: http.MethodPost},
+		{url: "/droids/crew-invited-sectors", method: http.MethodGet},
+		{url: "/droids/crew-invited-sectors", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodGet},
@@ -460,6 +462,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hail-ship", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hold-mission", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/inspect-ship", method: http.MethodPost},
+		{url: "/droids/invite-crew-sector", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/invite-crew-sector-user", method: http.MethodPost},
 		{url: "/droids/invite-crew-user", method: http.MethodPost},
 		{url: "/droids/issue-bulletin", method: http.MethodPost},
@@ -509,6 +512,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/unlock-crew-sign-in", method: http.MethodPost},
 		{url: "/droids/unlock-members-sign-in", method: http.MethodPost},
 		{url: "/droids/withdraw-crew-invitation", method: http.MethodPost},
+		{url: "/droids/withdraw-crew-invited-sector", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/withdraw-crew-sector-invitation", method: http.MethodPost},
 		{url: "/portal/api/clients", method: http.MethodGet},
 		{url: "/portal/api/clients", method: http.MethodPost},
@@ -697,6 +701,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost},
+		{url: "/portal/api/crew-invited-sectors", method: http.MethodGet},
+		{url: "/portal/api/crew-invited-sectors", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodGet},
@@ -758,6 +764,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hold-mission", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/ingest-droid-reports", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/inspect-ship", method: http.MethodPost},
+		{url: "/portal/api/invite-crew-sector", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/invite-crew-sector-user", method: http.MethodPost},
 		{url: "/portal/api/invite-crew-user", method: http.MethodPost},
 		{url: "/portal/api/issue-bulletin", method: http.MethodPost},
@@ -796,6 +803,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/unlink-crew-session-identity", method: http.MethodPost},
 		{url: "/portal/api/unlock-crew-sign-in", method: http.MethodPost},
 		{url: "/portal/api/withdraw-crew-invitation", method: http.MethodPost},
+		{url: "/portal/api/withdraw-crew-invited-sector", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/withdraw-crew-sector-invitation", method: http.MethodPost},
 	}
 
@@ -2685,6 +2693,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/crew-invited-sectors", method: http.MethodGet,
+			handlerFunc: "CrewInvitedSectors",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-invited-sectors", method: http.MethodPost,
+			handlerFunc: "CrewInvitedSectors",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet,
 			handlerFunc: "CrewSectorDirectoryRoles",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -3130,6 +3148,10 @@ func (s *generatedHandlersStub) CrewGroupUser() http.HandlerFunc {
 	return s.record("CrewGroupUser")
 }
 
+func (s *generatedHandlersStub) CrewInvitedSectors() http.HandlerFunc {
+	return s.record("CrewInvitedSectors")
+}
+
 func (s *generatedHandlersStub) CrewRoles() http.HandlerFunc {
 	return s.record("CrewRoles")
 }
@@ -3496,6 +3518,10 @@ func (s *generatedHandlersStub) HoldMission() http.HandlerFunc {
 
 func (s *generatedHandlersStub) InspectShip() http.HandlerFunc {
 	return s.record("InspectShip")
+}
+
+func (s *generatedHandlersStub) InviteCrewSector() http.HandlerFunc {
+	return s.record("InviteCrewSector")
 }
 
 func (s *generatedHandlersStub) InviteCrewSectorUser() http.HandlerFunc {
@@ -3984,6 +4010,10 @@ func (s *generatedHandlersStub) Wing() http.HandlerFunc {
 
 func (s *generatedHandlersStub) WithdrawCrewInvitation() http.HandlerFunc {
 	return s.record("WithdrawCrewInvitation")
+}
+
+func (s *generatedHandlersStub) WithdrawCrewInvitedSector() http.HandlerFunc {
+	return s.record("WithdrawCrewInvitedSector")
 }
 
 func (s *generatedHandlersStub) WithdrawCrewSectorInvitation() http.HandlerFunc {

@@ -56,7 +56,7 @@ func insertInvitation(ctx context.Context, t *testing.T, d AuthDriver, email, te
 
 // invitationOf is the invitation a sign-in carries for link.
 func invitationOf(link *dbtype.MailLink) *sessioninfo.Invitation {
-	return &sessioninfo.Invitation{ID: link.ID, Email: link.Email, TenantID: link.TenantID, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID, ExpiresAt: link.ExpiresAt}
+	return &sessioninfo.Invitation{ID: link.ID, Email: link.Email, TenantID: link.TenantID, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID, ExpiresAt: link.ExpiresAt, NewTenant: link.NewTenant}
 }
 
 // acceptances records what the invitation acceptor was handed, the way an application

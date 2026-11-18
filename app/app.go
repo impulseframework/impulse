@@ -266,18 +266,26 @@ type Method struct {
 	// accounts (azure.PersonalAccounts), alone (TenantsPersonal) or beside the tenants
 	// Tenants describes.
 	PersonalAccounts bool
-	// Workspaces is the Workspace shape of a Google registration, read from the slot
-	// function its configuration's Workspaces slot calls (readWorkspaces):
-	// WorkspacesOne for google.Workspace alone, of one domain, WorkspacesListed for
-	// several Workspaces, a Workspace built in a loop or one of several domains,
-	// WorkspacesAny for google.AnyWorkspace (alone or beside named Workspaces) and
-	// WorkspacesAccounts for google.AnyGoogleAccount alone. Empty for another method,
-	// and for a slot written any other way.
+	// Workspaces is the Workspace shape of a Google registration, read from the building
+	// blocks its configuration's Workspaces slot is made of (readWorkspaces):
+	// WorkspacesOne for google.Workspace alone, WorkspacesListed for google.Workspaces of
+	// several Workspaces or a Workspace built in a loop, WorkspacesAny for
+	// google.AnyWorkspace (alone or beside listed Workspaces) and WorkspacesAccounts for
+	// google.AnyGoogleAccount alone. Empty for another method, and for a slot written any
+	// other way.
 	Workspaces string
-	// AnyGoogleAccount reports a Google registration admitting any Google account
+	// GoogleAccounts reports a Google registration admitting any Google account
 	// (google.AnyGoogleAccount), alone (WorkspacesAccounts) or beside the Workspaces
 	// Workspaces describes.
-	AnyGoogleAccount bool
+	GoogleAccounts bool
+	// SeveralDomains reports a Google registration that names a Workspace with more
+	// than one domain, or with a spread of them (google.Workspace(name, domains...)).
+	// It changes nothing of Workspaces, which counts Workspaces: such a registration
+	// may still read WorkspacesOne. It is for a rule that counts organizations as the
+	// sign-in does, which lists a Workspace by each of its domains
+	// (signin.Audience.OneOrganization), so one Workspace of two domains is not one
+	// organization to it.
+	SeveralDomains bool
 	// AuthVar is the identifier the registration's first argument names: the Auth it is
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.

@@ -1,14 +1,10 @@
-<h2 mat-dialog-title>{{ data.selfService ? 'Create your tenant' : 'New tenant' }}</h2>
+<h2 mat-dialog-title>Create your tenant</h2>
 <form [formGroup]="form" (ngSubmit)="create()">
   <mat-dialog-content>
-    @if (data.selfService) {
-      <p>
-        You are signed in and hold no tenant. Name yours: you become its administrator the moment it exists, and it is
-        yours to invite people into.
-      </p>
-    } @else {
-      <p>The tenant is served the moment it exists, and you are its first administrator.</p>
-    }
+    <p>
+      You are signed in and hold no tenant. Name yours: you become its administrator the moment it exists, and it is
+      yours to invite people into.
+    </p>
     <mat-form-field appearance="outline" class="field" subscriptSizing="dynamic">
       <mat-label>Name</mat-label>
       <input matInput formControlName="name" name="name" autocomplete="organization" placeholder="West" />

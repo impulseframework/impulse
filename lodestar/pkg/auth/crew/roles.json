@@ -86,7 +86,7 @@
       },
       {
         "name": "Headquarters",
-        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, the crew's and the clients' accounts and seats, and issues bulletins.",
+        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, brings a new sector in by inviting its first marshal, manages the crew's and the clients' accounts and seats, and issues bulletins.",
         "permissions": {
           "List": [
             {
@@ -416,6 +416,21 @@
                 "groupName",
                 "startsAt",
                 "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewInvitedSectors",
+              "fields": [
+                "email",
+                "name",
+                "sectorName",
+                "sectorRegion",
+                "sectorEstablished",
+                "sectorDirectoryOnly",
+                "defaultRole",
+                "invitedByUserId",
+                "createdAt",
+                "expiresAt"
               ]
             }
           ],
@@ -814,6 +829,12 @@
               "resource": "WithdrawCrewInvitation"
             },
             {
+              "resource": "InviteCrewSector"
+            },
+            {
+              "resource": "WithdrawCrewInvitedSector"
+            },
+            {
               "resource": "SetCrewUserEmail"
             },
             {
@@ -1013,8 +1034,25 @@
       },
       {
         "name": "Surveyor",
-        "description": "Charts new sectors and corrects their records.",
+        "description": "Charts new sectors, by inviting the person who will run each, and corrects their records. Closing a sector to its directory is not the Surveyor's to say: an invitation of theirs never says directory only.",
         "permissions": {
+          "List": [
+            {
+              "resource": "CrewInvitedSectors",
+              "fields": [
+                "email",
+                "name",
+                "sectorName",
+                "sectorRegion",
+                "sectorEstablished",
+                "sectorDirectoryOnly",
+                "defaultRole",
+                "invitedByUserId",
+                "createdAt",
+                "expiresAt"
+              ]
+            }
+          ],
           "Create": [
             {
               "resource": "Sectors",
@@ -1033,6 +1071,15 @@
                 "region",
                 "established"
               ]
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "InviteCrewSector",
+              "condition": "new.directoryOnly = false"
+            },
+            {
+              "resource": "WithdrawCrewInvitedSector"
             }
           ]
         }

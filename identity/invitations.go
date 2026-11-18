@@ -75,7 +75,10 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	if len(roles) == 0 {
 		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: the roles are what the invitation gives")
 	}
-	req := &session.InvitationRequest{Email: email, Name: "", TenantID: "", RoleNames: make([]string, 0, len(roles)), InvitedByUserID: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false}}
+	req := &session.InvitationRequest{
+		Email: email, Name: "", TenantID: "", RoleNames: make([]string, 0, len(roles)), NewTenant: nil,
+		InvitedByUserID: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false},
+	}
 	if inv.Name != nil {
 		req.Name = *inv.Name
 	}
@@ -174,7 +177,9 @@ func (m *Manager) roleExistsIn(ctx context.Context, txn resource.ReadWriteTransa
 // links table also keeps the links that verify an address and that start a sign-up,
 // and one of those under the id is not found, as an invitation that does not exist is.
 // An invitation that was accepted, withdrawn or has expired no longer stands and is
-// not found either.
+// not found either. Nor is an invitation that makes a tenant: it is withdrawn by its own
+// method, under its own grant (WithdrawTenantInvitation), so the grant that withdraws an
+// invitation into the application does not reach it.
 //
 // Shared rule: the session library's RevokeInvitation, which consumes the live link of
 // the id whatever its kind.
@@ -192,9 +197,36 @@ func (m *Manager) WithdrawInvitation(ctx context.Context, txn resource.ReadWrite
 	if link.Consumed || !m.now().Before(link.ExpiresAt) {
 		return httpio.NewNotFoundMessagef("invitation %q no longer stands: it was accepted, withdrawn or has expired", invitationID)
 	}
+	makesTenant, err := m.makesTenant(ctx, txn, invitationID)
+	if err != nil {
+		return err
+	}
+	if makesTenant {
+		return httpio.NewNotFoundMessagef("invitation %q does not exist", invitationID)
+	}
 	if err := m.store.ConsumeMailLink(ctx, txn, invitationID); err != nil {
 		return errors.Wrap(err, "identity.Store.ConsumeMailLink()")
 	}
 
 	return nil
+}
+
+// makesTenant reports whether the standing invitation of the id is one that makes a
+// tenant. Only an auth that is handed a tenant maker sends such invitations, so no
+// other auth reads for them.
+func (m *Manager) makesTenant(ctx context.Context, txn resource.ReadOnlyTransaction, invitationID impulse.UUID) (bool, error) {
+	if m.tenants == nil {
+		return false, nil
+	}
+	standing, err := m.store.InvitedTenants(ctx, txn)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.Store.InvitedTenants()")
+	}
+	for i := range standing {
+		if standing[i].ID == invitationID {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

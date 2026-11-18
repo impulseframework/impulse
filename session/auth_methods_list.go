@@ -164,8 +164,13 @@ type standingInvitationAnswer struct {
 	Email string `json:"email"`
 	// TenantID and TenantName are the tenant the invitation seats the person in and
 	// what people call it, as Invitation().Open() answers them.
-	TenantID        string    `json:"tenantId,omitempty"`
-	TenantName      string    `json:"tenantName,omitempty"`
+	TenantID   string `json:"tenantId,omitempty"`
+	TenantName string `json:"tenantName,omitempty"`
+	// NewTenant says the invitation makes a tenant, whose name TenantName then is, and
+	// DirectoryOnly that it is accepted through an organization's directory alone, so
+	// the page offers no account with a password for it.
+	NewTenant       bool      `json:"newTenant"`
+	DirectoryOnly   bool      `json:"directoryOnly"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	UsernameIsEmail bool      `json:"usernameIsEmail"`
 	// Methods are the names of the listed external registrations that could admit the
@@ -216,7 +221,9 @@ type pendingAnswer struct {
 // password when the list names it. When the list names the invitation
 // routes and the browser carries a live invitation (the cookie Invitation().Open()
 // set), the invitation block also reports it under "standing": the address it was
-// sent to, its tenant, when it stops being accepted, whether an account created from
+// sent to, its tenant (for an invitation that makes a tenant, "newTenant" with the
+// tenant's name, and "directoryOnly" where it is accepted through an organization's
+// directory alone), when it stops being accepted, whether an account created from
 // it takes the address as its username, and the names of the listed external
 // registrations that could admit the address (see Invitation().Open()), so a page
 // that arrives without the mailed link's token, as it does when an external sign-in
@@ -311,9 +318,11 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 		return nil, err
 	}
 
+	makes, directoryOnly := madeTenant(inv.NewTenant)
+
 	return &standingInvitationAnswer{
-		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.tenantName(inv.TenantID), ExpiresAt: inv.ExpiresAt,
-		UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
+		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
+		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
 		AccountExists: exists, HasPassword: hasPassword,
 	}, nil
 }

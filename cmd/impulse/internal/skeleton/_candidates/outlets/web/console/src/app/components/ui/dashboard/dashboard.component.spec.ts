@@ -161,11 +161,8 @@ describe('DashboardComponent', () => {
     const offer = element.querySelector<HTMLButtonElement>('.create-tenant-card button');
     expect(offer?.textContent).toContain('Create your tenant');
     offer?.click();
-    // The new-tenant dialog on its self-service path: the person becomes the administrator.
-    expect(opened).toHaveBeenCalledWith(
-      NewTenantDialogComponent,
-      expect.objectContaining({ data: { selfService: true } }),
-    );
+    // The new-tenant dialog: the person names their tenant and becomes its administrator.
+    expect(opened).toHaveBeenCalledWith(NewTenantDialogComponent, expect.objectContaining({ width: '480px' }));
   });
 
   it('offers no tenant of their own while the server would refuse to create one', async () => {

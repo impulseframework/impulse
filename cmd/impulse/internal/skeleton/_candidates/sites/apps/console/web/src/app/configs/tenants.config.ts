@@ -7,12 +7,14 @@ import { field, listViewConfig, rootConfig, section } from '@impulseframework/re
 // its name and whether its people enter through its directories only. A tenant's key is an
 // id the server generates, which nobody types: the list leaves it out, and the row page
 // shows it read only, for whoever supports the application. The menu file places the page
-// (app.menus.ts, under Tenants); the record is created through New tenant… beside it.
+// (app.menus.ts, under Tenants). Nobody creates the record here: an administrator brings a
+// tenant in by inviting one person, on the Invited tenants page the library builds among
+// the staff's pages (System), and that person's first sign-in makes it. The record's
+// metadata says so (createDisabled), and the list draws no Create button.
 export const tenantsConfig = rootConfig({
   page: { label: 'All tenants', icon: 'domain' },
   parentConfig: listViewConfig({
     title: 'Tenants',
-    createTitle: 'Tenant',
     primaryResource: Resources.Tenants,
     listColumns: [{ id: Tenants.fieldName.name }, { id: Tenants.fieldName.directoryOnly, header: 'Directory only' }],
     elements: [

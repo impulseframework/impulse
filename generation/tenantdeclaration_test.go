@@ -330,11 +330,17 @@ func Test_declarationColumns(t *testing.T) {
 func Test_tenantsTemplate_declaration(t *testing.T) {
 	t.Parallel()
 
+	structs := fixtureStructs(loadFixture(t, "tenantfixture"))
+
 	tests := []struct {
 		name            string
 		data            *tenantsData
 		wantContains    []string
 		wantNotContains []string
+		// wantOrder names fragments the rendered file carries in this order, and
+		// wantImports the import lines the file carries once its imports are resolved.
+		wantOrder   []string
+		wantImports []string
 	}{
 		{
 			name: "the declaration's columns, the option and the reader constructor",
@@ -392,35 +398,127 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			},
 		},
 		{
-			name: "the seat column and the creator's seat contract",
+			name: "the seat column, and the maker of a tenant from an accepted invitation",
 			data: &tenantsData{
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory", DefaultSeat: "DefaultSeat",
-				Declaration:         &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
+				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
 				ResourcePackage:     "resources",
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
-				Seat:                &tenantSeatData{Record: "Harbor", RecordLower: "harbor", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "HarborAdministratorRoles"},
-				RouterPackage:       "router",
-				ApplicationName:     "App",
+				Maker: &tenantMakerData{
+					Fields:      []*tenantMakerField{{Name: "Name", Type: "string", Wire: "name", Unique: true}, {Name: "Berths", Type: "*int64", Wire: "berths"}},
+					Key:         "ID",
+					Flag:        "DirectoryOnly",
+					TenantValue: "id",
+				},
+				record:          fixtureResource(t, structs, "Harbor", nil),
+				RouterPackage:   "router",
+				ApplicationName: "App",
 			},
 			wantContains: []string{
 				`DefaultSeatColumn: "DefaultSeat",`,
 				"with the default seat the row carries (HarborDirectory.DefaultSeat:",
-				`"github.com/impulseframework/impulse/accesstypes"`,
-				"HarborAdministratorRoles() []accesstypes.Role",
-				"through the Staff auth's generated identity\n// client (StaffIdentity,",
-				"} = (*App)(nil)",
+				"func NewHarborMaker(roster *resource.TenantRoster, signals live.Service) identity.TenantMaker {",
+				"func (m *harborMaker) Make(ctx context.Context, txn resource.ReadWriteTransaction, tenant *identity.NewTenant) (accesstypes.Domain, error) {",
+				// The record's own create patch, its key generated, each field the
+				// invitation carries set through its setter, and a field the record does
+				// not carry on an invitation refused.
+				"patch, err := resources.NewHarborCreatePatch()",
+				"id := patch.ID()",
+				`if value, ok := carried["Name"]; ok {`,
+				"var given string",
+				// A name another harbor holds is refused where the answer says so, and
+				// not by the database at the commit.
+				"if patch.NameIsSet() {",
+				"switch _, err := resources.NewHarborQuery().SetName(patch.Name()).AddColumns(resources.NewHarborColumns().ID()).Read(ctx, txn); {",
+				`return "", httpio.NewConflictMessagef("a harbor with the name %v already exists: give the new one another", patch.Name())`,
+				"case !httpio.HasNotFound(err):",
+				"patch.SetName(given)",
+				`if value, ok := carried["Berths"]; ok {`,
+				"var given *int64",
+				"patch.SetBerths(given)",
+				`return "", httpio.NewBadRequestMessagef("an invitation carries no field %s of the Harbor record: a field the wire cannot write, or a secret, is given to the harbor once it exists", name)`,
+				// Directory only is set where the invitation says so, with the directory, and
+				// never without one.
+				"hasDirectory := tenant.Directory.Organization()",
+				"\tif tenant.DirectoryOnly {\n\t\tif !hasDirectory {\n\t\t\treturn \"\", errors.New(\"a harbor that is directory only is made with its directory: the invitation was accepted through none\")\n\t\t}\n\t\tpatch.SetDirectoryOnly(true)\n\t}",
+				// The check a send makes arms the create with the caller.
+				"if tenant.Caller != nil {\n\t\tpatch.Enforce(tenant.Caller)\n\t}",
+				"if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {",
+				// The directory, where the person came through one, held to the rules: one
+				// another tenant has refuses the sign-in with its own code.
+				"\tif hasDirectory {\n\t\t// The directory the person came through becomes the harbor's own, held to",
+				"if err := NewHarborDirectoryRules().Set(ctx, txn, domain, tenant.Directory); err != nil {",
+				"if httpio.HasConflict(err) {",
+				`return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, err)`,
+				"directory, err := resources.NewHarborDirectoryCreatePatch()",
+				"directory.SetHarborID(id).SetMethod(string(tenant.Directory.Method)).SetConnection(tenant.Directory.Connection)",
+				// The role the directory's people start with, where the invitation names one.
+				"\t\tif tenant.DefaultRole != \"\" {\n\t\t\trole := string(tenant.DefaultRole)\n\t\t\tdirectory.SetDefaultSeat(&role)\n\t\t}",
+				// The roster and the signal follow the commit, and a check owes neither.
+				"// The check a send makes: nothing commits, and nothing is owed after it.\n\t\treturn domain, nil",
+				"if err := resource.AfterCommit(txn, func(ctx context.Context) {",
+				"if err := m.roster.Reload(ctx); err != nil {",
+				"if err := m.signals.Signal(ctx, resource.KindTenants); err != nil {",
+				"func (m *harborMaker) SeatsDefaultRole() bool {\n\treturn true\n}",
+				"func (m *harborMaker) DeclaresDirectoryOnly() bool {\n\treturn true\n}",
 			},
-			// The roles are given through the identity client, and nothing else is asked
-			// of the application for them.
-			wantNotContains: []string{"UserSurface"},
+			// The creator's seat went with the direct create: nothing is asked of the
+			// application for it here.
+			wantNotContains: []string{"UserSurface", "AdministratorRoles"},
+			wantOrder: []string{
+				"patch.SetDirectoryOnly(true)",
+				"patch.Enforce(tenant.Caller)",
+				"patch.Buffer(ctx, txn, tenant.Source)",
+				// The grants answer (the buffer) before a taken value is read for.
+				"resources.NewHarborQuery().SetName(patch.Name())",
+				"NewHarborDirectoryRules().Set(ctx, txn, domain, tenant.Directory)",
+				"directory.Buffer(ctx, txn, tenant.Source)",
+				"// The check a send makes: nothing commits, and nothing is owed after it.",
+				"resource.AfterCommit(txn,",
+			},
 		},
 		{
-			name:            "a record declaring none carries neither",
+			name: "a maker for a record that declares no directory makes the row alone, and refuses a directory-only tenant",
+			data: &tenantsData{
+				Source: "resources", Package: "app", Name: "Sector", Table: "Sectors", KeyColumn: "Id", RecordLower: "sector",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
+				Maker:               &tenantMakerData{Fields: []*tenantMakerField{{Name: "Name", Type: "string", Wire: "name"}}, Key: "ID"},
+				record:              fixtureResource(t, structs, "Sector", nil),
+			},
+			wantContains: []string{
+				"func NewSectorMaker(roster *resource.TenantRoster, signals live.Service) identity.TenantMaker {",
+				`return "", errors.New("the Sector record declares no directory-only switch, so no sector is made directory only")`,
+				"func (m *sectorMaker) SeatsDefaultRole() bool {\n\treturn false\n}",
+				"func (m *sectorMaker) DeclaresDirectoryOnly() bool {\n\treturn false\n}",
+			},
+			// A field under no unique index is not read for.
+			wantNotContains: []string{"hasDirectory", "DirectoryRules", "sessioninfo", "signin", "SetDirectoryOnly", "NewSectorQuery()", "already exists"},
+		},
+		{
+			name: "a maker reads a field of an imported type, whose package the file imports by the record's own fields",
+			data: &tenantsData{
+				Source: "resources", Package: "app", Name: "Citadel", Table: "Citadels", KeyColumn: "Id", RecordLower: "citadel",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
+				Maker:               &tenantMakerData{Fields: []*tenantMakerField{{Name: "Name", Type: "string", Wire: "name"}, {Name: "Founded", Type: "civil.Date", Wire: "founded"}}, Key: "ID"},
+				record:              fixtureResource(t, structs, "Citadel", nil),
+			},
+			wantContains: []string{
+				`if value, ok := carried["Founded"]; ok {`,
+				"var given civil.Date",
+				`return "", httpio.NewBadRequestMessageWithError(err, "the citadel's founded does not read")`,
+				"patch.SetFounded(given)",
+			},
+			wantImports: []string{"\t\"cloud.google.com/go/civil\"\n", "\t\"github.com/impulseframework/impulse/identity\"\n", "\t\"github.com/impulseframework/impulse/resource/live\"\n"},
+		},
+		{
+			name:            "a record declaring none, and made by no invitation, carries neither",
 			data:            &tenantsData{Source: "resources", Package: "app", Name: "Sector", Table: "Sectors", KeyColumn: "Id", RecordLower: "sector"},
 			wantContains:    []string{`return resource.NewTenantRoster(client, "Sectors", "Id", opts...)`},
-			wantNotContains: []string{"WithTenantDeclarations", "DeclarationReader", "DirectoryReader", "signin", "spanner", "AdministratorRoles"},
+			wantNotContains: []string{"WithTenantDeclarations", "DeclarationReader", "DirectoryReader", "signin", "spanner", "AdministratorRoles", "Maker", "identity"},
 		},
 	}
 
@@ -437,12 +535,25 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
 			}
 			assertContains(t, "tenantsTemplate", string(out), tt.wantContains, tt.wantNotContains)
+			rendered, at := string(out), -1
+			for _, fragment := range tt.wantOrder {
+				next := strings.Index(rendered, fragment)
+				if next < 0 || next <= at {
+					t.Errorf("tenantsTemplate: %q at %d, want it after the fragment before it (%d):\n%s", fragment, next, at, out)
+				}
+				at = next
+			}
 			// Every qualifier the file references resolves to an import the template
 			// declares, as generation resolves it: the tenant's key in the signature
 			// of the step that sets a directory is the framework's id type.
 			fixed, err := c.formatGoBytes("app/zz_gen_tenant_roster.go", "tenantsTemplate", out, tt.data)
 			if err != nil {
 				t.Fatalf("formatGoBytes() error = %v\n%s", err, out)
+			}
+			for _, line := range tt.wantImports {
+				if !strings.Contains(string(fixed), line) {
+					t.Errorf("the file lacks the import %q:\n%s", line, fixed)
+				}
 			}
 			if tt.data.Directory != nil {
 				wantsID := tt.data.Directory.TenantType == impulseUUIDGoType

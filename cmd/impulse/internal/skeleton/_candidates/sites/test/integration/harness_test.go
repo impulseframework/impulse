@@ -175,7 +175,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	svc := live.NewFake()
 	// The tenant roster, started over the seeded tenants as production's data level
 	// starts it, with the console site's generated constructor as the data level builds
-	// it; a tenant the suites create through the API reaches it after the commit.
+	// it; a tenant an invitation makes in a suite reaches it after the commit.
 	roster := consoleapp.NewTenantRoster(resource.NewSpannerClient(db.Client), resource.WithTenantSignals(svc))
 	if err := roster.Start(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
@@ -191,6 +191,9 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		MailLoginURL:       "http://sites.test/login",
 		TenantDeclarations: consoleapp.NewTenantDeclarationReader(),
 		TenantDirectories:  consoleapp.NewTenantDirectoryReader(),
+		// What makes a tenant from an accepted invitation, over the stack's roster and
+		// live service, as production's data level hands it in.
+		TenantMaker: consoleapp.NewTenantMaker(roster, svc),
 	})
 	if err != nil {
 		t.Fatalf("staff.New() error = %v", err)

@@ -372,6 +372,20 @@ const (
 	// invitation it carries, or the default role of the directory it came through,
 	// would seat the person in a second tenant.
 	RefusedOtherTenant LoginRefusalCode = "other_tenant"
+	// RefusedOrganizationAccountRequired is the code for a sign-in or an acceptance that
+	// carried an invitation which makes a tenant entered through its directory only
+	// (NewTenant.DirectoryOnly), by a person who did not come through an organization's
+	// directory: a password, a personal account, a session the application started
+	// itself. Nothing is written, no tenant is made and the invitation stands; the
+	// login page asks for a sign-in with the organization's account.
+	RefusedOrganizationAccountRequired LoginRefusalCode = "organization_account_required"
+	// RefusedOrganizationHasTenant is the code for a sign-in or an acceptance that
+	// carried an invitation which makes a tenant (NewTenant), through a directory
+	// another tenant already has: a directory belongs to one tenant, so no second
+	// tenant is made for the organization, and the invitation stands. The session
+	// library never answers it itself: the application's acceptance hook does, in the
+	// transaction it is handed, which fails with it.
+	RefusedOrganizationHasTenant LoginRefusalCode = "organization_has_tenant"
 	// RefusedInvalidCode is the code for an email code that is not the one sent; the
 	// code sent stands, with one fewer attempt left.
 	RefusedInvalidCode LoginRefusalCode = "invalid_code"

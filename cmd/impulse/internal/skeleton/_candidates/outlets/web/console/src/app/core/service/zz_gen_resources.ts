@@ -297,6 +297,18 @@ export interface TenantDirectories {
   defaultSeat?: string;
 }
 
+export interface StaffInvitedTenants {
+  id: string;
+  email?: string;
+  name?: string;
+  tenantName?: string;
+  tenantDirectoryOnly?: boolean;
+  defaultRole?: string;
+  invitedByUserId?: string;
+  createdAt?: Date;
+  expiresAt?: Date;
+}
+
 export interface StaffSignInMethods {
   name: string;
   label?: string;
@@ -769,6 +781,7 @@ const resourceMap = defineResourceMap({
   [Resources.Tenants]: {
     route: 'tenants',
     consolidatedRoute: 'resources',
+    createDisabled: true,
     live: true,
     nameField: 'name',
     fields: [
@@ -787,6 +800,25 @@ const resourceMap = defineResourceMap({
       { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'connection', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
+    ],
+  },
+  [Resources.StaffInvitedTenants]: {
+    route: 'staff-invited-tenants',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'tenantName', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'tenantDirectoryOnly', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.StaffSignInMethods]: {
@@ -927,6 +959,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffUserRoles]: PermissionScopes.global,
   [Resources.Tenants]: PermissionScopes.global,
   [Resources.TenantDirectories]: PermissionScopes.domain,
+  [Resources.StaffInvitedTenants]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.StaffTenantDirectoryRoles]: PermissionScopes.domain,

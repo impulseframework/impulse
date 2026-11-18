@@ -34,8 +34,8 @@ const (
 // and holds no role. From then on a person who signs in holding no tenant creates one
 // through the route and stands in it at once, seated as its administrator in the same
 // call; whoever already holds a tenant is refused, the administrator included, since an
-// administrator creates tenants through the record's own create path (tenants_test.go)
-// and never here; and the body is held to the record, so a refused body writes nothing.
+// administrator brings a tenant in by inviting one person (invited_tenant_test.go) and
+// never here; and the body is held to the record, so a refused body writes nothing.
 // Made invite only again, the route refuses the next person and the tenant created
 // meanwhile stays its creator's. The same route, read with GET, tells a page whether the
 // caller may create a tenant now, by the two facts the creation refuses on, so that the

@@ -36,6 +36,16 @@ describe('UiCoreService login messages', () => {
       code: 'other_tenant',
       want: DEFAULT_LOGIN_MESSAGES['other_tenant'],
     },
+    {
+      name: "an invitation accepted through an organization's directory alone, met another way, says what to sign in with",
+      code: 'organization_account_required',
+      want: "This invitation is accepted with your organization's account. Sign in with that account, not with a password or a personal account.",
+    },
+    {
+      name: 'a person whose organization already has one is told so and whom to ask, and nothing else of it',
+      code: 'organization_has_tenant',
+      want: 'Your organization is already set up in this application. Ask its administrator to invite you.',
+    },
     { name: 'an unknown code answers nothing', code: 'call 555-0100 for a password reset', want: '' },
     { name: 'an empty code answers nothing', code: '', want: '' },
     { name: 'a key inherited from Object is not a code', code: 'constructor', want: '' },
@@ -86,6 +96,8 @@ describe('UiCoreService login messages', () => {
       'invitation_only',
       'invitation_address',
       'other_tenant',
+      'organization_account_required',
+      'organization_has_tenant',
     ];
     // The login page's own codes, never sent by a server: the arrival's reads got no answer it could show.
     const pageCodes = ['unreachable'];

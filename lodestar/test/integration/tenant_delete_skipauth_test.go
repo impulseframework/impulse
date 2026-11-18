@@ -26,7 +26,9 @@ import (
 // Sector record clears the crew's tables and the members' through each auth's generated
 // identity client (ClearTenant). A person who held roles in the sector alone is deleted
 // with it, by the rule on an account nothing admits, and a person who holds a role
-// elsewhere stays, in the crew and among the members alike.
+// elsewhere stays, in the crew and among the members alike. The sector is made the way
+// every sector is, by an invitation: its founder, the first marshal, holds roles there
+// alone and goes with it.
 //
 // No role the release ships deletes a sector, so the suite makes one that does: a custom
 // role of the whole application holding Delete on Sectors, given to the governor.
@@ -65,20 +67,21 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		t.Fatalf("access.UserManager.AddUserRoles(governor, %s) error = %v", closer, err)
 	}
 	if d := decisionFor(ctx, t, s.access.ForUser(governorUser), accesstypes.GlobalScope(), accesstypes.Delete, sectorsResource, time.Now().Add(15*time.Second)); !d.IsGranted() {
-		t.Fatalf("Delete on Sectors for the governor holding %s = %s, want granted before the sector is charted", closer, d)
+		t.Fatalf("Delete on Sectors for the governor holding %s = %s, want granted before the sector is made", closer, d)
 	}
 
-	// The governor charts Ember, by its fields alone, and is its marshal from the create.
-	status, body := hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"add","path":"/sectors","value":{"name":"Ember","region":"Near frontier","established":"2226-10-20"}}]`))
-	assertStatus(t, status, http.StatusOK, body)
-	ember := createdSector(t, "charting Ember", body)
+	// Headquarters invites Ember's founder, whose first sign-in makes the sector and
+	// seats them as its marshal.
+	ember, _ := foundSector(ctx, t, s, hq, "Ember", "Near frontier", "2226-10-20", "ember-founder")
+	founderID := crewAccountID(ctx, t, hq, "ember-founder")
+	founderUser := accesstypes.User(founderID)
 	emberScope := accesstypes.DomainPolicyScope(accesstypes.Domain(ember))
 	anvilScope := accesstypes.DomainPolicyScope(anvil)
 
 	// The crew in Ember: the marshal of Anvil is given a role there; a person is created
 	// there who holds a role nowhere else; an invitation into Ember stands; and a custom
 	// role is made in Ember.
-	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+string(marshalUser)+`","role":"Pilot","domain":"`+ember+`"}`))
+	status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+string(marshalUser)+`","role":"Pilot","domain":"`+ember+`"}`))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = hq.do(ctx, http.MethodPost, sectorPath(ember, "create-crew-sector-user"), []byte(`{"username":"`+string(hand)+`","email":"Hand <hand@example.com>","roles":["Cadet"]}`))
 	assertStatus(t, status, http.StatusOK, body)
@@ -131,7 +134,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		manager access.UserManager
 		user    accesstypes.User
 	}{
-		{name: "the governor, Ember's creator", manager: crewManager, user: governorUser},
+		{name: "Ember's founder, its first marshal", manager: crewManager, user: founderUser},
 		{name: "the marshal", manager: crewManager, user: marshalUser},
 		{name: "the person created in Ember", manager: crewManager, user: handUser},
 		{name: "the drifter, a member", manager: membersManager, user: drifterUser},
@@ -166,14 +169,14 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	}
 
 	// Neither auth's permission store holds a role in the deleted sector: not the
-	// creator's, not the marshal's, not the person's who was created there, and not
+	// founder's, not the marshal's, not the person's who was created there, and not
 	// the members'.
 	for _, gone := range []struct {
 		name    string
 		manager access.UserManager
 		user    accesstypes.User
 	}{
-		{name: "the crew's store, for the governor", manager: crewManager, user: governorUser},
+		{name: "the crew's store, for Ember's founder", manager: crewManager, user: founderUser},
 		{name: "the crew's store, for the marshal", manager: crewManager, user: marshalUser},
 		{name: "the crew's store, for the person created in Ember", manager: crewManager, user: handUser},
 		{name: "the members' store, for the drifter", manager: membersManager, user: drifterUser},
@@ -195,6 +198,9 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	}
 	if crewAccountExists(t, s.db, handID) {
 		t.Error("the account of the crew member who held roles in Ember alone still exists, want it deleted with the sector")
+	}
+	if crewAccountExists(t, s.db, founderID) {
+		t.Error("the account of Ember's founder, who held roles in Ember alone, still exists, want it deleted with the sector")
 	}
 	if got := rolesHeldIn(ctx, t, membersManager, commuterUser, anvilScope); !slices.Equal(got, []accesstypes.Role{"ClientPortal"}) {
 		t.Errorf("the commuter holds %v in Anvil after the delete, want ClientPortal kept", got)

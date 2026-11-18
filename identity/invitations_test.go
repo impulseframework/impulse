@@ -254,15 +254,24 @@ func TestManager_WithdrawInvitation(t *testing.T) {
 	ahead, behind := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
 
 	tests := []struct {
-		name       string
-		link       *MailLink
-		wantErr    func(error) bool
-		wantWrites []string
+		name string
+		link *MailLink
+		// makesTenant says the invitation is one that makes a tenant, in an auth that
+		// sends them.
+		makesTenant bool
+		wantErr     func(error) bool
+		wantWrites  []string
 	}{
 		{
 			name:       "an invitation that stands is withdrawn",
 			link:       &MailLink{Invitation: true, Consumed: false, ExpiresAt: ahead},
 			wantWrites: []string{"consume mail link " + invitationID.String()},
+		},
+		{
+			name:        "an invitation that makes a tenant is withdrawn by its own method, and is not found here",
+			link:        &MailLink{Invitation: true, Consumed: false, ExpiresAt: ahead},
+			makesTenant: true,
+			wantErr:     httpio.HasNotFound,
 		},
 		{
 			name:    "a link that verifies an address or starts a sign-up is not an invitation",
@@ -292,7 +301,12 @@ func TestManager_WithdrawInvitation(t *testing.T) {
 			if tt.link != nil {
 				store.links = map[impulse.UUID]*MailLink{invitationID: tt.link}
 			}
-			m, _ := newManager(t, store, nil)
+			var opts []Option
+			if tt.makesTenant {
+				store.invited = []InvitedTenantRow{{ID: invitationID, Email: "founder@dawn.example", NewTenant: `{"name":"Dawn"}`, ExpiresAt: ahead}}
+				opts = append(opts, WithTenantMaker(&fakeMaker{}))
+			}
+			m, _ := newManager(t, store, nil, opts...)
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return m.WithdrawInvitation(ctx, txn, invitationID)
 			})

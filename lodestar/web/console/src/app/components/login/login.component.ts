@@ -198,7 +198,7 @@ export const CREW_MANIFEST: Persona[] = [
     name: 'Surveyor Shen',
     deck: 'Headquarters',
     proves:
-      'Charts new sectors: a sector she creates is served at once, on every instance, with no restart, migration or new login.',
+      'Charts new sectors by inviting the person who will run each: the sector is made at that person’s first sign-in and served at once, on every instance, with no restart or migration.',
   },
   {
     login: 'liaison',

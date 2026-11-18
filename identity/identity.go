@@ -5,6 +5,16 @@
 // change them; each method's body is one call into this package, so the rules are
 // compiled and tested once and are the same for every auth of every application.
 //
+// How a tenant comes to exist is among the rules. Nobody creates a tenant directly: staff
+// of the auth a tenant is made through invite one person with the tenant's details
+// (Manager.InviteTenant, the details held to the tenant record's own create for the
+// sender by Manager.CheckInvitedTenant), and that person's first sign-in makes the
+// tenant through the application's generated maker (TenantMaker), seats them with the
+// roles that administer a tenant and, where they came through their organization's
+// directory, makes it the tenant's own, in the transaction that consumes the invitation.
+// Manager.InvitedTenants lists the invitations that still stand, and
+// Manager.WithdrawTenantInvitation withdraws one.
+//
 // Every rule runs inside the caller's transaction (resource.ReadWriteTransaction): a
 // generated handler's, or one an application opened to create a person beside its own
 // rows and commit them together. Nothing here commits, and nothing reads a row a sibling
@@ -157,6 +167,11 @@ type Store interface {
 	// TenantInvitations lists the invitations into one tenant that are not consumed:
 	// neither accepted nor withdrawn. An auth that mails no links answers none.
 	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
+	// InvitedTenants lists the invitations that make a tenant and are not consumed,
+	// neither accepted nor withdrawn, oldest first, each with the document its
+	// NewTenant column holds. reader is the caller's transaction or the application's
+	// client. An auth that mails no links answers none.
+	InvitedTenants(ctx context.Context, reader resource.ReadOnlyTransaction) ([]InvitedTenantRow, error)
 
 	// SignInMethodRows lists the rows of the sign-in methods table: what an
 	// administrator chose for each method that has a row. reader is the caller's
@@ -315,6 +330,9 @@ type Manager struct {
 	// rules of a group ask (WithRoleGrants); nil where the manager was built without
 	// them.
 	grants RoleGrants
+	// tenants makes a tenant from an accepted invitation (WithTenantMaker); nil where
+	// the auth's people create none that way.
+	tenants TenantMaker
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -393,7 +411,7 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	}
 	m := &Manager{
 		auth: auth, store: store, access: controller, sessions: sessions,
-		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, now: time.Now,
+		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(m)

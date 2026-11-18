@@ -260,7 +260,13 @@ func Test_readIdentityTenant(t *testing.T) {
 		wantErr string
 	}{
 		{name: "no tenant record", source: "package resources\n\n// @resource\ntype Dock struct {\n\tID string\n}\n"},
-		{name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(), want: &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}, word: "ship"}},
+		{
+			// The fixture's package is written outside the module the generator runs in,
+			// so the record's fields are not read for an invitation, and the record says
+			// why (Test_tenantInvitationIn reads one inside the module).
+			name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(),
+			want: &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}, word: "ship", unreadable: "the resources package is outside the module the generator runs in"},
+		},
 		{name: "a record whose table the schema does not hold", source: shipTenantSource, wantErr: "struct Ship is the tenant record (@tenant) and the schema holds no table Ships"},
 		{
 			name:   "a record keyed by two columns",

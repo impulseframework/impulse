@@ -341,7 +341,7 @@ func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
 		return c.crewAuth.Identity()
 	}
 	_, sectorAdministrators := crew.AdministratorRoles()
-	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, identity.WithAdministratorRoles(sectorAdministrators))
+	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, app.NewSectorMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(sectorAdministrators))
 	if err != nil {
 		panic(err)
 	}
@@ -893,6 +893,9 @@ type served struct {
 	// live is the stack's one live service, in memory: it records every signal the
 	// engines announce, the policy kind among them.
 	live *live.Fake
+	// tenants is the stack's tenant roster, started over the seeded sectors: a sector
+	// an accepted invitation makes reaches it after the commit.
+	tenants *resource.TenantRoster
 	// mail records every message the two auths send (an invitation, an address
 	// verification, a sign-up link, a sign-in code), so a suite follows the link or
 	// enters the code the way a person does.
@@ -989,6 +992,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		ChangeSignal:       policySignal,
 		TenantDeclarations: app.NewSectorDeclarationReader(),
 		TenantDirectories:  app.NewSectorDirectoryReader(),
+		TenantMaker:        app.NewSectorMaker(roster, fake),
 		Mail:               auth.Mail{Sender: sent, LoginURL: origin + consoleLogin},
 	})
 	if err != nil {
@@ -1079,7 +1083,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	server.Config.Handler = router.New(a, router.AppHooks(a))
 	server.Start()
 
-	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, live: fake, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, live: fake, tenants: roster, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // personaSettings is the crew auth's persona settings for the stack: none when no

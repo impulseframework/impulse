@@ -16,6 +16,14 @@ func Test_identityOn(t *testing.T) {
 
 	crew := &identityInstance{auth: "Crew", outlets: []string{"console", "admin"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}}
 	solo := &identityInstance{auth: "Staff", outlets: []string{"console"}}
+	// The auth whose people the tenant record's outlets sign in, in an application
+	// whose roles it gives and whose schema keeps its invitations: staff bring a tenant
+	// in by an invitation, so its pages know the three pieces.
+	inviting := &identityInstance{
+		auth: "Crew", outlets: []string{"console"}, createsTenant: true,
+		tables: map[identityTable]bool{identityMailLinks: true, identityMemberships: true},
+		tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", invitation: &identityTenantInvitation{}},
+	}
 
 	names := func(names ...string) (resources []*tsAPIResource, methods []*tsAPIMethod) {
 		for _, name := range names {
@@ -54,6 +62,9 @@ func Test_identityOn(t *testing.T) {
 				// Served by the outlet and no part of the auth's management; the tenant record
 				// is named, since a page reads a tenant's name from it.
 				"Ships", "HailShip", "Sectors",
+				// The invitation that makes a tenant is no part of this auth's management:
+				// its people create no tenant, so the names are another declaration's.
+				"CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
@@ -89,6 +100,24 @@ func Test_identityOn(t *testing.T) {
 							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"), part("removePassword", "RemoveCrewSectorPassword"),
 						},
 					},
+				},
+			}},
+		},
+		{
+			name:      "the auth that brings a tenant in by invitation names the list of the ones that stand and the two methods",
+			outlet:    "console",
+			instances: []*identityInstance{inviting},
+			served:    []string{"CrewSessionUsers", "CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector", "CrewSectorUsers", "Sectors"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope:   accesstypes.GlobalPermissionScope,
+						Lists:   []identityPart{part("users", "CrewSessionUsers"), part("invitedTenants", "CrewInvitedSectors")},
+						Methods: []identityPart{part("inviteTenant", "InviteCrewSector"), part("withdrawInvitedTenant", "WithdrawCrewInvitedSector")},
+					},
+					// A tenant's own side carries none of it: no tenant brings another in.
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
 				},
 			}},
 		},

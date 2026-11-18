@@ -35,9 +35,14 @@ type Auth struct {
 	Name string
 	// Methods are the sign-in methods the Auth starts with, at least one; the password
 	// method when none is given. A directory method here takes one organization, with the
-	// authority and the account rule add auth takes once for all of them; impulse add
-	// method composes the other slots.
+	// authority add auth takes once for all of them; impulse add method composes the other
+	// slots, and so does a starting point that needs a wider one (Shape).
 	Methods []authpkg.Method
+	// Shape is the name of the sign-in shape the command started from (--shape), which
+	// filled in the methods' choices; empty without one. The transition reads the
+	// methods, never the shape: it is kept for the command line the change records,
+	// since add auth has no flag of its own for a method's slot.
+	Shape string
 	// Outlet is the outlet the auth serves, by the key OutletChoices gives it: the
 	// outlet's name in the flat layout (default for the one GenerateRoutes declares), the
 	// site's name for a site's default outlet in the sites layout. Required: an auth is
@@ -69,6 +74,9 @@ func (au Auth) Command() string {
 	}
 	if au.Outlet != "" {
 		cmd += " --outlet " + au.Outlet
+	}
+	if au.Shape != "" {
+		cmd += " --shape " + au.Shape
 	}
 
 	return cmd
@@ -567,6 +575,9 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 		if spec.DirectoryAdmission() {
 			rule += fmt.Sprintf(", and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, %s: a stranger from a declared directory gets the row's default seat or is refused by invitation only)", spec.TenantPolicy.DirectoryReader())
 		}
+		if spec.MakesTenants() {
+			rule += fmt.Sprintf(", and what makes a tenant from an accepted invitation (TenantMaker in its settings, %s, which New refuses nil and hands the identity client: staff of this auth bring a tenant in by inviting one person)", spec.TenantPolicy.Maker())
+		}
 	}
 	ch.didf("%s: the %s auth package (%s), rendered from the skeleton's auth source: the Auth session over tables prefixed %s, the %s permission store, and the methods %s, each in its own file%s", dir, au.Name, strings.Join(authpkg.FileNames(spec), ", "), au.Pascal(), au.Name, strings.Join(described, ", "), rule)
 	switch authpkg.Foothold(spec) {
@@ -736,6 +747,9 @@ func (au Auth) editConfig(a *app.App, src *authSource, spec *authpkg.Spec, ch *C
 		if err != nil {
 			return err
 		}
+		if spec.MakesTenants() && !strings.Contains(statements, "Maker(") {
+			ch.skipf("%s: a tenant is made through the %s auth, whose outlet serves the %s record, and the construction copied from the %s auth hands it nothing to make one with, so it refuses to start (%s.Settings.%s is nil); build the roster before the auth and pass %s(<the roster>, <the live service>) in its Settings", rel, au.Name, spec.TenantPolicy.Record, src.Name, au.Name, makerAccessor, spec.TenantPolicy.Maker())
+		}
 		// An anchor miss leaves the file as edited so far: the working copy is only
 		// replaced by a result the editor produced.
 		constructed, err := app.AddStatementsBeforeConstruction(rel, edited, "NewDataConfiguration", "DataConfiguration", statements)
@@ -784,6 +798,30 @@ func (c *DataConfiguration) %[3]s() *%[4]s.Auth {
 // the source auth's (collection, signals, cookie key, session timeout).
 var settingsLiteralRE = regexp.MustCompile(`&?(\w+)\.Settings\{([^{}]*)\}`)
 
+// The maker of an invited tenant as a construction copied from the auth a tenant is made
+// through carries it: the paragraph of the settings function's comment that names it,
+// the function's parameter, the element of its Settings literal (on a line of its own in
+// the function, inline in a construction's literal), and the construction's argument.
+var (
+	makerCommentRE   = regexp.MustCompile(`(?m)^//\n// tenants is what makes a tenant[^\n]*\n(?://[^\n]*\n)*`)
+	makerParameterRE = regexp.MustCompile(`, \w+ identity\.TenantMaker\)`)
+	makerElementRE   = regexp.MustCompile(`(?m)^\s*` + makerAccessor + `:[^\n]*,\n`)
+	makerInlineRE    = regexp.MustCompile(`,\s*` + makerAccessor + `:\s*[\w.]+(\([^()]*\))?`)
+	makerArgumentRE  = regexp.MustCompile(`, [\w.]+\.New\w+Maker\([^()]*\)`)
+)
+
+// withoutMaker takes the maker of an invited tenant out of a copied settings function or
+// construction. A tenant is made through one auth, the one whose outlets serve the
+// tenant record; the Settings of every other auth have no place for the maker, so a copy
+// of that auth's wiring made for another leaves it behind.
+func withoutMaker(text string) string {
+	for _, re := range []*regexp.Regexp{makerCommentRE, makerElementRE, makerInlineRE, makerArgumentRE} {
+		text = re.ReplaceAllString(text, "")
+	}
+
+	return makerParameterRE.ReplaceAllString(text, ")")
+}
+
 // envVarRE finds the data level's environment struct: the variable envconfig fills.
 var envVarRE = regexp.MustCompile(`(?m)^\s*env := &(\w+)\{\}`)
 
@@ -793,9 +831,14 @@ var envVarRE = regexp.MustCompile(`(?m)^\s*env := &(\w+)\{\}`)
 // function copied for the new auth after the source auth's, under the new auth's name;
 // a construction carrying the Settings literal inline (an application composed before
 // the function) keeps the literal in the copy. The directory methods' settings then go
-// where the literal is. It returns the construction, the words the did line names the
-// settings by, and the file.
+// where the literal is. The source auth's maker of an invited tenant stays behind unless
+// a tenant is made through the new auth too (withoutMaker). It returns the
+// construction, the words the did line names the settings by, and the file.
 func (au Auth) copySettings(rel string, edited []byte, src *authSource, statements string, spec *authpkg.Spec, ch *Change) (construction, settings string, file []byte, err error) {
+	makes := spec.MakesTenants()
+	if !makes {
+		statements = withoutMaker(statements)
+	}
 	call := regexp.MustCompile(`\b(\w+)\.` + regexp.QuoteMeta(src.Name) + `Settings\(`).FindStringSubmatch(statements)
 	if call == nil {
 		statements, edited, err = au.methodSettings(rel, edited, statements, spec, ch)
@@ -815,7 +858,12 @@ func (au Auth) copySettings(rel string, edited []byte, src *authSource, statemen
 	}
 	structName := string(env[1])
 	edited, err = app.CopyMethod(rel, edited, structName, srcMethod, func(text string) string {
-		return names.Rename(text, src.Name, au.Name)
+		text = names.Rename(text, src.Name, au.Name)
+		if !makes {
+			text = withoutMaker(text)
+		}
+
+		return text
 	})
 	if err != nil {
 		return "", "", nil, err

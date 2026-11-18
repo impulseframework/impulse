@@ -172,6 +172,12 @@ type Settings struct {
 	// admission decides a stranger's first sign-in with: the generated reader
 	// (app.NewTenantDirectoryReader). Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
+	// TenantMaker makes a Tenant from an accepted invitation: the generated maker over
+	// the record's own create patch (app.NewTenantMaker). Nobody creates a tenant
+	// directly: staff invite one person with the tenant's details, which the auth's
+	// identity client checks with the maker when the invitation is sent, and that
+	// person's first sign-in makes the tenant with it. Required; New refuses nil.
+	TenantMaker identity.TenantMaker
 }
 
 // Signals is the channel the auth's permission engine signals a policy change on and
@@ -347,6 +353,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if settings.TenantDirectories == nil {
 		return nil, errors.New("staff.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in")
 	}
+	if settings.TenantMaker == nil {
+		return nil, errors.New("staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in")
+	}
 	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
@@ -444,8 +453,16 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// tenant), so a person who removes a role from themselves in a tenant is judged by
 	// the rule on the tenant's last administrator. The application's last administrator
 	// is its last super administrator, kept by the client's own rule.
+	//
+	// The client makes the tenants too. Nobody creates a Tenant directly: staff invite
+	// one person with the tenant's details, which the client checks against the record's
+	// own create under the sender's grants, and that person's first sign-in makes the
+	// tenant through the generated maker (settings.TenantMaker), seats them with the
+	// roles that administer it and, where they came through an organization's
+	// directory, makes that directory the tenant's own, all in the transaction that
+	// consumes the invitation.
 	_, tenantAdministrators := AdministratorRoles()
-	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))
+	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")
 	}
@@ -479,7 +496,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// application, in the transaction that consumes the invitation (the identity
 	// client's InvitationAccepted, which the session library runs inside it): the
 	// invitation is spent and its roles given together or neither is, and the sign-in
-	// rule that follows finds the memberships.
+	// rule that follows finds the memberships. An invitation that makes a tenant
+	// is accepted there too: the tenant's row, the person's administrator roles and the
+	// tenant's directory are written with the invitation's consumption or not at all.
 	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 
 	// A person who signs up through a sign-in method an administrator opened is given

@@ -60,7 +60,16 @@ type Client struct {
 // The engine is the one built with the methods a super administrator always executes
 // (access.WithSuperAdministratorMethods(SuperAdministratorMethods()...)): the client
 // refuses one built without them.
-func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
+//
+// tenants makes a sector from an accepted invitation: the generated
+// NewSectorMaker of the application's handler package, which the application
+// builds over its tenant roster and its live service. Staff bring a sector in
+// by an invitation alone (InviteCrewSector), so the client is not built without it.
+func NewClient(controller access.Controller, sessions identity.SessionAPI, tenants identity.TenantMaker, opts ...identity.Option) (*Client, error) {
+	if tenants == nil {
+		return nil, errors.New("crewidentity.NewClient(): tenants is nil; pass the generated NewSectorMaker of the application's handler package, which makes a sector from an accepted invitation")
+	}
+	opts = append(opts, identity.WithTenantMaker(tenants))
 	// A refusal that speaks of a tenant says the application's word for one, the tenant
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord("sector")}, opts...)

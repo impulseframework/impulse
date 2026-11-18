@@ -12,7 +12,7 @@ type Method interface {
 		DeleteStaffGroup | DeleteStaffTenantGroup | DeleteStaffTenantUser | DeleteStaffUser |
 		DescribeStaffGroup | DescribeStaffTenantGroup | DisableStaffTenantUser | DisableStaffUser |
 		EnableStaffTenantUser | EnableStaffUser | EndStaffSession | EndStaffTenantUserSessions |
-		EndStaffUserSessions | GiveStaffGroupRole | GiveStaffTenantGroupRole |
+		EndStaffUserSessions | GiveStaffGroupRole | GiveStaffTenantGroupRole | InviteStaffTenant |
 		InviteStaffTenantUser | InviteStaffUser | MakeStaffInviteOnly | OpenStaffSignUp |
 		RemoveStaffGroupMember | RemoveStaffPassword | RemoveStaffRole |
 		RemoveStaffTenantGroupMember | RemoveStaffTenantPassword | RemoveStaffTenantRole |
@@ -23,5 +23,5 @@ type Method interface {
 		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
 		TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
 		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
-		WithdrawStaffTenantInvitation
+		WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
 }

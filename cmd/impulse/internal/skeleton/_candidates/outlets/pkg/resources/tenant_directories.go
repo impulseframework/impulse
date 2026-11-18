@@ -17,9 +17,11 @@ type (
 	// generated write paths refuse first, each with a sentence the person can act on.
 	//
 	// Nobody types a directory in. The row is written from a sign-in through the
-	// directory: the tenant's administrator, signed in through their organization's
-	// directory, makes it the tenant's on the console's Sign-in page, under the record's
-	// Create grant (TenantAdministrator). The create takes no method and no connection
+	// directory: an invitation that makes a tenant, accepted through the person's
+	// organization's directory, sets it as the tenant is made, and the tenant's
+	// administrator, signed in through their organization's directory, makes it the
+	// tenant's on the console's Sign-in page, under the record's Create grant
+	// (TenantAdministrator). The create takes no method and no connection
 	// from the request; the server reads both from the session. The staff auth signs in
 	// by password until a directory method joins it (impulse add method), and a session
 	// that came by password is refused, as is a personal account (a Google account

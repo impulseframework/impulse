@@ -627,7 +627,8 @@ server offers a password method), `email` (`add`, `verify`) and `signUp` (`start
 the password method declares the username as the person's email address, so the form asks for
 the address and an account created from a link takes no username of its own. The `invitation`
 block also carries `standing` while the browser holds a live invitation: its `email`, `tenantId`,
-`tenantName`, `expiresAt`, `usernameIsEmail`, `methods`, `accountExists` and `hasPassword`, what opening the
+`tenantName`, `expiresAt`, `usernameIsEmail`, `methods`, `accountExists` and `hasPassword`, and, for
+an invitation that makes a tenant, `newTenant` and `directoryOnly`, what opening the
 link answered, so a login page the browser comes back to without the token (a redirect method
 refused the sign-in and returned with `?code=`) shows the invitation again; it is absent when
 the browser holds none. Each step below
@@ -643,7 +644,8 @@ the screen names the tenant by its name or not at all; `expiresAt`;
 `methods`, the registration names of the listed directory methods that could admit the
 address, absent when the server did not say; and `accountExists` and `hasPassword`, whether
 an account already holds the address and signs in with a password, absent when the server did
-not say), and the browser now carries it, so the sign-in that follows accepts it and the
+not say; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
+that tenant is entered through its directory only, both absent for any other invitation), and the browser now carries it, so the sign-in that follows accepts it and the
 server's hook seats the person: a password sign-in or sign-up by whoever holds the link, a
 directory sign-in, or a password sign-in by an account that holds an address, only as the
 invited address (another address is refused with `invitation_address`, the invitation still
@@ -654,7 +656,12 @@ same rule: an account that holds another address resolves `refused` with 403 and
 server's sentence, the invitation still standing. `signUpFromInvitation({ password, username? })` creates the invited person's account with
 a password, the address verified, and signs them in, answering as a sign-in step does. A link
 that has expired or was already used resolves `refused` with 404 and the server's words; a
-taken username or address 409.
+taken username or address 409. An invitation that makes a tenant names the tenant to be
+(`tenantName`) and has no `tenantId` yet. One whose tenant is entered through its directory
+only answers `signUp: false`, and the server refuses a password sign-in, a sign-up and an
+acceptance by hand for it with `organization_account_required`: it is accepted through an
+organization's directory alone. A directory sign-in of an organization that already has a
+tenant is refused with `organization_has_tenant`, which says nothing more of that tenant.
 
 A sign-up (`?signUp=<token>`), where the password method offers it: `startSignUp(email)` asks
 for the link, answering `sent` whatever the address's state (an address an account already
@@ -678,9 +685,11 @@ An Auth whose management is generated (`GenerateIdentity`) is named in the descr
 `identity` block: `auth`, `label`, `tenant` (the tenant record's name, where the application
 has one) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
 each with its `lists` (`users`, `roles`, `identities`, `signInWays`, `invitations`, `sessions`,
-`signInAttempts`; `signInWays` is how one person signs in, the password and the identities
+`signInAttempts`, `invitedTenants`; `signInWays` is how one person signs in, the password and the identities
 that can sign them in as the server judges it, from which a page offers the removal of a
-password) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
+password; `invitedTenants` is the invitations that make a tenant and still stand, on the whole
+application's side of the Auth whose people make the tenants) and its `methods` (`create`, `invite`, `withdrawInvitation`, `inviteTenant`,
+`withdrawInvitedTenant`, `assignRole`,
 `removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
 `requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
 `removePassword`, `endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is

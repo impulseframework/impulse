@@ -85,9 +85,9 @@ templates, this README, and the tool's source.
   makes a table the domain universe: its resource struct is the tenant record (`@tenant`),
   from which the generator derives the tenant segment tenant-scoped resources live under
   and emits the constructor of the tenant roster, the tenants as the running application
-  knows them, reloaded on the `tenants` signal so a tenant created on any instance is
+  knows them, reloaded on the `tenants` signal so a tenant made on any instance is
   usable at once, without a restart; a role held in every domain reaches every tenant. A
-  tenant's key is an id the record's create path generates, never a word a person types:
+  tenant's key is an id generated when the tenant is made, never a word a person types:
   it is the domain of every role held in the tenant and the tenant segment's value in
   every address, so it never changes and is never used twice, while the tenant's name is
   a field its administrators change, kept from a second tenant by a unique index. A
@@ -121,13 +121,19 @@ templates, this README, and the tool's source.
   same page under the chosen tenant; a URL naming a tenant the session cannot reach lands
   on a refusal page that shows the server's answer, never on another tenant.
 
-  Who may create a tenant is apart from who may enter one, and no declaration: an
-  administrator creates one under a Create grant on the record, and a person who signed
-  up holding no tenant creates their own through the generated create-your-tenant route
-  and becomes its administrator. The order is sign in first, then name the tenant, so
-  the route serves only while an administrator has a sign-in method of the outlet's auth
-  open to sign-up, which is chosen in the running application, on the auth's Sign-in
-  page.
+  How a tenant comes to exist is apart from who may enter one, and no declaration.
+  Nobody creates a tenant directly: the record's create is refused with a sentence that
+  says so. Staff bring an organization in by inviting one person, on the Invited tenants
+  page the library draws from the auth's generated management: the invitation carries
+  the tenant's details as staff entered them, held to the record's own create under the
+  sender's Create grant when it is sent, and the invited person's first sign-in makes
+  the tenant, makes them its administrator and, where they came through their
+  organization's directory, makes that directory the tenant's. A person who signed up
+  holding no tenant creates their own through the generated create-your-tenant route
+  and becomes its administrator. There the order is sign in first, then name the tenant,
+  so the route serves only while an administrator has a sign-in method of the outlet's
+  auth open to sign-up, which is chosen in the running application, on the auth's
+  Sign-in page.
 - **Levels**: the configuration chain in `pkg/config`, one level per kind of process, each
   embedding the one below it: **core** (every process), **data** (every process that opens
   the database), and **site** (one served site: its port and its built bundle). The site
@@ -288,9 +294,28 @@ The first auth signs in with a password; a directory method joins it afterwards 
 `impulse add method` (section add auth), registered beside the password method on the
 same Auth, so nothing about the auth's tables moves.
 
+`--one-tenant-per-person` goes with `--tenancy` and says a person belongs to one tenant
+(section add tenancy); without it a person can be in several. `--shape <name>` starts the
+application from a sign-in shape by name (section impulse audit lists the eight): `new`
+takes the four an application with tenants has, `tenant-owned-users-invite-only` (5),
+`tenant-owned-users-by-directory` (6), `global-users-invite-only` (7) and
+`global-users-each-tenant-chooses` (8). The shape composes `--tenancy` and fills in the
+tenants' choices: the two tenant-owned shapes hold a person to one tenant, and in the two
+global ones a person can be in several. The two invite-only shapes are the new
+application as it is, since its first auth signs in with a password and no tenant's
+people come through an organization's directory. For the other two the command says
+which `impulse add method` adds the directory method a tenant's people come through, and
+until it is added `impulse audit` reads the application as the invite-only shape beside
+it. A flag that contradicts the shape is refused before anything is written, naming both
+(`--shape global-users-invite-only --one-tenant-per-person`, `--shape` with
+`--tenancy=false`), and a name the command does not know is refused with the names it
+knows. The four shapes of an application without tenants are told apart by a sign-in
+method's choices, so `impulse add auth` and `impulse add method` take those.
+
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent
 impulse new ./fleet --module example.com/fleet --auth crew --site console --site portal
+impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned-users-by-directory
 ```
 
 The application ships its CI, and impulse owns it. Three workflows are rendered from the
@@ -570,16 +595,76 @@ with the lines beneath it or `no findings`. A section, `feature flags`, lists ev
 declared flag with its description and where it is used: the resources, fields and
 methods its `@feature` gates and the Go and browser code that reads it (tests and specs
 marked), or that it gates nothing and is read nowhere, which the `feature-flags` check
-fails on; an application declaring none reads `none declared`. A last section,
+fails on; an application declaring none reads `none declared`. A section,
 `permission engines`, lists every engine the application constructs (`access.New`
 outside tests) by package, file and line, and whether it is handed a change signal,
 which the `change-signal` check fails without; an application constructing none reads
-`none constructed`.
+`none constructed`. A last section, `sign-in`, reads the application's sign-in choices
+back from its code and names the shape they add up to (below).
+
+| Section | What it lists |
+| --- | --- |
+| one per generator program | The `Warning:` and `Audit:` lines the program raised, or `no findings`. |
+| `feature flags` | Every declared flag, what it gates and where it is read. |
+| `permission engines` | Every engine the application constructs, and whether it is handed a change signal. |
+| `sign-in` | Every auth's sign-in methods with their choices in words, the application's own choices, and the shape they add up to. |
 
 ```sh
 impulse audit
 impulse audit --app path/to/app
 ```
+
+The `sign-in` section lists every auth by name and package, and under it every sign-in
+method the auth registers, where it is registered, and its three choices in words: how
+wide it is open (the accounts of one Microsoft Entra tenant, any Google account, anyone
+with an email address), who gives the roles (the directory or the application), and Open
+or Invite only. That last choice is made while the application runs, on the auth's
+Sign-in page, and is no line of code, so the section says where it is chosen and never
+guesses it: it says what opening each method would make of the auth. A choice written
+where the command does not read it (a slot built from settings, a configuration built in
+another function) is said to be not read, and is not guessed either. The auth ends in the
+shape its choices add up to, by number and name, or in `no named shape` with why. Then
+come the application's own choices: tenants or none, whether a tenant can have a
+directory of its own, and who creates a tenant; in an application with tenants each auth
+also says whether a person belongs to one tenant or can be in several.
+
+```text
+sign-in
+  staff (pkg/auth/staff)
+    password (pkg/auth/staff/password.go:65): admits anyone with an email address; the application gives the roles; invite only until an administrator opens it to sign-up on the Sign-in page, which is chosen while the application runs
+    shape: 1 Invite only. It starts so, and stays so until an administrator opens a method to sign-up on the Sign-in page, which is chosen while the application runs: opening password makes it 4 Open sign-up.
+  the application
+    tenants: none
+```
+
+The shapes are the eight combinations of those choices that have a name:
+
+| Shape | The choices that add up to it |
+| --- | --- |
+| 1 Invite only | No tenants. The application gives the roles, and every method is invite only. An auth without tenants starts here. |
+| 2 Directory members | No tenants. The application gives the roles, and a method that admits the organizations it names and nobody else (one or listed Microsoft tenants or Google Workspaces, an identity provider) is open, so everyone in the organization's directory gets an account. |
+| 3 Directory roles | No tenants. One directory method whose directory gives the roles, alone in its auth. |
+| 4 Open sign-up | No tenants. The application gives the roles, and a method anyone can use (the password method, any Microsoft tenant, personal accounts, any Google account) is open. |
+| 5 Tenant-owned users, invite only | Tenants. A person belongs to one tenant, and a tenant's people come by invitation alone. |
+| 6 Tenant-owned users, by directory | Tenants. A person belongs to one tenant, and a tenant's people can come through its own directory. |
+| 7 Global users, invite only | Tenants. A person can be in several tenants, and a tenant's people come by invitation alone. |
+| 8 Global users, each tenant chooses | Tenants. A person can be in several tenants, and each tenant chooses whether its people come through its own directory. |
+
+Shapes 1, 2 and 4 are one auth at different moments: it is written as 1, and the section
+says which method's opening makes it 2 and which makes it 4. Among the tenants' shapes, a
+person belongs to one tenant where the auth's package hands its identity client
+`identity.WithOneTenantPerPerson()`, and a tenant's people can come through its own
+directory where the tenant record declares directories (a record annotated
+`@tenantDirectory`) and the auth registers a directory method whose roles the
+application gives; what a tenant then does with its directory is the tenant's choice,
+made while the application runs. An auth outside the eight (a directory that gives the
+roles in an application with tenants, or beside another method; a method whose authority
+is not read) reads `no named shape`. That is no error: nothing in the framework acts on a
+shape's name, and `impulse check` refuses nothing for it. The `--shape` flag of
+`impulse new`, `impulse add tenancy`, `impulse add auth` and `impulse add method` starts
+an application from a shape by its name or its number (`--shape
+global-users-each-tenant-chooses` or `--shape 8`), and this section is where the result is
+read back.
 
 Findings never fail the command: it exits 0 with or without them. A program that fails
 exits 1 with its output tail, and a program that does not take `-audit` exits 1 saying to
@@ -969,8 +1054,9 @@ not-found handler, and its browser application. The App's handlers the generated
 `<Outlet>Auth` middleware), the configuration, the members (`@outlet`), and the tests are
 the agent's, and the compiler, `outlet-wired`, `outlet-shape`, and `login-pages` hold it to them.
 
-`add tenancy` makes a flat, untenanted application tenanted. An administrator alone creates
-tenants, through the record's create path, unless the record says otherwise. The tenant table becomes the
+`add tenancy` makes a flat, untenanted application tenanted. Nobody creates a tenant
+directly: staff bring one in by inviting the person who will administer it, and that
+person's first sign-in makes it. The tenant table becomes the
 next schema migration, with two development tenants as a data migration under
 `schema/devseed`; the tenant-record struct joins the resource package as a global resource
 annotated `@tenant`, from which the generator derives the tenant segment and emits
@@ -979,16 +1065,20 @@ annotated `@tenant`, from which the generator derives the tenant segment and emi
 program gains `WithConcealedDomains`; the data level gains the roster, built with that
 constructor over the live service's tenants signal and started where the configuration
 is built (a new `tenancy.go` plus a field and the start inserted into
-`DataConfiguration`), so a tenant created on any instance is usable at once, without a
+`DataConfiguration`), so a tenant made on any instance is usable at once, without a
 restart, and handed to each auth the level holds (`SetTenantNames`), so the invitation
 screen names the tenant an invitation seats a person in and not its id; the app exposes the roster and the roster's copy of the declarations to the
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
 `Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
 shape: the tenant pages are copied in (the tenant's sign-in page, the configuration of All
-tenants, the library's list page over the record, and the New tenant dialog), the menu
-file gains the tenant menus ahead of its others (Tenants with All tenants and New tenant…,
-People with the tenant's side of the auth's people, and Tenant with Sign-in settings), the
+tenants, the library's list page over the record, and the dialog a person who signed up
+creates their own tenant through), the menu
+file gains the tenant menus ahead of its others (Tenants with All tenants,
+People with the tenant's side of the auth's people, and Tenant with Sign-in settings;
+the Invited tenants page, where staff bring a tenant in, is among the auth's pages the
+System menu already places, and the menu file's test, where it lists that menu's pages as
+the skeleton's does, gains it after Mailed links), the
 frame's configuration names the place outside every tenant (Configuration, with a gear),
 and routes still as the skeleton rendered them are written in the tenant shape, while the
 library's frame carries the tenant the URL names, the guard, the refusal page and the
@@ -1004,21 +1094,70 @@ package (`@tenantDirectory`, tenant-scoped, its directory set from a sign-in and
 typed), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it
 (`signin.TenantPolicy`, the memberships read through `resource.SignInRoles`), and the
-data level's settings literal passes the reader in. Every edit whose anchor the
+data level's settings literal passes the reader in. The auth a tenant is made through,
+the one whose outlets serve the record, where the application assigns its roles and
+generates its management, is handed what makes a tenant from an accepted invitation: its
+`Settings` gain `TenantMaker`, its `New` refuses a nil one with a sentence and passes it
+to the generated identity client as its third argument, and on a data level in the
+skeleton's shape the roster is built ahead of that auth in `NewDataConfiguration`
+(`tenants := <handlers>.New<Record>Roster(...)`), the auth's settings function gains a
+parameter the construction passes `<handlers>.New<Record>Maker(tenants, liveService)`
+through, and `startTenants` only starts the roster. On a level the command cannot
+follow (no live service field, a client the literal builds in place, an auth built
+elsewhere) the roster is built in `startTenants` as before and handing the maker in is
+recorded as the agent's, since the auth refuses to start without it. Every edit whose anchor the
 application lacks is recorded in the brief as the agent's. Which resources become
 tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
 tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
 the directories the development seed declares are the agent's, and `tenancy-wired`
 holds it to them.
 
+`--one-tenant-per-person` says a person belongs to one tenant, as in an application whose
+tenants own their people: every auth whose roles the application gives builds its
+identity client with `identity.WithOneTenantPerPerson()`, so a role in a second tenant is
+refused however it would be given. Without it a person can be in several tenants. An
+auth whose client is built in a form the command does not follow is recorded in the brief
+as the agent's.
+
+`--shape <name>` starts from a sign-in shape by name (section impulse audit lists the
+eight) and fills in the tenants' choices. `add tenancy` takes the four an application
+with tenants has: `tenant-owned-users-invite-only` (5), `tenant-owned-users-by-directory`
+(6), `global-users-invite-only` (7) and `global-users-each-tenant-chooses` (8). The two
+tenant-owned shapes set `--one-tenant-per-person`, and the two global ones leave it off.
+In the two invite-only shapes a tenant's people come by invitation alone, which is so
+while no sign-in method goes through an organization's directory: the command refuses one
+of them where the application already registers such a method, naming the method. In the
+other two a tenant's people come through its own directory: the tenant record declares
+one either way, and where no sign-in method goes through an organization's directory yet
+the command says which `impulse add method` adds it. Whether a tenant takes a directory,
+and whether that directory's people get an account without an invitation, is each
+tenant's choice, made while the application runs, so the command writes nothing for it
+and says where it is chosen. A flag that contradicts the shape is refused, naming both
+(`--shape global-users-invite-only --one-tenant-per-person`), and a name the command does
+not know is refused with the names it knows. What the shape filled in is printed after
+the change as `Starting point:`, and `impulse audit` reads it back from the code.
+
 ```sh
 impulse add tenancy --agent
 impulse add tenancy --tenant-table Organizations
+impulse add tenancy --one-tenant-per-person
+impulse add tenancy --shape global-users-each-tenant-chooses
 ```
 
-Who may create a tenant is separate from who may enter one, and it is no declaration. An
-administrator creates one in every application: the record's create path under the Create
-grant on it. A person who signs up creates their own while an administrator has a sign-in
+How a tenant comes to exist is separate from who may enter one, and it is no declaration.
+Nobody creates a tenant directly: an `add` on the record's collection answers 400 with a
+sentence saying how one is made. Staff bring an organization in by inviting one person:
+the auth's generated `Invite<Auth><Record>` takes the person's address and the record's
+fields, each named for the record, with whether the tenant is entered through its
+directory only and the role its directory's people start with; sending it takes the
+method's grant and the Create grant on the record, and a name a tenant holds is refused
+there. The invited person's first sign-in makes the tenant, seats them with the roles
+that administer a tenant in the auth and, where they came through an organization's
+directory, makes it the tenant's own, in one transaction; `<Auth>Invited<Record>s` lists
+the invitations that still stand and `Withdraw<Auth>Invited<Record>` withdraws one. The
+library draws the page from the generated description, and each tenanted skeleton's role
+file gives its `Administrator` role the three, beside Create on the record. A person who
+signs up creates their own while an administrator has a sign-in
 method open to sign-up: every method starts invite only, and an administrator opens one on
 the auth's Sign-in page in the running application (`Open sign-up`, behind a warning that
 says who will be admitted and is confirmed by typing a word) and makes it invite only again
@@ -1143,7 +1282,39 @@ mount the auth's session group in the router. In a tenanted application the new 
 the settings copied from the source auth pass in); the auth whose session outlets serve
 the tenant record, and whose roles the application assigns, has the rule admit a person
 who holds no tenant yet (`signin.AdmitWithoutTenant`), since a person who signs up through
-it creates a tenant of their own.
+it creates a tenant of their own. That auth is the one a tenant is made through, so its
+`Settings` carry `TenantMaker` and its `New` passes it to the identity client; the
+construction copied from the source auth carries the maker only where the source is that
+auth too, an auth a tenant is not made through leaves it behind, and an auth that takes
+the default outlet over is handed none, which the brief records as the agent's.
+
+`--shape <name>` starts the auth from a sign-in shape by name (section impulse audit
+lists the eight) and fills in each method's choices. `add auth` and `add method` take the
+four a sign-in method's choices tell apart:
+
+| `--shape` | What it fills in |
+| --- | --- |
+| `invite-only` | 1 Invite only: the application gives the roles (`--authority application`), and every method stays invite only. |
+| `directory-members` | 2 Directory members: a directory method limited to the organizations it names, with the application giving the roles, which an administrator opens so that everyone in the organization's directory gets an account. A password method beside it is left invite only; the shape is refused with the password method alone. |
+| `directory-roles` | 3 Directory roles: one directory method with one organization whose directory gives the roles (`--authority directory`), alone in its auth. |
+| `open-sign-up` | 4 Open sign-up: methods anyone can use, with the application giving the roles, which an administrator opens: the password method as it is, a Microsoft method with any tenant and personal accounts, a Google method with any Google account. |
+
+The shape settles `--authority`, so it is not asked. Open is never written, since it is
+chosen while the application runs: for `directory-members` and `open-sign-up` the command
+says that an administrator opens the method on the auth's Sign-in page, and what opening
+does on this auth (a new person gets the role chosen there, or creates a tenant of their
+own, or the auth's methods are never opened because a person who signed up to it could be
+given no tenant). What the shape filled in is printed after the change as
+`Starting point:`, and `impulse audit` reads it back from the code. A method or a flag
+that contradicts the shape is refused, naming both and saying what each means (`--shape
+directory-roles --authority application`, `--shape open-sign-up` with an identity
+provider's method, `--shape directory-roles` with two methods), and a name the command
+does not know is refused with the names it knows; the four shapes of an application with
+tenants are `impulse new`'s and `add tenancy`'s. In an application whose tenants have
+directories, a starting point that leaves the auth with no password method and a
+directory method open to more than one organization seeds a first administrator who
+cannot sign in, which `impulse check` refuses (`first-administrator`): the command says
+so after the check's report, with what to do next in the check's words.
 
 ```sh
 impulse add outlet partners --prefix partners/api --auth staff
@@ -1153,6 +1324,8 @@ impulse add auth members --method google:workspace --authority directory --outle
 impulse add auth members --method google:google --authority application --outlet portal
 impulse add auth clients --method password --username-is-email --outlet portal
 impulse add auth employees --method oidc:company-sso --authority directory --outlet portal
+impulse add auth members --method google:workspace --shape directory-roles --outlet portal
+impulse add auth visitors --method password --method google:google --shape open-sign-up --outlet portal
 ```
 
 `add method` adds a sign-in method to an auth the application has: `password`, `azure`
@@ -1228,6 +1401,17 @@ their account). `--authority` is as for `add auth`; the directory authority is a
 only on an auth that registers no other method, as no method is added beside a
 registration that writes the roles: the command names the two ways out, an auth of its
 own or the application authority.
+
+`--shape <name>` is as for `add auth` and fills in the choices the flags left open:
+`invite-only` sets the application authority and takes any slot; `directory-members`
+takes a slot limited to the organizations it names (`one`, the default, or `listed`, or an
+identity provider's method) with the application authority; `directory-roles` sets the
+directory authority with one organization; `open-sign-up` takes the password method as it
+is, azure with `--slot any-personal` unless another slot wider than the named
+organizations is given, and google with `--slot any`. A method or a flag that contradicts
+the shape is refused, naming both (`--shape directory-members --slot any`, `--shape
+invite-only --authority directory`, `--shape directory-members` with the password
+method).
 
 `oidc` is one organization's identity provider: a provider with nothing vendor-specific
 about it, which the session library knows by its issuer alone (Okta, Keycloak, an identity
@@ -1322,6 +1506,8 @@ impulse add method partners password
 impulse add method clients password --username-is-email
 impulse add method staff oidc okta --authority application
 impulse add method staff persona
+impulse add method staff google workspace --shape directory-members
+impulse add method staff azure entra --shape open-sign-up
 ```
 
 ### add site

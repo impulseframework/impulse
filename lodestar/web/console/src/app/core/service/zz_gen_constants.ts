@@ -28,6 +28,7 @@ export const Resources = {
   CrewGroupRoles: 'CrewGroupRoles' as Resource,
   CrewGroupUsers: 'CrewGroupUsers' as Resource,
   CrewGroups: 'CrewGroups' as Resource,
+  CrewInvitedSectors: 'CrewInvitedSectors' as Resource,
   CrewRoleGrants: 'CrewRoleGrants' as Resource,
   CrewRoles: 'CrewRoles' as Resource,
   CrewSectorDirectoryRoles: 'CrewSectorDirectoryRoles' as Resource,
@@ -146,6 +147,7 @@ export const Methods = {
   HailShip: 'HailShip' as Method,
   HoldMission: 'HoldMission' as Method,
   InspectShip: 'InspectShip' as Method,
+  InviteCrewSector: 'InviteCrewSector' as Method,
   InviteCrewSectorUser: 'InviteCrewSectorUser' as Method,
   InviteCrewUser: 'InviteCrewUser' as Method,
   IssueBulletin: 'IssueBulletin' as Method,
@@ -196,6 +198,7 @@ export const Methods = {
   UnlockCrewSignIn: 'UnlockCrewSignIn' as Method,
   UnlockMembersSignIn: 'UnlockMembersSignIn' as Method,
   WithdrawCrewInvitation: 'WithdrawCrewInvitation' as Method,
+  WithdrawCrewInvitedSector: 'WithdrawCrewInvitedSector' as Method,
   WithdrawCrewSectorInvitation: 'WithdrawCrewSectorInvitation' as Method,
   AssumeRole: 'AssumeRole' as Method,
   EndSectorDirectoryOnly: 'EndSectorDirectoryOnly' as Method,
@@ -401,6 +404,35 @@ export namespace CrewGroups {
     kind: 'CrewGroups.kind' as Resource,
     name: 'CrewGroups.name' as Resource,
     updatedAt: 'CrewGroups.updatedAt' as Resource,
+  };
+}
+
+export namespace CrewInvitedSectors {
+  export const fieldName = {
+    createdAt: 'createdAt' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+    email: 'email' as FieldName,
+    expiresAt: 'expiresAt' as FieldName,
+    id: 'id' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
+    name: 'name' as FieldName,
+    sectorDirectoryOnly: 'sectorDirectoryOnly' as FieldName,
+    sectorEstablished: 'sectorEstablished' as FieldName,
+    sectorName: 'sectorName' as FieldName,
+    sectorRegion: 'sectorRegion' as FieldName,
+  };
+  export const resourceName = {
+    createdAt: 'CrewInvitedSectors.createdAt' as Resource,
+    defaultRole: 'CrewInvitedSectors.defaultRole' as Resource,
+    email: 'CrewInvitedSectors.email' as Resource,
+    expiresAt: 'CrewInvitedSectors.expiresAt' as Resource,
+    id: 'CrewInvitedSectors.id' as Resource,
+    invitedByUserId: 'CrewInvitedSectors.invitedByUserId' as Resource,
+    name: 'CrewInvitedSectors.name' as Resource,
+    sectorDirectoryOnly: 'CrewInvitedSectors.sectorDirectoryOnly' as Resource,
+    sectorEstablished: 'CrewInvitedSectors.sectorEstablished' as Resource,
+    sectorName: 'CrewInvitedSectors.sectorName' as Resource,
+    sectorRegion: 'CrewInvitedSectors.sectorRegion' as Resource,
   };
 }
 
@@ -2241,6 +2273,18 @@ export namespace InspectShip {
   };
 }
 
+export namespace InviteCrewSector {
+  export const fieldName = {
+    email: 'email' as FieldName,
+    name: 'name' as FieldName,
+    sectorName: 'sectorName' as FieldName,
+    sectorRegion: 'sectorRegion' as FieldName,
+    sectorEstablished: 'sectorEstablished' as FieldName,
+    sectorDirectoryOnly: 'sectorDirectoryOnly' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+  };
+}
+
 export namespace InviteCrewSectorUser {
   export const fieldName = {
     email: 'email' as FieldName,
@@ -2568,6 +2612,12 @@ export namespace UnlockMembersSignIn {
 }
 
 export namespace WithdrawCrewInvitation {
+  export const fieldName = {
+    invitationId: 'invitationId' as FieldName,
+  };
+}
+
+export namespace WithdrawCrewInvitedSector {
   export const fieldName = {
     invitationId: 'invitationId' as FieldName,
   };

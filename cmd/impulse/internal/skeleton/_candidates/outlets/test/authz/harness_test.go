@@ -17,6 +17,7 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -125,8 +126,9 @@ func (c *testConfigurer) Access() access.Controller {
 func (c *testConfigurer) Staff() *staff.Auth { return nil }
 
 // noSessionAPI stands where the matrix serves no session manager: a denied case is
-// answered before any method runs, so nothing here is ever hashed or mailed, and the
-// one list it is asked through (how a person signs in) is asked about nobody.
+// answered before any method runs, so nothing here is ever hashed or mailed, the one
+// list it is asked through (how a person signs in) is asked about nobody, and an
+// invitation whose check passed is told so where its link would be made.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -153,9 +155,13 @@ func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label s
 
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix
 // drives the generated methods' routes as it drives every other, and a denied case is
-// answered before any of them runs.
+// answered before any of them runs. The client makes the tenants, so it takes the
+// generated maker over the suites' roster, and the roles a tenant's administrator holds,
+// as the staff auth names them: what reaches the maker is the check of the details an
+// invitation that makes a tenant carries, in a transaction that is rolled back.
 func (c *testConfigurer) StaffIdentity() *staffidentity.Client {
-	client, err := staffidentity.NewClient(c.Access(), noSessionAPI{})
+	_, tenantAdministrators := staff.AdministratorRoles()
+	client, err := staffidentity.NewClient(c.Access(), noSessionAPI{}, app.NewTenantMaker(c.TenantRoster(), c.Live()), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		panic(err)
 	}

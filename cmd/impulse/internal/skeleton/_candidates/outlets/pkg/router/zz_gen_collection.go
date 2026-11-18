@@ -976,6 +976,15 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "InviteStaffTenant",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Attributes: []resource.AttributeData{
+					{Name: "directoryOnly", Column: "TenantDirectoryOnly", Type: "bool"},
+					{Name: "role", Column: "DefaultRole", Type: "string"},
+				},
+			},
+			{
 				Name:        "InviteStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -1457,6 +1466,23 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"kind", "axis", "domainId", "name"},
 			},
 			{
+				Name:        "StaffInvitedTenants",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "email", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "expiresAt", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "id"},
+					{Name: "invitedByUserId", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "tenantDirectoryOnly", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "tenantName", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
 				Name:        "StaffRoleGrants",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -1748,6 +1774,11 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "StaffSessionMailLinks",
+			},
+			{
+				Name:        "WithdrawStaffInvitedTenant",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 		},
 	})

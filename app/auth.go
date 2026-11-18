@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -66,13 +67,12 @@ const (
 	TenantsPersonal = "personal"
 )
 
-// The Workspace shapes of a Google registration, read from the slot function its
-// configuration's Workspaces slot calls: one Workspace of one domain (google.Workspace
-// alone, given one domain), listed Workspaces (several, a Workspace built in a loop, or
-// one Workspace given several domains or a spread of them, which the sign-in rule
-// counts by its domains), any Workspace (google.AnyWorkspace, alone or beside named
-// Workspaces) and Google accounts alone (google.AnyGoogleAccount). Any Google account
-// beside Workspaces is Method.AnyGoogleAccount.
+// The Workspace shapes of a Google registration, read from the building blocks its
+// configuration's Workspaces slot is made of: one Workspace (google.Workspace alone),
+// listed Workspaces (google.Workspaces of several, or a Workspace built in a loop), any
+// Workspace (google.AnyWorkspace, alone or beside listed Workspaces) and any Google
+// account alone (google.AnyGoogleAccount). Any Google account beside Workspaces is
+// Method.GoogleAccounts.
 const (
 	WorkspacesOne      = "one"
 	WorkspacesListed   = "listed"
@@ -205,8 +205,8 @@ func parseAuths(rel string, src []byte, ownPkg string) (auths []Auth, unattached
 // (the first argument's identifier), its registration name (the second argument, a
 // literal or a constant of the file; the password method is always "password") and, for
 // a directory method, its authority from the configuration (the fourth argument), with
-// the tenant shape of a Microsoft registration; for the password method, the option
-// after the Auth (session.UsernameIsEmail()).
+// the tenant shape of a Microsoft registration and the Workspace shape of a Google one;
+// for the password method, the option after the Auth (session.UsernameIsEmail()).
 func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.FileSet, consts map[string]string, body *ast.BlockStmt, f *ast.File) Method {
 	m := Method{File: rel, Line: fset.Position(call.Pos()).Line, Kind: kind, Name: PasswordRegistration}
 	if len(call.Args) > 0 {
@@ -240,7 +240,7 @@ func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.Fil
 			m.Tenants, m.PersonalAccounts = readTenants(configField(cfg, "Tenants"), body, local, f)
 		}
 		if kind == MethodGoogle {
-			m.Workspaces, m.AnyGoogleAccount = readWorkspaces(configField(cfg, "Workspaces"), body, local, f)
+			m.Workspaces, m.GoogleAccounts, m.SeveralDomains = readWorkspaces(configField(cfg, "Workspaces"), body, local, f)
 		}
 		if kind == MethodPersona {
 			m.Kind = oidcKind(cfg)
@@ -267,22 +267,23 @@ func oidcKind(cfg *ast.CompositeLit) string {
 // attachMethods gives each method to the Auth its first argument names, and to the only
 // Auth of the set when the identifier does not resolve; it returns the methods left over.
 func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
-	for _, m := range methods {
+	for j := range methods {
+		m := &methods[j]
 		placed := false
 		for i := range auths {
 			if auths[i].Var != "" && auths[i].Var == m.AuthVar {
-				auths[i].Methods = append(auths[i].Methods, m)
+				auths[i].Methods = append(auths[i].Methods, *m)
 				placed = true
 
 				break
 			}
 		}
 		if !placed && len(auths) == 1 {
-			auths[0].Methods = append(auths[0].Methods, m)
+			auths[0].Methods = append(auths[0].Methods, *m)
 			placed = true
 		}
 		if !placed {
-			unattached = append(unattached, m)
+			unattached = append(unattached, *m)
 		}
 	}
 
@@ -294,7 +295,8 @@ func attachMethods(auths []Auth, methods []Method) (unattached []Method) {
 // UnattachedMethods for the session-tables check to report.
 func (a *App) attachPackageMethods() {
 	var left []Method
-	for _, m := range a.unattached {
+	for j := range a.unattached {
+		m := &a.unattached[j]
 		var same []int
 		for i := range a.Auths {
 			if path.Dir(a.Auths[i].File) == path.Dir(m.File) {
@@ -302,11 +304,11 @@ func (a *App) attachPackageMethods() {
 			}
 		}
 		if len(same) == 1 {
-			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, m)
+			a.Auths[same[0]].Methods = append(a.Auths[same[0]].Methods, *m)
 
 			continue
 		}
-		left = append(left, m)
+		left = append(left, *m)
 	}
 	a.UnattachedMethods = left
 }
@@ -398,7 +400,7 @@ func readTenants(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.Fi
 		return "", false
 	}
 	var s tenantShape
-	collectTenantBlocks(fn.Body, false, methodPkg, f, 0, &s)
+	collectTenantBlocks(fn.Body, false, methodPkg, f, 0, azureBlocks, &s)
 	switch {
 	case s.any:
 		return TenantsAny, s.personal
@@ -412,6 +414,55 @@ func readTenants(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.Fi
 		// A function building no block the scan reads, or azure.Tenants() of nothing,
 		// which the library refuses at registration.
 		return "", false
+	}
+}
+
+// readWorkspaces reads the Workspaces slot of a Google registration's configuration into
+// the shape it builds and whether it admits any Google account. The slot is read from
+// the google building blocks it is made of: google.Workspace lists one Workspace,
+// google.AnyWorkspace admits any, google.AnyGoogleAccount admits any Google account, and
+// google.Workspaces unites. They are found in the registration's slot function, the
+// function of the file an identifier in the slot was assigned from a call to
+// (workspaces, err := workspaceSlot(settings)), as impulse add method writes it, or in
+// the slot's own expression where the registering function builds it in place
+// (Workspaces: google.AnyGoogleAccount(), or a name it assigned such a value). A
+// Workspace reached inside a loop counts as several, and Attesting() on a block keeps its
+// shape. A slot written any other way (a method of the settings, a value built in
+// another file) is not read, and all three are empty.
+//
+// severalDomains says a Workspace the slot names was given more than one domain, or a
+// spread of them. It is told apart from the shape and changes nothing of it: one
+// Workspace of two domains is one Workspace (WorkspacesOne), and it is several
+// organizations to the sign-in rule, which lists a Workspace by each of its domains
+// (signin.Audience.OneOrganization).
+func readWorkspaces(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.File) (workspaces string, accounts, severalDomains bool) {
+	if slot == nil {
+		return "", false, false
+	}
+	var s tenantShape
+	if fn := slotFunction(slot, body, f); fn != nil && fn.Body != nil {
+		collectTenantBlocks(fn.Body, false, methodPkg, f, 0, googleBlocks, &s)
+	} else {
+		// The slot built in place, or the value the function assigned the name it gives.
+		built := slot
+		if id, ok := slot.(*ast.Ident); ok {
+			if value := assignedValue(id, body); value != nil {
+				built = value
+			}
+		}
+		collectTenantBlocks(built, false, methodPkg, f, 0, googleBlocks, &s)
+	}
+	switch {
+	case s.any:
+		return WorkspacesAny, s.personal, s.domains
+	case s.several || s.listed > 1:
+		return WorkspacesListed, s.personal, s.domains
+	case s.listed == 1:
+		return WorkspacesOne, s.personal, s.domains
+	case s.personal:
+		return WorkspacesAccounts, true, false
+	default:
+		return "", false, false
 	}
 }
 
@@ -454,43 +505,70 @@ func fileFunction(f *ast.File, name string) *ast.FuncDecl {
 	return nil
 }
 
-// tenantShape is what the scan reads of a slot function: how many tenants it lists
-// outside loops, whether it lists tenants inside one, and whether it admits any tenant
-// or personal accounts.
+// tenantShape is what the scan reads of an organization slot: how many organizations it
+// lists outside loops, whether it lists organizations inside one, whether it admits any
+// organization, or the accounts outside every organization (Microsoft personal accounts,
+// any Google account), and whether a block that lists one organization was given several
+// domains for it (a Google Workspace of more than one domain).
 type tenantShape struct {
 	listed   int
 	several  bool
 	any      bool
 	personal bool
+	domains  bool
 }
 
-// collectTenantBlocks adds the azure building blocks under n to the shape: a block in a
-// loop's body is read with inLoop set, and a call to another function of the file is
-// read through, one level down, so the listed slot's parser counts. Attesting() and the
-// other calls on a block are walked into, so the block under them is read.
-func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File, depth int, s *tenantShape) {
+// slotBlocks names the building blocks a directory method's package makes an
+// organization slot of: the ones that list one organization each, the one that admits
+// any organization, and the one that admits the accounts outside every organization.
+// domains names the listed block that takes the organization's name and then its
+// domains, one or more ("" where the package has none): given more than one, or a
+// spread of them, the block still lists one organization, and the shape notes it.
+type slotBlocks struct {
+	listed   []string
+	any      string
+	accounts string
+	domains  string
+}
+
+// The building blocks of a Microsoft registration's Tenants slot and of a Google
+// registration's Workspaces slot.
+var (
+	azureBlocks  = slotBlocks{listed: []string{"Tenant", "NamedTenant"}, any: "AnyTenant", accounts: "PersonalAccounts", domains: ""}
+	googleBlocks = slotBlocks{listed: []string{"Workspace"}, any: "AnyWorkspace", accounts: "AnyGoogleAccount", domains: "Workspace"}
+)
+
+// collectTenantBlocks adds the method package's building blocks under n to the shape: a
+// block in a loop's body is read with inLoop set, and a call to another function of the
+// file is read through, one level down, so the listed slot's parser counts. Attesting()
+// and the other calls on a block are walked into, so the block under them is read.
+func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File, depth int, blocks slotBlocks, s *tenantShape) {
 	ast.Inspect(n, func(node ast.Node) bool {
 		switch e := node.(type) {
 		case *ast.ForStmt:
-			collectTenantBlocks(e.Body, true, methodPkg, f, depth, s)
+			collectTenantBlocks(e.Body, true, methodPkg, f, depth, blocks, s)
 
 			return false
 		case *ast.RangeStmt:
-			collectTenantBlocks(e.Body, true, methodPkg, f, depth, s)
+			collectTenantBlocks(e.Body, true, methodPkg, f, depth, blocks, s)
 
 			return false
 		case *ast.CallExpr:
 			if name, ok := qualifiedName(e.Fun, methodPkg); ok {
-				switch name {
-				case "Tenant", "NamedTenant":
+				switch {
+				case slices.Contains(blocks.listed, name):
 					if inLoop {
 						s.several = true
 					} else {
 						s.listed++
 					}
-				case "AnyTenant":
+					// The name, then the domains: more than one, or a spread of them.
+					if name == blocks.domains && (len(e.Args) > 2 || e.Ellipsis.IsValid()) {
+						s.domains = true
+					}
+				case name == blocks.any:
 					s.any = true
-				case "PersonalAccounts":
+				case name == blocks.accounts:
 					s.personal = true
 				}
 
@@ -498,103 +576,7 @@ func collectTenantBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File,
 			}
 			if id, ok := e.Fun.(*ast.Ident); ok && depth == 0 {
 				if fn := fileFunction(f, id.Name); fn != nil && fn.Body != nil {
-					collectTenantBlocks(fn.Body, inLoop, methodPkg, f, depth+1, s)
-				}
-			}
-
-			return true
-		default:
-			return true
-		}
-	})
-}
-
-// readWorkspaces reads the Workspaces slot of a Google registration's configuration
-// into the shape it builds and whether it admits any Google account, as readTenants
-// reads a Microsoft registration's: the slot names an identifier the registering
-// function assigned from a call to a function of the file, the registration's slot
-// function (workspaces, err := directorySlot(settings)), as impulse add method writes
-// it, and the shape is the union of the google building blocks in that function's body
-// and in the file's functions it calls. Workspace names one Workspace, AnyWorkspace
-// admits any, AnyGoogleAccount admits any Google account, and Workspaces unites. A
-// Workspace reached inside a loop counts as several, and so does one given more than
-// one domain, or a spread of them: the sign-in rule counts a Workspace by its domains
-// (signin.Audience.OneOrganization), so one Workspace of two domains is not one
-// organization to it. A slot written any other way, a block in the configuration
-// itself included, is not read, and both are empty.
-func readWorkspaces(slot ast.Expr, body *ast.BlockStmt, methodPkg string, f *ast.File) (workspaces string, anyAccount bool) {
-	fn := slotFunction(slot, body, f)
-	if fn == nil || fn.Body == nil {
-		return "", false
-	}
-	var s workspaceShape
-	collectWorkspaceBlocks(fn.Body, false, methodPkg, f, 0, &s)
-	switch {
-	case s.any:
-		return WorkspacesAny, s.anyAccount
-	case s.several || s.listed > 1:
-		return WorkspacesListed, s.anyAccount
-	case s.listed == 1:
-		return WorkspacesOne, s.anyAccount
-	case s.anyAccount:
-		return WorkspacesAccounts, true
-	default:
-		// A function building no block the scan reads, or google.Workspaces() of
-		// nothing, which the library refuses at registration.
-		return "", false
-	}
-}
-
-// workspaceShape is what the scan reads of a Google slot function: how many Workspaces
-// of one domain it names outside loops, whether it names Workspaces inside one or a
-// Workspace of several domains, and whether it admits any Workspace or any Google
-// account.
-type workspaceShape struct {
-	listed     int
-	several    bool
-	any        bool
-	anyAccount bool
-}
-
-// collectWorkspaceBlocks adds the google building blocks under n to the shape, as
-// collectTenantBlocks adds the azure ones: a block in a loop's body is read with inLoop
-// set, and a call to another function of the file is read through, one level down, so
-// the listed slot's parser counts. Attesting() and the other calls on a block are
-// walked into, so the block under them is read.
-func collectWorkspaceBlocks(n ast.Node, inLoop bool, methodPkg string, f *ast.File, depth int, s *workspaceShape) {
-	ast.Inspect(n, func(node ast.Node) bool {
-		switch e := node.(type) {
-		case *ast.ForStmt:
-			collectWorkspaceBlocks(e.Body, true, methodPkg, f, depth, s)
-
-			return false
-		case *ast.RangeStmt:
-			collectWorkspaceBlocks(e.Body, true, methodPkg, f, depth, s)
-
-			return false
-		case *ast.CallExpr:
-			if name, ok := qualifiedName(e.Fun, methodPkg); ok {
-				switch name {
-				case "Workspace":
-					// The name, then the domains: more than one, or a spread of them,
-					// is several organizations to the sign-in rule.
-					switch {
-					case inLoop, len(e.Args) > 2, e.Ellipsis.IsValid():
-						s.several = true
-					default:
-						s.listed++
-					}
-				case "AnyWorkspace":
-					s.any = true
-				case "AnyGoogleAccount":
-					s.anyAccount = true
-				}
-
-				return true
-			}
-			if id, ok := e.Fun.(*ast.Ident); ok && depth == 0 {
-				if fn := fileFunction(f, id.Name); fn != nil && fn.Body != nil {
-					collectWorkspaceBlocks(fn.Body, inLoop, methodPkg, f, depth+1, s)
+					collectTenantBlocks(fn.Body, inLoop, methodPkg, f, depth+1, blocks, s)
 				}
 			}
 

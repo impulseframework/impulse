@@ -1933,6 +1933,178 @@ describe('LoginMethodsComponent opens an invitation', () => {
   });
 });
 
+describe('LoginMethodsComponent opens an invitation that makes a tenant', () => {
+  const noteOf = (page: Page): string | null =>
+    page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim() ?? null;
+  const titleOf = (page: Page): string | null =>
+    page.element.querySelector('.impulse-login-invitation-title')?.textContent?.trim() ?? null;
+  /** What opening the invitation answers: no tenant exists yet, and the name is the one it will have. */
+  const founding = {
+    email: 'founder@dawn.example',
+    tenantId: '',
+    tenantName: 'Dawn',
+    newTenant: true,
+    directoryOnly: false,
+    expiresAt: '2026-10-30T12:00:00Z',
+    signUp: true,
+    usernameIsEmail: false,
+  };
+  /** The same invitation, for a tenant entered through its directory only: the server offers no account with a password. */
+  const closed = { ...founding, directoryOnly: true, signUp: false };
+  const organizationSentence =
+    "To accept it, sign in with your organization's account, not with a password or a personal account.";
+
+  it("shows the tenant's name as what the person is invited to set up, and the invited address, before the sign-in", async () => {
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...founding, methods: [], accountExists: false, hasPassword: false } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(page.component.invitation()).toEqual({ ...founding, methods: [], accountExists: false, hasPassword: false });
+    expect(titleOf(page)).toBe("You're invited to set up Dawn");
+    // No account holds the address and no directory could admit it: the account form opened by itself, under the heading.
+    expect(page.component.account()).toEqual({ source: 'invitation', email: founding.email, usernameIsEmail: false });
+    page.component.cancelAccount();
+    await page.settle();
+    expect(noteOf(page)).toBe('The invitation is for founder@dawn.example.');
+  });
+
+  it('keeps the heading of an invitation into a tenant that exists', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
+    expect(titleOf(page)).toBe("You're invited to Anvil");
+  });
+
+  it("for a tenant entered through its directory only, says to sign in with the organization's account and offers the directory alone: no password form, no account", async () => {
+    // An account with a password holds the address: its password form is still not offered.
+    const holder = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...closed, methods: ['google'], accountExists: true, hasPassword: true } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(titleOf(holder)).toBe("You're invited to set up Dawn");
+    expect(noteOf(holder)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+    expect(holder.component.invitationPaths()).toEqual({ known: true, redirects: [google], password: false, create: false });
+    expect(holder.element.querySelector('input[name="username"]')).toBeNull();
+    expect(holder.element.querySelector('.impulse-login-password-note')).toBeNull();
+    expect(holder.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(buttonsOf(holder)).toEqual(['Continue with Google as founder@dawn.example']);
+    TestBed.resetTestingModule();
+    // Nobody holds the address and no directory could admit it: the account form does not open by itself.
+    const stranger = await pageOver(
+      server({
+        methods: mailingList,
+        invitationOpen: { status: 200, body: { ...closed, methods: [], accountExists: false, hasPassword: false } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(stranger.component.account()).toBeUndefined();
+    expect(noteOf(stranger)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+    expect(stranger.element.querySelector('input[name="username"]')).toBeNull();
+    expect(buttonsOf(stranger)).toEqual([]);
+    TestBed.resetTestingModule();
+    // An older answer that says nothing of the account offers every path for any other
+    // invitation, and here the directory alone.
+    const unknown = await pageOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...closed, signUp: true } } }),
+      { invitation: 'tok-1' },
+    );
+    expect(unknown.element.querySelector('input[name="username"]')).toBeNull();
+    expect(unknown.element.querySelector('.impulse-login-create-account')).toBeNull();
+    unknown.component.openAccountForm();
+    await unknown.settle();
+    expect(unknown.component.account()).toBeUndefined();
+    expect(noteOf(unknown)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+  });
+
+  it('found carried by the browser after a refused sign-in, stands again with the refusal under it and still offers no password', async () => {
+    const standing = {
+      email: closed.email,
+      tenantId: '',
+      tenantName: 'Dawn',
+      newTenant: true,
+      directoryOnly: true,
+      expiresAt: closed.expiresAt,
+      usernameIsEmail: false,
+      methods: ['google'],
+      accountExists: false,
+      hasPassword: false,
+    };
+    // The block still names the sign-up route, which serves every other invitation.
+    const carrying: LoginMethods = { ...mailingList, invitation: { ...invitationRoutes, standing } };
+    for (const code of ['organization_has_tenant', 'organization_account_required']) {
+      const page = await pageOver(server({ methods: carrying }), { code });
+      expect(page.component.invitation()).toEqual({ ...closed, methods: ['google'], accountExists: false, hasPassword: false });
+      expect(titleOf(page)).toBe("You're invited to set up Dawn");
+      expect(noteOf(page)).toBe(`The invitation is for founder@dawn.example. ${organizationSentence}`);
+      expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES[code]);
+      expect(page.element.querySelector('input[name="username"]')).toBeNull();
+      expect(page.component.account()).toBeUndefined();
+      expect(buttonsOf(page)).toEqual(['Continue with Google as founder@dawn.example']);
+      TestBed.resetTestingModule();
+    }
+  });
+
+  it("an acceptance by hand the server refuses shows the server's sentence and keeps the invitation standing", async () => {
+    const sentence =
+      "This invitation is accepted with your organization's account, not with a password or a personal account. Sign in with your organization's account (Google Workspace or Microsoft Entra).";
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: { status: 200, body: { ...closed, methods: ['google'], accountExists: true, hasPassword: true } },
+        invitationAccept: { status: 403, body: { message: sentence } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(page.element.querySelector('.impulse-login-accept')?.textContent?.trim()).toBe('Accept as overseer');
+    await page.component.accept();
+    await page.settle();
+    expect(messageOf(page)).toBe(sentence);
+    expect(page.component.invitation()?.tenantName).toBe('Dawn');
+    expect(titleOf(page)).toBe("You're invited to set up Dawn");
+    expect(page.signedIn).toEqual([]);
+  });
+
+  it('an acceptance by hand refused because what the invitation carries cannot be made keeps the invitation standing too', async () => {
+    const sentence = 'a sector with the name Dawn already exists: give the new one another';
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: { status: 200, body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true } },
+        invitationAccept: { status: 409, body: { message: sentence } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    await page.component.accept();
+    await page.settle();
+    expect(messageOf(page)).toBe(sentence);
+    expect(page.component.invitation()?.tenantName).toBe('Dawn');
+    expect(titleOf(page)).toBe("You're invited to set up Dawn");
+    expect(page.signedIn).toEqual([]);
+  });
+
+  it('an acceptance by hand of an invitation that is gone drops it from the page', async () => {
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: { status: 200, body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true } },
+        invitationAccept: { status: 404, body: { message: 'the browser carries no live invitation' } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    await page.component.accept();
+    await page.settle();
+    expect(page.component.invitation()).toBeUndefined();
+    expect(page.signedIn).toEqual([]);
+  });
+});
+
 describe('LoginMethodsComponent finds the invitation the browser carries', () => {
   /** The invitation as the methods list names it under `invitation.standing`: what opening it answered, less `signUp`. */
   const standing = {

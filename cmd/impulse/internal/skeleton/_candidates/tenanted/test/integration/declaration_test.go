@@ -682,7 +682,7 @@ func signedInThroughGoogle(ctx context.Context, t *testing.T, s *served) *browse
 	if status, location = b.redirect(ctx, location); status != http.StatusFound || location != "/login?pending=mfa&returnUrl="+url.QueryEscape("/dashboard") {
 		t.Fatalf("the callback answered %d to %q, want %d to the login page's code step, returning to /dashboard", status, location, http.StatusFound)
 	}
-	b.secondFactor(ctx, os.Getenv("APP_GOOGLE_USERNAME"), false)
+	b.secondFactor(ctx, os.Getenv("APP_GOOGLE_USERNAME"))
 
 	return b
 }

@@ -139,7 +139,7 @@ func TestFirstAdministrator(t *testing.T) {
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{seededForGoogle("the Workspaces it lists, or a Workspace of several domains, which the rule counts by its domains")},
+			wantDetails: []string{seededForGoogle("the Workspaces it lists")},
 		},
 		{
 			name: "a seed for a Google registration of one Workspace of two domains, which the sign-in rule counts as two",
@@ -148,7 +148,7 @@ func TestFirstAdministrator(t *testing.T) {
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{seededForGoogle("the Workspaces it lists, or a Workspace of several domains, which the rule counts by its domains")},
+			wantDetails: []string{seededForGoogle("one Workspace of several domains, which the rule counts by its domains")},
 		},
 		{
 			name: "a seed for a Google registration open to any Workspace",

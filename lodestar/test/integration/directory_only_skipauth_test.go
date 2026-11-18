@@ -262,14 +262,17 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 
 	// The global record shows the flag and never writes it. A patch of the record that
 	// carries it is refused, whoever sends it, the governor, a super administrator who
-	// holds every grant, included; and a sector is not charted directory only.
+	// holds every grant, included; and a sector is not charted directory only, or charted
+	// at all: nobody creates a sector directly. A sector is directory only from the start
+	// where the invitation that makes it says so, and that invitation is accepted through
+	// the directory the sector will be only of (TestInvitedSector).
 	patchRecord := jsonBody(t, []map[string]any{{"op": "patch", "path": "/sectors/" + bastion, "value": map[string]any{"directoryOnly": true}}})
 	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", patchRecord); status != http.StatusBadRequest {
 		t.Errorf("patching the Sectors record's directoryOnly as the governor: status %d, want 400, the record does not take the flag: %s", status, body)
 	}
 	chartClosed := jsonBody(t, []map[string]any{{"op": "add", "path": "/sectors", "value": map[string]any{"name": "Flint", "region": "Near frontier", "established": "2226-11-02", "directoryOnly": true}}})
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", chartClosed); status != http.StatusBadRequest {
-		t.Errorf("charting a sector that is directory only from the start: status %d, want 400: %s", status, body)
+	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", chartClosed); status != http.StatusBadRequest || !strings.Contains(string(body), "a sector is not created directly") {
+		t.Errorf("charting a sector that is directory only from the start: status %d, want 400 saying how a sector is made: %s", status, body)
 	}
 	if status, body := governor.do(ctx, http.MethodGet, consoleAPI+"/sectors", nil); status != http.StatusOK || strings.Contains(string(body), "Flint") {
 		t.Errorf("the sectors after the refused chart: status %d, want 200 and no Flint: %s", status, body)

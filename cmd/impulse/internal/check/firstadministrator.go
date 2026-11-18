@@ -330,7 +330,7 @@ func judgeFoothold(p *app.AuthPackage, auth *app.Auth, f *foothold) (finding, th
 		return fmt.Sprintf("%s: the first administrator the migrate command seeds for the %s auth cannot sign in: it is seeded for the %s registration (session.%s), which admits more than one organization (%s), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own directory as one tenant (azure.Tenant) and seed for that registration, or give the auth a password method and seed the administrator with a password", f.seeds, p.Name, f.through, seedThroughFunc, microsoftWidth(m)), ""
 	}
 
-	if m := &auth.Methods[i]; m.Kind == app.MethodGoogle && m.Workspaces != "" && (m.Workspaces != app.WorkspacesOne || m.AnyGoogleAccount) {
+	if m := &auth.Methods[i]; m.Kind == app.MethodGoogle && m.Workspaces != "" && (m.Workspaces != app.WorkspacesOne || m.GoogleAccounts || m.SeveralDomains) {
 		return fmt.Sprintf("%s: the first administrator the migrate command seeds for the %s auth cannot sign in: it is seeded for the %s registration (session.%s), which admits more than one organization (%s), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own Workspace alone, by one domain (google.Workspace with the name and that domain), and seed for that registration, or give the auth a password method and seed the administrator with a password", f.seeds, p.Name, f.through, seedThroughFunc, googleWidth(m)), ""
 	}
 
@@ -373,20 +373,26 @@ func microsoftWidth(m *app.Method) string {
 }
 
 // googleWidth says whom a Google registration admits beyond one Workspace of one
-// domain.
+// domain. The scan reads how many Workspaces the registration names (Method.Workspaces)
+// and, beside that, whether one was given several domains (Method.SeveralDomains): one
+// Workspace of two domains is one Workspace to read, and two organizations to the
+// sign-in rule.
 func googleWidth(m *app.Method) string {
 	var width string
 	switch m.Workspaces {
 	case app.WorkspacesListed:
-		width = "the Workspaces it lists, or a Workspace of several domains, which the rule counts by its domains"
+		width = "the Workspaces it lists"
 	case app.WorkspacesAny:
 		width = "any Google Workspace"
 	case app.WorkspacesAccounts:
 		return "any Google account"
 	default:
 		width = "one Workspace"
+		if m.SeveralDomains {
+			width = "one Workspace of several domains, which the rule counts by its domains"
+		}
 	}
-	if m.AnyGoogleAccount {
+	if m.GoogleAccounts {
 		width += " and any Google account"
 	}
 
