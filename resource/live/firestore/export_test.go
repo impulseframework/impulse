@@ -37,14 +37,22 @@ func LateReopens(s *Service) int {
 	return s.lateReopenCount()
 }
 
-// SignalsIdle reports whether no signal write is in flight for any kind.
+// SignalsIdle reports whether no signal write is in flight or owed for any kind.
 func SignalsIdle(s *Service) bool {
 	return s.signalsIdle()
 }
 
+// SignalsWaiting is how many callers wait for the kind's covering write that is not yet
+// due, so a test can tell that the signals it made have all joined it.
+func SignalsWaiting(s *Service, kind live.Kind) int {
+	return s.signalsWaiting(kind)
+}
+
 // ObserveWrites sets the function every signal write is reported to before it is sent,
-// so a test can count writes and hold one in flight.
-func ObserveWrites(s *Service, onWrite func(kind live.Kind)) {
+// with the context it is sent under, so a test can count writes, hold one in flight and
+// tell whose it is; what the function returns, when it returns something, is told the
+// write's outcome.
+func ObserveWrites(s *Service, onWrite func(ctx context.Context, kind live.Kind) (written func(err error))) {
 	s.observeWrites(onWrite)
 }
 

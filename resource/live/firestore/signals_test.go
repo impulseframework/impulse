@@ -2,15 +2,21 @@ package firestore_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/impulseframework/impulse/resource/live"
 	livefirestore "github.com/impulseframework/impulse/resource/live/firestore"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // The waits the signals tests allow: a signal reaches a listener within settle, and a
@@ -445,9 +451,191 @@ func TestService_signals_reopen(t *testing.T) {
 	firstPolicy.waitFor(t, "the first instance's policy subscription", 1)
 }
 
+// writeWatch observes one service's signal writes: it counts the ones begun and the
+// ones ended, keeps the context each was sent under, and holds the ones a test names in
+// flight, before they are sent, until the test lets them go.
+type writeWatch struct {
+	mu       sync.Mutex
+	begun    int
+	ended    int
+	contexts []context.Context
+	held     map[int]chan struct{}
+	// reached is told the number of each held write as it begins.
+	reached chan int
+}
+
+// watchWrites watches the service's signal writes.
+func watchWrites(svc *livefirestore.Service) *writeWatch {
+	w := &writeWatch{held: make(map[int]chan struct{}), reached: make(chan int, 16)}
+	livefirestore.ObserveWrites(svc, func(ctx context.Context, _ live.Kind) func(error) {
+		w.mu.Lock()
+		w.begun++
+		n := w.begun
+		w.contexts = append(w.contexts, ctx)
+		hold := w.held[n]
+		w.mu.Unlock()
+		if hold != nil {
+			w.reached <- n
+			<-hold
+		}
+
+		return func(error) {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			w.ended++
+		}
+	})
+
+	return w
+}
+
+// hold holds the service's nth write in flight from the moment it begins, and returns
+// what lets it go; the test's end lets it go too.
+func (w *writeWatch) hold(t *testing.T, n int) (release func()) {
+	t.Helper()
+
+	hold := make(chan struct{})
+	w.mu.Lock()
+	w.held[n] = hold
+	w.mu.Unlock()
+	release = sync.OnceFunc(func() {
+		close(hold)
+	})
+	t.Cleanup(release)
+
+	return release
+}
+
+// awaitHeld waits until the nth write has begun and is held.
+func (w *writeWatch) awaitHeld(t *testing.T, n int) {
+	t.Helper()
+
+	select {
+	case got := <-w.reached:
+		if got != n {
+			t.Fatalf("write %d is held, want write %d", got, n)
+		}
+	case <-time.After(settle):
+		t.Fatalf("write %d did not begin within %s", n, settle)
+	}
+}
+
+// counts returns how many writes have begun and how many have ended.
+func (w *writeWatch) counts() (begun, ended int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.begun, w.ended
+}
+
+// sentUnder returns the context the nth write was sent under.
+func (w *writeWatch) sentUnder(t *testing.T, n int) context.Context {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.contexts) < n {
+		t.Fatalf("%d writes have begun, want write %d among them", len(w.contexts), n)
+	}
+
+	return w.contexts[n-1]
+}
+
+// signaling makes a signal of the features kind on a goroutine of its own, as a request
+// of the instance would, and returns where its answer arrives.
+func signaling(ctx context.Context, svc *livefirestore.Service) <-chan error {
+	answer := make(chan error, 1)
+	go func() {
+		answer <- svc.Signal(ctx, live.KindFeatures)
+	}()
+
+	return answer
+}
+
+// awaitWaiting waits until n callers wait for the features kind's covering write that
+// is not yet due: the signals made since the write in flight began.
+func awaitWaiting(t *testing.T, svc *livefirestore.Service, n int) {
+	t.Helper()
+
+	deadline := time.Now().Add(settle)
+	for {
+		waiting := livefirestore.SignalsWaiting(svc, live.KindFeatures)
+		if waiting == n {
+			return
+		}
+		if waiting > n {
+			t.Fatalf("callers waiting for the covering write that is not yet due = %d, want %d: a signal joined a write made before it", waiting, n)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("callers waiting for the covering write = %d within %s, want %d", waiting, settle, n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// answered waits for a signal's answer.
+func answered(t *testing.T, who string, answer <-chan error) error {
+	t.Helper()
+
+	select {
+	case err := <-answer:
+		return err
+	case <-time.After(settle):
+		t.Fatalf("%s did not return within %s", who, settle)
+
+		return nil
+	}
+}
+
+// stillWaiting fails the test if the signal has answered: it is to wait for a write
+// that has not been made.
+func stillWaiting(t *testing.T, who string, answer <-chan error) {
+	t.Helper()
+
+	select {
+	case err := <-answer:
+		t.Fatalf("%s returned (%v) before the write that covers it was made", who, err)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// nothingSending fails the test unless the service has made exactly the given number of
+// writes, every one of them ended, and holds no write slot: what must be so at the
+// moment the last overlapping caller has returned, with no wait.
+func nothingSending(t *testing.T, svc *livefirestore.Service, writes *writeWatch, want int) {
+	t.Helper()
+
+	if begun, ended := writes.counts(); begun != want || ended != want {
+		t.Errorf("as the last caller returned: writes begun = %d, ended = %d, want %d and %d", begun, ended, want, want)
+	}
+	if !livefirestore.SignalsIdle(svc) {
+		t.Error("as the last caller returned: a signal write is in flight or owed, want nothing left to send")
+	}
+}
+
+// commitRefuser refuses the commit a test names among the ones a service sends, as a
+// store that refuses a write does, and passes every other call on.
+type commitRefuser struct {
+	commits atomic.Int64
+	refused atomic.Int64
+}
+
+// errCommitRefused is what the refused commit answers.
+const errCommitRefused = "the store refused the write"
+
+func (r *commitRefuser) unary(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	if strings.HasSuffix(method, "/Commit") && r.commits.Add(1) == r.refused.Load() {
+		return status.Error(codes.PermissionDenied, errCommitRefused) //nolint:wrapcheck // the status is the answer the client is to see, as the store would give it
+	}
+
+	return invoker(ctx, method, req, reply, conn, opts...)
+}
+
 // TestService_Signal_coalesces pins the publisher's coalescing: a burst of signals of
-// one kind while a write of it is in flight is one following write, and the subscribers
-// still wake, since the following write lands after the last call.
+// one kind while a write of it is in flight is one covering write, made once the write
+// in flight has ended, and every signal of the burst waits for it. When the last of them
+// has returned the service has made two writes and nothing is left to send: no write is
+// made later, on a goroutine no caller waits for. The subscribers still wake, since the
+// covering write begins after the last call.
 func TestService_Signal_coalesces(t *testing.T) {
 	t.Parallel()
 
@@ -456,60 +644,393 @@ func TestService_Signal_coalesces(t *testing.T) {
 	writer := newServiceIn(t, database)
 	reader := newServiceIn(t, database)
 	features := subscribe(t, reader, live.KindFeatures)
+	writes := watchWrites(writer)
+	release := writes.hold(t, 1)
 
-	var mu sync.Mutex
-	writes := make([]live.Kind, 0)
-	hold := make(chan struct{})
-	livefirestore.ObserveWrites(writer, func(kind live.Kind) {
-		mu.Lock()
-		writes = append(writes, kind)
-		first := len(writes) == 1
-		mu.Unlock()
-		if first {
-			<-hold
-		}
-	})
-
-	// The first signal's write is held in flight; the burst behind it is absorbed and
-	// answers at once.
-	done := make(chan error, 1)
-	go func() {
-		done <- writer.Signal(t.Context(), live.KindFeatures)
-	}()
-	for {
-		mu.Lock()
-		started := len(writes) == 1
-		mu.Unlock()
-		if started {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	first := signaling(t.Context(), writer)
+	writes.awaitHeld(t, 1)
+	covered := make([]<-chan error, 0, burst)
 	for range burst {
-		signal(t, writer, live.KindFeatures)
+		covered = append(covered, signaling(t.Context(), writer))
 	}
-	close(hold)
-	if err := <-done; err != nil {
-		t.Fatalf("Signal() error = %v", err)
+	awaitWaiting(t, writer, burst)
+	for _, answer := range covered {
+		stillWaiting(t, "a signal made during the write in flight", answer)
 	}
 
-	deadline := time.Now().Add(settle)
-	for !livefirestore.SignalsIdle(writer) {
-		if time.Now().After(deadline) {
-			t.Fatal("a signal write is still in flight after the burst")
+	release()
+	if err := answered(t, "the first signal", first); err != nil {
+		t.Fatalf("the first Signal() error = %v", err)
+	}
+	for _, answer := range covered {
+		if err := answered(t, "a signal of the burst", answer); err != nil {
+			t.Errorf("a Signal() of the burst error = %v", err)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	mu.Lock()
-	got := len(writes)
-	mu.Unlock()
-	if got != 2 {
-		t.Errorf("writes = %d, want 2: the write in flight and one following write for the %d signals absorbed", got, burst)
-	}
+	nothingSending(t, writer, writes, 2)
+
 	// The reader wakes at least once for the burst, and at most once per write.
 	features.waitFor(t, "the reader's features subscription", 1)
 	if n := settled(features)[0]; n > 2 {
 		t.Errorf("the reader heard %d signals, want at most one per write (2)", n)
+	}
+	if begun, _ := writes.counts(); begun != 2 {
+		t.Errorf("writes = %d once the callers had long returned, want still 2: the write in flight and one covering write for the %d signals made during it", begun, burst)
+	}
+}
+
+// TestService_Signal_coveringWriteFails pins a covering write the store refuses: its
+// failure is the failure of every caller that waited for it, the first caller's own
+// write having succeeded, and the slot is free for the next signal.
+func TestService_Signal_coveringWriteFails(t *testing.T) {
+	t.Parallel()
+
+	const burst = 5
+	database := databaseFor(t)
+	refuser := &commitRefuser{}
+	writer := newServiceIn(t, database, livefirestore.WithDialOptions(grpc.WithChainUnaryInterceptor(refuser.unary)))
+	writes := watchWrites(writer)
+	release := writes.hold(t, 1)
+
+	first := signaling(t.Context(), writer)
+	writes.awaitHeld(t, 1)
+	covered := make([]<-chan error, 0, burst)
+	for range burst {
+		covered = append(covered, signaling(t.Context(), writer))
+	}
+	awaitWaiting(t, writer, burst)
+	// The first write is held before it is sent, so the covering write is the second
+	// commit the service sends.
+	refuser.refused.Store(2)
+
+	release()
+	if err := answered(t, "the first signal", first); err != nil {
+		t.Fatalf("the first Signal() error = %v, want its own write to succeed", err)
+	}
+	for _, answer := range covered {
+		err := answered(t, "a signal of the burst", answer)
+		if err == nil || !strings.Contains(err.Error(), errCommitRefused) {
+			t.Errorf("a Signal() the refused write covered error = %v, want the covering write's failure", err)
+		}
+	}
+	nothingSending(t, writer, writes, 2)
+
+	if err := writer.Signal(t.Context(), live.KindFeatures); err != nil {
+		t.Errorf("Signal() after the refused covering write error = %v, want the slot free and the write taken", err)
+	}
+	nothingSending(t, writer, writes, 3)
+}
+
+// TestService_Signal_duringTheCoveringWrite pins which write covers a signal: one made
+// once the covering write has begun is not covered by it, since that write may have
+// reached the subscribers before the change the signal is for, and waits for the next.
+func TestService_Signal_duringTheCoveringWrite(t *testing.T) {
+	t.Parallel()
+
+	database := databaseFor(t)
+	writer := newServiceIn(t, database)
+	writes := watchWrites(writer)
+	releaseFirst := writes.hold(t, 1)
+	releaseCovering := writes.hold(t, 2)
+
+	first := signaling(t.Context(), writer)
+	writes.awaitHeld(t, 1)
+	second := signaling(t.Context(), writer)
+	awaitWaiting(t, writer, 1)
+	releaseFirst()
+	if err := answered(t, "the first signal", first); err != nil {
+		t.Fatalf("the first Signal() error = %v", err)
+	}
+	writes.awaitHeld(t, 2)
+
+	third := signaling(t.Context(), writer)
+	awaitWaiting(t, writer, 1)
+	stillWaiting(t, "a signal made during the covering write", third)
+	stillWaiting(t, "the signal whose covering write is in flight", second)
+
+	releaseCovering()
+	if err := answered(t, "the second signal", second); err != nil {
+		t.Errorf("the second Signal() error = %v", err)
+	}
+	if err := answered(t, "the third signal", third); err != nil {
+		t.Errorf("the third Signal() error = %v", err)
+	}
+	nothingSending(t, writer, writes, 3)
+}
+
+// TestService_Signal_callerWhoseContextEnds pins what one caller's context ending does
+// to a covering write: the caller returns its context's error, and the write is made by
+// a caller still waiting, where there is one, and by nobody where there is none. No
+// caller's leaving fails another's signal, and none leaves the slot taken.
+func TestService_Signal_callerWhoseContextEnds(t *testing.T) {
+	t.Parallel()
+
+	type callerKey struct{}
+	// caller is a request with a context of its own, which names it.
+	caller := func(t *testing.T, name string) (ctx context.Context, end context.CancelFunc) {
+		t.Helper()
+
+		return context.WithCancel(context.WithValue(t.Context(), callerKey{}, name))
+	}
+
+	t.Run("a waiting caller leaves, and the write stays with the caller still waiting", func(t *testing.T) {
+		t.Parallel()
+
+		writer := newServiceIn(t, databaseFor(t))
+		writes := watchWrites(writer)
+		release := writes.hold(t, 1)
+		first := signaling(t.Context(), writer)
+		writes.awaitHeld(t, 1)
+		leaving, leave := caller(t, "leaving")
+		defer leave()
+		left := signaling(leaving, writer)
+		stayed := signaling(t.Context(), writer)
+		awaitWaiting(t, writer, 2)
+
+		leave()
+		if err := answered(t, "the caller whose context ended", left); !errors.Is(err, context.Canceled) {
+			t.Errorf("Signal() of the caller whose context ended error = %v, want its context's", err)
+		}
+		stillWaiting(t, "the caller still waiting", stayed)
+
+		release()
+		if err := answered(t, "the first signal", first); err != nil {
+			t.Errorf("the first Signal() error = %v", err)
+		}
+		if err := answered(t, "the caller still waiting", stayed); err != nil {
+			t.Errorf("Signal() of the caller still waiting error = %v, want the covering write made for it", err)
+		}
+		nothingSending(t, writer, writes, 2)
+	})
+
+	t.Run("the only waiting caller leaves, and no covering write is made", func(t *testing.T) {
+		t.Parallel()
+
+		writer := newServiceIn(t, databaseFor(t))
+		writes := watchWrites(writer)
+		release := writes.hold(t, 1)
+		first := signaling(t.Context(), writer)
+		writes.awaitHeld(t, 1)
+		leaving, leave := caller(t, "leaving")
+		defer leave()
+		left := signaling(leaving, writer)
+		awaitWaiting(t, writer, 1)
+
+		leave()
+		if err := answered(t, "the caller whose context ended", left); !errors.Is(err, context.Canceled) {
+			t.Errorf("Signal() of the caller whose context ended error = %v, want its context's", err)
+		}
+		release()
+		if err := answered(t, "the first signal", first); err != nil {
+			t.Errorf("the first Signal() error = %v", err)
+		}
+		nothingSending(t, writer, writes, 1)
+		time.Sleep(quiet)
+		nothingSending(t, writer, writes, 1)
+	})
+
+	t.Run("the caller making the covering write loses its context, and another waiting caller makes it", func(t *testing.T) {
+		t.Parallel()
+
+		database := databaseFor(t)
+		writer := newServiceIn(t, database)
+		reader := newServiceIn(t, database)
+		features := subscribe(t, reader, live.KindFeatures)
+		writes := watchWrites(writer)
+		releaseFirst := writes.hold(t, 1)
+		releaseCovering := writes.hold(t, 2)
+		first := signaling(t.Context(), writer)
+		writes.awaitHeld(t, 1)
+		ends := make(map[string]context.CancelFunc)
+		answers := make(map[string]<-chan error)
+		for _, name := range []string{"one", "other"} {
+			ctx, end := caller(t, name)
+			t.Cleanup(end)
+			ends[name] = end
+			answers[name] = signaling(ctx, writer)
+		}
+		awaitWaiting(t, writer, 2)
+		releaseFirst()
+		if err := answered(t, "the first signal", first); err != nil {
+			t.Fatalf("the first Signal() error = %v", err)
+		}
+		writes.awaitHeld(t, 2)
+
+		// Whichever caller took the turn loses its context under its write.
+		maker, _ := writes.sentUnder(t, 2).Value(callerKey{}).(string)
+		waiter := "one"
+		if maker == "one" {
+			waiter = "other"
+		}
+		if ends[maker] == nil {
+			t.Fatalf("the covering write was sent under the context of %q, want one of the two callers waiting for it", maker)
+		}
+		ends[maker]()
+		releaseCovering()
+
+		// The write's own failure is the caller's: the client answers a call whose
+		// context was canceled with its own error for it.
+		if err := answered(t, "the caller that lost its context", answers[maker]); err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+			t.Errorf("Signal() of the caller that lost its context under the covering write error = %v, want its write's failure for the context", err)
+		}
+		if err := answered(t, "the caller still waiting", answers[waiter]); err != nil {
+			t.Errorf("Signal() of the caller still waiting error = %v, want the covering write made by it", err)
+		}
+		nothingSending(t, writer, writes, 3)
+		if got, _ := writes.sentUnder(t, 3).Value(callerKey{}).(string); got != waiter {
+			t.Errorf("the write after the failed one was sent under the context of %q, want the caller still waiting (%q)", got, waiter)
+		}
+		features.waitFor(t, "the reader's features subscription", 1)
+	})
+
+	t.Run("the caller making the covering write loses its context with nobody else waiting, and the slot is free", func(t *testing.T) {
+		t.Parallel()
+
+		writer := newServiceIn(t, databaseFor(t))
+		writes := watchWrites(writer)
+		releaseFirst := writes.hold(t, 1)
+		releaseCovering := writes.hold(t, 2)
+		first := signaling(t.Context(), writer)
+		writes.awaitHeld(t, 1)
+		making, end := caller(t, "making")
+		defer end()
+		made := signaling(making, writer)
+		awaitWaiting(t, writer, 1)
+		releaseFirst()
+		if err := answered(t, "the first signal", first); err != nil {
+			t.Fatalf("the first Signal() error = %v", err)
+		}
+		writes.awaitHeld(t, 2)
+
+		end()
+		releaseCovering()
+		if err := answered(t, "the caller that lost its context", made); err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+			t.Errorf("Signal() of the caller that lost its context under the covering write error = %v, want its write's failure for the context", err)
+		}
+		nothingSending(t, writer, writes, 2)
+
+		if err := writer.Signal(t.Context(), live.KindFeatures); err != nil {
+			t.Errorf("Signal() after it error = %v, want the slot free and the write taken", err)
+		}
+		nothingSending(t, writer, writes, 3)
+	})
+}
+
+// TestService_Signal_manyCallers runs many callers signaling one kind at once, some of
+// them under a context that ends within milliseconds, while they wait or under the
+// write they make, and pins what must hold whatever the interleaving: every caller
+// returns; a caller that is answered nil was covered by a write that began after its
+// call, succeeded, and had ended when the caller returned; a caller whose context
+// lasted is answered nil; the writes of the kind never overlap; no call makes more than
+// one write; and nothing is left to send once the last caller has returned.
+func TestService_Signal_manyCallers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		callers = 24
+		rounds  = 15
+	)
+	type write struct {
+		begun, ended int64
+		err          error
+	}
+	type call struct {
+		asked, returned int64
+		// lasting says the call's context was the test's own, which does not end.
+		lasting bool
+		err     error
+	}
+	writer := newServiceIn(t, databaseFor(t))
+	var (
+		// seq orders the calls and the writes: every call takes a number as it is made
+		// and as it returns, every write as it begins and as it ends.
+		seq        atomic.Int64
+		running    atomic.Int64
+		overlapped atomic.Bool
+		mu         sync.Mutex
+		writes     []write
+	)
+	livefirestore.ObserveWrites(writer, func(context.Context, live.Kind) func(error) {
+		if running.Add(1) > 1 {
+			overlapped.Store(true)
+		}
+		begun := seq.Add(1)
+
+		return func(err error) {
+			ended := seq.Add(1)
+			running.Add(-1)
+			mu.Lock()
+			defer mu.Unlock()
+			writes = append(writes, write{begun: begun, ended: ended, err: err})
+		}
+	})
+
+	calls := make(chan call, callers*rounds)
+	var wg sync.WaitGroup
+	for c := range callers {
+		wg.Go(func() {
+			for r := range rounds {
+				ctx, cancel := t.Context(), context.CancelFunc(func() {})
+				lasting := (c+r)%3 != 0
+				if !lasting {
+					ctx, cancel = context.WithTimeout(ctx, time.Duration(1+(c*7+r*3)%8)*time.Millisecond)
+				}
+				asked := seq.Add(1)
+				err := writer.Signal(ctx, live.KindFeatures)
+				returned := seq.Add(1)
+				cancel()
+				calls <- call{asked: asked, returned: returned, lasting: lasting, err: err}
+			}
+		})
+	}
+	returned := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(settle):
+		t.Fatalf("the callers did not all return within %s: a signal is held by a write nobody makes", settle)
+	}
+	close(calls)
+
+	if !livefirestore.SignalsIdle(writer) || running.Load() != 0 {
+		t.Errorf("as the last caller returned: a signal write is in flight or owed (%d being sent), want nothing left to send", running.Load())
+	}
+	if overlapped.Load() {
+		t.Error("two writes of one kind were being sent at once")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(writes) > callers*rounds {
+		t.Errorf("writes = %d for %d calls, want no call to make more than one", len(writes), callers*rounds)
+	}
+	var answered, covered int
+	for made := range calls {
+		answered++
+		if made.err != nil {
+			// The emulator answers a call as already canceled when it rides a connection
+			// on which calls were canceled a moment before (see signal); every other
+			// failure of a call whose context lasted is the service's.
+			if made.lasting && !strings.Contains(made.err.Error(), "already cancel") {
+				t.Errorf("a Signal() whose context lasted error = %v, want it covered by a write", made.err)
+			}
+
+			continue
+		}
+		covered++
+		if !slices.ContainsFunc(writes, func(w write) bool {
+			return w.err == nil && w.begun > made.asked && w.ended < made.returned
+		}) {
+			t.Errorf("a Signal() made at %d and answered nil at %d was covered by no write that began after it, succeeded and had ended by then", made.asked, made.returned)
+		}
+	}
+	if answered != callers*rounds {
+		t.Errorf("calls answered = %d, want %d", answered, callers*rounds)
+	}
+	if covered == 0 || len(writes) >= covered {
+		t.Logf("%d of %d calls were covered by %d writes: the callers did not overlap, so the run proved little", covered, answered, len(writes))
 	}
 }
 

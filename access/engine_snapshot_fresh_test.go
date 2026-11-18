@@ -288,8 +288,9 @@ func Test_snapshotEngine_idleInstance_hint(t *testing.T) {
 // Test_snapshotEngine_idleInstance_failedRead pins a store read that fails on the
 // check's path: it is reported, the last good snapshot answers, the checks that come
 // in the pause after it are answered from that snapshot with no read and no report,
-// whatever is announced meanwhile, and the first check after the pause tries the store
-// again.
+// a hint from another instance included, and the first check after the pause tries the
+// store again. A policy write of this instance ends the pause: the store has accepted
+// a write, so the next check reads it and sees the write.
 func Test_snapshotEngine_idleInstance_failedRead(t *testing.T) {
 	t.Parallel()
 
@@ -318,11 +319,8 @@ func Test_snapshotEngine_idleInstance_failedRead(t *testing.T) {
 			wait: reloadPause - time.Nanosecond, storeErr: nil, wantGranted: false, wantReads: 2, wantReported: 1,
 		},
 		{
-			name: "a write of this instance and a hint inside the pause do not make a check read",
-			do: func() {
-				e.invalidate()
-				e.hinted()
-			},
+			name:     "a hint inside the pause does not make a check read",
+			do:       e.hinted,
 			storeErr: nil, wantGranted: false, wantReads: 2, wantReported: 1,
 		},
 		{
@@ -330,10 +328,24 @@ func Test_snapshotEngine_idleInstance_failedRead(t *testing.T) {
 			wait: time.Nanosecond, storeErr: errors.New("store down"), wantGranted: false, wantReads: 3, wantReported: 2,
 		},
 		{
-			name: "the check after the next pause, with the store back, sees the change",
-			wait: reloadPause, storeErr: nil, wantGranted: true, wantReads: 4, wantReported: 2,
+			name:     "a check inside the next pause, with no write of this instance, reads nothing",
+			storeErr: nil, wantGranted: false, wantReads: 3, wantReported: 2,
 		},
-		{name: "the check after it reads nothing", storeErr: nil, wantGranted: true, wantReads: 4, wantReported: 2},
+		{
+			name:     "a policy write of this instance inside the pause makes the next check read; that read fails and is reported",
+			do:       e.policyWritten,
+			storeErr: errors.New("store down"), wantGranted: false, wantReads: 4, wantReported: 3,
+		},
+		{
+			name:     "the read that failed after the write began a pause of its own: a check inside it reads nothing",
+			storeErr: nil, wantGranted: false, wantReads: 4, wantReported: 3,
+		},
+		{
+			name:     "a second write inside that pause makes the next check read, and it sees the write",
+			do:       e.policyWritten,
+			storeErr: nil, wantGranted: true, wantReads: 5, wantReported: 3,
+		},
+		{name: "the check after it reads nothing", storeErr: nil, wantGranted: true, wantReads: 5, wantReported: 3},
 	}
 	// One engine's history, so the steps run in order.
 	for _, step := range steps {

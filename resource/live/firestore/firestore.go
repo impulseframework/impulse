@@ -92,7 +92,7 @@ type Service struct {
 	// so a reader of the document can say who signaled.
 	instance string
 	// lifetime is the service's own context, carrying New's values without its
-	// cancelation: the signals listener and the following writes run under it, and
+	// cancelation: the signals listener and the reconcile reads run under it, and
 	// Close ends it.
 	lifetime context.Context
 	end      context.CancelFunc

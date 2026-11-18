@@ -453,9 +453,9 @@ func TestGate_Freshen_failedReadFromBeforeAnIdleSpell(t *testing.T) {
 
 // TestGate_Freshen_pause pins the pause after a failed read, as one Gate's history: the
 // requests that come inside it read nothing and report nothing, whatever is announced
-// or written meanwhile; the first request after it reads the store, and that read holds
-// everything announced; and a read that lands inside a pause ends it, so what is
-// announced after the store has answered is not held back.
+// meanwhile; the first request after it reads the store, and that read holds everything
+// announced; and a write of this instance ends the pause for the requests that come
+// after the write, whether the write was recorded outright or by a reload that failed.
 func TestGate_Freshen_pause(t *testing.T) {
 	t.Parallel()
 
@@ -490,17 +490,6 @@ func TestGate_Freshen_pause(t *testing.T) {
 			wantErr: errStoreDown, wantReads: 0, wantReports: 1,
 		},
 		{
-			name: "a write of this instance whose reload failed inside the pause does not either",
-			do: func() {
-				store.fail(errStoreDown)
-				if err := g.Read(t.Context()); !errors.Is(err, errStoreDown) {
-					t.Errorf("Read() error = %v, want %v", err, errStoreDown)
-				}
-				store.fail(nil)
-			},
-			wantErr: errStoreDown, wantReads: 0, wantReports: 1,
-		},
-		{
 			name: "the first request after the pause reads the store",
 			do: func() {
 				clock.advance(time.Nanosecond)
@@ -521,15 +510,68 @@ func TestGate_Freshen_pause(t *testing.T) {
 			wantErr: errStoreDown, wantReads: 1, wantReports: 2,
 		},
 		{
-			name: "a read asked for outright reads inside the pause, and landing ends the pause: what is announced after it is read for at once",
+			name: "a write of this instance ends the pause: the request after it reads the store at once",
+			do: func() {
+				store.fail(nil)
+				g.Wrote()
+			},
+			wantErr: nil, wantReads: 1, wantReports: 2,
+		},
+		{
+			name:    "the request after it reads nothing",
+			do:      func() {},
+			wantErr: nil, wantReads: 0, wantReports: 2,
+		},
+		{
+			name: "the store refuses a read once more",
+			do: func() {
+				store.fail(errStoreDown)
+				g.Nudge()
+			},
+			wantErr: errStoreDown, wantReads: 1, wantReports: 3,
+		},
+		{
+			name: "a write of this instance whose reload failed ends the pause too: the request after it reads the store at once",
+			do: func() {
+				if err := g.Read(t.Context()); !errors.Is(err, errStoreDown) {
+					t.Errorf("Read() error = %v, want %v", err, errStoreDown)
+				}
+				store.fail(nil)
+			},
+			wantErr: nil, wantReads: 1, wantReports: 3,
+		},
+		{
+			name: "a read that fails after a write of this instance begins a pause of its own",
+			do: func() {
+				store.fail(errStoreDown)
+				g.Wrote()
+			},
+			wantErr: errStoreDown, wantReads: 1, wantReports: 4,
+		},
+		{
+			name: "and the request inside that pause, with no write since, reads nothing",
+			do: func() {
+				store.fail(nil)
+			},
+			wantErr: errStoreDown, wantReads: 0, wantReports: 4,
+		},
+		{
+			name: "the store refuses a read a last time, after the pause",
+			do: func() {
+				store.fail(errStoreDown)
+				clock.advance(testPause)
+			},
+			wantErr: errStoreDown, wantReads: 1, wantReports: 5,
+		},
+		{
+			name: "a read asked for outright reads inside the pause, and the request after it is answered by what it read",
 			do: func() {
 				store.fail(nil)
 				if err := g.Read(t.Context()); err != nil {
-					t.Errorf("Read() inside the pause error = %v, want the store read", err)
+					t.Errorf("Read() inside the pause error = %v, want the read made", err)
 				}
-				g.Nudge()
 			},
-			wantErr: nil, wantReads: 1, wantReports: 2,
+			wantErr: nil, wantReads: 0, wantReports: 5,
 		},
 	}
 	// One Gate's history, so the steps run in order.
@@ -595,49 +637,120 @@ func TestGate_Freshen_pause_manyRequests(t *testing.T) {
 	}
 }
 
-// TestGate_Freshen_pause_behindAReadInFlight pins that a request inside the pause is
-// answered at once and does not wait its turn at the store: a read a caller asked for
-// outright is in flight, and the request returns with the failure while it still is.
-func TestGate_Freshen_pause_behindAReadInFlight(t *testing.T) {
+// TestGate_Wrote_duringARead pins a write of this instance made while a read is in
+// flight that then fails: the request that comes after the write is not answered by
+// that read's failure, since the read began before the write, and reads the store
+// itself; a request that came before the write is answered by the failure.
+func TestGate_Wrote_duringARead(t *testing.T) {
 	t.Parallel()
 
-	g, store, clock, _ := keptGate(t)
-	clock.advance(testBound + time.Second)
+	tests := []struct {
+		name      string
+		wrote     bool
+		wantErr   error
+		wantReads int64
+	}{
+		{name: "a request that came after a write made during the read reads the store itself", wrote: true, wantErr: nil, wantReads: 2},
+		{name: "with no write the request is answered by the failure", wrote: false, wantErr: errStoreDown, wantReads: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			g, store, clock, reports := keptGate(t)
+			clock.advance(testBound + time.Second)
+			store.fail(errStoreDown)
+			entered, release := store.holdReads()
+
+			before, arrivals := store.reads.Load(), clock.reads.Load()
+			first := make(chan error, 1)
+			go func() {
+				first <- g.Freshen()
+			}()
+			awaitRead(t, entered)
+			// The reads that begin from now succeed; the one in flight began failing.
+			store.fail(nil)
+			if tt.wrote {
+				g.Wrote()
+			}
+			second := make(chan error, 1)
+			go func() {
+				second <- g.Freshen()
+			}()
+			// The first read the clock three times, the second once as it came.
+			waitFor(t, "the second request has arrived at the Gate", func() bool {
+				return clock.reads.Load()-arrivals >= 4
+			})
+			release()
+
+			if err := <-first; !errors.Is(err, errStoreDown) {
+				t.Errorf("the first request: Freshen() error = %v, want %v", err, errStoreDown)
+			}
+			if err := <-second; !errors.Is(err, tt.wantErr) {
+				t.Errorf("the second request: Freshen() error = %v, want %v", err, tt.wantErr)
+			}
+			if got := store.reads.Load() - before; got != tt.wantReads {
+				t.Errorf("store reads = %d, want %d", got, tt.wantReads)
+			}
+			if got := reports.count.Load(); got != 1 {
+				t.Errorf("failed reads reported = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// TestGate_Freshen_pause_endsWithAReadThatLands pins that a read that lands ends the
+// pause a failed read left, whoever made it: the store has answered since. It is the
+// write path whose change was counted before a request's read began and failed, and
+// whose own read (Read) then landed: the failed read holds that change, so the count of
+// writes alone would leave its failure answering the requests of the pause, and a
+// signal from another instance that came next would wait the pause out. The test puts
+// the Gate in that state by its steps: the change counted, the request's read failing
+// after it, and then the write path's own read landing with no further change counted.
+func TestGate_Freshen_pause_endsWithAReadThatLands(t *testing.T) {
+	t.Parallel()
+
+	g, store, _, reports := keptGate(t)
+
+	// The write path's change is counted, as Read counts it before it waits its turn.
+	g.Wrote()
+	// A request reads the store after it, and the store refuses: the pause begins.
 	store.fail(errStoreDown)
 	if err := g.Freshen(); !errors.Is(err, errStoreDown) {
 		t.Fatalf("Freshen() error = %v, want %v", err, errStoreDown)
 	}
-
 	store.fail(nil)
-	entered, release := store.holdReads()
-	asked := make(chan error, 1)
-	go func() {
-		asked <- g.Read(t.Context())
-	}()
-	awaitRead(t, entered)
-
-	inside := make(chan error, 1)
-	go func() {
-		inside <- g.Freshen()
-	}()
-	select {
-	case err := <-inside:
-		if !errors.Is(err, errStoreDown) {
-			t.Errorf("Freshen() inside the pause error = %v, want %v", err, errStoreDown)
-		}
-	case <-time.After(10 * time.Second):
-		t.Error("Freshen() inside the pause waited on the read in flight")
+	before := store.reads.Load()
+	if err := g.Freshen(); !errors.Is(err, errStoreDown) || store.reads.Load() != before {
+		t.Fatalf("a request inside the pause: Freshen() error = %v with %d reads, want %v and none", err, store.reads.Load()-before, errStoreDown)
 	}
-	release()
-	if err := <-asked; err != nil {
-		t.Errorf("Read() error = %v", err)
+
+	// The write path's own read takes its turn and lands.
+	g.mu.Lock()
+	_, err := g.land(t.Context())
+	g.mu.Unlock()
+	if err != nil {
+		t.Fatalf("land() error = %v", err)
+	}
+
+	// A signal from another instance arrives inside what was the pause.
+	g.Nudge()
+	before = store.reads.Load()
+	if err := g.Freshen(); err != nil {
+		t.Errorf("the request after a signal, once a read had landed: Freshen() error = %v, want the store read", err)
+	}
+	if got := store.reads.Load() - before; got != 1 {
+		t.Errorf("the request after a signal, once a read had landed: store reads = %d, want 1: the failure from before the read that landed answered it", got)
+	}
+	if got := reports.count.Load(); got != 1 {
+		t.Errorf("failed reads reported = %d, want 1", got)
 	}
 }
 
 // TestGate_Nudge pins what an announcement does inside the bound: the next request
 // reads the store before it is answered, the ones after it do not read again until
 // another announcement or the bound, and announcements made before one read are all
-// held by it.
+// held by it. A write of this instance is an announcement too.
 func TestGate_Nudge(t *testing.T) {
 	t.Parallel()
 
@@ -654,6 +767,8 @@ func TestGate_Nudge(t *testing.T) {
 		{name: "the request after it reads nothing", do: func() {}, wantReads: 0},
 		{name: "the bound still asks for a read with nothing announced", do: func() { clock.advance(testBound + time.Second) }, wantReads: 1},
 		{name: "an announcement right after a read asks for another", do: g.Nudge, wantReads: 1},
+		{name: "a write of this instance asks for a read as an announcement does", do: g.Wrote, wantReads: 1},
+		{name: "the request after it reads nothing", do: func() {}, wantReads: 0},
 	}
 	// One Gate's history, so the steps run in order.
 	for _, step := range steps {

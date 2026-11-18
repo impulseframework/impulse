@@ -263,8 +263,10 @@ func TestFeatureSet_idleInstance_signal(t *testing.T) {
 
 // TestFeatureSet_idleInstance_failedReread pins a reread that fails on a lookup's path,
 // on the Spanner emulator: it is logged and the copy as it was answers; the lookups that
-// come in the pause after it read nothing and log nothing, whatever is signaled or
-// flipped meanwhile; and the first lookup after the pause tries the table again.
+// come in the pause after it read nothing and log nothing, whatever is signaled
+// meanwhile; and the first lookup after the pause tries the table again. A flip of this
+// instance ends the pause, though its own reload failed: the database took the flip, so
+// the next lookup reads, and a read that fails then begins a pause of its own.
 func TestFeatureSet_idleInstance_failedReread(t *testing.T) {
 	t.Parallel()
 
@@ -278,6 +280,13 @@ func TestFeatureSet_idleInstance_failedReread(t *testing.T) {
 	clock.setAge(freshBound + time.Second)
 	ended, end := context.WithCancel(t.Context())
 	end()
+	// failedReload is a flip of this instance whose request had ended when its handler
+	// came to reload: the flip is recorded, and the reload's own read fails.
+	failedReload := func() {
+		if err := features.Reload(ended); err == nil {
+			t.Error("Reload() under a context that has ended error = nil, want the read's failure")
+		}
+	}
 
 	steps := []struct {
 		name string
@@ -307,24 +316,29 @@ func TestFeatureSet_idleInstance_failedReread(t *testing.T) {
 			wantOn: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
 		},
 		{
-			name: "a flip of this instance whose reload failed inside the pause does not either",
-			do: func() {
-				if err := features.Reload(ended); err == nil {
-					t.Error("Reload() under a context that has ended error = nil, want the read's failure")
-				}
-			},
-			wantOn: false, wantReads: 0, wantFailures: 1, wantLogged: 1,
-		},
-		{
 			name: "the first lookup after the pause tries the table again",
 			wait: time.Nanosecond, fail: true, wantOn: false, wantReads: 1, wantFailures: 2, wantLogged: 2,
 		},
 		{
-			name: "the lookup after the next pause, with the database back, sees the flip",
-			wait: featureReadPause, wantOn: true, wantReads: 1, wantFailures: 2, wantLogged: 2,
+			name:   "a lookup inside the next pause, with no flip of this instance, reads nothing",
+			wantOn: false, wantReads: 0, wantFailures: 2, wantLogged: 2,
+		},
+		{
+			name: "a flip of this instance inside the pause, whose own reload failed, makes the next lookup read; that read fails and is logged",
+			do:   failedReload,
+			fail: true, wantOn: false, wantReads: 1, wantFailures: 3, wantLogged: 3,
+		},
+		{
+			name:   "the read that failed after the flip began a pause of its own: a lookup inside it reads nothing",
+			wantOn: false, wantReads: 0, wantFailures: 3, wantLogged: 3,
+		},
+		{
+			name:   "a second flip inside that pause makes the next lookup read, and it sees the flag on",
+			do:     failedReload,
+			wantOn: true, wantReads: 1, wantFailures: 3, wantLogged: 3,
 		},
 		// The database fails again, and nobody notices: inside the backstop no read is tried.
-		{name: "the lookup after it reads nothing", fail: true, wantOn: true, wantReads: 0, wantFailures: 2, wantLogged: 2},
+		{name: "the lookup after it reads nothing", fail: true, wantOn: true, wantReads: 0, wantFailures: 3, wantLogged: 3},
 	}
 	// One set's history, so the steps run in order, one lookup each.
 	for _, step := range steps {

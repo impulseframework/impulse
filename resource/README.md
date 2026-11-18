@@ -2332,8 +2332,15 @@ written after it was made, while one made after it hears only the signals after 
 with backoff by the subscriber, the one place that owns reconnection, and on the
 reopen every kind that advanced while it was down wakes once. A signal carries nothing
 but the fact of a change, so the signaler coalesces: while a write of a kind is in
-flight, later signals of the kind are absorbed into one following write. A signal's
-failure is returned for the caller to log and never fails the request, since every
+flight, later signals of the kind wait for one write that covers them all, which one
+of their callers makes when the write in flight ends, so a burst costs two writes where
+the channel answers. A `Signal` returns once its signal is sent and leaves nothing to be
+sent behind it, so an instance that gets no CPU once its requests have answered (Cloud
+Run's default) owes no signal; a covering write that fails is the failure of every
+caller that waited for it. No caller's context ends another's signal: a caller whose
+context ends under the covering write it is making fails alone and another waiting
+caller makes the write, so no call makes more than one write or waits past its context.
+A signal's failure is returned for the caller to log and never fails the request, since every
 subscriber also holds its copy to its own backstop, on the request's path and not only
 on a loop's (sections 15 and 16: the feature flags and the tenant roster; the permission
 engine's heartbeat interval in the access package). The kinds are `resource.SignalKind`
@@ -2434,12 +2441,13 @@ one from a read no older than the backstop. A failed reread is logged, the copy 
 it was, and the table is left alone for one second: lookups in that pause are answered
 from the copy without a read, so a database that is down is read, and its failure
 logged, once a pause and not once a lookup, and the first lookup after the pause tries
-again. `Reload`, which a flip's handler calls after
-its commit, records the flip before it reads, so a reload that fails (the request that
-flipped had ended) is made good by the next lookup (the first after the pause, where a
-reread has just failed), under the set's own context. A
-database that does not answer holds a lookup for less than twice the read's timeout
-(ten seconds): the read in flight when the lookup came, and at most one after it. A flip therefore reaches every instance that
+again. `Reload`, which a flip's handler calls after its commit, records the flip before
+it reads, so a reload that fails (the request that flipped had ended) is made good by
+the next lookup, under the set's own context. A flip of this instance ends the pause
+too: the database has just taken a write, so the next lookup reads it, and a read that
+fails after the flip begins a pause of its own. A database that does not answer holds a
+lookup for less than twice the read's timeout (ten seconds): the read in flight when the
+lookup came, and at most one after it. A flip therefore reaches every instance that
 is serving within a moment, and the backstop bounds the rest. The subscriber is the application's live service,
 which every application wires; `Follow` refuses a nil one. The application exposes the
 copy as `FeatureSet() *resource.FeatureSet`, asserted on the application type beside
@@ -2470,9 +2478,10 @@ struct or a manual registration that would take the name `FeatureFlags` is refus
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
 one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
-signals the other instances through the live service (`Signal(ctx,
-resource.KindFeatures)`, bounded by two seconds, a failure logged), reloads this
-instance's copy, and answers the flag as written. An `@rpc` struct named `SetFeature`
+reloads this instance's copy, then signals the other instances through the live
+service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
+logged), and answers the flag as written. The reload comes first, so this instance
+answers from the flip while the signal is being sent. An `@rpc` struct named `SetFeature`
 is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and
@@ -2610,12 +2619,14 @@ from a read no older than the backstop, and an instance that missed a signal is 
 that far behind. A failed reread is logged, the set stays as it was, and the table is
 left alone for one second: lookups in that pause are answered from the set without a
 read, so a database that is down is read, and its failure logged, once a pause and not
-once a lookup, and the first lookup after the pause tries again. `Reload` records the change before it reads, so a reload that fails
-(the request that wrote had ended) is made good by the next lookup (the first after the
-pause, where a reread has just failed), under the roster's own context. A database that does not answer holds a lookup for less than twice the
-read's timeout (ten seconds): the read in flight when the lookup came, and at most one
-after it. A role held in every tenant domain reaches a new
-tenant with nothing written for it; the one membership written when a tenant is made is
+once a lookup, and the first lookup after the pause tries again. `Reload` records the
+change before it reads, so a reload that fails (the request that wrote had ended) is
+made good by the next lookup, under the roster's own context. A write of this instance
+ends the pause too: the database has just taken a write, so the next lookup reads it,
+and a read that fails after the write begins a pause of its own. A database that does
+not answer holds a lookup for less than twice the read's timeout (ten seconds): the read
+in flight when the lookup came, and at most one after it. A role held in every tenant
+domain reaches a new tenant with nothing written for it; the one membership written when a tenant is made is
 its first administrator's. `Add` stays for a test harness that seeds a roster without a
 table; the generated paths never call it.
 
