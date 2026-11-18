@@ -152,6 +152,11 @@ func (m *Manager) RolesToGive(ctx context.Context, tenant accesstypes.Domain) ([
 	scope := accesstypes.DomainPolicyScope(tenant)
 
 	return rolesOffered(roles, func(role accesstypes.Role) (bool, error) {
+		// A tenant's administrator's role is not offered to a caller the tenant does not
+		// admit while it is directory only: the methods refuse it (entersToChange).
+		if enters, err := m.entersToChange(ctx, scope, role); err != nil || !enters {
+			return false, err
+		}
 		could, err := m.grants.CouldGive(ctx, scope, role)
 		if err != nil {
 			return false, errors.Wrap(err, "identity.RoleGrants.CouldGive()")

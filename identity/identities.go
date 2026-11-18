@@ -51,6 +51,9 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "unlinks a super administrator's sign-in identity"); err != nil {
 		return err
 	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
+		return err
+	}
 	hasPassword, found, err := m.store.UserHasPassword(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
@@ -117,6 +120,9 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "removes a super administrator's password"); err != nil {
+		return err
+	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
 		return err
 	}
 	hasPassword, found, err := m.store.UserHasPassword(ctx, txn, userID)

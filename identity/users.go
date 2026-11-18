@@ -158,6 +158,9 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "disables a super administrator's account"); err != nil {
 		return err
 	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
+		return err
+	}
 	if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "disable their account"); err != nil {
 		return err
 	}
@@ -182,6 +185,9 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 	defer span.End()
 
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "enables a super administrator's account"); err != nil {
+		return err
+	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
 		return err
 	}
 	disabled := false
@@ -214,6 +220,9 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "requires a super administrator to change their password"); err != nil {
+		return err
+	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
 		return err
 	}
 	if !has {
@@ -257,6 +266,9 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "changes a super administrator's email address"); err != nil {
+		return err
+	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
 		return err
 	}
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: &EmailChange{Address: bare}, Name: nil}); err != nil {

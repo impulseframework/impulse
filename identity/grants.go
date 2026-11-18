@@ -153,6 +153,11 @@ func (m *Manager) judgeThrough(
 		if err != nil {
 			return errors.Wrap(err, "access.GroupRoleKey.Scope()")
 		}
+		// The administrator's role of a directory-only tenant is the tenant's to hand
+		// out, whoever is in the group and though nobody is yet.
+		if err := m.requireEnteringToChange(ctx, scope, roles[i].Role); err != nil {
+			return err
+		}
 		for _, user := range users {
 			userID, ok := UserID(user)
 			if !ok {

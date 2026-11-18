@@ -113,6 +113,9 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 			return err
 		}
 	}
+	if err := m.requireEnteringToChange(ctx, scope, role); err != nil {
+		return err
+	}
 	if err := m.refuseSecondTenant(ctx, txn, scope, userID); err != nil {
 		return err
 	}
@@ -179,6 +182,9 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 // rules of RemoveRole, and has the permission engine told once the transaction has
 // committed. key is the membership, read as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
+	if err := m.requireEnteringToChange(ctx, scope, key.Role); err != nil {
+		return err
+	}
 	switch {
 	case scope.IsGlobal() && key.Role == accesstypes.SuperAdministrator:
 		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super Administrator role away"); err != nil {

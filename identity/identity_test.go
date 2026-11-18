@@ -655,6 +655,14 @@ type fakeEngine struct {
 	changed int
 	// rolesErr is the failure the engine answers a listing of a scope's roles with.
 	rolesErr error
+	// tenantAdministrators are the roles the engine answers who administers a tenant by,
+	// none unless a test names them.
+	tenantAdministrators []accesstypes.Role
+}
+
+// TenantAdministratorRoles answers the roles a test named as a tenant's administrators'.
+func (e *fakeEngine) TenantAdministratorRoles() []accesstypes.Role {
+	return e.tenantAdministrators
 }
 
 func (e *fakeEngine) UserManager() access.UserManager {
