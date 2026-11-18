@@ -340,9 +340,9 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 	if err != nil {
 		return err
 	}
-	hash, err := a.registered().hasher.Hash(password)
+	hash, err := a.hashToSet(password)
 	if err != nil {
-		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		return err
 	}
 	if err := a.storage.SetFirstUserPassword(ctx, user.ID, hash); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordHeld) {

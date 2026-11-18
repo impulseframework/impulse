@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -145,8 +146,8 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 	var hash *securehash.Hash
 	if req.Password != nil {
 		var err error
-		if hash, err = p.auth.registered().hasher.Hash(*req.Password); err != nil {
-			return impulse.NilUUID, errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		if hash, err = p.auth.hashToSet(*req.Password); err != nil {
+			return impulse.NilUUID, err
 		}
 	}
 
@@ -230,7 +231,10 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 // destroys every session of the user, by UserId, in one transaction
 // (AuthStore.ChangeUserPassword): the password is changed and the sessions ended
 // together, or neither is. The caller then continues in a new session
-// (ReasonRegeneration) that records a password event.
+// (ReasonRegeneration) that carries the auth events of the session the change was made
+// in, its establishment and its factors (continuedAuthEvents); a call with no session
+// of the user's own in the context starts one that records a password event. The new
+// password is held to the rule every password is (acceptedPassword).
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -253,9 +257,9 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 		return httpio.NewBadRequestMessage("The new password must differ from the old one")
 	}
 
-	hash, err := a.registered().hasher.Hash(req.NewPassword)
+	hash, err := a.hashToSet(req.NewPassword)
 	if err != nil {
-		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		return err
 	}
 	// One store call writes the password and ends the user's sessions, in one
 	// transaction: no failure leaves the password changed and a session alive.
@@ -274,7 +278,7 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 		Reason:     sessioninfo.ReasonRegeneration,
 		Username:   user.Username,
 		UserID:     user.ID,
-		AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}},
+		AuthEvents: continuedAuthEvents(ctx, user.ID),
 	}
 	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil {
 		req2.ProviderSessionID = current.ProviderSessionID
@@ -283,6 +287,25 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 	_, err = a.startSession(ctx, w, req2)
 
 	return err
+}
+
+// continuedAuthEvents are the auth events of the session a person holds after their own
+// password change: the events of the session that made the change, as the store holds
+// them and the request's validation read them, so the new session is that one continued,
+// established the way it was and carrying the factors it carried. A person who came
+// through their organization's directory still holds a directory's session, and a
+// tenant's administrator who entered with a password and a second factor still carries
+// the factor. Nothing of it comes from the request. A change made with no session of the
+// person's own in the context (a call of the application's, a session that views as
+// someone else, one that recorded no event) has nothing to continue, and the new session
+// records what the change proved: the password.
+func continuedAuthEvents(ctx context.Context, userID impulse.UUID) []sessioninfo.AuthEvent {
+	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok || current == nil || current.Impersonation != nil || !current.UserID.Valid || current.UserID.UUID != userID || len(current.AuthEvents) == 0 {
+		return []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}
+	}
+
+	return slices.Clone(current.AuthEvents)
 }
 
 // SetSessionUserPassword sets a password the user chose, without the old one: the end
@@ -359,9 +382,9 @@ func (p *AuthAPI[S, U, Tx]) HashPassword(password string) (string, error) {
 	if password == "" {
 		return "", httpio.NewBadRequestMessage("an empty password is not a password")
 	}
-	hash, err := p.auth.registered().hasher.Hash(password)
+	hash, err := p.auth.hashToSet(password)
 	if err != nil {
-		return "", errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		return "", err
 	}
 	text, err := hash.MarshalText()
 	if err != nil {
@@ -382,9 +405,9 @@ func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUI
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	hash, err := a.registered().hasher.Hash(password)
+	hash, err := a.hashToSet(password)
 	if err != nil {
-		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		return err
 	}
 	// One store call writes the password and ends the user's sessions, in one
 	// transaction: no failure leaves the new password in place and a session alive, on

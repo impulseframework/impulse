@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -398,17 +399,39 @@ func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
 	}
 }
 
-// minPasswordLength is the shortest password a sign-up accepts.
+// minPasswordLength is the shortest password any path sets.
 const minPasswordLength = 8
 
-// acceptedPassword refuses a password a sign-up may not set: shorter than eight
-// characters. The rules beyond that are the application's, on its page.
+// acceptedPassword is the one rule for a password's shape: it refuses a password
+// shorter than eight characters. Every path that sets a password is held to it, since
+// each hashes the password through hashToSet: a sign-up and an invitation's acceptance,
+// a person's first password, their own change, a password set or reset for them, an
+// account created with one, and the hash the generated user management asks for
+// (AuthAPI.HashPassword). A path that judges the password before other work calls it
+// first as well, so a refused password costs nothing. The rules beyond the length are
+// the application's, on its page.
 func acceptedPassword(password string) error {
 	if len(password) < minPasswordLength {
 		return httpio.NewBadRequestMessagef("the password is at least %d characters", minPasswordLength)
 	}
 
 	return nil
+}
+
+// hashToSet hashes a password a path is about to set, once it is one any path may set
+// (acceptedPassword). It is the one way a new password's hash is made, so no path sets
+// a password the rule would refuse. The hash a sign-in upgrades is of the password the
+// person already has, and is not made here (upgradePasswordHash).
+func (a *Auth[S, U, Tx]) hashToSet(password string) (*securehash.Hash, error) {
+	if err := acceptedPassword(password); err != nil {
+		return nil, err
+	}
+	hash, err := a.registered().hasher.Hash(password)
+	if err != nil {
+		return nil, errors.Wrap(err, "securehash.SecureHasher.Hash()")
+	}
+
+	return hash, nil
 }
 
 // claimVerifiedEmail writes the address a sign-in method asserts as verified (Google
