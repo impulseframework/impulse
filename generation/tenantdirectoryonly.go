@@ -16,7 +16,8 @@ import (
 )
 
 // A tenant record's directory-only switch (@directoryOnly) closes the tenant to every
-// sign-in but one through its own directory. The switch is the tenant's own, turned by
+// sign-in but one through its own directory, and its own administrators' password with
+// a second factor. The switch is the tenant's own, turned by
 // the tenant's administrator, so the generator writes its surface in the tenant's scope
 // for a record that declares the switch and the directories record it is only of, on
 // every outlet that serves sessions and the record:
@@ -25,7 +26,8 @@ import (
 //     POST <prefix>/<tenants>/{tenant}/make-<record>-directory-only, turns the switch on:
 //     it holds the write to the rules of the switch
 //     (resource.TenantDirectoryRules.DirectoryOnly: refused until the tenant has its
-//     directory, and unless the caller is signed in through it), and it declares a
+//     directory, unless the caller is signed in through it, and until the caller has a
+//     password where their auth has passwords), and it declares a
 //     warning, which the dialog a page runs it through shows before anything is saved
 //     (resource.TenantDirectoryRules.DirectoryOnlyWarning: who will be able to enter,
 //     how many of the people seated in the tenant will not, and who they are for a
@@ -427,7 +429,7 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 			}
 			doc := fmt.Sprintf("turns the %s's directory-only switch off: every sign-in is admitted again", word)
 			if method.Typed != "" {
-				doc = fmt.Sprintf("turns the %[1]s's directory-only switch on, which closes the %[1]s to every sign-in but one through its directory; the server refuses it until the %[1]s has its directory and unless the caller is signed in through it, in a sentence the person can act on", word)
+				doc = fmt.Sprintf("turns the %[1]s's directory-only switch on, which closes the %[1]s to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the %[1]s has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on", word)
 			}
 			methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
 		}

@@ -771,7 +771,7 @@ func Test_directoryOnlyClient(t *testing.T) {
 	}
 
 	const (
-		makeDoc   = "turns the harbor's directory-only switch on, which closes the harbor to every sign-in but one through its directory; the server refuses it until the harbor has its directory and unless the caller is signed in through it, in a sentence the person can act on"
+		makeDoc   = "turns the harbor's directory-only switch on, which closes the harbor to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the harbor has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on"
 		endDoc    = "turns the harbor's directory-only switch off: every sign-in is admitted again"
 		openDoc   = "opens the harbor to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation"
 		inviteDoc = "makes the harbor invite only for its directory's people: a person from the directory enters once they are invited"
