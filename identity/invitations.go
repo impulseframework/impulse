@@ -104,7 +104,7 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 			}
 		}
 		if inv.Domain != nil {
-			if err := m.requireEnteringToChange(ctx, scopes[0], role); err != nil {
+			if err := m.requireEnteringToChange(ctx, scopes[0], role, nil); err != nil {
 				return impulse.NilUUID, err
 			}
 		}

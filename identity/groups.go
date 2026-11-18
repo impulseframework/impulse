@@ -276,7 +276,7 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 			return err
 		}
 		act := fmt.Sprintf("putting a person in the group %s gives them", group.Name)
-		if err := m.refuseGivingThrough(ctx, txn, holding.roles, []accesstypes.User{User(userID)}, act); err != nil {
+		if err := m.refuseGivingThrough(ctx, txn, kept, holding.roles, []accesstypes.User{User(userID)}, act); err != nil {
 			return err
 		}
 	}
@@ -372,8 +372,12 @@ func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteT
 		if judged, err := m.judged(ctx); err != nil {
 			return err
 		} else if judged {
+			kept, err := group.kept()
+			if err != nil {
+				return err
+			}
 			act := fmt.Sprintf("taking a person out of the group %s takes away", group.Name)
-			if err := m.refuseTakingThrough(ctx, txn, holding.roles, []accesstypes.User{user}, act); err != nil {
+			if err := m.refuseTakingThrough(ctx, txn, kept, holding.roles, []accesstypes.User{user}, act); err != nil {
 				return err
 			}
 		}
@@ -482,7 +486,7 @@ func (m *Manager) GiveGroupRoleFor(
 		return err
 	} else if judged {
 		act := fmt.Sprintf("giving the group %s a role gives everyone in it", group.Name)
-		if err := m.refuseGivingThrough(ctx, txn, []access.GroupRoleKey{key}, holding.members, act); err != nil {
+		if err := m.refuseGivingThrough(ctx, txn, kept, []access.GroupRoleKey{key}, holding.members, act); err != nil {
 			return err
 		}
 	}
@@ -554,8 +558,12 @@ func (m *Manager) refuseTakingGroupRole(ctx context.Context, txn resource.ReadWr
 	if judged, err := m.judged(ctx); err != nil {
 		return err
 	} else if judged {
+		kept, err := group.kept()
+		if err != nil {
+			return err
+		}
 		act := fmt.Sprintf("taking a role from the group %s takes away from everyone in it", group.Name)
-		if err := m.refuseTakingThrough(ctx, txn, []access.GroupRoleKey{*key}, holding.members, act); err != nil {
+		if err := m.refuseTakingThrough(ctx, txn, kept, []access.GroupRoleKey{*key}, holding.members, act); err != nil {
 			return err
 		}
 	}

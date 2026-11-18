@@ -18,7 +18,7 @@ const (
 // make its holder a tenant's administrator: one of the roles the application
 // names, held in the tenant itself by the person's own membership or through a
 // group kept in that tenant, and nowhere else.
-func Test_administersTenant(t *testing.T) {
+func TestAdministersTenant(t *testing.T) {
 	t.Parallel()
 
 	administrators := []accesstypes.Role{"Keeper", "Warden"}
@@ -46,14 +46,14 @@ func Test_administersTenant(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			domain, ok := administersTenant(administrators, tt.scope, tt.role, tt.kept)
+			domain, ok := AdministersTenant(administrators, tt.scope, tt.role, tt.kept)
 			if ok != tt.want || domain != tt.wantDomain {
-				t.Errorf("administersTenant() = (%q, %v), want (%q, %v)", domain, ok, tt.wantDomain, tt.want)
+				t.Errorf("AdministersTenant() = (%q, %v), want (%q, %v)", domain, ok, tt.wantDomain, tt.want)
 			}
 		})
 	}
-	if _, ok := administersTenant(nil, tenant1Policy, "Keeper", nil); ok {
-		t.Error("administersTenant() with no role named: somebody administers a tenant")
+	if _, ok := AdministersTenant(nil, tenant1Policy, "Keeper", nil); ok {
+		t.Error("AdministersTenant() with no role named: somebody administers a tenant")
 	}
 }
 

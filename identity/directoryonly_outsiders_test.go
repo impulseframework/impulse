@@ -3,7 +3,6 @@ package identity
 import (
 	"context"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -76,6 +75,9 @@ const (
 // whose session does not enter the tenant, in a sentence that says who does it. A
 // caller the tenant admits makes the change, the application acts outside any request,
 // and neither another role of the tenant nor the role held in every tenant is judged.
+// The reach is asked of the session the caller holds, whoever it views the application
+// as: that a session viewing as a tenant's administrator reaches no directory-only
+// tenant is the resource library's answer, proven there and on the served stack.
 func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 	t.Parallel()
 
@@ -156,7 +158,7 @@ func TestManager_directoryOnly_administratorsRole(t *testing.T) {
 			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin) }, scope: alphaScope, role: "Warden", refused: true,
 		},
 		{
-			name: "a caller who views as one of the tenant's administrators is refused: the session they hold enters nothing",
+			name: "a caller who views the application as someone else is judged by the session they hold, as anyone is",
 			ctx:  func(ctx context.Context) context.Context { return viewedBy(asEntering(ctx, erin), frankID) }, scope: alphaScope, role: "Warden", refused: true,
 		},
 		{
@@ -244,7 +246,7 @@ func TestManager_directoryOnly_groupOfAdministrators(t *testing.T) {
 	}{
 		{name: "a caller the tenant does not admit is refused", ctx: func(ctx context.Context) context.Context { return asEntering(ctx, erin) }, holds: "Warden", refused: true},
 		{
-			name: "a caller who views as one of the tenant's administrators is refused",
+			name: "a caller who views the application as someone else is judged by the session they hold",
 			ctx:  func(ctx context.Context) context.Context { return viewedBy(asEntering(ctx, erin), frankID) }, holds: "Warden", refused: true,
 		},
 		{name: "a caller the tenant admits makes the change", ctx: func(ctx context.Context) context.Context { return asEntering(ctx, erin, "alpha") }, holds: "Warden"},
@@ -292,11 +294,12 @@ func TestManager_directoryOnly_groupOfAdministrators(t *testing.T) {
 // them, a change of password required of them, a new username, a new address, the
 // unlinking of an identity, the account disabled, enabled or deleted. A caller whose
 // session does not enter the tenant is refused each one, whether the person holds the
-// role of their own, through a group, or in an assignment that has not begun, and so is
-// a caller who views as one of the tenant's administrators. A caller the tenant admits
-// acts, the application acts outside any request, and a person who administers no
-// tenant stays whoever's the role file says: one who holds another role there, the role
-// in every tenant, or an assignment that has ended.
+// role of their own, through a group of the tenant's own, or in an assignment that has
+// not begun, and so is a caller who views the application as someone else. A caller the
+// tenant admits acts, the application acts outside any request, and a person who
+// administers no tenant stays whoever's the role file says: one who holds another role
+// there, the role in every tenant, the role through a group kept for the whole
+// application, or an assignment that has ended.
 func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 	t.Parallel()
 
@@ -349,7 +352,7 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			refused: true,
 		},
 		{
-			name:    "a caller who views as one of the tenant's administrators is refused: the session they hold enters nothing",
+			name:    "a caller who views the application as someone else is judged by the session they hold, as anyone is",
 			ctx:     func(ctx context.Context) context.Context { return viewedBy(asEntering(ctx, erin), frankID) },
 			holds:   func(store *fakeStore) { store.memberships[wardenOfAlpha] = true },
 			refused: true,
@@ -398,6 +401,14 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			holds: func(store *fakeStore) {
 				store.memberships[wardenOfAlpha] = true
 				store.membershipPeriods = map[access.MembershipKey]accesstypes.Period{wardenOfAlpha: ended}
+			},
+		},
+		{
+			name: "the role held through a group kept for the whole application is no way in: the engine counts a group of the tenant's own",
+			ctx:  func(ctx context.Context) context.Context { return asEntering(ctx, erin) },
+			holds: func(store *fakeStore) {
+				store.groupRoles[access.NewGroupRoleKey(GroupID(staffID), alphaScope, "Warden")] = true
+				store.groupMembers[memberKey(staffID, userID)] = true
 			},
 		},
 	}
@@ -500,8 +511,139 @@ func TestManager_directoryOnly_asksOnlyOfATenantsAdministrators(t *testing.T) {
 			if diff := cmp.Diff(tt.want, asked); diff != "" {
 				t.Errorf("the tenants the reach was asked about (-want +got):\n%s", diff)
 			}
-			if !strings.Contains(roleKeptFromOutsiders, "super administrator") || !strings.Contains(accountKeptFromOutsiders, "super administrator") {
-				t.Error("a refusal names nobody who can make the change")
+		})
+	}
+}
+
+// TestManager_directoryOnly_whatMakesNobodyAnAdministrator pins that the judgment
+// guards what the permission engine counts and nothing beside it. A caller the tenant
+// does not admit still changes what makes nobody the tenant's administrator: a
+// membership whose period is over, and a group kept for the whole application that
+// holds the administrator's role in the tenant, which the engine does not count (a
+// tenant's own group is the one that does). Each of these is refused where the holding
+// counts, which the tests above pin.
+func TestManager_directoryOnly_whatMakesNobodyAnAdministrator(t *testing.T) {
+	t.Parallel()
+
+	ended, _, _ := periodFixtures()
+	wardenOfAlpha := access.NewMembershipKey(alphaScope, dana, "Warden")
+	staffHoldsWarden := func(store *fakeStore) {
+		store.groupRoles[access.NewGroupRoleKey(GroupID(staffID), alphaScope, "Warden")] = true
+	}
+	tests := []struct {
+		name  string
+		setup func(store *fakeStore)
+		act   func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+	}{
+		{
+			name: "taking away a person's administrator role whose period is over",
+			setup: func(store *fakeStore) {
+				store.memberships[wardenOfAlpha] = true
+				store.memberships[access.NewMembershipKey(globalScope, dana, "Steward")] = true
+				store.membershipPeriods = map[access.MembershipKey]accesstypes.Period{wardenOfAlpha: ended}
+			},
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RemoveRole(ctx, txn, alphaScope, userID, "Warden")
+			},
+		},
+		{
+			name:  "putting a person in a group of the whole application that holds the role in the tenant",
+			setup: staffHoldsWarden,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.AddGroupMemberFor(ctx, txn, staffID, userID, accesstypes.Period{})
+			},
+		},
+		{
+			name: "taking a person out of such a group",
+			setup: func(store *fakeStore) {
+				staffHoldsWarden(store)
+				store.groupMembers[memberKey(staffID, userID)] = true
+				store.memberships[access.NewMembershipKey(globalScope, dana, "Steward")] = true
+			},
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RemoveGroupMember(ctx, txn, staffID, userID)
+			},
+		},
+		{
+			name: "giving a group of the whole application the role in the tenant",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.GiveGroupRoleFor(ctx, txn, staffID, alphaScope, "Warden", accesstypes.Period{})
+			},
+		},
+		{
+			name:  "taking the role in the tenant from such a group",
+			setup: staffHoldsWarden,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.TakeGroupRole(ctx, txn, staffID, alphaScope, "Warden")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			if tt.setup != nil {
+				tt.setup(store)
+			}
+			m := outsiderManager(t, store)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return tt.act(asEntering(ctx, erin), txn, m)
+			})
+			if err != nil {
+				t.Fatalf("error = %v, want the act to go through for a caller the tenant does not admit", err)
+			}
+			if len(store.writes) == 0 {
+				t.Error("nothing was buffered, want the change written")
+			}
+		})
+	}
+}
+
+// TestManager_directoryOnly_administratorOfSeveral pins the account of a person who
+// administers more than one tenant: the caller enters every one of them, since the
+// account is the way into each, and a caller one of them keeps out is told who makes
+// the change in words that are true of such a person. An administrator of one of the
+// tenants would be refused in turn, so the sentence does not send the caller to one.
+func TestManager_directoryOnly_administratorOfSeveral(t *testing.T) {
+	t.Parallel()
+
+	const keptFromSomeone = "This person administers more than one tenant, and one of them admits only people who sign in through its own directory, which your sign-in does not enter. " +
+		"Their account is changed by someone whose sign-in enters every tenant they administer, or by a super administrator"
+	tests := []struct {
+		name   string
+		enters []accesstypes.Domain
+		want   string
+	}{
+		{name: "a caller neither tenant admits is refused", want: keptFromSomeone},
+		{name: "a caller one of the two admits is refused: the other keeps them out", enters: []accesstypes.Domain{"alpha"}, want: keptFromSomeone},
+		{name: "a caller both admit acts", enters: []accesstypes.Domain{"alpha", "beta"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			store.memberships[access.NewMembershipKey(alphaScope, dana, "Warden")] = true
+			store.memberships[access.NewMembershipKey(betaScope, dana, "Warden")] = true
+			m := outsiderManager(t, store)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.RenameUser(asEntering(ctx, erin, tt.enters...), txn, userID, "dana.r")
+			})
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("RenameUser() error = %v, want the rename", err)
+				}
+
+				return
+			}
+			if !httpio.HasForbidden(err) || httpio.Message(err) != tt.want {
+				t.Fatalf("RenameUser() error = %v, want the refusal reading %q", err, tt.want)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none", store.writes)
 			}
 		})
 	}
