@@ -404,6 +404,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
+{{- if .Foothold}}
+	_, tenantAdministrators := AdministratorRoles()
+{{- end}}
 	accessClient, err := access.New(store,
 		access.WithDefaultRoles(settings.Collection, Roles()),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
@@ -411,6 +414,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		// What no role file takes from a super administrator: the methods that give and
 		// take the auth's roles, as the generated management names them.
 		access.WithSuperAdministratorMethods({{.Name}}identity.SuperAdministratorMethods()...),
+{{- end}}
+{{- if .Foothold}}
+		// Who administers a tenant: a person holding one of these roles in the tenant
+		// itself, by a membership of their own or through the tenant's own group. A
+		// tenant that admits its people through its directory only still admits them,
+		// with a password and a second factor, so its administrators have a way in when
+		// its directory has a problem; the sign-in rule and each request ask the engine.
+		access.WithTenantAdministratorRoles(tenantAdministrators...),
 {{- end}}
 	)
 	if err != nil {
@@ -492,7 +503,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// else, so a person is refused only when every tenant that seats them is closed to
 	// the way they signed in; a person who holds a role outside any one
 	// tenant (a global role, or one held in every tenant) is admitted on the library's
-	// checks, and a super administrator before any of it.
+	// checks, and a super administrator before any of it. A directory-only tenant's own
+	// administrator who signs in with a password is not refused either: the sign-in is
+	// held for the mailed code, and the session then enters that tenant
+	// (access.WithTenantAdministratorRoles names the roles).
 {{- if .TenantPolicy.AdmitWithoutTenant}}
 	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a
 	// person who signs up through a sign-in method an administrator opened signs in
@@ -506,8 +520,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 {{- end}}
 	// Which tenants the session then reaches is decided again, tenant by tenant, where
 	// its tenant list is computed (UserPermissions): a super administrator's session
-	// reaches every tenant, and nobody else's reaches one whose declaration their
-	// sign-in does not meet. The memberships are read outside the sign-in's transaction
+	// reaches every tenant, a tenant's own administrator's reaches theirs with a
+	// password and a second factor, and nobody else's reaches one whose declaration
+	// their sign-in does not meet. The memberships are read outside the sign-in's transaction
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
 	// transaction's context as a nested transaction. A sign-in the rule admits then
 	// carries a second factor (requireSecondFactor).
@@ -527,9 +542,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// tenant), so a person who removes a role from themselves in a tenant is judged by
 	// the rule on the tenant's last administrator. The application's last administrator
 	// is its last super administrator, kept by the client's own rule.{{end}}
-{{- if .Foothold}}
-	_, tenantAdministrators := AdministratorRoles()
-{{- end}}
 	identityClient, err := {{.Name}}identity.NewClient(accessClient, authSession.API(){{if .Foothold}}, identity.WithAdministratorRoles(tenantAdministrators){{end}})
 	if err != nil {
 		return nil, errors.Wrap(err, "{{.Name}}identity.NewClient()")
