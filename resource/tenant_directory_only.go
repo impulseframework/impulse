@@ -38,9 +38,9 @@ type DirectoryOnlyState struct {
 	DirectoryOnly bool `json:"directoryOnly"`
 }
 
-// DirectoryOutsider is a person who holds a seat in a tenant and has never signed in
-// through the tenant's directory: someone the tenant's directory-only switch keeps
-// out for as long as it is on.
+// DirectoryOutsider is a person who holds a seat in a tenant, has never signed in
+// through the tenant's directory and has no other way in: someone the tenant's
+// directory-only switch keeps out for as long as it is on.
 type DirectoryOutsider struct {
 	// UserID is the id of the person's account, and Username what identifies them.
 	UserID   impulse.UUID `json:"userId"`
@@ -52,7 +52,9 @@ type DirectoryOutsider struct {
 // DirectoryOutsiders reads the people of one auth who hold a seat in tenant, in the
 // tenant itself or in every tenant, and have no sign-in through the tenant's directory,
 // in the caller's transaction. A super administrator is left out: no tenant's sign-in
-// settings shut them out. The generated identity client of each auth whose people a
+// settings shut them out. So is the tenant's own administrator who has a password:
+// they enter with it and a second factor (signin.TenantDeclaration.AdmitsAdministrator),
+// and lose nothing. The generated identity client of each auth whose people a
 // tenant seats supplies it (DirectoryOutsiders), over the tenant's own list of its
 // people; an application names none of them.
 type DirectoryOutsiders func(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) ([]DirectoryOutsider, error)
@@ -72,6 +74,11 @@ type DirectoryPeople struct {
 	Fields []accesstypes.Tag
 	// Outsiders reads the people the switch would keep out.
 	Outsiders DirectoryOutsiders
+	// AdministratorsEnter says the auth's people keep the administrators' way in: the
+	// auth has a password method and names the roles that administer a tenant, so the
+	// tenant's own administrator who has a password still enters, with a code mailed to
+	// them. The warning says so, since it is the one other way into the tenant.
+	AdministratorsEnter bool
 }
 
 // DirectoryOnly holds a write of tenant's directory-only switch to its rules, in the
@@ -83,15 +90,22 @@ type DirectoryPeople struct {
 //     nobody could enter;
 //   - unless the caller is signed in through that directory themselves: the session
 //     proves the directory works, and the person who closes the tenant to every other
-//     sign-in is not shut out by it.
+//     sign-in is not shut out by it;
+//   - unless the caller's own account has a password, where their auth has a password
+//     method (PasswordsBy): a tenant's own administrator enters a directory-only
+//     tenant with a password and a second factor, which is the way back in if the
+//     directory has a problem, and a person who has only ever signed in through the
+//     directory would have none. The refusal says to choose a password first. Where
+//     the caller's auth has no password method the rule stands down, and nothing is
+//     said of it.
 //
 // The rules read what is committed, and a transaction's reads do not see what it has
 // buffered, so the transaction notes each write the rules pass (directoryWrites): a
 // request that removes the tenant's directory and turns the switch on is refused,
 // whichever comes first, as each would be after the other had committed.
 //
-// Nobody is exempt, a super administrator included: the rule is about the directory,
-// not about who may enter. The switch is the tenant's own, turned by the tenant's
+// Nobody is exempt from them, a super administrator included: the rules are about the
+// directory and the way back in, not about who may enter. The switch is the tenant's own, turned by the tenant's
 // administrator: the generated methods of a tenant record that declares it
 // (@directoryOnly) and a directories record, Make<Record>DirectoryOnly and
 // End<Record>DirectoryOnly in the tenant's scope, ask the rule once the caller's Execute
@@ -229,9 +243,10 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	}
 
 	caller := CallerFrom(ctx)
-	count, counted := 0, false
+	count, counted, administratorsEnter := 0, false, false
 	var named []DirectoryOutsider
 	for _, auth := range people {
+		administratorsEnter = administratorsEnter || auth.AdministratorsEnter
 		if auth.Outsiders == nil {
 			continue
 		}
@@ -265,7 +280,7 @@ func (r *TenantDirectoryRules) DirectoryOnlyWarning(ctx context.Context, txn Rea
 	}
 
 	return &Warning{
-		Consequence: directoryOnlySentence(r.directoryWords(directory), r.word, counted, count, len(names)),
+		Consequence: directoryOnlySentence(r.directoryWords(directory), r.word, administratorsEnter, counted, count, len(names)),
 		Names:       names,
 		Confirm:     fmt.Sprintf("Admit only people who sign in through %s", r.directoryWords(directory)),
 	}, nil
@@ -287,9 +302,15 @@ func outsiderName(person DirectoryOutsider) string {
 // list, so a part of them is never read as all of them. counted says somebody read the
 // people: where nobody did, the sentence gives no number, and does not say that nobody
 // loses access. directory is the tenant's directory in the words a person knows it by
-// (DirectoryWords).
-func directoryOnlySentence(directory, word string, counted bool, outsiders, named int) string {
+// (DirectoryWords). administratorsEnter says the tenant's own administrators keep their
+// way in, and the sentence says it before it counts anyone: an administrator who has a
+// password is not among the people who lose access, and the person about to close the
+// tenant is told of the one other way into it.
+func directoryOnlySentence(directory, word string, administratorsEnter, counted bool, outsiders, named int) string {
 	only := fmt.Sprintf("Only people who sign in through %s will be able to enter this %s.", directory, word)
+	if administratorsEnter {
+		only += fmt.Sprintf(" An administrator of this %s who has a password can still sign in with it and a code sent to their email.", word)
+	}
 	if !counted {
 		return only + " Anyone seated here who signs in another way will lose access."
 	}
@@ -313,7 +334,8 @@ func directoryOnlySentence(directory, word string, counted bool, outsiders, name
 }
 
 // turnOn holds turning tenant's switch on to its rules and answers the tenant's
-// directory: the tenant has one, and the caller is signed in through it.
+// directory: the tenant has one, the caller is signed in through it, and the caller
+// has a password where their auth has a password method.
 func (r *TenantDirectoryRules) turnOn(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (signin.Directory, error) {
 	directory, has, err := r.directoryOf(ctx, txn, tenant)
 	if err != nil {
@@ -328,8 +350,31 @@ func (r *TenantDirectoryRules) turnOn(ctx context.Context, txn ReadWriteTransact
 		return signin.Directory{}, httpio.NewConflictMessagef("Directory only is turned on by a person who is signed in through this %[1]s's directory, %[2]s: that shows the directory works, and that you will not shut yourself out. %[3]s Sign in through %[2]s and try again.",
 			r.word, r.directoryName(directory), establishedSentence(session, r.namers))
 	}
+	if err := r.requirePassword(ctx, txn); err != nil {
+		return signin.Directory{}, err
+	}
 
 	return directory, nil
+}
+
+// requirePassword refuses a caller whose own account has no password, where an auth
+// says the question applies to them (PasswordsBy): the caller's auth has a password
+// method, and the caller is its person. Where none applies the rule stands down.
+func (r *TenantDirectoryRules) requirePassword(ctx context.Context, txn ReadWriteTransaction) error {
+	for _, read := range r.passwords {
+		if read == nil {
+			continue
+		}
+		has, applies, err := read(ctx, txn)
+		if err != nil {
+			return errors.Wrap(err, "resource.CallerPassword()")
+		}
+		if applies && !has {
+			return httpio.NewConflictMessagef("Directory only is turned on by a person who has a password: an administrator of this %[1]s enters it with a password and a code sent to their email, and that is your way back in if the directory has a problem. Choose a password on Your account first, then try again.", r.word)
+		}
+	}
+
+	return nil
 }
 
 // switchState reads tenant's directory-only flag as committed; found is false for a
