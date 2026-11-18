@@ -9,9 +9,12 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/mail"
 )
 
@@ -46,10 +49,26 @@ func oneMailedSince(t *testing.T, s *served, n int, address string) mail.Message
 
 	to := mailedSince(s, n, address)
 	if len(to) != 1 {
-		t.Fatalf("%d messages were mailed to %s, want one: %+v", len(to), address, to)
+		t.Fatalf("%d messages were mailed to %s, want one: %q", len(to), address, subjects(to))
 	}
 
 	return to[0]
+}
+
+// subjects and opening are what a failure says of mailed messages: their subjects, and
+// the first line of one, which says who asked. A message's text holds its link further
+// down, so a failure never prints the text.
+func subjects(messages []mail.Message) []string {
+	said := make([]string, 0, len(messages))
+	for _, m := range messages {
+		said = append(said, m.Subject)
+	}
+
+	return said
+}
+
+func opening(m mail.Message) string {
+	return strings.SplitN(m.Text, "\n", 2)[0]
 }
 
 // tokenIn reads the token of the link a message carries.
@@ -58,7 +77,7 @@ func tokenIn(t *testing.T, link *regexp.Regexp, m mail.Message) string {
 
 	match := link.FindStringSubmatch(m.Text)
 	if match == nil {
-		t.Fatalf("the message %q carries no link of the kind %s: %s", m.Subject, link, m.Text)
+		t.Fatalf("the message %q carries no link of the kind %s", m.Subject, link)
 	}
 
 	return match[1]
@@ -164,11 +183,11 @@ func TestPasswordResetLink(t *testing.T) {
 	}
 	sessions.WaitForMail()
 	if to := mailedSince(s, sentBefore, "nobody@mail.example"); len(to) != 0 {
-		t.Errorf("an address no account holds was mailed %+v, want nothing", to)
+		t.Errorf("an address no account holds was mailed %q, want nothing", subjects(to))
 	}
 	own := oneMailedSince(t, s, sentBefore, address)
 	if !strings.Contains(own.Text, "You asked to reset the password of your Lodestar account.") {
-		t.Errorf("the person's own link does not say they asked: %s", own.Text)
+		t.Errorf("the person's own link does not say they asked: it opens with %q", opening(own))
 	}
 	token := tokenIn(t, resetToken, own)
 
@@ -246,10 +265,19 @@ func TestPasswordResetLink(t *testing.T) {
 	}
 	fromSector := oneMailedSince(t, s, sentBefore, address)
 	if !strings.Contains(fromSector.Text, "An administrator of Anvil asked us to send you a link to reset the password of your Lodestar account.") {
-		t.Errorf("the marshal's link does not name the sector: %s", fromSector.Text)
+		t.Errorf("the marshal's link does not name the sector: it opens with %q", opening(fromSector))
 	}
+	sentBefore = len(s.mail.Messages())
 	if status, body := marshal.do(ctx, http.MethodPost, sectorPath(bastion, "send-crew-sector-user-password-reset-link"), target); status != http.StatusNotFound {
 		t.Errorf("Anvil's marshal sending a link under Bastion: status %d, want 404: %s", status, body)
+	}
+	// Nor is the cadet found under Bastion by somebody who may send links there: the
+	// governor administers every sector, and the cadet is a person of Anvil alone.
+	if status, body := hq.do(ctx, http.MethodPost, sectorPath(bastion, "send-crew-sector-user-password-reset-link"), target); status != http.StatusNotFound {
+		t.Errorf("the governor sending a link under Bastion to a person of Anvil alone: status %d, want 404: %s", status, body)
+	}
+	if n := len(s.mail.Messages()) - sentBefore; n != 0 {
+		t.Errorf("%d message(s) mailed by the requests under Bastion, want none", n)
 	}
 	if status, body := fresh.do(ctx, http.MethodPost, sectorPath(anvil, "send-crew-sector-user-password-reset-link"), target); status != http.StatusForbidden {
 		t.Errorf("a cadet sending a link: status %d, want 403: %s", status, body)
@@ -261,7 +289,7 @@ func TestPasswordResetLink(t *testing.T) {
 	}
 	fromHeadquarters := oneMailedSince(t, s, sentBefore, address)
 	if !strings.Contains(fromHeadquarters.Text, "An administrator of Lodestar asked us to send you a link to reset the password of your Lodestar account.") {
-		t.Errorf("the governor's link does not name the application: %s", fromHeadquarters.Text)
+		t.Errorf("the governor's link does not name the application: it opens with %q", opening(fromHeadquarters))
 	}
 	// A second link leaves the first one live: each works once.
 	for _, m := range []mail.Message{fromSector, fromHeadquarters} {
@@ -304,6 +332,99 @@ func TestPasswordResetLink(t *testing.T) {
 	again.secondFactor(ctx, "cadet")
 	if status, body := again.do(ctx, http.MethodGet, userDomains, nil); status != http.StatusOK {
 		t.Errorf("the cadet signed in with a mailed code while reset links are closed: status %d, want 200: %s", status, body)
+	}
+}
+
+// heldSender is a mail sender that stands for a mail system which takes its time: once
+// it is told to hold, it keeps each message it is asked to send until the test releases
+// it, and only then hands the message to the sender behind it. entered is signaled as a
+// held message arrives.
+type heldSender struct {
+	to      mail.Sender
+	holding atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+// Send holds the message while the sender is holding, then sends it on.
+func (h *heldSender) Send(ctx context.Context, msg mail.Message) error {
+	if h.holding.Load() {
+		h.entered <- struct{}{}
+		<-h.release
+	}
+	if err := h.to.Send(ctx, msg); err != nil {
+		return errors.Wrap(err, "mail.Sender.Send()")
+	}
+
+	return nil
+}
+
+// Delivers says what the sender behind it says: the held messages reach the same mailbox.
+func (h *heldSender) Delivers() bool {
+	return mail.Delivers(h.to)
+}
+
+// TestPasswordResetLink_closingWaitsForIt proves that closing the crew auth, which the
+// application does once it has stopped serving, waits for a reset link a person was
+// promised. A person's own request is answered before its link is mailed, so that
+// neither the answer nor its timing says whether the address has an account; an
+// application that stopped right after the answer would otherwise never send the link.
+func TestPasswordResetLink_closingWaitsForIt(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	held := &heldSender{entered: make(chan struct{}, 8), release: make(chan struct{})}
+	s := newServedWith(ctx, t, servedOptions{crewMailThrough: func(to mail.Sender) mail.Sender {
+		held.to = to
+
+		return held
+	}})
+	address := factorAddress("cadet")
+	// The cadet's first sign-in confirms their address with the mailed code.
+	cadet := newBrowser(t, s, consoleAPI)
+	cadet.signIn(ctx, "cadet")
+	if err := s.crew.Session().API().SetSelfServiceReset(ctx, true); err != nil {
+		t.Fatalf("SetSelfServiceReset() error = %v", err)
+	}
+	stranger := newBrowser(t, s, consoleAPI)
+	if status, body := stranger.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("the session route before a login: status %d: %s", status, body)
+	}
+
+	// From here on the mail system takes its time: the request is answered while its
+	// link is still on the way.
+	sentBefore := len(s.mail.Messages())
+	held.holding.Store(true)
+	status, body := stranger.do(ctx, http.MethodPost, consoleAPI+"/user/password-reset", jsonBody(t, map[string]string{"email": address}))
+	assertStatus(t, status, http.StatusOK, body)
+	select {
+	case <-held.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no reset link was handed to the mail system within ten seconds of the request")
+	}
+	if n := len(s.mail.Messages()) - sentBefore; n != 0 {
+		t.Fatalf("%d message(s) reached the mailbox while the mail system held the link, want none yet", n)
+	}
+
+	closed := make(chan error, 1)
+	go func() {
+		closed <- s.crew.Close()
+	}()
+	select {
+	case err := <-closed:
+		t.Fatalf("crew.Auth.Close() returned (error = %v) while the link a person was promised was still being sent, want it to wait for the link", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(held.release)
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("crew.Auth.Close() error = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("crew.Auth.Close() did not return within ten seconds of the mail system taking the link")
+	}
+	if own := oneMailedSince(t, s, sentBefore, address); resetToken.FindStringSubmatch(own.Text) == nil {
+		t.Errorf("the message in the mailbox once the auth was closed, %q, carries no reset link", own.Subject)
 	}
 }
 
@@ -355,11 +476,11 @@ func TestAccountMail(t *testing.T) {
 		t.Fatalf("the cadet holds %v before the new address confirmed, want %s kept", email, address)
 	}
 	if to := mailedSince(s, sentBefore, address); len(to) != 0 {
-		t.Errorf("the old address was mailed %+v before the change, want nothing: it is not asked to allow it", to)
+		t.Errorf("the old address was mailed %q before the change, want nothing: it is not asked to allow it", subjects(to))
 	}
 	confirmation := oneMailedSince(t, s, sentBefore, newAddress)
 	if !strings.Contains(confirmation.Text, "An administrator of Lodestar asked to change the email address") {
-		t.Errorf("the confirmation does not say who asked: %s", confirmation.Text)
+		t.Errorf("the confirmation does not say who asked: it opens with %q", opening(confirmation))
 	}
 	stranger := newBrowser(t, s, consoleAPI)
 	if status, body := stranger.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
@@ -395,7 +516,7 @@ func TestAccountMail(t *testing.T) {
 		assertStatus(t, status, http.StatusNoContent, body)
 	}
 	if sent := s.mail.Messages()[sentBefore:]; len(sent) != 0 {
-		t.Errorf("disabling and enabling the account mailed %+v, want nothing", sent)
+		t.Errorf("disabling and enabling the account mailed %q, want nothing", subjects(sent))
 	}
 
 	// The roles in Anvil: taking one of two tells nobody, taking the last tells the
@@ -409,7 +530,7 @@ func TestAccountMail(t *testing.T) {
 	sentBefore = len(s.mail.Messages())
 	remove("Cadet")
 	if sent := s.mail.Messages()[sentBefore:]; len(sent) != 0 {
-		t.Errorf("taking one of the cadet's two roles in Anvil mailed %+v, want nothing", sent)
+		t.Errorf("taking one of the cadet's two roles in Anvil mailed %q, want nothing", subjects(sent))
 	}
 	remove("SectorCrew")
 	removed := oneMailedSince(t, s, sentBefore, newAddress)

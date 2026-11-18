@@ -689,8 +689,13 @@ func (a *Auth) Identity() *{{.Name}}identity.Client {
 }
 {{- end}}
 
-// Close releases the permission engine, which ends its subscription to the policy kind.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine, which ends its subscription to the policy kind. A reset link a person asked
+// for is mailed after their request is answered (session.AuthAPI.WaitForMail), so an
+// application that has stopped serving closes the auth before it closes the database,
+// and no link a person was promised is lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

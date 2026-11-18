@@ -976,6 +976,10 @@ type servedOptions struct {
 	// production's data level does, for a suite that reads the sector's name in a
 	// message the auth mails.
 	namesTenants bool
+	// crewMailThrough answers the sender the crew auth mails through, given the
+	// stack's recorder, for a suite that holds a message on its way to the mailbox; nil
+	// sends straight to the recorder.
+	crewMailThrough func(to mail.Sender) mail.Sender
 }
 
 // newServedWith is the served stack under the options.
@@ -1010,6 +1014,10 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	t.Cleanup(server.Close)
 	origin := "http://" + server.Listener.Addr().String()
 	sent := &mail.Recorder{}
+	var crewSender mail.Sender = sent
+	if opts.crewMailThrough != nil {
+		crewSender = opts.crewMailThrough(sent)
+	}
 
 	crewAuth, err := crew.New(ctx, db.Client, &crew.Settings{
 		CookieKey:      testCookieKey,
@@ -1030,7 +1038,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		TenantDeclarations: app.NewSectorDeclarationReader(),
 		TenantDirectories:  app.NewSectorDirectoryReader(),
 		TenantMaker:        app.NewSectorMaker(roster, fake),
-		Mail:               auth.Mail{Sender: sent, LoginURL: origin + consoleLogin},
+		Mail:               auth.Mail{Sender: crewSender, LoginURL: origin + consoleLogin},
 	})
 	if err != nil {
 		t.Fatalf("crew.New() error = %v", err)

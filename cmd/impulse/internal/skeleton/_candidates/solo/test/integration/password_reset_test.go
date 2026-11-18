@@ -6,7 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/session/mail"
 )
 
 // TestPasswordReset_theWayBackIn proves, on the served stack of an application without
@@ -123,8 +128,10 @@ func TestPasswordReset_theWayBackIn(t *testing.T) {
 		if strings.Contains(m.To, "nobody@mail.example") {
 			t.Errorf("an address no account holds was mailed %q, want nothing", m.Subject)
 		}
+		// A message's text holds its link, so a failure names the message and never
+		// prints it.
 		if strings.Contains(m.To, address) && !strings.Contains(m.Text, "You asked to reset the password") {
-			t.Errorf("the person's own link does not say they asked: %s", m.Text)
+			t.Errorf("the person's own link, %q, does not say they asked", m.Subject)
 		}
 	}
 	token := mailedToken(t, s, before, "reset")
@@ -186,11 +193,109 @@ func TestPasswordReset_theWayBackIn(t *testing.T) {
 	}
 	sent := s.mail.Messages()[before:]
 	if len(sent) != 1 || !strings.Contains(sent[0].To, address) || !strings.Contains(sent[0].Text, "An administrator of Solo asked us to send you a link to reset the password") {
-		t.Fatalf("the administrator's link mailed %+v, want one message to %s saying an administrator asked", sent, address)
+		// A message's text holds its link, so a failure counts the messages and never
+		// prints one.
+		t.Fatalf("the administrator's link mailed %d message(s), want one to %s saying an administrator asked", len(sent), address)
 	}
 	status, body = stranger.do(ctx, http.MethodPost, resetPath+"/open", []byte(`{"token":"`+mailedToken(t, s, before, "reset")+`"}`))
 	if status != http.StatusOK || !strings.Contains(string(body), `"username":"noor"`) {
 		t.Errorf("the administrator's link opened: status %d: %s, want 200 naming noor", status, body)
+	}
+}
+
+// heldSender is a mail sender that stands for a mail system which takes its time: once
+// it is told to hold, it keeps each message it is asked to send until the test releases
+// it, and only then hands the message to the sender behind it. entered is signaled as a
+// held message arrives.
+type heldSender struct {
+	to      mail.Sender
+	holding atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+// Send holds the message while the sender is holding, then sends it on.
+func (h *heldSender) Send(ctx context.Context, msg mail.Message) error {
+	if h.holding.Load() {
+		h.entered <- struct{}{}
+		<-h.release
+	}
+	if err := h.to.Send(ctx, msg); err != nil {
+		return errors.Wrap(err, "mail.Sender.Send()")
+	}
+
+	return nil
+}
+
+// Delivers says what the sender behind it says: the held messages reach the same mailbox.
+func (h *heldSender) Delivers() bool {
+	return mail.Delivers(h.to)
+}
+
+// TestPasswordReset_closingWaitsForTheLink proves that closing the staff auth, which the
+// application does once it has stopped serving, waits for a reset link a person was
+// promised. A person's own request is answered before its link is mailed, so that
+// neither the answer nor its timing says whether the address has an account; an
+// application that stopped right after the answer would otherwise never send the link.
+func TestPasswordReset_closingWaitsForTheLink(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	held := &heldSender{entered: make(chan struct{}, 8), release: make(chan struct{})}
+	s := newServedMailing(ctx, t, func(to mail.Sender) mail.Sender {
+		held.to = to
+
+		return held
+	})
+	const address = "noor@mail.example"
+	admin := newBrowser(t, s)
+	admin.signIn(ctx, adminUser)
+	invited(ctx, t, s, admin, address, "noor")
+	if err := s.auth.Session().API().SetSelfServiceReset(ctx, true); err != nil {
+		t.Fatalf("SetSelfServiceReset() error = %v", err)
+	}
+	stranger := newBrowser(t, s)
+	stranger.prime(ctx)
+
+	// From here on the mail system takes its time: the request is answered while its
+	// link is still on the way.
+	before := len(s.mail.Messages())
+	held.holding.Store(true)
+	if status, body := stranger.do(ctx, http.MethodPost, "/api/user/password-reset", []byte(`{"email":"`+address+`"}`)); status != http.StatusOK {
+		t.Fatalf("a person's own request: status %d, want 200: %s", status, body)
+	}
+	select {
+	case <-held.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no reset link was handed to the mail system within ten seconds of the request")
+	}
+	if n := len(s.mail.Messages()) - before; n != 0 {
+		t.Fatalf("%d message(s) reached the mailbox while the mail system held the link, want none yet", n)
+	}
+
+	closed := make(chan error, 1)
+	go func() {
+		closed <- s.auth.Close()
+	}()
+	select {
+	case err := <-closed:
+		t.Fatalf("staff.Auth.Close() returned (error = %v) while the link a person was promised was still being sent, want it to wait for the link", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(held.release)
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("staff.Auth.Close() error = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("staff.Auth.Close() did not return within ten seconds of the mail system taking the link")
+	}
+	// A message's text holds its link, so a failure counts the messages and never
+	// prints one.
+	sent := s.mail.Messages()[before:]
+	if len(sent) != 1 || !strings.Contains(sent[0].To, address) || !strings.Contains(sent[0].Text, "/login?reset=") {
+		t.Fatalf("%d message(s) in the mailbox once the auth was closed, want the one reset link, to %s", len(sent), address)
 	}
 }
 

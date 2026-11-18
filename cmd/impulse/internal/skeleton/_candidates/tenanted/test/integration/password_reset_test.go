@@ -86,21 +86,32 @@ func TestPasswordReset_aTenantsAdministratorSendsTheLink(t *testing.T) {
 	// The tenant's administrator sends the link; another tenant's is answered as if the
 	// person did not exist.
 	target := map[string]any{"userId": nellID}
+	before := len(s.mail.Messages())
 	if status, body := tenantPost(ctx, member, south, "send-staff-tenant-user-password-reset-link", target); status != http.StatusNotFound {
 		t.Errorf("north's administrator sending a link under south: status %d, want 404: %s", status, body)
 	}
-	before := len(s.mail.Messages())
+	// Nor is the person found under south by somebody who may send links there: the
+	// application's administrator holds the tenant administrator's role in every tenant,
+	// and nell is a person of north alone.
+	if status, body := tenantPost(ctx, admin, south, "send-staff-tenant-user-password-reset-link", target); status != http.StatusNotFound {
+		t.Errorf("an administrator of south sending a link under south to a person of north alone: status %d, want 404: %s", status, body)
+	}
+	if n := len(s.mail.Messages()) - before; n != 0 {
+		t.Errorf("%d message(s) mailed by the requests under south, want none", n)
+	}
 	status, body = tenantPost(ctx, member, north, "send-staff-tenant-user-password-reset-link", target)
 	if status != http.StatusOK || !strings.Contains(string(body), `"sent":true`) {
 		t.Fatalf("north's administrator sending nell a link: status %d: %s, want 200 saying it was sent", status, body)
 	}
 	sent := s.mail.Messages()[before:]
 	if len(sent) != 1 || !strings.Contains(sent[0].To, address) || !strings.Contains(sent[0].Text, "asked us to send you a link to reset the password") || !strings.HasPrefix(sent[0].Text, "An administrator of ") {
-		t.Fatalf("the link mailed %+v, want one message to %s saying an administrator asked", sent, address)
+		// A message's text holds its link, so a failure counts the messages and never
+		// prints one.
+		t.Fatalf("the link mailed %d message(s), want one to %s saying an administrator asked", len(sent), address)
 	}
 	match := resetLink.FindStringSubmatch(sent[0].Text)
 	if match == nil {
-		t.Fatalf("the message carries no reset link: %s", sent[0].Text)
+		t.Fatalf("the message %q carries no reset link", sent[0].Subject)
 	}
 	token := match[1]
 

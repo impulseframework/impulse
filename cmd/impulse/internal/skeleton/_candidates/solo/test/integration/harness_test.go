@@ -122,6 +122,15 @@ type served struct {
 func newServed(ctx context.Context, t *testing.T) *served {
 	t.Helper()
 
+	return newServedMailing(ctx, t, nil)
+}
+
+// newServedMailing is newServed with the staff auth's mail sent through what through
+// answers for the stack's recorder, for a suite that holds a message on its way to the
+// mailbox; nil sends straight to the recorder.
+func newServedMailing(ctx context.Context, t *testing.T, through func(to mail.Sender) mail.Sender) *served {
+	t.Helper()
+
 	db, err := prepareDatabase(ctx, t, migrationsSource)
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +141,11 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	svc := live.NewFake()
 	// The recorder the staff auth's mail goes to: the suites read the sign-in codes from it.
 	sent := &mail.Recorder{}
-	auth, err := staff.New(ctx, db.Client, &staff.Settings{Collection: router.Collection(), Signals: svc, CookieKey: testCookieKey, SessionTimeout: time.Minute, Mail: sent, MailLoginURL: "http://solo.test/login"})
+	var sender mail.Sender = sent
+	if through != nil {
+		sender = through(sent)
+	}
+	auth, err := staff.New(ctx, db.Client, &staff.Settings{Collection: router.Collection(), Signals: svc, CookieKey: testCookieKey, SessionTimeout: time.Minute, Mail: sender, MailLoginURL: "http://solo.test/login"})
 	if err != nil {
 		t.Fatalf("staff.New() error = %v", err)
 	}

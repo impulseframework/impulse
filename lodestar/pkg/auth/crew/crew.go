@@ -983,8 +983,13 @@ func (a *Auth) Identity() *crewidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine. A reset link a crew member asked for is mailed after their request is answered
+// (session.AuthAPI.WaitForMail), so the configuration closes the auth once the server
+// has stopped and before it closes the database, and no link a person was promised is
+// lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

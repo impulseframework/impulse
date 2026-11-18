@@ -416,8 +416,11 @@ func (a *Auth) Identity() *membersidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine (session.AuthAPI.WaitForMail): the configuration closes the auth once the
+// server has stopped and before it closes the database.
 func (a *Auth) Close() error {
+	a.handlers.Session.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

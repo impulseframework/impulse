@@ -434,7 +434,8 @@ func (a *Auth[S, U, Tx]) later(ctx context.Context, work func(ctx context.Contex
 // WaitForMail returns once the mail the Auth is sending in the background has been
 // handed to the sender: the reset links people asked for a moment ago, which are mailed
 // after their request is answered. An application calls it as it shuts down, after it
-// stopped serving, so no link a person was promised is lost; a test calls it before it
+// stopped serving and before it closes the database, so no link a person was promised is
+// lost (the auth package impulse writes does, in its Close); a test calls it before it
 // reads what was mailed.
 func (p *AuthAPI[S, U, Tx]) WaitForMail() {
 	p.auth.background.Wait()

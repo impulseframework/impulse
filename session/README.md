@@ -1294,7 +1294,7 @@ and is not asked.
 | `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
 | `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address. See "A password reset". |
 | `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
-| `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish. |
+| `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 | `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
@@ -1527,7 +1527,9 @@ you a link". There is no second mail.
   administrator is told in one sentence when no link was sent (Conflict). A person's
   own request answers the same whether or not the address has an account, mails
   nothing where there is none, and does its work after the answer, so neither the
-  answer nor its timing says which.
+  answer nor its timing says which. `WaitForMail` waits for that work, so a shutdown
+  loses no link a person was promised: the auth package `impulse` writes calls it in
+  its `Close`.
 - **A limit of their own.** Reset links are counted per address, five in fifteen
   minutes, then fifteen minutes closed, whoever asked: an administrator's link and the
   person's own request share the one count, and a link that is used resets it. The
