@@ -1299,8 +1299,9 @@ under it last (`CreateUserRequest.ID`). The user's row then says the seed is don
 that stopped before it is repeated whole by the next one, which writes the same
 memberships again and creates the user. A seed that created the user first would have to
 give the roles, after a stopped run, to a user it found under a name, and a name is
-something anyone may come to hold. The persona cast's generated seed works this way,
-and seeds nothing for a user that exists, whatever it holds. A deployed Auth's first
+something anyone may come to hold. The persona cast's generated seed works this way:
+at every run it gives the account under that id the roles its entry names that it does
+not hold, and gives nothing to a user of another id who holds the persona's login. A deployed Auth's first
 administrator is not seeded: no account is made ahead of the person, who is invited (see
 "The first administrator's invitation").
 

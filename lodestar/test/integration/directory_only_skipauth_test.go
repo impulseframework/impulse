@@ -71,7 +71,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 
 	ctx := t.Context()
 	s := newServedWith(ctx, t, servedOptions{persona: &auth.Persona{Issuer: "https://persona.example.com", ClientID: "lodestar-pr12"}})
-	if _, err := s.crew.SeedCast(ctx); err != nil {
+	if _, err := s.crew.SeedCast(ctx, io.Discard); err != nil {
 		t.Fatalf("SeedCast() error = %v", err)
 	}
 
