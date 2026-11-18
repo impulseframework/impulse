@@ -245,15 +245,15 @@ func generatedOnly(dir string) ([]string, error) { return filepath.Glob(filepath
 }
 
 // TestEveryReaderAsksTheGoToolsRule holds every reader impulse check is built on, the
-// application scan (the app package) and the checks themselves, to the one rule about
-// which Go files are read: none decides it for itself by the ".go" suffix. A reader that
-// did took a scratch file kept beside a package's real ones (_scratch.go) for the
-// application's code, which no build compiles.
+// application scan (the app package) and the checks themselves, and impulse brand's
+// beside them, to the one rule about which Go files are read: none decides it for itself
+// by the ".go" suffix. A reader that did took a scratch file kept beside a package's real
+// ones (_scratch.go) for the application's code, which no build compiles.
 func TestEveryReaderAsksTheGoToolsRule(t *testing.T) {
 	t.Parallel()
 
-	// The two packages, by their directory from this one and from the module's root.
-	packages := map[string]string{".": "cmd/impulse/internal/check", "../../../../app": "app"}
+	// The packages, by their directory from this one and from the module's root.
+	packages := map[string]string{".": "cmd/impulse/internal/check", "../../../../app": "app", "../brand": "cmd/impulse/internal/brand"}
 	var findings []string
 	allowed := map[string]bool{}
 	for dir, rel := range packages {

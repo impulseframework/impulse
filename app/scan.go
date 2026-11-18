@@ -50,11 +50,16 @@ func passedOverByGo(name string, isDir bool) bool {
 
 // GoToolReads reports whether a file of this name is a Go file the Go tool reads: its
 // name ends in ".go" and does not begin with "_" or "." (go help packages). It is the one
-// place the scan and the checks decide a Go file by its name: the scan asks it of every
-// file it walks, and a check that reads one directory's Go files for itself asks it of
-// each, so that a scratch file kept beside a package's real ones (_scratch.go, .draft.go)
-// is read by neither, as no build compiles it. A test file and a generated file are Go
-// files the Go tool reads; a reader that leaves them out says so itself.
+// place the scan, the checks and impulse brand decide a Go file by its name, so that a
+// scratch file kept beside a package's real ones (_scratch.go, .draft.go), which no build
+// compiles, is read by none of them. It is asked by the scan of every file it walks
+// (scanFile, scanPackageDir) and of a generator program's directory (generate.go); by
+// each check that reads one directory's Go files for itself (the check package); and by
+// impulse brand of the file it writes an auth's mail name into and of the files it looks
+// for a main in (the brand package). The commands that change an application (impulse
+// add, impulse remove) and the reading of an application's shape list Go files by
+// themselves still. A test file and a generated file are Go files the Go tool reads; a
+// reader that leaves them out says so itself.
 func GoToolReads(name string) bool {
 	return strings.HasSuffix(name, ".go") && !passedOverByGo(name, false)
 }
