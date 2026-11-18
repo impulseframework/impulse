@@ -165,5 +165,7 @@ that a user reads their own change set and nothing else. The signals tests run t
 instances on one document in a database of their own per test: a signal of a kind
 wakes that kind's subscriptions on both and no other kind's, the state at the start is
 not a signal, a listener ended from the test is reopened and every kind that advanced
-meanwhile wakes once, a burst of signals of one kind is one following write, and a
-closed client's failure is returned while a fresh client signals again.
+meanwhile wakes once, a burst of signals of one kind is one covering write that every
+one of them waits for and that leaves nothing sending once they have returned, a
+covering write that fails is every waiting caller's failure, and a closed client's
+failure is returned while a fresh client signals again.

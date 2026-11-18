@@ -2332,8 +2332,12 @@ written after it was made, while one made after it hears only the signals after 
 with backoff by the subscriber, the one place that owns reconnection, and on the
 reopen every kind that advanced while it was down wakes once. A signal carries nothing
 but the fact of a change, so the signaler coalesces: while a write of a kind is in
-flight, later signals of the kind are absorbed into one following write. A signal's
-failure is returned for the caller to log and never fails the request, since every
+flight, later signals of the kind wait for one write that covers them all, which one
+of their callers makes when the write in flight ends, so a burst costs two writes. A
+`Signal` returns once its signal is sent and leaves nothing to be sent behind it, so an
+instance that gets no CPU once its requests have answered (Cloud Run's default) owes no
+signal; a covering write that fails is the failure of every caller that waited for it.
+A signal's failure is returned for the caller to log and never fails the request, since every
 subscriber also holds its copy to its own backstop, on the request's path and not only
 on a loop's (sections 15 and 16: the feature flags and the tenant roster; the permission
 engine's heartbeat interval in the access package). The kinds are `resource.SignalKind`

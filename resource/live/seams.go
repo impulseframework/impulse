@@ -92,12 +92,17 @@ const (
 // subscriber served one snapshot after two quick signals of different kinds sees both.
 type Signaler interface {
 	// Signal signals the kind: every subscription to it, on every instance, runs its
-	// onSignal once. While a write of the kind is in flight, a later Signal of the kind
-	// is absorbed into one following write the implementation makes on its own and
-	// answers nil at once: one write after the last call covers every call before it.
-	// The error of the caller's own write is returned for the caller to log; the
-	// caller's contract stays log and never fail the request, since every subscriber
-	// also rereads at its own backstop.
+	// onSignal once. It returns once the signal is sent, or has failed, and leaves
+	// nothing to be sent behind it: an instance that gets no CPU once its requests have
+	// answered would never send what a goroutine was left to. While a write of the kind
+	// is in flight, a later Signal of the kind waits for the one write that covers every
+	// Signal made meanwhile, which one of their callers makes when the write in flight
+	// ends: one write that begins after the last of those calls covers them all, so a
+	// burst costs two writes. A covering write that fails is the failure of every
+	// caller that waited for it; a caller whose context ends returns, and the write
+	// stays with the callers still waiting. The error is returned for the caller to
+	// log; the caller's contract stays log and never fail the request, since every
+	// subscriber also rereads at its own backstop.
 	Signal(ctx context.Context, kind Kind) error
 }
 
