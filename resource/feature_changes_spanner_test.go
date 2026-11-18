@@ -399,6 +399,93 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("a list asked to sort on when a flag was last flipped, or by whom, is refused, and any other sort orders the flags", func(t *testing.T) {
+		t.Parallel()
+
+		lists := featureGrants(accesstypes.List)
+		sortTests := []struct {
+			name       string
+			perms      UserPermissions
+			query      string
+			wantStatus int
+			// wantSays is a part of the refusal; wantNames the flags in the order served.
+			wantSays  []string
+			wantNames []string
+		}{
+			{name: "no sort asked: by name", perms: lists, wantStatus: http.StatusOK, wantNames: []string{"cargo_manifest", "debriefs", "telemetry"}},
+			{name: "the description, last first", perms: lists, query: "?sort=description:desc", wantStatus: http.StatusOK, wantNames: []string{"telemetry", "debriefs", "cargo_manifest"}},
+			{name: "whether it is on, then the name", perms: lists, query: "?sort=enabled,name", wantStatus: http.StatusOK, wantNames: []string{"debriefs", "cargo_manifest", "telemetry"}},
+			{
+				name: "when it was last flipped", perms: lists, query: "?sort=updatedAt", wantStatus: http.StatusBadRequest,
+				wantSays: []string{"the flags cannot be sorted on updatedAt", "are worked out from the flag", "sort on name, description or enabled"},
+			},
+			{
+				name: "who last flipped it, last first", perms: lists, query: "?sort=updatedBy:desc", wantStatus: http.StatusBadRequest,
+				wantSays: []string{"the flags cannot be sorted on updatedBy", "are worked out from the flag", "sort on name, description or enabled"},
+			},
+			{
+				name: "the name first and when after it", perms: lists, query: "?sort=name,updatedAt:desc", wantStatus: http.StatusBadRequest,
+				wantSays: []string{"the flags cannot be sorted on updatedAt"},
+			},
+			{
+				name: "with the columns narrowed to the name", perms: lists, query: "?columns=name&sort=updatedBy", wantStatus: http.StatusBadRequest,
+				wantSays: []string{"the flags cannot be sorted on updatedBy"},
+			},
+			// What is wrong with a request is said before the caller's grant is asked, as it
+			// is of a sort on a field the flags do not have.
+			{
+				name: "a caller who may not list the flags is told the same", perms: featureGrants(), query: "?sort=updatedAt", wantStatus: http.StatusBadRequest,
+				wantSays: []string{"the flags cannot be sorted on updatedAt"},
+			},
+			{
+				name: "as that caller is told of a sort on a field the flags do not have", perms: featureGrants(), query: "?sort=nosuch", wantStatus: http.StatusBadRequest,
+				wantSays: []string{"unknown sort field: nosuch"},
+			},
+			{
+				name: "and a caller whose grant leaves out when a flag was last flipped is told it cannot be sorted on, not that they may not see it", perms: featureFieldGrants("enabled"), query: "?sort=updatedAt", wantStatus: http.StatusBadRequest,
+				wantSays: []string{"the flags cannot be sorted on updatedAt"},
+			},
+			{name: "and is refused as one when the sort is one the list takes", perms: featureGrants(), query: "?sort=description", wantStatus: http.StatusForbidden},
+		}
+		for _, tt := range sortTests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				handler := featureHistoryRouter(&featureTestApp{client: client, perms: tt.perms, features: features})
+				rr := httptest.NewRecorder()
+				handler.ServeHTTP(rr, httptest.NewRequestWithContext(gale, http.MethodGet, "/api/"+FeatureFlagsRoute+tt.query, http.NoBody))
+				if rr.Code != tt.wantStatus {
+					t.Fatalf("status = %d, want %d (body %s)", rr.Code, tt.wantStatus, rr.Body.String())
+				}
+				for _, says := range tt.wantSays {
+					if !strings.Contains(rr.Body.String(), says) {
+						t.Errorf("the refusal does not say %q: %s", says, rr.Body.String())
+					}
+				}
+				if tt.wantStatus != http.StatusOK {
+					if strings.Contains(rr.Body.String(), "cargo_manifest") {
+						t.Errorf("a refusal carries flags: %s", rr.Body.String())
+					}
+
+					return
+				}
+				var rows []struct {
+					Name string `json:"name"`
+				}
+				if err := json.Unmarshal(rr.Body.Bytes(), &rows); err != nil {
+					t.Fatalf("json.Unmarshal() error = %v: %s", err, rr.Body.String())
+				}
+				names := make([]string, 0, len(rows))
+				for _, row := range rows {
+					names = append(names, row.Name)
+				}
+				if diff := cmp.Diff(tt.wantNames, names); diff != "" {
+					t.Errorf("order mismatch (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
 }
 
 // TestFeatureFlagLastFlipFollowsHistory pins that the list says of a flag's last flip
