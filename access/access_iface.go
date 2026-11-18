@@ -63,6 +63,13 @@ type Controller interface {
 	// the session's actor (see Client.UserAdministersTenant).
 	UserAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error)
 
+	// TenantAdministratorRoles returns the roles whose holders administer a
+	// tenant, as the engine was told them (WithTenantAdministratorRoles), none
+	// where it was told none: the names UserAdministersTenant and
+	// UserManager.TenantsAdministered answer by, for whatever else must agree
+	// with them, such as a tenant's list of its people.
+	TenantAdministratorRoles() []accesstypes.Role
+
 	// UserPermissionDigest returns user's structural grant enumeration within
 	// scope — the frontend digest payload: resource → permission → granted or
 	// conditional, denied targets absent, nothing folded (see
