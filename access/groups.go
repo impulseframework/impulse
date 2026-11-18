@@ -246,6 +246,8 @@ func (u *userManager) DescribeGroup(ctx context.Context, group accesstypes.Group
 func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	members, err := u.store.groupUsers(ctx, group)
 	if err != nil {
@@ -317,6 +319,8 @@ func groupInfos(rows []policy.GroupRow) []GroupInfo {
 func (u *userManager) AddGroupUsers(ctx context.Context, group accesstypes.Group, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupUsers(ctx, group, accesstypes.Period{}, users...)
 }
@@ -345,6 +349,8 @@ func (u *userManager) assignGroupUsers(ctx context.Context, group accesstypes.Gr
 func (u *userManager) DeleteGroupUsers(ctx context.Context, group accesstypes.Group, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	for _, user := range users {
 		if err := u.store.deleteGroupUser(ctx, group, user); err != nil {
@@ -371,6 +377,8 @@ func (u *userManager) GroupUsers(ctx context.Context, group accesstypes.Group) (
 func (u *userManager) AddGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupRoles(ctx, group, scope, accesstypes.Period{}, roles...)
 }
@@ -411,6 +419,8 @@ func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Gr
 func (u *userManager) DeleteGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	for _, role := range roles {
 		if err := u.store.deleteGroupRole(ctx, group, scope, role); err != nil {
