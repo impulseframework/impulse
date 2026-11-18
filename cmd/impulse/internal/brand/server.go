@@ -11,8 +11,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"text/template"
 	"unicode"
+
+	// The template renders a Go source file, never HTML, so text/template is the right package.
+	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
 
 	"github.com/go-playground/errors/v5"
 
