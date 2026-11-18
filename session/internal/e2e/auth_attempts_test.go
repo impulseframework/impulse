@@ -45,6 +45,12 @@ func (b *browser) postLogin(ctx context.Context, username, password string) (sta
 	return resp.StatusCode, resp.Header, body
 }
 
+// lockForCases is the lock the attempt-limit cases configure. Every request a case makes
+// while the name must still be locked has to land inside the lock, and a lock of two
+// seconds ran out between two such requests on a slow runner. This one outlasts the
+// requests of the longest case several times over, and each case waits it out once.
+const lockForCases = 20 * time.Second
+
 // assertTooManyAttempts checks a refused login: 429, the code and the wait in the body,
 // the Retry-After header agreeing, and nothing about the name.
 func assertTooManyAttempts(t *testing.T, status int, header http.Header, body []byte, maxWait time.Duration) {
@@ -87,7 +93,7 @@ func seamPasswordAttemptLimit[Tx any](ctx context.Context, t *testing.T, a *auth
 		}
 	}
 	status, header, body := b.postLogin(ctx, "pat@lakeside.edu", seedPassword)
-	assertTooManyAttempts(t, status, header, body, 2*time.Second)
+	assertTooManyAttempts(t, status, header, body, lockForCases)
 	if authenticated, _ := b.passwordChangeRequired(ctx); authenticated {
 		t.Error("a session was established by the refused attempt")
 	}
@@ -97,18 +103,18 @@ func seamPasswordAttemptLimit[Tx any](ctx context.Context, t *testing.T, a *auth
 	other := a.browser(t)
 	other.prime(ctx)
 	status, header, body = other.postLogin(ctx, "Pat@Lakeside.edu", seedPassword)
-	assertTooManyAttempts(t, status, header, body, 2*time.Second)
+	assertTooManyAttempts(t, status, header, body, lockForCases)
 	for i := range 2 {
 		if status, _, body := other.postLogin(ctx, "nobody@lakeside.edu", "guess"); status != http.StatusUnauthorized {
 			t.Fatalf("unknown name attempt %d = %d %s, want 401", i+1, status, body)
 		}
 	}
 	status, header, body = other.postLogin(ctx, "nobody@lakeside.edu", "guess")
-	assertTooManyAttempts(t, status, header, body, 2*time.Second)
+	assertTooManyAttempts(t, status, header, body, lockForCases)
 
 	// The lock passes; the right password signs in and resets the count, so one
 	// failure after it does not lock the name again.
-	time.Sleep(2*time.Second + 200*time.Millisecond)
+	time.Sleep(lockForCases + 200*time.Millisecond)
 	if status, mfa := b.passwordLogin(ctx, seedPassword); status != http.StatusOK || mfa {
 		t.Fatalf("login after the lock = %d (mfaIsRequired %v), want 200", status, mfa)
 	}
@@ -184,7 +190,7 @@ func seamPasswordGuessesAtOnce[Tx any](ctx context.Context, t *testing.T, a *aut
 	// The lock passes. The right password, entered from a dozen copies of the browser
 	// at once: each is signed in or refused as an attempt past the limit is, and at
 	// least one is signed in.
-	time.Sleep(2*time.Second + 200*time.Millisecond)
+	time.Sleep(lockForCases + 200*time.Millisecond)
 	statuses, bodies = atOnce(seedPassword)
 	accepted := 0
 	for i, status := range statuses {
