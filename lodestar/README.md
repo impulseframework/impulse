@@ -532,10 +532,14 @@ A sector that is deleted leaves nothing behind
 ([`tenancy.deleted-tenant`](pkg/resources/sectors.go)): the generated delete path removes,
 in the transaction that deletes the row, the roles people held in the sector, the custom
 roles made in it and the invitations into it that still stood, in the crew's tables and
-the members' alike, and a person who held roles in that sector alone goes with it, while
-one who holds a role elsewhere stays. No role Lodestar ships holds Delete on `Sectors`;
-the suite gives the governor one to prove it
-(`test/integration/tenant_delete_skipauth_test.go`).
+the members' alike, and the sector's directory, whether the sector is directory only or
+not, so the directory is free for another sector; a person who held roles in that sector
+alone goes with it, while one who holds a role elsewhere stays and signs in as before.
+No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor one to
+prove it (`test/integration/tenant_delete_skipauth_test.go`). Lodestar's own tables keyed
+to a sector carry no delete rule, so a sector that still holds one of their rows is
+refused until they are removed; the skeletons' sample tenant table shows the rule that
+takes a tenant's rows with it (`ON DELETE CASCADE` on its key to the tenant table).
 
 How it is wired:
 

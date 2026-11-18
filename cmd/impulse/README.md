@@ -91,7 +91,9 @@ templates, this README, and the tool's source.
   it is the domain of every role held in the tenant and the tenant segment's value in
   every address, so it never changes and is never used twice, while the tenant's name is
   a field its administrators change, kept from a second tenant by a unique index. A
-  deleted tenant takes the roles held in it and its standing invitations with it. A
+  deleted tenant takes the roles held in it, its standing invitations and its directory
+  with it, and the rows of every tenant-scoped table whose foreign key to the tenant
+  table says `ON DELETE CASCADE`, as the skeleton's sample table does. A
   session's tenant list is the roster filtered by where it holds a grant, and a tenant
   is offered only when the session may enter it: the application's tenant declaration
   (what the tenant declares about who may enter it, its directory and whether it
