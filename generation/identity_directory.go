@@ -73,12 +73,14 @@ func (d *identitySourceData) TenantWordLiteral() string {
 const tenantAdministratorsParam = "tenantAdministratorRoles"
 
 // AdministratorsEnter reports whether the tenant's list of its people knows the
-// administrators' way into a directory-only tenant: the tenant record declares the
-// switch and the auth declares the password method, the one sign-in a tenant's own
-// administrator enters with beside the directory. The list then leaves such a person
-// out of the people the switch keeps out.
+// administrators' way into a directory-only tenant: the instance carries the list and
+// the tenant record declares the switch (listsDirectoryOutsiders), and the auth
+// declares the password method, the one sign-in a tenant's own administrator enters
+// with beside the directory. The list then leaves such a person out of the people the
+// switch keeps out, and the instance's client hands the list the roles that administer
+// a tenant; an instance that writes no such list has nothing to hand them to.
 func (d *identitySourceData) AdministratorsEnter() bool {
-	return d.tenant != nil && d.tenant.directory != nil && d.password
+	return d.listsDirectoryOutsiders() && d.password
 }
 
 // TenantAdministratorsParam is tenantAdministratorsParam for the list's template.

@@ -528,6 +528,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/signin"
+	{{ .LocalPackageImports }}
 )
 
 // TablePrefix is the prefix of the auth's tables the package was generated from: the
