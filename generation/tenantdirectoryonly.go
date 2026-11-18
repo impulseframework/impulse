@@ -318,8 +318,11 @@ type directoryOnlyData struct {
 	FlagType  string
 	People    []*directoryOnlyPeople
 	// Rules is the expression that builds the rules of the record's directory, named by
-	// the program's auths (namedDirectoryRules).
-	Rules string
+	// the program's auths (namedDirectoryRules), and SwitchRules the same rules told
+	// what each auth says of the caller's password (switchDirectoryRules), which the
+	// frame that turns the switch asks.
+	Rules       string
+	SwitchRules string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -355,6 +358,7 @@ func (r *resourceGenerator) generateDirectoryOnly() error {
 		KeyIsUUID:           record.PrimaryKey().Type() == impulseUUIDGoType,
 		People:              r.directoryOnlyPeople(),
 		Rules:               r.namedDirectoryRules(record),
+		SwitchRules:         r.switchDirectoryRules(record),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),

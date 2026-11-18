@@ -45,23 +45,28 @@ func Test_namedDirectoryRules(t *testing.T) {
 		structs    []string
 		wantNamers []string
 		wantRules  string
+		// wantSwitch is the expression of the rules the directory-only switch's frame
+		// asks: the named rules, told what each auth says of the caller's password.
+		wantSwitch string
 		wantClosed string
 	}{
 		{
 			name: "two auths name the rules and the tenant list, in declaration order", auths: []string{"Staff", "Members"}, structs: []string{"Harbor", "HarborDirectory"},
 			wantNamers: []string{"a.StaffIdentity().DirectoryName", "a.MembersIdentity().DirectoryName"},
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)",
 			wantClosed: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
 		},
 		{
 			name: "one auth", auths: []string{"Staff"}, structs: []string{"Harbor", "HarborDirectory"},
 			wantNamers: []string{"a.StaffIdentity().DirectoryName"},
 			wantRules:  "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)",
+			wantSwitch: "NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword)",
 			wantClosed: "a.StaffIdentity().DirectoryName",
 		},
 		{
-			name: "a program that generates no auth's management names by nobody", structs: []string{"Harbor", "HarborDirectory"},
-			wantNamers: []string{}, wantRules: "NewHarborDirectoryRules()",
+			name: "a program that generates no auth's management names by nobody and asks nobody about a password", structs: []string{"Harbor", "HarborDirectory"},
+			wantNamers: []string{}, wantRules: "NewHarborDirectoryRules()", wantSwitch: "NewHarborDirectoryRules()",
 		},
 		{
 			name: "a package that declares no directories has no tenant closed to a session, so its tenant list is handed no namer", auths: []string{"Staff"}, structs: []string{"Sector"},
@@ -103,6 +108,9 @@ func Test_namedDirectoryRules(t *testing.T) {
 			}
 			if got := r.namedDirectoryRules(r.tenantRecord()); got != tt.wantRules {
 				t.Errorf("namedDirectoryRules() = %q, want %q", got, tt.wantRules)
+			}
+			if got := r.switchDirectoryRules(r.tenantRecord()); got != tt.wantSwitch {
+				t.Errorf("switchDirectoryRules() = %q, want %q", got, tt.wantSwitch)
 			}
 			// The directories record's write paths build the rules by the same expression.
 			if got := directories.DirectoryRules(); got != tt.wantRules {

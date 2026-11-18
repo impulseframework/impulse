@@ -118,6 +118,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			StateFunc: "DirectoryOnly", StateRoute: "directory-only",
 			DomainRoute: "harbors/{harborID}", KeyType: "impulse.UUID", KeyIsUUID: true, People: people,
 			Rules:               "NewHarborDirectoryRules()",
+			SwitchRules:         "NewHarborDirectoryRules()",
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
@@ -131,6 +132,10 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
 	)
 	named.Rules = namedRules
+	// The frame that turns the switch asks each auth's client whether the caller has a
+	// password; the read of the switch as it stands asks nobody.
+	const switchRules = namedRules + ".PasswordsBy(a.StaffIdentity().CallerPassword, a.MembersIdentity().CallerPassword)"
+	named.SwitchRules = switchRules
 	tests := []struct {
 		name            string
 		data            *directoryOnlyData
@@ -149,7 +154,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"func harborDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {",
 				`resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())`,
 				// The rules' sentences name the directory as each auth's registrations do.
-				"rules := " + namedRules + "\n",
+				"rules := " + switchRules + "\n",
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
 				"ctx = resource.WithCaller(ctx, caller)",
@@ -159,8 +164,8 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif err := a.ResourceClient().ExecuteFunc(",
 				"if asksWarning {",
 				"said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,",
-				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders},`,
-				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders},`,
+				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword()},`,
+				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword()},`,
 				"if err := resource.CheckWarning(string(method), said); err != nil {",
 				"return resource.ErrWarningAsked",
 				"if err := rules.DirectoryOnly(ctx, txn, domain, only); err != nil {",
@@ -186,7 +191,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			name:            "a program that generates no auth's management counts and names no person",
 			data:            data(),
 			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)", "rules := NewHarborDirectoryRules()\n"},
-			wantNotContains: []string{"resource.DirectoryPeople{", "NamedBy("},
+			wantNotContains: []string{"resource.DirectoryPeople{", "NamedBy(", "PasswordsBy("},
 		},
 		{
 			name:            "a record keyed by text, with a flag of a type named over a boolean",
@@ -1049,6 +1054,18 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			Policy: access.Tables{UserRoles: "CrewUserRoles"},
 		}
 	}
+	withPassword := func(d *identitySourceData) *identitySourceData {
+		d.password = true
+
+		return d
+	}
+	withGroups := func(d *identitySourceData) *identitySourceData {
+		d.groupSet = "groups"
+		d.tables[identityGroups], d.tables[identityGroupMembers], d.tables[identityGroupRoles] = true, true, true
+		d.Policy.Groups, d.Policy.GroupMembers, d.Policy.GroupRoles = "CrewGroups", "CrewGroupMembers", "CrewGroupRoles"
+
+		return d
+	}
 	tests := []struct {
 		name            string
 		data            *identitySourceData
@@ -1087,10 +1104,43 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			wantNotContains: []string{"CrewSessionIdentities di"},
 		},
 		{
+			name: "an auth with no password method keeps nobody's way in: the list reads no password and no administrator",
+			data: data(directory, identityUsers, identityMemberships, identityIdentities),
+			wantContains: []string{
+				"return crewSectorUserQuery, nil",
+			},
+			wantNotContains: []string{"PasswordHash", "tenantAdministratorRoles", "AdministratorRoles(", "sync/atomic"},
+		},
+		{
+			name: "an auth with the password method leaves the tenant's own administrator who has a password out of the people the switch keeps out",
+			data: withPassword(data(directory, identityUsers, identityMemberships, identityIdentities)),
+			wantContains: []string{
+				// The person has a password, and holds one of the engine's roles in the
+				// tenant itself, by a membership of their own, inside its period.
+				"  ) AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (\n    SELECT 1 FROM CrewUserRoles ta\n    WHERE ta.UserId = u.Id AND ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = t.DomainId\n      AND ta.Role IN UNNEST(@tenantAdministratorRoles)\n      AND (ta.StartsAt IS NULL OR ta.StartsAt <= CURRENT_TIMESTAMP()) AND (ta.EndsAt IS NULL OR ta.EndsAt > CURRENT_TIMESTAMP())\n  )))) AS OutsideDirectory,",
+				// The sentence follows the same fact.
+				"  ))),\n    'Has not signed in through this sector\\'s directory, so cannot enter while this sector is directory only',",
+				// The roles are the engine's, handed in by the client and read as a parameter.
+				"var crewSectorUserAdministrators atomic.Pointer[[]string]",
+				"func SetCrewSectorUserAdministratorRoles(roles []accesstypes.Role) {",
+				"return crewSectorUserQuery, map[string]any{\"tenantAdministratorRoles\": administrators}",
+				"administrators := []string{}",
+			},
+			// An auth that keeps no groups reads none.
+			wantNotContains: []string{"GroupRoles", "return crewSectorUserQuery, nil"},
+		},
+		{
+			name: "an auth that keeps groups counts the tenant's own group, and no other",
+			data: withGroups(withPassword(data(directory, identityUsers, identityMemberships, identityIdentities))),
+			wantContains: []string{
+				"  ) OR EXISTS (\n    SELECT 1 FROM CrewGroupRoles tr\n    JOIN CrewGroups tg ON tg.Id = tr.GroupId\n    JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId\n    WHERE tm.UserId = u.Id\n      AND tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = t.DomainId\n      AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = t.DomainId\n      AND tr.Role IN UNNEST(@tenantAdministratorRoles)\n      AND (tr.StartsAt IS NULL OR tr.StartsAt <= CURRENT_TIMESTAMP()) AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())\n      AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())\n  )))) AS OutsideDirectory,",
+			},
+		},
+		{
 			name:            "a tenant record that declares no switch",
-			data:            data(nil, identityUsers, identityMemberships, identityIdentities),
-			wantContains:    []string{"HeldGlobally bool "},
-			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON "},
+			data:            withPassword(data(nil, identityUsers, identityMemberships, identityIdentities)),
+			wantContains:    []string{"HeldGlobally bool ", "return crewSectorUserQuery, nil"},
+			wantNotContains: []string{"OutsideDirectory", "CannotEnter", " ts ON ", " td ON ", "PasswordHash", "tenantAdministratorRoles"},
 		},
 	}
 	for _, tt := range tests {
@@ -1125,6 +1175,45 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		if !strings.Contains(identityStoreTemplate, want) {
 			t.Errorf("identityStoreTemplate is missing %q", want)
 		}
+	}
+
+	// The client hands the list the engine's roles where the list reads them, and
+	// answers the two questions the frame of the switch asks every auth's client.
+	for _, tt := range []struct {
+		name            string
+		data            *identitySourceData
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name: "the client of an auth with the password method tells the list who administers",
+			data: withPassword(data(directory, identityUsers, identityMemberships, identityIdentities)),
+			wantContains: []string{
+				"crewresources.SetCrewSectorUserAdministratorRoles(manager.TenantAdministratorRoles())",
+				"func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {",
+				"func (c *Client) AdministratorsEnterWithPassword() bool {",
+			},
+		},
+		{
+			name: "the client of an auth with no password method tells the list nothing, and still answers the frame",
+			data: data(directory, identityUsers, identityMemberships, identityIdentities),
+			wantContains: []string{
+				"func (c *Client) CallerPassword(ctx context.Context, txn resource.ReadWriteTransaction) (has, applies bool, err error) {",
+				"func (c *Client) AdministratorsEnterWithPassword() bool {",
+			},
+			wantNotContains: []string{"AdministratorRoles(manager"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{}
+			out, err := c.generateTemplateOutput("identityClientTemplate", identityClientTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			assertContains(t, "the client", string(out), tt.wantContains, tt.wantNotContains)
+		})
 	}
 }
 
