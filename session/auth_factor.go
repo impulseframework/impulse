@@ -31,12 +31,22 @@ import (
 // person enters it, recording an email-code event. A sign-in whose connection attests
 // to a second factor (sessioninfo.Attestation), or whose browser is a trusted device of
 // the user, is never held: the attestation or the trusted-device event stands in for
-// the step. The code goes to the address the user holds, verified or not: an address
-// an operator entered is proven by the code as a verification link would prove it,
-// and a user without one gives one at the step (EnrollEmail). An administrator's
-// reset (AuthAPI.ResetFactors) forgets the person's trusted devices; with the email
-// code there is nothing else to reset, and a lost mailbox is answered by an operator
-// setting a new address. See "The second factor" in the README.
+// the step.
+//
+// The code goes to the address the account holds, which is its confirmed address from
+// the first code on: nothing puts an address on an account that holds a confirmed one
+// but its own reader, by a link mailed to it (Email()), so a code is never sent where an
+// administrator, or anyone but the person, pointed it. An account that has confirmed no
+// address yet confirms one at this step, and it is the one way such an account is mailed
+// anything: the code goes to the address it was created with, or to the one the person
+// gives here when it has none (EnrollEmail), and entering the code writes the address on
+// the account, confirmed. A person who comes through a directory that does not vouch for
+// their address is held for this step at their first sign-in whatever the policy asks
+// (signinflow.addressHold). An administrator's reset (AuthAPI.ResetFactors) forgets the
+// person's trusted devices and tells the person; with the email code there is nothing
+// else to reset, and a lost mailbox is answered by an administrator asking for the
+// address to be changed, which the new address confirms (AuthAPI.RequestAddressChange).
+// See "The second factor" in the README.
 
 // factorSettings are the settings of the library's second factor.
 type factorSettings struct {
@@ -141,8 +151,10 @@ func (a *Auth[S, U, Tx]) emailCodeState(ctx context.Context, p *pendingState) (*
 	return answer, nil
 }
 
-// factorAddress is the address the pending MFA wait's code goes to: the one the user
-// holds, verified or not, "" when they hold none.
+// factorAddress is the address the pending MFA wait's code goes to: the one the account
+// holds, "" when it holds none. It is the account's confirmed address, or, for an
+// account that has confirmed none yet, the address it was created with, which this code
+// confirms.
 func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (string, error) {
 	if !p.UserID.Valid {
 		return "", errors.New("a pending MFA wait names its user")
@@ -770,9 +782,10 @@ func (p *AuthAPI[S, U, Tx]) VerifyEmailCode(ctx context.Context, w http.Response
 
 // ResetFactors is an administrator's reset of a user's second factor: every browser
 // the person asked to be remembered is forgotten, so their next sign-in from any of
-// them asks for the factor. The email code itself has nothing to reset: a person who
-// lost their mailbox is given a new address (SetSessionUserEmail), unverified, and the
-// next code proves it. Live sessions are not touched; DestroyUserSessions ends them.
+// them asks for the factor, and the person is told by mail (NoticeFactorReset). The
+// email code itself has nothing to reset: a person who lost their mailbox is given a
+// new address by an administrator's request, which the new address confirms
+// (RequestAddressChange). Live sessions are not touched; DestroyUserSessions ends them.
 func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -780,8 +793,63 @@ func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUI
 	if err := p.auth.storage.RevokeTrustedDevices(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeTrustedDevices()")
 	}
+	if p.auth.settings.mail != nil {
+		if err := p.NoticeFactorReset(ctx, userID); err != nil {
+			logger.FromCtx(ctx).Error(errors.Wrap(err, "the notice that a person's second factor was reset was not sent"))
+		}
+	}
 
 	return nil
+}
+
+// NoticeFactorReset tells userID by mail that an administrator reset their second
+// factor, at the address the account holds confirmed. A caller that resets the factor
+// in a transaction of its own (the generated user management) calls it once that has
+// committed; ResetFactors sends it itself. An account with no confirmed address is told
+// nothing: a notice goes to a confirmed address alone. The notice is sent on an
+// administrator's reset and on nothing else: a person who forgets a browser themselves
+// is not written to. It needs mail (WithMail).
+func (p *AuthAPI[S, U, Tx]) NoticeFactorReset(ctx context.Context, userID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	m, err := p.auth.mailOf()
+	if err != nil {
+		return err
+	}
+	user, err := p.auth.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+	if !user.EmailVerified() {
+		return nil
+	}
+
+	return p.auth.send(ctx, m.factorResetMessage(*user.Email))
+}
+
+// NoticeRemovedFromTenant tells a person by mail that an administrator removed them
+// from a tenant: the act that left them with no role there. to is the address the
+// account held confirmed when it was removed, which the caller read before the removal,
+// since the account is gone when the removal took its last role (accountDeleted, which
+// the notice then says); tenant is the tenant's key, named in the message as the Auth's
+// tenant names do (SetTenantNames). The caller sends it once the removal has committed,
+// and only for an administrator's act: a role that ends by itself and a person who
+// leaves by themselves are not written to. It needs mail (WithMail).
+func (p *AuthAPI[S, U, Tx]) NoticeRemovedFromTenant(ctx context.Context, to, tenant string, accountDeleted bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	m, err := p.auth.mailOf()
+	if err != nil {
+		return err
+	}
+	bare, err := address(to)
+	if err != nil {
+		return err
+	}
+
+	return p.auth.send(ctx, m.removedFromTenantMessage(bare, p.auth.tenantName(tenant), accountDeleted))
 }
 
 // ForgetBrowser is the handler a signed-in person's account page calls to forget this

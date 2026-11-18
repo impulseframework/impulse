@@ -205,6 +205,11 @@ type Rules[Tx any] struct {
 	// was proved: the session is inserted only while the user still holds that password
 	// (decideAndInsert).
 	Proven dbtype.PasswordProof
+	// ConfirmAddress says a sign-in through a directory that does not vouch for the
+	// person's address is held for the code that confirms one, while the account holds
+	// no confirmed address (addressHold). It is set by an Auth that sends mail, for a
+	// registration that is not the deployment's own provider of seeded accounts.
+	ConfirmAddress bool
 }
 
 // SignIn establishes session id for a request that carries a verified identity, in two
@@ -326,7 +331,7 @@ func SignIn[Tx any](
 		return err
 	}
 
-	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted, rules.Proven)
+	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted, rules.Proven, rules.ConfirmAddress)
 }
 
 // invitedAddressRefusal refuses a sign-in that carries an invitation mailed to another
@@ -1590,7 +1595,7 @@ func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID i
 // longer holds. The nil proof holds the sign-in to nothing.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
-	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool, proven dbtype.PasswordProof,
+	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool, proven dbtype.PasswordProof, confirmAddress bool,
 ) error {
 	base := *req
 	var v verdict
@@ -1614,6 +1619,9 @@ func decideAndInsert[Tx any](
 		v, err = decideSignIn(ctx, req, user, decide, trusted)
 		if err != nil {
 			return err
+		}
+		if confirmAddress && v.proceeds() {
+			v = addressHold(req, user)
 		}
 		if v.proceeds() {
 			if err := d.InsertSessionIn(ctx, tx, id, insertSession, req); err != nil {
@@ -1703,6 +1711,52 @@ func decideSignIn(
 		return verdict{stop: pending}, nil
 	default:
 		return verdict{stop: Refusal(decision.Refusal(), sessioninfo.RefusedByPolicy, denialCause(decision), "sign-in denied")}, nil
+	}
+}
+
+// addressHold holds a sign-in the rules let through for the code that confirms the
+// person's address: a sign-in through an external method whose directory does not vouch
+// for the address it asserts (Microsoft Entra ID vouches for none), by a person whose
+// account holds no confirmed address. Every account a person signs in to has a confirmed
+// address, so such a person's first sign-in waits for the code the library mails,
+// whatever the sign-in rule says about a second factor, and the code writes the address
+// on the account, confirmed. Nothing stands in for it: a directory that attests to a
+// second factor says nothing of the address, and no browser is remembered for a person
+// who has confirmed none. The sign-in that completes the wait carries the code's event
+// and goes on; so does every later one, since the account then holds the address. A
+// directory that vouches for the address (Google) is not held: the address it vouches
+// for is written on the account as the session starts. A password sign-in and a session
+// the application starts are not held either: those accounts are given their address
+// where they are made.
+func addressHold(req *sessioninfo.NewSessionRequest, user *dbtype.User) verdict {
+	if user.EmailConfirmed || !dbtype.IsExternal(req.Identity) || !holdsForAddress(req.Reason) {
+		return verdict{}
+	}
+	if req.Identity.EmailVerified && req.Identity.Email != "" {
+		return verdict{}
+	}
+	if slices.ContainsFunc(req.AuthEvents, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodEmailCode }) {
+		return verdict{}
+	}
+	pending := &signin.PendingSignInError{
+		Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(req.UserID), Username: user.Username, Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode},
+	}
+	if req.User != nil {
+		pending.Tenant = req.User.Tenant
+	}
+
+	return verdict{stop: pending}
+}
+
+// holdsForAddress reports whether a session created for reason is one a person signs in
+// with: a login, a link a password confirmed, and the completion of a wait. A session
+// that continues another was held, if it was to be, when that one was established.
+func holdsForAddress(reason sessioninfo.NewSessionReason) bool {
+	switch reason {
+	case sessioninfo.ReasonLogin, sessioninfo.ReasonIdentityLinked, sessioninfo.ReasonStepUp:
+		return true
+	default:
+		return false
 	}
 }
 

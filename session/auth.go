@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -287,6 +288,9 @@ type Auth[SessionData, UserData, Tx any] struct {
 	tenantNames TenantNamer
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
+	// background counts the work the Auth does once a request is answered (later),
+	// which AuthAPI.WaitForMail waits for.
+	background sync.WaitGroup
 }
 
 // SuperAdministrators is what NewAuth is told about the holders of the Super

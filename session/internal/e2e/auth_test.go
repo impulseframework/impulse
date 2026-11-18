@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -206,6 +207,52 @@ type authApp[Tx any] struct {
 	hooks  *hooks[Tx]
 	// mail keeps what the Auth sent, for the scenarios that read a code out of it.
 	mail *mail.Recorder
+	// verified writes an address as a person's confirmed one, the store's own write, on
+	// an app that sends mail.
+	verified func(ctx context.Context, userID impulse.UUID, email string) error
+}
+
+// confirmedAddress writes email as the confirmed address of a seeded person. A person
+// who comes through a directory that does not vouch for an address is held for a mailed
+// code until their account holds a confirmed one, and the scenarios that are not about
+// that start from a person who has confirmed theirs.
+func (a *authApp[Tx]) confirmedAddress(ctx context.Context, t *testing.T, userID impulse.UUID, email string) {
+	t.Helper()
+
+	if err := a.verified(ctx, userID, email); err != nil {
+		t.Fatalf("VerifyUserEmail(%q) error = %v", email, err)
+	}
+}
+
+// confirmAddress answers the hold a person's first sign-in through a directory that
+// does not vouch for an address meets: held is where the callback sent the browser,
+// which must be the login page's step for the code, and the person answers the code
+// mailed to address. It returns the page the completed sign-in goes on to.
+func (a *authApp[Tx]) confirmAddress(ctx context.Context, b *browser, held *url.URL, address string) *url.URL {
+	b.t.Helper()
+
+	returnURL := held.Query().Get("returnUrl")
+	assertRedirect(b.t, held, "/login", url.Values{"pending": {"mfa"}, "returnUrl": {returnURL}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	a.answerAddressCode(ctx, b, address)
+
+	return &url.URL{Path: returnURL}
+}
+
+// answerAddressCode has the person held in b give address where their account holds
+// none, and answer the code mailed to it.
+func (a *authApp[Tx]) answerAddressCode(ctx context.Context, b *browser, address string) {
+	b.t.Helper()
+
+	if body := b.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil); !strings.Contains(string(body), `"factors":["email-code"]`) {
+		b.t.Fatalf("pending status = %s, want the email code as the one factor the address is confirmed by", body)
+	}
+	if status, _ := b.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusOK {
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/email", map[string]string{"email": address})
+	}
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(b.t, address)}); !strings.Contains(string(body), `"mfaIsRequired":false`) {
+		b.t.Fatalf("code verification = %s, want the sign-in completed", body)
+	}
 }
 
 // withCustomData attaches the application's custom session and user data to store
@@ -252,7 +299,14 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		// The application's MFA step: here it accepts anything, which is what the
 		// scenarios need; a real one checks a code first.
 		r.Post("/mfa", func(w http.ResponseWriter, r *http.Request) {
-			if _, err := api.CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp"}); err != nil {
+			_, err := api.CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp"})
+			if waits := (*signin.PendingSignInError)(nil); errors.As(err, &waits) {
+				// The sign-in waits again, for a step the login page takes.
+				w.WriteHeader(http.StatusAccepted)
+
+				return
+			}
+			if err != nil {
 				_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 
 				return
@@ -407,7 +461,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder}
+	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail}
 }
 
 // browser is a user agent of an Auth app.
@@ -955,12 +1009,14 @@ func seamWorkOSProvisionThenLink[Tx any](ctx context.Context, t *testing.T, a *a
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, b, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
 		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
 	}
-	assertEventsSeen(t, first, "workos:"+lakesideConnection)
+	// The session records the sign-in's own event and the code that confirmed the
+	// address of a person the directory does not vouch for the address of.
+	assertEventsSeen(t, first, "workos:"+lakesideConnection, "email-code")
 
 	other := a.browser(t)
 	other.prime(ctx)
@@ -1004,7 +1060,7 @@ func seamWorkOSProvisionPolicyReadsRows[Tx any](ctx context.Context, t *testing.
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, b, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
 		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
@@ -1019,7 +1075,9 @@ func seamWorkOSProvisionPolicyReadsRows[Tx any](ctx context.Context, t *testing.
 
 	var seen []sessioninfo.UserSource
 	a.hooks.set(func(*hooks[Tx]) { seen = append(seen, sources...) })
-	if want := []sessioninfo.UserSource{sessioninfo.UserProvisioned, sessioninfo.UserExistingLink}; !slices.Equal(seen, want) {
+	// The first sign-in asks the policy twice: when the account is made, and again when
+	// the code that confirms the person's address completes it, through the link by then.
+	if want := []sessioninfo.UserSource{sessioninfo.UserProvisioned, sessioninfo.UserExistingLink, sessioninfo.UserExistingLink}; !slices.Equal(seen, want) {
 		t.Errorf("the policy saw users %v, want %v", seen, want)
 	}
 	if _, linked := a.hooks.counts(); len(linked) != 1 || linked[0].String() != first.UserID {
@@ -1080,12 +1138,17 @@ func seamWorkOSProvisionHeldForMFA[Tx any](ctx context.Context, t *testing.T, a 
 		t.Errorf("the pending user = %q, want sam@lakeside.edu committed, so the application can send its code", got)
 	}
 
-	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/mfa", nil)
+	// The application's own factor passes, and the directory still vouches for no
+	// address: the sign-in waits once more, for the code mailed to the address the
+	// person gives, whatever the policy asked for.
+	b.expect(ctx, http.StatusAccepted, http.MethodPost, "/mfa", nil)
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	a.answerAddressCode(ctx, b, "sam@lakeside.edu")
 	v := b.view(ctx)
 	if v.UserID != pending.UserID.String() || v.SessionID == anonymous {
 		t.Errorf("session = %+v, want user %s under a session ID other than %s", v, pending.UserID.UUID, anonymous)
 	}
-	assertEventsSeen(t, v, "workos:"+lakesideConnection, "email-otp")
+	assertEventsSeen(t, v, "workos:"+lakesideConnection, "email-otp", "email-code")
 	if _, linked := a.hooks.counts(); len(linked) != 1 || linked[0] != pending.UserID.UUID {
 		t.Errorf("IdentityLinked reports = %v, want one for %s", linked, pending.UserID.UUID)
 	}
@@ -1095,6 +1158,7 @@ func seamWorkOSConfirmWithPassword[Tx any](ctx context.Context, t *testing.T, a 
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 	a.hooks.set(func(h *hooks[Tx]) {
 		h.resolve = func(*workos.Identity) *signin.Resolution {
 			return signin.Confirm(pat, signin.Tenant("lakeside"))
@@ -1187,6 +1251,7 @@ func seamConfirmThenMFA[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 	a.hooks.set(func(h *hooks[Tx]) {
 		h.resolve = func(*workos.Identity) *signin.Resolution {
 			return signin.Confirm(pat)
@@ -1298,7 +1363,7 @@ func seamWorkOSCrossConnectionLink[Tx any](ctx context.Context, t *testing.T, a 
 	a.hooks.set(func(h *hooks[Tx]) { h.resolveTx = a.provisionMember })
 	first := a.browser(t)
 	first.prime(ctx)
-	assertRedirect(t, first.workOSSignIn(ctx, idp, "/home", "idp_sam", "sam@lakeside.edu"), "/home", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, first, first.workOSSignIn(ctx, idp, "/home", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/home", url.Values{})
 	sam, err := impulse.UUIDFromString(first.view(ctx).UserID)
 	if err != nil {
 		t.Fatalf("impulse.UUIDFromString() error = %v", err)
@@ -1353,7 +1418,7 @@ func seamCustomData[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], i
 	// in the same transaction, for the user the sign-in just provisioned.
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, a.confirmAddress(ctx, b, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "sam@lakeside.edu"), "/dashboard", url.Values{})
 	if got := b.sessionData(ctx); got.Partner != "lakeside" {
 		t.Errorf("custom session data after the provisioning sign-in = %+v, want the lakeside membership OnProvisioned wrote", got)
 	}
