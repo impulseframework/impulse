@@ -63,6 +63,8 @@ func Main() error {
 // (web/portal/brand.json), and everywhere else the console's (web/console/brand.json),
 // the root included, since the root leads to the console. impulse brand writes both into
 // pkg/brand from the declarations.
+//
+// Demonstrates: webapp.brand.
 func maintenanceBrands() maintenance.Brands {
 	return maintenance.Brands{
 		"/":        brand.Console(),

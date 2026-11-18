@@ -20,6 +20,8 @@ import (
 // The name it expects is read from the declaration (web/console/brand.json,
 // web/portal/brand.json), so a name changed there without running impulse brand again
 // fails here, and the logo is the one impulse brand wrote for that application.
+//
+// Demonstrates: webapp.brand.
 func TestMaintenancePageSaysWhoseItIs(t *testing.T) {
 	t.Parallel()
 
