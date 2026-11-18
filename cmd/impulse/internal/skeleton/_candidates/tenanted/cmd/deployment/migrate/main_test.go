@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -150,6 +151,12 @@ func TestExecute(t *testing.T) {
 		wantOut  string
 		wantErr  string
 		wantAlso []string
+		// wantLast stands in for wantOut where the run writes a line of its own for each
+		// secret field the application stores before its last line (the retirement of a
+		// version of the application secret): stdout ends with it, and every line before
+		// it is a field's line. The application as rendered stores no secret field; the
+		// case stands as it is once a resource carries one (conditions:"secret").
+		wantLast string
 		// wantAfter is what -version reports once the case has run; empty skips the check.
 		wantAfter string
 		// env overrides the environment for the case, a variable at a time; an empty value
@@ -369,11 +376,11 @@ func TestExecute(t *testing.T) {
 			wantErr:  "flag needs an argument: -retire-secret",
 		},
 		{
-			name:    "a retirement of an older version of the application secret finds no value that names it and passes",
-			prepare: migrated,
-			args:    []string{"-retire-secret", "APP_SECRET_KEY_1"},
-			env:     map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
-			wantOut: "Retired APP_SECRET_KEY_1: no stored value names version 1\n",
+			name:     "a retirement of an older version of the application secret finds no value that names it and passes",
+			prepare:  migrated,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_1"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantLast: "Retired APP_SECRET_KEY_1: no stored value names version 1\n",
 		},
 		{
 			name:     "a retirement of the current version of the application secret is refused",
@@ -438,7 +445,12 @@ func TestExecute(t *testing.T) {
 			if code != tt.wantCode {
 				t.Fatalf("execute(%v) = %d, want %d; stdout:\n%s\nstderr:\n%s", tt.args, code, tt.wantCode, stdout.String(), stderr.String())
 			}
-			if stdout.String() != tt.wantOut {
+			switch {
+			case tt.wantLast != "":
+				if problem := retirementProblem(stdout.String(), tt.wantLast); problem != "" {
+					t.Error(problem)
+				}
+			case stdout.String() != tt.wantOut:
 				t.Errorf("stdout = %q, want %q", stdout.String(), tt.wantOut)
 			}
 			if tt.wantErr != "" && !strings.Contains(stderr.String(), tt.wantErr) {
@@ -652,4 +664,58 @@ func lastIndex(t *testing.T, dir string) (last int, ok bool) {
 	}
 
 	return last, len(files) > 0
+}
+
+// rewrittenLine is the line a retirement writes for each secret field the application
+// stores, before its last line: the field, and how many of its values were written
+// again under the current version of the application secret.
+var rewrittenLine = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*\.[A-Za-z][A-Za-z0-9]*: [0-9]+ value\(s\) written again under version [0-9]+$`)
+
+// retirementProblem says what is wrong with what a retirement wrote, or nothing: stdout
+// ends with the retirement's last line, and before it stands one line for each secret
+// field the application stores, whatever their number (none in the application as
+// rendered).
+func retirementProblem(stdout, last string) string {
+	before, found := strings.CutSuffix(stdout, last)
+	if !found {
+		return fmt.Sprintf("stdout = %q, want it to end with %q", stdout, last)
+	}
+	for line := range strings.Lines(before) {
+		if !rewrittenLine.MatchString(strings.TrimSuffix(line, "\n")) {
+			return fmt.Sprintf("stdout holds the line %q before %q, want only the lines of the secret fields written again", line, last)
+		}
+	}
+
+	return ""
+}
+
+// TestRetirementProblem holds the reading of a retirement's output to what the command
+// writes: its last line alone where the application stores no secret field, a line for
+// each field before it where it stores some, and nothing else.
+func TestRetirementProblem(t *testing.T) {
+	t.Parallel()
+
+	const last = "Retired APP_SECRET_KEY_1: no stored value names version 1\n"
+	tests := []struct {
+		name   string
+		stdout string
+		want   string
+	}{
+		{name: "no secret field", stdout: last},
+		{name: "one secret field", stdout: "Vaults.Code: 0 value(s) written again under version 2\n" + last},
+		{name: "two secret fields, one with values", stdout: "Vaults.Code: 3 value(s) written again under version 2\nKeys.Seed: 0 value(s) written again under version 2\n" + last},
+		{name: "a line that is no field's", stdout: "Applying migrations\n" + last, want: `stdout holds the line "Applying migrations\n" before`},
+		{name: "the last line missing", stdout: "Vaults.Code: 0 value(s) written again under version 2\n", want: "want it to end with"},
+		{name: "something after the last line", stdout: last + "done\n", want: "want it to end with"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := retirementProblem(tt.stdout, last)
+			if (tt.want == "") != (got == "") || !strings.Contains(got, tt.want) {
+				t.Errorf("retirementProblem() = %q, want one containing %q", got, tt.want)
+			}
+		})
+	}
 }

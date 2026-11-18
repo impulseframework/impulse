@@ -14,6 +14,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/framework"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/handoff"
 	"golang.org/x/mod/modfile"
 )
 
@@ -35,6 +36,87 @@ func TestCandidates(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Candidates() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestCandidatesIgnoreTheHandoffBrief holds every candidate's .gitignore to the brief a
+// handoff writes at the application root. The brief is transient: an application that
+// did not ignore it showed it as a change to commit after every impulse add.
+func TestCandidatesIgnoreTheHandoffBrief(t *testing.T) {
+	t.Parallel()
+
+	candidates, err := Candidates()
+	if err != nil {
+		t.Fatalf("Candidates() error = %v", err)
+	}
+	for _, candidate := range candidates {
+		tree, err := FS(candidate.Name)
+		if err != nil {
+			t.Fatalf("FS(%s) error = %v", candidate.Name, err)
+		}
+		ignored, err := fs.ReadFile(tree, ".gitignore")
+		if err != nil {
+			t.Fatalf("%s: reading .gitignore: %v", candidate.Name, err)
+		}
+		found := false
+		for line := range strings.Lines(string(ignored)) {
+			if strings.TrimSpace(line) == handoff.File {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: .gitignore does not ignore %s, the brief a handoff writes at the application root:\n%s", candidate.Name, handoff.File, ignored)
+		}
+	}
+}
+
+// TestBunfigSaysWhosePackagesAreExempt holds the comment over a browser workspace's
+// release-age exemptions to whose packages they are, in every candidate: the framework's
+// own. An application is rendered for anyone, so the comment names no organization.
+func TestBunfigSaysWhosePackagesAreExempt(t *testing.T) {
+	t.Parallel()
+
+	const want = "# The framework's own packages are exempt from the release-age guard: the guard is against the registry at large."
+	candidates, err := Candidates()
+	if err != nil {
+		t.Fatalf("Candidates() error = %v", err)
+	}
+	for _, candidate := range candidates {
+		tree, err := FS(candidate.Name)
+		if err != nil {
+			t.Fatalf("FS(%s) error = %v", candidate.Name, err)
+		}
+		workspaces := 0
+		err = fs.WalkDir(tree, ".", func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return errors.Wrap(err, "fs.WalkDir()")
+			}
+			if d.IsDir() || d.Name() != "bunfig.toml" {
+				return nil
+			}
+			workspaces++
+			data, err := fs.ReadFile(tree, p)
+			if err != nil {
+				return errors.Wrap(err, "fs.ReadFile()")
+			}
+			lines := strings.Split(string(data), "\n")
+			for i, line := range lines {
+				if !strings.HasPrefix(line, "minimumReleaseAgeExcludes") {
+					continue
+				}
+				if i == 0 || lines[i-1] != want {
+					t.Errorf("%s/%s: the line over minimumReleaseAgeExcludes is %q, want %q", candidate.Name, p, lines[max(i-1, 0)], want)
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", candidate.Name, err)
+		}
+		if workspaces == 0 {
+			t.Errorf("%s: no bunfig.toml found, want one in each browser workspace", candidate.Name)
+		}
 	}
 }
 

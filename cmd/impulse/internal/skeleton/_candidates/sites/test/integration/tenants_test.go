@@ -18,7 +18,10 @@ import (
 // held roles in it alone is deleted with it, by the rule on an account nothing admits,
 // and a person who holds a role elsewhere stays. The tenant is made the way one comes to
 // exist, by an invitation sent from the console and its first sign-in (makeTenant), so
-// its founder is among the people who held roles in it alone.
+// its founder is among the people who held roles in it alone. The tenant's directory and
+// the rows of its own tables go with it in the same request: the directory through the
+// record's generated delete, the rows by the delete rule on the table's key to the
+// tenant table.
 func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	t.Parallel()
 
@@ -85,8 +88,22 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		}
 	}
 
+	// East holds a directory and rows of its own by now, written here as rows: an announcement and the directory of an organization.
+	// The one delete takes them with the tenant.
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
+		spanner.Insert("TenantDirectories", []string{"Id", "TenantId", "Method", "Connection"}, []any{"e0000000-0000-4000-8000-000000000001", east, "azure", "6f2c1b7e-0000-4000-8000-000000000001"}),
+		spanner.Insert("Announcements", []string{"Id", "TenantId", "KindId", "Title", "Body"}, []any{"e0000000-0000-4000-8000-000000000002", east, "notice", "Easterly", "The last notice."}),
+	}); err != nil {
+		t.Fatalf("writing East's directory and its rows: %v", err)
+	}
+
 	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`)); status != http.StatusOK {
 		t.Fatalf("deleting the tenant: status %d: %s", status, body)
+	}
+	for _, table := range []string{"TenantDirectories", "Announcements"} {
+		if n := rowsOf(ctx, t, s, table, east); n != 0 {
+			t.Errorf("%s holds %d row(s) of the deleted tenant, want none: a tenant's directory and its rows go with it", table, n)
+		}
 	}
 
 	// Gone at once, for the administrator and for the member alike, on the portal as on
@@ -171,6 +188,27 @@ func tenantNames(ctx context.Context, t *testing.T, b *browser) map[string]strin
 	}
 
 	return names
+}
+
+// rowsOf counts the rows of a tenant-scoped table that name the tenant, as committed.
+func rowsOf(ctx context.Context, t *testing.T, s *served, table, tenant string) int64 {
+	t.Helper()
+
+	iter := s.db.Client.Single().Query(ctx, spanner.Statement{
+		SQL:    "SELECT COUNT(*) FROM " + table + " WHERE TenantId = @tenant",
+		Params: map[string]any{"tenant": tenant},
+	})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("counting the rows of %s in %s: %v", table, tenant, err)
+	}
+	var n int64
+	if err := row.Columns(&n); err != nil {
+		t.Fatalf("reading the count of %s in %s: %v", table, tenant, err)
+	}
+
+	return n
 }
 
 // accountExists reports whether the staff auth holds a user under the username.

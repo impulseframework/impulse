@@ -386,7 +386,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			data: &tenantsData{
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Marina",
 				Declaration:         &tenantDeclarationColumns{DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
-				Directory:           &tenantDirectoryWrite{TenantField: "HarborID", TenantType: "string", TenantParam: "tenant", TenantDomain: "accesstypes.Domain(tenant)", MethodField: "Method", ConnectionField: "Connection"},
+				Directory:           &tenantDirectoryWrite{TenantField: "HarborID", TenantType: "string", TenantParam: "tenant", TenantDomain: "accesstypes.Domain(tenant)", MethodField: "Method", ConnectionField: "Connection", KeyField: "ID"},
 				Word:                "harbor",
 				ResourcePackage:     "resources",
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
@@ -395,6 +395,35 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant string, directory signin.Directory, eventSource ...string) error {",
 				"if err := NewHarborDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant), directory); err != nil {",
 				"patch, err := resources.NewMarinaCreatePatch()",
+				// The removal that goes with the harbor takes the key as the column holds it.
+				"func ClearHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant string, eventSource ...string) error {",
+				"Where(resources.NewMarinaQueryClause().HarborID().Equal(tenant))",
+			},
+		},
+		{
+			name: "the removal of a harbor's directory with the harbor: the row read by its harbor, then removed through the record's delete patch, and no rule asked",
+			data: &tenantsData{
+				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
+				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+				Directory:           harborDirectoryWrite(),
+				Word:                "harbor",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
+			},
+			wantContains: []string{
+				"func ClearHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, eventSource ...string) error {",
+				"AddColumns(resources.NewHarborDirectoryColumns().ID()).",
+				"var removals []*resources.HarborDirectoryDeletePatch",
+				`return errors.Wrap(err, "resources.HarborDirectoryQuery.List()")`,
+				`return errors.Wrap(err, "resources.HarborDirectoryDeletePatch.Buffer()")`,
+			},
+			wantOrder: []string{
+				"func ClearHarborDirectory(",
+				// The harbor's rows alone, read before any removal is buffered.
+				"Where(resources.NewHarborDirectoryQueryClause().HarborID().Equal(tenant))",
+				"for row, err := range query.List(ctx, txn) {",
+				"removals = append(removals, resources.NewHarborDirectoryDeletePatch(row.Data.ID))",
+				"if err := removal.Buffer(ctx, txn, eventSource...); err != nil {",
 			},
 		},
 		{
@@ -671,7 +700,122 @@ func assertInOrder(t *testing.T, out string, wants ...string) {
 func harborDirectoryWrite() *tenantDirectoryWrite {
 	return &tenantDirectoryWrite{
 		TenantField: "HarborID", TenantType: "impulse.UUID", TenantParam: "tenant", TenantDomain: "accesstypes.Domain(tenant.String())",
-		MethodField: "Method", ConnectionField: "Connection",
+		MethodField: "Method", ConnectionField: "Connection", KeyField: "ID",
+	}
+}
+
+// Test_tenantRecord_deleteTakesItsDirectory pins the delete of a tenant record that
+// declares its directories, in its own handler and in the consolidated one: a tenant
+// that goes takes its directory with it, in the delete's transaction, through the
+// generated Clear<Record>Directory, handed the tenant's key as the directories record's
+// tenant column holds it. The directory goes after the tenant's own row is buffered,
+// which is where the caller's Delete grant on the tenant record answers, and before
+// what the auths hold for the tenant; the rule that keeps a directory-only tenant's
+// directory is not asked, since it is for a tenant that stays. A tenant record that
+// declares no directories, and every other resource, take nothing.
+func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// structs are the fixture's structs the package declares, and resource the one
+		// whose handlers are rendered.
+		structs   []string
+		resource  string
+		wantClear *tenantDirectoryClear
+		wantCall  string
+	}{
+		{
+			name: "a directories record keyed to its tenant by an id is cleared by the id", structs: []string{"Harbor", "HarborDirectory"}, resource: "Harbor",
+			wantClear: &tenantDirectoryClear{Func: "ClearHarborDirectory", Tenant: "id", Word: "harbor"},
+			wantCall:  "if err := ClearHarborDirectory(ctx, txn, id, eventSource); err != nil {",
+		},
+		{
+			name: "a directories record keyed to its tenant by the id's text is cleared by the text", structs: []string{"Harbor", "Marina"}, resource: "Harbor",
+			wantClear: &tenantDirectoryClear{Func: "ClearHarborDirectory", Tenant: "id.String()", Word: "harbor"},
+			wantCall:  "if err := ClearHarborDirectory(ctx, txn, id.String(), eventSource); err != nil {",
+		},
+		{name: "a tenant record that declares no directories takes nothing", structs: []string{"Sector"}, resource: "Sector"},
+		{name: "the directories record itself takes nothing with it", structs: []string{"Harbor", "HarborDirectory"}, resource: "HarborDirectory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r, err := declarationResources(t, tt.structs...)
+			if err != nil {
+				t.Fatalf("declarationResources() error = %v", err)
+			}
+			r.resource = "testdata/tenantfixture"
+			r.defaultOutlet.auth = &outletAuth{importPath: "example.com/app/pkg/auth/staff"}
+			r.identity = generatedIdentityOf("example.com/app/pkg/auth/staff")
+			var res *resourceInfo
+			for _, candidate := range r.resources {
+				if candidate.Name() == tt.resource {
+					res = candidate
+				}
+			}
+			if res == nil {
+				t.Fatalf("the fixture resolved no resource %s", tt.resource)
+			}
+			removal := r.tenantDirectoryClear(res)
+			if diff := cmp.Diff(tt.wantClear, removal); diff != "" {
+				t.Errorf("tenantDirectoryClear() mismatch (-want +got):\n%s", diff)
+			}
+
+			standalone, err := r.handlerContent(PatchHandler, res)
+			if err != nil {
+				t.Fatalf("handlerContent() error = %v", err)
+			}
+			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
+				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
+			}
+			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", Clears: r.tenantClears(res), DirectoryClear: removal}
+			data := consolidatedPatchData{
+				Resources:           []*resourceInfo{res},
+				HasTenant:           true,
+				DomainRouteSegment:  "harbors",
+				DomainPatternPrefix: "/harbors/{harborID}",
+				LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
+				Package:             "app",
+				ResourcePackage:     "resources",
+				ApplicationName:     "App",
+				ReceiverName:        "a",
+				HandlerName:         "PatchResources",
+			}
+			if res.IsDomainScoped() {
+				segment.DomainPatternPrefix = data.DomainPatternPrefix
+				data.DomainCases = []consolidatedCaseData{segment}
+			} else {
+				data.GlobalCases = []consolidatedCaseData{segment}
+			}
+			c := &client{}
+			consolidated, err := c.generateTemplateOutput("consolidatedPatchTemplate", consolidatedPatchTemplate, data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(consolidated); err != nil {
+				t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
+			}
+
+			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
+				if tt.wantCall == "" {
+					assertContains(t, name, out, nil, []string{"Directory(ctx, txn, id"})
+
+					continue
+				}
+				assertInOrder(t, out,
+					".New"+tt.resource+"DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
+					tt.wantCall,
+					`return errors.Wrap(err, "ClearHarborDirectory()")`,
+					"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
+				)
+				// The rule on a directory's own removal is for a tenant that stays: the
+				// tenant's delete asks no rule to remove anything, however the rules are
+				// spelled (a named set chains before the call).
+				assertContains(t, name, out, nil, []string{".Remove(ctx, txn,"})
+			}
+		})
 	}
 }
 

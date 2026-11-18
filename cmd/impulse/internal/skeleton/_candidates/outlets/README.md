@@ -414,7 +414,10 @@ To sign in through a real directory, register the application there, fill in the
 
 The console and the portal are two projects in one Angular workspace under `web/` that
 installs the published `@impulseframework/resource`, `@impulseframework/resource-angular` and
-`@impulseframework/resource-firestore` (pinned in `package.json`). To develop
+`@impulseframework/resource-firestore` (pinned in `package.json`). Install them
+once with `bun install` in `web/`: it writes `bun.lock`, which the workflows install
+from (`bun ci`) and the repository keeps, and `impulse check` fails while the web root
+has none (`package-manager`). To develop
 against a local checkout of the framework, attach its web packages through yalc, a local
 state that is never committed (the script builds the three packages, publishes them to the
 local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts the pins back):

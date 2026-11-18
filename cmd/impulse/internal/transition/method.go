@@ -7,6 +7,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -50,6 +51,9 @@ func (m *Method) Command() string {
 	}
 	if m.Spec.UsernameIsEmail {
 		cmd += " --username-is-email"
+	}
+	if m.Spec.Label != "" {
+		cmd += " --label " + strconv.Quote(m.Spec.Label)
 	}
 
 	return cmd
@@ -313,6 +317,10 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 		edited = append(edited[:here[3]:here[3]], append([]byte(", "+spec.Name), edited[here[3]:]...)...)
 		listed = ", and the package doc lists it"
 	}
+	if retold, ok := retellPopulation(edited, spec); ok {
+		edited = retold
+		listed += fmt.Sprintf(", and its first sentence says the auth's people also sign in %s", signInHow(spec))
+	}
 	loc := returnAuthRE.FindIndex(edited)
 	if loc == nil {
 		ch.skipf("%s: New does not end in `return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does (identity where the application generates the auth's management), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
@@ -335,6 +343,110 @@ var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{access: accessCli
 // hereRE matches the package doc's list of the methods registered on the Auth, which a
 // method added joins.
 var hereRE = regexp.MustCompile(`methods registered on it \(here ([^)]*)\)`)
+
+// signInHow is how the people of an auth sign in through a method, as the package doc's
+// first sentence says it after "the people who sign in to the console": the base's
+// sentence says "with a password", and each method added joins it.
+func signInHow(m *authpkg.Method) string {
+	switch m.Kind {
+	case app.MethodPassword:
+		return "with a password"
+	case app.MethodOIDC:
+		return "through the organization's own identity provider"
+	case app.MethodPersona:
+		return "as a persona of the test environments"
+	case app.MethodGoogle:
+		switch m.Slot {
+		case authpkg.SlotListed:
+			return "with an account of a named Google Workspace"
+		case authpkg.SlotAnyWorkspace:
+			return "with any Google Workspace account"
+		case authpkg.SlotAny:
+			return "with any Google account"
+		case authpkg.SlotMixed:
+			return "with an account of the organization's Google Workspace or any Google account"
+		default:
+			return "with an account of the organization's Google Workspace"
+		}
+	default:
+		switch m.Slot {
+		case authpkg.SlotListed:
+			return "with an account of a named Microsoft Entra tenant"
+		case authpkg.SlotAny:
+			return "with a work or school account of any Microsoft Entra tenant"
+		case authpkg.SlotPersonal:
+			return "with a Microsoft personal account"
+		case authpkg.SlotOnePersonal:
+			return "with an account of the organization's Microsoft Entra tenant or a Microsoft personal account"
+		case authpkg.SlotAnyPersonal:
+			return "with any Microsoft account"
+		default:
+			return "with an account of the organization's Microsoft Entra tenant"
+		}
+	}
+}
+
+// populationRE reads the package doc's first paragraph of an auth file where it is the
+// rendered sentence: who the auth's people are, then where they hold their roles.
+var populationRE = regexp.MustCompile(`^Package (\w+) is the (\w+) auth: (.+), who hold their roles in the (.+)$`)
+
+// docWidth is the column the retold paragraph is wrapped at, and commentMark what
+// opens each of its lines.
+const (
+	docWidth    = 90
+	commentMark = "//"
+)
+
+// retellPopulation adds the way a new method's people sign in to the package doc's first
+// sentence, where that sentence says how they sign in: the base's says "with a
+// password", which stopped being the whole of it the moment a second method was added.
+// A sentence that names no way (an auth's generic one, or the application's own words)
+// is left as it is, and so is one that says the way already. The paragraph is wrapped
+// again, since the sentence grew.
+func retellPopulation(src []byte, spec *authpkg.Method) ([]byte, bool) {
+	text := string(src)
+	if !strings.HasPrefix(text, "// Package ") {
+		return src, false
+	}
+	// The first paragraph ends at the comment's first empty line, and is looked for in
+	// the comment that opens the file alone: a comment that is one paragraph has none,
+	// and an empty comment line further down the file is some other comment's.
+	doc := 0
+	for line := range strings.Lines(text) {
+		if !strings.HasPrefix(line, commentMark) {
+			break
+		}
+		doc += len(line)
+	}
+	end := strings.Index(text[:doc], "\n"+commentMark+"\n")
+	if end < 0 {
+		return src, false
+	}
+	var words []string
+	for line := range strings.Lines(text[:end+1]) {
+		words = append(words, strings.Fields(strings.TrimPrefix(line, commentMark))...)
+	}
+	// The whole match and its four parts: the package, the auth, who its people are, and
+	// where they hold their roles.
+	m := populationRE.FindStringSubmatch(strings.Join(words, " "))
+	how := signInHow(spec)
+	if len(m) != 5 || !strings.Contains(m[3], " with a password") || strings.Contains(m[3], how) {
+		return src, false
+	}
+	sentence := fmt.Sprintf("Package %s is the %s auth: %s, or %s, who hold their roles in the %s", m[1], m[2], m[3], how, m[4])
+	var b strings.Builder
+	line := commentMark
+	for _, word := range strings.Fields(sentence) {
+		if len(line)+1+len(word) > docWidth && line != commentMark {
+			b.WriteString(line + "\n")
+			line = commentMark
+		}
+		line += " " + word
+	}
+	b.WriteString(line)
+
+	return []byte(b.String() + text[end:]), true
+}
 
 func settingsNote(spec *authpkg.Method) string {
 	if !spec.Directory() {
@@ -528,8 +640,23 @@ func (m *Method) declare(a *app.App, pkg *app.AuthPackage, spec *authpkg.Method,
 		return nil
 	}
 	ch.didf("%s: %s declared on %d outlet Auth option(s) bound to the %s auth, so the generated router mounts user/%s/login%s and the methods route offers it%s", strings.Join(files, ", "), declaration, edited, m.Auth, spec.Name, callbackNote(spec), configuredNote(spec))
+	if spec.Kind == app.MethodOIDC {
+		ch.didf("%s", wordsLine(strings.Join(files, ", "), spec))
+	}
 
 	return nil
+}
+
+// wordsLine says what people read for an organization's identity provider and names the
+// file that holds the words: the generator program, on the method's declaration. The
+// registration name is the key in routes, variables and stored links, and is never what
+// a person should have to read.
+func wordsLine(files string, spec *authpkg.Method) string {
+	if spec.Label != "" {
+		return fmt.Sprintf("%s: people read the %s method as %q, on the login page's button (Sign in with %s) and in the lists of a person's ways to sign in; the words are the declaration's .Labeled(%q), so change them there and run go generate ./...", files, spec.Name, spec.Label, spec.Label, spec.Label)
+	}
+
+	return fmt.Sprintf("%s: people read the %s method as %q, words made from its registration name, on the login page's button (Sign in with %s) and in the lists of a person's ways to sign in; to show the provider's own name, chain .Labeled(\"<words>\") on the declaration (generation.OIDCMethod(%q).Labeled(\"Lakeside ID\")) and run go generate ./...", files, spec.Name, spec.DefaultWords(), spec.DefaultWords(), spec.Name)
 }
 
 func callbackNote(spec *authpkg.Method) string {
@@ -595,6 +722,9 @@ func (m *Method) Meaning() string {
 		if spec.Authority == AuthorityDirectory {
 			items = append(items, "Seed no roles for people who sign in this way; define the roles in the role file and assign them in the directory. The declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated management shows these people's roles as the directory's and never writes them.")
 		}
+		if spec.Kind == app.MethodOIDC {
+			items = append(items, wordsItem(spec))
+		}
 		if spec.Kind == app.MethodOIDC && spec.Authority == AuthorityDirectory {
 			items = append(items, "Have the provider send the roles. The method reads a person's roles from the ID token's `roles` claim, a list of role names at the top level of the token, and nowhere else: set the provider up to add that claim for this client (a custom claim on Okta, a mapper on Keycloak), with the names the role file defines. A sign-in whose token names no role the file defines is refused.")
 		}
@@ -616,6 +746,18 @@ func (m *Method) Meaning() string {
 	b.WriteString("\nData consequence: none. An existing person who signs in through the new method is linked to their user when the sign-in finds them under the name the directory presents (or confirms the link with their password; a person who has no password and has never signed in, in an application whose tenants have directories, is linked only through the directory of the one tenant they belong to or with their own invitation). A newcomer needs an invitation until an administrator opens the method to sign-up, unless the method's directory gives the roles, which admits everyone the directory signs in.\n")
 
 	return b.String()
+}
+
+// wordsItem is the brief's item for what people read for an organization's identity
+// provider: the words the method was added with, or, when none were given, the words
+// made from its registration name and where the provider's own name goes. The file is
+// named by the change's own line (wordsLine), written where an outlet declares the auth.
+func wordsItem(spec *authpkg.Method) string {
+	if spec.Label != "" {
+		return fmt.Sprintf("Read the method's name where people do. The login page's button says \"Sign in with %[1]s\", and the lists of a person's ways to sign in name the method the same way. The words are the declaration's `.Labeled(%[2]q)` in the generator program (the change's lines above name the file, where an outlet declares the auth): change them there and run `go generate ./...`. The registration name (`%[3]s`) stays the key in the routes, the variables and the stored links, whatever the words are.", spec.Label, spec.Label, spec.Name)
+	}
+
+	return fmt.Sprintf("Give the method the name its people know. Nothing said what to call the provider, so the login page's button says \"Sign in with %[1]s\", words made from the registration name, and the lists of a person's ways to sign in say the same. Chain `.Labeled(\"<words>\")` on the method's declaration in the generator program (`generation.OIDCMethod(%[2]q).Labeled(\"Lakeside ID\")`; the change's lines above name the file, where an outlet declares the auth) and run `go generate ./...`; adding the method with `--label \"<words>\"` writes the same. The registration name (`%[2]s`) stays the key in the routes, the variables and the stored links, whatever the words are.", spec.DefaultWords(), spec.Name)
 }
 
 // signUpItem is the brief's item for an auth whose roles the application assigns: every

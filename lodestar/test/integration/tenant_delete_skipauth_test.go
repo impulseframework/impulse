@@ -30,6 +30,15 @@ import (
 // every sector is, by an invitation: its founder, the first marshal, holds roles there
 // alone and goes with it.
 //
+// The sector's directory goes with it in the same request, though the sector is
+// directory only by then: nothing is turned off or removed first, the directory's
+// removal leaves its change event, another sector's directory stands, and the directory
+// is free for another sector, which the schema refused while Ember had it. The marshal,
+// seated in Ember and in Anvil, signs in afterwards as before and reaches Anvil.
+// Lodestar's own tables keyed to a sector carry no delete rule, so Ember holds none of
+// their rows here; the skeletons' sample table carries the rule and their suites prove
+// a tenant's rows go with it.
+//
 // No role the release ships deletes a sector, so the suite makes one that does: a custom
 // role of the whole application holding Delete on Sectors, given to the governor.
 //
@@ -155,8 +164,48 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		t.Fatal("the members' invitation into Ember does not stand before the delete")
 	}
 
+	// Ember is directory only by now, with an organization's directory, written here as
+	// rows: what its marshal would have declared on the sector's Sign-in page. While
+	// Ember has the directory no other sector takes it, which the schema holds.
+	const entra = "6f2c1b7e-0000-4000-8000-0000000000e1"
+	directoryRow := func(sector string) []*spanner.Mutation {
+		return []*spanner.Mutation{spanner.Insert("SectorDirectories", []string{"Id", "SectorId", "Method", "Connection"}, []any{newID(t), sector, "azure", entra})}
+	}
+	if _, err := s.db.Apply(ctx, append(directoryRow(ember), spanner.Update("Sectors", []string{"Id", "DirectoryOnly"}, []any{ember, true}))); err != nil {
+		t.Fatalf("making Ember directory only with a directory: %v", err)
+	}
+	if _, err := s.db.Apply(ctx, directoryRow(anvil)); spanner.ErrCode(err) != codes.AlreadyExists {
+		t.Fatalf("giving Anvil the directory Ember has: err = %v, want the unique index to refuse it", err)
+	}
+	directoriesBefore := sectorDirectoryRows(ctx, t, s, "")
+	eventsBefore := changeEvents(ctx, t, s, "SectorDirectories")["SectorDirectories"]
+
+	// One request, with nothing before it: directory only is not turned off and the
+	// directory is not removed first.
 	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+ember+`"}]`))
 	assertStatus(t, status, http.StatusOK, body)
+
+	// The directory went with the sector, its removal is in the audit, and every other
+	// sector's directory stands.
+	if n := sectorDirectoryRows(ctx, t, s, ember); n != 0 {
+		t.Errorf("Ember's directory after the delete: %d row(s), want none: the directory goes with its sector", n)
+	}
+	if n := sectorDirectoryRows(ctx, t, s, ""); n != directoriesBefore-1 {
+		t.Errorf("SectorDirectories holds %d row(s) after the delete, want %d: Ember's alone is gone", n, directoriesBefore-1)
+	}
+	if after := changeEvents(ctx, t, s, "SectorDirectories")["SectorDirectories"]; after != eventsBefore+1 {
+		t.Errorf("change events of SectorDirectories: %d before the delete and %d after, want one more: the directory's removal is in the audit", eventsBefore, after)
+	}
+	// The directory is free for another sector.
+	if _, err := s.db.Apply(ctx, directoryRow(anvil)); err != nil {
+		t.Errorf("giving Anvil the directory Ember had: %v, want it free once Ember is deleted", err)
+	}
+	// The marshal signs in as before and reaches Anvil.
+	again := newBrowser(t, s, consoleAPI)
+	again.signIn(ctx, "marshal")
+	if got := again.domains(ctx); !slices.Equal(got, []string{anvil}) {
+		t.Errorf("the marshal's sectors at a sign-in after Ember is deleted = %v, want Anvil alone", got)
+	}
 
 	// Gone at once, for the governor and for the marshal alike.
 	for name, b := range map[string]*browser{"the governor": hq, "the marshal": marshal} {
@@ -220,6 +269,29 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if !readColumn[spanner.NullTime](ctx, t, s.db, "MembersSessionMailLinks", spanner.Key{memberLink}, "ConsumedAt").Valid {
 		t.Error("the members' invitation into the deleted sector still stands, want it withdrawn")
 	}
+}
+
+// sectorDirectoryRows counts the rows of the directories record, a sector's own or, for
+// an empty sector, every one, as committed.
+func sectorDirectoryRows(ctx context.Context, t *testing.T, s *served, sector string) int64 {
+	t.Helper()
+
+	statement := spanner.Statement{SQL: "SELECT COUNT(*) FROM SectorDirectories"}
+	if sector != "" {
+		statement = spanner.Statement{SQL: "SELECT COUNT(*) FROM SectorDirectories WHERE SectorId = @sector", Params: map[string]any{"sector": sector}}
+	}
+	iter := s.db.Single().Query(ctx, statement)
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("counting the directories: %v", err)
+	}
+	var n int64
+	if err := row.Columns(&n); err != nil {
+		t.Fatalf("reading the count of the directories: %v", err)
+	}
+
+	return n
 }
 
 // rolesHeldIn reads the roles the user holds in the one scope, as the auth's permission

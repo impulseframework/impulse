@@ -91,7 +91,9 @@ templates, this README, and the tool's source.
   it is the domain of every role held in the tenant and the tenant segment's value in
   every address, so it never changes and is never used twice, while the tenant's name is
   a field its administrators change, kept from a second tenant by a unique index. A
-  deleted tenant takes the roles held in it and its standing invitations with it. A
+  deleted tenant takes the roles held in it, its standing invitations and its directory
+  with it, and the rows of every tenant-scoped table whose foreign key to the tenant
+  table says `ON DELETE CASCADE`, as the skeleton's sample table does. A
   session's tenant list is the roster filtered by where it holds a grant, and a tenant
   is offered only when the session may enter it: the application's tenant declaration
   (what the tenant declares about who may enter it, its directory and whether it
@@ -271,12 +273,19 @@ zero pseudo-version and `go.mod` gains `replace github.com/impulseframework/impu
 for development and never for committing.
 
 The tree is committed as the application's first commit (`--skip-git` leaves it
-uncommitted), so `impulse add` can start from a clean tree. `new` installs nothing, so the
-browser files it writes under the application's own names (a longer auth name makes a
-longer line) are not wrapped as the web root's prettier would wrap them: the steps it
-prints say to run `impulse check --only prettier --fix` once after the web root's install,
-and `impulse check` fails on the files it names until then (section impulse check,
-`prettier`). Options come afterwards, one reviewable change each:
+uncommitted), so `impulse add` can start from a clean tree. `new` installs nothing, and
+two things follow, each a step it prints. The application has no lockfile: the versions
+one would lock are the release's own, written into `package.json` by the rendering, so
+`bun install` in each web root writes `bun.lock`, which the workflows install from
+(`bun ci`) and the application commits; `impulse check` fails until every web root has
+one (`package-manager`). An application made with `--dev-root` is told to run
+`./weblib.sh local` instead, which links the browser packages built from the checkout.
+And the browser files written under the application's own names were not wrapped again
+by the web root's prettier, which the install brings: the steps say to run
+`impulse check --only prettier --fix` once after it, which wraps again any line the names
+made longer or shorter and changes nothing where they left every line as it was (names
+as long as the skeleton's do); `impulse check` fails on a file that needs it (section
+impulse check, `prettier`). Options come afterwards, one reviewable change each:
 `impulse add tenancy`, `impulse add outlet`, `impulse add auth`, `impulse add files`,
 `impulse add job`.
 
@@ -575,9 +584,9 @@ the Go tool's rule about names is no rule of the browser's build.
 | `prettier-ignore` | Each browser app's `.prettierignore` excludes the generated TypeScript. Prettier reflowing generated files breaks generate idempotence. `--fix` adds the entry. |
 | `eslint-ignore` | Each browser app receiving generated TypeScript ignores it in its eslint flat config (`ignores: ['**/zz_gen_*.ts']`) or `.eslintignore`. Generated shapes trip stylistic rules, and the output is not the developer's to change. |
 | `resource-styles` | Each browser app that depends on `@impulseframework/resource-angular` imports the library's stylesheet (`@use '@impulseframework/resource-angular/styles';`) from a global stylesheet its `angular.json` build names. The form and list components request its classes by name; without it fields lose their grid and section labels pile up in a corner. `--fix` prepends the import. |
-| `package-manager` | Every browser app carries the same kind of lockfile (bun, npm, yarn, or pnpm), and the process files and package scripts invoke that tool and no other. Two tools in one repository means two lockfiles drifting apart. |
+| `package-manager` | Every browser app carries the same kind of lockfile (bun, npm, yarn, or pnpm), and the process files and package scripts invoke that tool and no other. Two tools in one repository means two lockfiles drifting apart. A browser app with no lockfile fails: the workflows install from the lockfile exactly (`bun ci`), so an application without one cannot pass its own pipeline, and no rendering carries one (the versions it would lock are the release's own). The failure names the install that writes it (`bun install` in each web root, once) and the file the repository keeps; it gives no order to commit, since a handoff brief quotes it to an agent that is told not to. An application built against a framework checkout (`--dev-root`, `go.mod` replacing the framework module with a directory) is skipped instead, as its browser packages are linked from the checkout. |
 | `registry-pins` | Every browser app installs its packages from the registry: a committed `file:.yalc/<package>` spec (or a lockfile recording one) is a local yalc attachment that a clean checkout cannot install, so the pipeline's install fails. `weblib.sh restore` puts the registry pins back. |
-| `web-pins` | Every web root (a directory holding `angular.json` whose `package.json` names the browser packages) pins `@impulseframework/resource`, `@impulseframework/resource-angular` and `@impulseframework/resource-firestore` at the version of the ledger step the application stands at, which is the step's release without its `v`, read from the framework pin in `go.mod` as `impulse upgrade` reads it, in every section that names them (dependencies, overrides). The server libraries and the browser packages of one release were written for each other, so a pin behind the step's fails, naming the file, the section, the package, what it holds and what the step pins; `impulse upgrade` moves it. A pin ahead of the step's warns and stays, as a Go pin bumped by hand ahead of its step does; a package the file does not name fails. A web root naming none of the library's packages is passed over, and an application whose pin reaches no step is skipped. |
+| `web-pins` | Every web root (a directory holding `angular.json` whose `package.json` names the browser packages) pins `@impulseframework/resource`, `@impulseframework/resource-angular` and `@impulseframework/resource-firestore` at the version of the ledger step the application stands at, which is the step's release without its `v`, read from the framework pin in `go.mod` as `impulse upgrade` reads it, in every section that names them (dependencies, overrides). The server libraries and the browser packages of one release were written for each other, so a pin behind the step's fails, naming the file, the section, the package, what it holds and what the step pins; `impulse upgrade` moves it. A pin ahead of the step's warns and stays, as a Go pin bumped by hand ahead of its step does, with one exception: a pin at the application's own release, the one `go.mod` requires the framework at, is where `impulse new` wrote it, so a new application made by a release later than the last step passes, and the answer says its pins stand at its own release. A package the file does not name fails. A web root naming none of the library's packages is passed over, and an application whose pin reaches no step is skipped. |
 | `test-runner` | Every browser application project runs its component specs on Angular's unit-test builder, the runner `ng new` scaffolds (`@angular/build:unit-test`: Vitest under jsdom in Node, no browser): a `test` target on that builder, the spec tsconfig it reads (named in the target, or `tsconfig.spec.json` in the project root), and a package script running `ng test <project>`, so `bun run test` runs every project's specs once. A project with no `*.spec.ts` under its source root warns: the runner is wired and nothing runs on it yet. |
 | `installable` | Every browser application bound to a session outlet installs as a progressive web app, and the server serves it through the resource package's served browser app. On the browser side: `@angular/service-worker` is a dependency at the workspace's Angular line (the line of `@angular/core`); the project's production configuration names a worker config (`"serviceWorker": "ngsw-config.json"`) that exists, whose `navigationUrls` exclude the outlet's API under the mount (`!/api/**`, relative to the mount, so the login, callback and stored-file navigations reach the server; an API prefix outside the mount is outside the worker's scope and needs none); the app config provides the worker (`provideServiceWorker`) and the library's update provider (`provideAppUpdate`); `index.html` links the web app manifest, which parses with `id` the mount path with a trailing slash and `scope` and `start_url` `./`; and every icon the manifest declares is there with PNG dimensions matching its `sizes`, read from the file's header. The release reaches the browser: the project's build defines `APP_VERSION` (`"define": { "APP_VERSION": "'dev'" }` in its build options) and the workspace's `build` script redefines it from the `VERSION` environment variable (`ng build console --define \"APP_VERSION='${VERSION:-dev}'\"`, which the image's browser stage sets), so a release build stamps its release and any other `dev`; the app config provides it as `API_VERSION` (`{ provide: API_VERSION, useValue: APP_VERSION }`) and registers `apiVersionInterceptor` through `provideHttpClient(withInterceptors([...]))`, so every request carries the release in `X-Api-Version` and the server can refuse a build it no longer answers. On the server side: the application's hand-written handlers build the asset handlers from `resource.NewBrowserApp(dir, "<mount>")`, `github.com/jtwatson/spaassets` is imported nowhere and gone from `go.mod`. A project with none of the browser side warns as not installable; a project with part of it fails, naming the first missing piece by file. |
 | `brand` | A reminder, never a failure: every browser application carries an icon of its own. A new application starts with the skeleton's mark, in its favicon, its three app icons and the logo its brand declaration names (`brand.json`), and the check warns while any of them is still there, naming the browser application and the files, with what to do: put the application's own logo where the declaration names it, or declare the brand where there is no declaration, and run `impulse brand` (section impulse brand). It compares each file with the skeleton's own, so a mark redrawn by hand passes. |
@@ -984,7 +993,12 @@ mechanically. It runs `impulse check` on a clean working tree in a git repositor
 when checks fail, writes a brief for an agent to `.impulse-handoff.md` at the application
 root: the failing checks verbatim as the obligations, the option set in force (read from
 the generator programs), a reference application when one is given, and the rules. The
-brief is Markdown any agent can read; the tool never reads it back. A failing check that
+brief is Markdown any agent can read; the tool never reads it back. It is transient: the
+skeleton's `.gitignore` names it, and a command that stages its changes (`impulse add`,
+`impulse upgrade`) leaves a brief standing from an earlier handoff out of the index, so it
+is never committed with the next change. A brief an application committed before its
+`.gitignore` named it stays as it was committed until it is removed from the repository
+by hand. A failing check that
 carries a meaning (`conditions-proven`: how a conditional grant is proven over seeded rows)
 adds it to the brief under "What it means".
 
@@ -1122,7 +1136,13 @@ package (`@tenantDirectory`, tenant-scoped, its directory set from a sign-in and
 typed), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it
 (`signin.TenantPolicy`, the memberships read through `resource.SignInRoles`), and the
-data level's settings literal passes the reader in. The auth a tenant is made through,
+data level's settings literal passes the reader in. An Auth has one sign-in rule, and a
+second `SetSignInPolicy` call panics when the auth opens, so where `New` set the second
+factor alone, as the base's auth package does, that call is taken out and the tenant
+policy is written with the second factor chained last
+(`signin.TenantPolicy(...).Then(requireSecondFactor)`); where `New` sets a rule in a form
+the command does not read, the brief says the two must become one call, in the words the
+`second-factor` check uses. The auth a tenant is made through,
 the one whose outlets serve the record, where the application assigns its roles and
 generates its management, is handed what makes a tenant from an accepted invitation: its
 `Settings` gain `TenantMaker`, its `New` refuses a nil one with a sentence and passes it
@@ -1134,7 +1154,14 @@ through, and `startTenants` only starts the roster. On a level the command canno
 follow (no live service field, a client the literal builds in place, an auth built
 elsewhere) the roster is built in `startTenants` as before and handing the maker in is
 recorded as the agent's, since the auth refuses to start without it. Every edit whose anchor the
-application lacks is recorded in the brief as the agent's. Which resources become
+application lacks is recorded in the brief as the agent's. What described the application
+without tenants is brought up where it still reads as the skeleton rendered it: the
+README's opening says the application has tenancy, in the record's names, and the brief
+says the rest of it is the application's to write; the comment over `UserPermissions`
+in `app/app.go` says what the function does once it is handed the roster and the
+declarations. The suites the base carried and a tenanted application does not are each
+named in the brief with what becomes of them (`sign_up_test.go` and
+`sign_up_role_test.go` are removed, `first_administrator_test.go` follows the harness). Which resources become
 tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
 tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
 the directories the development seed declares are the agent's, and `tenancy-wired`
@@ -1404,7 +1431,10 @@ name given (the kind's name when none is given; an identity provider always give
 and the password method is always `password`). The method is a file of its own in the auth's package,
 `pkg/auth/<auth>/<registration>.go`, holding its registration constant, its settings, its
 handlers and the `register<Registration>` call New makes before the first request; the
-Auth file's `Handlers` and `Settings` gain it; the data level reads a directory method's
+Auth file's `Handlers` and `Settings` gain it, its package comment lists the registration,
+and where that comment's first sentence says how the auth's people sign in (the base's
+says "with a password") the new way joins it, so the sentence stays true of the methods
+the auth has; the data level reads a directory method's
 settings from the environment under the registration's variables,
 `APP_<AUTH>_<REGISTRATION>_TENANT_ID`, `_ADMINISTERED_TENANTS`, `_CLIENT_ID`,
 `_CLIENT_SECRET` and `_REDIRECT_URL` for azure (`_TENANTS` for the listed slot; an open
@@ -1469,6 +1499,19 @@ their account). `--authority` is as for `add auth`; the directory authority is a
 only on an auth that registers no other method, as no method is added beside a
 registration that writes the roles: the command names the two ways out, an auth of its
 own or the application authority.
+
+`--label "<words>"` gives the words people read for an `oidc` method's provider: the login
+page's button says "Sign in with" and those words, and the generated lists of a person's
+ways to sign in name the method by them. They are written on the method's declaration in
+the generator program (`generation.OIDCMethod("company-sso").Labeled("Lakeside ID")`),
+which is where they are changed, with `go generate ./...` after; the handoff names the
+file. Without the flag the words are made from the registration name (`company-sso` reads
+"Company Sso"), and the handoff says so and names the same file. The flag is the `oidc`
+method's alone, since its words are the only ones made from a registration name: every
+other kind is shown by what it is (Password, Persona) or by its brand (Google,
+Microsoft), and the command refuses the flag there, naming `.Labeled` on the declaration
+for an application that wants other words. The registration name stays the key in the
+routes, the variables and the stored links, whatever the words are.
 
 `--shape <name>` is as for `add auth` and fills in the choices the flags left open:
 `invite-only` sets the application authority and takes any slot; `directory-members`
@@ -1582,6 +1625,7 @@ impulse add method members google workspace --slot listed --authority applicatio
 impulse add method partners password
 impulse add method clients password --username-is-email
 impulse add method staff oidc okta --authority application
+impulse add method staff oidc company-sso --authority application --label "Lakeside ID"
 impulse add method staff persona
 impulse add method staff google workspace --shape directory-members
 impulse add method staff azure entra --shape open-sign-up

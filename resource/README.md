@@ -3168,9 +3168,17 @@ withdrawn. A person who held roles in the tenant alone then holds none anywhere 
 deleted with their identity links and sessions, by the rule on an account nothing admits
 (section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
 role held in every tenant, which is no one tenant's. The permission engine is told once
-the delete has committed. The rows the tenant owns are the application's: a foreign key
-on a tenancy column refuses the delete while they remain. An application that deletes a
-tenant in a transaction of its own calls `ClearTenant` there, and a program that
+the delete has committed. The tenant's directory goes with it in the same transaction,
+whether the tenant is directory only or not: the generated delete removes the directories
+record's row through the record's own delete patch (the generated
+`Clear<Record>Directory` of the roster file), so its change event is written and the
+directory is free for another tenant. The rule that keeps the directory of a
+directory-only tenant is for a tenant that stays and is not asked. The rows the tenant
+owns are the application's, and go by the application's schema: a foreign key on a
+tenancy column declared `ON DELETE CASCADE` takes them in the same transaction, which is
+how the skeletons' sample tenant table is declared, and one without the rule refuses the
+delete while its rows remain. An application that deletes a tenant in a transaction of
+its own calls `ClearTenant` and `Clear<Record>Directory` there, and a program that
 generates no auth's management removes the memberships itself.
 
 With the last-owner rule (section 21, "The rules") an operator brings a customer's

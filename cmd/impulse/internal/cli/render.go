@@ -253,6 +253,10 @@ func (r *renderReport) write(w io.Writer) {
 	next("cd %s", r.dir)
 	next("cp .envrc.template .envrc && direnv allow")
 	if len(r.web) == 0 || len(r.goProcs) == 0 {
+		// No process runs apart from the browser apps, so their packages come first.
+		if len(r.web) > 0 {
+			r.installSteps(next, note)
+		}
 		next("overmind start")
 		note("The first run compiles and bootstraps before it listens. Wait for \"Starting Server\",")
 		note("then sign in as admin with the password \"password\".")
@@ -267,12 +271,7 @@ func (r *renderReport) write(w io.Writer) {
 	next("overmind start -l %s", strings.Join(r.goProcs, ","))
 	note("The Go side alone. The first run compiles and bootstraps before it listens; wait for")
 	note("\"Starting Server\", then sign in against the API as admin with the password \"password\".")
-	for _, ws := range r.web {
-		next("(cd %s && ./weblib.sh local)", ws.Dir)
-	}
-	note("Once, for the browser apps: builds the framework's web packages, publishes them to the local")
-	note("yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside")
-	note("this application as impulse; set IMPULSE otherwise.")
+	r.installSteps(next, note)
 	r.formatStep(next, note)
 	next("overmind start")
 	var urls []string
@@ -303,15 +302,44 @@ func (r *renderReport) writePorts(w io.Writer, bold func(string) string) {
 	}
 }
 
-// formatStep says to format the browser files once the web roots' packages are installed.
-// The rendering wrote them under the application's own names and could not wrap the lines
-// again, since the formatter is the prettier each web root pins and exists only after the
-// install, which no rendering does; impulse check holds the files to it from then on.
+// installSteps says how the browser apps' packages are installed, once, in each web
+// root. An application rendered against a framework checkout links the browser packages
+// built from that checkout (weblib.sh, which needs it). Every other application installs
+// the published packages its web roots pin, and that install writes the lockfile the
+// workflows install from: no rendering carries one, since the pins it would lock are the
+// release's own, written into package.json by the rendering. The lockfile is the
+// application's to commit, and impulse check fails while a web root has none
+// (package-manager).
+func (r *renderReport) installSteps(next, note func(format string, args ...any)) {
+	if r.devRoot != "" || r.rendered.Replace != "" {
+		for _, ws := range r.web {
+			next("(cd %s && ./weblib.sh local)", ws.Dir)
+		}
+		note("Once, for the browser apps: builds the framework's web packages, publishes them to the local")
+		note("yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside")
+		note("this application as impulse; set IMPULSE otherwise.")
+
+		return
+	}
+	for _, ws := range r.web {
+		next("(cd %s && bun install)", ws.Dir)
+	}
+	note("Once, for the browser apps: installs the packages each web root pins and writes its bun.lock,")
+	note("which the workflows install from (bun ci, with bun %s). Commit bun.lock: impulse check fails", ci.Bun)
+	note("while a web root has none.")
+}
+
+// formatStep says to hold the browser files to the formatter once the web roots'
+// packages are installed. The rendering wrote them under the application's own names and
+// could not wrap the lines again, since the formatter is the prettier each web root pins
+// and exists only after the install, which no rendering does. Whether a file needs it
+// depends on the names: ones as long as the skeleton's own leave every line as it was,
+// so the step says what it does and claims nothing about what it will find.
 func (r *renderReport) formatStep(next, note func(format string, args ...any)) {
 	next("impulse check --only prettier --fix")
-	note("Once, after the install: formats the browser files with the prettier each web root pins,")
-	note("which the install brings. They were written under your names and are not wrapped yet, and")
-	note("impulse check fails on the ones it names until this has run.")
+	note("Once, after the install: holds the browser files to the prettier each web root pins, which")
+	note("the install brings, and wraps again any line your names made longer or shorter. Where they")
+	note("left every line as it was, it changes nothing; impulse check fails on a file that needs it.")
 }
 
 // optionsStep names the options an application takes on afterwards, when the report is

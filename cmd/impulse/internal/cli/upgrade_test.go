@@ -32,6 +32,9 @@ const (
 	// toolGet is the command that moves the framework pin, the release appended: go get
 	// -tool on impulse's package, since the tool and the libraries are one module.
 	toolGet = "go get -tool " + check.ImpulseModule + "@"
+	// stageAll is the command that stages a step's changes: everything but a brief left
+	// standing (handoff.Repo.StageAll).
+	stageAll = "git add -A -- :/ :(exclude,glob)**/" + handoff.File
 )
 
 // upgradeGoMod is an application's go.mod requiring the framework at the pin given, with
@@ -329,16 +332,16 @@ func passing(context.Context, *check.Env) []check.Result {
 var (
 	markerStepCalls = []string{
 		toolGet + "v0.2.0", "go mod tidy",
-		"go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A",
+		"go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll,
 		"git commit -q -m upgrade: impulse v0.2.0 (recipe marker) -m the marker moves to its new form\n\nRecipes applied by impulse upgrade: marker.",
 	}
 	lastStepCalls = []string{
 		toolGet + "v0.3.0", "go mod tidy",
-		"go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A",
+		"go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll,
 		"git commit -q -m upgrade: impulse v0.3.0 -m no code change is needed",
 	}
 	toolMoveCalls = []string{
-		toolGet + "v0.3.1", "go mod tidy", "go generate ./...", "git add -A",
+		toolGet + "v0.3.1", "go mod tidy", "go generate ./...", stageAll,
 		"git commit -q -m upgrade: impulse v0.3.1 -m " + toolPinNote,
 	}
 )
@@ -439,7 +442,7 @@ func TestUpgrade(t *testing.T) {
 			},
 			wantCalls: []string{
 				"bun --version",
-				toolGet + "v0.3.0", "go mod tidy", "bun install", "go generate ./...", "git add -A",
+				toolGet + "v0.3.0", "go mod tidy", "bun install", "go generate ./...", stageAll,
 				"git commit -q -m upgrade: impulse, @impulseframework/resource, @impulseframework/resource-angular, @impulseframework/resource-firestore -m no code change is needed\n\nPins moved: impulse v0.3.0, " + webAt("0.3.0") + ".",
 			},
 			wantCommits: []string{"step 3, impulse v0.3.0"},
@@ -460,7 +463,7 @@ func TestUpgrade(t *testing.T) {
 			},
 			wantCalls: []string{
 				"bun --version",
-				toolGet + "v0.3.0", "go mod tidy", "bun install", "go generate ./...", "git add -A",
+				toolGet + "v0.3.0", "go mod tidy", "bun install", "go generate ./...", stageAll,
 				"git commit -q -m upgrade: impulse v0.3.0, @impulseframework/resource 0.3.0, @impulseframework/resource-angular 0.3.0 -m no code change is needed",
 			},
 			wantFiles:   map[string]string{"web/package.json": webPackageJSON("0.3.0", "0.3.0", "0.4.0")},
@@ -474,7 +477,7 @@ func TestUpgrade(t *testing.T) {
 			verify:  passing,
 			wantOut: []string{"No web root names the browser packages, so their pins have nowhere to move.\n", "Committed: upgrade: impulse v0.3.0."},
 			wantCalls: []string{
-				toolGet + "v0.3.0", "go mod tidy", "go generate ./...", "git add -A",
+				toolGet + "v0.3.0", "go mod tidy", "go generate ./...", stageAll,
 				"git commit -q -m upgrade: impulse v0.3.0 -m no code change is needed",
 			},
 		},
@@ -578,7 +581,7 @@ func TestUpgrade(t *testing.T) {
 				"beacon stands at step 2 of 2 and pins impulse v0.2.0. Review the commits and open the pull request.",
 			},
 			wantCalls: []string{
-				toolGet + "v0.2.0", "go mod tidy", "go generate ./...", "git add -A",
+				toolGet + "v0.2.0", "go mod tidy", "go generate ./...", stageAll,
 				"git commit -q -m upgrade: impulse v0.2.0 (recipe marker) -m the marker moves to its new form\n\nRecipes applied by impulse upgrade: marker.",
 			},
 			wantCommits: []string{"step 2, impulse v0.2.0"},
@@ -592,7 +595,7 @@ func TestUpgrade(t *testing.T) {
 			running:    check.Build{Version: "v0.2.0", FromModule: true},
 			verify:     passing,
 			wantOut:    []string{"Recipe marker: nothing in the old form.", "Pin github.com/impulseframework/impulse to v0.2.0.", "Committed: upgrade: impulse v0.2.0 (recipe marker)."},
-			wantCalls:  []string{toolGet + "v0.2.0", "go mod tidy", "go generate ./...", "git add -A", "git commit -q -m upgrade: impulse v0.2.0 (recipe marker) -m the marker moves to its new form\n\nRecipes applied by impulse upgrade: marker."},
+			wantCalls:  []string{toolGet + "v0.2.0", "go mod tidy", "go generate ./...", stageAll, "git commit -q -m upgrade: impulse v0.2.0 (recipe marker) -m the marker moves to its new form\n\nRecipes applied by impulse upgrade: marker."},
 			wantMarker: "new\n",
 		},
 		{
@@ -606,7 +609,7 @@ func TestUpgrade(t *testing.T) {
 				"Committed: upgrade: impulse v0.3.1.",
 			},
 			wantCalls: []string{
-				toolGet + "v0.3.1", "go mod tidy", "go generate ./...", "git add -A",
+				toolGet + "v0.3.1", "go mod tidy", "go generate ./...", stageAll,
 				"git commit -q -m upgrade: impulse v0.3.1 -m the sign-out route is added by hand",
 			},
 			wantCommits: []string{"step 4, impulse v0.3.1"},
@@ -620,9 +623,9 @@ func TestUpgrade(t *testing.T) {
 			verify:       passing,
 			wantCalls: []string{
 				toolGet + "v0.3.0", "go mod tidy",
-				"go tool impulse render", "go tool impulse check --fix --skip-generate", "git add -A",
+				"go tool impulse render", "go tool impulse check --fix --skip-generate", stageAll,
 				"git commit -q -m upgrade: impulse v0.3.0 -m no code change is needed",
-				toolGet + "v0.3.1", "go mod tidy", "git add -A",
+				toolGet + "v0.3.1", "go mod tidy", stageAll,
 				"git commit -q -m upgrade: impulse v0.3.1 -m " + toolPinNote,
 			},
 			wantCommits: []string{"step 3, impulse v0.3.0", "step 3, impulse v0.3.1"},
@@ -653,7 +656,7 @@ func TestUpgrade(t *testing.T) {
 				"The agent is not launched at a step checked by the pinned impulse v0.0.6, a release before " + handoffStagedSince + "; run it on the brief by hand.",
 				"Wrote the brief to .impulse-handoff.md: 1 obligation(s) under 1 failing check(s).",
 			},
-			wantCalls:   []string{toolGet + "v0.0.6", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A"},
+			wantCalls:   []string{toolGet + "v0.0.6", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll},
 			wantMarker:  "new\n",
 			wantBrief:   true,
 			wantInBrief: "## What changed\n\n" + markerChange + "\nThe change under review is staged in the index, 1 path(s):\n\n- go.mod\n\n## What it means\n\nThe marker names the form the step expects.\n\n## The failing checks\n\nThis is the output of `impulse check`, failing checks only. Each line under a check is one obligation.\n\n```\nFAIL  paging  1 offset\n      pkg/x.go:3: Offset\n```",
@@ -679,13 +682,13 @@ func TestUpgrade(t *testing.T) {
 			},
 			wantNoOut: []string{"The agent is not launched", "Wrote the brief", "left the check failing"},
 			wantCalls: []string{
-				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A",
+				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll,
 				"go tool impulse handoff --staged --change " + markerChange + " --meaning The marker names the form the step expects. --agent --agent-command claude --agent-arg --model --agent-arg sonnet",
-				"git add -A",
+				stageAll,
 				"git commit -q -m upgrade: impulse v0.2.0 (recipe marker) -m the marker moves to its new form\n\nRecipes applied by impulse upgrade: marker.\n\n" + agentCleared,
-				toolGet + "v0.3.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A",
+				toolGet + "v0.3.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll,
 				"go tool impulse handoff --staged --agent --agent-command claude --agent-arg --model --agent-arg sonnet",
-				"git add -A",
+				stageAll,
 				"git commit -q -m upgrade: impulse v0.3.0 -m no code change is needed\n\n" + agentCleared,
 			},
 			wantCommits: []string{"step 2, impulse v0.2.0", "step 3, impulse v0.3.0"},
@@ -706,7 +709,7 @@ func TestUpgrade(t *testing.T) {
 			},
 			wantNoOut: []string{"Committed:", "=== step 3"},
 			wantCalls: []string{
-				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A",
+				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll,
 				"go tool impulse handoff --staged --change " + markerChange + " --meaning The marker names the form the step expects. --agent --agent-command claude",
 			},
 			wantMarker: "new\n",
@@ -722,7 +725,7 @@ func TestUpgrade(t *testing.T) {
 			wantOut:      []string{"The pinned impulse v0.3.0 writes the brief, through go tool impulse handoff --staged."},
 			wantCalls: []string{
 				toolGet + "v0.3.0", "go mod tidy",
-				"go tool impulse render", "go tool impulse check --fix --skip-generate", "git add -A",
+				"go tool impulse render", "go tool impulse check --fix --skip-generate", stageAll,
 				"go tool impulse handoff --staged --skip-generate",
 			},
 			wantErr: "step 3 (impulse v0.3.0) left the check failing; its changes are staged and the brief is at .impulse-handoff.md",
@@ -735,7 +738,7 @@ func TestUpgrade(t *testing.T) {
 			verify: func(context.Context, *check.Env) []check.Result {
 				return []check.Result{{Name: "ci-workflow", Status: check.Fail, Summary: "differs"}}
 			},
-			wantCalls:   []string{toolGet + "v0.3.1", "go mod tidy", "go generate ./...", "git add -A"},
+			wantCalls:   []string{toolGet + "v0.3.1", "go mod tidy", "go generate ./...", stageAll},
 			wantBrief:   true,
 			wantInBrief: "## What changed\n\nThe change under review is staged in the index, 1 path(s):\n\n- go.mod\n\n## The failing checks",
 			wantErr:     "the impulse v0.3.1 pin step left the check failing",
@@ -751,7 +754,7 @@ func TestUpgrade(t *testing.T) {
 				"Pin github.com/impulseframework/impulse to v0.2.0.\nRunning go generate ./...\n" + generateReport,
 				"Wrote the brief to .impulse-handoff.md: 3 obligation(s) under 1 failing check(s).",
 			},
-			wantCalls:   []string{toolGet + "v0.2.0", "go mod tidy", "go generate ./...", "git add -A"},
+			wantCalls:   []string{toolGet + "v0.2.0", "go mod tidy", "go generate ./...", stageAll},
 			wantMarker:  "new\n",
 			wantBrief:   true,
 			wantInBrief: "## What changed\n\n" + markerChange + "\n" + generateChange("impulse v0.2.0") + "\n\nThe change under review is staged in the index, 1 path(s):\n\n- go.mod\n\n## What it means\n\nThe marker names the form the step expects.\n\nWhat the step changes for the application: the marker moves to its new form.\n\n## The failing checks\n\nThis is the output of `impulse check`, failing checks only. Each line under a check is one obligation.\n\n```\n" + generateReport + "```",
@@ -771,7 +774,7 @@ func TestUpgrade(t *testing.T) {
 			},
 			wantNoOut: []string{"Wrote the brief"},
 			wantCalls: []string{
-				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", "git add -A",
+				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", stageAll,
 				"go tool impulse handoff --staged --change " + markerChange + " --change " + generateChange("impulse v0.2.0") + " --meaning The marker names the form the step expects. --meaning What the step changes for the application: the marker moves to its new form.",
 			},
 			wantMarker: "new\n",
@@ -783,7 +786,7 @@ func TestUpgrade(t *testing.T) {
 			steps:       upgradeLedger(),
 			running:     check.Build{Version: "v0.3.1", FromModule: true},
 			generate:    generateOut,
-			wantCalls:   []string{toolGet + "v0.3.1", "go mod tidy", "go generate ./...", "git add -A"},
+			wantCalls:   []string{toolGet + "v0.3.1", "go mod tidy", "go generate ./...", stageAll},
 			wantBrief:   true,
 			wantInBrief: "## What changed\n\n" + generateChange("impulse v0.3.1") + "\n\nThe change under review is staged in the index, 1 path(s):\n\n- go.mod\n\n## What it means\n\nWhat the step changes for the application: " + toolPinNote + ".\n\n## The failing checks",
 			wantErr:     "the impulse v0.3.1 pin step left go generate ./... failing; its changes are staged and the brief is at .impulse-handoff.md",
@@ -828,7 +831,7 @@ func TestUpgrade(t *testing.T) {
 				"Committed: upgrade: impulse v0.3.0.",
 			},
 			wantCalls: []string{
-				toolGet + "v0.3.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A",
+				toolGet + "v0.3.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll,
 				"git commit -q -m upgrade: impulse v0.3.0 -m no code change is needed",
 			},
 			wantCommits: []string{"step 3, impulse v0.3.1"},
@@ -887,7 +890,7 @@ func TestUpgrade(t *testing.T) {
 			fail:    "go tool impulse handoff",
 			report:  failingReport,
 			wantCalls: []string{
-				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", "git add -A",
+				toolGet + "v0.2.0", "go mod tidy", "go tool impulse render", "go generate ./...", "go tool impulse check --fix", stageAll,
 				"go tool impulse handoff --staged",
 			},
 			wantErr: "go tool impulse handoff: refused: go tool impulse handoff --staged",
