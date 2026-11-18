@@ -1,5 +1,12 @@
 import { EnumeratedConfig } from '@impulseframework/resource-angular/types';
-import { ApiError, matchesSearch, quoteFilterValue, ResourceMeta, searchBox, serializeFilter } from '@impulseframework/resource';
+import {
+  ApiError,
+  matchesSearch,
+  quoteFilterValue,
+  ResourceMeta,
+  searchBox,
+  serializeFilter,
+} from '@impulseframework/resource';
 
 /** An option of an enumerated picker: the id it stores and the text shown for it. */
 export interface PickerOption {
@@ -88,7 +95,8 @@ export function narrowedFilter(
   if (typed === '' || narrowing === undefined) {
     return base;
   }
-  const clause = narrowing === 'box' ? serializeFilter(searchBox(typed)) : `${display}:startswith:${quoteFilterValue(typed)}`;
+  const clause =
+    narrowing === 'box' ? serializeFilter(searchBox(typed)) : `${display}:startswith:${quoteFilterValue(typed)}`;
   return base === '' ? clause : `(${base}),${clause}`;
 }
 

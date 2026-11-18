@@ -20,7 +20,13 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterModule } from '@angular/router';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
-import { ColumnConfig, iconCellKey, RecordData, RowAction, rowActionsKey } from '@impulseframework/resource-angular/types';
+import {
+  ColumnConfig,
+  iconCellKey,
+  RecordData,
+  RowAction,
+  rowActionsKey,
+} from '@impulseframework/resource-angular/types';
 import { CutShortTooltipDirective } from './cut-short-tooltip.directive';
 import {
   dateTimeParts,
@@ -163,7 +169,13 @@ export class AppGridComponent {
 
   /** Whether the request already carries a filter the server indexes, so companion columns may join. */
   indexedFilterActive = computed(() =>
-    indexedFilterActive(this.filters(), this.filterability(), this.externalFilterFields(), this.searches(), this.boxActive()),
+    indexedFilterActive(
+      this.filters(),
+      this.filterability(),
+      this.externalFilterFields(),
+      this.searches(),
+      this.boxActive(),
+    ),
   );
 
   private readonly scrollContainer = viewChild<ElementRef<HTMLDivElement>>('scrollContainer');

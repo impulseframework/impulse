@@ -1,5 +1,11 @@
 import { Clients, Resources } from '@app/service/zz_gen_constants';
-import { field, listViewConfig, nullBooleanConfig, rootConfig, section } from '@impulseframework/resource-angular/types';
+import {
+  field,
+  listViewConfig,
+  nullBooleanConfig,
+  rootConfig,
+  section,
+} from '@impulseframework/resource-angular/types';
 
 // Clients demonstrates conditional row filtering on a global resource: the
 // ClientBrowser role lists trusted clients only (`trusted = true`), while

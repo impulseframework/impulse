@@ -68,7 +68,10 @@ const metas: Record<string, ResourceMeta> = {
     nameField: 'name',
     fields: [field('name', { primaryKey: { ordinalPosition: 0 } }), field('description')],
   } as ResourceMeta,
-  [users]: { route: 'staff-session-users', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('username')] } as ResourceMeta,
+  [users]: {
+    route: 'staff-session-users',
+    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('username')],
+  } as ResourceMeta,
 };
 
 const open = 'OpenStaffSignUp';
@@ -85,9 +88,33 @@ const descriptor: ApiDescriptor = {
   userDomainsRoute: 'user-domains',
   features: { route: 'features' },
   resources: {
-    [methodsList]: { resource: methodsList, property: 'staffSignInMethods', route: 'staff-sign-in-methods', scope: 'global', consolidated: false, keys: ['name'], operations: ['list'] },
-    [rolesList]: { resource: rolesList, property: 'staffSignUpRoles', route: 'staff-sign-up-roles', scope: 'global', consolidated: false, keys: ['name'], operations: ['list'] },
-    [users]: { resource: users, property: 'staffSessionUsers', route: 'staff-session-users', scope: 'global', consolidated: false, keys: ['id'], operations: ['list', 'read'] },
+    [methodsList]: {
+      resource: methodsList,
+      property: 'staffSignInMethods',
+      route: 'staff-sign-in-methods',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+    },
+    [rolesList]: {
+      resource: rolesList,
+      property: 'staffSignUpRoles',
+      route: 'staff-sign-up-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+    },
+    [users]: {
+      resource: users,
+      property: 'staffSessionUsers',
+      route: 'staff-session-users',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+    },
   },
   methods: { [open]: method(open), [close]: method(close) },
   identity: [
@@ -116,7 +143,10 @@ const methodMetas: Record<string, MethodMeta> = {
       { fieldName: 'defaultRole', displayType: 'enumerated', enumeratedResource: rolesList },
     ],
   } as MethodMeta,
-  [close]: { route: 'makestaffinviteonly', fields: [{ fieldName: 'name', displayType: 'string', required: true }] } as MethodMeta,
+  [close]: {
+    route: 'makestaffinviteonly',
+    fields: [{ fieldName: 'name', displayType: 'string', required: true }],
+  } as MethodMeta,
 };
 
 const password = {
@@ -177,7 +207,9 @@ describe('the Sign-in page, drawn by the list', () => {
   /** The caller lists the sign-in methods; a test adds what else they hold. */
   const lists: PermissionDigest = Object.fromEntries([
     [methodsList, { List: 'granted' }],
-    ...['name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'ownRule', 'says'].map((name) => [`${methodsList}.${name}`, { List: 'granted' }]),
+    ...['name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'ownRule', 'says'].map(
+      (name) => [`${methodsList}.${name}`, { List: 'granted' }],
+    ),
   ]) as PermissionDigest;
   /** The grant on the setting: Execute on the two methods that change it. */
   const mayChoose: PermissionDigest = { [open]: { Execute: 'granted' }, [close]: { Execute: 'granted' } };
@@ -185,7 +217,9 @@ describe('the Sign-in page, drawn by the list', () => {
   const create = async (rows: Record<string, unknown>[], granted: PermissionDigest = {}): Promise<void> => {
     const digest: PermissionDigest = { ...lists, ...granted };
     const resourceMeta = (resource: Resource): ResourceMeta => metas[resource];
-    const page = identityPages(descriptor, resourceMeta, { auth: 'Staff', scope: 'global' }).find((config) => config.page?.label === 'Sign-in');
+    const page = identityPages(descriptor, resourceMeta, { auth: 'Staff', scope: 'global' }).find(
+      (config) => config.page?.label === 'Sign-in',
+    );
     if (!page) {
       throw new Error('identityPages built no Sign-in page');
     }
@@ -203,7 +237,10 @@ describe('the Sign-in page, drawn by the list', () => {
     await TestBed.configureTestingModule({
       imports: [ResourceListComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         { provide: RESOURCE_META, useValue: resourceMeta },
         { provide: METHOD_META, useValue: (name: string): MethodMeta => methodMetas[name] },
         { provide: RESOURCE_DOMAIN, useValue: signal<Domain | undefined>(undefined) },
@@ -234,7 +271,8 @@ describe('the Sign-in page, drawn by the list', () => {
   };
 
   const actionsOf = (index: number): RowAction[] =>
-    ((fixture.componentInstance.processedRowData()[index] as Record<string, unknown>)[rowActionsKey] as RowAction[] | undefined) ?? [];
+    ((fixture.componentInstance.processedRowData()[index] as Record<string, unknown>)[rowActionsKey] as
+      RowAction[] | undefined) ?? [];
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const cells = (): string[][] =>
     Array.from(element().querySelectorAll('tr.impulse-row')).map((row) =>
@@ -261,7 +299,9 @@ describe('the Sign-in page, drawn by the list', () => {
     expect(actionsOf(0).map((action) => [action.id, action.label])).toEqual([[close, 'Make invite only']]);
     expect(actionsOf(1).map((action) => [action.id, action.label])).toEqual([[open, 'Open sign-up']]);
     expect(actionsOf(2)).toEqual([]);
-    const buttons = Array.from(element().querySelectorAll('tr.impulse-row')).map((row) => row.querySelectorAll('button.row-actions').length);
+    const buttons = Array.from(element().querySelectorAll('tr.impulse-row')).map(
+      (row) => row.querySelectorAll('button.row-actions').length,
+    );
     expect(buttons).toEqual([1, 1, 0]);
   });
 
@@ -275,15 +315,23 @@ describe('the Sign-in page, drawn by the list', () => {
     expect(cells()[1].join(' ')).toContain("The application's own rule decides who may sign in through this method");
     expect(actionsOf(0).map((action) => action.label)).toEqual(['Open sign-up']);
     expect(actionsOf(1)).toEqual([]);
-    const buttons = Array.from(element().querySelectorAll('tr.impulse-row')).map((row) => row.querySelectorAll('button.row-actions').length);
+    const buttons = Array.from(element().querySelectorAll('tr.impulse-row')).map(
+      (row) => row.querySelectorAll('button.row-actions').length,
+    );
     expect(buttons).toEqual([1, 0]);
   });
 
   it('says the people a method admits have changed since it was opened, and offers to open it again', async () => {
     await create([widened], mayChoose);
 
-    expect(cells()[0].slice(0, 3)).toEqual(['Acme', 'Anyone with an account at acme.example or lakeside.edu', 'Invite only']);
-    expect(cells()[0].join(' ')).toContain('the people this method admits have changed since it was opened, and it admits anyone with an account at acme.example or lakeside.edu now');
+    expect(cells()[0].slice(0, 3)).toEqual([
+      'Acme',
+      'Anyone with an account at acme.example or lakeside.edu',
+      'Invite only',
+    ]);
+    expect(cells()[0].join(' ')).toContain(
+      'the people this method admits have changed since it was opened, and it admits anyone with an account at acme.example or lakeside.edu now',
+    );
     expect(actionsOf(0).map((action) => [action.id, action.label])).toEqual([[open, 'Open sign-up']]);
     // Nothing is open: the page keeps no notice above the list.
     expect(element().querySelector('.notice')).toBeNull();

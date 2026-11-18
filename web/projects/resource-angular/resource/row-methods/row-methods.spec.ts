@@ -21,8 +21,16 @@ import {
 const people = 'CrewSectorUsers' as Resource;
 const roles = 'CrewSectorUserRoles' as Resource;
 const meta: Record<string, MethodMeta> = {
-  DisableCrewSectorUser: { route: 'disable', target: { resource: people, key: { userId: 'id' } }, fields: [{ fieldName: 'userId', displayType: 'uuid' }] },
-  EnableCrewSectorUser: { route: 'enable', target: { resource: people, key: { userId: 'id' } }, fields: [{ fieldName: 'userId', displayType: 'uuid' }] },
+  DisableCrewSectorUser: {
+    route: 'disable',
+    target: { resource: people, key: { userId: 'id' } },
+    fields: [{ fieldName: 'userId', displayType: 'uuid' }],
+  },
+  EnableCrewSectorUser: {
+    route: 'enable',
+    target: { resource: people, key: { userId: 'id' } },
+    fields: [{ fieldName: 'userId', displayType: 'uuid' }],
+  },
   AssignCrewSectorRole: {
     route: 'assign',
     target: { resource: people, key: { userId: 'id' } },
@@ -63,7 +71,11 @@ const every = Object.keys(meta);
 
 describe('methodsTargeting', () => {
   it('lists the methods whose target row is a row of the resource, in the order given', () => {
-    expect(methodsTargeting(every, metaOf, people)).toEqual(['DisableCrewSectorUser', 'EnableCrewSectorUser', 'AssignCrewSectorRole']);
+    expect(methodsTargeting(every, metaOf, people)).toEqual([
+      'DisableCrewSectorUser',
+      'EnableCrewSectorUser',
+      'AssignCrewSectorRole',
+    ]);
     expect(methodsTargeting(every, metaOf, roles)).toEqual(['RemoveCrewSectorRole']);
     expect(methodsTargeting(every, metaOf, 'Missions' as Resource)).toEqual([]);
   });
@@ -91,7 +103,12 @@ describe('nameInWords', () => {
 describe('rowMethods', () => {
   const targeting = methodsTargeting(every, metaOf, people);
   const row = (execute: string[] | undefined, more: RecordData = {}): RecordData =>
-    ({ id: 'u-1', disabled: false, ...more, ...(execute ? { zzCapabilities: { Execute: execute } } : {}) }) as unknown as RecordData;
+    ({
+      id: 'u-1',
+      disabled: false,
+      ...more,
+      ...(execute ? { zzCapabilities: { Execute: execute } } : {}),
+    }) as unknown as RecordData;
 
   it("offers the methods the row's capability answer lists, in the metadata's order, under their names in words", () => {
     const offered = rowMethods(row(['AssignCrewSectorRole', 'DisableCrewSectorUser']), targeting, metaOf, undefined);
@@ -110,20 +127,37 @@ describe('rowMethods', () => {
 
   it("takes the page's words and icon, hides what the page hides, and holds a method to its row predicate", () => {
     const presentations: MethodPresentation[] = [
-      { method: 'DisableCrewSectorUser' as Method, label: 'Disable', icon: 'block', when: (r) => r['disabled'] === false },
+      {
+        method: 'DisableCrewSectorUser' as Method,
+        label: 'Disable',
+        icon: 'block',
+        when: (r) => r['disabled'] === false,
+      },
       { method: 'EnableCrewSectorUser' as Method, label: 'Enable', when: (r) => r['disabled'] === true },
       { method: 'AssignCrewSectorRole' as Method, hidden: true },
     ];
     const all = ['DisableCrewSectorUser', 'EnableCrewSectorUser', 'AssignCrewSectorRole'];
-    expect(rowMethods(row(all), targeting, metaOf, presentations).map((m) => [m.label, m.icon])).toEqual([['Disable', 'block']]);
-    expect(rowMethods(row(all, { disabled: true }), targeting, metaOf, presentations).map((m) => m.label)).toEqual(['Enable']);
+    expect(rowMethods(row(all), targeting, metaOf, presentations).map((m) => [m.label, m.icon])).toEqual([
+      ['Disable', 'block'],
+    ]);
+    expect(rowMethods(row(all, { disabled: true }), targeting, metaOf, presentations).map((m) => m.label)).toEqual([
+      'Enable',
+    ]);
   });
 });
 
 describe('targetBody', () => {
   it("fills each request field that carries part of the row's key from the row's field", () => {
-    expect(targetBody('DisableCrewSectorUser', meta['DisableCrewSectorUser'], { id: 'u-1', username: 'ada' })).toEqual({ userId: 'u-1' });
-    expect(targetBody('RemoveCrewSectorRole', meta['RemoveCrewSectorRole'], { userId: 'u-1', role: 'Pilot', username: 'ada' })).toEqual({
+    expect(targetBody('DisableCrewSectorUser', meta['DisableCrewSectorUser'], { id: 'u-1', username: 'ada' })).toEqual({
+      userId: 'u-1',
+    });
+    expect(
+      targetBody('RemoveCrewSectorRole', meta['RemoveCrewSectorRole'], {
+        userId: 'u-1',
+        role: 'Pilot',
+        username: 'ada',
+      }),
+    ).toEqual({
       userId: 'u-1',
       role: 'Pilot',
     });
@@ -160,7 +194,9 @@ describe('requestBody', () => {
   ];
 
   it('sends what the row carries and each input that holds a value: false and 0 are values, an empty input sends nothing', () => {
-    expect(requestBody({ userId: 'u-1' }, asked, { username: 'ada', note: '', notify: false, seats: 0, roles: [] })).toEqual({
+    expect(
+      requestBody({ userId: 'u-1' }, asked, { username: 'ada', note: '', notify: false, seats: 0, roles: [] }),
+    ).toEqual({
       userId: 'u-1',
       username: 'ada',
       notify: false,
@@ -230,9 +266,18 @@ describe('filledMethods and filledBody', () => {
     {
       method: 'RemoveCrewRole' as Method,
       label: 'Take the role away',
-      fill: (row) => ({ username: row['user'], role: row['role'], domain: row['kind'] === 'domain' ? row['domain'] : undefined }),
+      fill: (row) => ({
+        username: row['user'],
+        role: row['role'],
+        domain: row['kind'] === 'domain' ? row['domain'] : undefined,
+      }),
     },
-    { method: 'AssignCrewRole' as Method, label: 'Give a role', fill: (row) => ({ username: row['user'] }), when: (row) => row['kind'] === 'global' },
+    {
+      method: 'AssignCrewRole' as Method,
+      label: 'Give a role',
+      fill: (row) => ({ username: row['user'] }),
+      when: (row) => row['kind'] === 'global',
+    },
     // A method that names a target row is the server's to answer for, row by row, fill or no fill.
     { method: 'DisableCrewSectorUser' as Method, fill: () => ({}) },
     // A method the page names without a fill is no row method.
@@ -260,13 +305,18 @@ describe('filledMethods and filledBody', () => {
     const remove = offered('RemoveCrewRole', metaOf('RemoveCrewRole'), presentations);
     expect(filledBody(remove, held)).toEqual({ username: 'ada', role: 'Cadet', domain: 'anvil' });
     expect(filledBody(remove, { ...held, kind: 'global', domain: '' })).toEqual({ username: 'ada', role: 'Cadet' });
-    expect(filledBody(offered('CreateCrewSectorUser', metaOf('CreateCrewSectorUser'), presentations), held)).toEqual({});
+    expect(filledBody(offered('CreateCrewSectorUser', metaOf('CreateCrewSectorUser'), presentations), held)).toEqual(
+      {},
+    );
     expect(filledBody(remove, undefined)).toEqual({});
   });
 
   it('keeps a field the page filled with nothing, so the dialog does not ask for it', () => {
     const none: MethodPresentation[] = [
-      { method: 'RemoveCrewRole' as Method, fill: (row) => ({ username: row['user'], role: row['role'], domain: null }) },
+      {
+        method: 'RemoveCrewRole' as Method,
+        fill: (row) => ({ username: row['user'], role: row['role'], domain: null }),
+      },
     ];
     const filled = filledBody(offered('RemoveCrewRole', metaOf('RemoveCrewRole'), none), held);
     expect(filled).toEqual({ username: 'ada', role: 'Cadet', domain: null });

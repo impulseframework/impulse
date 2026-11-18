@@ -130,11 +130,7 @@ export interface MethodPresentation {
 }
 
 export type ListConcatFn =
-  | 'space-concat'
-  | 'hyphen-concat'
-  | 'space-hyphen-concat'
-  | 'hyphen-space-concat'
-  | 'no-space-concat';
+  'space-concat' | 'hyphen-concat' | 'space-hyphen-concat' | 'hyphen-space-concat' | 'no-space-concat';
 export type ConfigType = ChildResourceConfig;
 export type FormatType = 'simpleSlashDateFormat';
 export type RPCPlacement = 'inline' | 'end';

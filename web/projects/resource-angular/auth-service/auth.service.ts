@@ -16,7 +16,13 @@ import {
   SESSION_PATH,
   SessionInfo,
 } from '@impulseframework/resource-angular/types';
-import { ClientBase, FeatureState, fieldPermissionStates, permissionState, PermissionStore } from '@impulseframework/resource';
+import {
+  ClientBase,
+  FeatureState,
+  fieldPermissionStates,
+  permissionState,
+  PermissionStore,
+} from '@impulseframework/resource';
 import { from, map, Observable, of, switchMap, tap } from 'rxjs';
 
 /**

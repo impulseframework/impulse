@@ -1,4 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal, untracked, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  OnInit,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
@@ -434,7 +444,13 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    */
   private pageRequest = computed((): PagedListRequest | undefined => {
     const descriptor = this.descriptor();
-    if (!this.paged() || !descriptor || this.showField() === false || this.editMode() !== 'edit' || this.sourceClosed()) {
+    if (
+      !this.paged() ||
+      !descriptor ||
+      this.showField() === false ||
+      this.editMode() !== 'edit' ||
+      this.sourceClosed()
+    ) {
       return undefined;
     }
     const config = this.picker();
@@ -618,7 +634,14 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const meta = this.fieldMeta();
     const metaRequired = 'required' in meta && meta.required;
 
-    if (editMode && !this.multiple() && !this.hasRequiredValidator() && options && options.length > 0 && !metaRequired) {
+    if (
+      editMode &&
+      !this.multiple() &&
+      !this.hasRequiredValidator() &&
+      options &&
+      options.length > 0 &&
+      !metaRequired
+    ) {
       return [{ id: null, display: defaultEmptyFieldValue }, ...options];
     }
 

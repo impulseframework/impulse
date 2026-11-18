@@ -48,7 +48,10 @@ describe('the clients list', () => {
       providers: [
         provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
         { provide: RESOURCE_META, useValue: resourceMeta },
-        { provide: ActivatedRoute, useValue: { snapshot: { data: { config: clientsConfig }, params: {}, queryParams: {} } } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { data: { config: clientsConfig }, params: {}, queryParams: {} } },
+        },
       ],
     }).compileComponents();
     await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();

@@ -49,15 +49,18 @@ describe('optionColumns', () => {
   }
 
   it('asks for the search fields a whole source is narrowed by, once each', () => {
-    expect(optionColumns({ listDisplay: ['name' as FieldName], viewDisplay: [] }, ['name', 'contactEmail'])).toEqual(['id', 'name', 'contactEmail']);
+    expect(optionColumns({ listDisplay: ['name' as FieldName], viewDisplay: [] }, ['name', 'contactEmail'])).toEqual([
+      'id',
+      'name',
+      'contactEmail',
+    ]);
   });
 
   it("asks for the source's own key field where it is not named id, once", () => {
     expect(optionColumns({ listDisplay: [], viewDisplay: [] }, [], 'name')).toEqual(['name']);
-    expect(optionColumns({ listDisplay: ['name' as FieldName, 'description' as FieldName], viewDisplay: [] }, [], 'name')).toEqual([
-      'name',
-      'description',
-    ]);
+    expect(
+      optionColumns({ listDisplay: ['name' as FieldName, 'description' as FieldName], viewDisplay: [] }, [], 'name'),
+    ).toEqual(['name', 'description']);
   });
 });
 
@@ -65,7 +68,9 @@ describe('optionDisplay', () => {
   const concat = (row: Record<string, string>, ...fields: string[]): string => fields.map((f) => row[f]).join(' - ');
 
   it('shows the configured display fields, concatenated', () => {
-    expect(optionDisplay({ name: 'Pilot', description: 'Flies' }, 'Pilot', ['name', 'description'], concat)).toBe('Pilot - Flies');
+    expect(optionDisplay({ name: 'Pilot', description: 'Flies' }, 'Pilot', ['name', 'description'], concat)).toBe(
+      'Pilot - Flies',
+    );
   });
 
   it('shows the key where the page configured no display field', () => {
@@ -96,7 +101,11 @@ describe('matchOptions', () => {
   }
 
   it("reads the row's search fields too, folded the way the server folds them", () => {
-    const obrien: PickerOption = { id: 'c-1', display: 'Meridian Survey Office', text: ["Pat O'Brien", 'pat.obrien@example.test'] };
+    const obrien: PickerOption = {
+      id: 'c-1',
+      display: 'Meridian Survey Office',
+      text: ["Pat O'Brien", 'pat.obrien@example.test'],
+    };
     const withText = [halvard, obrien];
     expect(ids(matchOptions(withText, 'obrien'))).toEqual(['c-1']);
     expect(ids(matchOptions(withText, 'meridian obrien@example'))).toEqual(['c-1']);
@@ -114,10 +123,30 @@ describe('pickerNarrowing', () => {
     ],
   };
 
-  const cases: { name: string; display: string | undefined; searchFields: string[]; want: PickerNarrowing | undefined }[] = [
-    { name: 'the box when the source has search fields the caller may list', display: 'code', searchFields: ['name'], want: 'box' },
-    { name: 'a prefix when the display field answers startswith and there is no box', display: 'name', searchFields: [], want: 'prefix' },
-    { name: 'nothing when the display field answers no startswith', display: 'code', searchFields: [], want: undefined },
+  const cases: {
+    name: string;
+    display: string | undefined;
+    searchFields: string[];
+    want: PickerNarrowing | undefined;
+  }[] = [
+    {
+      name: 'the box when the source has search fields the caller may list',
+      display: 'code',
+      searchFields: ['name'],
+      want: 'box',
+    },
+    {
+      name: 'a prefix when the display field answers startswith and there is no box',
+      display: 'name',
+      searchFields: [],
+      want: 'prefix',
+    },
+    {
+      name: 'nothing when the display field answers no startswith',
+      display: 'code',
+      searchFields: [],
+      want: undefined,
+    },
     { name: 'nothing with no display field', display: undefined, searchFields: [], want: undefined },
   ];
 
@@ -129,14 +158,45 @@ describe('pickerNarrowing', () => {
 });
 
 describe('narrowedFilter', () => {
-  const cases: { name: string; filter: string; narrowing: PickerNarrowing | undefined; text: string; want: string }[] = [
-    { name: 'blank text: the configured filter alone', filter: 'sectorId:eq:anvil', narrowing: 'box', text: '  ', want: 'sectorId:eq:anvil' },
-    { name: 'the box alone', filter: '', narrowing: 'box', text: 'merid', want: '*:search:"merid"' },
-    { name: 'the box beside the configured filter', filter: 'sectorId:eq:anvil', narrowing: 'box', text: 'merid', want: '(sectorId:eq:anvil),*:search:"merid"' },
-    { name: 'a prefix on the display field, quoted where it needs to be', filter: '', narrowing: 'prefix', text: 'O(B', want: 'name:startswith:"O(B"' },
-    { name: 'a prefix beside the configured filter', filter: 'trusted:eq:true', narrowing: 'prefix', text: 'anv', want: '(trusted:eq:true),name:startswith:anv' },
-    { name: 'nothing narrows: the configured filter alone', filter: 'trusted:eq:true', narrowing: undefined, text: 'anv', want: 'trusted:eq:true' },
-  ];
+  const cases: { name: string; filter: string; narrowing: PickerNarrowing | undefined; text: string; want: string }[] =
+    [
+      {
+        name: 'blank text: the configured filter alone',
+        filter: 'sectorId:eq:anvil',
+        narrowing: 'box',
+        text: '  ',
+        want: 'sectorId:eq:anvil',
+      },
+      { name: 'the box alone', filter: '', narrowing: 'box', text: 'merid', want: '*:search:"merid"' },
+      {
+        name: 'the box beside the configured filter',
+        filter: 'sectorId:eq:anvil',
+        narrowing: 'box',
+        text: 'merid',
+        want: '(sectorId:eq:anvil),*:search:"merid"',
+      },
+      {
+        name: 'a prefix on the display field, quoted where it needs to be',
+        filter: '',
+        narrowing: 'prefix',
+        text: 'O(B',
+        want: 'name:startswith:"O(B"',
+      },
+      {
+        name: 'a prefix beside the configured filter',
+        filter: 'trusted:eq:true',
+        narrowing: 'prefix',
+        text: 'anv',
+        want: '(trusted:eq:true),name:startswith:anv',
+      },
+      {
+        name: 'nothing narrows: the configured filter alone',
+        filter: 'trusted:eq:true',
+        narrowing: undefined,
+        text: 'anv',
+        want: 'trusted:eq:true',
+      },
+    ];
 
   for (const tt of cases) {
     it(tt.name, () => {
@@ -157,7 +217,11 @@ describe('displayFromOptions', () => {
   const standard: PickerOption = { id: 'standard', display: 'Standard sheet' };
   const cases: { name: string; value: string; want: PickerOption }[] = [
     { name: 'a value in the list shows its display', value: 'standard', want: standard },
-    { name: 'a value outside the list shows as itself, never blank', value: 'legacy-9', want: { id: 'legacy-9', display: 'legacy-9' } },
+    {
+      name: 'a value outside the list shows as itself, never blank',
+      value: 'legacy-9',
+      want: { id: 'legacy-9', display: 'legacy-9' },
+    },
   ];
 
   for (const tt of cases) {
@@ -172,9 +236,24 @@ describe('withChosen', () => {
   const quarantine: PickerOption = { id: '60000000-0000-4000-8000-000000000002', display: 'Quarantine Bay' };
   const cinderYard: PickerOption = { id: '60000000-0000-4000-8000-000000000004', display: 'Cinder Yard' };
   const cases: { name: string; page: PickerOption[]; chosen: PickerOption | undefined; want: PickerOption[] }[] = [
-    { name: 'the page alone when nothing is chosen', page: [dockOne, quarantine], chosen: undefined, want: [dockOne, quarantine] },
-    { name: 'the page alone when it holds the chosen row', page: [dockOne, quarantine], chosen: quarantine, want: [dockOne, quarantine] },
-    { name: 'the chosen row ahead of a page that does not hold it', page: [dockOne, quarantine], chosen: cinderYard, want: [cinderYard, dockOne, quarantine] },
+    {
+      name: 'the page alone when nothing is chosen',
+      page: [dockOne, quarantine],
+      chosen: undefined,
+      want: [dockOne, quarantine],
+    },
+    {
+      name: 'the page alone when it holds the chosen row',
+      page: [dockOne, quarantine],
+      chosen: quarantine,
+      want: [dockOne, quarantine],
+    },
+    {
+      name: 'the chosen row ahead of a page that does not hold it',
+      page: [dockOne, quarantine],
+      chosen: cinderYard,
+      want: [cinderYard, dockOne, quarantine],
+    },
     { name: 'the chosen row alone on an empty page', page: [], chosen: cinderYard, want: [cinderYard] },
   ];
 
@@ -189,16 +268,24 @@ describe('pickerRefusal', () => {
   const cases: { name: string; error: unknown; want: string | undefined }[] = [
     { name: 'nothing while the picker works', error: undefined, want: undefined },
     {
-      name: 'a 403 is not said here: the picker says a sentence of its own for it, never the server\'s words',
-      error: new ApiError('GET', '/api/sectors/anvil/client-rosters', 403, { message: 'no List grant on ClientRosters' }),
+      name: "a 403 is not said here: the picker says a sentence of its own for it, never the server's words",
+      error: new ApiError('GET', '/api/sectors/anvil/client-rosters', 403, {
+        message: 'no List grant on ClientRosters',
+      }),
       want: undefined,
     },
     {
       name: 'a 400 says the server refused the request, in its words: the way out is on the struct or in the config',
-      error: new ApiError('GET', '/api/berths', 400, { message: 'Berths serves at most 50 rows per page and declares no order; add a sort' }),
-      want: 'The server refused this picker\'s request: Berths serves at most 50 rows per page and declares no order; add a sort',
+      error: new ApiError('GET', '/api/berths', 400, {
+        message: 'Berths serves at most 50 rows per page and declares no order; add a sort',
+      }),
+      want: "The server refused this picker's request: Berths serves at most 50 rows per page and declares no order; add a sort",
     },
-    { name: 'any other failure is a plain sentence', error: new Error('network down'), want: 'This picker could not be loaded: network down' },
+    {
+      name: 'any other failure is a plain sentence',
+      error: new Error('network down'),
+      want: 'This picker could not be loaded: network down',
+    },
   ];
 
   for (const tt of cases) {

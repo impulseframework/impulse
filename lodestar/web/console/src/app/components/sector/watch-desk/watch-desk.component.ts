@@ -47,7 +47,9 @@ export class WatchDeskComponent {
   sessions = resource({
     params: () => ({ allowed: this.canOperate() }),
     loader: ({ params }) =>
-      params.allowed ? firstValueFrom(this.http.get<ActiveImpersonation[]>(`${this.apiUrl}/impersonations`)) : Promise.resolve([]),
+      params.allowed
+        ? firstValueFrom(this.http.get<ActiveImpersonation[]>(`${this.apiUrl}/impersonations`))
+        : Promise.resolve([]),
     defaultValue: [] as ActiveImpersonation[],
   });
 

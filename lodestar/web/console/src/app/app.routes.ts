@@ -39,7 +39,8 @@ export const routes: Routes = [
   },
   {
     path: 'logout',
-    loadComponent: () => import('@impulseframework/resource-angular/auth-sign-out').then((comp) => comp.SignOutComponent),
+    loadComponent: () =>
+      import('@impulseframework/resource-angular/auth-sign-out').then((comp) => comp.SignOutComponent),
   },
   {
     // Every signed-in page sits in the library's frame (provideFrame in app.config.ts): the

@@ -32,16 +32,65 @@ const fields = (...names: string[]): ResourceMeta =>
   }) as ResourceMeta;
 
 const metas: Record<string, ResourceMeta> = {
-  CrewSessionUsers: fields('id', 'username', 'name', 'email', 'emailVerifiedAt', 'disabled', 'passwordChangeRequired', 'createdAt', 'lastSignInAt'),
+  CrewSessionUsers: fields(
+    'id',
+    'username',
+    'name',
+    'email',
+    'emailVerifiedAt',
+    'disabled',
+    'passwordChangeRequired',
+    'createdAt',
+    'lastSignInAt',
+  ),
   CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
-  CrewSessionMailLinks: fields('id', 'kind', 'email', 'name', 'tenantId', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt'),
+  CrewSessionMailLinks: fields(
+    'id',
+    'kind',
+    'email',
+    'name',
+    'tenantId',
+    'roleNames',
+    'createdAt',
+    'expiresAt',
+    'consumedAt',
+  ),
   CrewSessions: fields('id', 'userId', 'username', 'expired', 'authenticatedAt', 'updatedAt'),
   CrewSessionSignInAttempts: fields('name', 'failures', 'lockedUntil', 'updatedAt'),
-  CrewSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'ownRule', 'says'),
-  CrewSectorUsers: fields('id', 'domainId', 'username', 'name', 'email', 'disabled', 'passwordChangeRequired', 'lastSignInAt', 'heldElsewhere', 'heldGlobally'),
+  CrewSignInMethods: fields(
+    'name',
+    'label',
+    'admits',
+    'openSignUp',
+    'defaultRole',
+    'directoryGivesRoles',
+    'ownRule',
+    'says',
+  ),
+  CrewSectorUsers: fields(
+    'id',
+    'domainId',
+    'username',
+    'name',
+    'email',
+    'disabled',
+    'passwordChangeRequired',
+    'lastSignInAt',
+    'heldElsewhere',
+    'heldGlobally',
+  ),
   CrewSectorUserRoles: fields('domainId', 'userId', 'username', 'role', 'everyDomain', 'createdAt'),
-  CrewSectorIdentities: fields('id', 'userId', 'username', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
+  CrewSectorIdentities: fields(
+    'id',
+    'userId',
+    'username',
+    'method',
+    'connection',
+    'emailAtLink',
+    'createdAt',
+    'lastUsedAt',
+  ),
   CrewSectorInvitations: fields('id', 'email', 'name', 'roleNames', 'createdAt', 'expiresAt', 'pending'),
   // How a person signs in: the password and the identities that count, as the server judges it.
   CrewSignInWays: fields('userId', 'way', 'password', 'method', 'connection', 'through'),
@@ -60,7 +109,16 @@ const metas: Record<string, ResourceMeta> = {
   MembersUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
   // An application without tenants: a person who signs up is given a role, picked from the roles it lists.
   StaffSessionUsers: fields('id', 'username', 'disabled'),
-  StaffSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'ownRule', 'says'),
+  StaffSignInMethods: fields(
+    'name',
+    'label',
+    'admits',
+    'openSignUp',
+    'defaultRole',
+    'directoryGivesRoles',
+    'ownRule',
+    'says',
+  ),
   StaffSignUpRoles: { ...fields('name', 'description'), nameField: 'name' },
   // The tenant record: keyed by an id, and it says which field a sector is called by.
   Sectors: { ...fields('id', 'name', 'region'), nameField: 'name' },
@@ -138,7 +196,11 @@ const members: IdentityDescriptor = {
     {
       scope: 'global',
       lists: { users: 'MembersSessionUsers', roles: 'MembersUserRoles' },
-      methods: { disable: 'DisableMembersUser', enable: 'EnableMembersUser', endUserSessions: 'EndMembersUserSessions' },
+      methods: {
+        disable: 'DisableMembersUser',
+        enable: 'EnableMembersUser',
+        endUserSessions: 'EndMembersUserSessions',
+      },
     },
   ],
 };
@@ -164,7 +226,8 @@ const descriptor = {
 } as ApiDescriptor;
 
 const list = (config: RootConfig): ListViewConfig => config.parentConfig as ListViewConfig;
-const columns = (config: ListViewConfig): [string, string | undefined][] => config.listColumns.map((column) => [column.id, column.header]);
+const columns = (config: ListViewConfig): [string, string | undefined][] =>
+  config.listColumns.map((column) => [column.id, column.header]);
 const methodsOf = (presentations: false | MethodPresentation[] | undefined): [string, string | undefined][] =>
   (presentations || []).map((p) => [p.method, p.label]);
 const presentation = (presentations: false | MethodPresentation[] | undefined, method: string): MethodPresentation => {
@@ -309,7 +372,12 @@ describe("identityPages, the whole application's side", () => {
       expect(notice?.([password, google, entra])).toBe(
         'Password is open to sign-up. Anyone with an email address will be able to sign up and create a sector of their own, without an invitation.',
       );
-      const member = { ...google, openSignUp: true, defaultRole: 'Member', says: 'Open: Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Member.' };
+      const member = {
+        ...google,
+        openSignUp: true,
+        defaultRole: 'Member',
+        says: 'Open: Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Member.',
+      };
       expect(notice?.([password, member])).toBe(
         'Password is open to sign-up. Anyone with an email address will be able to sign up and create a sector of their own, without an invitation.\n' +
           'Google is open to sign-up. Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Member.',
@@ -319,7 +387,9 @@ describe("identityPages, the whole application's side", () => {
     it('shows the role a new person gets where the application has no tenants', () => {
       const [, staffSignIn] = identityPages(descriptor, resourceMeta, { auth: 'Staff', scope: 'global' });
       expect(staffSignIn.routeData.route).toBe('staff-sign-in');
-      expect(columns(list(staffSignIn)).filter(([id]) => id === 'defaultRole')).toEqual([['defaultRole', 'Role a new person gets']]);
+      expect(columns(list(staffSignIn)).filter(([id]) => id === 'defaultRole')).toEqual([
+        ['defaultRole', 'Role a new person gets'],
+      ]);
     });
 
     it('is no page of an auth whose description names no sign-in methods: a directory that gives the roles has nothing to choose', () => {
@@ -361,20 +431,36 @@ describe("identityPages, the whole application's side", () => {
     const enable = presentation(list(people).rowMethods, 'EnableCrewUser');
     const ada: RecordData = { username: 'ada', disabled: false };
     expect([disable.when?.(ada), enable.when?.(ada)]).toEqual([true, false]);
-    expect([disable.when?.({ ...ada, disabled: true }), enable.when?.({ ...ada, disabled: true })]).toEqual([false, true]);
-    expect((disable.confirm as (row: RecordData) => string)(ada)).toBe('Disable ada? They cannot sign in until the account is enabled again.');
+    expect([disable.when?.({ ...ada, disabled: true }), enable.when?.({ ...ada, disabled: true })]).toEqual([
+      false,
+      true,
+    ]);
+    expect((disable.confirm as (row: RecordData) => string)(ada)).toBe(
+      'Disable ada? They cannot sign in until the account is enabled again.',
+    );
   });
 
   it("fills the id of the person's account in the method that gives a role, which names no target row, and names the tenant in the application's word", () => {
     const give = presentation(list(people).rowMethods, 'AssignCrewRole');
     expect(give.fill?.({ username: 'ada', id: 'u-1' })).toEqual({ userId: 'u-1' });
     // A role is given for a period: the dialog asks for its two days in plain words.
-    expect(give.labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector', startsAt: 'From', endsAt: 'Until' });
-    expect(presentation(list(people).listMethods, 'CreateCrewUser').labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector' });
+    expect(give.labels).toEqual({
+      domain: 'Sector',
+      everyDomain: 'In every sector',
+      startsAt: 'From',
+      endsAt: 'Until',
+    });
+    expect(presentation(list(people).listMethods, 'CreateCrewUser').labels).toEqual({
+      domain: 'Sector',
+      everyDomain: 'In every sector',
+    });
   });
 
   it("draws a person's row page from the account's fields, with the roles, the identities and the sessions under it", () => {
-    const section = list(people).elements[0] as unknown as { label: string; children: { name: string; label: string }[] };
+    const section = list(people).elements[0] as unknown as {
+      label: string;
+      children: { name: string; label: string }[];
+    };
     expect(section.label).toBe('Account');
     expect(section.children.map((child) => [child.name, child.label])).toEqual([
       ['username', 'Username'],
@@ -386,7 +472,9 @@ describe("identityPages, the whole application's side", () => {
       ['emailVerifiedAt', 'Email verified'],
       ['createdAt', 'Created'],
     ]);
-    expect(children(people).map((child) => [child.title, child.primaryResource, child.parentRelation, child.showViewButton])).toEqual([
+    expect(
+      children(people).map((child) => [child.title, child.primaryResource, child.parentRelation, child.showViewButton]),
+    ).toEqual([
       ['Roles held', 'CrewUserRoles', { parentKey: 'id', childKey: 'userId' }, false],
       ['Sign-in identities', 'CrewSessionIdentities', { parentKey: 'id', childKey: 'userId' }, false],
       ['Sessions', 'CrewSessions', { parentKey: 'id', childKey: 'userId' }, false],
@@ -443,13 +531,27 @@ describe("identityPages, the whole application's side", () => {
 
   it('offers Withdraw on a mailed link that was not used, End the session on a session, and Unlock on a counted name', () => {
     const withdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewInvitation');
-    expect([withdraw.when?.({ consumedAt: null }), withdraw.when?.({ consumedAt: '2026-01-01T00:00:00Z' })]).toEqual([true, false]);
+    expect([withdraw.when?.({ consumedAt: null }), withdraw.when?.({ consumedAt: '2026-01-01T00:00:00Z' })]).toEqual([
+      true,
+      false,
+    ]);
     expect(list(invitations).listMethods).toEqual([]);
-    expect(columns(list(invitations)).map(([, header]) => header)).toEqual(['Kind', 'Email', 'Name', 'Sector', 'Roles', 'Sent', 'Expires', 'Used']);
+    expect(columns(list(invitations)).map(([, header]) => header)).toEqual([
+      'Kind',
+      'Email',
+      'Name',
+      'Sector',
+      'Roles',
+      'Sent',
+      'Expires',
+      'Used',
+    ]);
     // The sector a link invites into is named the same way, and shows its key where the sector cannot be read.
     const into = list(invitations).listColumns[3] as MultiColumnConfig;
     expect(into.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
-    expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('a1111111-1111-4111-8111-111111111111');
+    expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe(
+      'a1111111-1111-4111-8111-111111111111',
+    );
     expect(into.fallback?.({ tenantId: null })).toBe('');
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
@@ -484,7 +586,14 @@ describe("identityPages, a tenant's side", () => {
   it('names the tenant record in its words and leaves out what the side does not have', () => {
     expect(columns(list(people)).at(-1)).toEqual(['heldElsewhere', 'Also in another sector']);
     // No password method on this side of the description: no column for it.
-    expect(columns(list(people)).map(([id]) => id)).toEqual(['username', 'name', 'email', 'disabled', 'lastSignInAt', 'heldElsewhere']);
+    expect(columns(list(people)).map(([id]) => id)).toEqual([
+      'username',
+      'name',
+      'email',
+      'disabled',
+      'lastSignInAt',
+      'heldElsewhere',
+    ]);
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'Give a role'],
       ['SetCrewSectorUserName', 'Change the name'],
@@ -511,7 +620,9 @@ describe("identityPages, a tenant's side", () => {
       ['username', 'Username', true],
     ]);
     const remove = presentation(roles.rowMethods, 'RemoveCrewSectorRole');
-    expect((remove.confirm as (row: RecordData) => string)({ role: 'Cadet', username: 'ada' })).toBe('Take Cadet away from ada?');
+    expect((remove.confirm as (row: RecordData) => string)({ role: 'Cadet', username: 'ada' })).toBe(
+      'Take Cadet away from ada?',
+    );
     expect(children(people).map((child) => child.title)).toEqual(['Roles held here', 'Sign-in identities']);
   });
 
@@ -754,7 +865,13 @@ describe('identityPages, what an auth and an application decide', () => {
     expect(identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' })).not.toBe(pages);
   });
 
-  const refusals: { name: string; descriptor: ApiDescriptor; auth: string; scope: 'global' | 'domain'; want: string }[] = [
+  const refusals: {
+    name: string;
+    descriptor: ApiDescriptor;
+    auth: string;
+    scope: 'global' | 'domain';
+    want: string;
+  }[] = [
     {
       name: 'an auth the description does not carry',
       descriptor,
@@ -831,7 +948,16 @@ describe('identityPages, an Auth that keeps groups', () => {
     CrewSectorGroups: fields('id', 'domainId', 'name', 'description', 'updatedAt'),
     CrewSectorGroupUsers: fields('domainId', 'groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
     CrewSectorGroupRoles: fields('domainId', 'groupId', 'groupName', 'role', 'createdAt'),
-    CrewSectorUserGroupRoles: fields('domainId', 'userId', 'username', 'groupId', 'groupName', 'role', 'globalGroup', 'everyDomain'),
+    CrewSectorUserGroupRoles: fields(
+      'domainId',
+      'userId',
+      'username',
+      'groupId',
+      'groupName',
+      'role',
+      'globalGroup',
+      'everyDomain',
+    ),
   };
   const groupMeta = (resource: Resource): ResourceMeta => groupMetas[resource];
   const [wholeApplication, tenant] = crew.sides;
@@ -885,7 +1011,9 @@ describe('identityPages, an Auth that keeps groups', () => {
   const domain = identityPages(groupDescriptor, groupMeta, { auth: 'Crew', scope: 'domain' });
 
   it('builds a Groups page after the people on each side, with a row page for a group', () => {
-    expect(global.map((page) => [page.routeData.route, page.page?.label, page.page?.icon, page.routeData.hasViewRoute])).toEqual([
+    expect(
+      global.map((page) => [page.routeData.route, page.page?.label, page.page?.icon, page.routeData.hasViewRoute]),
+    ).toEqual([
       ['crew-accounts', 'Accounts', 'manage_accounts', true],
       ['crew-groups', 'Groups', 'groups', true],
       ['crew-mailed-links', 'Mailed links', 'forward_to_inbox', false],
@@ -898,9 +1026,13 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['sectors/:sectorID/crew-groups', 'Groups', 'CrewSectorGroups'],
       ['sectors/:sectorID/crew-invitations', 'Invitations', 'CrewSectorInvitations'],
     ]);
-    expect(identityPages(groupDescriptor, groupMeta, { auth: 'Crew', scope: 'domain', routes: { groups: 'sectors/:sectorID/groups' } })[1].routeData.route).toBe(
-      'sectors/:sectorID/groups',
-    );
+    expect(
+      identityPages(groupDescriptor, groupMeta, {
+        auth: 'Crew',
+        scope: 'domain',
+        routes: { groups: 'sectors/:sectorID/groups' },
+      })[1].routeData.route,
+    ).toBe('sectors/:sectorID/groups');
   });
 
   it('leaves the Groups page and the roles through groups out where the Auth keeps none', () => {
@@ -936,14 +1068,26 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['DeleteCrewGroup', 'Delete'],
     ]);
     expect(methodsOf(groups.listMethods)).toEqual([['CreateCrewGroup', 'Add a group']]);
-    expect(presentation(groups.listMethods, 'CreateCrewGroup').labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector' });
-    expect((presentation(groups.rowMethods, 'DeleteCrewGroup').confirm as (row: RecordData) => string)({ name: 'Deck crew' })).toBe(
-      'Delete Deck crew? A group that still has people in it or holds a role is not deleted: empty it first.',
-    );
+    expect(presentation(groups.listMethods, 'CreateCrewGroup').labels).toEqual({
+      domain: 'Sector',
+      everyDomain: 'In every sector',
+    });
+    expect(
+      (presentation(groups.rowMethods, 'DeleteCrewGroup').confirm as (row: RecordData) => string)({
+        name: 'Deck crew',
+      }),
+    ).toBe('Delete Deck crew? A group that still has people in it or holds a role is not deleted: empty it first.');
   });
 
   it("draws a group's row page with the people in it and the roles it holds, each list under the group", () => {
-    expect(children(global[1]).map((child) => [child.title, child.primaryResource, child.parentRelation, child.showViewButton])).toEqual([
+    expect(
+      children(global[1]).map((child) => [
+        child.title,
+        child.primaryResource,
+        child.parentRelation,
+        child.showViewButton,
+      ]),
+    ).toEqual([
       ['People in the group', 'CrewGroupUsers', { parentKey: 'id', childKey: 'groupId' }, false],
       ['Roles the group holds', 'CrewGroupRoles', { parentKey: 'id', childKey: 'groupId' }, false],
     ]);
@@ -955,9 +1099,11 @@ describe('identityPages, an Auth that keeps groups', () => {
     ]);
     expect(methodsOf(people.rowMethods)).toEqual([['RemoveCrewGroupMember', 'Remove from the group']]);
     expect(methodsOf(people.listMethods)).toEqual([['AddCrewGroupMember', 'Add a person']]);
-    expect((presentation(people.rowMethods, 'RemoveCrewGroupMember').confirm as (row: RecordData) => string)({ username: 'ada' })).toBe(
-      "Remove ada from the group? They keep the roles they hold themselves and lose the group's.",
-    );
+    expect(
+      (presentation(people.rowMethods, 'RemoveCrewGroupMember').confirm as (row: RecordData) => string)({
+        username: 'ada',
+      }),
+    ).toBe("Remove ada from the group? They keep the roles they hold themselves and lose the group's.");
     expect(columns(roles)).toEqual([
       ['role', 'Role'],
       ['domainId', 'Held in'],
@@ -979,12 +1125,14 @@ describe('identityPages, an Auth that keeps groups', () => {
       {
         row: { groupId: 'g-1', role: 'Cadet', kind: 'domain', domainId: 's-1' },
         body: { groupId: 'g-1', role: 'Cadet', domain: 's-1', everyDomain: false },
-        question: 'Take Cadet in this sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
+        question:
+          'Take Cadet in this sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
       },
       {
         row: { groupId: 'g-1', role: 'Archivist', kind: 'every', domainId: '' },
         body: { groupId: 'g-1', role: 'Archivist', domain: null, everyDomain: true },
-        question: 'Take Archivist in every sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
+        question:
+          'Take Archivist in every sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
       },
     ];
     for (const tt of cases) {
@@ -1038,7 +1186,11 @@ describe('identityPages, an Auth that keeps groups', () => {
     expect(through.rowMethods).toBe(false);
 
     const here = children(domain[0])[1];
-    expect([here.title, here.primaryResource, here.rowMethods]).toEqual(['Roles held here through a group', 'CrewSectorUserGroupRoles', false]);
+    expect([here.title, here.primaryResource, here.rowMethods]).toEqual([
+      'Roles held here through a group',
+      'CrewSectorUserGroupRoles',
+      false,
+    ]);
     expect(columns(here)).toEqual([
       ['role', 'Role'],
       ['groupName', 'Group'],
@@ -1057,15 +1209,56 @@ describe('identityPages, the period of an assignment', () => {
   const periodMetas: Record<string, ResourceMeta> = {
     ...metas,
     CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt', 'startsAt', 'endsAt'),
-    CrewSectorUserRoles: fields('domainId', 'userId', 'username', 'role', 'everyDomain', 'createdAt', 'startsAt', 'endsAt'),
+    CrewSectorUserRoles: fields(
+      'domainId',
+      'userId',
+      'username',
+      'role',
+      'everyDomain',
+      'createdAt',
+      'startsAt',
+      'endsAt',
+    ),
     CrewGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
     CrewGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt', 'startsAt', 'endsAt'),
     CrewGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt', 'startsAt', 'endsAt'),
-    CrewUserGroupRoles: fields('userId', 'username', 'groupId', 'groupName', 'kind', 'axis', 'domainId', 'role', 'startsAt', 'endsAt'),
+    CrewUserGroupRoles: fields(
+      'userId',
+      'username',
+      'groupId',
+      'groupName',
+      'kind',
+      'axis',
+      'domainId',
+      'role',
+      'startsAt',
+      'endsAt',
+    ),
     CrewSectorGroups: fields('id', 'domainId', 'name', 'description', 'updatedAt'),
-    CrewSectorGroupUsers: fields('domainId', 'groupId', 'userId', 'username', 'name', 'groupName', 'createdAt', 'startsAt', 'endsAt'),
+    CrewSectorGroupUsers: fields(
+      'domainId',
+      'groupId',
+      'userId',
+      'username',
+      'name',
+      'groupName',
+      'createdAt',
+      'startsAt',
+      'endsAt',
+    ),
     CrewSectorGroupRoles: fields('domainId', 'groupId', 'groupName', 'role', 'createdAt', 'startsAt', 'endsAt'),
-    CrewSectorUserGroupRoles: fields('domainId', 'userId', 'username', 'groupId', 'groupName', 'role', 'globalGroup', 'everyDomain', 'startsAt', 'endsAt'),
+    CrewSectorUserGroupRoles: fields(
+      'domainId',
+      'userId',
+      'username',
+      'groupId',
+      'groupName',
+      'role',
+      'globalGroup',
+      'everyDomain',
+      'startsAt',
+      'endsAt',
+    ),
   };
   const periodMeta = (resource: Resource): ResourceMeta => periodMetas[resource];
   const [wholeApplication, tenant] = crew.sides;
@@ -1074,8 +1267,18 @@ describe('identityPages, the period of an assignment', () => {
     sides: [
       {
         ...wholeApplication,
-        lists: { ...wholeApplication.lists, groups: 'CrewGroups', groupUsers: 'CrewGroupUsers', groupRoles: 'CrewGroupRoles', rolesThroughGroups: 'CrewUserGroupRoles' },
-        methods: { ...wholeApplication.methods, addGroupMember: 'AddCrewGroupMember', giveGroupRole: 'GiveCrewGroupRole' },
+        lists: {
+          ...wholeApplication.lists,
+          groups: 'CrewGroups',
+          groupUsers: 'CrewGroupUsers',
+          groupRoles: 'CrewGroupRoles',
+          rolesThroughGroups: 'CrewUserGroupRoles',
+        },
+        methods: {
+          ...wholeApplication.methods,
+          addGroupMember: 'AddCrewGroupMember',
+          giveGroupRole: 'GiveCrewGroupRole',
+        },
       },
       {
         ...tenant,
@@ -1086,7 +1289,11 @@ describe('identityPages, the period of an assignment', () => {
           groupRoles: 'CrewSectorGroupRoles',
           rolesThroughGroups: 'CrewSectorUserGroupRoles',
         },
-        methods: { ...tenant.methods, addGroupMember: 'AddCrewSectorGroupMember', giveGroupRole: 'GiveCrewSectorGroupRole' },
+        methods: {
+          ...tenant.methods,
+          addGroupMember: 'AddCrewSectorGroupMember',
+          giveGroupRole: 'GiveCrewSectorGroupRole',
+        },
       },
     ],
   };
@@ -1098,7 +1305,9 @@ describe('identityPages, the period of an assignment', () => {
     ['endsAt', 'Until'],
   ];
   const drawn = (config: ListViewConfig): [string, string | undefined][] =>
-    config.listColumns.filter((column) => !column.hidden && column.header !== undefined).map((column) => [column.id, column.header]);
+    config.listColumns
+      .filter((column) => !column.hidden && column.header !== undefined)
+      .map((column) => [column.id, column.header]);
 
   it("shows the period of each role under a person, the person's own and the ones held through a group", () => {
     const [own, through] = children(global[0]);
@@ -1108,7 +1317,12 @@ describe('identityPages, the period of an assignment', () => {
 
     const [here, hereThrough] = children(domain[0]);
     expect([here.title, hereThrough.title]).toEqual(['Roles held here', 'Roles held here through a group']);
-    expect(drawn(here)).toEqual([['role', 'Role'], ['everyDomain', 'In every sector'], ['createdAt', 'Given'], ...period]);
+    expect(drawn(here)).toEqual([
+      ['role', 'Role'],
+      ['everyDomain', 'In every sector'],
+      ['createdAt', 'Given'],
+      ...period,
+    ]);
     expect(drawn(hereThrough).slice(-2)).toEqual(period);
   });
 
@@ -1140,7 +1354,9 @@ describe('identityPages, the period of an assignment', () => {
       const until = new Date(shown(config, 'endsAt', { endsAt: kept }) as string);
       expect([until.getFullYear(), until.getMonth(), until.getDate()], config.title).toEqual([2026, 11, 1]);
       // An end kept by another caller at any instant shows the last day it falls on.
-      const afternoon = new Date(shown(config, 'endsAt', { endsAt: new Date(2026, 11, 1, 15, 30).toISOString() }) as string);
+      const afternoon = new Date(
+        shown(config, 'endsAt', { endsAt: new Date(2026, 11, 1, 15, 30).toISOString() }) as string,
+      );
       expect([afternoon.getMonth(), afternoon.getDate()], config.title).toEqual([11, 1]);
       expect(shown(config, 'endsAt', { endsAt: null }), config.title).toBe('');
       expect(shown(config, 'endsAt', {}), config.title).toBe('');

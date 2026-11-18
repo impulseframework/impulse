@@ -176,7 +176,7 @@ describe('the tenant list', () => {
     expect(store.domainName('elsewhere' as Domain)).toBe('elsewhere');
   });
 
-  it('keeps a tenant that is closed to this sign-in apart from the domains, with its name and the server\'s reason', async () => {
+  it("keeps a tenant that is closed to this sign-in apart from the domains, with its name and the server's reason", async () => {
     const reason = 'Bastion admits only people who sign in through its own directory. You signed in with a password.';
     const store = new PermissionStore(
       answering([
@@ -195,7 +195,10 @@ describe('the tenant list', () => {
   });
 
   it('an empty answer, or none, lists nothing; clear() forgets the names', async () => {
-    const store = new PermissionStore(answering(null).request, { digest: 'permission-digest', domains: 'user-domains' });
+    const store = new PermissionStore(answering(null).request, {
+      digest: 'permission-digest',
+      domains: 'user-domains',
+    });
     expect(await store.loadDomains()).toEqual([]);
     const named = new PermissionStore(answering([{ domain: 'ridgeline', name: 'Ridgeline County' }]).request, {
       digest: 'permission-digest',

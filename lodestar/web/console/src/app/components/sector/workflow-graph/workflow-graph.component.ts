@@ -62,7 +62,13 @@ export class WorkflowGraphComponent {
     const step = (this.width - 80) / Math.max(1, live.length - 1);
     const tstep = (this.width - 80) / (terminals.length + 1);
     return [
-      ...live.map((state, i) => ({ state, x: 40 + i * step, y: 45, terminal: false, isDefault: state === wf.defaultState })),
+      ...live.map((state, i) => ({
+        state,
+        x: 40 + i * step,
+        y: 45,
+        terminal: false,
+        isDefault: state === wf.defaultState,
+      })),
       ...terminals.map((state, i) => ({ state, x: 40 + (i + 1) * tstep, y: 135, terminal: true, isDefault: false })),
     ];
   });

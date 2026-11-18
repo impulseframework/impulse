@@ -17,7 +17,12 @@ import {
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { METHOD_META, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
-import { declaredRefusal, MethodDialogComponent, MethodDialogData, MethodDialogResult } from './method-dialog.component';
+import {
+  declaredRefusal,
+  MethodDialogComponent,
+  MethodDialogData,
+  MethodDialogResult,
+} from './method-dialog.component';
 
 // The dialog a page runs a generated method through: drawn from the method's metadata,
 // it calls the method itself in the selected tenant, shows a refusal in the server's
@@ -65,11 +70,29 @@ const descriptor: ApiDescriptor = {
       scope: 'domain',
       upload: { maxBytes: 5 * 1024 * 1024 },
     },
-    GiveRole: { method: 'GiveRole' as Method, property: 'giveRole', route: 'give-role', scope: 'domain', statuses: [204] },
-    GiveRoleFor: { method: 'GiveRoleFor' as Method, property: 'giveRoleFor', route: 'give-role-for', scope: 'domain', statuses: [204] },
+    GiveRole: {
+      method: 'GiveRole' as Method,
+      property: 'giveRole',
+      route: 'give-role',
+      scope: 'domain',
+      statuses: [204],
+    },
+    GiveRoleFor: {
+      method: 'GiveRoleFor' as Method,
+      property: 'giveRoleFor',
+      route: 'give-role-for',
+      scope: 'domain',
+      statuses: [204],
+    },
     AddPerson: { method: 'AddPerson' as Method, property: 'addPerson', route: 'add-person', scope: 'domain' },
     SendNotice: { method: 'SendNotice' as Method, property: 'sendNotice', route: 'send-notice', scope: 'domain' },
-    OpenSignUp: { method: 'OpenSignUp' as Method, property: 'openSignUp', route: 'open-sign-up', scope: 'global', statuses: [204] },
+    OpenSignUp: {
+      method: 'OpenSignUp' as Method,
+      property: 'openSignUp',
+      route: 'open-sign-up',
+      scope: 'global',
+      statuses: [204],
+    },
     DeleteArchive: {
       method: 'DeleteArchive' as Method,
       property: 'deleteArchive',
@@ -172,7 +195,10 @@ const methodMeta: Record<string, MethodMeta> = {
     fields: [{ fieldName: 'year', displayType: 'string', required: true }],
   },
   // Runs outside a transaction: the server refuses a dry run of it.
-  SendNotice: { route: 'send-notice', fields: [{ fieldName: 'words', displayType: 'string', required: true, attribute: 'words' }] },
+  SendNotice: {
+    route: 'send-notice',
+    fields: [{ fieldName: 'words', displayType: 'string', required: true, attribute: 'words' }],
+  },
 };
 
 interface Opened {
@@ -215,14 +241,19 @@ describe('MethodDialogComponent', () => {
 
     await o.component.run();
 
-    expect(o.transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual(['POST /api/sectors/anvil/disable-crew-sector-user']);
+    expect(o.transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+      'POST /api/sectors/anvil/disable-crew-sector-user',
+    ]);
     expect(o.transport.requests[0].body).toEqual({ userId: 'u-1' });
     expect(o.closed).toEqual([{ answer: undefined }]);
     expect(o.component.busy()).toBe(false);
   });
 
   it('asks the question from the label where the page gives none', async () => {
-    const o = await open({ method: 'DisableCrewSectorUser', label: 'Disable', preset: { userId: 'u-1' } }, scriptedTransport());
+    const o = await open(
+      { method: 'DisableCrewSectorUser', label: 'Disable', preset: { userId: 'u-1' } },
+      scriptedTransport(),
+    );
     expect(text(o, '.question')).toBe('Disable?');
   });
 
@@ -274,7 +305,11 @@ describe('MethodDialogComponent', () => {
 
   it('asks for nothing the page filled, and sends what it filled with what was typed', async () => {
     const o = await open(
-      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1', note: 'by the registrar', notify: true } },
+      {
+        method: 'RenameCrewSectorUser',
+        label: 'Rename',
+        preset: { userId: 'u-1', note: 'by the registrar', notify: true },
+      },
       scriptedTransport({ status: 200, body: undefined }),
     );
     expect(o.component.asked.map((f) => f.fieldName)).toEqual(['username']);
@@ -282,12 +317,22 @@ describe('MethodDialogComponent', () => {
     o.component.form.setValue({ username: 'ada.l' });
     await o.component.run();
 
-    expect(o.transport.requests[0].body).toEqual({ userId: 'u-1', note: 'by the registrar', notify: true, username: 'ada.l' });
+    expect(o.transport.requests[0].body).toEqual({
+      userId: 'u-1',
+      note: 'by the registrar',
+      notify: true,
+      username: 'ada.l',
+    });
   });
 
   it("labels an input with the page's words where it gives them, and with the field's name in words otherwise", async () => {
     const o = await open(
-      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1' }, labels: { username: 'New name', notify: 'Tell the person' } },
+      {
+        method: 'RenameCrewSectorUser',
+        label: 'Rename',
+        preset: { userId: 'u-1' },
+        labels: { username: 'New name', notify: 'Tell the person' },
+      },
       scriptedTransport({ status: 200, body: undefined }),
     );
     expect(o.component.elements.map((e) => e.label)).toEqual(['New name', 'Note', 'Tell the person']);
@@ -295,7 +340,12 @@ describe('MethodDialogComponent', () => {
 
   it("lists a picker's options by the fields the page names for it, and leaves every other input as the metadata draws it", async () => {
     const { component } = await open(
-      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1' }, shows: { note: ['name', 'description'] } },
+      {
+        method: 'RenameCrewSectorUser',
+        label: 'Rename',
+        preset: { userId: 'u-1' },
+        shows: { note: ['name', 'description'] },
+      },
       scriptedTransport({ status: 200, body: undefined }),
     );
     const config = (name: string): { listDisplay: string[]; viewDisplay: string[] } => {
@@ -346,7 +396,11 @@ describe('MethodDialogComponent', () => {
 
   it('is a question when the page filled every field', async () => {
     const o = await open(
-      { method: 'RenameCrewSectorUser', label: 'Rename', preset: { userId: 'u-1', username: 'ada.l', note: 'n', notify: false } },
+      {
+        method: 'RenameCrewSectorUser',
+        label: 'Rename',
+        preset: { userId: 'u-1', username: 'ada.l', note: 'n', notify: false },
+      },
       scriptedTransport({ status: 200, body: undefined }),
     );
     expect(o.component.asked).toEqual([]);
@@ -355,7 +409,10 @@ describe('MethodDialogComponent', () => {
 
   it('reads a refusal the method declares among its statuses, and closes with a declared success', async () => {
     let status = 409;
-    const transport = scriptedTransport(() => ({ status, body: status === 409 ? { message: 'the account is in arrears' } : { net: '12' } }));
+    const transport = scriptedTransport(() => ({
+      status,
+      body: status === 409 ? { message: 'the account is in arrears' } : { net: '12' },
+    }));
     const o = await open({ method: 'SettleAccount', label: 'Settle', preset: {} }, transport);
 
     await o.component.run();
@@ -403,7 +460,9 @@ describe('MethodDialogComponent with a method that takes files', () => {
     expect(o.component.hasFiles()).toBe(true);
     await o.component.run();
 
-    expect(o.transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual(['POST /api/sectors/anvil/replace-mission-document']);
+    expect(o.transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+      'POST /api/sectors/anvil/replace-mission-document',
+    ]);
     expect(o.transport.requests[0].body).toBeInstanceOf(FormData);
     expect(await parts(o.transport.requests[0].body)).toEqual({
       names: ['request', 'file'],
@@ -415,7 +474,12 @@ describe('MethodDialogComponent with a method that takes files', () => {
 
   it('asks the question the page gives beside the file input', async () => {
     const o = await open(
-      { method: 'ReplaceMissionDocument', label: 'Replace the file', preset: { documentId: 'd-1' }, confirm: 'Replace the brief?' },
+      {
+        method: 'ReplaceMissionDocument',
+        label: 'Replace the file',
+        preset: { documentId: 'd-1' },
+        confirm: 'Replace the brief?',
+      },
       scriptedTransport(),
     );
     expect(text(o, '.question')).toBe('Replace the brief?');
@@ -541,8 +605,13 @@ describe('MethodDialogComponent rehearsing a method whose grant is conditional',
       .map((r) => [r.headers?.['X-Dry-Run'] === 'true' ? 'dry' : 'real', r.body]);
 
   beforeEach(() => {
-    digest = { GiveRole: { Execute: 'conditional' }, AddPerson: { Execute: 'conditional' }, SendNotice: { Execute: 'conditional' } };
-    dryRun = (body) => (body['role'] === 'Admin' ? { status: 403, body: { message: notPermitted } } : { status: 200, body: undefined });
+    digest = {
+      GiveRole: { Execute: 'conditional' },
+      AddPerson: { Execute: 'conditional' },
+      SendNotice: { Execute: 'conditional' },
+    };
+    dryRun = (body) =>
+      body['role'] === 'Admin' ? { status: 403, body: { message: notPermitted } } : { status: 200, body: undefined };
   });
 
   it('sends a dry run of the filled request, turns the changed input red on a refusal as not permitted, and holds the call', async () => {
@@ -558,7 +627,9 @@ describe('MethodDialogComponent rehearsing a method whose grant is conditional',
     // The input's error holds the server's words; the dialog says which input to change.
     expect(role.errors).toEqual({ refused: notPermitted });
     expect(role.touched).toBe(true);
-    expect(text(o, '.refusal')).toBe('You are not permitted to do this with the value marked in red. Change it to go on.');
+    expect(text(o, '.refusal')).toBe(
+      'You are not permitted to do this with the value marked in red. Change it to go on.',
+    );
     expect(o.component.form.invalid).toBe(true);
 
     // The button is held: the call is not sent while the input stands refused.
@@ -569,7 +640,12 @@ describe('MethodDialogComponent rehearsing a method whose grant is conditional',
 
   it('rehearses the request the call will send: the last day of a period as the first instant of the day after it', async () => {
     digest = { GiveRoleFor: { Execute: 'conditional' } };
-    const o = await openWithDigest({ method: 'GiveRoleFor', label: 'Give a role', preset: { userId: 'u-1' }, throughDay: ['endsAt'] });
+    const o = await openWithDigest({
+      method: 'GiveRoleFor',
+      label: 'Give a role',
+      preset: { userId: 'u-1' },
+      throughDay: ['endsAt'],
+    });
     expect(o.component.rehearses).toBe(true);
 
     o.component.form.setValue({ role: 'Pilot', startsAt: '', endsAt: new Date(2026, 11, 1) });
@@ -713,7 +789,13 @@ describe('MethodDialogComponent rehearsing a method whose grant is conditional',
     expect(role.hasError('refused')).toBe(true);
   });
 
-  const unrehearsed: { name: string; method: string; preset: Record<string, unknown>; field: string; digest: PermissionDigest }[] = [
+  const unrehearsed: {
+    name: string;
+    method: string;
+    preset: Record<string, unknown>;
+    field: string;
+    digest: PermissionDigest;
+  }[] = [
     {
       name: 'a grant with no condition',
       method: 'GiveRole',
@@ -756,10 +838,18 @@ describe('MethodDialogComponent rehearsing a method whose grant is conditional',
     expect(rename.component.judged).toEqual([]);
     expect(rename.component.rehearses).toBe(false);
     TestBed.resetTestingModule();
-    const question = await openWithDigest({ method: 'DisableCrewSectorUser', label: 'Disable', preset: { userId: 'u-1' } });
+    const question = await openWithDigest({
+      method: 'DisableCrewSectorUser',
+      label: 'Disable',
+      preset: { userId: 'u-1' },
+    });
     expect(question.component.rehearses).toBe(false);
     TestBed.resetTestingModule();
-    const files = await openWithDigest({ method: 'ReplaceMissionDocument', label: 'Replace', preset: { documentId: 'd-1' } });
+    const files = await openWithDigest({
+      method: 'ReplaceMissionDocument',
+      label: 'Replace',
+      preset: { documentId: 'd-1' },
+    });
     expect(files.component.rehearses).toBe(false);
   });
 });
@@ -770,7 +860,11 @@ describe('declaredRefusal', () => {
     { name: 'a result with no status', answer: { id: 'u-1' }, want: undefined },
     { name: 'a declared success', answer: { status: 200, result: { id: 'u-1' } }, want: undefined },
     { name: 'a declared 4xx with a message', answer: { status: 409, result: { message: 'taken' } }, want: 'taken' },
-    { name: 'a declared 4xx with no message', answer: { status: 422, result: { fee: '1' } }, want: 'The request was refused (422).' },
+    {
+      name: 'a declared 4xx with no message',
+      answer: { status: 422, result: { fee: '1' } },
+      want: 'The request was refused (422).',
+    },
   ];
   for (const tt of cases) {
     it(tt.name, () => {
@@ -908,7 +1002,12 @@ describe('MethodDialogComponent running a method that warns', () => {
     const release: (() => void)[] = [];
     warning = (body) =>
       new Promise<TransportResponse>((resolve) => {
-        release.push(() => resolve({ status: 200, body: { consequence: `for ${String(body['defaultRole'] ?? 'nobody')}`, confirm: 'Open' } }));
+        release.push(() =>
+          resolve({
+            status: 200,
+            body: { consequence: `for ${String(body['defaultRole'] ?? 'nobody')}`, confirm: 'Open' },
+          }),
+        );
       });
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     o.component.form.controls['defaultRole'].setValue('Member');
@@ -924,7 +1023,10 @@ describe('MethodDialogComponent running a method that warns', () => {
   });
 
   it("shows a refusal of the question in the server's words, and holds the button though the word is typed", async () => {
-    warning = () => ({ status: 403, body: { message: 'user ada, scope global, does not have Execute on [OpenSignUp]' } });
+    warning = () => ({
+      status: 403,
+      body: { message: 'user ada, scope global, does not have Execute on [OpenSignUp]' },
+    });
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);
 

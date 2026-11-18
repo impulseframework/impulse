@@ -490,9 +490,9 @@ const redirects = list.methods.filter((method) => method.kind === 'redirect');
 // the server's refusal, resolved rather than thrown so the page renders it in place.
 const result = await api.auth.signInWithPassword(password, { username, password: secret });
 switch (result.outcome) {
-  case 'session':  // the session is established; check it and move on
-  case 'pending':  // a step waits: read api.auth.pending(), or go to result.redirectUrl when the server named one
-  case 'refused':  // result.code (user_disabled, pending_expired, too_many_attempts, the application's own), result.message, and result.retryAfter when the server named a wait
+  case 'session': // the session is established; check it and move on
+  case 'pending': // a step waits: read api.auth.pending(), or go to result.redirectUrl when the server named one
+  case 'refused': // result.code (user_disabled, pending_expired, too_many_attempts, the application's own), result.message, and result.retryAfter when the server named a wait
 }
 
 // A redirect method is a navigation, with the page to return to.

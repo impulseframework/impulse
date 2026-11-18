@@ -235,7 +235,9 @@ async function pageOver(
         provide: ActivatedRoute,
         useValue: {
           snapshot: {
-            data: { config: rootConfig({ parentConfig: listPage, routeData: { route: 'squadrons', hasViewRoute: true } }) },
+            data: {
+              config: rootConfig({ parentConfig: listPage, routeData: { route: 'squadrons', hasViewRoute: true } }),
+            },
             params: {},
             queryParams: {},
           },
@@ -320,14 +322,17 @@ describe('CompoundResourceComponent row page', () => {
 
     // A method ran against the page's row: it may have changed anything under the row.
     store.rowChanged();
-    await settle(() => rowReads(script).length === 2 && arrayLists(script).length === 2 && rosterLists(script).length === 2);
+    await settle(
+      () => rowReads(script).length === 2 && arrayLists(script).length === 2 && rosterLists(script).length === 2,
+    );
     expect(rowReads(script)).toHaveLength(2);
     expect(arrayLists(script)).toHaveLength(2);
     expect(rosterLists(script)).toHaveLength(2);
 
     // A method ran from the child list, which has asked for its own rows again already:
     // the page reads the row and its other children, and asks nothing more of that list.
-    const roster = fixture.debugElement.query(By.directive(ResourceListCreateComponent)).componentInstance as ResourceListCreateComponent;
+    const roster = fixture.debugElement.query(By.directive(ResourceListCreateComponent))
+      .componentInstance as ResourceListCreateComponent;
     roster.methodRan();
     await settle(() => rowReads(script).length === 3 && arrayLists(script).length === 3);
     expect(rowReads(script)).toHaveLength(3);

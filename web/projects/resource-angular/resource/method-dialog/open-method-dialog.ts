@@ -35,7 +35,10 @@ export function openMethodDialog(
     ...(method.presentation?.throughDay ? { throughDay: method.presentation.throughDay } : {}),
   };
   return dialog
-    .open<MethodDialogComponent, MethodDialogData, MethodDialogResult>(MethodDialogComponent, { data, delayFocusTrap: false })
+    .open<MethodDialogComponent, MethodDialogData, MethodDialogResult>(MethodDialogComponent, {
+      data,
+      delayFocusTrap: false,
+    })
     .afterClosed();
 }
 

@@ -471,9 +471,7 @@ export interface EmailCodeSent {
  * `pending_expired` when the browser's pending sign-in expired or was already used.
  */
 export type PendingStatus =
-  | ({ readonly outcome: 'waiting' } & PendingSignIn)
-  | { readonly outcome: 'none' }
-  | SignInRefusal;
+  ({ readonly outcome: 'waiting' } & PendingSignIn) | { readonly outcome: 'none' } | SignInRefusal;
 
 /** What createClient hands the sign-in client. */
 /** What a redirect method's URL asks of the provider beyond the page to return to. */
@@ -1109,11 +1107,15 @@ export class AuthClient {
    */
   async openInvitation(token: string): Promise<InvitationOpenResult> {
     const routes = await this.invitationRoutes();
-    const response = await this.options.request<(Partial<OpenedInvitation> & RefusalAnswer) | null>('POST', routes.open, {
-      body: { token },
-      absolute: true,
-      accept: linkRefusals,
-    });
+    const response = await this.options.request<(Partial<OpenedInvitation> & RefusalAnswer) | null>(
+      'POST',
+      routes.open,
+      {
+        body: { token },
+        absolute: true,
+        accept: linkRefusals,
+      },
+    );
     if (response.status >= 400) {
       return refusalOf(response);
     }
@@ -1195,11 +1197,15 @@ export class AuthClient {
    */
   async verifyEmail(token: string): Promise<EmailVerifyResult> {
     const routes = await this.emailRoutes();
-    const response = await this.options.request<(Partial<{ email: string }> & RefusalAnswer) | null>('POST', routes.verify, {
-      body: { token },
-      absolute: true,
-      accept: verifyRefusals,
-    });
+    const response = await this.options.request<(Partial<{ email: string }> & RefusalAnswer) | null>(
+      'POST',
+      routes.verify,
+      {
+        body: { token },
+        absolute: true,
+        accept: verifyRefusals,
+      },
+    );
     if (response.status >= 400) {
       return refusalOf(response);
     }
@@ -1294,7 +1300,9 @@ export class AuthClient {
   private async signUpRoutes(): Promise<SignUpRoutes> {
     const list = await this.methods();
     if (!list.signUp) {
-      throw new Error('this server names no sign-up routes in its methods list: its password method does not offer sign-up');
+      throw new Error(
+        'this server names no sign-up routes in its methods list: its password method does not offer sign-up',
+      );
     }
     return list.signUp;
   }
@@ -1417,7 +1425,9 @@ export function unknownKindWarning(name: string, kind: string): string {
 
 /** The body an account is posted as: the password, and the username only where one was given. */
 function accountBody(account: NewAccount): { password: string; username?: string } {
-  return account.username === undefined ? { password: account.password } : { password: account.password, username: account.username };
+  return account.username === undefined
+    ? { password: account.password }
+    : { password: account.password, username: account.username };
 }
 
 /** The result of a sign-in step's answer: a refusal for a status the step accepts, else the session or a pending step. */

@@ -938,7 +938,9 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     const key: unknown[] = [];
     for (const field of descriptor.keys) {
       if (body[field] === undefined) {
-        throw new Error(`${descriptor.resource}: ${op} names its row, so the value must supply every key field (${descriptor.keys.join(', ')})`);
+        throw new Error(
+          `${descriptor.resource}: ${op} names its row, so the value must supply every key field (${descriptor.keys.join(', ')})`,
+        );
       }
       key.push(body[field]);
       delete body[field];
@@ -981,7 +983,9 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     url: (key?: Key) => `${client.baseUrl}/${route}${keySegments(key)}`,
     fileUrl: (key: Key, segment = 'content') => {
       if (!descriptor.files?.includes(segment)) {
-        throw new Error(`${descriptor.resource} serves no file under ${segment}: its files are [${descriptor.files?.join(', ') ?? ''}]`);
+        throw new Error(
+          `${descriptor.resource} serves no file under ${segment}: its files are [${descriptor.files?.join(', ') ?? ''}]`,
+        );
       }
       return `${client.baseUrl}/${route}${keySegments(key)}/${segment}`;
     },

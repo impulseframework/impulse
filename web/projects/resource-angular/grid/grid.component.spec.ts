@@ -22,14 +22,18 @@ describe('AppGridComponent', () => {
     fixture = TestBed.createComponent(AppGridComponent);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('rowData', rows);
-    fixture.componentRef.setInput('columnDefs', Object.keys(rows[0]).map((id) => ({ id })));
+    fixture.componentRef.setInput(
+      'columnDefs',
+      Object.keys(rows[0]).map((id) => ({ id })),
+    );
     fixture.componentRef.setInput('selectionType', 'multiple');
     fixture.componentRef.setInput('enableRowExpansion', true);
     fixture.componentRef.setInput('rowKey', rowKey);
     fixture.detectChanges();
   };
 
-  const selectedInDom = (): number => (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row.selected').length;
+  const selectedInDom = (): number =>
+    (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row.selected').length;
 
   const cases: { name: string; rows: RecordData[]; rowKey: RowKey | undefined; pick: number; wantKey: unknown }[] = [
     {
@@ -117,15 +121,27 @@ describe('AppGridComponent', () => {
   // one measurement of its container and draws the page instead of failing in its render hook.
   it('draws an icon column from the display row: the icon as an image named by the words, the words alone where the row has no icon', async () => {
     const rows: RecordData[] = [
-      { id: 'p-1', limitStatus: 'Grandfathered: Jane Doe has 4 active learners. The partner limit is 2.', [iconCellKey('limitStatus')]: 'warning' },
+      {
+        id: 'p-1',
+        limitStatus: 'Grandfathered: Jane Doe has 4 active learners. The partner limit is 2.',
+        [iconCellKey('limitStatus')]: 'warning',
+      },
       { id: 'p-2', limitStatus: 'ok', [iconCellKey('limitStatus')]: null },
     ];
-    await TestBed.configureTestingModule({ imports: [AppGridComponent], providers: [provideResourceTesting()] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
     fixture = TestBed.createComponent(AppGridComponent);
     fixture.componentRef.setInput('rowData', rows);
     fixture.componentRef.setInput('columnDefs', [
       { id: 'id' },
-      { id: 'limitStatus', header: 'Limit', iconConfig: { icons: { grandfathered: 'warning' } }, tooltipPosition: 'right' },
+      {
+        id: 'limitStatus',
+        header: 'Limit',
+        iconConfig: { icons: { grandfathered: 'warning' } },
+        tooltipPosition: 'right',
+      },
     ]);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
@@ -133,12 +149,17 @@ describe('AppGridComponent', () => {
     expect(cells).toHaveLength(2);
     const icon = cells[0].querySelector('mat-icon');
     expect(icon?.textContent?.trim()).toBe('warning');
-    expect(icon?.getAttribute('aria-label')).toBe('Grandfathered: Jane Doe has 4 active learners. The partner limit is 2.');
+    expect(icon?.getAttribute('aria-label')).toBe(
+      'Grandfathered: Jane Doe has 4 active learners. The partner limit is 2.',
+    );
     expect(icon?.getAttribute('role')).toBe('img');
     expect(icon?.getAttribute('tabindex')).toBe('0');
     expect(cells[1].querySelector('mat-icon')).toBeNull();
     expect(cells[1].textContent?.trim()).toBe('ok');
-    expect(Array.from(element.querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual(['Id', 'Limit']);
+    expect(Array.from(element.querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
+      'Id',
+      'Limit',
+    ]);
   });
 
   it('draws a yes-or-no value as a check or a dash, each named for a screen reader, and every other value as its text', async () => {
@@ -146,13 +167,23 @@ describe('AppGridComponent', () => {
       { username: 'ada', disabled: true, count: 0, note: 'false' },
       { username: 'mo', disabled: false, count: 2, note: '' },
     ];
-    await TestBed.configureTestingModule({ imports: [AppGridComponent], providers: [provideResourceTesting()] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
     fixture = TestBed.createComponent(AppGridComponent);
     fixture.componentRef.setInput('rowData', rows);
-    fixture.componentRef.setInput('columnDefs', [{ id: 'username' }, { id: 'disabled' }, { id: 'count' }, { id: 'note' }]);
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'username' },
+      { id: 'disabled' },
+      { id: 'count' },
+      { id: 'note' },
+    ]);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
-    const cells = Array.from(element.querySelectorAll<HTMLElement>('tr.impulse-row')).map((row) => Array.from(row.querySelectorAll<HTMLElement>('td.data-col')));
+    const cells = Array.from(element.querySelectorAll<HTMLElement>('tr.impulse-row')).map((row) =>
+      Array.from(row.querySelectorAll<HTMLElement>('td.data-col')),
+    );
     expect(cells).toHaveLength(2);
 
     const yes = cells[0][1].querySelector('mat-icon.cell-yes');
@@ -184,7 +215,7 @@ describe('AppGridComponent', () => {
 // The filter menu's value control follows the column's field: a date control on a date
 // column, a date and a time of day on a timestamp column, typed text elsewhere and for a
 // list, and the value travels as the server reads it, the whole day or minute.
-describe('the filter menu\'s value control', () => {
+describe("the filter menu's value control", () => {
   let fixture: ComponentFixture<AppGridComponent>;
   let emitted: ColumnFilter[] | undefined;
 
@@ -194,7 +225,9 @@ describe('the filter menu\'s value control', () => {
       providers: [provideResourceTesting()],
     }).compileComponents();
     fixture = TestBed.createComponent(AppGridComponent);
-    fixture.componentRef.setInput('rowData', [{ deadline: '2026-12-15T09:30:00Z', expiresOn: '2026-12-20', title: 'Survey' }]);
+    fixture.componentRef.setInput('rowData', [
+      { deadline: '2026-12-15T09:30:00Z', expiresOn: '2026-12-20', title: 'Survey' },
+    ]);
     fixture.componentRef.setInput('columnDefs', [{ id: 'deadline' }, { id: 'expiresOn' }, { id: 'title' }]);
     fixture.componentRef.setInput('filterability', { deadline: 'always', expiresOn: 'always', title: 'always' });
     fixture.componentRef.setInput('filterInputs', filterInputs);
@@ -212,7 +245,9 @@ describe('the filter menu\'s value control', () => {
   };
   /** Opens the column's filter menu by its header button and hands back the menu's panel in the overlay. */
   const openMenu = async (column: number): Promise<HTMLElement> => {
-    const triggers = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button.filter-trigger');
+    const triggers = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+      'button.filter-trigger',
+    );
     triggers[column].click();
     await settle();
     const menu = document.body.querySelector<HTMLElement>('.cdk-overlay-container .impulse-grid-filter-menu');
@@ -221,7 +256,8 @@ describe('the filter menu\'s value control', () => {
     }
     return menu;
   };
-  const controls = (menu: HTMLElement): string[] => Array.from(menu.querySelectorAll('input')).map((input) => input.type);
+  const controls = (menu: HTMLElement): string[] =>
+    Array.from(menu.querySelectorAll('input')).map((input) => input.type);
   const give = (input: HTMLInputElement | null, value: string): void => {
     if (!input) {
       throw new Error('no input');

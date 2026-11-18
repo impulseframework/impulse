@@ -1,6 +1,14 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup } from '@angular/forms';
-import { ApiDescriptor, ClientBase, createClient, PermissionDigest, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  ClientBase,
+  createClient,
+  PermissionDigest,
+  Resource,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
@@ -146,7 +154,13 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   };
   const metas: Record<string, ResourceMeta> = {
     [squadrons]: { route: 'squadrons', fields: [wingField] },
-    [wings]: { route: 'wings', fields: [{ fieldName: 'id', displayType: 'uuid', required: false, isIndex: true }, { fieldName: 'name', displayType: 'string', required: true, isIndex: true }] },
+    [wings]: {
+      route: 'wings',
+      fields: [
+        { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true },
+        { fieldName: 'name', displayType: 'string', required: true, isIndex: true },
+      ],
+    },
   };
   const wingRows: Record<string, { id: string; name: string }> = {
     'w-1': { id: 'w-1', name: 'Anvil Wing' },
@@ -199,7 +213,8 @@ describe('EnumeratedFieldComponent over a paged source', () => {
       .filter((key): key is string => key !== undefined);
 
   /** How many times the list of wings was asked for. */
-  const wingLists = (): number => transport.requests.filter((request) => request.url.split('?')[0] === '/api/wings').length;
+  const wingLists = (): number =>
+    transport.requests.filter((request) => request.url.split('?')[0] === '/api/wings').length;
 
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const text = (): string => element().textContent ?? '';
@@ -222,7 +237,8 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     fixture.detectChanges();
   };
 
-  const formOver = (value: string | null): FormGroup => new FormGroup({ wingId: new FormControl<string | null>(value) });
+  const formOver = (value: string | null): FormGroup =>
+    new FormGroup({ wingId: new FormControl<string | null>(value) });
 
   beforeEach(async () => {
     digest = {};
@@ -231,7 +247,10 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
         ResourceStore,
       ],
@@ -242,7 +261,11 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     fixture.componentRef.setInput('fieldMeta', wingField);
     fixture.componentRef.setInput(
       'fieldConfig',
-      field({ name: 'wingId' as FieldName, label: 'Wing', enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName] }) }),
+      field({
+        name: 'wingId' as FieldName,
+        label: 'Wing',
+        enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName] }),
+      }),
     );
     fixture.componentRef.setInput('editMode', 'view');
     fixture.componentRef.setInput('showField', true);
@@ -264,7 +287,7 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     expect(wingReads()).toEqual(['w-1']);
   });
 
-  it('reads nothing when the form group is rebuilt over the same value, as after a reload of the page\'s row', async () => {
+  it("reads nothing when the form group is rebuilt over the same value, as after a reload of the page's row", async () => {
     fixture.componentRef.setInput('form', formOver('w-1'));
     await settle();
     fixture.componentRef.setInput('form', formOver('w-1'));
@@ -313,7 +336,12 @@ describe('EnumeratedFieldComponent over a paged source', () => {
     await settle();
     expect(picks()).toBe(true);
     expect(wingLists()).toBe(1);
-    expect(fixture.componentInstance.availableEnumOptions()?.map((option) => option.id)).toEqual([null, sealedWing, 'w-1', 'w-2']);
+    expect(fixture.componentInstance.availableEnumOptions()?.map((option) => option.id)).toEqual([
+      null,
+      sealedWing,
+      'w-1',
+      'w-2',
+    ]);
     expect(text()).toContain(closedRecord);
     expect(text()).not.toContain('you may not read Wings here');
     // Nothing more is asked for that value, and leaving the field alone keeps it.
@@ -351,7 +379,15 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   it("links a read field to the chosen row's page only where the row is the person's to read", async () => {
     fixture.componentRef.setInput(
       'fieldConfig',
-      field({ name: 'wingId' as FieldName, label: 'Wing', enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName], viewDetails: true }) }),
+      field({
+        name: 'wingId' as FieldName,
+        label: 'Wing',
+        enumeratedConfig: enumeratedConfig({
+          listDisplay: ['name' as FieldName],
+          viewDisplay: ['name' as FieldName],
+          viewDetails: true,
+        }),
+      }),
     );
     await settle();
     expect(element().querySelector('a[mat-icon-button]')).not.toBeNull();
@@ -501,13 +537,33 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     features: { route: 'features' },
     methods: {},
     resources: {
-      [docks]: { resource: docks, property: 'docks', route: 'docks', scope: 'global', consolidated: false, keys: ['id'], operations: ['list'] },
+      [docks]: {
+        resource: docks,
+        property: 'docks',
+        route: 'docks',
+        scope: 'global',
+        consolidated: false,
+        keys: ['id'],
+        operations: ['list'],
+      },
     },
   };
   const idField: FieldMeta = { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true };
   const nameField: FieldMeta = { fieldName: 'name', displayType: 'string', required: true, isIndex: true };
-  const dockField: FieldMeta = { fieldName: 'dockId', displayType: 'enumerated', required: false, isIndex: true, enumeratedResource: docks };
-  const pierField: FieldMeta = { fieldName: 'pierId', displayType: 'enumerated', required: false, isIndex: true, enumeratedResource: piers };
+  const dockField: FieldMeta = {
+    fieldName: 'dockId',
+    displayType: 'enumerated',
+    required: false,
+    isIndex: true,
+    enumeratedResource: docks,
+  };
+  const pierField: FieldMeta = {
+    fieldName: 'pierId',
+    displayType: 'enumerated',
+    required: false,
+    isIndex: true,
+    enumeratedResource: piers,
+  };
   const metas: Record<string, ResourceMeta> = {
     [hangars]: { route: 'hangars', fields: [dockField, pierField] },
     [docks]: { route: 'docks', fields: [idField, nameField] },
@@ -532,7 +588,8 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     }
     return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   };
-  const lists = (route: string): number => transport.requests.filter((request) => request.url.split('?')[0] === `/api/${route}`).length;
+  const lists = (route: string): number =>
+    transport.requests.filter((request) => request.url.split('?')[0] === `/api/${route}`).length;
   const settle = async (): Promise<void> => {
     for (let i = 0; i < 10; i++) {
       TestBed.tick();
@@ -552,7 +609,14 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     fixture = TestBed.createComponent(EnumeratedFieldComponent);
     fixture.componentRef.setInput('meta', metas[hangars]);
     fixture.componentRef.setInput('fieldMeta', source);
-    fixture.componentRef.setInput('fieldConfig', field({ name, label: 'Berth', enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName] }) }));
+    fixture.componentRef.setInput(
+      'fieldConfig',
+      field({
+        name,
+        label: 'Berth',
+        enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName] }),
+      }),
+    );
     fixture.componentRef.setInput('editMode', mode);
     fixture.componentRef.setInput('showField', true);
     fixture.componentRef.setInput('form', form);
@@ -568,7 +632,10 @@ describe('EnumeratedFieldComponent over a source read whole that the person may 
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
         ResourceStore,
       ],
@@ -680,7 +747,9 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     },
     [roles]: {
       route: 'roles',
-      fields: [{ fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true }],
+      fields: [
+        { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true },
+      ],
     },
   };
   const anvil = 'a1111111-1111-4111-8111-111111111111';
@@ -723,14 +792,20 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
         ResourceStore,
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(EnumeratedFieldComponent);
     fixture.componentRef.setInput('meta', metas[methods]);
-    fixture.componentRef.setInput('fieldMeta', metas[methods].fields.find((candidate) => candidate.fieldName === fieldName));
+    fixture.componentRef.setInput(
+      'fieldMeta',
+      metas[methods].fields.find((candidate) => candidate.fieldName === fieldName),
+    );
     fixture.componentRef.setInput('fieldConfig', field({ name: fieldName as FieldName, label: 'Picked' }));
     fixture.componentRef.setInput('editMode', 'view');
     fixture.componentRef.setInput('showField', true);
@@ -755,7 +830,9 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     // The name is asked for beside the key, though the page configured no display.
     expect(lastPage()).toBe('GET /api/sectors?columns=id%2Cname&count=true');
     expect(
-      (fixture.componentInstance.availableEnumOptions() ?? []).filter((option) => option.id !== null).map((option) => [option.id, option.display]),
+      (fixture.componentInstance.availableEnumOptions() ?? [])
+        .filter((option) => option.id !== null)
+        .map((option) => [option.id, option.display]),
     ).toEqual([
       [anvil, 'Anvil'],
       [bastion, 'Bastion'],
@@ -770,7 +847,9 @@ describe('EnumeratedFieldComponent with no display of its own', () => {
     await settle();
     expect(lastPage()).toBe('GET /api/roles?columns=name&count=true');
     expect(
-      (fixture.componentInstance.availableEnumOptions() ?? []).filter((option) => option.id !== null).map((option) => [option.id, option.display]),
+      (fixture.componentInstance.availableEnumOptions() ?? [])
+        .filter((option) => option.id !== null)
+        .map((option) => [option.id, option.display]),
     ).toEqual([
       ['Cadet', 'Cadet'],
       ['Marshal', 'Marshal'],
@@ -817,7 +896,14 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
       fields: [
         id,
         { fieldName: 'name', displayType: 'string', required: true, isIndex: true, search: ['contains'] },
-        { fieldName: 'contactEmail', displayType: 'string', required: true, isIndex: false, search: ['contains'], pii: true },
+        {
+          fieldName: 'contactEmail',
+          displayType: 'string',
+          required: true,
+          isIndex: false,
+          search: ['contains'],
+          pii: true,
+        },
       ],
       searchFields: ['name', 'contactEmail'],
     },
@@ -825,7 +911,10 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
       route: 'hangars',
       fields: [id, { fieldName: 'name', displayType: 'string', required: true, isIndex: true, search: ['startswith'] }],
     },
-    [berths]: { route: 'berths', fields: [id, { fieldName: 'name', displayType: 'string', required: true, isIndex: false }] },
+    [berths]: {
+      route: 'berths',
+      fields: [id, { fieldName: 'name', displayType: 'string', required: true, isIndex: false }],
+    },
   };
 
   let fixture: ComponentFixture<EnumeratedFieldComponent>;
@@ -844,12 +933,21 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
     await TestBed.configureTestingModule({
       imports: [EnumeratedFieldComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
         ResourceStore,
       ],
     }).compileComponents();
-    const fieldMeta: FieldMeta = { fieldName, displayType: 'enumerated', required: false, isIndex: true, enumeratedResource: source };
+    const fieldMeta: FieldMeta = {
+      fieldName,
+      displayType: 'enumerated',
+      required: false,
+      isIndex: true,
+      enumeratedResource: source,
+    };
     fixture = TestBed.createComponent(EnumeratedFieldComponent);
     fixture.componentRef.setInput('meta', metas[missions]);
     fixture.componentRef.setInput('fieldMeta', fieldMeta);
@@ -858,7 +956,11 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
       field({
         name: fieldName as FieldName,
         label: 'Source',
-        enumeratedConfig: enumeratedConfig({ listDisplay: ['name' as FieldName], viewDisplay: ['name' as FieldName], searchable: true }),
+        enumeratedConfig: enumeratedConfig({
+          listDisplay: ['name' as FieldName],
+          viewDisplay: ['name' as FieldName],
+          searchable: true,
+        }),
       }),
     );
     fixture.componentRef.setInput('editMode', 'edit');
@@ -896,7 +998,9 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
 
   it('a source nothing narrows is refused when the field is built, naming the resource', async () => {
     await create(berths, 'berthId');
-    expect(() => fixture.detectChanges()).toThrow(/^Berths: searchable is set, but the resource is paged, its display field name answers no startswith/);
+    expect(() => fixture.detectChanges()).toThrow(
+      /^Berths: searchable is set, but the resource is paged, its display field name answers no startswith/,
+    );
     expect(transport.requests).toEqual([]);
   });
 });

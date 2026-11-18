@@ -215,7 +215,11 @@ describe('resourceRoutes', () => {
   describe('over a key-less resource', () => {
     const orders = 'StandingOrders' as Resource;
     const ordersMeta = (): ResourceMeta =>
-      ({ route: 'standing-orders', readDisabled: true, fields: [field('section'), field('directive')] }) as ResourceMeta;
+      ({
+        route: 'standing-orders',
+        readDisabled: true,
+        fields: [field('section'), field('directive')],
+      }) as ResourceMeta;
     const ordersConfig = (routeData?: RootRouteData) =>
       rootConfig({
         ...(routeData ? { routeData } : {}),
@@ -344,13 +348,23 @@ describe('resourceRoutes', () => {
   // tenant's digest, and a row still opens on the tenant's own page.
   describe('over a list across tenants', () => {
     const dispatches = 'Dispatches' as Resource;
-    const dispatchesMeta = (extra: Partial<ResourceMeta> = {}) => (): ResourceMeta =>
-      keyed('sectors/{sectorID}/dispatches', extra);
-    const acrossConfig = (routeData: RootRouteData | undefined, page: ConfigPage = { label: 'Dispatches in every sector' }) =>
+    const dispatchesMeta =
+      (extra: Partial<ResourceMeta> = {}) =>
+      (): ResourceMeta =>
+        keyed('sectors/{sectorID}/dispatches', extra);
+    const acrossConfig = (
+      routeData: RootRouteData | undefined,
+      page: ConfigPage = { label: 'Dispatches in every sector' },
+    ) =>
       rootConfig({
         ...(routeData ? { routeData } : {}),
         page,
-        parentConfig: listViewConfig({ primaryResource: dispatches, acrossTenants: true, listColumns: [], elements: [] }),
+        parentConfig: listViewConfig({
+          primaryResource: dispatches,
+          acrossTenants: true,
+          listColumns: [],
+          elements: [],
+        }),
       });
 
     it('mounts the list alone at the configured route, guarded by whether the person may list the resource in any tenant of theirs', () => {
@@ -383,7 +397,10 @@ describe('resourceRoutes', () => {
     });
 
     it('carries a page shown to whoever may list the resource in a tenant of theirs, at the configured route', () => {
-      const config = acrossConfig({ route: 'hq/dispatches' }, { label: 'Dispatches in every sector', icon: 'travel_explore' });
+      const config = acrossConfig(
+        { route: 'hq/dispatches' },
+        { label: 'Dispatches in every sector', icon: 'travel_explore' },
+      );
       const route = resourceRoutes(config, dispatchesMeta());
       expect(route.data?.[pageDataKey]).toBe(resourcePage(config, dispatchesMeta()));
       expect(resourcePage(config, dispatchesMeta())).toEqual({
@@ -399,7 +416,10 @@ describe('resourceRoutes', () => {
       const permission = { resource: 'Charters' as Resource, permission: ListPermission };
       const config = acrossConfig({ route: 'hq/dispatches' }, { label: 'Dispatches in every sector', permission });
       expect(resourcePage(config, dispatchesMeta()).permission).toBe(permission);
-      expect(scopeOf(resourceRoutes(config, dispatchesMeta()))).toEqual({ resource: dispatches, permission: ListAcrossTenantsPermission });
+      expect(scopeOf(resourceRoutes(config, dispatchesMeta()))).toEqual({
+        resource: dispatches,
+        permission: ListAcrossTenantsPermission,
+      });
     });
 
     it('sits behind the feature flag of its resource', () => {

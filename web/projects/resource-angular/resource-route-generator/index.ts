@@ -66,7 +66,9 @@ export function resourcePage(config: RootConfig, resourceMeta: (resource: Resour
   }
   const resource = config.parentConfig.primaryResource as Resource;
   if (!config.page) {
-    throw new Error(`resourcePage: the config of ${resource} names no page (page: { label, icon }), so no menu can place it`);
+    throw new Error(
+      `resourcePage: the config of ${resource} names no page (page: { label, icon }), so no menu can place it`,
+    );
   }
   const meta = resourceMeta(resource) as ResourceMeta | undefined;
   if (!meta) {
@@ -79,7 +81,8 @@ export function resourcePage(config: RootConfig, resourceMeta: (resource: Resour
     route: [across ? acrossTenantsRoute(config, resource) : config.routeData.route || meta.route],
     // A list across tenants has no one tenant whose digest could answer List for it: the
     // global digest says whether the person may list the resource in any tenant of theirs.
-    permission: config.page.permission ?? (across ? acrossTenantsScope(resource) : { resource, permission: ListPermission }),
+    permission:
+      config.page.permission ?? (across ? acrossTenantsScope(resource) : { resource, permission: ListPermission }),
     feature: config.page.feature ?? meta.feature,
   });
   pages.set(config, declared);
@@ -154,7 +157,8 @@ export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Reso
       children: [
         {
           path: '',
-          loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
+          loadComponent: () =>
+            import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
           canDeactivate: [canDeactivateGuard],
         },
       ],
@@ -179,14 +183,16 @@ export const resourceRoutes = (config: RootConfig, resourceMeta: (resource: Reso
     path: '',
     data,
     canActivate: [AuthorizationGuard],
-    loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
+    loadComponent: () =>
+      import('@impulseframework/resource-angular/resource').then((mod) => mod.ResourceListCreateComponent),
     canDeactivate: [canDeactivateGuard],
   };
   const rowRoute: Route = {
     path: ':uuid',
     data: viewData,
     canActivate: [AuthorizationGuard],
-    loadComponent: () => import('@impulseframework/resource-angular/resource').then((mod) => mod.CompoundResourceComponent),
+    loadComponent: () =>
+      import('@impulseframework/resource-angular/resource').then((mod) => mod.CompoundResourceComponent),
     canDeactivate: [canDeactivateGuard],
   };
   // A configured route stands with or without its row route: the config may switch the

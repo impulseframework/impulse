@@ -27,7 +27,13 @@ import {
   rowCapabilities,
   RPCConfig,
 } from '@impulseframework/resource-angular/types';
-import { ColumnFilter, composeFilter, filterFields, isComplete, PageTurn } from '@impulseframework/resource-angular/grid';
+import {
+  ColumnFilter,
+  composeFilter,
+  filterFields,
+  isComplete,
+  PageTurn,
+} from '@impulseframework/resource-angular/grid';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 import {
@@ -105,7 +111,9 @@ export class ResourceStore {
    * by default, `Execute` on a list whose rows offer methods. A change asks for a first
    * page again.
    */
-  pageCapabilities = signal<Capability[]>([], { equal: (a, b) => a.length === b.length && a.every((c, i) => c === b[i]) });
+  pageCapabilities = signal<Capability[]>([], {
+    equal: (a, b) => a.length === b.length && a.every((c, i) => c === b[i]),
+  });
   /**
    * The page's own choice about being live: `live` on its ListViewConfig or ViewConfig,
    * undefined when the config says nothing. Resolved against the metadata in `live`.
@@ -126,7 +134,12 @@ export class ResourceStore {
     // config makes it live, whatever the resource's metadata says of its changes.
     this.acrossTenants()
       ? this.liveChoice() === true
-      : pageIsLive(this.resourceName() || this.resourceMeta().route, this.liveChoice(), this.resourceMeta(), this.client.warn),
+      : pageIsLive(
+          this.resourceName() || this.resourceMeta().route,
+          this.liveChoice(),
+          this.resourceMeta(),
+          this.client.warn,
+        ),
   );
   /**
    * Whether the store's list page reads the resource across tenants
@@ -207,8 +220,14 @@ export class ResourceStore {
     if (this.disableCacheForFilterPii()) {
       return true;
     }
-    const pii = new Set((this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName));
-    if (pii.size > 0 && (filterFields(this.filter()).some((f) => pii.has(f)) || this.columnFilters().some((f) => isComplete(f) && pii.has(f.field)))) {
+    const pii = new Set(
+      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
+    );
+    if (
+      pii.size > 0 &&
+      (filterFields(this.filter()).some((f) => pii.has(f)) ||
+        this.columnFilters().some((f) => isComplete(f) && pii.has(f.field)))
+    ) {
       return true;
     }
     return this.searchText().trim() !== '' && this.searchPII();
@@ -393,7 +412,9 @@ export class ResourceStore {
       if (seq !== this.pageRequestSeq) {
         return;
       }
-      this.position.set(positionAfter(this.position(), turn, leftRows, { rows: landed.rows.length, total: landed.total }));
+      this.position.set(
+        positionAfter(this.position(), turn, leftRows, { rows: landed.rows.length, total: landed.total }),
+      );
       this.currentPage.set(landed);
       this.pageError.set(undefined);
       this.pageStatus.set('resolved');
@@ -840,7 +861,9 @@ export class ResourceStore {
           const columnsAsked = params.columns.length > 0 ? params.columns : undefined;
           if (!params.paged) {
             return from(
-              handle.list(wholeListQuery<RecordData>(handle.descriptor, { columns: columnsAsked }) as never) as Promise<RecordData[]>,
+              handle.list(wholeListQuery<RecordData>(handle.descriptor, { columns: columnsAsked }) as never) as Promise<
+                RecordData[]
+              >,
             );
           }
           if (params.keys.length === 0) {
@@ -876,20 +899,19 @@ export class ResourceStore {
       const current = request();
       return current ? { ...current, domain: this.scopedDomain(this.descriptorFor(current.route)) } : undefined;
     });
-    return untracked(
-      () =>
-        PagedList.over<RecordData, PagedListRequest & { domain: Domain | undefined }>(this.injector, params, (p) => {
-          const handle = this.handleFor(p.route);
-          const query: ListQuery<RecordData> = {
-            filter: p.filter && p.filter.trim() !== '' ? p.filter : undefined,
-            sensitiveFilter: p.sensitive || undefined,
-            columns: p.columns && p.columns.length > 0 ? p.columns : undefined,
-            sort: p.sorts && p.sorts.length > 0 ? (p.sorts as ListQuery<RecordData>['sort']) : undefined,
-            limit: p.limit,
-            count: true,
-          };
-          return handle.page(query as never) as Promise<Page<RecordData>>;
-        }),
+    return untracked(() =>
+      PagedList.over<RecordData, PagedListRequest & { domain: Domain | undefined }>(this.injector, params, (p) => {
+        const handle = this.handleFor(p.route);
+        const query: ListQuery<RecordData> = {
+          filter: p.filter && p.filter.trim() !== '' ? p.filter : undefined,
+          sensitiveFilter: p.sensitive || undefined,
+          columns: p.columns && p.columns.length > 0 ? p.columns : undefined,
+          sort: p.sorts && p.sorts.length > 0 ? (p.sorts as ListQuery<RecordData>['sort']) : undefined,
+          limit: p.limit,
+          count: true,
+        };
+        return handle.page(query as never) as Promise<Page<RecordData>>;
+      }),
     );
   }
 
@@ -916,7 +938,8 @@ export class ResourceStore {
       filter: filter && filter.trim() !== '' ? filter : undefined,
       sensitiveFilter: disableCacheForFilterPii || undefined,
       columns: columns && columns.length > 0 ? columns : undefined,
-      sort: sort && sort.length > 0 ? sort.map((s) => ({ field: s.field as string, direction: s.direction })) : undefined,
+      sort:
+        sort && sort.length > 0 ? sort.map((s) => ({ field: s.field as string, direction: s.direction })) : undefined,
       limit: limit && limit > 0 ? limit : undefined,
     };
     const request =

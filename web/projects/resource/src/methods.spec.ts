@@ -181,8 +181,13 @@ describe('a method asked for its warning', () => {
   });
 
   it('rejects with the refusal the call itself would raise', async () => {
-    const transport = scriptedTransport({ status: 403, body: { message: 'user (lead) does not have (Execute) on HoldMission' } });
-    await expect(api(transport).holdMission.warning({ missionId: 'm1', reason: 'weather' })).rejects.toBeInstanceOf(ApiError);
+    const transport = scriptedTransport({
+      status: 403,
+      body: { message: 'user (lead) does not have (Execute) on HoldMission' },
+    });
+    await expect(api(transport).holdMission.warning({ missionId: 'm1', reason: 'weather' })).rejects.toBeInstanceOf(
+      ApiError,
+    );
   });
 
   it('refuses an answer that is no warning, naming the method and the way out', async () => {

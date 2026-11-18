@@ -362,7 +362,10 @@ export class MethodDialogComponent {
  * a handle with no such call is metadata and a descriptor generated apart: refused,
  * naming the method and the way out.
  */
-function uploadHandle<Body, Result>(handle: MethodHandle<Body, Result>, method: string): UploadMethodHandle<Body, Result> {
+function uploadHandle<Body, Result>(
+  handle: MethodHandle<Body, Result>,
+  method: string,
+): UploadMethodHandle<Body, Result> {
   if (!('upload' in handle)) {
     throw new Error(
       `${method} takes files by its metadata and not by the API descriptor: the two were generated apart; regenerate both`,

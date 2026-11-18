@@ -1,7 +1,18 @@
 import { ApplicationRef, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
-import { ApiDescriptor, ClientBase, createClient, Domain, FieldMeta, PermissionDigest, Resource, ResourceMeta, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  ClientBase,
+  createClient,
+  Domain,
+  FieldMeta,
+  PermissionDigest,
+  Resource,
+  ResourceMeta,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { registerResourcePage, registerRowPage } from '@impulseframework/resource-angular/resource-nav';
@@ -66,7 +77,11 @@ const metas: Record<string, ResourceMeta> = {
   } as ResourceMeta,
   [calls]: {
     route: 'distress-calls',
-    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('summary'), field('transcript', { writeOnly: true })],
+    fields: [
+      field('id', { primaryKey: { ordinalPosition: 0 } }),
+      field('summary'),
+      field('transcript', { writeOnly: true }),
+    ],
   } as ResourceMeta,
   // A resource with a search box: its token columns answer the matches, the contact
   // email is PII, and a contact's name reaches the box through @searchAlso under its
@@ -90,10 +105,46 @@ const descriptor: ApiDescriptor = {
   userDomainsRoute: 'user-domains',
   features: { route: 'features' },
   resources: {
-    [orders]: { resource: orders, property: 'standingOrders', route: 'standing-orders', scope: 'global', consolidated: false, keys: [], operations: ['list'], page: { default: 50 } },
-    [ships]: { resource: ships, property: 'ships', route: 'ships', scope: 'global', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25, max: 200 } },
-    [calls]: { resource: calls, property: 'distressCalls', route: 'distress-calls', scope: 'global', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 10, max: 100 } },
-    [clients]: { resource: clients, property: 'clients', route: 'clients', scope: 'global', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25, max: 200 } },
+    [orders]: {
+      resource: orders,
+      property: 'standingOrders',
+      route: 'standing-orders',
+      scope: 'global',
+      consolidated: false,
+      keys: [],
+      operations: ['list'],
+      page: { default: 50 },
+    },
+    [ships]: {
+      resource: ships,
+      property: 'ships',
+      route: 'ships',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+    },
+    [calls]: {
+      resource: calls,
+      property: 'distressCalls',
+      route: 'distress-calls',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 10, max: 100 },
+    },
+    [clients]: {
+      resource: clients,
+      property: 'clients',
+      route: 'clients',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+    },
   },
   methods: {},
 };
@@ -108,15 +159,22 @@ describe('ResourceListComponent', () => {
     server?: (request: TransportRequest) => TransportResponse,
   ): Promise<void> => {
     const config = listViewConfig({ elements: [], ...options });
-    transport = scriptedTransport(server ?? { status: 200, body: rows, headers: { 'total-count': String(rows.length) } });
+    transport = scriptedTransport(
+      server ?? { status: 200, body: rows, headers: { 'total-count': String(rows.length) } },
+    );
     await TestBed.configureTestingModule({
       imports: [ResourceListComponent],
       providers: [
-        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
         { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
         {
           provide: ActivatedRoute,
-          useValue: { snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} } },
+          useValue: {
+            snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+          },
         },
       ],
     }).compileComponents();
@@ -188,9 +246,15 @@ describe('ResourceListComponent', () => {
     fixture.detectChanges();
   };
 
-  describe('writes each cell by its field\'s display type', () => {
+  describe("writes each cell by its field's display type", () => {
     it('a number array as its elements, a bytes value as its size, a date as a calendar date, and nothing configured otherwise', async () => {
-      const kestrel = { id: 's-1', name: 'Kestrel', cargoBays: [60, 60, 30], digest: digest32, lastRefitAt: '2026-09-21T12:00:00Z' };
+      const kestrel = {
+        id: 's-1',
+        name: 'Kestrel',
+        cargoBays: [60, 60, 30],
+        digest: digest32,
+        lastRefitAt: '2026-09-21T12:00:00Z',
+      };
       await create(
         {
           primaryResource: ships,
@@ -210,9 +274,9 @@ describe('ResourceListComponent', () => {
       expect(row['cargoBays']).toBe('60, 60, 30');
       expect(row['digest']).toBe('32 B');
       expect(row['lastRefitAt']).toBe('9/21/2026');
-      const cells = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col')).map((td) =>
-        td.textContent?.trim(),
-      );
+      const cells = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col'),
+      ).map((td) => td.textContent?.trim());
       expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026']);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(digest32);
     });
@@ -228,7 +292,7 @@ describe('ResourceListComponent', () => {
         Array.from(row.querySelectorAll<HTMLElement>('td.data-col')),
       );
 
-    it('so a yes is a check and a no is a dash, never the words, and a null is the column\'s empty value', async () => {
+    it("so a yes is a check and a no is a dash, never the words, and a null is the column's empty value", async () => {
       await create(
         {
           primaryResource: ships,
@@ -268,8 +332,15 @@ describe('ResourceListComponent', () => {
       await settle();
       // The configured format answers as it always has for a value that is no date: its
       // text for a yes, nothing for a no.
-      expect(fixture.componentInstance.processedRowData().map((row) => row['decommissioned'])).toEqual(['true', undefined]);
-      expect(cellsOf().flat().some((cell) => cell.querySelector('.cell-yes, .cell-no'))).toBe(false);
+      expect(fixture.componentInstance.processedRowData().map((row) => row['decommissioned'])).toEqual([
+        'true',
+        undefined,
+      ]);
+      expect(
+        cellsOf()
+          .flat()
+          .some((cell) => cell.querySelector('.cell-yes, .cell-no')),
+      ).toBe(false);
     });
   });
 
@@ -291,7 +362,8 @@ describe('ResourceListComponent', () => {
               additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
               concatFn: 'hyphen-concat',
               // A ship with no client says so; one whose client is not among the rows read shows the key it carries.
-              fallback: (row: Record<string, unknown>) => (row['clientId'] ? `Client ${String(row['clientId'])}` : 'Nobody'),
+              fallback: (row: Record<string, unknown>) =>
+                row['clientId'] ? `Client ${String(row['clientId'])}` : 'Nobody',
               // The field holds a key: a filter over the column would be asked for an id.
               filterable: false,
             }),
@@ -312,16 +384,25 @@ describe('ResourceListComponent', () => {
       }
       fixture.detectChanges();
       // The clients are asked for by the keys the page's rows carry, an empty one left out.
-      const related = transport.requests.filter((request) => request.url.split('?')[0] === '/api/clients').map((request) => decodeURIComponent(request.url));
+      const related = transport.requests
+        .filter((request) => request.url.split('?')[0] === '/api/clients')
+        .map((request) => decodeURIComponent(request.url));
       expect(related.length).toBe(1);
       expect(related[0]).toContain('c-1');
       expect(related[0]).toContain('c-9');
-      expect(fixture.componentInstance.processedRowData().map((row) => row['clientId'])).toEqual(['Corvid Lines', 'Nobody', 'Client c-9']);
+      expect(fixture.componentInstance.processedRowData().map((row) => row['clientId'])).toEqual([
+        'Corvid Lines',
+        'Nobody',
+        'Client c-9',
+      ]);
       // A column that opts out of its filter draws none, on a field the server filters:
       // the related-record column and a plain one alike. A column that says nothing draws it.
       const filters = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('th'))
         .filter((th) => th.querySelector('.col-header'))
-        .map((th) => `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.filter-trigger') ? 'filter' : 'none'}`);
+        .map(
+          (th) =>
+            `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.filter-trigger') ? 'filter' : 'none'}`,
+        );
       expect(filters).toEqual(['Name: none', 'Client: none', 'Home port: filter', 'Registry: none']);
     });
   });
@@ -343,7 +424,10 @@ describe('ResourceListComponent', () => {
               header: 'Limit',
               iconConfig: {
                 icons: { grandfathered: 'warning' },
-                tooltips: { grandfathered: 'Grandfathered: {name} has {activeLearners} active learners. The partner limit is {partnerLimit}.' },
+                tooltips: {
+                  grandfathered:
+                    'Grandfathered: {name} has {activeLearners} active learners. The partner limit is {partnerLimit}.',
+                },
                 empty: { icon: 'help_outline', tooltip: 'No limit recorded for {name}' },
               },
             },
@@ -354,7 +438,13 @@ describe('ResourceListComponent', () => {
       fixture.detectChanges();
       await settle();
       const url = new URL(transport.requests[0].url, 'http://ships.test');
-      expect(url.searchParams.get('columns')?.split(',').sort()).toEqual(['activeLearners', 'id', 'limitStatus', 'name', 'partnerLimit']);
+      expect(url.searchParams.get('columns')?.split(',').sort()).toEqual([
+        'activeLearners',
+        'id',
+        'limitStatus',
+        'name',
+        'partnerLimit',
+      ]);
       const processed = fixture.componentInstance.processedRowData();
       expect(processed.map((row) => [row['limitStatus'], row[iconCellKey('limitStatus')]])).toEqual([
         ['Grandfathered: Kestrel has 4 active learners. The partner limit is 2.', 'warning'],
@@ -363,30 +453,38 @@ describe('ResourceListComponent', () => {
       ]);
       const element = fixture.nativeElement as HTMLElement;
       const cells = Array.from(element.querySelectorAll<HTMLElement>('tr.impulse-row td.icon-col'));
-      expect(cells.map((cell) => cell.querySelector('mat-icon')?.textContent?.trim() ?? cell.textContent?.trim())).toEqual([
-        'warning',
-        'ok',
-        'help_outline',
-      ]);
+      expect(
+        cells.map((cell) => cell.querySelector('mat-icon')?.textContent?.trim() ?? cell.textContent?.trim()),
+      ).toEqual(['warning', 'ok', 'help_outline']);
       expect(cells[0].querySelector('mat-icon')?.getAttribute('aria-label')).toBe(
         'Grandfathered: Kestrel has 4 active learners. The partner limit is 2.',
       );
       // the sentences' fields ride the request and the row, not the table
-      expect(Array.from(element.querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual(['Name', 'Limit']);
+      expect(Array.from(element.querySelectorAll('th .col-header')).map((h) => h.textContent?.trim())).toEqual([
+        'Name',
+        'Limit',
+      ]);
     });
   });
 
   describe('draws the search box over a resource with search fields', () => {
-    const box = (): HTMLInputElement | null => (fixture.nativeElement as HTMLElement).querySelector('impulse-search-box input');
+    const box = (): HTMLInputElement | null =>
+      (fixture.nativeElement as HTMLElement).querySelector('impulse-search-box input');
     const listRequests = (): string[] => transport.requests.map((request) => `${request.method} ${request.url}`);
 
     it('names the fields it searches, posts a box that reaches a PII field, and clears back to the plain page', async () => {
-      await create({ primaryResource: clients, listColumns: [{ id: 'name' as FieldName }, { id: 'contactEmail' as FieldName, header: 'Email' }] });
+      await create({
+        primaryResource: clients,
+        listColumns: [{ id: 'name' as FieldName }, { id: 'contactEmail' as FieldName, header: 'Email' }],
+      });
       fixture.detectChanges();
       await settle();
       const component = fixture.componentInstance;
       expect(box()?.placeholder).toBe('Search Name, Email, Client Contact Display Name');
-      expect(component.searches()).toEqual({ name: ['contains', 'startswith', 'endswith'], contactEmail: ['contains'] });
+      expect(component.searches()).toEqual({
+        name: ['contains', 'startswith', 'endswith'],
+        contactEmail: ['contains'],
+      });
       expect(listRequests()).toEqual(['GET /api/clients?columns=name%2CcontactEmail%2Cid&count=true']);
 
       component.onSearchChange('nguyen 1987');
@@ -398,7 +496,9 @@ describe('ResourceListComponent', () => {
       // A companion filter rides beside the box, and goes when the box is cleared.
       component.onFilterChange([{ field: 'contactEmail', operator: 'eq', value: 'x@example.test' }]);
       await settle();
-      expect(transport.requests.at(-1)?.body).toEqual({ filter: '(contactEmail:eq:x@example.test),*:search:"nguyen 1987"' });
+      expect(transport.requests.at(-1)?.body).toEqual({
+        filter: '(contactEmail:eq:x@example.test),*:search:"nguyen 1987"',
+      });
       component.onSearchChange('');
       await settle();
       expect(component.store.columnFilters()).toEqual([]);
@@ -406,14 +506,19 @@ describe('ResourceListComponent', () => {
     });
 
     it('a listed match on a companion column stands alone, quoted where it needs to be; one on a PII column is posted', async () => {
-      await create({ primaryResource: clients, listColumns: [{ id: 'name' as FieldName }, { id: 'notes' as FieldName }, { id: 'contactEmail' as FieldName }] });
+      await create({
+        primaryResource: clients,
+        listColumns: [{ id: 'name' as FieldName }, { id: 'notes' as FieldName }, { id: 'contactEmail' as FieldName }],
+      });
       fixture.detectChanges();
       await settle();
       const component = fixture.componentInstance;
       component.onFilterChange([{ field: 'notes', operator: 'contains', value: 'survey, office' }]);
       await settle();
       expect(component.store.columnFilters().map((f) => f.field)).toEqual(['notes']);
-      expect(listRequests().at(-1)).toBe('GET /api/clients?filter=notes%3Acontains%3A%22survey%2C+office%22&columns=name%2Cnotes%2CcontactEmail%2Cid&count=true');
+      expect(listRequests().at(-1)).toBe(
+        'GET /api/clients?filter=notes%3Acontains%3A%22survey%2C+office%22&columns=name%2Cnotes%2CcontactEmail%2Cid&count=true',
+      );
       component.onFilterChange([{ field: 'contactEmail', operator: 'contains', value: 'example' }]);
       await settle();
       expect(listRequests().at(-1)).toBe('POST /api/clients?columns=name%2Cnotes%2CcontactEmail%2Cid&count=true');
@@ -431,7 +536,11 @@ describe('ResourceListComponent', () => {
         [contacts]: { List: 'granted' },
         [`${contacts}.id`]: { List: 'granted' },
       };
-      const config = listViewConfig({ elements: [], primaryResource: clients, listColumns: [{ id: 'name' as FieldName }] });
+      const config = listViewConfig({
+        elements: [],
+        primaryResource: clients,
+        listColumns: [{ id: 'name' as FieldName }],
+      });
       transport = scriptedTransport((request: TransportRequest): TransportResponse =>
         request.url.startsWith('/api/permission-digest')
           ? { status: 200, body: digest }
@@ -440,11 +549,16 @@ describe('ResourceListComponent', () => {
       await TestBed.configureTestingModule({
         imports: [ResourceListComponent],
         providers: [
-          provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+          provideResourceTesting({
+            transport,
+            client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+          }),
           { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
           {
             provide: ActivatedRoute,
-            useValue: { snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} } },
+            useValue: {
+              snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+            },
           },
         ],
       }).compileComponents();
@@ -460,7 +574,9 @@ describe('ResourceListComponent', () => {
       expect(component.searchHint()).toBe('Not searched for your role: Contact Email, Client Contact Display Name');
       component.onSearchChange('merid');
       await settle();
-      expect(listRequests().at(-1)).toBe('GET /api/clients?filter=*%3Asearch%3A%22merid%22&columns=name%2Cid&count=true');
+      expect(listRequests().at(-1)).toBe(
+        'GET /api/clients?filter=*%3Asearch%3A%22merid%22&columns=name%2Cid&count=true',
+      );
     });
 
     it('drops a branch whose child resource the caller holds no List on at all', async () => {
@@ -471,7 +587,11 @@ describe('ResourceListComponent', () => {
         [`${clients}.id`]: { List: 'granted' },
         [`${clients}.name`]: { List: 'granted' },
       };
-      const config = listViewConfig({ elements: [], primaryResource: clients, listColumns: [{ id: 'name' as FieldName }] });
+      const config = listViewConfig({
+        elements: [],
+        primaryResource: clients,
+        listColumns: [{ id: 'name' as FieldName }],
+      });
       transport = scriptedTransport((request: TransportRequest): TransportResponse =>
         request.url.startsWith('/api/permission-digest')
           ? { status: 200, body: digest }
@@ -480,11 +600,16 @@ describe('ResourceListComponent', () => {
       await TestBed.configureTestingModule({
         imports: [ResourceListComponent],
         providers: [
-          provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+          provideResourceTesting({
+            transport,
+            client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+          }),
           { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
           {
             provide: ActivatedRoute,
-            useValue: { snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} } },
+            useValue: {
+              snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+            },
           },
         ],
       }).compileComponents();
@@ -495,7 +620,9 @@ describe('ResourceListComponent', () => {
       fixture.detectChanges();
       await settle();
       expect(fixture.componentInstance.searchFields()).toEqual(['name']);
-      expect(fixture.componentInstance.searchHint()).toBe('Not searched for your role: Contact Email, Client Contact Display Name');
+      expect(fixture.componentInstance.searchHint()).toBe(
+        'Not searched for your role: Contact Email, Client Contact Display Name',
+      );
     });
 
     it('draws no box over a resource without search fields', async () => {
@@ -515,15 +642,25 @@ describe('ResourceListComponent', () => {
 
   describe('refuses a column over a write-only field', () => {
     it('naming the resource and the field, before anything is requested', async () => {
-      await create({ primaryResource: calls, listColumns: [{ id: 'summary' as FieldName }, { id: 'transcript' as FieldName }] });
-      expect(() => fixture.detectChanges()).toThrow(/^DistressCalls: listColumns names transcript, which is write-only: a list never returns it$/);
+      await create({
+        primaryResource: calls,
+        listColumns: [{ id: 'summary' as FieldName }, { id: 'transcript' as FieldName }],
+      });
+      expect(() => fixture.detectChanges()).toThrow(
+        /^DistressCalls: listColumns names transcript, which is write-only: a list never returns it$/,
+      );
       expect(transport.requests).toEqual([]);
     });
   });
 
   describe('over a keyed resource', () => {
     it('lets a page size and a row expansion through, and identifies rows by their key', async () => {
-      await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }], pageSize: 10, enableRowExpansion: true });
+      await create({
+        primaryResource: ships,
+        listColumns: [{ id: 'name' as FieldName }],
+        pageSize: 10,
+        enableRowExpansion: true,
+      });
       expect(() => fixture.detectChanges()).not.toThrow();
       const component = fixture.componentInstance;
       expect(component.keyless()).toBe(false);
@@ -557,12 +694,17 @@ describe('ResourceListComponent', () => {
         return { status: 200, body: digest };
       }
       if (url.pathname === '/api/ships') {
-        return { status: 200, body: [{ id: 's-1', name: 'Kestrel', cargoBays: [60] }], headers: { 'total-count': '1' } };
+        return {
+          status: 200,
+          body: [{ id: 's-1', name: 'Kestrel', cargoBays: [60] }],
+          headers: { 'total-count': '1' },
+        };
       }
       return { status: 404, body: { message: `unscripted ${request.url}` } };
     };
 
-    const shipsRequests = (): string[] => transport.requests.map((r) => r.url).filter((url) => url.startsWith('/api/ships'));
+    const shipsRequests = (): string[] =>
+      transport.requests.map((r) => r.url).filter((url) => url.startsWith('/api/ships'));
 
     /** A few rounds of change detection and settled promises, so a request nothing should cause has every chance to show. */
     const rounds = async (n = 5): Promise<void> => {
@@ -575,17 +717,26 @@ describe('ResourceListComponent', () => {
     beforeEach(async () => {
       digest = granting('name', 'cargoBays');
       domain = signal<Domain | undefined>('anvil' as Domain);
-      const config = listViewConfig({ elements: [], primaryResource: ships, listColumns: [{ id: 'name' as FieldName }, { id: 'cargoBays' as FieldName }] });
+      const config = listViewConfig({
+        elements: [],
+        primaryResource: ships,
+        listColumns: [{ id: 'name' as FieldName }, { id: 'cargoBays' as FieldName }],
+      });
       transport = scriptedTransport(server);
       await TestBed.configureTestingModule({
         imports: [ResourceListComponent],
         providers: [
-          provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+          provideResourceTesting({
+            transport,
+            client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+          }),
           { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
           { provide: RESOURCE_DOMAIN, useValue: domain },
           {
             provide: ActivatedRoute,
-            useValue: { snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} } },
+            useValue: {
+              snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+            },
           },
         ],
       }).compileComponents();
@@ -629,18 +780,33 @@ describe('ResourceListComponent', () => {
     const pageRoute = 'sectors/:sectorID/missions';
     const tenantMetas: Record<string, ResourceMeta> = {
       ...metas,
-      [missions]: { route: 'missions', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')] } as ResourceMeta,
+      [missions]: {
+        route: 'missions',
+        fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
+      } as ResourceMeta,
     };
     const tenantDescriptor: ApiDescriptor = {
       ...descriptor,
       domainRoute: { segment: 'sectors', param: 'sectorID' },
       resources: {
         ...descriptor.resources,
-        [missions]: { resource: missions, property: 'missions', route: 'missions', scope: 'global', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25, max: 200 } },
+        [missions]: {
+          resource: missions,
+          property: 'missions',
+          route: 'missions',
+          scope: 'global',
+          consolidated: false,
+          keys: ['id'],
+          operations: ['list', 'read'],
+          page: { default: 25, max: 200 },
+        },
       },
     };
     /** The digest granting List and Read on the missions, so the page draws its rows and their View column. */
-    const digest: PermissionDigest = { [missions]: { List: 'granted', Read: 'granted' }, [`${missions}.name`]: { List: 'granted' } };
+    const digest: PermissionDigest = {
+      [missions]: { List: 'granted', Read: 'granted' },
+      [`${missions}.name`]: { List: 'granted' },
+    };
 
     const server = (request: TransportRequest): TransportResponse => {
       const url = new URL(request.url, 'http://missions.test');
@@ -656,18 +822,29 @@ describe('ResourceListComponent', () => {
     /** The missions page as mounted with the given route parameters, under the selected tenant. */
     const page = async (params: Record<string, string>, domain: Domain | undefined): Promise<void> => {
       registerResourcePage(missions, pageRoute);
-      const config = listViewConfig({ elements: [], primaryResource: missions, listColumns: [{ id: 'name' as FieldName }] });
+      const config = listViewConfig({
+        elements: [],
+        primaryResource: missions,
+        listColumns: [{ id: 'name' as FieldName }],
+      });
       transport = scriptedTransport(server);
       await TestBed.configureTestingModule({
         imports: [ResourceListComponent],
         providers: [
-          provideResourceTesting({ transport, client: (t) => createClient(tenantDescriptor, { baseUrl: '/api', transport: t }) }),
+          provideResourceTesting({
+            transport,
+            client: (t) => createClient(tenantDescriptor, { baseUrl: '/api', transport: t }),
+          }),
           { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => tenantMetas[resource] },
           { provide: RESOURCE_DOMAIN, useValue: signal<Domain | undefined>(domain) },
           {
             provide: ActivatedRoute,
             useValue: {
-              snapshot: { data: { config: rootConfig({ parentConfig: config, routeData: { route: pageRoute } }) }, params, queryParams: {} },
+              snapshot: {
+                data: { config: rootConfig({ parentConfig: config, routeData: { route: pageRoute } }) },
+                params,
+                queryParams: {},
+              },
             },
           },
         ],
@@ -680,8 +857,18 @@ describe('ResourceListComponent', () => {
     };
 
     const cases: { name: string; params: Record<string, string>; domain: Domain | undefined; want: string }[] = [
-      { name: "the route's tenant, when the page is under the parameter", params: { sectorID: 'anvil' }, domain: 'forge' as Domain, want: 'sectors/anvil/missions' },
-      { name: 'the selected tenant, when it is not', params: {}, domain: 'forge' as Domain, want: 'sectors/forge/missions' },
+      {
+        name: "the route's tenant, when the page is under the parameter",
+        params: { sectorID: 'anvil' },
+        domain: 'forge' as Domain,
+        want: 'sectors/anvil/missions',
+      },
+      {
+        name: 'the selected tenant, when it is not',
+        params: {},
+        domain: 'forge' as Domain,
+        want: 'sectors/forge/missions',
+      },
     ];
 
     for (const tt of cases) {
@@ -721,10 +908,20 @@ describe('ResourceListComponent', () => {
       [missions]: {
         route: 'sectors/{sectorID}/missions',
         live: true,
-        fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title', { isIndex: true, filterable: 'always' }), field('fee')],
+        fields: [
+          field('id', { primaryKey: { ordinalPosition: 0 } }),
+          field('title', { isIndex: true, filterable: 'always' }),
+          field('fee'),
+        ],
       } as ResourceMeta,
-      [refits]: { route: 'sectors/{sectorID}/refits', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')] } as ResourceMeta,
-      [patrols]: { route: 'sectors/{sectorID}/patrols', fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title')] } as ResourceMeta,
+      [refits]: {
+        route: 'sectors/{sectorID}/refits',
+        fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
+      } as ResourceMeta,
+      [patrols]: {
+        route: 'sectors/{sectorID}/patrols',
+        fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('title')],
+      } as ResourceMeta,
     };
     const acrossDescriptor: ApiDescriptor = {
       ...descriptor,
@@ -732,9 +929,39 @@ describe('ResourceListComponent', () => {
       live: { renewRoute: 'live/renew', unsubscribeRoute: 'live/unsubscribe', tokenRoute: 'live/token' },
       resources: {
         ...descriptor.resources,
-        [missions]: { resource: missions, property: 'missions', route: 'missions', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25, max: 200 }, order: [{ field: 'deadline', direction: 'asc' }], acrossTenants: true },
-        [refits]: { resource: refits, property: 'refits', route: 'refits', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25 } },
-        [patrols]: { resource: patrols, property: 'patrols', route: 'patrols', scope: 'domain', consolidated: false, keys: ['id'], operations: ['list', 'read'], page: { default: 25 }, acrossTenants: true },
+        [missions]: {
+          resource: missions,
+          property: 'missions',
+          route: 'missions',
+          scope: 'domain',
+          consolidated: false,
+          keys: ['id'],
+          operations: ['list', 'read'],
+          page: { default: 25, max: 200 },
+          order: [{ field: 'deadline', direction: 'asc' }],
+          acrossTenants: true,
+        },
+        [refits]: {
+          resource: refits,
+          property: 'refits',
+          route: 'refits',
+          scope: 'domain',
+          consolidated: false,
+          keys: ['id'],
+          operations: ['list', 'read'],
+          page: { default: 25 },
+        },
+        [patrols]: {
+          resource: patrols,
+          property: 'patrols',
+          route: 'patrols',
+          scope: 'domain',
+          consolidated: false,
+          keys: ['id'],
+          operations: ['list', 'read'],
+          page: { default: 25 },
+          acrossTenants: true,
+        },
       },
     };
     // Anvil shows the fee; Bastion's roles do not, so the server leaves it off the row.
@@ -749,17 +976,34 @@ describe('ResourceListComponent', () => {
 
     const server = (request: TransportRequest): TransportResponse => {
       const url = new URL(request.url, 'http://missions.test');
-      if (url.pathname === '/api/permission-digest' && digestFails !== undefined && url.searchParams.get('domain') === digestFails) {
+      if (
+        url.pathname === '/api/permission-digest' &&
+        digestFails !== undefined &&
+        url.searchParams.get('domain') === digestFails
+      ) {
         return { status: 500, body: { message: 'the digest could not be read' } };
       }
       if (url.pathname === '/api/user-domains') {
-        return { status: 200, body: [{ domain: anvil, name: 'Anvil' }, { domain: bastion, name: 'Bastion' }] };
+        return {
+          status: 200,
+          body: [
+            { domain: anvil, name: 'Anvil' },
+            { domain: bastion, name: 'Bastion' },
+          ],
+        };
       }
       if (url.pathname === '/api/permission-digest') {
         // One tenant's digest, when something asks it: the title alone, no fee. In Anvil
         // the person may read a mission; in Bastion they may list missions and read none.
         const reads = url.searchParams.get('domain') === anvil ? { Read: 'conditional' } : {};
-        return { status: 200, body: { [missions]: { List: 'granted', ...reads }, [`${missions}.title`]: { List: 'granted' }, [patrols]: { List: 'granted', Read: 'granted' } } };
+        return {
+          status: 200,
+          body: {
+            [missions]: { List: 'granted', ...reads },
+            [`${missions}.title`]: { List: 'granted' },
+            [patrols]: { List: 'granted', Read: 'granted' },
+          },
+        };
       }
       if (url.pathname === '/api/missions' || url.pathname === '/api/patrols') {
         return { status: 200, body: rows, headers: { 'total-count': '2' } };
@@ -789,13 +1033,24 @@ describe('ResourceListComponent', () => {
         providers: [
           provideResourceTesting({
             transport,
-            client: (t) => createClient(acrossDescriptor, { baseUrl: '/api', transport: t, warn: (message) => warnings.push(message) }),
+            client: (t) =>
+              createClient(acrossDescriptor, {
+                baseUrl: '/api',
+                transport: t,
+                warn: (message) => warnings.push(message),
+              }),
           }),
           { provide: RESOURCE_META, useValue: (name: Resource): ResourceMeta => acrossMetas[name] },
           { provide: RESOURCE_DOMAIN, useValue: domain },
           {
             provide: ActivatedRoute,
-            useValue: { snapshot: { data: { config: rootConfig({ parentConfig: config, routeData: { route: 'missions' } }) }, params: {}, queryParams: {} } },
+            useValue: {
+              snapshot: {
+                data: { config: rootConfig({ parentConfig: config, routeData: { route: 'missions' } }) },
+                params: {},
+                queryParams: {},
+              },
+            },
           },
         ],
       }).compileComponents();
@@ -805,8 +1060,10 @@ describe('ResourceListComponent', () => {
       fixture.componentRef.setInput('resourceConfig', config);
     };
 
-    const listRequests = (): TransportRequest[] => transport.requests.filter((request) => request.url.split('?')[0] === '/api/missions');
-    const digestRequests = (): string[] => transport.requests.filter((request) => request.url.includes('permission-digest')).map((request) => request.url);
+    const listRequests = (): TransportRequest[] =>
+      transport.requests.filter((request) => request.url.split('?')[0] === '/api/missions');
+    const digestRequests = (): string[] =>
+      transport.requests.filter((request) => request.url.includes('permission-digest')).map((request) => request.url);
     const rowLinks = (): (string | null)[] =>
       Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map(
         (row) => row.querySelector('td.action-col a')?.getAttribute('href') ?? null,
@@ -820,10 +1077,15 @@ describe('ResourceListComponent', () => {
 
       // No tenant in the path, no column list, no capability answer, no subscription.
       expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
-      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
+      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain(
+        'x-subscribe',
+      );
       // The digest of each tenant on the page is asked once, for the rows' links alone:
       // the server decides what each row shows.
-      expect(digestRequests()).toEqual([`/api/permission-digest?domain=${anvil}`, `/api/permission-digest?domain=${bastion}`]);
+      expect(digestRequests()).toEqual([
+        `/api/permission-digest?domain=${anvil}`,
+        `/api/permission-digest?domain=${bastion}`,
+      ]);
 
       const cols = fixture.componentInstance.columns();
       expect(cols.map((col) => col.id)).toEqual(['zzTenant', 'title', 'fee', 'view']);
@@ -843,7 +1105,7 @@ describe('ResourceListComponent', () => {
       expect(rowLinks()).toEqual([`/sectors/${anvil}/missions/m-1`, null]);
     });
 
-    it("draws no link on a guess: a tenant whose digest does not answer is asked once, and its rows stay without one", async () => {
+    it('draws no link on a guess: a tenant whose digest does not answer is asked once, and its rows stay without one', async () => {
       await page(missions);
       // Anvil's digest fails to load: nothing says the person may read a mission there.
       digestFails = anvil;
@@ -857,7 +1119,10 @@ describe('ResourceListComponent', () => {
       fixture.detectChanges();
       await settle();
       await settle();
-      expect(digestRequests()).toEqual([`/api/permission-digest?domain=${anvil}`, `/api/permission-digest?domain=${bastion}`]);
+      expect(digestRequests()).toEqual([
+        `/api/permission-digest?domain=${anvil}`,
+        `/api/permission-digest?domain=${bastion}`,
+      ]);
       expect(rowLinks()).toEqual([null, null]);
     });
 
@@ -912,7 +1177,11 @@ describe('ResourceListComponent', () => {
     });
 
     it('reads alone: no create, no delete, no method, whatever the page configures', async () => {
-      await page(missions, { createTitle: 'Book a mission', listMethods: [{ method: 'BookMission' as never }], rowMethods: [{ method: 'ClaimMission' as never }] });
+      await page(missions, {
+        createTitle: 'Book a mission',
+        listMethods: [{ method: 'BookMission' as never }],
+        rowMethods: [{ method: 'ClaimMission' as never }],
+      });
       // The page's host would show the create button: the list still draws none.
       fixture.componentRef.setInput('hideCreateButton', false);
       fixture.detectChanges();
@@ -932,9 +1201,13 @@ describe('ResourceListComponent', () => {
 
       expect(warnings).toEqual([]);
       expect(fixture.componentInstance.store.live()).toBe(true);
-      expect(TestBed.inject<ClientBase>(RESOURCE_CLIENT).live.subscriptions()).toEqual([{ resource: 'Missions', acrossTenants: true }]);
+      expect(TestBed.inject<ClientBase>(RESOURCE_CLIENT).live.subscriptions()).toEqual([
+        { resource: 'Missions', acrossTenants: true },
+      ]);
       // No live session runs in this spec, so the request is plain, as a tenant's list is until one does.
-      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
+      expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain(
+        'x-subscribe',
+      );
     });
 
     it('is plain without a word from the page, though the resource publishes its changes, and says nothing', async () => {

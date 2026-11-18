@@ -10,7 +10,11 @@ import { UiCoreService } from './ui-core.service';
 describe('UiCoreService login messages', () => {
   const cases: { name: string; code: string; want: string }[] = [
     { name: 'a session code answers its default sentence', code: 'no_roles', want: DEFAULT_LOGIN_MESSAGES['no_roles'] },
-    { name: 'the internal error code answers its default sentence', code: 'internal_error', want: DEFAULT_LOGIN_MESSAGES['internal_error'] },
+    {
+      name: 'the internal error code answers its default sentence',
+      code: 'internal_error',
+      want: DEFAULT_LOGIN_MESSAGES['internal_error'],
+    },
     {
       name: 'a member of no organization answers its default sentence',
       code: 'no_tenant',
@@ -60,7 +64,7 @@ describe('UiCoreService login messages', () => {
     });
   }
 
-  it('holds a sentence for every session code, and for the login page\'s own', () => {
+  it("holds a sentence for every session code, and for the login page's own", () => {
     const sessionCodes = [
       'internal_error',
       'login_refused',
