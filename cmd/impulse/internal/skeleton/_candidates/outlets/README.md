@@ -67,11 +67,17 @@ library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
 transaction): a tenant's declaration restricts its own door alone, so a tenant that is
 not directory only admits everyone it seats, however they signed in, a directory-only
-tenant admits a sign-in through its own directory and nothing else, and a person is
+tenant admits a sign-in through its own directory and, of its own administrators alone, a
+password with a code sent to their email, and nothing else, and a person is
 refused only when every tenant that seats them is closed to the way they signed in (the
 portal's members come through the Entra directory the members auth registers, which the
 development seed makes North's, and reach South as well while South is not directory
-only). A super administrator is admitted whatever a tenant declares, a person holding a
+only). A super administrator is admitted whatever a tenant declares, an administrator of a
+directory-only tenant (a holder of `TenantAdministrator` in that tenant itself, by a role
+of their own or through one of the tenant's own groups, never one held in every tenant)
+who signs in with a password is held for the code sent to their email and then enters
+that tenant, which is the tenant's way back in when its directory has a problem, a person
+holding a
 role outside any one tenant (a global role, or one held in every tenant) is admitted and
 then enters a tenant only where its declaration admits their session, and a person
 holding no tenant is refused. Which tenants the session
@@ -94,7 +100,8 @@ could give directly, picked from the list of the roles they may give
 (`POST /console/api/tenants/{tenantID}/make-tenant-directory-only`) and
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
 takes no write of it), which the server turns on only once the tenant has its directory
-and only for a person signed in through it. Opening the tenant and making it directory
+and only for a person signed in through it who has a password of their own, their way
+back in if the directory has a problem. Opening the tenant and making it directory
 only each warn first: the dialog shows the server's sentence (who will enter and with
 what role; the count of the people it would keep out and, to a person who may list the
 tenant's people, their names as a list) and holds its button until the person has typed
