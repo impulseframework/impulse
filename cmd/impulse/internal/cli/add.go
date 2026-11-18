@@ -961,11 +961,14 @@ never written: for directory-members and open-sign-up the command says that it i
 chosen on the application's Sign-in page while the application runs. A method or a
 flag given beside --shape that contradicts it is refused, naming both (--shape
 directory-roles with --authority application, --shape open-sign-up with an identity
-provider's method). In an application whose tenants have directories, a starting point
-that leaves the auth with no password method and a directory method open to more than
-one organization seeds a first administrator who cannot sign in: the command says so
-after the check's report, with what to do next in the check's words (first-administrator).
-impulse audit reads the shape back from the code (its sign-in section).
+provider's method). In an application whose tenants have directories, Open sign-up on
+an auth with no password method would seed a first administrator who cannot sign in,
+since the shape opens every directory method to more than one organization: the command
+refuses it before anything is written and says what to give instead (the password method
+beside the others, or the auth without the shape and impulse add method afterward). Any
+other starting point impulse check refuses for its first administrator is said after the
+check's report, in the check's words (first-administrator). impulse audit reads the
+shape back from the code (its sign-in section).
 
 Checking the auth's roles in the deploy, the App's handlers the generated router now
 requires for the outlet, its development identities, and the tests that prove its people

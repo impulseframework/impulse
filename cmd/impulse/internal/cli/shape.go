@@ -56,6 +56,26 @@ func (s *startingPoint) writeHeld(w io.Writer, results []check.Result) {
 	}
 }
 
+// heldFirstAdministrator refuses, before anything is written, the one starting point of
+// add auth whose first administrator nobody could sign in as: Open sign-up on an auth
+// with no password method, in an application whose tenants have directories
+// (check.DeclaresDirectories, the first-administrator check's own condition). The shape
+// opens every directory method to more than one organization, so the migrate command
+// would seed the administrator for no registration, the sign-in rule would link the
+// seeded account through none, and the check would fail what the command had just
+// written. writeHeld stays for a combination this does not foresee.
+func heldFirstAdministrator(s *shape.Shape, a *app.App, specs []authpkg.Method) error {
+	password := false
+	for i := range specs {
+		password = password || specs[i].Kind == app.MethodPassword
+	}
+	if !s.OpenSignUp() || password || !check.DeclaresDirectories(a) {
+		return nil
+	}
+
+	return errors.Newf("%s: this application's tenants have directories, so the first administrator the migrate command would seed for an auth with no password method, whose directory methods the shape opens to more than one organization, could not sign in, and impulse check refuses it (%s). Give the auth the password method as well (--method password beside the others), so the administrator is seeded with a password; or add the auth without the shape, for one organization, and open another method with impulse add method afterward", s.Flag(), firstAdministratorCheck)
+}
+
 // bindShape gives a command its --shape flag, naming the shapes it offers and what a
 // starting point fills in there.
 func bindShape(cmd *cobra.Command, key *string, offered []shape.Shape, fills string) {
@@ -124,6 +144,9 @@ func methodName(m *authpkg.Method) string {
 func authStartingPoint(s *shape.Shape, appDir, outlet string, specs []authpkg.Method) (*startingPoint, error) {
 	a, err := app.Discover(appDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := heldFirstAdministrator(s, a, specs); err != nil {
 		return nil, err
 	}
 	opening := shape.OpensWithRole

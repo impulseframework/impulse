@@ -83,7 +83,7 @@ func (c firstAdministrator) Run(_ context.Context, env *Env) Result {
 	if len(a.AuthPackages) == 0 {
 		return skip(c.Name(), "no auth package (pkg/auth/<name>) constructs a session Auth")
 	}
-	if !declaresDirectories(a) {
+	if !DeclaresDirectories(a) {
 		return skip(c.Name(), "no tenant record declares directories, so an account seeded ahead of its first sign-in is linked on its name")
 	}
 
@@ -126,10 +126,10 @@ func (c firstAdministrator) Run(_ context.Context, env *Env) Result {
 	}
 }
 
-// declaresDirectories reports an application one of whose sites declares a directories
+// DeclaresDirectories reports an application one of whose sites declares a directories
 // record: its tenants have directories, and the sign-in rule links no account on a
 // name alone.
-func declaresDirectories(a *app.App) bool {
+func DeclaresDirectories(a *app.App) bool {
 	p := a.Profile()
 
 	return slices.ContainsFunc(p.Sites, func(site app.Site) bool { return site.Directories != nil })
