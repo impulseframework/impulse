@@ -431,12 +431,10 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Fatalf("north's switch after the refusals: status %d %s, want 200 %s: nothing was written", status, got, off)
 	}
 	// The organizer chooses a password on their account: a code is mailed to their
-	// confirmed address, and the code sets the password. No password is set without the
-	// code, an account that has a password is refused the code, since its person changes
-	// the password with the one they have, and the session stands. The simulated
-	// Workspace vouches for the organizer under their login name, which no message can
-	// be sent to, so the account is told it has no confirmed address, and the organizer
-	// adds one and confirms it from the link mailed to it first.
+	// confirmed address, the one the Workspace vouched for, and the code sets the
+	// password. No password is set without the code, an account that has a password is
+	// refused the code, since its person changes the password with the one they have,
+	// and the session stands.
 	chosen := func(code string) []byte {
 		return []byte(`{"code":"` + code + `","password":"` + adminPassword + `"}`)
 	}
@@ -446,10 +444,6 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := member.do(ctx, http.MethodPost, "/api/user/first-password/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account already has a password") {
 		t.Errorf("asking for the code of a first password as the member, who has a password: status %d, want 409 saying the account has one: %s", status, body)
 	}
-	if status, body := organizer.do(ctx, http.MethodPost, "/api/user/first-password/code", nil); status != http.StatusConflict || !strings.Contains(string(body), "Your account has no confirmed email address") {
-		t.Errorf("asking for the code of a first password with an address no message can be sent to: status %d, want 409 saying the account has no confirmed address: %s", status, body)
-	}
-	confirmAddress(ctx, t, organizer, "organizer@example.com")
 	if status, body := organizer.do(ctx, http.MethodPost, "/api/user/first-password", chosen(firstPasswordCode(ctx, t, organizer))); status != http.StatusOK {
 		t.Fatalf("choosing a first password with the code that was mailed: status %d: %s", status, body)
 	}
@@ -716,33 +710,6 @@ func teamLogin(ctx context.Context, t *testing.T, s *served, username string) st
 	waitForDomains(ctx, t, s.access, user, []accesstypes.Domain{north, south})
 
 	return id.String()
-}
-
-// confirmAddress adds address to the account of the browser's user and confirms it from
-// the link the auth mailed to it.
-func confirmAddress(ctx context.Context, t *testing.T, b *browser, address string) {
-	t.Helper()
-
-	if status, body := b.do(ctx, http.MethodPost, "/api/user/email", []byte(`{"email":"`+address+`"}`)); status != http.StatusOK {
-		t.Fatalf("adding the address %s: status %d: %s", address, status, body)
-	}
-	messages := b.served.mail.Messages()
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].To != address {
-			continue
-		}
-		_, after, found := strings.Cut(messages[i].Text, "verify=")
-		if !found || len(strings.Fields(after)) == 0 {
-			t.Fatalf("the message to %s carries no link to confirm it: %q", address, messages[i].Text)
-		}
-		token := strings.Fields(after)[0]
-		if status, body := b.do(ctx, http.MethodPost, "/api/user/email/verify", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK {
-			t.Fatalf("confirming the address %s from the mailed link: status %d: %s", address, status, body)
-		}
-
-		return
-	}
-	t.Fatalf("no message was sent to %s", address)
 }
 
 // firstPasswordCode asks, as the browser's user, for the code a person chooses their
