@@ -140,9 +140,9 @@ func (s *snapshot) userAdministersTenant(user accesstypes.User, domain accesstyp
 // userAdministersTenant answers from the snapshot the checks are answered
 // from, at the engine's own clock, so a role taken away, or one whose period
 // has ended, administers nothing at the next request.
-func (s *snapshotEngine) userAdministersTenant(ctx context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error) {
+func (s *snapshotEngine) userAdministersTenant(_ context.Context, user accesstypes.User, domain accesstypes.Domain) (bool, error) {
 	at := s.clock()
-	snap, err := s.snapshotAt(ctx, at)
+	snap, err := s.snapshotAt(at)
 	if err != nil {
 		return false, err
 	}
@@ -156,8 +156,8 @@ func (s *snapshotEngine) userAdministersTenant(ctx context.Context, user accesst
 // membership of their own in the tenant's domain or through a group kept in
 // that tenant. A role held in every tenant, or through a group kept for the
 // whole application, administers no tenant in this sense. It is answered from
-// the in-memory policy snapshot like the checks (safe inside transactions; no
-// store read), and is the question a session's reach into a tenant asks of the
+// the in-memory policy snapshot like the checks (safe inside transactions),
+// and is the question a session's reach into a tenant asks of the
 // session's actor where the tenant admits its people through its directory
 // only: the tenant's own administrators keep a way in. A Client built without
 // the option answers false for everyone.

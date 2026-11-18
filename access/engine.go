@@ -8,7 +8,9 @@ import (
 )
 
 // evaluator answers permission checks on the request path; the snapshot
-// engine implements it. Implementations must be safe for concurrent use.
+// engine implements it. Implementations must be safe for concurrent use. The
+// context of a call is the request's, and is never what the policy store is
+// read under: a call may be made inside a database transaction.
 type evaluator interface {
 	// checkUser returns user's scope-wide (no resource attachment) decision
 	// within scope: granted on any unconditional cover, the covering

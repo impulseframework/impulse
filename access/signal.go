@@ -4,17 +4,27 @@ import "context"
 
 // ChangeSignal is the engine's seam for propagating policy-change hints
 // between instances. The Client announces after every successful policy write
-// and watches for the hints other instances announce; a hint only nudges the
-// background loop to re-read the policy store. Correctness never depends on
-// it: the heartbeat re-reads the policy store on a fixed interval regardless,
-// so a broken signal only costs propagation latency, never accuracy.
+// and watches for the hints other instances announce; a hint is recorded as it
+// arrives, so the next check reads the policy store before it answers (the
+// first check after the pause, where a reload has just failed), and wakes
+// the background loop to read ahead of it. Correctness never depends on
+// it: no check is answered from a snapshot older than the heartbeat interval
+// regardless, so a broken signal only costs propagation latency, never
+// accuracy.
 //
 // The application supplies the implementation as an adapter over its one
 // signal channel, through ChangeSignalFunc.
 type ChangeSignal interface {
 	// Announce broadcasts that policy may have changed. The Client calls it
-	// after successful policy writes; failures are reported through the
-	// reload error handler and never fail the write.
+	// as the last step of every successful policy write, once for each row a
+	// write stores, and the write returns once Announce has: the Client
+	// publishes nothing after the write, so an instance that gets no CPU once
+	// it has answered holds no announcement of the Client's back. An
+	// implementation that takes the signal and sends it later holds that part
+	// itself. ctx carries the Client's own timeout for the announcement (two
+	// seconds), and Announce must return when it ends: the write waits for
+	// it. Failures are reported through the reload error handler and never
+	// fail the write.
 	Announce(ctx context.Context) error
 
 	// Watch delivers received hints by invoking onChange, blocking until ctx

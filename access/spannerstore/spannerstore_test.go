@@ -100,10 +100,10 @@ func TestStore_isolation(t *testing.T) {
 // them (FailedPrecondition, "Cloud Spanner does not support nested transactions"),
 // whichever client the transaction is on, since it marks the context it hands the
 // transaction's function. The store reads on a client of its own, outside any
-// transaction, so a caller reads the policy and lists roles before it opens one. The
-// permission engine reloads on the check path with the caller's context, so a check
-// made inside a transaction right after a local policy write cannot reload here, and
-// is answered from the snapshot before the write (the engine's own test shows it).
+// transaction, so a caller reads the policy and lists roles before it opens one. It is
+// why the permission engine never reads the store under a caller's context: a check
+// made inside a transaction is answered from a reload on the engine's own
+// (TestEngine_checksInsideAnOpenTransaction).
 func TestStore_readsUnderATransactionsContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -131,6 +131,19 @@ func TestStore_readsUnderATransactionsContext(t *testing.T) {
 			t.Errorf("%s under a transaction's context error = %v, want the client's refusal of a nested transaction (FailedPrecondition)", name, err)
 		}
 	}
+}
+
+// TestEngine_checksInsideAnOpenTransaction runs the engine's suite on Spanner: a role
+// is taken away, and the first check after the engine learns of it is made inside an
+// open read-write transaction of another request, under the context the Spanner client
+// refuses a read of the store's under. The check sees the role gone, since the engine
+// reloads on its own context, beside the transaction and not under it.
+func TestEngine_checksInsideAnOpenTransaction(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	store, database := prepareStore(ctx, t)
+	storetest.RunEngine(t, store, openTransaction(database))
 }
 
 // TestDDL_keys pins the shape of the tables: Kind leads every key and is

@@ -295,7 +295,8 @@ func (c *DataConfiguration) LiveOrigins() []string {
 // ctx ends, rereading on the tenants signal the record's generated write paths publish
 // through the live service (a tenant made or deleted on any instance) and at its
 // backstop. The generated DomainGuard and the consolidated dispatcher ask it before a
-// tenant-scoped request runs, with no read and no wait, so a new tenant is usable at
+// tenant-scoped request runs, and it rereads the table first when its copy is past the
+// backstop or behind a signal, so a new tenant is usable at
 // once, on every instance and on every outlet, without a restart. The foothold half of
 // the concealed-domain answer comes from the session's permissions, in the store of the
 // auth the request came through.

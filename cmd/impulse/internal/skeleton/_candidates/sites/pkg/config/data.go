@@ -265,7 +265,8 @@ func (c *DataConfiguration) LiveOrigins() []string {
 // rereading on the tenants signal the record's generated write paths publish through
 // the live service (a tenant made or deleted on any instance) and at its backstop.
 // Each site's generated DomainGuard and consolidated dispatcher ask it before a
-// tenant-scoped request runs, with no read and no wait, so a new tenant is usable at
+// tenant-scoped request runs, and it rereads the table first when its copy is past the
+// backstop or behind a signal, so a new tenant is usable at
 // once, on every instance of both sites, without a restart.
 func (c *DataConfiguration) startTenants(ctx context.Context) error {
 	if err := c.tenants.Start(ctx); err != nil {
