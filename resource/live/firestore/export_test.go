@@ -75,6 +75,15 @@ func ReadSignals(ctx context.Context, s *Service) (map[live.Kind]time.Time, erro
 	return signalTimes(snapshot), nil
 }
 
+// ErrSignalLimit is what a Signal fails with when the service's own limit ended it.
+var ErrSignalLimit = errSignalLimit
+
+// WithSignalLimit sets the service's own limit on one Signal, so a test that holds a
+// write in flight is not ended by it.
+func WithSignalLimit(limit time.Duration) Option {
+	return withSignalLimit(limit)
+}
+
 // WithDialOptions adds gRPC dial options to the connection the service opens to the
 // emulator, so a test can count the store's operations through an interceptor.
 func WithDialOptions(opts ...grpc.DialOption) Option {

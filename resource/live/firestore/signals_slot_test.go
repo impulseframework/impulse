@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/impulseframework/impulse/resource/live"
 )
@@ -268,6 +269,67 @@ func TestService_writeSlot(t *testing.T) {
 		}
 		if !s.signalsIdle() {
 			t.Error("signalsIdle() = false: the slot is held for a covering write whose callers have all left")
+		}
+	})
+
+	t.Run("a signal has the service's own limit, two seconds, unless a test sets another", func(t *testing.T) {
+		t.Parallel()
+
+		if got := slotService().signals.limit; got != 2*time.Second {
+			t.Errorf("the service's limit on a signal = %s, want two seconds (live.SignalTimeout)", got)
+		}
+	})
+
+	t.Run("a signal that waits for another's write is ended by the service's limit, with the limit's error", func(t *testing.T) {
+		t.Parallel()
+
+		const limit = 50 * time.Millisecond
+		s := slotService()
+		s.signals.limit = limit
+		// A write of the kind is in flight, and stays so.
+		s.beginWrite(kind)
+
+		asked := time.Now()
+		answer := make(chan error, 1)
+		go func() {
+			answer <- s.Signal(t.Context(), kind)
+		}()
+		select {
+		case err := <-answer:
+			if !errors.Is(err, errSignalLimit) {
+				t.Errorf("Signal() under a context with no deadline error = %v, want the limit's (%v)", err, errSignalLimit)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("Signal() under a context with no deadline did not return at its limit of %s: the write in flight holds it", limit)
+		}
+		if took := time.Since(asked); took < limit {
+			t.Errorf("Signal() returned after %s, want it to wait out its limit of %s", took, limit)
+		}
+		if got := s.signalsWaiting(kind); got != 0 {
+			t.Errorf("signalsWaiting() = %d after the limit ended the only waiting signal, want 0", got)
+		}
+		s.endWrite(kind)
+		if !s.signalsIdle() {
+			t.Error("signalsIdle() = false: the slot is held for a signal the limit ended")
+		}
+	})
+
+	t.Run("a caller's deadline shorter than the limit ends its signal, with the context's error", func(t *testing.T) {
+		t.Parallel()
+
+		const own = 50 * time.Millisecond
+		s := slotService()
+		s.beginWrite(kind)
+		ctx, cancel := context.WithTimeout(t.Context(), own)
+		defer cancel()
+
+		asked := time.Now()
+		err := s.Signal(ctx, kind)
+		if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errSignalLimit) {
+			t.Errorf("Signal() error = %v, want the caller's own deadline's and not the limit's", err)
+		}
+		if took := time.Since(asked); took >= live.SignalTimeout {
+			t.Errorf("Signal() returned after %s, want the caller's own %s, well short of the limit of %s", took, own, live.SignalTimeout)
 		}
 	})
 
