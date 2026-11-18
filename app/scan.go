@@ -31,6 +31,25 @@ var skippedDirs = map[string]bool{
 	".angular":     true,
 }
 
+// testdataDir is the directory name the Go tool keeps for a package's test fixtures.
+const testdataDir = "testdata"
+
+// passedOverByGo reports whether the Go tool passes over a directory or a file of this
+// name: one whose name begins with "_" or ".", and a directory named testdata (go help
+// packages). The pattern ./... matches no package under such a directory and no build
+// reads such a file, so what is there is no part of the application: a scratch program,
+// a test's fixture, a tool's own directory.
+func passedOverByGo(name string, isDir bool) bool {
+	return strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") || (isDir && name == testdataDir)
+}
+
+// skipsDir reports whether a walk of the application leaves a directory of this name
+// alone: one that holds dependencies or build output, and one the Go tool passes over. The
+// application's root is the caller's to exempt, whatever it is called.
+func skipsDir(name string) bool {
+	return skippedDirs[name] || passedOverByGo(name, true)
+}
+
 var (
 	emulatorImageRE   = regexp.MustCompile(`cloud-spanner-emulator/emulator:(\d[A-Za-z0-9.\-]*)`)
 	emulatorHarnessRE = regexp.MustCompile(`NewSpannerContainer\(\s*[^,()]+,\s*"([^"]+)"`)
@@ -43,14 +62,19 @@ var (
 	processFileRE      = regexp.MustCompile(`^(Procfile.*|process-compose.*\.ya?ml)$`)
 )
 
-// scan walks the tree once and records every declaration the checks read.
+// scan walks the tree once and records every declaration the checks read. It reads what
+// the Go tool reads: a directory ./... matches nothing under (its name begins with "_" or
+// ".", or it is testdata) is not descended into, and a Go file whose name begins with "_"
+// or "." is not read, so a scratch file kept beside the application fails no check. A
+// file placed directly in a directory the Go tool does read, tmp among them, is read, as
+// go build ./... compiles it.
 func (a *App) scan() error {
 	err := filepath.WalkDir(a.Root, func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.Wrap(err, "filepath.WalkDir()")
 		}
 		if d.IsDir() {
-			if abs != a.Root && skippedDirs[d.Name()] {
+			if abs != a.Root && skipsDir(d.Name()) {
 				return filepath.SkipDir
 			}
 
@@ -87,6 +111,8 @@ func (a *App) scanFile(abs, name string) error {
 		}
 		a.EmulatorImages = append(a.EmulatorImages, findRefs(rel, data, emulatorImageRE)...)
 		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreImageRE)...)
+	case strings.HasSuffix(name, ".go") && passedOverByGo(name, false):
+		// A Go file the Go tool passes over, test file or not, is no part of the application.
 	case strings.HasSuffix(name, "_test.go"):
 		data, err := os.ReadFile(abs)
 		if err != nil {

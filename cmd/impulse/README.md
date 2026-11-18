@@ -526,6 +526,13 @@ impulse check --only prettier --fix             # once the web roots' packages a
 impulse check --list
 ```
 
+The checks read the application the Go tool builds. A directory `./...` matches nothing
+under is not read: one whose name begins with `_` or `.`, and one named `testdata`. Nor is
+a Go file whose own name begins with `_` or `.`. So a scratch program kept beside the
+application (`tmp/_sqlrun/main.go`), a test's fixture and a tool's own directory fail no
+check. A Go file placed directly in a directory the Go tool reads, `tmp/` among them, is
+the application's, as `go build ./...` compiles it.
+
 | Check | Verifies |
 | --- | --- |
 | `generator-program` | Every generator program uses options this release knows, with literal arguments: strings, booleans, lists and maps; a whole number or a constant expression of literals for `WithBodyLimit` (`2<<20`); and, for a request log word or a trace setting, the generation package's own constructor (`generation.LogOnEvent()`, `generation.TracesCapped(0.1)`, with `.MinSeverity(logging.Warning)` chained when wanted). A program the tool cannot read completely is one it cannot later edit or migrate. An option the framework has since removed (`WithDomainRoute`) is named with where its declaration went. A program that never reads `Warnings()` after it generates (in its own package, or in the main package that runs a declaring package) warns: the schema warnings a generation raises go unseen. The skeletons' runner prints them and pins the accepted set in a test. |

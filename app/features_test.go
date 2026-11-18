@@ -170,6 +170,19 @@ func TestFeatureUses(t *testing.T) {
 			want: []FeatureUse{{File: "pkg/resources/defaults.go", Line: 4, Constant: "CargoManifest"}},
 		},
 		{
+			name: "a read in a file the Go tool passes over is no use: under an underscore or dot directory, under testdata, or in a file so named",
+			files: map[string]string{
+				"tmp/_scratch/main.go":        "package main\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				".tools/gen/main.go":          "package main\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				"app/testdata/use.go":         "package app\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+				"pkg/resources/_draft.go":     "package resources\n\nvar draft = CargoManifest\n",
+				"pkg/resources/.wip.go":       "package resources\n\nvar wip = CargoManifest\n",
+				"_old/web/console/src/nav.ts": "export const item = { feature: Feature.Debriefs };\n",
+				"tmp/use.go":                  "package tmp\n\nimport \"example.com/acme/beacon/pkg/resources\"\n\nvar _ = resources.Debriefs\n",
+			},
+			want: []FeatureUse{{File: "tmp/use.go", Line: 5, Constant: "Debriefs"}},
+		},
+		{
 			name: "another package's identifier of the same name is not a read",
 			files: map[string]string{
 				"pkg/rpc/debriefs.go": "package rpc\n\n// Debriefs is a method, not the flag.\ntype Debriefs struct{}\n",

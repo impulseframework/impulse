@@ -171,8 +171,8 @@ func parseFeatureGates(rel string, src []byte) ([]FeatureGate, error) {
 // the identifier in the declaring package or the qualified selector from another package,
 // outside the declaration itself (an annotation is a comment and never an identifier);
 // in the browser applications, Feature.<Constant> in TypeScript and templates. Generated
-// files and build products are not read. The tree is opened as a root, so the walk stays
-// inside it.
+// files, build products and what the Go tool passes over (skipsDir, passedOverByGo) are
+// not read. The tree is opened as a root, so the walk stays inside it.
 func (a *App) FeatureUses() ([]FeatureUse, error) {
 	if len(a.Features) == 0 {
 		return nil, nil
@@ -189,7 +189,7 @@ func (a *App) FeatureUses() ([]FeatureUse, error) {
 			return errors.Wrap(err, "fs.WalkDir()")
 		}
 		if d.IsDir() {
-			if p != "." && skippedDirs[d.Name()] {
+			if p != "." && skipsDir(d.Name()) {
 				return fs.SkipDir
 			}
 
@@ -200,6 +200,8 @@ func (a *App) FeatureUses() ([]FeatureUse, error) {
 			return nil
 		}
 		switch {
+		case strings.HasSuffix(name, ".go") && passedOverByGo(name, false):
+			// No build reads the file, so a constant named in it is used by nothing.
 		case strings.HasSuffix(name, ".go"):
 			data, err := root.ReadFile(filepath.FromSlash(p))
 			if err != nil {
