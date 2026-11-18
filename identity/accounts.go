@@ -277,8 +277,11 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 // UnlockSignIn buffers the removal of the count of failed sign-ins kept under a name,
 // in the caller's transaction, and with it the lock the count earned: once it commits,
 // the name may sign in again. The name is what was typed into the username field,
-// whether or not a user holds it, and is keyed as the session library keys it
-// (session.SignInAttemptName); a name with no count is no error.
+// whether or not a user holds it, and is keyed as the session library keys it; a name
+// with no count is no error. The table also keeps the session library's own counts (the
+// mail an address was sent, its reset links, the guesses at a first password's code)
+// under keys no name folds to, and a row of one, named as the list shows it, is cleared
+// the same way (session.SignInAttemptKey).
 //
 // Each instance of the application trusts what it remembers of a name for a few
 // seconds, a lock included, so the lock is gone from every instance within that time
@@ -292,7 +295,7 @@ func (m *Manager) UnlockSignIn(ctx context.Context, txn resource.ReadWriteTransa
 	if strings.TrimSpace(name) == "" {
 		return httpio.NewBadRequestMessage("a name is required: the name the failed sign-ins are counted under")
 	}
-	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptName(name)); err != nil {
+	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptKey(name)); err != nil {
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
 	}
 

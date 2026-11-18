@@ -68,9 +68,10 @@ var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time
 
 // mailLimitKey is the address's key in the sign-in attempts table: the address folded
 // as the users table folds one (attempts.Normalize), so every spelling that finds the
-// same account's address is counted under the one key.
+// same account's address is counted under the one key, and under a kind no name a
+// person signs in under can spell (attempts.OwnKey).
 func mailLimitKey(email string) string {
-	return "mail:" + attempts.Normalize(email)
+	return attempts.OwnKey(attempts.KindMail, attempts.Normalize(email))
 }
 
 // mailSettings are the Auth's mail settings once validated.

@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -40,9 +41,10 @@ import (
 // guesses a password at the login.
 var firstPasswordAttempts = sessionstorage.SignInAttemptLimit{Failures: emailCodeAttempts, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
-// firstPasswordKey is the account's key in the sign-in attempts table.
+// firstPasswordKey is the account's key in the sign-in attempts table, under a kind no
+// name a person signs in under can spell (attempts.OwnKey).
 func firstPasswordKey(userID impulse.UUID) string {
-	return "first-password:" + userID.String()
+	return attempts.OwnKey(attempts.KindFirstPassword, userID.String())
 }
 
 // hashFirstPasswordCode is the hash a first-password code's row keeps where a link's

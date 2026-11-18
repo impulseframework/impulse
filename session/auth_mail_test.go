@@ -1013,7 +1013,7 @@ func authEmailCase1(t *testing.T) {
 		t.Fatalf("messages = %+v, want the verification", msgs)
 	}
 	token := tokenIn(t, msgs[0].Text, "verify")
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record == nil || record.Failures != 1 {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record == nil || record.Failures != 1 {
 		t.Errorf("the address's mail count after Add() = %+v, want one", record)
 	}
 
@@ -1022,7 +1022,7 @@ func authEmailCase1(t *testing.T) {
 	if rr.Code != http.StatusOK || decoded(t, rr)["email"] != "Pat@Lakeside.edu" {
 		t.Errorf("Verify() = %d %s, want the address", rr.Code, rr.Body.String())
 	}
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the link was followed = %+v, want none", record)
 	}
 	if rr := f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": token}, nil); rr.Code != http.StatusNotFound {
@@ -1170,7 +1170,7 @@ func authSignUpCase1(t *testing.T) {
 	if link.Kind != sessionstorage.MailLinkSignUp || link.Email != "new@lakeside.edu" {
 		t.Errorf("stored link = %+v, want a sign-up for the address", link)
 	}
-	if record := f.attemptsRecord("mail:new@lakeside.edu"); record == nil || record.Failures != 1 {
+	if record := f.attemptsRecord("MAIL:new@lakeside.edu"); record == nil || record.Failures != 1 {
 		t.Errorf("the address's mail count after Start() = %+v, want one", record)
 	}
 
@@ -1220,7 +1220,7 @@ func authSignUpCase1(t *testing.T) {
 	if want := proofOf(t, created); f.signedIn == nil || !bytes.Equal(f.signedIn.proven, want) {
 		t.Errorf("SignIn() after a sign-up given the proof %x, want %x: the proof of the password the account was created with", f.signedIn.proven, want)
 	}
-	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:new@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the sign-up was completed = %+v, want none", record)
 	}
 }
@@ -1308,7 +1308,7 @@ func authSignUpCase4(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("Complete() through a closed method = %d %s, want 404", rr.Code, rr.Body.String())
 	}
-	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:new@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count = %+v, want it untouched by a refused sign-up", record)
 	}
 }

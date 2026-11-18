@@ -356,9 +356,14 @@ func (m *Manager) noticePlaceTaken(ctx context.Context, txn resource.ReadWriteTr
 // noticeGroupRoleTaken registers the notice owed each person of a group an
 // administrator takes a role from: the role goes from everyone who stands in the group,
 // and the notice is owed to each of them who reaches the role's tenant no more
-// (noticeRemoval). A role whose period has ended gave nobody anything. No account goes
-// with a group's role: the person keeps their place in the group.
+// (noticeRemoval). A role whose period has ended gave nobody anything, and a role held
+// for the whole application or in every tenant at once is no one tenant's: nobody is
+// read for it. No account goes with a group's role: the person keeps their place in the
+// group.
 func (m *Manager) noticeGroupRoleTaken(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey) error {
+	if _, one := tenantScope(&access.MembershipKey{Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Role: key.Role, User: ""}); !one {
+		return nil
+	}
 	holding, err := m.groupHolding(ctx, txn, groupID, time.Now())
 	if err != nil {
 		return err

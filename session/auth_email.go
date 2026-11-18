@@ -140,10 +140,11 @@ func (a *Auth[S, U, Tx]) refuseDirectoryAddress(ctx context.Context, userID impu
 
 // noticeAddressChanged tells the address an account held, confirmed, that replacement
 // took its place. It is the one message the old address gets about the change, and it
-// asks nothing of it. An account that held no confirmed address has nobody to tell. A
-// message that could not be sent is logged: the change stands.
+// asks nothing of it. An account that held no confirmed address a message can be sent to
+// (holdsAddress) has nobody to tell. A message that could not be sent is logged: the
+// change stands.
 func (a *Auth[S, U, Tx]) noticeAddressChanged(ctx context.Context, old *string, wasConfirmed bool, replacement string) {
-	if old == nil || !wasConfirmed || strings.EqualFold(*old, replacement) {
+	if !holdsAddress(old, wasConfirmed) || strings.EqualFold(*old, replacement) {
 		return
 	}
 	m, err := a.mailOf()

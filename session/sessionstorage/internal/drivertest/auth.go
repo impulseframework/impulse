@@ -586,6 +586,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},
 		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
+		{name: "sign-in attempts are kept under a name exactly as it is spelled", run: testSignInAttemptsKeyedExactly},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
 		{name: "of failed attempts recorded at once on one name, as many as the limit are told they were counted and no more", run: testSignInAttemptsCountedAtOnce},
 		{name: "a failed attempt recorded while the name is cleared is the first after the clear, never an error", run: testSignInAttemptsRecordedBesideClears},

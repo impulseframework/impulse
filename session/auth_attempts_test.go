@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -497,6 +498,36 @@ func TestAuth_AttemptLimit_EveryCheck(t *testing.T) {
 				}
 				if r := f.attemptsRecord("pat"); r == nil || r.Failures != 1 {
 					t.Errorf("record = %+v, want the failure counted", r)
+				}
+			},
+		},
+		{
+			name: "failed sign-ins under the text of an address's own counts are a name's failures and close nothing of the address's",
+			run: func(t *testing.T, f *authFixture) {
+				// A stranger types the keys the mail and the reset links of pat's address are
+				// counted under, in the library's capitals and without, to the limit, each
+				// from a client of its own so no client is held.
+				f.store.EXPECT().UserByUserName(gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("no such user")).AnyTimes()
+				for i, spellings := range [][]string{
+					{"MAIL:pat@lakeside.edu", "mail:pat@lakeside.edu", "Mail:pat@lakeside.edu"},
+					{"RESET:pat@lakeside.edu", "reset:pat@lakeside.edu", "Reset:pat@lakeside.edu"},
+				} {
+					for n, typed := range spellings {
+						client := fmt.Sprintf("10.%d.%d.1", i, n)
+						if rr := f.login(typed, "pw", client, client); rr.Code != http.StatusUnauthorized {
+							t.Fatalf("a sign-in under %q = %d %s, want 401", typed, rr.Code, rr.Body.String())
+						}
+					}
+				}
+				for _, own := range []string{mailLimitKey("pat@lakeside.edu"), resetLimitKey("pat@lakeside.edu")} {
+					if r := f.attemptsRecord(own); r != nil {
+						t.Errorf("the address's own count %q = %+v after the failed sign-ins, want none: no name a person types is counted under it", own, r)
+					}
+				}
+				for _, name := range []string{"mail:pat@lakeside.edu", "reset:pat@lakeside.edu"} {
+					if r := f.attemptsRecord(name); r == nil || r.LockedUntil == nil {
+						t.Errorf("the name %q = %+v, want the failures counted and locked under the name as it folds", name, r)
+					}
 				}
 			},
 		},

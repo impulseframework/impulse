@@ -74,7 +74,7 @@ func authResetCase1(t *testing.T) {
 	if msgs := recorder.Messages(); len(msgs) != 0 {
 		t.Fatalf("messages while self-service reset is off = %+v, want none", msgs)
 	}
-	if record := f.attemptsRecord("reset:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("RESET:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after a refused request = %+v, want none", record)
 	}
 
@@ -198,7 +198,7 @@ func authResetCase3(t *testing.T) {
 	}
 	// Reset links have a count of their own: what anyone may ask for an address takes
 	// nothing from the sign-in codes a person past their password is mailed there.
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's count of sign-in codes after six reset requests = %+v, want none: a reset request must not use up the codes", record)
 	}
 }
@@ -293,7 +293,7 @@ func authResetCase5(t *testing.T) {
 	}
 	// The person is not signed in: the mocked store expects no sign-in and no session,
 	// so one started here fails the test.
-	if record := f.attemptsRecord("reset:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("RESET:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the link was used = %+v, want none", record)
 	}
 	for i, row := range links.rows {
@@ -540,8 +540,37 @@ func authAddressCase2(t *testing.T) {
 	if rr := f.asUser(f.auth.Email().Add(), sessionID, map[string]string{"email": "own@lakeside.edu"}, nil); rr.Code != http.StatusOK {
 		t.Errorf("Add() by a directory person whose confirmed address is no address = %d %s, want 200", rr.Code, rr.Body.String())
 	}
-	if msgs := recorder.Messages(); len(msgs) != before+1 || msgs[before].To != "own@lakeside.edu" {
-		t.Errorf("that Add() mailed %+v, want the verification link at the address given", msgs[before:])
+	msgs := recorder.Messages()
+	if len(msgs) != before+1 || msgs[before].To != "own@lakeside.edu" {
+		t.Fatalf("that Add() mailed %+v, want the verification link at the address given", msgs[before:])
+	}
+
+	// The link confirms it, and the value it takes the place of is told nothing: no
+	// message can be sent to it.
+	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "own@lakeside.edu").Return(nil)
+	before = len(msgs)
+	if rr := f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": tokenIn(t, msgs[before-1].Text, "verify")}, nil); rr.Code != http.StatusOK {
+		t.Errorf("Verify() by a directory person whose confirmed address is no address = %d %s, want 200", rr.Code, rr.Body.String())
+	}
+	if msgs = recorder.Messages(); len(msgs) != before {
+		t.Errorf("that Verify() mailed %+v, want nothing: the value replaced is no address to tell", msgs[before:])
+	}
+
+	// An administrator gives such a person their first address the same way: the
+	// request is taken, the link it mails confirms, and nothing is sent to the value.
+	if err := f.auth.API().RequestAddressChange(context.Background(), userID, "set@lakeside.edu", AskedByApplication()); err != nil {
+		t.Fatalf("a first address for a directory person whose confirmed address is no address error = %v, want nil", err)
+	}
+	if msgs = recorder.Messages(); len(msgs) != before+1 || msgs[before].To != "set@lakeside.edu" {
+		t.Fatalf("that request mailed %+v, want its confirmation link at the address given", msgs[before:])
+	}
+	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "set@lakeside.edu").Return(nil)
+	before = len(msgs)
+	if rr := f.serve(f.auth.Email().Confirm(), http.MethodPost, "/email/confirm", map[string]string{"token": tokenIn(t, msgs[before-1].Text, "address")}, nil); rr.Code != http.StatusOK {
+		t.Errorf("Confirm() of that link = %d %s, want 200", rr.Code, rr.Body.String())
+	}
+	if msgs = recorder.Messages(); len(msgs) != before {
+		t.Errorf("that Confirm() mailed %+v, want nothing: the value replaced is no address to tell", msgs[before:])
 	}
 }
 

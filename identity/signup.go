@@ -348,7 +348,7 @@ func (m *Manager) SetSelfServiceReset(ctx context.Context, txn resource.ReadWrit
 	defer span.End()
 
 	if !m.signsInWithPassword() {
-		return httpio.NewConflictMessagef("nobody signs in to the %s auth with a password, so there is none to reset", m.auth)
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
 	}
 	if err := m.store.SetSelfServiceReset(ctx, txn, string(sessioninfo.MethodPassword), on); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSelfServiceReset()")

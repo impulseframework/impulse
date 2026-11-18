@@ -725,7 +725,7 @@ func TestManager_SetSelfServiceReset(t *testing.T) {
 	err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		return directory.SetSelfServiceReset(ctx, txn, true)
 	})
-	if !httpio.HasConflict(err) {
-		t.Errorf("SetSelfServiceReset() on an auth with no password method error = %v, want Conflict", err)
+	if !httpio.HasConflict(err) || httpio.Message(err) != "Nobody signs in to this application with a password, so there is none to reset" {
+		t.Errorf("SetSelfServiceReset() on an auth with no password method error = %v, want Conflict in the sentence the session library refuses with", err)
 	}
 }

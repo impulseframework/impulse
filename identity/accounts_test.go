@@ -461,6 +461,11 @@ func TestManager_UnlockSignIn(t *testing.T) {
 	}{
 		{name: "the name's count is cleared", typed: "dana", wantWrites: []string{"clear attempts dana"}},
 		{name: "the name is keyed without case, as the limiter keys it", typed: "Dana@Example.COM", wantWrites: []string{"clear attempts dana@example.com"}},
+		// The list also shows the session library's own counts, under keys no name folds
+		// to: such a row is cleared as it is listed.
+		{name: "a listed count of the mail an address was sent is cleared as it is listed", typed: "MAIL:dana@example.com", wantWrites: []string{"clear attempts MAIL:dana@example.com"}},
+		{name: "a listed count of an address's reset links is cleared as it is listed", typed: "RESET:dana@example.com", wantWrites: []string{"clear attempts RESET:dana@example.com"}},
+		{name: "a name that spells such a key without its capitals is a name", typed: "Reset:dana@example.com", wantWrites: []string{"clear attempts reset:dana@example.com"}},
 		{name: "a blank name is refused", typed: "  ", wantErr: httpio.HasBadRequest},
 	}
 	for _, tt := range tests {

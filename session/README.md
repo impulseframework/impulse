@@ -1996,6 +1996,15 @@ the generated user management's unlock method does in a transaction of the
 application's, lifts the lock on every instance within five seconds, since no instance
 trusts what it remembers of a name for longer.
 
+The same table keeps the library's own counts: the mail an address is sent, the reset
+links an address is sent, and the guesses at the code of an account's first password,
+under `MAIL:`, `RESET:` and `FIRST-PASSWORD:` and what each counts. A name is counted
+under its case-folded form, which holds no capital, so nothing a person types into the
+username field is ever one of those keys: failing to sign in under the text of one
+counts against a name nobody holds, and closes no address to its mail. A caller that
+clears a row a list shows, whichever kind it is, clears the row of
+`SignInAttemptKey(listed)`.
+
 **Attempts made at once.** An attempt takes its place under the limit before its
 password is compared: the store counts it against the name in one transaction and says
 whether it was counted (`AuthStore.RecordSignInFailure`, `SignInAttempts.Counted`), and
