@@ -35,8 +35,11 @@ const (
 	// reload of its own failed: the checks that come inside it are answered
 	// from the last good snapshot and none of them reads, so a store that
 	// refuses at once is read once a pause and not once a check, and the
-	// failure is reported at that rate. A change announced meanwhile stays
-	// recorded, and the first check after the pause reads.
+	// failure is reported at that rate. A change another instance announced
+	// meanwhile stays recorded, and the first check after the pause reads. A
+	// policy write of this instance ends the pause: a store that has just
+	// accepted a write is not down, so the next check reads it, and a reload
+	// that fails after the write begins a pause of its own.
 	reloadPause = time.Second
 
 	// watchRetryDelay is how long the engine waits before re-invoking
@@ -79,7 +82,8 @@ const (
 // Failure semantics: the first load must succeed before checks are served
 // (errors are returned, never panicked); once a snapshot exists, a failed
 // reload serves the last good snapshot and reports through onError, and the
-// store is tried again by the first check after a short pause (reloadPause).
+// store is tried again by the first check after a short pause (reloadPause),
+// or by the next check where this instance has written the policy since.
 //
 // An assignment counts inside its period alone, and a snapshot holds the ones
 // that count in a window of time (snapshot.holdsAt). A check is answered from
@@ -170,7 +174,8 @@ func (s *snapshotEngine) now() time.Time {
 
 // reloadFailed reports a reload the engine made itself that failed: the
 // check's or the loop's, refused or failed. The last good snapshot answers,
-// and the first check after the pause tries the store again.
+// and the first check after the pause tries the store again, or the next
+// check after a policy write of this instance.
 func (s *snapshotEngine) reloadFailed(_ context.Context, err error) {
 	s.onError(err)
 }
@@ -180,10 +185,6 @@ func (s *snapshotEngine) reloadFailed(_ context.Context, err error) {
 // manager is holding): the write is recorded (policyWritten), and its
 // announcement is handed to the change signal before this returns.
 func (s *snapshotEngine) policyChanged() {
-	s.invalidate()
-	s.hint()
-}
-
 	s.policyWritten()
 	s.announce()
 }
@@ -195,11 +196,16 @@ func (s *snapshotEngine) policyChanged() {
 // at once, and a call of the user manager makes one for all its writes when
 // it ends (holdAnnouncement).
 func (s *snapshotEngine) policyWritten() {
+	s.invalidate()
+	s.hint()
+}
+
 // invalidate marks the current snapshot as predating a local policy write:
-// the next check reads the store before it answers, or the first check after
-// the pause a failed reload left. Safe to call concurrently.
+// the next check reads the store before it answers, inside the pause a failed
+// reload left too, since the store has accepted a write since that reload
+// began. Safe to call concurrently.
 func (s *snapshotEngine) invalidate() {
-	s.fresh.Nudge()
+	s.fresh.Wrote()
 }
 
 // hinted is what the change signal's watch calls when another instance

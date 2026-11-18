@@ -78,8 +78,10 @@ const (
 	// featureReadPause is how long the set leaves the table alone after a reread of its
 	// own failed: the lookups that come inside it are answered from the copy as it was
 	// and none of them reads, so a database that refuses at once is read once a pause
-	// and not once a lookup, and the failure is logged at that rate. A flip recorded
-	// meanwhile stays recorded, and the first lookup after the pause rereads.
+	// and not once a lookup, and the failure is logged at that rate. A signal that
+	// arrives meanwhile stays recorded, and the first lookup after the pause rereads. A
+	// flip of this instance (Reload) ends the pause: a database that has just taken a
+	// write is not down, so the next lookup rereads.
 	featureReadPause = time.Second
 	// FeatureSignalTimeout bounds a flip's signal: past it the failure is logged and
 	// the request answers, since the other instances reload at their backstop.
@@ -476,11 +478,11 @@ func (s *FeatureSet) rereadFailed(ctx context.Context, err error) {
 // instance that flipped answers from the flip at once. It reads under ctx, the
 // caller's, so it is called after a commit and never inside a transaction. A failed
 // read leaves the copy as it was and the change recorded: on a set that is followed,
-// the next lookup rereads the table under the set's own context, as it does after a
-// signal (the first lookup after the pause, where a reread of the set's own has just
-// failed), so a caller whose context had ended does not leave the instance that flipped
-// behind its own flip until the backstop. A nil FeatureSet, and one LoadFeatures did
-// not build, has nothing to reread and says so.
+// the next lookup rereads the table under the set's own context, in the pause after a
+// reread of the set's own failed too, since the database has taken a write since. So a
+// caller whose context had ended does not leave the instance that flipped behind its
+// own flip until the backstop. A nil FeatureSet, and one LoadFeatures did not build,
+// has nothing to reread and says so.
 func (s *FeatureSet) Reload(ctx context.Context) error {
 	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")

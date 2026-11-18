@@ -142,8 +142,7 @@ finds the snapshot fresh is lock-free and allocation-free and does not touch the
 database. Policy changes propagate between instances in near-realtime through a
 change signal the application supplies (see Change signal below), and the
 heartbeat interval (default 1m) bounds the staleness whatever happens to the
-signal. Writes made through this client are visible to its own checks at once;
-in the second after a reload failed, to the first check after that pause.
+signal. Writes made through this client are visible to its own checks at once.
 
 **Freshness is the check's own.** A check reads the policy store before it
 answers in three cases: no snapshot is loaded yet; the snapshot's store read
@@ -177,12 +176,15 @@ read in flight when the check came, and at most one after it.
 snapshot answers. The store is then left alone for one second: the checks that
 come in that pause are answered from the last good snapshot without a read, so a
 store that is down is read, and its failure reported, once a pause and not once
-a check; a change announced meanwhile stays recorded, and the first check after
-the pause reads. The pause counts from the moment the read's time ran out when
-the read is found failed later than that, so on an instance that lost its CPU
-with a reload in flight, and sat idle past that reload's timeout and the pause
-after it, the first check reads the store itself. Only the first load has no
-snapshot to fall back on: its failure is the check's error.
+a check; a hint from another instance that arrives meanwhile stays recorded, and
+the first check after the pause reads. A policy write on this instance ends the
+pause, since a store that has just accepted a write is not down: the next check
+reads it, and a read that fails after the write begins a pause of its own. The
+pause counts from the moment the read's time ran out when the read is found
+failed later than that, so on an instance that lost its CPU with a reload in
+flight, and sat idle past that reload's timeout and the pause after it, the
+first check reads the store itself. Only the first load has no snapshot to fall
+back on: its failure is the check's error.
 
 The snapshot compiles the release's default roles from the role file beside the
 store's rows, in three parts: the global partition; the policy held in every

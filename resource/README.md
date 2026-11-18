@@ -2434,12 +2434,13 @@ one from a read no older than the backstop. A failed reread is logged, the copy 
 it was, and the table is left alone for one second: lookups in that pause are answered
 from the copy without a read, so a database that is down is read, and its failure
 logged, once a pause and not once a lookup, and the first lookup after the pause tries
-again. `Reload`, which a flip's handler calls after
-its commit, records the flip before it reads, so a reload that fails (the request that
-flipped had ended) is made good by the next lookup (the first after the pause, where a
-reread has just failed), under the set's own context. A
-database that does not answer holds a lookup for less than twice the read's timeout
-(ten seconds): the read in flight when the lookup came, and at most one after it. A flip therefore reaches every instance that
+again. `Reload`, which a flip's handler calls after its commit, records the flip before
+it reads, so a reload that fails (the request that flipped had ended) is made good by
+the next lookup, under the set's own context. A flip of this instance ends the pause
+too: the database has just taken a write, so the next lookup reads it, and a read that
+fails after the flip begins a pause of its own. A database that does not answer holds a
+lookup for less than twice the read's timeout (ten seconds): the read in flight when the
+lookup came, and at most one after it. A flip therefore reaches every instance that
 is serving within a moment, and the backstop bounds the rest. The subscriber is the application's live service,
 which every application wires; `Follow` refuses a nil one. The application exposes the
 copy as `FeatureSet() *resource.FeatureSet`, asserted on the application type beside
@@ -2610,12 +2611,14 @@ from a read no older than the backstop, and an instance that missed a signal is 
 that far behind. A failed reread is logged, the set stays as it was, and the table is
 left alone for one second: lookups in that pause are answered from the set without a
 read, so a database that is down is read, and its failure logged, once a pause and not
-once a lookup, and the first lookup after the pause tries again. `Reload` records the change before it reads, so a reload that fails
-(the request that wrote had ended) is made good by the next lookup (the first after the
-pause, where a reread has just failed), under the roster's own context. A database that does not answer holds a lookup for less than twice the
-read's timeout (ten seconds): the read in flight when the lookup came, and at most one
-after it. A role held in every tenant domain reaches a new
-tenant with nothing written for it; the one membership written when a tenant is made is
+once a lookup, and the first lookup after the pause tries again. `Reload` records the
+change before it reads, so a reload that fails (the request that wrote had ended) is
+made good by the next lookup, under the roster's own context. A write of this instance
+ends the pause too: the database has just taken a write, so the next lookup reads it,
+and a read that fails after the write begins a pause of its own. A database that does
+not answer holds a lookup for less than twice the read's timeout (ten seconds): the read
+in flight when the lookup came, and at most one after it. A role held in every tenant
+domain reaches a new tenant with nothing written for it; the one membership written when a tenant is made is
 its first administrator's. `Add` stays for a test harness that seeds a roster without a
 table; the generated paths never call it.
 

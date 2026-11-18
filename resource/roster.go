@@ -45,8 +45,10 @@ const tenantReadTimeout = 10 * time.Second
 // tenantReadPause is how long the roster leaves the table alone after a reread of its own
 // failed: the lookups that come inside it are answered from the copy as it was and none
 // of them reads, so a database that refuses at once is read once a pause and not once a
-// lookup, and the failure is logged at that rate. A change recorded meanwhile stays
-// recorded, and the first lookup after the pause rereads.
+// lookup, and the failure is logged at that rate. A signal that arrives meanwhile stays
+// recorded, and the first lookup after the pause rereads. A write of this instance
+// (Reload) ends the pause: a database that has just taken a write is not down, so the
+// next lookup rereads.
 const tenantReadPause = time.Second
 
 // errTenantRosterUnsupportedDatabase is the answer on a database the roster's read is
@@ -320,10 +322,10 @@ func (r *TenantRoster) tick() {
 // request. It reads under ctx, the caller's, so it is called after a commit and never
 // inside a transaction. A failed read leaves the set as it was and the change recorded:
 // on a roster that was started, the next lookup rereads the table under the roster's
-// own context, as it does after a signal (the first lookup after the pause, where a
-// reread of the roster's own has just failed), so a caller whose context had ended does
-// not leave the instance that wrote behind its own write until the backstop. A nil
-// roster reads nothing.
+// own context, in the pause after a reread of the roster's own failed too, since the
+// database has taken a write since. So a caller whose context had ended does not leave
+// the instance that wrote behind its own write until the backstop. A nil roster reads
+// nothing.
 func (r *TenantRoster) Reload(ctx context.Context) error {
 	if r == nil || r.fresh == nil {
 		return errors.New("resource: no tenant roster is wired")
