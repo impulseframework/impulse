@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -213,6 +214,11 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	if err != nil {
 		return err
 	}
+	// The notice is mailed to the address the person confirmed, read while the account
+	// is still there to read it from.
+	if err := m.noticeRemoval(ctx, txn, scope, userID, all, kept, key); err != nil {
+		return err
+	}
 	if err := m.deleteWithLastRole(ctx, txn, userID, kept, key); err != nil {
 		return err
 	}
@@ -221,6 +227,41 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	}
 
 	return m.policyChangesAtCommit(txn)
+}
+
+// noticeRemoval registers the notice that an administrator removed a person from a
+// tenant, for after the commit: it is owed when the membership being removed is the
+// last thing the person holds in the tenant that has not ended (held: their own roles
+// and the groups they are in), and it says so when the account goes with it (kept: the
+// membership is the last row that keeps the account). A person who leaves a tenant
+// themselves is told nothing, nor is one whose role is taken while another holds them
+// in the tenant, nor one who loses a role held for the whole application; a role that
+// ends by itself is no removal and never reaches this.
+func (m *Manager) noticeRemoval(
+	ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, held, kept []access.MembershipKey, removed *access.MembershipKey,
+) error {
+	if scope.IsGlobal() || m.callerIs(ctx, userID) {
+		return nil
+	}
+	stays := func(key access.MembershipKey) bool {
+		return key != *removed && key.Kind == removed.Kind && key.Axis == removed.Axis && key.Domain == removed.Domain
+	}
+	if !slices.Contains(held, *removed) || slices.ContainsFunc(held, stays) {
+		return nil
+	}
+	address, confirmed, err := m.store.ConfirmedEmail(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.ConfirmedEmail()")
+	}
+	if !confirmed {
+		return nil
+	}
+	tenant := removed.Domain
+	deleted := !slices.ContainsFunc(kept, func(key access.MembershipKey) bool { return key != *removed })
+
+	return m.noticeAfterCommit(txn, "the notice of a removal from "+tenant+" to user "+userID.String(), func(ctx context.Context) error {
+		return m.sessions.NoticeRemovedFromTenant(ctx, address, tenant, deleted)
+	})
 }
 
 // policyChangesAtCommit registers the word to the permission engine on the transaction,

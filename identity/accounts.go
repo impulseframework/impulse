@@ -79,7 +79,7 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 			sessions = append(sessions, record.SessionID)
 		}
 	}
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 	for _, id := range sessions {
@@ -207,10 +207,43 @@ func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWri
 	return nil
 }
 
+// SendPasswordResetLink has a link that resets a user's password mailed to the address
+// they confirmed, once the caller's transaction commits. Nothing about the account
+// changes when it is sent: the password it has signs the person in, and their sessions
+// stand, until the link is used. The message says who asked: an administrator of the
+// tenant the request was checked in, or of the application. sent is told how the
+// mailing went, once the transaction has committed: whether the link was mailed and,
+// where it was not, why, in a sentence for the administrator who asked (the account has
+// no password to reset or no confirmed address, or the address was mailed too often).
+//
+// The link goes to the person's own mailbox and to nowhere the caller names, so it is
+// the caller's to send for whoever the role file lets them manage; an account of
+// another auth, and no account, are NotFound.
+//
+// Shared rule: the session library's SendPasswordReset, which counts the message
+// against the one limit on mail to an address.
+func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, sent func(sent bool, reason string)) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
+		return errors.Wrap(err, "identity.Store.Username()")
+	} else if !found {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	by := askedBy(ctx)
+
+	return m.mailAfterCommit(txn, "the password reset link of user "+userID.String(), sent, func(ctx context.Context) error {
+		return m.sessions.SendPasswordReset(ctx, userID, by)
+	})
+}
+
 // RevokeTrustedDevices buffers an administrator's reset of a user's second factor, in
 // the caller's transaction: every browser the person asked to be remembered is
 // forgotten, so their next sign-in from any of them asks for the factor. The sessions
-// that stand are not touched (EndUserSessions ends them).
+// that stand are not touched (EndUserSessions ends them). Once the transaction has
+// committed the person is told, at the address they confirmed, that their sign-in was
+// reset.
 //
 // Shared rule: the session library's ResetFactors.
 func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
@@ -227,7 +260,9 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 		}
 	}
 
-	return nil
+	return m.noticeAfterCommit(txn, "the notice of a second factor reset to user "+userID.String(), func(ctx context.Context) error {
+		return m.sessions.NoticeFactorReset(ctx, userID)
+	})
 }
 
 // UnlockSignIn buffers the removal of the count of failed sign-ins kept under a name,

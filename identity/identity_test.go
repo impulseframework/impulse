@@ -176,13 +176,6 @@ func (f *fakeStore) UpdateUser(_ context.Context, _ resource.ReadWriteTransactio
 	if change.PasswordChangeRequired != nil {
 		line += " passwordChangeRequired=" + boolText(*change.PasswordChangeRequired)
 	}
-	if change.Email != nil {
-		address := "<none>"
-		if change.Email.Address != nil {
-			address = *change.Email.Address
-		}
-		line += " email=" + address
-	}
 	if change.Name != nil {
 		name := "<none>"
 		if change.Name.Name != nil {
@@ -323,6 +316,19 @@ func (f *fakeStore) UserByVerifiedEmail(_ context.Context, _ resource.ReadWriteT
 	userID, found = f.emails[email]
 
 	return userID, found, nil
+}
+
+func (f *fakeStore) ConfirmedEmail(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	if err := f.fail("ConfirmedEmail"); err != nil {
+		return "", false, err
+	}
+	for address, holder := range f.emails {
+		if holder == id {
+			return address, true, nil
+		}
+	}
+
+	return "", false, nil
 }
 
 func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -730,6 +736,48 @@ func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection st
 	return s.named[connection], s.labels[method]
 }
 
+// asked records a message the rules asked the session library to mail, and answers the
+// mailbox's failure; a fake with no mailbox mails nothing.
+func (s fakeSessions) asked(what string) error {
+	if s.mail == nil {
+		return nil
+	}
+	if s.mail.err != nil {
+		return s.mail.err
+	}
+	s.mail.asked = append(s.mail.asked, what)
+
+	return nil
+}
+
+// askerText says an asker as the fake's record keeps it.
+func askerText(by session.AskedBy) string {
+	switch {
+	case !by.Administrator:
+		return "the person"
+	case by.Tenant == "":
+		return "the application"
+	default:
+		return "tenant " + by.Tenant
+	}
+}
+
+func (s fakeSessions) RequestAddressChange(_ context.Context, userID impulse.UUID, email string, by session.AskedBy) error {
+	return s.asked("address change of " + userID.String() + " to " + email + " asked by " + askerText(by))
+}
+
+func (s fakeSessions) SendPasswordReset(_ context.Context, userID impulse.UUID, by session.AskedBy) error {
+	return s.asked("password reset of " + userID.String() + " asked by " + askerText(by))
+}
+
+func (s fakeSessions) NoticeFactorReset(_ context.Context, userID impulse.UUID) error {
+	return s.asked("factor reset notice to " + userID.String())
+}
+
+func (s fakeSessions) NoticeRemovedFromTenant(_ context.Context, to, tenant string, accountDeleted bool) error {
+	return s.asked("removal notice to " + to + " from " + tenant + " deleted=" + boolText(accountDeleted))
+}
+
 func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
 	return s.methods
 }
@@ -775,6 +823,9 @@ type fakeMail struct {
 	sent      []string
 	withdrawn []impulse.UUID
 	err       error
+	// asked are the messages about an account the rules asked for, in order: the link
+	// that confirms a new address, the reset link, and the notices.
+	asked []string
 }
 
 // fakePrepared is a prepared invitation of the fake session library.
