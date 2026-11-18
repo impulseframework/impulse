@@ -178,8 +178,17 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	// share one; a request carrying X-Subscribe is noted on its request log line and
 	// refused when its tab id is malformed. The auth's name is staff.Name.
 	r = r.With(live.Subscribing(staff.Name))
+	// A request that asks a call for a dry run (X-Dry-Run) or for its warning
+	// (X-Warning) asks that the call be held back, and a frame that never reads the
+	// header would run it for real. So every route registered on r from here on, and
+	// on the bounded group drawn from it, refuses such a request naming the header,
+	// and nothing runs. The routes whose frames answer the two headers
+	// themselves (a method's, an upload's, SetFeature's) register on asked, the router
+	// before the refusal.
+	asked := r
+	r = r.With(resource.NoDryRunOrWarning())
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 	bounded.Get("/api/permission-digest", h.PermissionDigest())
 	bounded.Get("/api/user-domains", h.UserDomains())
@@ -187,27 +196,27 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/api/live/unsubscribe", h.LiveUnsubscribe())
 	r.Get("/api/live/token", h.LiveToken())
 
-	r.Post("/api/add-staff-group-member", h.AddStaffGroupMember())
+	asked.Post("/api/add-staff-group-member", h.AddStaffGroupMember())
 
-	r.Post("/api/assign-staff-role", h.AssignStaffRole())
+	asked.Post("/api/assign-staff-role", h.AssignStaffRole())
 
-	r.Post("/api/create-staff-group", h.CreateStaffGroup())
+	asked.Post("/api/create-staff-group", h.CreateStaffGroup())
 
-	r.Post("/api/create-staff-user", h.CreateStaffUser())
+	asked.Post("/api/create-staff-user", h.CreateStaffUser())
 
-	r.Post("/api/delete-staff-group", h.DeleteStaffGroup())
+	asked.Post("/api/delete-staff-group", h.DeleteStaffGroup())
 
-	r.Post("/api/delete-staff-user", h.DeleteStaffUser())
+	asked.Post("/api/delete-staff-user", h.DeleteStaffUser())
 
-	r.Post("/api/describe-staff-group", h.DescribeStaffGroup())
+	asked.Post("/api/describe-staff-group", h.DescribeStaffGroup())
 
-	r.Post("/api/disable-staff-user", h.DisableStaffUser())
+	asked.Post("/api/disable-staff-user", h.DisableStaffUser())
 
-	r.Post("/api/enable-staff-user", h.EnableStaffUser())
+	asked.Post("/api/enable-staff-user", h.EnableStaffUser())
 
-	r.Post("/api/end-staff-session", h.EndStaffSession())
+	asked.Post("/api/end-staff-session", h.EndStaffSession())
 
-	r.Post("/api/end-staff-user-sessions", h.EndStaffUserSessions())
+	asked.Post("/api/end-staff-user-sessions", h.EndStaffUserSessions())
 
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/api/feature-flags", featureFlagsHandler)
@@ -219,35 +228,35 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/api/features", h.Features())
 
-	r.Post("/api/give-staff-group-role", h.GiveStaffGroupRole())
+	asked.Post("/api/give-staff-group-role", h.GiveStaffGroupRole())
 
-	r.Post("/api/invite-staff-user", h.InviteStaffUser())
+	asked.Post("/api/invite-staff-user", h.InviteStaffUser())
 
-	r.Post("/api/make-staff-invite-only", h.MakeStaffInviteOnly())
+	asked.Post("/api/make-staff-invite-only", h.MakeStaffInviteOnly())
 
-	r.Post("/api/open-staff-sign-up", h.OpenStaffSignUp())
+	asked.Post("/api/open-staff-sign-up", h.OpenStaffSignUp())
 
-	r.Post("/api/remove-staff-group-member", h.RemoveStaffGroupMember())
+	asked.Post("/api/remove-staff-group-member", h.RemoveStaffGroupMember())
 
-	r.Post("/api/remove-staff-password", h.RemoveStaffPassword())
+	asked.Post("/api/remove-staff-password", h.RemoveStaffPassword())
 
-	r.Post("/api/remove-staff-role", h.RemoveStaffRole())
+	asked.Post("/api/remove-staff-role", h.RemoveStaffRole())
 
-	r.Post("/api/rename-staff-user", h.RenameStaffUser())
+	asked.Post("/api/rename-staff-user", h.RenameStaffUser())
 
-	r.Post("/api/require-staff-password-change", h.RequireStaffPasswordChange())
+	asked.Post("/api/require-staff-password-change", h.RequireStaffPasswordChange())
 
-	r.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
+	asked.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
 
-	r.Post("/api/revoke-staff-user-trusted-devices", h.RevokeStaffUserTrustedDevices())
+	asked.Post("/api/revoke-staff-user-trusted-devices", h.RevokeStaffUserTrustedDevices())
 
-	bounded.Post("/api/set-feature", h.SetFeature())
+	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
 
-	r.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
+	asked.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
 
-	r.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
+	asked.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
 
-	r.Post("/api/set-staff-user-name", h.SetStaffUserName())
+	asked.Post("/api/set-staff-user-name", h.SetStaffUserName())
 
 	staffGroupsHandler := h.StaffGroups()
 	bounded.Get("/api/staff-groups", staffGroupsHandler)
@@ -361,13 +370,13 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-user-roles", staffUserRolesHandler)
 	bounded.Post("/api/staff-user-roles", staffUserRolesHandler)
 
-	r.Post("/api/take-staff-group-role", h.TakeStaffGroupRole())
+	asked.Post("/api/take-staff-group-role", h.TakeStaffGroupRole())
 
-	r.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
+	asked.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
 
-	r.Post("/api/unlock-staff-sign-in", h.UnlockStaffSignIn())
+	asked.Post("/api/unlock-staff-sign-in", h.UnlockStaffSignIn())
 
-	r.Post("/api/withdraw-staff-invitation", h.WithdrawStaffInvitation())
+	asked.Post("/api/withdraw-staff-invitation", h.WithdrawStaffInvitation())
 }
 
 // NewTestRouter serves the generated API routes bare, for test composition only: no

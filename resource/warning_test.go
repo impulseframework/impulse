@@ -129,3 +129,74 @@ func TestWarningAsked(t *testing.T) {
 		t.Error("WarningAsked() = true for no error or another error, want false")
 	}
 }
+
+// TestNoDryRunOrWarning pins the refusal of a route whose frame reads neither header: a
+// request that asks such a call for a dry run or for its warning is refused, naming the
+// header and saying the call has none, and the handler behind it never runs, so nothing
+// runs for real under a header that asked it be held back. A header that says anything
+// but true is refused as a frame that reads it refuses it, and a request with neither
+// header reaches the handler.
+func TestNoDryRunOrWarning(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		headers map[string]string
+		// wantRefused is what the refusal says, empty where the handler runs.
+		wantRefused string
+	}{
+		{name: "neither header: the call runs"},
+		{name: "another header: the call runs", headers: map[string]string{"X-Subscribe": "tab-1"}},
+		{
+			name: "a dry run asked of a call that has none", headers: map[string]string{DryRunHeader: "true"},
+			wantRefused: "the X-Dry-Run header asks for a dry run, and this call has none, so the call was not run: send it without the header",
+		},
+		{
+			name: "in any case", headers: map[string]string{DryRunHeader: "True"},
+			wantRefused: "the X-Dry-Run header asks for a dry run, and this call has none, so the call was not run: send it without the header",
+		},
+		{
+			name: "a warning asked of a call that has none", headers: map[string]string{WarningHeader: "true"},
+			wantRefused: "the X-Warning header asks for the call's warning, and this call has none, so the call was not run: send it without the header",
+		},
+		{
+			name: "a dry-run header that says 1", headers: map[string]string{DryRunHeader: "1"},
+			wantRefused: `the X-Dry-Run header takes the value true, or is left off the request: "1" is not a value it takes, so the call was not run`,
+		},
+		{
+			name: "a warning header that says false", headers: map[string]string{WarningHeader: "false"},
+			wantRefused: `the X-Warning header takes the value true, or is left off the request: "false" is not a value it takes, so the call was not run`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ran := false
+			handler := NoDryRunOrWarning()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				ran = true
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/resources", http.NoBody)
+			for header, value := range tt.headers {
+				r.Header.Set(header, value)
+			}
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, r)
+
+			if tt.wantRefused == "" {
+				if !ran || rr.Code != http.StatusNoContent {
+					t.Errorf("the handler ran = %v with status %d, want it run and answering", ran, rr.Code)
+				}
+
+				return
+			}
+			if ran {
+				t.Error("the handler ran under a header that asked the call be held back")
+			}
+			if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), strings.ReplaceAll(tt.wantRefused, `"`, `\"`)) {
+				t.Errorf("status %d %s, want 400 saying %q", rr.Code, rr.Body.String(), tt.wantRefused)
+			}
+		})
+	}
+}

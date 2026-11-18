@@ -24,8 +24,11 @@ import (
 type fakeGrants struct {
 	noGive []accesstypes.Role
 	noTake []accesstypes.Role
-	err    error
-	asked  []string
+	// noneGives are the roles no method that gives a role by hand takes from the caller
+	// (CouldGive), whoever the role is for.
+	noneGives []accesstypes.Role
+	err       error
+	asked     []string
 	// askedOutside are the questions about giving a role asked outside a transaction.
 	askedOutside []string
 }
@@ -45,6 +48,12 @@ func (g *fakeGrants) MayTake(_ context.Context, _ resource.ReadWriteTransaction,
 	g.asked = append(g.asked, "take "+membershipText(&key))
 
 	return !slices.Contains(g.noTake, role), g.err
+}
+
+func (g *fakeGrants) CouldGive(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	g.asked = append(g.asked, "could give "+scope.String()+" "+string(role))
+
+	return !slices.Contains(g.noneGives, role), g.err
 }
 
 // wardenRoles are the roles the fake engine holds for the tests of a group's changes:

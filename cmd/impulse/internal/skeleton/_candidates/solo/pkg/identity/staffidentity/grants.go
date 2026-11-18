@@ -22,7 +22,9 @@ var _ identity.RoleGrants = grants{}
 // since none of it gives a power that giving the role directly would not: a person put
 // in a group is given the group's roles, and a sign-in method opened to sign-up gives
 // its default role to every person who signs up. Each is judged by the grant of the
-// method that gives a role.
+// method that gives a role. The list a tenant's role is picked from asks which roles
+// the caller could give at all (CouldGive), so a page offers no role every method
+// would refuse.
 //
 // The answer is the one the method's own frame would reach for the same caller, asked
 // of the request's own check (resource.Caller.ExecuteGate): the method's Execute grant
@@ -41,6 +43,14 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 	}
 
 	return settled(gate, "AssignStaffRole")
+}
+
+// CouldGive reports whether the caller could give the role in the scope by hand, to
+// somebody: the question of the list a role is picked from, asked before anybody is
+// named, with no row to read and so no transaction. The method that gives a role names no row, and its
+// grant answers (MayGive, of nobody).
+func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	return g.MayGive(ctx, nil, scope, impulse.NilUUID, role)
 }
 
 // MayTake reports whether the caller may take the role the person holds in the scope

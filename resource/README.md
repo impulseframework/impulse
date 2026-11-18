@@ -797,6 +797,27 @@ naming the header, the value it takes and what was sent, and does not run the ca
 `false`, an empty value, and the header sent twice. A client that sends `X-Dry-Run: 1`
 to rehearse a write is told so, and writes nothing.
 
+Either header asks that the call be held back, so a call that has no dry run and no
+warning refuses a request that carries one: 400, naming the header and saying the call
+has none, and the call is not run. Only a method has either (an `@rpc` struct's, an
+upload's, a tenant's own that the generator writes, and `SetFeature`), and its frame
+answers both headers itself. Every other route the generated router mounts (a list, a
+read, a collection's patch, the consolidated patch with its creates, patches and
+deletes, the creation of a tenant, a scheduled call, the live routes, and the session
+library's own: the sign-in, a person's account routes, the device flow) is mounted
+behind one middleware, `resource.NoDryRunOrWarning`, which refuses either header with
+the value `true` and any other value as the frames do. The router knows which routes
+read the headers, so the refusal is said once there and no frame repeats it. The
+generated router test (`TestGeneratedDryRunAndWarning`) sends both headers to every
+route in its table, the resources' routes and the ones beside them, and holds each to
+one side or the other; that a frame registered ahead of the refusal reads both headers
+is pinned on the generator's templates, and for `SetFeature` on its handler's test. The
+browser client sends the two headers only from a method's handle (`dryRun`, `warning`),
+to the method's own route. What stands outside the refusal serves no call: the files
+of a browser application and of the programs a release ships, and the redirect at the
+root. A route an application mounts beside the generated ones is its own, and takes
+the middleware by naming it.
+
 The warning is no permission check and no second gate on the route: a script that
 holds the grant calls the method without asking. It is what stands between a person
 and a click, which is why the generator makes it the method's own and no page's: every
@@ -2408,10 +2429,11 @@ delegated to from the generated `zz_gen_features.go` in the handler package, and
 struct or a manual registration that would take the name `FeatureFlags` is refused.
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
-one transaction, honors `X-Dry-Run`, signals the other instances through the live
-service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
-logged), reloads this instance's copy, and answers the flag as written. An `@rpc`
-struct named `SetFeature` is refused.
+one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
+signals the other instances through the live service (`Signal(ctx,
+resource.KindFeatures)`, bounded by two seconds, a failure logged), reloads this
+instance's copy, and answers the flag as written. An `@rpc` struct named `SetFeature`
+is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and
 Read on `FeatureFlags` with its four non-key fields, in the global scope:
@@ -3388,22 +3410,49 @@ them. It is a computed resource (`@computed`, section 2), declared beside the me
 the role file's roles are held by the permission engine and only a custom role is a row
 of a table, so its list function asks the engine (`identity.Manager.TenantRoles`) and no
 query selects it. It serves a list and no read, under the domain pair, and the role file
-grants it like any resource. The role's name is declared for conditions (`@attribute(name)`
-on the field), so a grant says which of the tenant's roles its holder is listed:
+grants it like any resource.
+
+The role field of each method a person gives a role with in a tenant names the list
+(`@enumerate`): `AssignCrewSectorRole`, the create and the invitation that start a person
+with a role (`CreateCrewSectorUser`, `InviteCrewSectorUser`), and
+`GiveCrewSectorGroupRole`. A page draws the field as a picker, and a page offers what
+the caller may do, so the list holds the roles the caller could give and no other. A
+role file says which roles a person hands out once, on the methods' Execute grants,
+where a condition reads the role:
+
+```json
+"Execute": [{ "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" }]
+```
+
+For each role of the tenant the list asks the grant of every one of those methods, with
+the role and nobody named (`identity.Manager.RolesToGive`, which asks the generated
+`CouldGive` of `identity.RoleGrants`), and leaves out a role every one of them refuses
+the caller: Lodestar's Sector Marshal is offered every role of the sector but the
+Marshal's own. A grant whose condition also reads the row the method names (the person,
+the group) could admit the role for some of them, so the role is offered and the method
+decides. One list serves all four pickers, so it holds a role that one method takes
+and another refuses, which the method then says; a role file that gives the methods the
+same limit, as Lodestar's does, has a picker that offers exactly what each takes. A
+request that names a role the list left out is refused by the method's own grant, as
+before.
+
+The list's own List grant may carry a condition too, which narrows it further. The
+role's name is declared for conditions (`@attribute(name)` on the field), and the library
+judges the condition over each role the list answers (a computed resource's rows,
+section 2); a request for the names alone and the list's count are trimmed the same way.
+Lodestar keeps one, which says nothing its methods' grants do not, to show a condition
+judged over a computed resource's rows:
 
 ```json
 "List": [{ "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" }]
 ```
 
-The `role` field of `AssignCrewSectorRole` names the list (`@enumerate`), so a page draws
-the field as a picker over the roles the caller's grant admits: Lodestar's Sector Marshal
-is offered every role of the sector but the Marshal's own. The library judges the
-condition over each role the engine answers (a computed resource's rows, section 2); a
-request for the names alone and the list's count are trimmed the same way. The picker is
-what a person is offered, and the method's own Execute grant is what holds them to it
-(`new.role != 'SectorMarshal'`): a request that names a role the list left out is refused
-there. The two grants say the same limit once each, as a table's List and Update grants
-do. An Auth whose directory writes the roles gives none by hand and has no such list.
+An Auth whose directory writes the roles gives none by hand and has no such list. The
+roles of the whole application are given by a field a person types, with no list to
+pick from, and the two other lists a role is picked from are limited the same way: the
+default role of a method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is
+opened to its directory's people with (`CrewSectorDirectoryRoles`) each hold the roles
+the caller may give by the method that gives one (`MayGive`).
 
 **A tenant's methods.** Beside the lists the generated management writes the methods a
 tenant changes its people through. Each is a method of the tenant's scope

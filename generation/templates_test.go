@@ -422,6 +422,27 @@ func Test_routerTestTemplate_selfContained(t *testing.T) {
 			wantNotContains: []string{"DomainGuard", "PatchResources", "mock_router"},
 		},
 		{
+			name: "the test holds every route to the refusal of a dry run and a warning, but the ones whose frames answer the headers",
+			data: routerFileData{
+				ServesSessions: true,
+				Package:        "router",
+				RoutesMap:      map[string][]*generatedRoute{},
+				RouterTestRoutes: []*generatedRoute{
+					{Method: "POST", TestURL: "/api/retire-widget", HandlerFunc: "RetireWidget", SelfBounded: true, ReadsDryRunAndWarning: true},
+					{Method: "POST", TestURL: "/api/set-feature", HandlerFunc: "SetFeature", ReadsDryRunAndWarning: true},
+					{Method: "GET", TestURL: "/api/widgets", HandlerFunc: "Widgets"},
+				},
+			},
+			wantContains: []string{
+				"func TestGeneratedDryRunAndWarning(t *testing.T) {",
+				"for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {",
+				"if got, want := rec.handlers[tt.handlerFunc] == 1, tt.readsDryRunAndWarning; got != want {",
+				"handlerFunc: \"RetireWidget\", selfBounded: true, readsDryRunAndWarning: true,",
+				"handlerFunc: \"SetFeature\", readsDryRunAndWarning: true,",
+				"handlerFunc: \"Widgets\",\n",
+			},
+		},
+		{
 			name: "under the application's own router the test names each session outlet's auth after the outlet",
 			data: routerFileData{
 				ServesSessions: true,
@@ -715,6 +736,73 @@ func Test_routesTemplate_outlets(t *testing.T) {
 				"LiveUnsubscribe() http.HandlerFunc",
 				"LiveToken() http.HandlerFunc",
 			},
+		},
+		{
+			name: "a route whose frame answers a dry run and a warning itself registers before the refusal, and every other route after it",
+			data: routerFileData{
+				ServesSessions: true,
+				Package:        "router",
+				RoutePrefix:    "api",
+				AuthName:       "crew.Name",
+				HasAskedRoutes: true,
+				RoutesMap: map[string][]*generatedRoute{
+					"RetireWidget": {{Method: "POST", Path: "/api/retire-widget", HandlerFunc: "RetireWidget", SelfBounded: true, ReadsDryRunAndWarning: true}},
+					"SetFeature":   {{Method: "POST", Path: "/api/set-feature", HandlerFunc: "SetFeature", ReadsDryRunAndWarning: true}},
+					"Widget":       {{Method: "GET", Path: "/api/widgets", HandlerFunc: "Widgets", HandlerType: ListHandler}},
+				},
+				HasConsolidatedHandler: true,
+				ConsolidatedRoute:      "resources",
+				ScheduledRoutes:        []*scheduledRoute{{Path: "/_scheduled/sweep-widgets", HandlerFunc: "SweepWidgets"}},
+				ExtraOutlets: []*outletRouteData{{
+					Name:           "machines",
+					Suffix:         "Machines",
+					Prefix:         "machines",
+					HasAskedRoutes: true,
+					RoutesMap: map[string][]*generatedRoute{
+						"CountWidgets": {{Method: "POST", Path: "/machines/count-widgets", HandlerFunc: "CountWidgets", SelfBounded: true, ReadsDryRunAndWarning: true}},
+						"Widget":       {{Method: "GET", Path: "/machines/widgets", HandlerFunc: "Widgets", HandlerType: ListHandler}},
+					},
+				}},
+			},
+			wantContains: []string{
+				// The refusal follows the subscribe middleware, and the router before it is
+				// kept for the frames that answer the two headers themselves.
+				"r = r.With(live.Subscribing(crew.Name))\n\t// A request that asks a call for a dry run (X-Dry-Run) or for its warning",
+				"register on asked, the router\n\t// before the refusal.\n\tasked := r\n\tr = r.With(resource.NoDryRunOrWarning())\n",
+				// A method's route and SetFeature's are left off the refusal, the second
+				// under the body limit it does not set for itself.
+				`asked.Post("/api/retire-widget", h.RetireWidget())`,
+				`asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())`,
+				// Every other route is under it: the resource routes and the batch on the
+				// bounded group, the live routes on r, and a scheduled call.
+				"bounded := r.With(resource.BodyLimit(BodyLimit))",
+				`bounded.Get("/api/widgets", widgetsHandler)`,
+				`bounded.Patch("/api/resources", h.PatchResources())`,
+				`r.Post("/api/live/renew", h.LiveRenew())`,
+				"r = r.With(live.Refusing(), resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())",
+				// An outlet of machine clients is held to it as well.
+				"r = r.With(live.Refusing())\n\t// A request that asks a call for a dry run",
+				`asked.Post("/machines/count-widgets", h.CountWidgets())`,
+				`bounded.Get("/machines/widgets", widgetsHandler)`,
+			},
+			wantNotContains: []string{`r.Post("/api/retire-widget"`, `bounded.Post("/api/set-feature"`, `r.Post("/machines/count-widgets"`},
+		},
+		{
+			name: "an outlet none of whose frames answers the two headers keeps no router before the refusal",
+			data: routerFileData{
+				ServesSessions: true,
+				Package:        "router",
+				RoutePrefix:    "api",
+				AuthName:       "crew.Name",
+				RoutesMap: map[string][]*generatedRoute{
+					"Widget": {{Method: "GET", Path: "/api/widgets", HandlerFunc: "Widgets", HandlerType: ListHandler}},
+				},
+			},
+			wantContains: []string{
+				"and nothing runs.\n\tr = r.With(resource.NoDryRunOrWarning())\n",
+				`bounded.Get("/api/widgets", widgetsHandler)`,
+			},
+			wantNotContains: []string{"asked"},
 		},
 		{
 			name: "no extra outlets renders the single-outlet file",

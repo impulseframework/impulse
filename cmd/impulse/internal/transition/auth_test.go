@@ -1269,7 +1269,7 @@ func Test_footholdLink(t *testing.T) {
 		{
 			name: "two directory methods, where the tenants have directories",
 			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodAzure, "directory"), application(app.MethodGoogle, "workspace")}, TenantPolicy: tenanted},
-			want: "name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method",
+			want: "name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method and seed the administrator with a password, which impulse check holds the application to (first-administrator)",
 		},
 		{
 			name: "an organization's identity provider in an application with no tenant record",

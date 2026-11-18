@@ -463,6 +463,12 @@ type generatedRoute struct {
 	// declared maximum): the generated route registration leaves it off the bounded
 	// group, since a limit outside the handler's own could only tighten it.
 	SelfBounded bool
+	// ReadsDryRunAndWarning marks a route whose frame answers a request that asks for a
+	// dry run (X-Dry-Run) or for a warning (X-Warning) itself: a method's, an upload's,
+	// SetFeature's. The generated route registration mounts every other route under the
+	// refusal of the two headers (resource.NoDryRunOrWarning), since a frame that never
+	// reads a header would run for real the call the request asked be held back.
+	ReadsDryRunAndWarning bool
 	// RequestLog is the route's own request log word (@rpc(log:), @file(log:)), which
 	// the registration sets with logger.WithPolicy ahead of the handler, and Traces its
 	// own trace setting (@rpc(trace:), @file(trace:)), which the served router's surface
@@ -476,6 +482,25 @@ type generatedRoute struct {
 // setting of its own.
 func (g *generatedRoute) DeclaresWords() bool {
 	return g.RequestLog.Declared() || g.Traces.Declared()
+}
+
+// Registrar is the router of the generated route function the route registers on. The
+// function's r refuses a request that asks for a dry run or a warning, and bounded,
+// drawn from it, holds the resource routes and the other JSON routes at BodyLimit
+// besides: a route registers on bounded, or on r where it bounds its own body. A route
+// whose frame answers the two headers itself registers on asked, the router before the
+// refusal, under the body limit where it does not bound its own.
+func (g *generatedRoute) Registrar() string {
+	switch {
+	case g.ReadsDryRunAndWarning && g.SelfBounded:
+		return "asked"
+	case g.ReadsDryRunAndWarning:
+		return "asked.With(resource.BodyLimit(BodyLimit))"
+	case g.SelfBounded:
+		return "r"
+	default:
+		return "bounded"
+	}
 }
 
 // SharedHandler reports whether the route's handler is additionally registered

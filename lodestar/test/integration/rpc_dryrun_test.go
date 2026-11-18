@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -131,6 +132,74 @@ func TestHeadersTakeTrueOrAreAbsent(t *testing.T) {
 			t.Errorf("the mission has %d documents after the refused uploads, want none", len(rows))
 		}
 	})
+}
+
+// TestHeadersAskNothingOfACallThatHasNeither sends the dry-run header and the warning
+// header, each with the value true, to calls that have no dry run and no warning: a
+// create, a patch and a delete through the consolidated patch, a collection's own
+// patch, a list and a read. Either header asks that the call be held back, and a frame
+// that never reads it would run the call for real, so the router refuses the request
+// ahead of the frame, 400 naming the header and saying the call has none, and nothing
+// is written. Each request is one its caller may make: without the header every one of
+// them runs.
+func TestHeadersAskNothingOfACallThatHasNeither(t *testing.T) {
+	t.Parallel()
+
+	_, _, h := demoWorld(t)
+	const batch = consoleAPI + "/resources"
+	expenses := sectorPath(anvil, "sortie-expenses?limit=100")
+	client := consoleAPI + "/clients/" + clientMeridianID
+	expensesBefore := readRows(t, h, "quartermaster", expenses)
+	_, clientBefore := doRequestAs(t, h, "governor", http.MethodGet, client, "")
+
+	asks := map[string]string{
+		resource.DryRunHeader:  "a dry run, and this call has none",
+		resource.WarningHeader: "the call's warning, and this call has none",
+	}
+	tests := []struct {
+		name   string
+		user   accesstypes.User
+		method string
+		target string
+		body   string
+	}{
+		{
+			name: "a create through the consolidated patch", user: "quartermaster", method: http.MethodPatch, target: batch,
+			body: fmt.Sprintf(`[{"op":"add","path":%q,"value":{"sortieId":%q,"category":"fuel","amount":250,"memo":"top-up"}}]`, opPath(anvil, "sortie-expenses"), sortieConvoyID),
+		},
+		{
+			name: "a patch through the consolidated patch", user: "quartermaster", method: http.MethodPatch, target: batch,
+			body: fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"amount":275}}]`, opPath(anvil, "sortie-expenses/"+expenseConvoyFuelID)),
+		},
+		{
+			name: "a delete through the consolidated patch", user: "quartermaster", method: http.MethodPatch, target: batch,
+			body: fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "sortie-expenses/"+expenseConvoyMedID)),
+		},
+		{
+			name: "a collection's own patch", user: "governor", method: http.MethodPatch, target: consoleAPI + "/clients",
+			body: fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"insured":true}}]`, clientMeridianID),
+		},
+		{name: "a list", user: "quartermaster", method: http.MethodGet, target: expenses},
+		{name: "a read", user: "quartermaster", method: http.MethodGet, target: sectorPath(anvil, "sortie-expenses/"+expenseConvoyFuelID)},
+	}
+	// Deliberately not parallel subtests: the rows are compared once every request has
+	// been refused.
+	for _, tt := range tests {
+		for header, asked := range asks {
+			rr := doRequestRecordedWithHeaders(t, h, tt.user, tt.method, tt.target, tt.body, map[string]string{header: "true"})
+			want := fmt.Sprintf("the %s header asks for %s, so the call was not run: send it without the header", header, asked)
+			if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), want) {
+				t.Errorf("%s under %s: answered %d %s, want 400 saying %q", tt.name, header, rr.Code, rr.Body, want)
+			}
+		}
+	}
+
+	if after := readRows(t, h, "quartermaster", expenses); !reflect.DeepEqual(after, expensesBefore) {
+		t.Errorf("the sector's expenses after the refused calls = %v, want them as seeded: %v", after, expensesBefore)
+	}
+	if _, after := doRequestAs(t, h, "governor", http.MethodGet, client, ""); string(after) != string(clientBefore) {
+		t.Errorf("the client after the refused calls = %s, want it as seeded: %s", after, clientBefore)
+	}
 }
 
 // doHeaderAs posts the body as the user with one header set to the value.

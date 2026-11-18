@@ -591,7 +591,7 @@ func footholdLink(spec *authpkg.Spec) string {
 		return fmt.Sprintf("seeded for the %s registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration", method.Name)
 	case spec.DirectoryAdmission():
 		return "seeded for no registration and linked to by no sign-in while the application's tenants have directories (a name alone links no account that has never signed in): " +
-			"name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method"
+			"name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method and seed the administrator with a password, which impulse check holds the application to (first-administrator)"
 	default:
 		return "which the person's first sign-in links to"
 	}

@@ -137,6 +137,8 @@ func (r *resourceGenerator) tenantOwnRoutes(prefix string, methods []tenantOwnMe
 	for _, method := range methods {
 		route := r.tenantOwnRoute(prefix, http.MethodPost, method.Name, method.Route())
 		route.SelfBounded = true
+		// Each is a method, and its frame reads both headers as a method's does.
+		route.ReadsDryRunAndWarning = true
 		routes = append(routes, route)
 	}
 

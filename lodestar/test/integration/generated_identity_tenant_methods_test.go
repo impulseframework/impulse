@@ -27,6 +27,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -36,6 +37,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -875,4 +877,112 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 			t.Errorf("ada holds %v, want Anvil's Wrench among them", held)
 		}
 	})
+}
+
+// TestGeneratedIdentitySectorRolesFollowTheMethods pins that the list a sector's role is
+// picked from offers the roles the caller could give, by the grants of the methods that
+// give one and by nothing the list's own grant says. The world runs over the crew's
+// role file with the condition taken off the Marshal's List grant on the list, so
+// nothing but the methods' grants keeps the Marshal's own role out (each of the four
+// carries new.role != 'SectorMarshal'): the list leaves it out still, the list of names
+// alone and the count with it, holds every other role of the sector, and the method
+// refuses the role the list left out. A page offers what the caller may do, and the
+// role file says the limit once.
+func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	// The grants this suite proves: what each method that picks from the list says of
+	// the role, pinned to the roles file (conditions-proven).
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "AssignCrewSectorRole", "new.role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "CreateCrewSectorUser", "new.role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "InviteCrewSectorUser", "new.role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "GiveCrewSectorGroupRole", "new.role != 'SectorMarshal'")
+	w := buildIdentityWorldOver(t, false, withoutCondition(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles"))
+
+	const rolesPath = "crew-sector-roles"
+	all, err := w.engine.UserManager().Roles(ctx, accesstypes.DomainPolicyScope(anvil))
+	if err != nil {
+		t.Fatalf("UserManager.Roles() error = %v", err)
+	}
+	var want []string
+	for _, role := range all {
+		if role.Name != "SectorMarshal" {
+			want = append(want, string(role.Name))
+		}
+	}
+	slices.Sort(want)
+	if len(want) == 0 || len(want) == len(all) {
+		t.Fatalf("Anvil's roles are %v, want SectorMarshal and others among them", all)
+	}
+
+	for _, user := range []accesstypes.User{"marshal", "governor"} {
+		rec := doRequestRecordedAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all&count=true"), "")
+		assertStatus(t, rec.Code, http.StatusOK, rec.Body.Bytes())
+		var listed []string
+		for _, row := range decodeRows(t, rec.Body.Bytes()) {
+			name, _ := row["name"].(string)
+			listed = append(listed, name)
+		}
+		if !slices.Equal(listed, want) {
+			t.Errorf("%s is listed %v, want every role of the sector but SectorMarshal, which no method takes from them: %v", user, listed, want)
+		}
+		if got, want := rec.Header().Get(resource.TotalCountHeader), strconv.Itoa(len(want)); got != want {
+			t.Errorf("%s: Total-Count = %q, want %s: the roles the caller could give", user, got, want)
+		}
+
+		status, body := doRequestAs(t, w.h, user, http.MethodGet, sectorPath(anvil, rolesPath+"?columns=name&limit=all"), "")
+		assertStatus(t, status, http.StatusOK, body)
+		for _, row := range decodeRows(t, body) {
+			if row["name"] == "SectorMarshal" {
+				t.Errorf("%s: the list of names alone holds SectorMarshal: %s", user, body)
+			}
+		}
+	}
+
+	// The cadet holds no grant on the list, which the methods' grants do not change.
+	status, body := doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all"), "")
+	assertStatus(t, status, http.StatusForbidden, body)
+}
+
+// withoutCondition is the role file with the condition taken off the grant the role
+// holds on the resource, for a suite that proves what holds without it. It fails where
+// the role holds no such grant under a condition, so it never hands back the file
+// unchanged.
+func withoutCondition(t *testing.T, roles access.RoleFile, role, permission, res string) access.RoleFile {
+	t.Helper()
+
+	var file map[string]map[string][]map[string]any
+	if err := json.Unmarshal(roles, &file); err != nil {
+		t.Fatalf("reading the role file: %v", err)
+	}
+	taken := false
+	for _, set := range file["roles"] {
+		for _, entry := range set {
+			if entry["name"] != role {
+				continue
+			}
+			permissions, _ := entry["permissions"].(map[string]any)
+			grants, _ := permissions[permission].([]any)
+			for _, g := range grants {
+				grant, ok := g.(map[string]any)
+				if !ok || grant["resource"] != res {
+					continue
+				}
+				if _, conditional := grant["condition"]; conditional {
+					delete(grant, "condition")
+					taken = true
+				}
+			}
+		}
+	}
+	if !taken {
+		t.Fatalf("the %s role holds no %s grant on %s under a condition to take off", role, permission, res)
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("writing the role file: %v", err)
+	}
+
+	return raw
 }

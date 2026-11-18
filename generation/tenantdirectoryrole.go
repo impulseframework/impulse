@@ -103,8 +103,10 @@ func (s *directoryRoleServing) methods() []tenantOwnMethod {
 // declares no directories record or the record carries no default seat column; no
 // session outlet serves the directories record; the outlets that do are not all of one
 // Auth; the program does not generate that auth's management; a directory writes the
-// auth's roles, so nobody gives one by hand; or the auth's client is handed no answers
-// of the role file's grants (judgesRoleChanges), so the role could not be judged.
+// auth's roles, so nobody gives one by hand; the auth's management does not judge the
+// role, by its own reading of the directories record (seatsDirectory); or the auth's
+// client is handed no answers of the role file's grants (judgesRoleChanges), so the
+// role could not be judged.
 func (r *resourceGenerator) directoryRole() *directoryRoleServing {
 	record := r.tenantRecord()
 	if record == nil || !record.HasDeclaration() || record.declaration.Directories.DirectoryDefaultSeatField == nil {
@@ -130,7 +132,11 @@ func (r *resourceGenerator) directoryRole() *directoryRoleServing {
 		if inst.importPath != auth.importPath {
 			continue
 		}
-		if !inst.picksRoles() || !inst.hasList(listPeopleSuffix) || !inst.judgesRoleChanges() {
+		// The instance's own reading says whether its management judges the role
+		// (seatsDirectory): its client is handed the role file's answers wherever a
+		// tenant gives roles by hand, for the list a role is picked from, so that
+		// alone does not say it.
+		if !inst.seatsDirectory() || !inst.hasList(listPeopleSuffix) || !inst.judgesRoleChanges() {
 			return nil
 		}
 

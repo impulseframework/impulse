@@ -102,20 +102,78 @@ func (m *Manager) DirectoryRoles(ctx context.Context, db resource.Executor, tena
 	var offered []access.RoleInfo
 	if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		// The database may run the function again, so each run starts its own list.
-		offered = make([]access.RoleInfo, 0, len(roles))
-		for _, role := range roles {
-			may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role.Name)
+		var err error
+		offered, err = rolesOffered(roles, func(role accesstypes.Role) (bool, error) {
+			may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role)
 			if err != nil {
-				return errors.Wrap(err, "identity.RoleGrants.MayGive()")
+				return false, errors.Wrap(err, "identity.RoleGrants.MayGive()")
 			}
-			if may {
-				offered = append(offered, role)
-			}
-		}
 
-		return nil
+			return may, nil
+		})
+
+		return err
 	}); err != nil {
 		return nil, errors.Wrap(err, "resource.Executor.ExecuteFunc()")
+	}
+
+	return offered, nil
+}
+
+// RolesToGive lists the roles a person picks from to give one in a tenant by hand, as
+// the dialogs of the methods that give a role offer them: the roles that exist in the
+// tenant (TenantRoles) that the request's caller could give there by one of those
+// methods (RoleGrants.CouldGive), and no other. A page offers what the caller may do: a
+// role the list leaves out is one every such method refuses this caller, whoever it is
+// given to, so a role file says which roles a person hands out once, on the methods'
+// grants, and the list follows. One list serves the pickers of all of them, so it holds
+// a role that one of them takes and another refuses, which the method then says. A call
+// outside any request is the application's own and lists every role of the tenant; a
+// manager a request reaches without the role grants cannot judge it, which is an error
+// and never a list.
+//
+// It is a list's read, called outside any transaction, and opens none: the question
+// reads no row (DirectoryRoles asks for nobody in particular, which may).
+func (m *Manager) RolesToGive(ctx context.Context, tenant accesstypes.Domain) ([]access.RoleInfo, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	roles, err := m.TenantRoles(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	judged, err := m.judged(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !judged {
+		return roles, nil
+	}
+	scope := accesstypes.DomainPolicyScope(tenant)
+
+	return rolesOffered(roles, func(role accesstypes.Role) (bool, error) {
+		could, err := m.grants.CouldGive(ctx, scope, role)
+		if err != nil {
+			return false, errors.Wrap(err, "identity.RoleGrants.CouldGive()")
+		}
+
+		return could, nil
+	})
+}
+
+// rolesOffered are the roles of a tenant a list offers the caller: each role may
+// answers yes for, in the order they came. The lists a role is picked from share it
+// (DirectoryRoles, RolesToGive), each with its own question of the role file's grants.
+func rolesOffered(roles []access.RoleInfo, may func(accesstypes.Role) (bool, error)) ([]access.RoleInfo, error) {
+	offered := make([]access.RoleInfo, 0, len(roles))
+	for _, role := range roles {
+		yes, err := may(role.Name)
+		if err != nil {
+			return nil, err
+		}
+		if yes {
+			offered = append(offered, role)
+		}
 	}
 
 	return offered, nil

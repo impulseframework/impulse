@@ -794,7 +794,8 @@ of one Microsoft Entra tenant or one Google Workspace; for any other auth (sever
 directory methods, a method open to more than one organization, an organization's
 identity provider) it names none and says so, and the first sign-in links nothing until
 its author names the deployment's own directory in the foothold, or gives the auth a
-password method.
+password method and seeds the administrator with a password; impulse check fails until
+one of the two is done (first-administrator).
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),
