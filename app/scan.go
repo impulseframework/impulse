@@ -48,6 +48,22 @@ func passedOverByGo(name string, isDir bool) bool {
 	return strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") || (isDir && name == testdataDir)
 }
 
+// GoToolReads reports whether a file of this name is a Go file the Go tool reads: its
+// name ends in ".go" and does not begin with "_" or "." (go help packages). It is the one
+// place the scan, the checks and impulse brand decide a Go file by its name, so that a
+// scratch file kept beside a package's real ones (_scratch.go, .draft.go), which no build
+// compiles, is read by none of them. It is asked by the scan of every file it walks
+// (scanFile, scanPackageDir) and of a generator program's directory (generate.go); by
+// each check that reads one directory's Go files for itself (the check package); and by
+// impulse brand of the file it writes an auth's mail name into and of the files it looks
+// for a main in (the brand package). The commands that change an application (impulse
+// add, impulse remove) and the reading of an application's shape list Go files by
+// themselves still. A test file and a generated file are Go files the Go tool reads; a
+// reader that leaves them out says so itself.
+func GoToolReads(name string) bool {
+	return strings.HasSuffix(name, ".go") && !passedOverByGo(name, false)
+}
+
 // skipsDir reports whether a walk of the application leaves a directory of this name
 // alone: one that holds dependencies or build output, and one the Go tool passes over. The
 // application's root is the caller's to exempt, whatever it is called.
@@ -148,7 +164,7 @@ func (a *App) scanFile(abs, name string) error {
 		}
 		a.EmulatorImages = append(a.EmulatorImages, findRefs(rel, data, emulatorImageRE)...)
 		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreImageRE)...)
-	case strings.HasSuffix(name, ".go") && (passedOverByGo(name, false) || a.inNestedModule(rel)):
+	case strings.HasSuffix(name, ".go") && (!GoToolReads(name) || a.inNestedModule(rel)):
 		// A Go file no build of the application reads, test file or not: one the Go tool
 		// passes over by its name, and one in a module of its own under the root.
 	case strings.HasSuffix(name, "_test.go"):
@@ -270,7 +286,7 @@ func (a *App) scanPackageDir(dir string) error {
 		return errors.Wrap(err, "os.ReadDir()")
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+		if entry.IsDir() || !GoToolReads(entry.Name()) {
 			continue
 		}
 		if err := a.scanFile(filepath.Join(a.Abs(dir), entry.Name()), entry.Name()); err != nil {

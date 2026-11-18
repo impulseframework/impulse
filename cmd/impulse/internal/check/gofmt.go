@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/app"
 )
 
 // gofmtCheck verifies that every Go file the application's author owns is gofmt-formatted,
@@ -80,8 +82,10 @@ func (c gofmtCheck) Run(_ context.Context, env *Env) Result {
 }
 
 // ownedGoFiles lists the Go files the author owns, root-relative with forward slashes:
-// every .go file under the root but the generated ones, outside the skipped directories
-// and the ones Go ignores.
+// every Go file under the root that the Go tool reads (app.GoToolReads) but the generated
+// ones, outside the skipped directories and the ones Go ignores. A scratch file whose
+// name begins with "_" or "." is no build's, so it is neither held to gofmt nor rewritten
+// by --fix.
 func (gofmtCheck) ownedGoFiles(root string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
@@ -96,7 +100,7 @@ func (gofmtCheck) ownedGoFiles(root string) ([]string, error) {
 
 			return nil
 		}
-		if !strings.HasSuffix(name, ".go") || strings.HasPrefix(name, "zz_gen_") {
+		if !app.GoToolReads(name) || strings.HasPrefix(name, "zz_gen_") {
 			return nil
 		}
 		rel, err := filepath.Rel(root, p)

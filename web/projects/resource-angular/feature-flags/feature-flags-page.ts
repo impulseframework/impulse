@@ -101,7 +101,7 @@ export const featureFlagsConfig: RootConfig = rootConfig({
       // A check or a dash: the column is as narrow as its heading, and the words get the room.
       { ...column('enabled', 'On'), width: onColumnWidth },
       // The server answers when a flag was last flipped, and nothing for a flag nobody has.
-      // It works the two out of the flag's history, and orders by neither: no sort is offered.
+      // It works the two out of the flag's history and refuses a sort on either: none is offered.
       {
         ...column('updatedAt', 'Last changed'),
         formatType: dayAndMinuteFormat,

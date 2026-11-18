@@ -150,7 +150,7 @@ func liveWiringOf(a *app.App, handlersDir string) (wiring liveWiring, pos string
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
+		if e.IsDir() || !app.GoToolReads(name) || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
 			continue
 		}
 		rel := path.Join(handlersDir, name)
@@ -328,7 +328,7 @@ func calledFunctions(a *app.App, dir string) (map[string]bool, error) {
 	called := map[string]bool{}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
+		if e.IsDir() || !app.GoToolReads(name) || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
 			continue
 		}
 		rel := path.Join(dir, name)

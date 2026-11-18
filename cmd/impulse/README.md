@@ -529,8 +529,10 @@ impulse check --list
 The scan the checks are built on reads the Go files the application's builds compile, as
 `go build ./...` and `go test ./...` find them. A directory `./...` matches nothing under
 is not read: one whose name begins with `_` or `.`, and one named `testdata`. Nor is a Go
-file whose own name begins with `_` or `.`, nor any Go file of a directory under the root
-that holds a `go.mod` of its own, which is another module (the skeleton's `web/` is one).
+file whose own name begins with `_` or `.` (`_scratch.go` beside a package's real files),
+by the scan or by a check that reads a package's directory for itself, nor any Go file of
+a directory under the root that holds a `go.mod` of its own, which is another module (the
+skeleton's `web/` is one).
 So a scratch program kept beside the application (`tmp/_sqlrun/main.go`), a test's
 fixture and a tool's own directory fail no check. Two things are the application's all
 the same. A Go file placed directly in a directory the Go tool reads, `tmp/` among them,
@@ -542,10 +544,7 @@ constraint leaves out (a `//go:build` line, a `_windows.go` name) is read, since
 build compiles it, and a directory named `vendor` or `dist` is left alone as dependencies
 and build output. The uses of a feature flag's constant are found in the same Go files,
 and in every source file of a browser application whatever its directory is called, since
-the Go tool's rule about names is no rule of the browser's build. The rule is the scan's:
-a check that reads one package's directory for itself (an auth package's for its role
-file and its policy calls, a handlers directory's for the live service, the formatting
-check's walk) still takes every `.go` file it finds there.
+the Go tool's rule about names is no rule of the browser's build.
 
 | Check | Verifies |
 | --- | --- |
@@ -840,7 +839,7 @@ From each declaration `brand` writes:
 | `src/app/app.config.ts` | The name the frame draws (`provideFrame({ name })`) and the name of the brand's palette in the list the picker offers (`provideTheme`). |
 | `src/_theme-colors.scss`, `src/theme.scss` | The theme's first palette. Angular Material's own generator, the `theme-color` schematic of the version the workspace has installed, generates the palette from the primary color (`ng generate @angular/material:theme-color --primary-color=<color> --directory=<source root>/ --is-scss --include-high-contrast=false --interactive=false --force`, run through the workspace's own `ng`, every answer a flag and no prompt asked), so the palette is the one that version's components are drawn for and the brand's exact color is its source. The theme sheet takes it as its first palette, `'brand'`, in the place of the skeleton's, and the other palettes stay. Once the sheet carries the brand's palette it is left alone: a change of color changes the generated file only. |
 | `pkg/brand` | What the server says: each brand's name as a constant (`ConsoleName`) and its logo embedded (`console.png`, 192 pixels), behind an accessor (`brand.Console()`), named for the Angular project. A main hands them to the maintenance page by mount path, `maintenance.Serve(ctx, maintenance.Brands{"/": brand.Console()})`, and the page shows the name and the logo of the application a request is for. The source is composed whole on every run, and the logo's copy is written when the logo changed. |
-| `pkg/auth/<name>` | The name the mail an auth sends says, its `Application` constant, from the brand of the browser application the auth's people sign in to: the one receiving the client of the first browser outlet that declares the auth. |
+| `pkg/auth/<name>` | The name the mail an auth sends says, its `Application` constant, from the brand of the browser application the auth's people sign in to: the one receiving the client of the first browser outlet that declares the auth. It is written into the package's file that declares the constant, among the Go files the Go tool reads: never into a scratch copy kept beside it (`_scratch.go`, `.draft.go`), and a call in such a file hands the maintenance page no brand either. |
 
 The server's part is written rather than read, because the server cannot embed the
 declaration where it sits: a browser application lies under the web workspace's own

@@ -758,7 +758,10 @@ func FeatureFlagsQueryKeys() (order, keys []accesstypes.Tag) {
 var featureFlagsOrder = Paging{Order: []SortField{{Field: flagNameColumn, Direction: SortAscending}}}
 
 // FeatureFlagsHandler serves the flags as a list, to a List grant on FeatureFlags: the
-// Feature flags page reads it. The generated router registers it at
+// Feature flags page reads it. A request that asks for a sort on when a flag was last
+// flipped or by whom (updatedAt, updatedBy) is refused, Bad Request, since the list
+// works the two out of the flag's history and is ordered by neither
+// (refuseSortByLastFlip). The generated router registers it at
 // GET <prefix>/feature-flags on every session-serving outlet.
 func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.HandlerFunc {
 	decoder := MustNewQueryDecoder[FeatureFlag, featureFlagRequest](collection, accesstypes.List).
@@ -771,6 +774,9 @@ func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.Han
 
 		querySet, err := decoder.Decode(r, a.UserPermissions(r), accesstypes.GlobalScope())
 		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if err := refuseSortByLastFlip(querySet.Order()); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -842,6 +848,32 @@ func FeatureFlagHandler(a FeatureApp, collection *GeneratedCollection) http.Hand
 
 		return httpio.NewEncoder(w).Ok(featureFlagMap(querySet.Fields(), row, flips))
 	})
+}
+
+// refuseSortByLastFlip refuses a list ordered by when a flag was last flipped or by whom.
+// The list serves the two from the flag's newest change record (lastFlips), and the
+// statement that orders the list reads the flags' own table, whose columns of those
+// names the deploy step writes too: an order by either would be an order by something
+// the answer does not show. It is refused as a bad request that says what the list can
+// be sorted on.
+func refuseSortByLastFlip(order []SortField) error {
+	for _, by := range order {
+		var name string
+		switch by.Field {
+		case flagUpdatedAtColumn:
+			name = "updatedAt"
+		case flagUpdatedByColumn:
+			name = "updatedBy"
+		default:
+			continue
+		}
+
+		return httpio.NewBadRequestMessagef(
+			"the flags cannot be sorted on %s: when a flag was last turned on or off, and by whom (updatedAt and updatedBy), are worked out from the flag's history, which the list is not ordered by; sort on name, description or enabled",
+			name)
+	}
+
+	return nil
 }
 
 // lastFlip is the newest change record of one flag: when it was last flipped, and the

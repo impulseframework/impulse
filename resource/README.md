@@ -2508,9 +2508,11 @@ recorded (`resource.EventActor`; the session and the account's id stay in the ta
 evidence), a process's source as it was recorded where a process flipped it, and the
 empty string for a flag nobody has flipped. `EventActor` reads the words of a sentence
 in which nothing is escaped, so the name is for showing to a reader and for no decision.
-A sort the request asks on `updatedAt` or `updatedBy` orders the rows by the row's own
-columns, the last write of any kind, which is why the Feature flags page offers none on
-them.
+A list request that asks for a sort on `updatedAt` or `updatedBy` is refused with 400,
+in a sentence that says the two are worked out from the flag's history and what the list
+can be sorted on (`name`, `description`, `enabled`): the statement that orders the list
+reads the row's own columns, the last write of any kind, so the order would be by
+something the answer does not show. The Feature flags page offers no sort on them.
 
 **A flag's history.** `GET <prefix>/feature-flags/{featureFlagName}/changes`
 (`resource.FeatureFlagChangesHandler`) reads the flag's change records back newest

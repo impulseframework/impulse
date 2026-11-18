@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/app"
 )
 
 // maintenanceSwitch verifies that every site's main checks maintenance.Requested() before
@@ -102,7 +104,7 @@ func mainFunctions(dir string) (*mainCalls, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go") {
+		if !e.IsDir() && app.GoToolReads(e.Name()) && !strings.HasSuffix(e.Name(), "_test.go") {
 			names = append(names, e.Name())
 		}
 	}
