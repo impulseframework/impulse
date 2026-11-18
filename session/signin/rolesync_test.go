@@ -138,23 +138,38 @@ func TestRoleReconciler_reconcile(t *testing.T) {
 			wantHasRole: true,
 		},
 		{
-			name: "the directory makes nobody a super administrator: the name is ignored",
+			// The role store names the Super Administrator role in the global partition
+			// and nowhere else, so it resolves there alone and is written there alone:
+			// the every-tenant place, where the store would refuse it, is never asked to
+			// hold it.
+			name: "the directory makes a super administrator: the name, in the directory's case, is given in the global partition alone",
 			manager: &fakeRoleManager{
-				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}},
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}, every: {"viewer"}},
 			},
 			roleNames:   []string{"superadministrator", "admin"},
-			wantWrites:  []roleWrite{{call: "AddUserRoles", scope: global, roles: []accesstypes.Role{"admin"}}},
+			wantWrites:  []roleWrite{{call: "AddUserRoles", scope: global, roles: []accesstypes.Role{accesstypes.SuperAdministrator, "admin"}}},
 			wantHasRole: true,
 		},
 		{
-			name: "the directory names the Super Administrator role alone: nothing is given and no role results",
+			name: "the directory names the Super Administrator role alone: it is given, and the person holds a role",
 			manager: &fakeRoleManager{
-				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {accesstypes.SuperAdministrator}},
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {accesstypes.SuperAdministrator}, every: {"viewer"}},
 			},
-			roleNames: []string{"SuperAdministrator"},
+			roleNames:   []string{"SuperAdministrator"},
+			wantWrites:  []roleWrite{{call: "AddUserRoles", scope: global, roles: []accesstypes.Role{accesstypes.SuperAdministrator}}},
+			wantHasRole: true,
 		},
 		{
-			name: "a super administrator keeps the role through a login whose directory does not name it",
+			name: "a super administrator the directory still names keeps the role, and nothing is written",
+			manager: &fakeRoleManager{
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}},
+				held:  accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}},
+			},
+			roleNames:   []string{"SuperAdministrator"},
+			wantHasRole: true,
+		},
+		{
+			name: "the directory stops naming the Super Administrator role: it is taken at the login like any other, whoever else holds it",
 			manager: &fakeRoleManager{
 				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}},
 				held:  accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator, "stale"}},
@@ -162,9 +177,18 @@ func TestRoleReconciler_reconcile(t *testing.T) {
 			roleNames: []string{"admin"},
 			wantWrites: []roleWrite{
 				{call: "AddUserRoles", scope: global, roles: []accesstypes.Role{"admin"}},
-				{call: "DeleteUserRoles", scope: global, roles: []accesstypes.Role{"stale"}},
+				{call: "DeleteUserRoles", scope: global, roles: []accesstypes.Role{accesstypes.SuperAdministrator, "stale"}},
 			},
 			wantHasRole: true,
+		},
+		{
+			name: "the directory names nothing the store knows for a super administrator: the role goes with the rest, and no role results",
+			manager: &fakeRoleManager{
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}},
+				held:  accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}},
+			},
+			roleNames:  []string{"nobody"},
+			wantWrites: []roleWrite{{call: "DeleteUserRoles", scope: global, roles: []accesstypes.Role{accesstypes.SuperAdministrator}}},
 		},
 		{
 			name: "a membership already held is left alone",
@@ -288,6 +312,45 @@ func TestRoleReconciler_reconcile(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantWrites, tt.manager.writes, cmp.AllowUnexported(roleWrite{}), cmpopts.EquateComparable(accesstypes.PolicyScope{})); diff != "" {
 				t.Errorf("RoleReconciler.reconcile() writes mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestRoleReconciler_RecognizesAny pins what a method asks before anything is written:
+// whether the directory's names admit the person anywhere. A name the role store knows
+// in a place the sync writes does, the Super Administrator role among them, which a
+// directory that writes the roles gives like any other, so a person it names for that
+// role alone is admitted; a name the store knows nowhere does not.
+func TestRoleReconciler_RecognizesAny(t *testing.T) {
+	t.Parallel()
+
+	global, every := accesstypes.GlobalPolicyScope(), accesstypes.EveryDomainPolicyScope()
+	roles := map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}, every: {"viewer"}}
+	for _, tt := range []struct {
+		name      string
+		roleNames []string
+		want      bool
+	}{
+		{name: "a global role", roleNames: []string{"admin"}, want: true},
+		{name: "a role of every tenant", roleNames: []string{"Viewer"}, want: true},
+		{name: "the Super Administrator role alone", roleNames: []string{"SuperAdministrator"}, want: true},
+		{name: "names the store knows nowhere", roleNames: []string{"nobody", "nothing"}},
+		{name: "no names"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			manager := &fakeRoleManager{roles: roles}
+			got, err := (&RoleReconciler{manager: manager}).RecognizesAny(t.Context(), tt.roleNames)
+			if err != nil {
+				t.Fatalf("RecognizesAny() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("RecognizesAny(%v) = %v, want %v", tt.roleNames, got, tt.want)
+			}
+			if len(manager.writes) != 0 {
+				t.Errorf("RecognizesAny() wrote %v, want nothing written", manager.writes)
 			}
 		})
 	}

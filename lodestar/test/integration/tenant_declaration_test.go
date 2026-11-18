@@ -205,17 +205,8 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, superAdministrator)); status != http.StatusNoContent {
 		t.Fatalf("making the navigator a super administrator: status %d: %s", status, body)
 	}
-	// Giving the role ends the sessions the person holds, so the navigator signs in
-	// again, as a super administrator, through the fleet's Workspace as before.
-	if status, body := navigator.do(ctx, http.MethodGet, consoleAPI+"/user-domains", nil); status != http.StatusUnauthorized {
-		t.Fatalf("the navigator's session from before the role: status %d, want 401: %s", status, body)
-	}
-	if status, body := navigator.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
-		t.Fatalf("GET session before the navigator's login as a super administrator: status %d: %s", status, body)
-	}
-	if status, location := navigator.loginConsoleGoogle(ctx, navigatorUser); status != http.StatusFound || location != consolePage {
-		t.Fatalf("the navigator's Google login as a super administrator: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
-	}
+	// Giving the role ends nothing: the session the navigator holds, through the fleet's
+	// Workspace, is a super administrator's from then on.
 	if got, want := navigator.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
 		t.Fatalf("the navigator's chart as a super administrator = %v, want %v", got, want)
 	}

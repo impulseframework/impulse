@@ -56,7 +56,8 @@ const (
 	// emailCodeLength is the digits of a code: six, a million codes, guessed at most
 	// emailCodeAttempts times before the code dies.
 	emailCodeLength = 6
-	// emailCodeAttempts is how many wrong codes kill the code sent.
+	// emailCodeAttempts is how many guesses the code sent is given: the wrong code that
+	// takes the last one kills it, and a guess past them is not judged.
 	emailCodeAttempts = 5
 	// trustedTokenSize is the trusted device token's size in bytes.
 	trustedTokenSize = 32
@@ -118,7 +119,11 @@ func (a *Auth[S, U, Tx]) emailCodeState(ctx context.Context, p *pendingState) (*
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
 	}
 	answer := &emailCodeAnswer{}
-	if code != nil {
+	// A code whose attempts are spent does not stand, though its row is live until the
+	// guess that took the last one consumes it: no guess is judged against it any more
+	// (verifyEmailCode), so the page asks for a new one, as it does where that guess's
+	// request ended before it consumed the code.
+	if code != nil && code.Attempts < emailCodeAttempts {
 		answer.CodeSent, answer.CodeExpiresAt, answer.CodeEmail = true, &code.ExpiresAt, maskAddress(code.Email)
 
 		return answer, nil
@@ -305,6 +310,13 @@ func errCodeExpired() error {
 // code counts, and the code that took its last attempt is consumed. A code entered
 // while none stands, because none was sent or the one sent expired or died, is
 // refused as expired. It returns the address the code went to.
+//
+// A guess takes its attempt before it is judged: the store counts it on the code's row
+// in one statement and answers which attempt it was, and a guess past the limit is not
+// compared with the code at all, nor does it touch the code. Guesses made at once are
+// each counted, so no more than the limit are ever judged, however many arrive
+// together; the right code spends an attempt like any other, on a code it then
+// consumes, and of several right guesses within the limit one is accepted.
 func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, code string) (string, error) {
 	standing, err := a.storage.FactorCode(ctx, p.ID)
 	if err != nil {
@@ -314,16 +326,22 @@ func (a *Auth[S, U, Tx]) verifyEmailCode(ctx context.Context, p *pendingState, c
 
 		return "", errors.Wrap(err, "sessionstorage.AuthStore.FactorCode()")
 	}
+	attempts, err := a.storage.RecordFactorCodeAttempt(ctx, standing.ID)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return "", errCodeExpired()
+		}
+
+		return "", errors.Wrap(err, "sessionstorage.AuthStore.RecordFactorCodeAttempt()")
+	}
+	if attempts > emailCodeAttempts {
+		// Past the limit: the guess is not judged and touches nothing. The guess that
+		// took the last attempt consumes the code, right or wrong, and a consume from
+		// here would race the right code of a guess within the limit.
+		return "", errCodeExpired()
+	}
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
 	if subtle.ConstantTimeCompare(standing.CodeHash, hashEmailCode(p.ID, code)) != 1 {
-		attempts, err := a.storage.RecordFactorCodeAttempt(ctx, standing.ID)
-		if err != nil {
-			if httpio.HasNotFound(err) {
-				return "", errCodeExpired()
-			}
-
-			return "", errors.Wrap(err, "sessionstorage.AuthStore.RecordFactorCodeAttempt()")
-		}
 		if attempts >= emailCodeAttempts {
 			if err := a.storage.ConsumeFactorCode(ctx, standing.ID); err != nil && !httpio.HasNotFound(err) {
 				return "", errors.Wrap(err, "sessionstorage.AuthStore.ConsumeFactorCode()")

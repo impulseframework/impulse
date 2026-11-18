@@ -42,6 +42,11 @@ type mailLinks struct {
 	// keyed by the address in lower case; none hold any until a test says so (holds).
 	accounts map[string]*sessionstorage.SessionUser
 	once     sync.Once
+	// beforeRevoke, when set, is called with a revoke's context before the table is
+	// touched: where a test holds guesses made at once. revokes counts the revokes
+	// the store was asked for, whatever it answered.
+	beforeRevoke func(ctx context.Context)
+	revokes      int
 }
 
 // holds makes the store report user as the account holding email.
@@ -109,9 +114,13 @@ func expectMailLinks(f *authFixture) *mailLinks {
 
 		return httpio.NewNotFoundMessage("no live mail link")
 	}).AnyTimes()
-	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id impulse.UUID) error {
+	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, id impulse.UUID) error {
+		if links.beforeRevoke != nil {
+			links.beforeRevoke(ctx)
+		}
 		links.mu.Lock()
 		defer links.mu.Unlock()
+		links.revokes++
 		for _, l := range links.rows {
 			if l.ID == id && l.ConsumedAt == nil {
 				now := time.Now()

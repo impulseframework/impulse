@@ -9,8 +9,9 @@ import (
 // FactorCode is a row of the factor codes table: one code the library mailed for a
 // pending sign-in's second factor. The mail carries the code and the row keeps its
 // hash, salted by the pending sign-in it belongs to. It is live while it is not
-// consumed and not expired; Attempts counts the wrong codes entered against it, and
-// the Auth consumes it at the limit, so a code is guessed at most that many times. A
+// consumed and not expired; Attempts counts the guesses made at it, each counted
+// before it is judged, and the Auth consumes it at the limit and judges no guess past
+// it, so a code is guessed at most that many times, however the guesses arrive. A
 // new code for the same pending sign-in consumes the earlier one. CreatedAt and
 // ConsumedAt are the database's time; ExpiresAt is the library's deadline, written as
 // given.

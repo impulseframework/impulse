@@ -7,8 +7,11 @@ import (
 	"time"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // superClient builds a Client over a fresh fake store with the grammar fixture's role
@@ -149,6 +152,65 @@ func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSuperAdministrator_givenAndTakenByADirectory runs the session library's role
+// synchronization over this library's user manager, as an auth whose roles its
+// directory writes does at every sign-in. The directory is the authority there, on the
+// Super Administrator role as on every role: a name it asserts for the role, in any
+// case, is written in the global partition and nowhere else, since the role resolves
+// there alone, so the sign-in does not fail on the every-tenant place, where the store
+// would refuse the role; a person named for the role alone holds a role and signs in;
+// and the role the directory stops naming is taken at the next sign-in, the last
+// holder's included, which this library does not hold back.
+func TestSuperAdministrator_givenAndTakenByADirectory(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client, _ := superClient(t)
+	manager := client.UserManager()
+	directory, err := signin.ReconcilerOf(signin.RoleSync(manager))
+	if err != nil {
+		t.Fatalf("signin.ReconcilerOf() error = %v", err)
+	}
+	held := func(what string, want accesstypes.RoleCollection) {
+		t.Helper()
+		got, err := manager.UserRoles(ctx, "dana")
+		if err != nil {
+			t.Fatalf("UserRoles() %s error = %v", what, err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("what dana holds %s (-want +got):\n%s", what, diff)
+		}
+	}
+
+	if err := directory.RequireRoles(ctx, "dana", []string{"superadministrator"}); err != nil {
+		t.Fatalf("a sign-in the directory names the Super Administrator role alone for: error = %v, want the role given and the person signed in", err)
+	}
+	held("once the directory named the role", accesstypes.RoleCollection{globalPolicy: {accesstypes.SuperAdministrator}})
+
+	if err := directory.RequireRoles(ctx, "dana", []string{"SuperAdministrator", "Steward", "Reader"}); err != nil {
+		t.Fatalf("a sign-in the directory names the role and two others for: error = %v", err)
+	}
+	held("once the directory named two more", accesstypes.RoleCollection{
+		globalPolicy: {"Steward", accesstypes.SuperAdministrator}, everyDomainPolicy: {"Reader"},
+	})
+
+	// The directory stops naming the role: it is taken, though dana is the one holder.
+	if err := directory.RequireRoles(ctx, "dana", []string{"Steward"}); err != nil {
+		t.Fatalf("a sign-in the directory no longer names the role for: error = %v", err)
+	}
+	held("once the directory stopped naming the role", accesstypes.RoleCollection{globalPolicy: {"Steward"}})
+
+	// A directory that names nothing the store knows admits nobody, a person who held
+	// the role at their last sign-in included.
+	if err := directory.RequireRoles(ctx, "dana", []string{"SuperAdministrator"}); err != nil {
+		t.Fatalf("a sign-in the directory names the role for again: error = %v", err)
+	}
+	err = directory.RequireRoles(ctx, "dana", []string{})
+	if sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedNoRoles {
+		t.Errorf("a sign-in the directory names no role for: error = %v, want the refusal of a person with no roles", err)
+	}
+	held("once the directory named nothing", accesstypes.RoleCollection{})
 }
 
 // TestSuperAdministrator_noCustomRoleTakesTheName pins that the name is no custom role's

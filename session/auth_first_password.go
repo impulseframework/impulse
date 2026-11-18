@@ -84,8 +84,8 @@ func (h *FirstPasswordHandlers) SendCode() http.HandlerFunc {
 // expired, was used or was ended, is 409. It is refused (409) for an account that holds
 // a password and on an Auth with no password method, and in an impersonated session.
 // No session of the user ends, this one among them; where the Auth records auth
-// events, this session records a password event, as the session a password change
-// continues in does. It answers {}. Route it behind ValidateSession.
+// events, this session records a password event beside the ones it had. It answers {}.
+// Route it behind ValidateSession.
 func (h *FirstPasswordHandlers) Set() http.HandlerFunc {
 	return h.set
 }
@@ -340,9 +340,9 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 	if err != nil {
 		return err
 	}
-	hash, err := a.registered().hasher.Hash(password)
+	hash, err := a.hashToSet(password)
 	if err != nil {
-		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		return err
 	}
 	if err := a.storage.SetFirstUserPassword(ctx, user.ID, hash); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordHeld) {
@@ -352,11 +352,9 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetFirstUserPassword()")
 	}
 	// The code reached the person and the password is theirs: what was counted against
-	// the mailbox, the account's codes and the name's passwords counts against nothing.
+	// the mailbox and the name's passwords counts against nothing, as the account's
+	// codes do since the code was proven.
 	a.clearMailLimit(ctx, standing.Email)
-	if err := a.storage.ClearSignInAttempts(ctx, firstPasswordKey(user.ID)); err != nil {
-		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
-	}
 	a.clearAttempts(ctx, user.Username)
 	a.recordFirstPassword(ctx, user)
 
@@ -368,7 +366,10 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 // account (firstPasswordAttempts), and the one that reaches the limit ends the code
 // that stands and is answered with too_many_attempts and the wait. A code entered while
 // none stands is errFirstPasswordCodeDead, and so is one that another request used
-// first. A code counts for the mailbox it was sent to: confirmed is the address the
+// first. A guess takes its attempt before it is judged, in the store's one transaction
+// (dbtype.SignInAttempts.Counted), so guesses made at once are each counted and no more
+// than the limit are ever compared with the code; the right code's attempt is given
+// back. A code counts for the mailbox it was sent to: confirmed is the address the
 // account holds confirmed now, and a code mailed to another, one the account held when
 // it asked and has replaced since, is ended and dead, whatever was entered.
 func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impulse.UUID, confirmed, code string) (*sessionstorage.MailLink, error) {
@@ -388,13 +389,20 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 
 		return nil, errFirstPasswordCodeDead()
 	}
+	// The guess takes its attempt before it is judged: the store counts it against the
+	// account in one transaction and says whether it was counted, and a guess that was
+	// not, because the limit was reached already, is not compared with the code.
+	record, err := a.storage.RecordSignInFailure(ctx, firstPasswordKey(userID), firstPasswordAttempts)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
+	}
+	wait, locked := record.Locked(time.Now())
+	if !record.Counted {
+		return nil, errTooManyFirstPasswordCodes(wait)
+	}
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
 	if subtle.ConstantTimeCompare(standing.TokenHash, hashFirstPasswordCode(userID, standing.ExpiresAt, code)) != 1 {
-		record, err := a.storage.RecordSignInFailure(ctx, firstPasswordKey(userID), firstPasswordAttempts)
-		if err != nil {
-			return nil, errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
-		}
-		if wait, locked := record.Locked(time.Now()); locked {
+		if locked {
 			if err := a.endFirstPasswordCodes(ctx, codes); err != nil {
 				return nil, err
 			}
@@ -411,14 +419,19 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.RevokeMailLink()")
 	}
+	// The attempt the right code took is given back with the wrong ones before it:
+	// nothing is held against an account for a code its person entered.
+	if err := a.storage.ClearSignInAttempts(ctx, firstPasswordKey(userID)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
 
 	return standing, nil
 }
 
 // recordFirstPassword records that user chose their first password in the session of
-// the request: a password event on it, the event the session a password change
-// continues in records, where the Auth records auth events. It is bookkeeping after
-// the write: a failure is logged, and the password stands.
+// the request: a password event on it, beside the events it had, where the Auth records
+// auth events. It is bookkeeping after the write: a failure is logged, and the password
+// stands.
 func (a *Auth[S, U, Tx]) recordFirstPassword(ctx context.Context, user *sessionstorage.SessionUser) {
 	logger.FromCtx(ctx).Infof("user %s chose their first password", user.ID)
 	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)

@@ -75,7 +75,10 @@ super administrator is admitted whatever a tenant declares, an administrator of 
 directory-only tenant (a holder of `TenantAdministrator` in that tenant itself, by a role
 of their own or through one of the tenant's own groups, never one held in every tenant)
 who signs in with a password is held for the code sent to their email and then enters
-that tenant, which is the tenant's way back in when its directory has a problem, a person
+that tenant, which is the tenant's way back in when its directory has a problem (who
+holds that role in a directory-only tenant, and the account of a person who does, is
+changed only by a caller whose own session the tenant admits or by a super administrator,
+so the application's own staff do not give themselves the way in), a person
 holding a role
 outside any one tenant (a global role, or one held in every tenant) is admitted and then
 enters a tenant only where its declaration admits their session, and a person holding no

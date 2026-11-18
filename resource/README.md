@@ -4232,15 +4232,18 @@ own, outside any request, has no caller and is the application's act):
   factor is mailed) and unlinking one of their sign-in identities each take a caller who
   holds the role, whatever the role file grants; a holder acts on themselves and on
   another holder as the role file allows. The caller these rules judge is the real
-  person behind the session: a person who views as a super administrator is not one. A
-  person given the role signs in again and meets the second factor afresh: giving it
-  ends every session they hold, revokes every bearer token of theirs, a device
-  authorization's among them, and forgets every browser they asked to be remembered,
-  in the same transaction, so nothing issued before the role acts with it; what the
-  giver holds stands. What an administrator set on the account before the role, a
-  password or an email address, is left as it is: nobody but a holder gives the role,
-  and the holder who gives it chooses whom to trust, the account as it stands
-  included. There is always one who can
+  person behind the session: a person who views as a super administrator is not one.
+  Giving the role ends nothing: the sessions the person holds, their bearer tokens and
+  the browsers they asked to be remembered stand, and the session they are signed in
+  with acts with the role at its next request. A person who is signed in when the role
+  is given is no risk for being signed in; what the role guards is the account, which
+  is asked for a second factor at every sign-in from then on. What an administrator
+  set on the account before the role, a password or an email address, is left as it is
+  too: nobody but a holder gives the role, and the holder who gives it chooses whom to
+  trust, the account as it stands included. These are the rules of an auth whose roles
+  the application gives. In one whose roles come from its directory the directory
+  decides who is a super administrator, the role synchronization writes and removes
+  the role at each sign-in as it does any other, and none is seeded. There is always one who can
   sign in: the role is not taken from the last holder whose account is not disabled, and
   that account is neither disabled nor deleted, whoever asks, the application's own
   transactions included. What the role does is fixed where the engine is built: the
@@ -4250,6 +4253,55 @@ own, outside any request, has no caller and is the application's act):
   them whatever the role file grants, for any person, in the global scope, in one tenant
   and in every tenant. The client refuses an engine built without them, so an
   application that left the option out does not start.
+- While a tenant is directory only, who administers it is changed from inside it, or by
+  a super administrator. Directory only is the tenant's switch to keep everyone out who
+  does not come through its directory, the application's own staff included, and the
+  administrators' way in (a password and the mailed code) is for a person given an
+  administrator's role in that tenant itself; a caller whose role file lets them hand
+  out roles everywhere would otherwise make that true of themselves. So one judgment is
+  asked before each act that could: does the tenant admit the caller's own session
+  (`resource.UserPermissions.Reaches`, the reach every request of theirs is held to: a
+  session through the tenant's directory, a super administrator's, and the session of
+  one of the tenant's own administrators signed in with a password and the code). A
+  caller it does not admit is refused (403) giving or taking one of the tenant's
+  administrator roles (`access.WithTenantAdministratorRoles`) in that tenant, to a
+  person or to a group kept in that tenant, putting a person in or taking one out of a
+  group kept there that holds such a role, and an invitation that carries such a role
+  there: "… is a role that administers a tenant, and this tenant admits only people who
+  sign in through its own directory, which your sign-in does not enter. Who holds the
+  role there is changed by one of its administrators, or by a super administrator". The
+  account of a person who holds such a role there, of their own or through a group kept
+  in that tenant, in an assignment that has not ended, is held to the same judgment,
+  since each act on it is a way to become the person or to shut them out: a temporary
+  password, a required change of password, a removed password, a new sign-in name, an
+  address set, an identity unlinked, the account disabled, enabled or deleted are
+  refused with a sentence that says the same of the account. A person who administers
+  more than one tenant is changed by a caller every one of them admits, and the refusal
+  says so: "Their account is changed by someone whose sign-in enters every tenant they
+  administer, or by a super administrator". The sentences use the application's word for
+  a tenant (`WithTenantWord`). The list of roles a caller could give (`RolesToGive`)
+  leaves such a role out for a caller who would be refused. A session that views the
+  application as one of the tenant's administrators gains nothing: an impersonated
+  session reaches a directory-only tenant only when the real person behind it is a super
+  administrator, so it is refused the same acts. What makes a person a tenant's
+  administrator is the permission engine's statement (`access.AdministersTenant`), the
+  one the way in is decided on: a role held in every tenant or in the whole application,
+  or by a group kept for the whole application, administers no one tenant and is not
+  judged, and neither is an assignment that has ended, an act in a tenant that is not
+  directory only, or one the application runs in a transaction of its own outside any
+  request. The judgment covers the acts that give the way in or take over an
+  administrator's sign-in, and no others: ending a person's sessions, forgetting their
+  remembered browsers, unlocking their sign-in, revoking a token, withdrawing an
+  invitation, changing the name a person is shown by and clearing a deleted tenant are
+  not judged. Nor does it look back or ahead: a person put in a tenant's group before
+  the group holds an administrator's role, an invitation that carried the role, sent
+  before the tenant became directory only and accepted after, and a password or an
+  address set on an account before its person was given the role all stand. The caller's
+  reach is read from the tenant roster and the engine's snapshot each instance holds, as
+  every request's is, so a change made on another instance decides once it has arrived.
+  The methods a list offers on a row are drawn from the role file's grants and do not
+  know this judgment: a page may offer one of these acts on such a person's row, and the
+  method then refuses with the sentence.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
   nothing admits is not kept.

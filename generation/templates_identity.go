@@ -1053,24 +1053,6 @@ func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction
 	return ids, nil
 }
 
-func (store) UserTokens(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
-	// The index leads with the user; whether a token is revoked is read off each row.
-	query := {{ .ResourcesPackage }}.New{{ .Token }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .Token }}Columns().ID().RevokedAt()).
-		Where({{ .ResourcesPackage }}.New{{ .Token }}QueryClause().UserID().Equal(userID))
-	var ids []impulse.UUID
-	for row, err := range query.List(ctx, txn) {
-		if err != nil {
-			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Token }}Query.List()")
-		}
-		if row.Data.RevokedAt == nil {
-			ids = append(ids, row.Data.ID)
-		}
-	}
-
-	return ids, nil
-}
-
 func (store) RevokeToken(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, reason string) error {
 	revokedAt := spanner.CommitTimestamp
 	patch := {{ .ResourcesPackage }}.New{{ .Token }}UpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)
@@ -1089,10 +1071,6 @@ func (store) Token(context.Context, resource.ReadWriteTransaction, impulse.UUID)
 }
 
 func (store) FamilyTokens(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]impulse.UUID, error) {
-	return nil, nil
-}
-
-func (store) UserTokens(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]impulse.UUID, error) {
 	return nil, nil
 }
 

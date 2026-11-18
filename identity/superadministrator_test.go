@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -729,20 +730,19 @@ func TestManager_UnlinkIdentity_lastSuperAdministrator(t *testing.T) {
 	}
 }
 
-// TestManager_AssignRole_superAdministratorSignsInAgain pins that giving the Super
-// Administrator role ends, in the transaction that gives it, what the person held before
-// it: every session, their own and the ones they established as someone else, whose
-// reach is the actor's; every bearer token of theirs that is not revoked; and every
-// browser remembered for their second factor. A super administrator signs in with a
-// second factor and their session enters every tenant, so nothing issued before the
-// role carries it and the factor is met afresh. What the giver holds stands, a person
-// who holds the role already keeps theirs, and another role ends nothing.
-func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
+// TestManager_AssignRole_superAdministratorEndsNothing pins that giving the Super
+// Administrator role ends nothing the person held before it: the sessions they hold,
+// their own and the ones they established as someone else, their bearer tokens and the
+// browsers remembered for their second factor all stand. The transaction that gives the
+// role writes the membership and nothing else, for a person who is given it, for one who
+// holds it already and for any other role alike. A person who is signed in when the
+// role is given is no risk for being signed in: the second factor is asked at their
+// next sign-in, which is the session library's rule and no write of this one.
+func TestManager_AssignRole_superAdministratorEndsNothing(t *testing.T) {
 	t.Parallel()
 
 	viewing, givers := mustUUID("66666666-6666-4666-8666-666666666666"), mustUUID("77777777-7777-4777-8777-777777777777")
-	remembered, giversToken := mustUUID("88888888-8888-4888-8888-888888888888"), mustUUID("99999999-9999-4999-8999-999999999999")
-	given := "insert membership " + membershipText(&danaSuper)
+	remembered := mustUUID("88888888-8888-4888-8888-888888888888")
 	tests := []struct {
 		name       string
 		held       []access.MembershipKey
@@ -751,26 +751,18 @@ func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
 		wantWrites []string
 	}{
 		{
-			name:  "the person's own sessions and the ones they hold as actor end, and the giver's stands",
+			name:  "the person's sessions, the ones they hold as actor, their tokens and their remembered browsers stand",
 			held:  []access.MembershipKey{erinSuper, danaSteward},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
-			wantWrites: []string{
-				given,
-				"end session " + sessionA.String(),
-				"end session " + viewing.String(),
-				"end impersonation " + viewing.String() + " " + revoked,
-				"revoke token " + tokenA.String() + " " + revokedByHand,
-				"revoke token " + tokenB.String() + " " + revokedByHand,
-				"revoke device " + remembered.String(),
-			},
+			wantWrites: []string{"insert membership " + membershipText(&danaSuper)},
 		},
 		{
-			name:  "a person who holds the role already keeps their sessions",
+			name:  "a person who holds the role already is written nothing",
 			held:  []access.MembershipKey{erinSuper, danaSuper},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
 		},
 		{
-			name:  "another role ends nothing",
+			name:  "another role ends nothing either",
 			held:  []access.MembershipKey{erinSuper},
 			scope: globalScope, role: "Steward",
 			wantWrites: []string{"insert membership " + membershipText(&danaSteward)},
@@ -783,7 +775,7 @@ func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
 			store := superStore(tt.held...)
 			store.sessions = map[impulse.UUID][]impulse.UUID{userID: {sessionA}, otherUser: {givers}}
 			store.heldBy = map[string][]impulse.UUID{"dana": {viewing}}
-			store.userTokens = map[impulse.UUID][]impulse.UUID{userID: {tokenA, tokenB}, otherUser: {giversToken}}
+			store.tokens = map[impulse.UUID]*Token{tokenA: {ExpiresAt: time.Now().Add(time.Hour)}, tokenB: {ExpiresAt: time.Now().Add(time.Hour)}}
 			store.devices = map[impulse.UUID][]impulse.UUID{userID: {remembered}, otherUser: {givers}}
 			m, _ := newManager(t, store, superRoles)
 
@@ -793,6 +785,8 @@ func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
 			if err != nil {
 				t.Fatalf("AssignRole() error = %v", err)
 			}
+			// The membership is the transaction's one write: no session is ended, no
+			// token revoked and no remembered browser forgotten.
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}

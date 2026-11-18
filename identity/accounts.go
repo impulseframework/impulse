@@ -43,6 +43,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "renames a super administrator"); err != nil {
 		return err
 	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
+		return err
+	}
 	if name == old {
 		return nil
 	}
@@ -133,6 +136,9 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 			return err
 		}
 	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
+		return err
+	}
 	held, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Memberships()")
@@ -178,6 +184,9 @@ func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWri
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sets a super administrator's password"); err != nil {
+		return err
+	}
+	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
 		return err
 	}
 	hash, err := m.sessions.HashPassword(password)

@@ -125,8 +125,8 @@ func (m *Manager) judged(ctx context.Context) (bool, error) {
 // first the caller may not give refuses the change. act says what was asked, as a
 // sentence a person reads completes ("putting a person in the group Night shift gives
 // them").
-func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWriteTransaction, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
-	return m.judgeThrough(ctx, txn, roles, users, m.grants.MayGive, func(role accesstypes.Role) error {
+func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
+	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayGive, func(role accesstypes.Role) error {
 		return httpio.NewForbiddenMessagef("%s the role %s, which you may not give them: someone who may give the role does it", act, string(role))
 	})
 }
@@ -134,17 +134,19 @@ func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWrit
 // refuseTakingThrough holds a change that takes a group's roles from people to what
 // taking each role away directly needs, as refuseGivingThrough holds one that gives
 // them.
-func (m *Manager) refuseTakingThrough(ctx context.Context, txn resource.ReadWriteTransaction, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
-	return m.judgeThrough(ctx, txn, roles, users, m.grants.MayTake, func(role accesstypes.Role) error {
+func (m *Manager) refuseTakingThrough(ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User, act string) error {
+	return m.judgeThrough(ctx, txn, kept, roles, users, m.grants.MayTake, func(role accesstypes.Role) error {
 		return httpio.NewForbiddenMessagef("%s the role %s, which you may not take from them: someone who may take the role away does it", act, string(role))
 	})
 }
 
 // judgeThrough asks may for every role and every person, and answers refused for the
 // first role the caller may not change for one of them. A person whose name is no
-// account's id is nobody the role file speaks of, and is not asked for.
+// account's id is nobody the role file speaks of, and is not asked for. kept is where
+// the group is kept, which says whether a role it holds makes its people a tenant's
+// administrators.
 func (m *Manager) judgeThrough(
-	ctx context.Context, txn resource.ReadWriteTransaction, roles []access.GroupRoleKey, users []accesstypes.User,
+	ctx context.Context, txn resource.ReadWriteTransaction, kept accesstypes.PolicyScope, roles []access.GroupRoleKey, users []accesstypes.User,
 	may func(context.Context, resource.ReadWriteTransaction, accesstypes.PolicyScope, impulse.UUID, accesstypes.Role) (bool, error),
 	refused func(accesstypes.Role) error,
 ) error {
@@ -152,6 +154,11 @@ func (m *Manager) judgeThrough(
 		scope, err := roles[i].Scope()
 		if err != nil {
 			return errors.Wrap(err, "access.GroupRoleKey.Scope()")
+		}
+		// The administrator's role of a directory-only tenant is the tenant's to hand
+		// out, whoever is in the group and though nobody is yet.
+		if err := m.requireEnteringToChange(ctx, scope, roles[i].Role, &kept); err != nil {
+			return err
 		}
 		for _, user := range users {
 			userID, ok := UserID(user)

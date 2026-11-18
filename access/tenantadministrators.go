@@ -20,9 +20,13 @@ import (
 // signin.TenantDeclaration.AdmitsAdministrator is the decision). The sign-in
 // asks it of the store (UserManager.TenantsAdministered) and every request asks
 // it of the snapshot (Client.UserAdministersTenant); both read a role through
-// administersTenant, the one statement of where a role must be held to count.
+// AdministersTenant, the one statement of where a role must be held to count.
+// The generated user management reads the same roles (TenantAdministratorRoles):
+// while a tenant is directory only, who holds one of them in it, and the account
+// of a person who does, is changed only by a caller whose own session the tenant
+// admits, so nobody the tenant keeps out makes themselves its administrator.
 
-// administersTenant reports the tenant a role makes its holder an
+// AdministersTenant reports the tenant a role makes its holder an
 // administrator of, held where scope says: by a membership of the person's own
 // (kept is nil) or by a group of people kept where kept says. A role counts
 // when it is one of administrators and is held in the tenant itself:
@@ -37,7 +41,12 @@ import (
 // kept for the whole application holds in the tenant: both are how the
 // application's own people are seated everywhere, and a tenant's sign-in
 // settings shut those people out with everyone else.
-func administersTenant(administrators []accesstypes.Role, scope accesstypes.PolicyScope, role accesstypes.Role, kept *accesstypes.PolicyScope) (accesstypes.Domain, bool) {
+//
+// It is exported for a caller that judges a change to who holds a role before
+// the engine reads it, the generated user management while a tenant is
+// directory only, so that what it guards and what the engine counts are one
+// statement.
+func AdministersTenant(administrators []accesstypes.Role, scope accesstypes.PolicyScope, role accesstypes.Role, kept *accesstypes.PolicyScope) (accesstypes.Domain, bool) {
 	domain, inDomain := scope.Domain()
 	if !inDomain || domain == "" || scope.Axis() != "" {
 		return "", false
@@ -91,7 +100,7 @@ func compileTenantAdministrators(records *policy.Records, administrators []acces
 		m := &records.Memberships[i]
 		switch m.Member.Kind {
 		case policy.SubjectUser:
-			if domain, ok := administersTenant(administrators, m.Scope, m.Role, nil); ok {
+			if domain, ok := AdministersTenant(administrators, m.Scope, m.Role, nil); ok {
 				add(domain, accesstypes.User(m.Member.Name), m.Period)
 			}
 		case policy.SubjectGroup:
@@ -100,7 +109,7 @@ func compileTenantAdministrators(records *policy.Records, administrators []acces
 			if !exists {
 				continue
 			}
-			domain, ok := administersTenant(administrators, m.Scope, m.Role, &where)
+			domain, ok := AdministersTenant(administrators, m.Scope, m.Role, &where)
 			if !ok {
 				continue
 			}
@@ -192,7 +201,7 @@ func (u *userManager) TenantsAdministered(ctx context.Context, user accesstypes.
 		return nil, err
 	}
 	for i := range memberships {
-		if domain, ok := administersTenant(u.tenantAdministrators, memberships[i].Scope, memberships[i].Role, nil); ok {
+		if domain, ok := AdministersTenant(u.tenantAdministrators, memberships[i].Scope, memberships[i].Role, nil); ok {
 			add(domain)
 		}
 	}
@@ -201,7 +210,7 @@ func (u *userManager) TenantsAdministered(ctx context.Context, user accesstypes.
 		return nil, err
 	}
 	for i := range roles {
-		if domain, ok := administersTenant(u.tenantAdministrators, roles[i].Scope, roles[i].Role, &roles[i].Group.Scope); ok {
+		if domain, ok := AdministersTenant(u.tenantAdministrators, roles[i].Scope, roles[i].Role, &roles[i].Group.Scope); ok {
 			add(domain)
 		}
 	}

@@ -747,12 +747,17 @@ defines it too.
   sign-in settings say. The one other person a tenant's sign-in settings do not keep out
   is that tenant's own administrator, in that tenant alone (see A Tenant's
   Administrators)
-- Who may hold it is the identity library's rule, not this one's: only a holder makes or
-  removes another, a holder's account disabled or enabled included, or changes how
-  another signs in, a person given the role signs in again with their tokens revoked
-  and their remembered browsers forgotten, and the last holder who can sign in keeps
-  the role and the account. A
-  directory's role synchronization neither gives the role nor takes it
+- Who may hold it is the identity library's rule, not this one's, where the application
+  gives the roles: only a holder makes or removes another, a holder's account disabled
+  or enabled included, or changes how another signs in, and the last holder who can
+  sign in keeps the role and the account. Giving the role ends nothing the person
+  holds: their sessions, tokens and remembered browsers stand
+- In an auth whose roles come from its directory, the directory decides who is a super
+  administrator: the session library's role synchronization gives the role to a person
+  the directory names for it and takes it from one it no longer names, the last
+  holder's included, as it does every role. `UserManager.ResolveRole` finds the role in
+  the global partition alone, so the synchronization writes it nowhere the store would
+  refuse it, and nobody is seeded as one
 - No group holds it (see Groups): it is given to one person at a time, so the rule on who
   makes another super administrator has no way around it
 - It takes no end and no start (see Periods): `AssignUserRole` and `ValidatePeriod`

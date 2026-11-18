@@ -19,8 +19,9 @@ import (
 // cases check, on every backend, that a failure is recorded under the one rule
 // (dbtype.SignInAttempts.Failed) at the time the caller names, with the database's
 // time on the write; that an unknown name is recorded as a known one; that a clear
-// deletes the record; that concurrent failures each count; and that a driver whose
-// table is not there says so instead of counting nothing.
+// deletes the record; that concurrent failures each count, and as many of them as the
+// limit are told they were counted (Counted) and no more; and that a driver whose table
+// is not there says so instead of counting nothing.
 
 // attemptsOpts compares records but for UpdatedAt, which the database writes and the
 // cases check apart.
@@ -47,7 +48,7 @@ func testSignInAttemptsRecorded(ctx context.Context, t *testing.T, h *AuthHarnes
 			if err != nil {
 				t.Fatalf("RecordSignInFailure() error = %v", err)
 			}
-			want := &dbtype.SignInAttempts{Name: name, Failures: 1, WindowEndsAt: now.Add(attemptLimit.Window)}
+			want := &dbtype.SignInAttempts{Name: name, Failures: 1, WindowEndsAt: now.Add(attemptLimit.Window), Counted: true}
 			if diff := cmp.Diff(want, first, attemptsOpts); diff != "" {
 				t.Errorf("RecordSignInFailure() mismatch (-want +got):\n%s", diff)
 			}
@@ -64,12 +65,16 @@ func testSignInAttemptsRecorded(ctx context.Context, t *testing.T, h *AuthHarnes
 			if err != nil {
 				t.Fatalf("SignInAttempts() error = %v", err)
 			}
-			if diff := cmp.Diff(second, read); diff != "" {
+			// A record read back is the one written, but for Counted: the answer to the
+			// call that recorded a failure, and no column.
+			wantRead := *second
+			wantRead.Counted = false
+			if diff := cmp.Diff(&wantRead, read); diff != "" {
 				t.Errorf("SignInAttempts() mismatch (-want +got):\n%s", diff)
 			}
 
-			// The failure that reaches the limit locks the name; one during the lock
-			// changes nothing but the write's time.
+			// The failure that reaches the limit locks the name and is counted itself; one
+			// during the lock is not counted, and changes nothing but the write's time.
 			at := now.Add(2 * time.Minute)
 			locked, err := in.Driver.RecordSignInFailure(ctx, name, at, attemptLimit)
 			if err != nil {
@@ -84,6 +89,7 @@ func testSignInAttemptsRecorded(ctx context.Context, t *testing.T, h *AuthHarnes
 			if err != nil {
 				t.Fatalf("RecordSignInFailure() error = %v", err)
 			}
+			want.Counted = false
 			if diff := cmp.Diff(want, during, attemptsOpts); diff != "" {
 				t.Errorf("RecordSignInFailure() during the lock mismatch (-want +got):\n%s", diff)
 			}
@@ -111,7 +117,7 @@ func testSignInAttemptsWindowAndLockPass(ctx context.Context, t *testing.T, h *A
 			before: []time.Duration{0, time.Minute},
 			at:     attemptLimit.Window + time.Second,
 			want: func(name string, at time.Time) *dbtype.SignInAttempts {
-				return &dbtype.SignInAttempts{Name: name, Failures: 1, WindowEndsAt: at.Add(attemptLimit.Window)}
+				return &dbtype.SignInAttempts{Name: name, Failures: 1, WindowEndsAt: at.Add(attemptLimit.Window), Counted: true}
 			},
 		},
 		{
@@ -119,7 +125,7 @@ func testSignInAttemptsWindowAndLockPass(ctx context.Context, t *testing.T, h *A
 			before: []time.Duration{0, time.Minute, 2 * time.Minute},
 			at:     2*time.Minute + attemptLimit.Lock + time.Second,
 			want: func(name string, at time.Time) *dbtype.SignInAttempts {
-				return &dbtype.SignInAttempts{Name: name, Failures: 1, WindowEndsAt: at.Add(attemptLimit.Window)}
+				return &dbtype.SignInAttempts{Name: name, Failures: 1, WindowEndsAt: at.Add(attemptLimit.Window), Counted: true}
 			},
 		},
 	}
@@ -202,6 +208,93 @@ func testSignInAttemptsConcurrent(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	if r, err := in.Driver.SignInAttempts(ctx, "pat@lakeside.edu"); err != nil || r.Failures != racers {
 		t.Errorf("SignInAttempts() after %d concurrent failures = %+v, %v; want each counted", racers, r, err)
+	}
+}
+
+// testSignInAttemptsCountedAtOnce records more failures of one name at once than its
+// limit and checks that the count is taken and checked in one step: every call
+// succeeds, as many as the limit are told their failure was counted and no more, and
+// the record stands at the limit, locked. A caller that judges a guess only when its
+// failure was counted (a code's attempts) so judges no more than the limit, however
+// many guesses arrive together.
+func testSignInAttemptsCountedAtOnce(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	now := time.Now()
+
+	const racers = 12
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		failed  []error
+		counted int
+	)
+	for range racers {
+		wg.Go(func() {
+			record, err := in.Driver.RecordSignInFailure(ctx, "pat@lakeside.edu", now, attemptLimit)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err != nil:
+				failed = append(failed, err)
+			case record.Counted:
+				counted++
+			}
+		})
+	}
+	wg.Wait()
+
+	if len(failed) != 0 {
+		t.Fatalf("%d concurrent RecordSignInFailure() calls: errors %v", racers, failed)
+	}
+	if counted != attemptLimit.Failures {
+		t.Errorf("%d of %d failures recorded at once were told they were counted, want %d: the limit", counted, racers, attemptLimit.Failures)
+	}
+	r, err := in.Driver.SignInAttempts(ctx, "pat@lakeside.edu")
+	if err != nil || r.Failures != int64(attemptLimit.Failures) || r.LockedUntil == nil {
+		t.Errorf("SignInAttempts() after %d failures at once = %+v, %v; want %d failures and the name locked", racers, r, err, attemptLimit.Failures)
+	}
+}
+
+// testSignInAttemptsRecordedBesideClears records failures of one name while the name is
+// cleared, over and over and at once, and checks that no call fails: a failure recorded
+// in the instant a clear deletes the name's row counts as the first after the clear. A
+// right guess at a code takes its attempt and then clears the name, so two entries of
+// the right code at once are a failure recorded beside a clear.
+func testSignInAttemptsRecordedBesideClears(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	limit := dbtype.SignInAttemptLimit{Failures: 1000000, Window: time.Hour, Lock: time.Hour}
+	now := time.Now()
+
+	const (
+		racers = 8
+		rounds = 50
+	)
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		failed []error
+	)
+	for range racers {
+		wg.Go(func() {
+			for range rounds {
+				_, err := in.Driver.RecordSignInFailure(ctx, "pat@lakeside.edu", now, limit)
+				if err == nil {
+					err = in.Driver.ClearSignInAttempts(ctx, "pat@lakeside.edu")
+				}
+				if err != nil {
+					mu.Lock()
+					failed = append(failed, err)
+					mu.Unlock()
+
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	if len(failed) != 0 {
+		t.Fatalf("failures recorded beside clears of the name, %d at once: %d failed, the first with %v", racers, len(failed), failed[0])
 	}
 }
 

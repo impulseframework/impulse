@@ -103,6 +103,11 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 				return impulse.NilUUID, err
 			}
 		}
+		if inv.Domain != nil {
+			if err := m.requireEnteringToChange(ctx, scopes[0], role, nil); err != nil {
+				return impulse.NilUUID, err
+			}
+		}
 		req.RoleNames = append(req.RoleNames, string(role))
 	}
 	// The caller is named by the id of their account. One who came through another

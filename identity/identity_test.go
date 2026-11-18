@@ -122,8 +122,6 @@ type fakeStore struct {
 	// openedFor the audience the last row written was opened for, nil for none.
 	methodRows map[string]SignInMethodRow
 	openedFor  *string
-	// userTokens are the unrevoked tokens of each user.
-	userTokens map[impulse.UUID][]impulse.UUID
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
@@ -276,15 +274,6 @@ func (f *fakeStore) FamilyTokens(_ context.Context, _ resource.ReadWriteTransact
 	}
 
 	return f.families[family], nil
-}
-
-// UserTokens lists the unrevoked tokens the fake holds for the user (userTokens).
-func (f *fakeStore) UserTokens(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
-	if err := f.fail("UserTokens"); err != nil {
-		return nil, err
-	}
-
-	return f.userTokens[userID], nil
 }
 
 func (f *fakeStore) RevokeToken(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, reason string) error {
@@ -655,6 +644,14 @@ type fakeEngine struct {
 	changed int
 	// rolesErr is the failure the engine answers a listing of a scope's roles with.
 	rolesErr error
+	// tenantAdministrators are the roles the engine answers who administers a tenant by,
+	// none unless a test names them.
+	tenantAdministrators []accesstypes.Role
+}
+
+// TenantAdministratorRoles answers the roles a test named as a tenant's administrators'.
+func (e *fakeEngine) TenantAdministratorRoles() []accesstypes.Role {
+	return e.tenantAdministrators
 }
 
 func (e *fakeEngine) UserManager() access.UserManager {

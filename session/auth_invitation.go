@@ -455,9 +455,9 @@ func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*se
 	case username == "":
 		return nil, httpio.NewBadRequestMessage("choose a username")
 	}
-	hash, err := methods.hasher.Hash(password)
+	hash, err := a.hashToSet(password)
 	if err != nil {
-		return nil, errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		return nil, err
 	}
 	insert := &sessionstorage.InsertSessionUser{Username: username, PasswordHash: hash, Email: &email, EmailVerified: true}
 	if name != "" {

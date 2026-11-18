@@ -338,7 +338,9 @@ func TestFiles_footholdRegistration(t *testing.T) {
 // are, so their sign-in carries a second factor whatever the sign-in rule asks; the engine is
 // built with the methods that give and take the auth's roles where the application
 // generates them; the first administrator is seeded holding the role; and a persona the
-// cast names a super administrator is seated in the global partition.
+// cast names a super administrator is seated in the global partition. An auth whose
+// roles the directory writes says the directory decides who is a super administrator,
+// and promises no second factor of the library's own.
 func TestFiles_superAdministrator(t *testing.T) {
 	t.Parallel()
 	const (
@@ -347,6 +349,10 @@ func TestFiles_superAdministrator(t *testing.T) {
 		seeded  = "global = append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)"
 		seated  = "case role == accesstypes.SuperAdministrator, definesRole(roles.Roles.Global, role):"
 		tenants = "identity.WithAdministratorRoles(tenantAdministrators)"
+		// What the package says of the holder's sign-in: the library's factor where
+		// the application gives the roles, the directory's word where it writes them.
+		factor    = "signs in with a second factor whatever"
+		directory = "the directory decides who is a super administrator"
 	)
 	tests := []struct {
 		name string
@@ -394,6 +400,13 @@ func TestFiles_superAdministrator(t *testing.T) {
 			auth := string(files[tt.spec.Name+".go"])
 			if !strings.Contains(auth, told) {
 				t.Errorf("%s.go does not tell the Auth who its super administrators are: it lacks %q", tt.spec.Name, told)
+			}
+			synced := !tt.wantSeeded
+			if got := strings.Count(auth, factor); (got == 0) != synced {
+				t.Errorf("%s.go promises the library's second factor for a holder %d times, want none = %v", tt.spec.Name, got, synced)
+			}
+			if got := strings.Contains(auth, directory); got != synced {
+				t.Errorf("%s.go says the directory decides who is a super administrator = %v, want %v", tt.spec.Name, got, synced)
 			}
 			if got := strings.Contains(auth, fmt.Sprintf(methods, tt.spec.Name)); got != tt.wantMethods {
 				t.Errorf("%s.go hands the engine the methods that give and take the auth's roles = %v, want %v", tt.spec.Name, got, tt.wantMethods)
