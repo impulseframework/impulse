@@ -349,7 +349,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := fresh.do(ctx, http.MethodGet, consoleAPI+"/tenants/"+north+"/announcements", nil); status != http.StatusUnauthorized {
 		t.Errorf("GET north announcements with the staff member's password and without the code: status %d, want 401: %s", status, body)
 	}
-	fresh.secondFactor(ctx, memberUser, false)
+	fresh.secondFactor(ctx, memberUser)
 	if domains := chart(ctx, t, fresh, consoleAPI); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the staff member's chart after a fresh sign-in with the password and the code = %v, want [%s]", domains, north)
 	}
