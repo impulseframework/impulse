@@ -21,6 +21,10 @@ import (
 // asks it of the store (UserManager.TenantsAdministered) and every request asks
 // it of the snapshot (Client.UserAdministersTenant); both read a role through
 // administersTenant, the one statement of where a role must be held to count.
+// The generated user management reads the same roles (TenantAdministratorRoles):
+// while a tenant is directory only, who holds one of them in it, and the account
+// of a person who does, is changed only by a caller whose own session the tenant
+// admits, so nobody the tenant keeps out makes themselves its administrator.
 
 // administersTenant reports the tenant a role makes its holder an
 // administrator of, held where scope says: by a membership of the person's own
