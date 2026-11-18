@@ -111,6 +111,20 @@ func TestFirstAdministrator(t *testing.T) {
 		auth := strings.Replace(files["pkg/auth/staff/staff.go"], `"github.com/impulseframework/impulse/session/google"`, `"github.com/impulseframework/impulse/session/azure"`, 1)
 		files["pkg/auth/staff/staff.go"] = auth + "\nfunc directorySlot() azure.TenantSet {\n\treturn " + tenants + "\n}\n"
 	}
+	// workspace is that auth with its Google registration's Workspaces slot written as
+	// impulse add auth writes it, by a function of the file, which is the form the scan
+	// reads the registration's width from; the seed names the registration.
+	workspace := func(files map[string]string, workspaces string) {
+		directoryOnly(files,
+			"workspaces := googleSlot()\n\tgoogle.SignIn(s, \"google\", nil, &google.Config{Workspaces: workspaces, RoleSync: google.DisableRoleSync()})",
+			`id := session.SeedUserIDThrough(Name, "google", req.Username)`)
+		files["pkg/auth/staff/staff.go"] += "\nfunc googleSlot() google.WorkspaceSet {\n\treturn " + workspaces + "\n}\n"
+	}
+	// seededForGoogle is the finding for a seed that names a Google registration wider
+	// than one Workspace of one domain, by what the registration admits.
+	seededForGoogle := func(width string) string {
+		return "pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the google registration (session.SeedUserIDThrough), which admits more than one organization (" + width + "), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own Workspace alone, by one domain (google.Workspace with the name and that domain), and seed for that registration, or give the auth a password method and seed the administrator with a password"
+	}
 	tests := []struct {
 		name        string
 		edit        func(files map[string]string)
@@ -118,6 +132,50 @@ func TestFirstAdministrator(t *testing.T) {
 		wantSummary string
 		wantDetails []string
 	}{
+		{
+			name: "a seed for a Google registration open to several Workspaces",
+			edit: func(files map[string]string) {
+				workspace(files, `google.Workspaces(google.Workspace("fleet", "fleet.example"), google.Workspace("yard", "yard.example"))`)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{seededForGoogle("the Workspaces it lists, or a Workspace of several domains, which the rule counts by its domains")},
+		},
+		{
+			name: "a seed for a Google registration of one Workspace of two domains, which the sign-in rule counts as two",
+			edit: func(files map[string]string) {
+				workspace(files, `google.Workspace("fleet", "fleet.example", "fleet.test")`)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{seededForGoogle("the Workspaces it lists, or a Workspace of several domains, which the rule counts by its domains")},
+		},
+		{
+			name: "a seed for a Google registration open to any Workspace",
+			edit: func(files map[string]string) {
+				workspace(files, `google.AnyWorkspace()`)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{seededForGoogle("any Google Workspace")},
+		},
+		{
+			name: "a seed for a Google registration of one Workspace beside any Google account",
+			edit: func(files map[string]string) {
+				workspace(files, `google.Workspaces(google.Workspace("fleet", "fleet.example"), google.AnyGoogleAccount())`)
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{seededForGoogle("one Workspace and any Google account")},
+		},
+		{
+			name: "a seed for a Google registration of one Workspace of one domain",
+			edit: func(files map[string]string) {
+				workspace(files, `google.Workspace("fleet", "fleet.example")`)
+			},
+			wantStatus:  Pass,
+			wantSummary: "the first administrator can sign in: staff (seeded for the google registration)",
+		},
 		{
 			name: "an auth with the password method that seeds its first administrator with a password",
 			edit: func(files map[string]string) {
