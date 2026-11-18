@@ -129,11 +129,11 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 // the droids outlet, and a browser she asked to be remembered, which signs her in on
 // her password alone. The governor gives her the role: the three sessions answer as
 // before, the token acts as before, and the remembered browser still signs her in on
-// her password alone. The role is in force on the sessions she holds, with no new
-// sign-in: her own session charts every sector, Bastion among them, which admits only
-// its directory's people and a super administrator, and the session she started as the
-// rigger enters Bastion, since the exemption follows the person behind a session. A
-// browser she never asked to be remembered is asked for the code at her next sign-in.
+// her password alone. The role is in force on a session she holds, with no new
+// sign-in: the session she started as the rigger, who is seated at Bastion, enters
+// Bastion from then on, which admits only its directory's people and a super
+// administrator, since the exemption follows the person behind a session. A browser she
+// never asked to be remembered is asked for the code at her next sign-in.
 //
 // Demonstrates: auth.super-administrator.
 func TestSuperAdministrator_givingTheRoleEndsNothing(t *testing.T) {
@@ -174,10 +174,8 @@ func TestSuperAdministrator_givingTheRoleEndsNothing(t *testing.T) {
 		"the marshal's session in the remembered browser": remembered,
 	}
 	answers("before the role", held, http.StatusOK)
-	for name, b := range map[string]*browser{"the marshal's own session": own, "the marshal's session as the rigger": viewing} {
-		if got := b.domains(ctx); slices.Contains(got, bastion) {
-			t.Fatalf("%s charts %v before the role, want Bastion outside it", name, got)
-		}
+	if got, want := viewing.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
+		t.Fatalf("the chart of the session the marshal started as the rigger, before the role = %v, want %v: Bastion closed to it", got, want)
 	}
 	// The marshal issues herself a token for the droids outlet; the answer is never
 	// printed, since it carries the secret.
@@ -201,12 +199,10 @@ func TestSuperAdministrator_givingTheRoleEndsNothing(t *testing.T) {
 	if status, body := droid(ctx, t, s, issued.Token, http.MethodGet, "/droids/features", nil); status != http.StatusOK {
 		t.Errorf("the token the marshal issued before the role, after it: status %d, want 200: %s", status, body)
 	}
-	// The sessions she held act with the role from then on.
-	if got, want := own.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
-		t.Errorf("the chart of the session the marshal held before the role = %v, want %v", got, want)
-	}
+	// A session she held acts with the role from then on: the rigger's seat at Bastion
+	// opens to the session she started as the rigger.
 	if got, want := viewing.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
-		t.Errorf("the chart of the session the marshal started as the rigger before the role = %v, want %v", got, want)
+		t.Errorf("the chart of the session the marshal started as the rigger, after the role = %v, want %v", got, want)
 	}
 	// The browser is remembered still: her password is followed by no code.
 	remembered.logout(ctx)
