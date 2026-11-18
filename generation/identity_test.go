@@ -372,6 +372,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/revoke_crew_session_token.go",
 		"crewidentity/revoke_crew_user_trusted_devices.go",
 		"crewidentity/send_crew_user_password_reset_link.go",
+		"crewidentity/set_crew_self_service_reset.go",
 		"crewidentity/set_crew_temporary_password.go",
 		"crewidentity/set_crew_user_email.go",
 		"crewidentity/set_crew_user_name.go",
@@ -488,6 +489,13 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/set_crew_user_email.go": {
 			"// @target(CrewSessionUser)", "Email  string `validate:\"required\"`", "SetCrewUserEmailResult struct {",
 			"client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {",
+		},
+		// Whether people may reset their own password is one question, written as the one
+		// field of the password method's row; an auth with no password method has no
+		// such method (the sign-up part's own test lists its files without it).
+		"crewidentity/set_crew_self_service_reset.go": {
+			"// @rpc\n// @outlet(default)\n// @answers(204)\ntype SetCrewSelfServiceReset struct {", "On bool",
+			"client.manager.SetSelfServiceReset(ctx, txn, m.On)",
 		},
 		"crewidentity/send_crew_user_password_reset_link.go": {
 			"// @target(CrewSessionUser)", "SendCrewUserPasswordResetLinkResult struct {",

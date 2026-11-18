@@ -211,6 +211,14 @@ func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
 }
 
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address ({"token"}): the login holds the address it had until then.
+// The reader of the link confirms it signed in or not, since they may have lost the
+// mailbox their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
+}
+
 // PendingStatus reports the sign-in that waits for a password confirmation or for the
 // second factor, if any; a member has no password, so only the factor's wait happens,
 // for a member whose directory the fleet does not administer.

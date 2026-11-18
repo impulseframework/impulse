@@ -184,6 +184,10 @@ type Store interface {
 	// where the method has none, replaced where it has one. The write keeps who made
 	// it and when (the table's change events).
 	SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *SignInMethodRow) error
+	// SetSelfServiceReset writes whether a person may ask for their own password reset
+	// link on the row of the sign-in method of the name, and nothing else of the row:
+	// a method with no row gets one that is invite only.
+	SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error
 
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.

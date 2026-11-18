@@ -481,6 +481,15 @@ func (f *fakeStore) SetSignInMethod(_ context.Context, _ resource.ReadWriteTrans
 	return nil
 }
 
+func (f *fakeStore) SetSelfServiceReset(_ context.Context, _ resource.ReadWriteTransaction, name string, on bool) error {
+	if err := f.fail("SetSelfServiceReset"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, fmt.Sprintf("set self-service reset of %s on=%t", name, on))
+
+	return nil
+}
+
 func (f *fakeStore) TrustedDevices(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	if err := f.fail("TrustedDevices"); err != nil {
 		return nil, err

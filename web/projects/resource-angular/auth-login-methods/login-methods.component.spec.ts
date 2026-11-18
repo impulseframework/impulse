@@ -99,6 +99,12 @@ const signUpRoutes = {
   open: '/console/api/user/sign-up/open',
   complete: '/console/api/user/sign-up/complete',
 };
+const resetRoutes = {
+  request: '/console/api/user/password-reset',
+  open: '/console/api/user/password-reset/open',
+  complete: '/console/api/user/password-reset/complete',
+};
+const emailConfirmRoute = '/console/api/user/email/confirm';
 /** The list of a server that sends mail: invitations, the address step and an open sign-up. */
 const mailingList: LoginMethods = {
   ...consoleList,
@@ -142,6 +148,10 @@ interface Server {
   signUpStart: TransportResponse;
   signUpOpen: TransportResponse;
   signUpComplete: TransportResponse;
+  resetRequest: TransportResponse;
+  resetOpen: TransportResponse;
+  resetComplete: TransportResponse;
+  emailConfirm: TransportResponse;
   authenticated: boolean;
   /** The session's operator-set password must change before anything else is served. */
   passwordChangeRequired: boolean;
@@ -166,6 +176,10 @@ function server(overrides: Partial<Server> = {}): Server {
     invitationSignUp: { status: 200, body: { mfaIsRequired: false } },
     emailVerify: { status: 200, body: { email: 'pax@fleet.example' } },
     signUpStart: { status: 200, body: {} },
+    resetRequest: { status: 200, body: {} },
+    resetOpen: { status: 200, body: { username: 'mate' } },
+    resetComplete: { status: 200, body: { username: 'mate' } },
+    emailConfirm: { status: 200, body: { email: 'mate@harbor.example' } },
     signUpOpen: { status: 200, body: { email: 'rookie@fleet.example', usernameIsEmail: false } },
     signUpComplete: { status: 200, body: { mfaIsRequired: false } },
     authenticated: true,
@@ -201,6 +215,14 @@ function transportOf(state: Server): ScriptedTransport {
         return state.emailVerify;
       case `POST ${signUpRoutes.start}`:
         return state.signUpStart;
+      case `POST ${resetRoutes.request}`:
+        return state.resetRequest;
+      case `POST ${resetRoutes.open}`:
+        return state.resetOpen;
+      case `POST ${resetRoutes.complete}`:
+        return state.resetComplete;
+      case `POST ${emailConfirmRoute}`:
+        return state.emailConfirm;
       case `POST ${signUpRoutes.open}`:
         return state.signUpOpen;
       case `POST ${signUpRoutes.complete}`:
@@ -2430,6 +2452,132 @@ describe('LoginMethodsComponent signs a person up', () => {
     expect(page.component.account()).toBeUndefined();
     expect(messageOf(page)).toBe(dead.body.message);
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent resets a password', () => {
+  /** A server whose administrator lets people reset their own password: the list names where a link is asked for. */
+  const selfService: LoginMethods = { ...mailingList, passwordReset: resetRoutes };
+  /** The same server with that turned off: a mailed link is still opened and completed, and none is asked for here. */
+  const administratorOnly: LoginMethods = {
+    ...mailingList,
+    passwordReset: { open: resetRoutes.open, complete: resetRoutes.complete },
+  };
+
+  it('offers "Forgot your password?" only while the list names where a link is asked for', async () => {
+    const off = await pageOver(server({ methods: administratorOnly }));
+    expect(off.element.querySelector('.impulse-login-forgot')).toBeNull();
+    off.component.beginReset();
+    await off.settle();
+    expect(off.component.forgetting()).toBe(false);
+
+    const none = await pageOver(server({ methods: mailingList }));
+    expect(none.element.querySelector('.impulse-login-forgot')).toBeNull();
+
+    const on = await pageOver(server({ methods: selfService }));
+    expect(on.element.querySelector('.impulse-login-forgot')?.textContent).toContain('Forgot your password?');
+  });
+
+  it('asks for a link with the address and says the same whatever the address is', async () => {
+    const page = await pageOver(server({ methods: selfService }));
+    page.component.beginReset();
+    await page.settle();
+    expect(page.element.querySelector('input[name="resetEmail"]')).not.toBeNull();
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    page.transport.requests.length = 0;
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', `POST ${resetRoutes.request}`]);
+    expect(page.transport.requests[1].body).toEqual({ email: 'mate@harbor.example' });
+    const note = page.element.querySelector('.impulse-login-reset-note')?.textContent ?? '';
+    expect(note).toContain('If mate@harbor.example is the email address of an account with a password');
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.component.resetAsked()).toBeUndefined();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  it('a mailbox sent too many reset links is refused with the sentence, the address field staying', async () => {
+    const page = await pageOver(
+      server({
+        methods: selfService,
+        resetRequest: { status: 429, body: { message: 'Too many links', code: 'too_many_emails', retryAfter: 600 } },
+      }),
+    );
+    page.component.beginReset();
+    page.component.resetEmail = 'mate@harbor.example';
+    await page.component.sendResetLink();
+    await page.settle();
+    expect(page.component.resetAsked()).toBeUndefined();
+    expect(page.element.querySelector('input[name="resetEmail"]')).not.toBeNull();
+    expect(messageOf(page)).not.toBeNull();
+    expect(page.component.mailHeld()).toBe(true);
+  });
+
+  it('a reset link opens the new password form, and completing it sends the person back to sign in', async () => {
+    const page = await pageOver(server({ methods: administratorOnly }), { reset: 'tok-reset' });
+    expect(page.transport.requests.some((r) => r.url === resetRoutes.open && (r.body as { token: string }).token === 'tok-reset')).toBe(true);
+    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain('mate');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+
+    page.component.resetPassword = 'a new password';
+    page.component.resetPasswordAgain = 'another password';
+    await page.component.completeReset();
+    await page.settle();
+    expect(page.transport.requests.some((r) => r.url === resetRoutes.complete)).toBe(false);
+    expect(messageOf(page)).not.toBeNull();
+
+    page.component.resetPasswordAgain = 'a new password';
+    await page.component.completeReset();
+    await page.settle();
+    const completed = page.transport.requests.find((r) => r.url === resetRoutes.complete);
+    expect(completed?.body).toEqual({ token: 'tok-reset', password: 'a new password' });
+    expect(page.element.querySelector('.impulse-login-reset-note')?.textContent).toContain('you are signed out everywhere');
+    expect(page.signedIn).toEqual([]);
+
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.component.username).toBe('mate');
+    expect(page.element.querySelector('input[name="password"]')).not.toBeNull();
+  });
+
+  it("a dead reset link shows the server's words and the list", async () => {
+    const page = await pageOver(server({ methods: administratorOnly, resetOpen: dead }), { reset: 'tok-dead' });
+    expect(page.component.resetting()).toBeUndefined();
+    expect(messageOf(page)).toBe(dead.body.message);
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent confirms an address an administrator set', () => {
+  const confirming: LoginMethods = { ...mailingList, email: { ...emailRoutes, confirm: emailConfirmRoute } };
+
+  it('posts nothing on arrival, confirms when the reader says so, and names the address the account now holds', async () => {
+    const page = await pageOver(server({ methods: confirming }), { address: 'tok-address' });
+    expect(page.transport.requests.some((r) => r.url === emailConfirmRoute)).toBe(false);
+    expect(page.element.querySelector('.impulse-login-address-note')?.textContent).toContain('Confirm it');
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+
+    await page.component.confirmAddress();
+    await page.settle();
+    const posted = page.transport.requests.find((r) => r.url === emailConfirmRoute);
+    expect(posted?.body).toEqual({ token: 'tok-address' });
+    expect(page.element.querySelector('.impulse-login-address-note')?.textContent).toContain(
+      'mate@harbor.example is now the email address of your account.',
+    );
+
+    page.component.leaveLink();
+    await page.settle();
+    expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  it("a dead link shows the server's words and stays on the question", async () => {
+    const page = await pageOver(server({ methods: confirming, emailConfirm: dead }), { address: 'tok-dead' });
+    await page.component.confirmAddress();
+    await page.settle();
+    expect(page.component.addressConfirmed()).toBeUndefined();
+    expect(messageOf(page)).toBe(dead.body.message);
   });
 });
 

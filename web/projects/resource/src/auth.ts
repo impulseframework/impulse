@@ -102,10 +102,28 @@ export interface StandingInvitation {
   readonly hasPassword?: boolean;
 }
 
-/** The paths of the email address handlers: `add`, where a signed-in person asks for a confirmation link, and `verify`, where the page posts the token it carried. */
+/**
+ * The paths of the email address handlers: `add`, where a signed-in person asks for a
+ * confirmation link; `verify`, where the page posts the token it carried; and `confirm`,
+ * where the reader of a new address an administrator set confirms it, signed in or not
+ * (absent on a server that does not serve it).
+ */
 export interface EmailRoutes {
   readonly add: string;
   readonly verify: string;
+  readonly confirm?: string;
+}
+
+/**
+ * The paths of the password reset handlers: `request`, where a person asks for a link
+ * with their address, present only while the application lets people reset their own
+ * password; `open`, where the page posts the token of a mailed link; `complete`, where the
+ * new password is set.
+ */
+export interface PasswordResetRoutes {
+  readonly request?: string;
+  readonly open: string;
+  readonly complete: string;
 }
 
 /** The paths of the sign-up handlers: `start`, where an address asks for its link; `open`, where the page posts the token; `complete`, where the account is created. */
@@ -192,6 +210,11 @@ export interface LoginMethods {
   readonly email?: EmailRoutes;
   /** The sign-up routes; absent on a server whose password method does not offer sign-up, or that has none. */
   readonly signUp?: SignUpRoutes;
+  /**
+   * The password reset routes; absent on a server with no password method, or that sends
+   * no mail. A page offers "Forgot your password?" only while `request` is among them.
+   */
+  readonly passwordReset?: PasswordResetRoutes;
 }
 
 /** An invitation as opening it describes it to the page. */
@@ -263,6 +286,15 @@ export type MailLinkResult = { readonly outcome: 'sent' } | SignInRefusal;
  * account's own (404), or an address another account has taken meanwhile (409).
  */
 export type EmailVerifyResult = { readonly outcome: 'verified'; readonly email: string } | SignInRefusal;
+
+/** How confirming an address an administrator set went: `confirmed` with the address the account now holds, or the refusal. */
+export type EmailConfirmResult = { readonly outcome: 'confirmed'; readonly email: string } | SignInRefusal;
+
+/** How opening a password reset link went: `opened` with the username whose password it resets, or the refusal. */
+export type PasswordResetOpenResult = { readonly outcome: 'opened'; readonly username: string } | SignInRefusal;
+
+/** How completing a password reset went: `reset` with the username to sign in under, or the refusal. */
+export type PasswordResetResult = { readonly outcome: 'reset'; readonly username: string } | SignInRefusal;
 
 /** A sign-up as opening its link describes it: the address, and whether the account's username is the address or the person chooses one. */
 export interface OpenedSignUp {
@@ -558,6 +590,7 @@ interface MethodsAnswer {
   invitation?: InvitationAnswer | null;
   email?: Partial<EmailRoutes> | null;
   signUp?: Partial<SignUpRoutes> | null;
+  passwordReset?: Partial<PasswordResetRoutes> | null;
 }
 
 /** A look as the server answers it, before it is checked. */
@@ -1213,6 +1246,86 @@ export class AuthClient {
   }
 
   /**
+   * Confirms an address an administrator set for a person, from the link mailed to the new
+   * address: reads the methods list again, then posts the token to the confirm route. It
+   * needs no session: the reader of the link may have lost the mailbox their sign-in code
+   * goes to. The result is `confirmed` with the address the account now holds, or the
+   * refusal: a link that has expired, was already used or was overtaken by a later change
+   * (404). A server whose list names no confirm route throws saying so.
+   */
+  async confirmEmail(token: string): Promise<EmailConfirmResult> {
+    const routes = await this.emailRoutes();
+    if (!routes.confirm) {
+      throw new Error('this server names no route that confirms an address an administrator set in its methods list');
+    }
+    const response = await this.options.request<(Partial<{ email: string }> & RefusalAnswer) | null>(
+      'POST',
+      routes.confirm,
+      { body: { token }, absolute: true, accept: verifyRefusals },
+    );
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return { outcome: 'confirmed', email: stringOf(response.body?.email) };
+  }
+
+  /**
+   * Asks for a password reset link for the person who holds the address: reads the methods
+   * list again, then posts the address to the request route. The answer is `sent` whether
+   * or not the address has an account, so the screen reveals nothing; an address with none
+   * is mailed nothing. The refusal is not an address (400), too many unused reset links to
+   * one mailbox (429 with `too_many_emails` and the wait), or the application not letting
+   * people reset their own password (404). A server whose list names no request route
+   * does not offer it, and the call throws saying so.
+   */
+  async requestPasswordReset(email: string): Promise<MailLinkResult> {
+    const routes = await this.passwordResetRoutes();
+    if (!routes.request) {
+      throw new Error('this server does not let people ask for their own password reset link: ask an administrator to send one');
+    }
+    return this.requestLink(routes.request, { email });
+  }
+
+  /**
+   * Opens the password reset a mailed link carried: reads the methods list again, then
+   * posts the token to the open route. The answer is the username whose password the link
+   * resets; a link that has expired, was already used, or was mailed before the password
+   * or the address changed resolves `refused` with 404.
+   */
+  async openPasswordReset(token: string): Promise<PasswordResetOpenResult> {
+    const routes = await this.passwordResetRoutes();
+    const response = await this.options.request<(Partial<{ username: string }> & RefusalAnswer) | null>(
+      'POST',
+      routes.open,
+      { body: { token }, absolute: true, accept: linkRefusals },
+    );
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return { outcome: 'opened', username: stringOf(response.body?.username) };
+  }
+
+  /**
+   * Completes a password reset: reads the methods list again, then posts the token and the
+   * new password to the complete route. The link is spent, the old password is refused
+   * from then on, and every session of the person ends, this browser's with them: the
+   * person signs in with the new password. The refusal is a password under eight
+   * characters (400, which spends nothing) or a dead link (404).
+   */
+  async completePasswordReset(token: string, password: string): Promise<PasswordResetResult> {
+    const routes = await this.passwordResetRoutes();
+    const response = await this.options.request<(Partial<{ username: string }> & RefusalAnswer) | null>(
+      'POST',
+      routes.complete,
+      { body: { token, password }, absolute: true, accept: linkRefusals },
+    );
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return { outcome: 'reset', username: stringOf(response.body?.username) };
+  }
+
+  /**
    * Starts a sign-up: reads the methods list again, then posts the address to the sign-up
    * start route, which mails it a link to finish. The answer is `sent` whatever the
    * address's state, so the screen reveals nothing: an address an account already holds is
@@ -1294,6 +1407,15 @@ export class AuthClient {
       throw new Error('this server names no email address routes in its methods list: it sends no mail');
     }
     return list.email;
+  }
+
+  /** The password reset routes of the list, read again; a list naming none throws. */
+  private async passwordResetRoutes(): Promise<PasswordResetRoutes> {
+    const list = await this.methods();
+    if (!list.passwordReset) {
+      throw new Error('this server names no password reset routes in its methods list: it has no password method, or sends no mail');
+    }
+    return list.passwordReset;
   }
 
   /** The sign-up routes of the list, read again; a list naming none throws. */
@@ -1402,7 +1524,15 @@ export class AuthClient {
     }
     const email = answer?.email;
     if (email?.add && email.verify) {
-      list.email = { add: email.add, verify: email.verify };
+      list.email = { add: email.add, verify: email.verify, ...(email.confirm ? { confirm: email.confirm } : {}) };
+    }
+    const passwordReset = answer?.passwordReset;
+    if (passwordReset?.open && passwordReset.complete) {
+      list.passwordReset = {
+        open: passwordReset.open,
+        complete: passwordReset.complete,
+        ...(passwordReset.request ? { request: passwordReset.request } : {}),
+      };
     }
     const signUp = answer?.signUp;
     if (signUp?.start && signUp.open && signUp.complete) {

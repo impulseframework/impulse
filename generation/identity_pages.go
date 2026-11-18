@@ -135,6 +135,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"setName", "Set" + subject + "UserName"},
 		{"setEmail", "Set" + subject + "UserEmail"},
 		{"setTemporaryPassword", "Set" + subject + "TemporaryPassword"},
+		{"sendPasswordResetLink", "Send" + subject + "UserPasswordResetLink"},
 		{"requirePasswordChange", "Require" + subject + "PasswordChange"},
 		{"endUserSessions", "End" + subject + "UserSessions"},
 		{"revokeTrustedDevices", "Revoke" + subject + "UserTrustedDevices"},
@@ -155,6 +156,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 			identityPart{"unlockSignIn", "Unlock" + i.auth + "SignIn"},
 			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
 			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
+			identityPart{"setSelfServiceReset", "Set" + i.auth + "SelfServiceReset"},
 		)
 		if i.invitesTenants() {
 			parts = append(parts,

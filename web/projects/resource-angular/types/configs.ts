@@ -95,6 +95,13 @@ export interface MethodPresentation {
   /** What the notice says once the method has run. */
   successMessage?: string;
   /**
+   * What the notice says for the method's answer, where the answer itself says how the
+   * method went: a method that mails a person answers whether the message was sent and,
+   * where it was not, why. `failed` draws the notice as a failure. Undefined, or an
+   * undefined result, leaves `successMessage`.
+   */
+  answered?: (answer: unknown) => { message: string; failed?: boolean } | undefined;
+  /**
    * The words above a request field's input, by the field's name, where the name in
    * words is not what the page wants (`domain` as the application's own word for its
    * tenant). A field the page does not name is labeled with its name in words.

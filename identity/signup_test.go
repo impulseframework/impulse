@@ -674,3 +674,58 @@ func Test_withArticle(t *testing.T) {
 		})
 	}
 }
+
+// TestManager_SetSelfServiceReset pins an administrator's switch for a person's own
+// password reset: the one field of the password method's row is written, on and off;
+// the list of sign-in methods says it of the password method alone; and an auth nobody
+// signs in to with a password has nothing to switch.
+func TestManager_SetSelfServiceReset(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	m := newSignUpManager(t, store)
+	for _, on := range []bool{true, false} {
+		if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			return m.SetSelfServiceReset(ctx, txn, on)
+		}); err != nil {
+			t.Fatalf("SetSelfServiceReset(%v) error = %v", on, err)
+		}
+	}
+	want := []string{"set self-service reset of password on=true", "set self-service reset of password on=false"}
+	if diff := cmp.Diff(want, store.writes); diff != "" {
+		t.Errorf("buffered writes (-want +got):\n%s", diff)
+	}
+
+	// The row says it, and the list says it of the password method and of no other,
+	// whatever a row of another method holds.
+	store = &fakeStore{methodRows: map[string]SignInMethodRow{
+		"password": {Name: "password", SelfServiceReset: true},
+		"google":   {Name: "google", SelfServiceReset: true},
+	}}
+	m = newSignUpManager(t, store)
+	var methods []SignInMethod
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		var err error
+		methods, err = m.SignInMethods(ctx, txn)
+
+		return err
+	}); err != nil {
+		t.Fatalf("SignInMethods() error = %v", err)
+	}
+	for i := range methods {
+		if got, want := methods[i].SelfServiceReset, methods[i].Name == "password"; got != want {
+			t.Errorf("SignInMethods(): %s says SelfServiceReset %v, want %v", methods[i].Name, got, want)
+		}
+	}
+
+	directory, err := New(managedAuth, &fakeStore{}, &fakeEngine{roles: engineRoles}, fakeSessions{methods: registeredMethods()[1:]})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return directory.SetSelfServiceReset(ctx, txn, true)
+	})
+	if !httpio.HasConflict(err) {
+		t.Errorf("SetSelfServiceReset() on an auth with no password method error = %v, want Conflict", err)
+	}
+}

@@ -473,6 +473,27 @@ func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
 	return h.FirstPassword().Set()
 }
 
+// PasswordResetRequest takes a person's own request for a link that resets their
+// password ({"email"}), served while an administrator has turned that on: the answer is
+// the same whether or not the address has a login, and an address with none is mailed
+// nothing.
+func (h *Handlers) PasswordResetRequest() http.HandlerFunc {
+	return h.PasswordReset().Request()
+}
+
+// PasswordResetOpen opens a password reset link ({"token"}), the person's own or one an
+// administrator sent, and answers the username it resets the password of.
+func (h *Handlers) PasswordResetOpen() http.HandlerFunc {
+	return h.PasswordReset().Open()
+}
+
+// PasswordResetComplete sets the new password a reset link's reader chose ({"token",
+// "password"}): the link is spent, the old password is refused from then on, every
+// session of the person ends, and they sign in with the new password.
+func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
+	return h.PasswordReset().Complete()
+}
+
 // GoogleLogin sends the browser to the fleet's Google directory.
 func (h *Handlers) GoogleLogin() http.HandlerFunc {
 	return h.google.Login()
@@ -551,6 +572,14 @@ func (h *Handlers) EmailAdd() http.HandlerFunc {
 // EmailVerify marks the address verified from the mailed link's token ({"token"}).
 func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
+}
+
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address ({"token"}): the login holds the address it had until then.
+// The reader of the link confirms it signed in or not, since they may have lost the
+// mailbox their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
 // SignUpStart mails a sign-up link to the address a stranger gives ({"email"}): the

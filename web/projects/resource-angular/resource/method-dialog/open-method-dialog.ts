@@ -46,3 +46,17 @@ export function openMethodDialog(
 export function methodDoneMessage(method: OfferedMethod): string {
   return method.presentation?.successMessage ?? `${method.label}: done.`;
 }
+
+/**
+ * The notice a page shows once a method has run: what the page reads from the method's
+ * answer where it reads one (`MethodPresentation.answered`), else `methodDoneMessage`.
+ * `failed` marks a method that ran and answers that it did not do what was asked, such as
+ * a message that could not be sent.
+ */
+export function methodDoneNotice(method: OfferedMethod, answer: unknown): { message: string; failed: boolean } {
+  const said = method.presentation?.answered?.(answer);
+  if (said) {
+    return { message: said.message, failed: said.failed === true };
+  }
+  return { message: methodDoneMessage(method), failed: false };
+}

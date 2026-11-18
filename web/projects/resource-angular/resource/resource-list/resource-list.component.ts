@@ -68,7 +68,7 @@ import {
 import { applyFormatting, formatByDisplayType, formatDateString } from '../format-fns';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
-import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { methodDoneNotice, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, offered, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
@@ -887,9 +887,10 @@ export class ResourceListComponent implements OnInit {
       if (!result) {
         return;
       }
+      const notice = methodDoneNotice(method, result.answer);
       this.store.notifications.addGlobalNotification({
-        message: methodDoneMessage(method),
-        type: AlertType.SUCCESS,
+        message: notice.message,
+        type: notice.failed ? AlertType.ERROR : AlertType.SUCCESS,
         duration: 5000,
         link: '',
       });

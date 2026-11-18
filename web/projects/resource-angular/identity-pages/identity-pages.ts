@@ -589,6 +589,7 @@ class SideBuilder {
             ['name', 'Name'],
             ['directoryGivesRoles', 'Directory gives roles'],
             ['ownRule', 'Decided by its own rule'],
+            ['selfServiceReset', 'People reset their own password'],
           ]).map((column) => ({ ...column, hidden: true })),
         ],
         rowMethods: this.present([
@@ -615,6 +616,18 @@ class SideBuilder {
               fill: fromRow,
               confirm: 'People who already have accounts keep them. New people will need an invitation.',
               successMessage: 'The method is invite only.',
+            },
+          ],
+          // Whether people may reset their own password is the password method's alone:
+          // the dialog asks the one question, and the sign-in page follows at once.
+          [
+            methods.setSelfServiceReset,
+            {
+              label: 'Password reset by the person',
+              icon: 'lock_reset',
+              when: (row) => row['name'] === 'password',
+              labels: { on: 'Let people ask for a reset link at the sign-in page' },
+              successMessage: 'Saved. The sign-in page offers "Forgot your password?" only while this is on.',
             },
           ],
         ]),
@@ -995,8 +1008,29 @@ class SideBuilder {
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
       [methods.rename, { label: 'Change the username', icon: 'edit' }],
-      [methods.setEmail, { label: 'Change the email address', icon: 'mail' }],
+      // An address changes when the person confirms it from the new mailbox, and a reset
+      // link changes nothing until it is used: each answers whether its message went.
+      [
+        methods.setEmail,
+        {
+          label: 'Change the email address',
+          icon: 'mail',
+          answered: mailed(
+            'A link to confirm the new address is on its way to it. The account keeps its address until the link is used.',
+          ),
+        },
+      ],
       [methods.setTemporaryPassword, { label: 'Set a temporary password', icon: 'password' }],
+      [
+        methods.sendPasswordResetLink,
+        {
+          label: 'Send a password reset link',
+          icon: 'lock_reset',
+          confirm:
+            'A link to choose a new password is mailed to the email address on the account. Nothing changes until the link is used.',
+          answered: mailed('The reset link is on its way.'),
+        },
+      ],
       [
         methods.requirePasswordChange,
         {
@@ -1231,6 +1265,21 @@ const periodColumns: Named[] = [
 ];
 
 /** The words for the two times of a method that gives something for a period. */
+/**
+ * Reads the answer of a method that mails a person (`{ sent, reason }`): `sent` once the
+ * message went, and where it did not, the server's sentence for why, drawn as a failure.
+ */
+function mailed(sent: string): (answer: unknown) => { message: string; failed?: boolean } | undefined {
+  return (answer) => {
+    const said = (answer ?? {}) as { sent?: unknown; reason?: unknown };
+    if (said.sent === true) {
+      return { message: sent };
+    }
+    const reason = typeof said.reason === 'string' && said.reason !== '' ? said.reason : 'The message could not be sent.';
+    return { message: reason, failed: true };
+  };
+}
+
 const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' };
 
 /**
