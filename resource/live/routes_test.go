@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -351,29 +352,44 @@ func (r *recordedContexts) contexts() []context.Context {
 // same, and the answer is the 204 of a request that went well, so nothing is logged for
 // it. Every call it makes on the record and the identity runs under a context the
 // request's end did not reach, with the handler's own limit on it and the request's
-// values still in it.
+// values still in it. A record that refuses the delete is still a failure, closed page
+// or not: the answer is the 500 the handler logs as an error.
 func TestUnsubscribeHandler_closedPage(t *testing.T) {
 	t.Parallel()
 
+	everyone := []string{"crew|dispatcher/tab-1", "crew|dispatcher/tab-2", "crew|mechanic/tab-3"}
 	tests := []struct {
-		name        string
-		body        string
+		name string
+		body string
+		// refused is what the record answers the calls with, nil for a record that works.
+		refused     error
+		wantStatus  int
 		wantCalls   int
 		wantLeft    []string // "principal/tab"
 		wantRevoked []string
 	}{
 		{
-			name:      "a tab leaving",
-			body:      `{"tab":"tab-1"}`,
-			wantCalls: 1,
-			wantLeft:  []string{"crew|dispatcher/tab-2", "crew|mechanic/tab-3"},
+			name:       "a tab leaving",
+			body:       `{"tab":"tab-1"}`,
+			wantStatus: http.StatusNoContent,
+			wantCalls:  1,
+			wantLeft:   []string{"crew|dispatcher/tab-2", "crew|mechanic/tab-3"},
 		},
 		{
 			name:        "a logout",
 			body:        `{"tab":"tab-1","all":true}`,
+			wantStatus:  http.StatusNoContent,
 			wantCalls:   2,
 			wantLeft:    []string{"crew|mechanic/tab-3"},
 			wantRevoked: []string{"crew|dispatcher"},
+		},
+		{
+			name:       "a tab leaving, and the record refuses the delete",
+			body:       `{"tab":"tab-1"}`,
+			refused:    errors.New("the record is down"),
+			wantStatus: http.StatusInternalServerError,
+			wantCalls:  1,
+			wantLeft:   everyone,
 		},
 	}
 	for _, tt := range tests {
@@ -389,6 +405,7 @@ func TestUnsubscribeHandler_closedPage(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("Register() error = %v", err)
 			}
+			svc.Err = tt.refused
 			// The connection ends once the request has arrived: its context is canceled
 			// before the handler has done anything.
 			closed, closePage := context.WithCancel(withSession(t.Context(), crewAuth, "dispatcher"))
@@ -397,9 +414,10 @@ func TestUnsubscribeHandler_closedPage(t *testing.T) {
 			rr := httptest.NewRecorder()
 			asked := time.Now()
 			UnsubscribeHandler(svc).ServeHTTP(rr, req)
+			svc.Err = nil
 
-			if rr.Code != http.StatusNoContent {
-				t.Fatalf("status = %d, want %d, the answer of an unsubscribe that went well: %s", rr.Code, http.StatusNoContent, rr.Body.String())
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tt.wantStatus, rr.Body.String())
 			}
 			subs := svc.Subscriptions()
 			left := make([]string, 0, len(subs))
@@ -419,7 +437,7 @@ func TestUnsubscribeHandler_closedPage(t *testing.T) {
 			}
 			for i, ctx := range calls {
 				deadline, ok := ctx.Deadline()
-				if !ok || deadline.Before(asked) || deadline.After(time.Now().Add(RecordTimeout)) {
+				if !ok || deadline.Before(asked.Add(RecordTimeout)) || deadline.After(time.Now().Add(RecordTimeout)) {
 					t.Errorf("call %d ran under a deadline of %v (set: %v), want the handler's own limit of %s from when the request came", i+1, deadline, ok, RecordTimeout)
 				}
 				if principal, err := PrincipalID(ctx); err != nil || principal != "crew|dispatcher" {

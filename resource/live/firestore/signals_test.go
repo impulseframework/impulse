@@ -961,11 +961,15 @@ func TestService_Signal_manyCallers(t *testing.T) {
 		mu         sync.Mutex
 		writes     []write
 	)
-	livefirestore.ObserveWrites(writer, func(context.Context, live.Kind) func(error) {
+	// callKey names, on a call's context, the call a write is sent for.
+	type callKey struct{}
+	writesOf := make(map[int]int)
+	livefirestore.ObserveWrites(writer, func(ctx context.Context, _ live.Kind) func(error) {
 		if running.Add(1) > 1 {
 			overlapped.Store(true)
 		}
 		begun := seq.Add(1)
+		maker, _ := ctx.Value(callKey{}).(int)
 
 		return func(err error) {
 			ended := seq.Add(1)
@@ -973,6 +977,7 @@ func TestService_Signal_manyCallers(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			writes = append(writes, write{begun: begun, ended: ended, err: err})
+			writesOf[maker]++
 		}
 	})
 
@@ -981,7 +986,9 @@ func TestService_Signal_manyCallers(t *testing.T) {
 	for c := range callers {
 		wg.Go(func() {
 			for r := range rounds {
-				ctx, cancel := t.Context(), context.CancelFunc(func() {})
+				// Every call is numbered from one, so a write sent under no call's context
+				// counts under none of them.
+				ctx, cancel := context.WithValue(t.Context(), callKey{}, 1+c*rounds+r), context.CancelFunc(func() {})
 				lasting := (c+r)%3 != 0
 				if !lasting {
 					ctx, cancel = context.WithTimeout(ctx, time.Duration(1+(c*7+r*3)%8)*time.Millisecond)
@@ -1014,8 +1021,12 @@ func TestService_Signal_manyCallers(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(writes) > callers*rounds {
-		t.Errorf("writes = %d for %d calls, want no call to make more than one", len(writes), callers*rounds)
+	for maker, made := range writesOf {
+		if maker == 0 {
+			t.Errorf("%d writes were sent under the context of no call, want every write made inside a call", made)
+		} else if made > 1 {
+			t.Errorf("call %d made %d writes, want no call to make more than one", maker, made)
+		}
 	}
 	var answered, covered int
 	for made := range calls {
@@ -1041,13 +1052,16 @@ func TestService_Signal_manyCallers(t *testing.T) {
 		t.Errorf("calls answered = %d, want %d", answered, callers*rounds)
 	}
 	if covered == 0 || len(writes) >= covered {
-		t.Logf("%d of %d calls were covered by %d writes: the callers did not overlap, so the run proved little", covered, answered, len(writes))
+		t.Errorf("%d of %d calls were covered by %d writes: the callers did not overlap, so the run pinned nothing of what it is for", covered, answered, len(writes))
 	}
 }
 
 // hungChannel is a channel that does not answer: every commit a service sends waits for
 // its context to end and fails with the context's error, as a call to a backend that
-// never answers does. It counts the commits tried and keeps the deadline of each.
+// never answers does. It counts the commits tried and keeps the deadline of each. Every
+// commit has one: the Firestore client gives a commit sixty seconds of its own where
+// the caller's context sets none, which is how long a signal's write waited on such a
+// channel before the service had a limit.
 type hungChannel struct {
 	mu        sync.Mutex
 	deadlines []time.Time
@@ -1066,8 +1080,7 @@ func (h *hungChannel) unary(ctx context.Context, method string, req, reply any, 
 	return status.FromContextError(ctx.Err()).Err() //nolint:wrapcheck // the status is the answer the client is to see, as a call that ran out of time gives it
 }
 
-// tried returns the deadline of each commit tried so far, the zero time for one tried
-// under no deadline.
+// tried returns the deadline of each commit tried so far, in the order they were tried.
 func (h *hungChannel) tried() []time.Time {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -1098,10 +1111,11 @@ func hungService(t *testing.T) (*livefirestore.Service, *hungChannel) {
 	return svc, channel
 }
 
-// timed is a signal's answer and how long the call took.
+// timed is a signal's answer, when it was asked for and how long the call took.
 type timed struct {
-	err  error
-	took time.Duration
+	err   error
+	asked time.Time
+	took  time.Duration
 }
 
 // timedSignal makes a signal of the features kind on a goroutine of its own and returns
@@ -1111,7 +1125,7 @@ func timedSignal(ctx context.Context, svc *livefirestore.Service) <-chan timed {
 	go func() {
 		asked := time.Now()
 		err := svc.Signal(ctx, live.KindFeatures)
-		answer <- timed{err: err, took: time.Since(asked)}
+		answer <- timed{err: err, asked: asked, took: time.Since(asked)}
 	}()
 
 	return answer
@@ -1137,18 +1151,25 @@ func atTheLimit(t *testing.T, who string, answer <-chan timed) timed {
 // limit's error, where it would otherwise wait as long as the channel does; a caller
 // with a shorter deadline of its own returns at that, with its context's error; and a
 // caller that waits for another's write is held to its own limit as the one that writes
-// is, each of them trying the channel once.
+// is: the limit covers its wait and its write together, so the write it makes once the
+// first has failed has what is left of its two seconds and no more. Each tries the
+// channel at most once.
 func TestService_Signal_limit(t *testing.T) {
 	t.Parallel()
 
-	// slack is what a loaded runner may add to a call that returns at its time.
-	const slack = 3 * time.Second
+	const (
+		// slack is what a loaded runner may add to a call that returns at its time.
+		slack = 3 * time.Second
+		// deadlineSlack is what it may add between a test's taking the time and the
+		// service's setting the deadline a moment later, which no load on the channel
+		// touches: a deadline is a time on the clock, not a wait.
+		deadlineSlack = 500 * time.Millisecond
+	)
 
 	t.Run("a caller with no deadline returns at the limit with the limit's error", func(t *testing.T) {
 		t.Parallel()
 
 		svc, channel := hungService(t)
-		asked := time.Now()
 		got := atTheLimit(t, "the signal", timedSignal(t.Context(), svc))
 
 		if !errors.Is(got.err, livefirestore.ErrSignalLimit) {
@@ -1161,8 +1182,8 @@ func TestService_Signal_limit(t *testing.T) {
 		if len(tried) != 1 {
 			t.Fatalf("commits tried = %d, want 1", len(tried))
 		}
-		if by := tried[0].Sub(asked); tried[0].IsZero() || by < live.SignalTimeout-50*time.Millisecond || by > live.SignalTimeout+slack {
-			t.Errorf("the write was sent under a deadline %s after the signal was asked for (set: %v), want the limit of %s", by, !tried[0].IsZero(), live.SignalTimeout)
+		if by := tried[0].Sub(got.asked); by < live.SignalTimeout-50*time.Millisecond || by > live.SignalTimeout+deadlineSlack {
+			t.Errorf("the write was sent under a deadline %s after the signal was asked for, want the limit of %s", by, live.SignalTimeout)
 		}
 		if !livefirestore.SignalsIdle(svc) {
 			t.Error("a signal write is in flight or owed after the signal returned")
@@ -1200,6 +1221,7 @@ func TestService_Signal_limit(t *testing.T) {
 		}
 		second := timedSignal(t.Context(), svc)
 
+		var waited timed
 		for who, answer := range map[string]<-chan timed{"the signal that wrote": first, "the signal that waited": second} {
 			got := atTheLimit(t, who, answer)
 			if !errors.Is(got.err, livefirestore.ErrSignalLimit) {
@@ -1208,9 +1230,21 @@ func TestService_Signal_limit(t *testing.T) {
 			if got.took < live.SignalTimeout-50*time.Millisecond || got.took > live.SignalTimeout+slack {
 				t.Errorf("%s: Signal() took %s, want the limit of %s from its own call", who, got.took, live.SignalTimeout)
 			}
+			if answer == second {
+				waited = got
+			}
 		}
-		if got := len(channel.tried()); got > 2 {
-			t.Errorf("commits tried = %d, want no more than one for each of the two signals", got)
+		tried := channel.tried()
+		if len(tried) > 2 {
+			t.Errorf("commits tried = %d, want no more than one for each of the two signals", len(tried))
+		}
+		// The write the waiting signal made, where its turn came before its time ended:
+		// it was sent with what was left of the signal's own two seconds, counted from
+		// when the signal was asked for, and not with two seconds of its own.
+		if len(tried) == 2 {
+			if by := tried[1].Sub(waited.asked); by < live.SignalTimeout-50*time.Millisecond || by > live.SignalTimeout+deadlineSlack {
+				t.Errorf("the waiting signal's write was sent under a deadline %s after the signal was asked for, want the limit of %s for its wait and its write together", by, live.SignalTimeout)
+			}
 		}
 		if !livefirestore.SignalsIdle(svc) {
 			t.Error("a signal write is in flight or owed after both signals returned")

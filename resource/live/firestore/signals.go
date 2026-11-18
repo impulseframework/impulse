@@ -142,37 +142,37 @@ func (s *Service) signalsDoc() *cloudfirestore.DocumentRef {
 	return s.client.Collection(ApplicationCollection).Doc(SignalsDocument)
 }
 
-// Signal writes the kind's field of the signals document, {at: the server timestamp,
-// by: this instance}, merged so the other kinds' fields stay: one write, which every
+// Signal writes the kind's field of the signals document, {at: the server timestamp, by:
+// this instance}, merged so the other kinds' fields stay: one write, which every
 // instance's listener observes as the kind's time advancing.
 //
-// While a write of the kind is in flight a later Signal of the kind makes no write of
-// its own at once: it waits for the one write that covers every Signal made meanwhile
-// (a signal carries nothing but the fact of a change, so one write that begins after
-// the last of those calls covers them all). That write is made when the one in flight
-// ends, by one of the callers waiting for it, inside its call and under its context,
-// and each of them returns when it has been made, with its outcome: a covering write
-// that fails is the failure of every caller that waited for it. So a burst of signals
-// costs two writes where the channel answers, and Signal never returns leaving a write
-// to be sent behind it: an instance that gets no CPU once its requests have answered
-// owes nothing.
+// While a write of the kind is in flight a later Signal of the kind makes no write of its
+// own at once: it waits for the one write that covers every Signal made meanwhile (a
+// signal carries nothing but the fact of a change, so one write that begins after the
+// last of those calls covers them all). That write is made when the one in flight ends,
+// by one of the callers waiting for it, inside its call and under its context, and each
+// of them returns when it has been made, with its outcome: a covering write that fails is
+// the failure of every caller that waited for it. So a burst of signals costs two writes
+// where the channel answers well inside the limit below, and Signal never returns leaving
+// a write to be sent behind it: an instance that gets no CPU once its requests have
+// answered owes nothing.
 //
 // Every Signal has the service's own limit (live.SignalTimeout) on top of its caller's
 // context, for its wait and its write together: a caller that brings no deadline, as a
-// write path that signals under its request's context does, is not held by a channel
-// that does not answer. A Signal the limit ends fails with errSignalLimit; a caller
-// whose own deadline is shorter keeps it, and fails with its context's error.
+// write path that signals under its request's context does, is not held by a channel that
+// does not answer. A Signal the limit ends fails with errSignalLimit; a caller whose own
+// deadline is shorter keeps it, and fails with its context's error.
 //
-// No caller's time ends another caller's signal. A caller whose time ends while it
-// waits returns, and the write stays with the callers still waiting; one whose time
-// ends under the covering write it is making fails alone, and another waiting caller
-// makes the write under its own. So a covering write has what is left of its maker's
-// time, a channel that does not answer is tried by each waiting caller in turn while
-// its own time lasts, and no call makes more than one write or waits past its context
-// or the limit. A Signal made once the write in flight has ended is not covered by the
-// write that is then due, which may begin before it: it waits for the next. The error
-// is returned for the caller to log; the caller's contract stays log and never fail the
-// request.
+// No caller's time ends another caller's signal. A caller whose time ends while it waits
+// returns, and the write stays with the callers still waiting; one whose time ends under
+// the covering write it is making fails alone, and another waiting caller makes the write
+// under its own. So a covering write has what is left of its maker's time, a channel that
+// does not answer, or answers too slowly for the write in flight and the covering write
+// to fit in one caller's time, is tried by each waiting caller in turn while its own time
+// lasts, and no call makes more than one write or waits past its context or the limit. A
+// Signal made once the write in flight has ended is not covered by the write that is then
+// due, which may begin before it: it waits for the next. The error is returned for the
+// caller to log; the caller's contract stays log and never fail the request.
 func (s *Service) Signal(ctx context.Context, kind live.Kind) error {
 	ctx, cancel := context.WithTimeoutCause(ctx, s.signals.limit, errSignalLimit)
 	defer cancel()

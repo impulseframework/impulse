@@ -2266,13 +2266,15 @@ domain-scoped resource holds no grant, and the subscription is dropped. Revocati
 therefore ends a subscription at the next renewal, and the refetch is refused meanwhile;
 the publisher never checks permission. A page sends `unsubscribe {tab}` best effort as it
 leaves; a logout sends `{tab, all: true}`, which deletes every subscription of the
-principal and revokes the browser's identity. An unsubscribe that has arrived is finished
-whatever becomes of the connection: its deletes run under the handler's own five seconds
-and not under the request's context, so a page that closes before the answer leaves no
-subscription behind and logs no failure. One that never arrives leaves the tab's
-subscriptions to their expiry: they are not renewed, the publisher's lookups pass them
-over five minutes after their last renewal at the latest, and the time-to-live policy
-deletes the documents (`live/firestore/README.md`). The token route answers the session
+principal and revokes the browser's identity. An unsubscribe that has reached its
+handler is finished whatever becomes of the connection: its deletes run under the
+handler's own five seconds and not under the request's context, so a page that closes
+before the answer leaves no subscription behind, and its closing logs nothing. A record
+that refuses the delete, or does not answer within the five seconds, is logged as any
+failure is. An unsubscribe that never reaches the handler leaves the tab's subscriptions
+to their expiry: they are not renewed, the publisher's lookups pass them over five
+minutes after their last renewal at the latest, and the time-to-live policy deletes the
+documents (`live/firestore/README.md`). The token route answers the session
 principal's id (below), how to reach the change set, and the identity: in production a
 Firebase custom token the browser signs in with, against the emulator an empty token and
 the emulator host, which the browser connects to with the SDK's mock user token. A
@@ -2340,16 +2342,18 @@ reopen every kind that advanced while it was down wakes once. A signal carries n
 but the fact of a change, so the signaler coalesces: while a write of a kind is in
 flight, later signals of the kind wait for one write that covers them all, which one
 of their callers makes when the write in flight ends, so a burst costs two writes where
-the channel answers. A `Signal` returns once its signal is sent and leaves nothing to be
-sent behind it, so an instance that gets no CPU once its requests have answered (Cloud
-Run's default) owes no signal; a covering write that fails is the failure of every
+the channel answers well inside the limit below. A `Signal` returns once its signal is
+sent and leaves nothing to be sent behind it, so an instance that gets no CPU once its
+requests have answered (Cloud Run's default) owes no signal; a covering write that fails is the failure of every
 caller that waited for it. No caller's context ends another's signal: a caller whose
 context ends under the covering write it is making fails alone and another waiting
 caller makes the write, so no call makes more than one write or waits past its context.
 The live service gives every `Signal` its own limit of two seconds
 (`live.SignalTimeout`), for its wait and its write together and on top of the caller's
 context: a caller that brings no deadline, as the tenant write paths do, is not held by
-a channel that does not answer, and a caller whose own deadline is shorter keeps it.
+a channel that does not answer, and a caller whose own deadline is shorter keeps it. On
+a channel too slow for both writes of a burst to fit in two seconds, the callers that
+waited reach their limit in turn, each of them alone.
 A signal's failure is returned for the caller to log and never fails the request, since every
 subscriber also holds its copy to its own backstop, on the request's path and not only
 on a loop's (sections 15 and 16: the feature flags and the tenant roster; the permission

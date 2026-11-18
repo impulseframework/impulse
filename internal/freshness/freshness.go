@@ -13,7 +13,8 @@
 // after the announcement has landed. One store read serves every request waiting at that
 // moment. A read that fails leaves the copy as it was, and the store is not tried again
 // for a short pause, so a store that is down is not read by every request; a change the
-// instance wrote to the store itself (Wrote) ends the pause, since the store took it.
+// instance wrote to the store itself (Wrote) ends the pause, since the store took it,
+// and so does a read that lands.
 // The loops remain as accelerators: they pass the same Gate sooner than a request
 // would, and nothing correct depends on their having run.
 package freshness
@@ -178,7 +179,8 @@ func (g *Gate) Wrote() {
 // was, so a caller that holds a copy answers from it. What is announced meanwhile
 // stays recorded, and the first request after the pause tries the store again. A
 // request that has seen a write of this instance made after the failed read began is
-// not answered by that failure: it reads (Wrote).
+// not answered by that failure: it reads (Wrote). Nor does the failure answer once a
+// read has landed after it (a read asked for outright, Read, reads inside the pause).
 func (g *Gate) Freshen() error {
 	kept := g.kept.Load()
 	if kept == nil || kept.ctx.Err() != nil {

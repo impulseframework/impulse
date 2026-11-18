@@ -100,22 +100,21 @@ const SignalTimeout = 2 * time.Second
 // subscriber served one snapshot after two quick signals of different kinds sees both.
 type Signaler interface {
 	// Signal signals the kind: every subscription to it, on every instance, runs its
-	// onSignal once. It returns once the signal is sent, or has failed, and leaves
-	// nothing to be sent behind it: an instance that gets no CPU once its requests have
-	// answered would never send what a goroutine was left to. It returns within
-	// SignalTimeout, the service's own limit, or sooner where ctx ends sooner: the limit
-	// covers the wait and the write together, and a Signal it ends fails with an error
-	// that says so. While a write of the kind
-	// is in flight, a later Signal of the kind waits for the one write that covers every
-	// Signal made meanwhile, which one of their callers makes when the write in flight
-	// ends: one write that begins after the last of those calls covers them all, so a
-	// burst costs two writes where the channel answers. A covering write that fails is
-	// the failure of every caller that waited for it. No caller's context ends
-	// another's signal: a caller whose context ends returns, and the write stays with
-	// the callers still waiting, each of which makes it in turn where the one before it
-	// lost its context, or reached the limit, under the write; so no call makes more
-	// than one write or waits past its own context or the limit. The error is returned
-	// for the caller to log; the caller's contract stays log and never fail the
+	// onSignal once. It returns once the signal is sent, or has failed, and leaves nothing
+	// to be sent behind it: an instance that gets no CPU once its requests have answered
+	// would never send what a goroutine was left to. It returns within SignalTimeout, the
+	// service's own limit, or sooner where ctx ends sooner: the limit covers the wait and
+	// the write together, and a Signal it ends fails with an error that says so. While a
+	// write of the kind is in flight, a later Signal of the kind waits for the one write
+	// that covers every Signal made meanwhile, which one of their callers makes when the
+	// write in flight ends: one write that begins after the last of those calls covers them
+	// all, so a burst costs two writes where the channel answers well inside the limit. A
+	// covering write that fails is the failure of every caller that waited for it. No
+	// caller's context ends another's signal: a caller whose context ends returns, and the
+	// write stays with the callers still waiting, each of which makes it in turn where the
+	// one before it lost its context, or reached the limit, under the write; so no call
+	// makes more than one write or waits past its own context or the limit. The error is
+	// returned for the caller to log; the caller's contract stays log and never fail the
 	// request, since every subscriber also rereads at its own backstop.
 	Signal(ctx context.Context, kind Kind) error
 }
