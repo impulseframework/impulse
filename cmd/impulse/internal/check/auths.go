@@ -179,7 +179,7 @@ func rolesExport(a *app.App, p *app.AuthPackage) (exported, embedded bool) {
 		return false, false
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || isTestFile(e.Name()) {
+		if e.IsDir() || !app.GoToolReads(e.Name()) || isTestFile(e.Name()) {
 			continue
 		}
 		rel := path.Join(p.Dir, e.Name())

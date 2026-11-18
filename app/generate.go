@@ -103,7 +103,7 @@ func (a *App) dirCallsWarnings(dir string) bool {
 	fset := token.NewFileSet()
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if entry.IsDir() || !GoToolReads(name) || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		f, err := parser.ParseFile(fset, filepath.Join(a.Abs(dir), name), nil, parser.SkipObjectResolution)
@@ -152,7 +152,7 @@ func (a *App) mainPackageImports(dir, pkgDir string) bool {
 	fset := token.NewFileSet()
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if entry.IsDir() || !GoToolReads(name) || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		f, err := parser.ParseFile(fset, filepath.Join(a.Abs(dir), name), nil, parser.ImportsOnly)

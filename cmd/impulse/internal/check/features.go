@@ -217,7 +217,7 @@ func libraryFeatureDDL(ctx context.Context, env *Env) (statements map[string]str
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if e.IsDir() || !app.GoToolReads(name) || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, name))

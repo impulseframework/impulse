@@ -259,7 +259,7 @@ func packageImports(a *app.App, dir string) (map[string]bool, error) {
 	imports := map[string]bool{}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if e.IsDir() || !app.GoToolReads(name) || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		rel := path.Join(dir, name)

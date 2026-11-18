@@ -198,3 +198,32 @@ func TestScanReadsWhatTheGoToolReads(t *testing.T) {
 		})
 	}
 }
+
+// TestGoToolReads pins the one rule about which files are Go files the Go tool reads, by
+// name: the suffix, and no name that begins with "_" or ".". A test file and a generated
+// file are read; a reader that leaves them out says so itself.
+func TestGoToolReads(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "main.go", want: true},
+		{name: "harness_test.go", want: true},
+		{name: "zz_gen_router.go", want: true},
+		{name: "sql_windows.go", want: true},
+		{name: "_scratch.go", want: false},
+		{name: ".draft.go", want: false},
+		{name: "_scratch_test.go", want: false},
+		{name: ".go", want: false},
+		{name: "notes.txt", want: false},
+		{name: "go", want: false},
+		{name: "main.go.bak", want: false},
+	}
+	for _, tt := range tests {
+		if got := GoToolReads(tt.name); got != tt.want {
+			t.Errorf("GoToolReads(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

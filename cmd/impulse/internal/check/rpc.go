@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/app"
 )
 
 // rpcExecute verifies the agreement between an application's RPC methods and the
@@ -133,7 +135,7 @@ func readRPCPackage(dir string, rel func(string) string) (*rpcPackage, error) {
 	fset := token.NewFileSet()
 	for _, f := range files {
 		base := filepath.Base(f)
-		if strings.HasPrefix(base, "zz_gen_") || strings.HasSuffix(base, "_test.go") {
+		if !app.GoToolReads(base) || strings.HasPrefix(base, "zz_gen_") || strings.HasSuffix(base, "_test.go") {
 			continue
 		}
 		src, err := os.ReadFile(f)

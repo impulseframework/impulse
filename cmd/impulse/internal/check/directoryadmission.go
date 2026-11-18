@@ -177,7 +177,7 @@ func callsInPackage(a *app.App, dir, method string) (bool, error) {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || isTestFile(name) || strings.HasPrefix(name, "zz_gen_") {
+		if e.IsDir() || !app.GoToolReads(name) || isTestFile(name) || strings.HasPrefix(name, "zz_gen_") {
 			continue
 		}
 		rel := path.Join(dir, name)

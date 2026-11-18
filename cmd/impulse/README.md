@@ -529,8 +529,10 @@ impulse check --list
 The scan the checks are built on reads the Go files the application's builds compile, as
 `go build ./...` and `go test ./...` find them. A directory `./...` matches nothing under
 is not read: one whose name begins with `_` or `.`, and one named `testdata`. Nor is a Go
-file whose own name begins with `_` or `.`, nor any Go file of a directory under the root
-that holds a `go.mod` of its own, which is another module (the skeleton's `web/` is one).
+file whose own name begins with `_` or `.` (`_scratch.go` beside a package's real files),
+by the scan or by a check that reads a package's directory for itself, nor any Go file of
+a directory under the root that holds a `go.mod` of its own, which is another module (the
+skeleton's `web/` is one).
 So a scratch program kept beside the application (`tmp/_sqlrun/main.go`), a test's
 fixture and a tool's own directory fail no check. Two things are the application's all
 the same. A Go file placed directly in a directory the Go tool reads, `tmp/` among them,
@@ -542,10 +544,7 @@ constraint leaves out (a `//go:build` line, a `_windows.go` name) is read, since
 build compiles it, and a directory named `vendor` or `dist` is left alone as dependencies
 and build output. The uses of a feature flag's constant are found in the same Go files,
 and in every source file of a browser application whatever its directory is called, since
-the Go tool's rule about names is no rule of the browser's build. The rule is the scan's:
-a check that reads one package's directory for itself (an auth package's for its role
-file and its policy calls, a handlers directory's for the live service, the formatting
-check's walk) still takes every `.go` file it finds there.
+the Go tool's rule about names is no rule of the browser's build.
 
 | Check | Verifies |
 | --- | --- |
