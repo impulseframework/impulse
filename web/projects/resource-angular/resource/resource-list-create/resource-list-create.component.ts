@@ -54,7 +54,16 @@ export class ResourceListCreateComponent {
   parentData = input<RecordData | undefined>();
   searchParams = input<Record<string, string>[]>([]);
   resourceConfig = input<ListViewConfig>();
+  /**
+   * Handed `false` for a list drawn under a row or under another list. The list a page
+   * is built on is handed nothing, which reads `true` where a template mounts it and
+   * `undefined` where a router that binds a routed component's inputs opens it: such a
+   * router sets every input the route's data does not name to undefined, the default
+   * not kept. Read it through `ownsPage`.
+   */
   isRootList = input<boolean>(true);
+  /** Whether this is the list its page is built on: every list but one handed `false`. */
+  private ownsPage = computed(() => this.isRootList() !== false);
 
   childKey = computed(() => {
     if (!this.config().parentRelation) {
@@ -94,7 +103,7 @@ export class ResourceListCreateComponent {
    * The lists drawn under this one: the ones the page's own list names (`below`), and
    * none for a list that is not the one its page is built on.
    */
-  below = computed<ListViewConfig[]>(() => (this.isRootList() ? (this.config().below ?? []) : []));
+  below = computed<ListViewConfig[]>(() => (this.ownsPage() ? (this.config().below ?? []) : []));
 
   expPanel = viewChild<MatExpansionPanel, MatExpansionPanel>('expPanel', { read: MatExpansionPanel });
 
@@ -138,7 +147,7 @@ export class ResourceListCreateComponent {
    * read again: what ran may have moved a row from one of the page's lists to another.
    */
   methodRan(): void {
-    if (this.isRootList()) {
+    if (this.ownsPage()) {
       if (this.below().length > 0) {
         this.store.rowChanges.update((count) => count + 1);
       }
@@ -165,7 +174,7 @@ export class ResourceListCreateComponent {
         this.ranHere = false;
         return;
       }
-      if (!this.isRootList()) {
+      if (!this.ownsPage()) {
         untracked(() => this.listChild()?.reloadListData());
       }
     });
