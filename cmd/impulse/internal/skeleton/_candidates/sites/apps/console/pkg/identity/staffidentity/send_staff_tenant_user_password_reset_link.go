@@ -30,6 +30,7 @@ type (
 	// @rpc
 	// @permissionScope(domain)
 	// @outlet(default)
+	// @class(credential)
 	SendStaffTenantUserPasswordResetLink struct {
 		// @target(StaffTenantUser)
 		UserID impulse.UUID

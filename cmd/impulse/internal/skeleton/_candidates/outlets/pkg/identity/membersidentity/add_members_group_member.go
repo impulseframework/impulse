@@ -33,6 +33,7 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type AddMembersGroupMember struct {
 	// @target(MembersGroup)
 	GroupID impulse.UUID

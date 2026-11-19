@@ -33,6 +33,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type AssignStaffTenantRole struct {
 	// @target(StaffTenantUser)
 	UserID impulse.UUID

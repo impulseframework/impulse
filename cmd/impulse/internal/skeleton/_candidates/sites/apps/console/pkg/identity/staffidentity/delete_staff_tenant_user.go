@@ -25,6 +25,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type DeleteStaffTenantUser struct {
 	// @target(StaffTenantUser)
 	UserID impulse.UUID

@@ -19,6 +19,7 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type DeleteMembersGroup struct {
 	// @target(MembersGroup)
 	GroupID impulse.UUID

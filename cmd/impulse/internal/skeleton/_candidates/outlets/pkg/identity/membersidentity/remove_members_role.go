@@ -28,6 +28,7 @@ import (
 // @rpc
 // @outlet(portal)
 // @answers(204)
+// @class(access)
 type RemoveMembersRole struct {
 	UserID      impulse.UUID
 	Role        string `validate:"required"`
