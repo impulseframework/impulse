@@ -1,6 +1,8 @@
 package audit
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,11 +12,13 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
 // rendered renders a skeleton candidate into a temporary directory, applies the edits to
-// its files (a nil edit removes the file) and reads it.
+// its files (a nil edit removes the file, and an edit of a file the candidate does not
+// have writes it) and reads it.
 func rendered(t *testing.T, candidate string, edits map[string]func(text string) string) *app.App {
 	t.Helper()
 
@@ -32,7 +36,7 @@ func rendered(t *testing.T, candidate string, edits map[string]func(text string)
 			continue
 		}
 		before, err := os.ReadFile(file)
-		if err != nil {
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			t.Fatal(err)
 		}
 		after := edit(string(before))
@@ -49,6 +53,45 @@ func rendered(t *testing.T, candidate string, edits map[string]func(text string)
 	}
 
 	return a
+}
+
+// byDirectory is the edits that make the tenanted skeleton an application of
+// Tenant-owned users, by directory, as impulse new starts one: a person belongs to one
+// tenant (oneTenant, the edit of the auth file), the staff auth has no password method,
+// its Google method admits the accounts of any Google Workspace and no other Google
+// account, a Microsoft method open to any Microsoft Entra tenant stands beside it, and
+// the persona method beside both, the sign-in of the test environments a development
+// run signs its administrator in through; the two are rendered as the command renders a
+// method's file.
+func byDirectory(t *testing.T, oneTenant func(text string) string) map[string]func(text string) string {
+	t.Helper()
+
+	spec := &authpkg.Spec{
+		Module: "example.com/acme/tenanted", AuthDir: "pkg/auth", Name: "staff",
+		Methods: []authpkg.Method{
+			{Kind: app.MethodAzure, Name: "azure", Slot: authpkg.SlotAny, Authority: app.AuthorityApplication},
+			{Kind: app.MethodPersona, Name: authpkg.PersonaRegistration, Authority: app.AuthorityApplication},
+		},
+	}
+	files := map[string]func(text string) string{
+		"pkg/auth/staff/staff.go":    oneTenant,
+		"pkg/auth/staff/password.go": nil,
+		"pkg/auth/staff/google.go": func(text string) string {
+			return strings.Replace(text, "google.AnyWorkspace(), google.AnyGoogleAccount()", "google.AnyWorkspace()", 1)
+		},
+	}
+	for i := range spec.Methods {
+		m := &spec.Methods[i]
+		file, err := authpkg.MethodFile(spec, m)
+		if err != nil {
+			t.Fatalf("authpkg.MethodFile() error = %v", err)
+		}
+		files["pkg/auth/staff/"+m.Name+".go"] = func(string) string {
+			return string(file)
+		}
+	}
+
+	return files
 }
 
 // lineRE matches the line of a file position, which moves with every edit of the file
@@ -162,7 +205,8 @@ func TestWriteSignIn_skeletonsAndLodestar(t *testing.T) {
 				"    sign-up, google (pkg/auth/crew/crew.go:N): admits any Google account; the application gives the roles; invite only until an administrator opens it to sign-up on the Sign-in page, which is chosen while the application runs\n" +
 				"    persona (pkg/auth/crew/crew.go:N): admits the personas of the test environments' persona provider; the application gives the roles; left invite only, since its accounts are the cast the deployment seeds\n" +
 				several +
-				"    shape: 8 Global users, each tenant chooses. A tenant's people can come through its organization's directory (the google and sign-up methods)." + eachChooses +
+				"    shape: 8 Global users, each tenant chooses. A tenant's people can come through its organization's directory (the google and sign-up methods)." + strings.TrimSuffix(eachChooses, "\n") +
+				" The persona method is registered in the test environments alone, where the persona provider is configured, and is part of no shape.\n" +
 				"  members (pkg/auth/members)\n" +
 				"    directory, google (pkg/auth/members/members.go:N): how wide it is open is not read here; the directory gives the roles; no invite-only or open choice, since everyone the directory signs in becomes a user with the roles it names\n" +
 				several +
@@ -205,11 +249,36 @@ func TestWriteSignIn_tenantShapes(t *testing.T) {
 		want      []string
 	}{
 		{
-			name: "one tenant per person and a method through a directory", candidate: "tenanted",
+			// The shape as impulse new starts it: no password method, a Google method
+			// open to any Google Workspace and a Microsoft method open to any Microsoft
+			// Entra tenant, and the persona method of the test environments, which is
+			// part of no shape and keeps the auth out of none.
+			name: "one tenant per person and the two methods through a directory", candidate: "tenanted",
+			edits: byDirectory(t, oneTenant),
+			want: []string{
+				"    azure (pkg/auth/staff/azure.go:N): admits the accounts of any Microsoft Entra tenant; the application gives the roles;",
+				"    google (pkg/auth/staff/google.go:N): admits the accounts of any Google Workspace; the application gives the roles;",
+				"    persona (pkg/auth/staff/persona.go:N): admits the personas of the test environments' persona provider; the application gives the roles; left invite only, since its accounts are the cast the deployment seeds\n",
+				"    a person belongs to one tenant (identity.WithOneTenantPerPerson, pkg/auth/staff/staff.go:N)\n",
+				"    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the azure and google methods)." + strings.TrimSuffix(eachChooses, "\n") + " The persona method is registered in the test environments alone, where the persona provider is configured, and is part of no shape.\n",
+			},
+		},
+		{
+			// An application made before the shape lost its password: nothing refuses
+			// it, and the reading names the password method as what keeps it outside.
+			name: "one tenant per person and a method through a directory beside a password", candidate: "tenanted",
 			edits: map[string]func(text string) string{"pkg/auth/staff/staff.go": oneTenant},
 			want: []string{
 				"    a person belongs to one tenant (identity.WithOneTenantPerPerson, pkg/auth/staff/staff.go:N)\n",
-				"    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the google method)." + eachChooses,
+				"    shape: no named shape: its password method keeps it outside 6 Tenant-owned users, by directory, the shape its tenants' choices and the google method make: in that shape every person of a tenant signs in through the tenant's own directory, so a password could enter no tenant. No command removes a sign-in method; the password method is taken out by hand (remove pkg/auth/staff/password.go and the registerPassword call in pkg/auth/staff/staff.go, take generation.PasswordMethod() out of the auth's declaration on its outlets in the generator program, and run go generate ./...)\n",
+			},
+		},
+		{
+			name: "one tenant per person, no password, and a method as wide as any Google account", candidate: "tenanted",
+			edits: map[string]func(text string) string{"pkg/auth/staff/staff.go": oneTenant, "pkg/auth/staff/password.go": nil},
+			want: []string{
+				"    shape: 6 Tenant-owned users, by directory. A tenant's people can come through its organization's directory (the google method)." + strings.TrimSuffix(eachChooses, "\n") +
+					" The google method admits any Google account, which works and is not the typical width of this shape (the accounts of any Google Workspace or of any Microsoft Entra tenant, with no personal accounts).\n",
 			},
 		},
 		{
@@ -217,7 +286,7 @@ func TestWriteSignIn_tenantShapes(t *testing.T) {
 			edits: map[string]func(text string) string{"pkg/auth/staff/staff.go": oneTenant},
 			want: []string{
 				"    a person belongs to one tenant (identity.WithOneTenantPerPerson, pkg/auth/staff/staff.go:N)\n",
-				"    shape: 5 Tenant-owned users, invite only. " + noDirectory + "6 Tenant-owned users, by directory.\n",
+				"    shape: 5 Tenant-owned users, invite only. The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone. 6 Tenant-owned users, by directory has no password sign-in, so a directory method beside the password method (impulse add method) leaves this auth outside the eight shapes until the password method is taken out by hand.\n",
 			},
 		},
 		{
@@ -351,7 +420,7 @@ func TestWriteSignIn(t *testing.T) {
 			want: "sign-in\n  members (pkg/auth/members)\n" +
 				"    password (pkg/auth/members/members.go:14): admits anyone with an email address; the application gives the roles; " + running +
 				"    workspace, google (pkg/auth/members/members.go:15): admits the accounts of one Google Workspace; the directory gives the roles; no invite-only or open choice, since everyone the directory signs in becomes a user with the roles it names\n" +
-				"    shape: no named shape: its workspace method takes the roles from the directory beside another method, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it)\n" + noTenants,
+				"    shape: no named shape: its password method is outside 3 Directory roles, the shape its workspace method makes: the directory gives every role, so a person who signed in with a password would hold none, and a method whose roles come from the directory stands alone in its auth (impulse check refuses it)\n" + noTenants,
 		},
 		{
 			name:  "outside the eight: a method whose choices are written where they are not read",

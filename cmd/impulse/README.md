@@ -304,7 +304,11 @@ an outlet is, else `tenanted`.
 
 The first auth signs in with a password; a directory method joins it afterwards with
 `impulse add method` (section add auth), registered beside the password method on the
-same Auth, so nothing about the auth's tables moves.
+same Auth, so nothing about the auth's tables moves. Two sign-in shapes have no password
+sign-in, and an application started from either (`--shape`, below) has its first auth
+written with the shape's methods in the password's place: no password method, no
+password form on the login page, no password on a person's account page, and development
+logins that hold no password.
 
 `--one-tenant-per-person` goes with `--tenancy` and says a person belongs to one tenant
 (section add tenancy); without it a person can be in several. `--tenant-directories` goes
@@ -313,27 +317,63 @@ unless `--tenant-directories=false` is given (section add tenancy). `--shape <na
 application from a sign-in shape by name (section impulse audit lists the eight): `new`
 takes the four an application with tenants has, `tenant-owned-users-invite-only` (5),
 `tenant-owned-users-by-directory` (6), `global-users-invite-only` (7) and
-`global-users-each-tenant-chooses` (8). The shape composes `--tenancy` and fills in the
+`global-users-each-tenant-chooses` (8), and `directory-roles` (3), the one shape of an
+application without tenants that has no password sign-in. A shape with tenants composes
+`--tenancy` and fills in the
 tenants' choices: the two tenant-owned shapes hold a person to one tenant, and in the two
 global ones a person can be in several. The two invite-only shapes write an application
 whose tenants have no directories (`--tenant-directories=false`): a tenant's people come
 by invitation alone, a directory method added afterward with the application giving
 the roles is a way for an invited person to sign in and nothing more, and `impulse
 audit` still reads the application as the invite-only shape. The other two write the
-tenant directories, and the command says
+tenant directories. For `global-users-each-tenant-chooses` the command says
 which `impulse add method` adds the directory method a tenant's people come through;
 until it is added `impulse audit` reads the application as the invite-only shape beside
 it. A flag that contradicts the shape is refused before anything is written, naming both
 (`--shape global-users-invite-only --one-tenant-per-person`, `--shape
 global-users-invite-only --tenant-directories`, `--shape` with `--tenancy=false`), and a
-name the command does not know is refused with the names it knows. The four shapes of
-an application without tenants are told apart by a sign-in
-method's choices, so `impulse add auth` and `impulse add method` take those.
+name the command does not know is refused with the names it knows. The other three shapes
+of an application without tenants are told apart by a sign-in
+method's choices on an auth that has the password method, so `impulse add auth` and
+`impulse add method` take those.
+
+`--shape tenant-owned-users-by-directory` writes the first auth's sign-in methods too,
+since every person of a tenant signs in through the tenant's own directory: a Google
+method open to any Google Workspace and a Microsoft method open to any Microsoft Entra
+tenant, neither with personal accounts, with the application giving the roles, and no
+password method. Nothing is asked about a provider, and no flag takes one provider or
+another width; another width is the author's change to what was written, and `impulse
+audit` names it in a sentence. The application is registered at both providers before
+it deploys, since each method needs a client id and a secret of its own. The
+application's own people, its first administrator among them, come by invitation and
+accept it through either method. The command also registers the persona method, the
+sign-in of the test environments, with a cast of one persona, `admin`: a development run
+signs its administrator in as that persona, and the bootstrap seeds no password account.
+
+`--shape directory-roles` writes the first auth with one sign-in method, a directory's,
+with the directory giving every role, and no password method. `--method` names the
+directory, `google` (a Google Workspace) or `azure` (a Microsoft Entra tenant), with
+`:<registration>` to name the registration, and `--organization` names its one
+organization, a Workspace by its domain or an Entra tenant by its tenant id; each is
+asked for when it is not given, and refused as missing where nobody is at the terminal.
+No first administrator is invited and nothing in the application gives a role. A
+development run signs in the person `APP_USERNAME` names with the roles `APP_ROLES`
+names, both in the environment template, through the simulated directory. The shape has
+no tenants, so it is refused beside `--tenancy` and the tenants' flags, and `--method`
+and `--organization` are refused with any other start. Another identity provider's
+directory is an auth of its own (`impulse add auth --shape directory-roles --method
+oidc:<registration>`).
+
+The tests the base starts with are written for a password sign-in. Where the first auth
+is written with no password method they no longer compile or no longer hold, so the
+change lists each of them with what becomes of it, and the command ends in the handoff
+brief with those as the author's work.
 
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent
 impulse new ./fleet --module example.com/fleet --auth crew --site console --site portal
 impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned-users-by-directory
+impulse new ./ferry --module example.com/ferry --auth staff --shape directory-roles --method google --organization ferry.example
 impulse new ./yard --module example.com/yard --auth staff --tenancy --tenant-directories=false
 ```
 
@@ -687,7 +727,7 @@ The shapes are the eight combinations of those choices that have a name:
 | 3 Directory roles | No tenants. One directory method whose directory gives the roles, alone in its auth. |
 | 4 Open sign-up | No tenants. The application gives the roles, and a method anyone can use (the password method, any Microsoft tenant, personal accounts, any Google account) is open. |
 | 5 Tenant-owned users, invite only | Tenants, with no tenant directories. A person belongs to one tenant, and a tenant's people come by invitation alone, whatever methods the auth has. |
-| 6 Tenant-owned users, by directory | Tenants. A person belongs to one tenant, and a tenant's people can come through its own directory. |
+| 6 Tenant-owned users, by directory | Tenants. A person belongs to one tenant, and a tenant's people can come through its own directory. The auth has no password method. |
 | 7 Global users, invite only | Tenants, with no tenant directories. A person can be in several tenants, and a tenant's people come by invitation alone, whatever methods the auth has. |
 | 8 Global users, each tenant chooses | Tenants. A person can be in several tenants, and each tenant chooses whether its people come through its own directory. |
 
@@ -705,8 +745,12 @@ have no directories, naming a directory method as a way for an invited person to
 in. Where it declares them and no such method is
 registered yet, the auth is read as the invite-only shape too, and the section says
 which method makes it the shape beside it. An auth outside the eight (a directory that gives the
-roles in an application with tenants, or beside another method; a method whose authority
-is not read) reads `no named shape`. That is no error in itself: nothing in the framework
+roles in an application with tenants, or beside another method; a password method on an
+auth that would otherwise be Tenant-owned users, by directory, a shape with no password
+sign-in, where the reason names the files to change by hand; a method whose authority
+is not read) reads `no named shape`. The persona method is part of no shape: an auth that
+registers it beside the methods that make a shape is read as that shape, with a sentence
+saying the persona method is registered in the test environments alone. That is no error in itself: nothing in the framework
 acts on a shape's name, and no check of `impulse check` reads one. One of those auths is
 refused for its own reason: a directory that gives the roles beside another method fails
 `impulse check` (`auths-wired`), and the session library refuses the registration when
@@ -1220,8 +1264,17 @@ The two invite-only shapes set `--tenant-directories=false`: a tenant's people c
 invitation alone, whatever sign-in methods the application already registers, and the
 command names the ones that go through an organization's directory as ways for an
 invited person to sign in. The other two write the tenant directories: a tenant's people
-come through its own directory, and where no sign-in method goes through an
-organization's directory yet the command says which `impulse add method` adds it.
+come through its own directory. For `global-users-each-tenant-chooses`, where no sign-in
+method goes through an organization's directory yet the command says which `impulse add
+method` adds it. `tenant-owned-users-by-directory` writes the sign-in methods too: on
+each auth whose roles the application gives that registers neither a Google nor a
+Microsoft method, a Google method open to any Google Workspace and a Microsoft method
+open to any Microsoft Entra tenant, neither with personal accounts, ahead of the tenants
+(the same two `impulse new` writes for the shape); an auth that has either is left as it
+is. The shape has no password sign-in, and no command removes a sign-in method, so the
+password method stays where the auth has it: the command says that it keeps the
+application outside the shape and names the files to change by hand, and `impulse audit`
+says the same until it is gone.
 Whether a tenant takes a directory, and whether that directory's people get an account
 without an invitation, is each tenant's choice, made while the application runs, so the
 command writes nothing for it and says where it is chosen. A flag that contradicts the

@@ -235,7 +235,7 @@ var baseSuites = []struct{ file, fate string }{
 	},
 	{
 		"first_administrator_test.go",
-		"still holds, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
+		"proves what tenancy leaves as it was, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
 	},
 }
 

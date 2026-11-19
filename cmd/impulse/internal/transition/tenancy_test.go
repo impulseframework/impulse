@@ -590,7 +590,7 @@ func TestTenancyApply_theBaseSuites(t *testing.T) {
 	fates := map[string]string{
 		"test/integration/sign_up_test.go":             "test/integration/sign_up_test.go proves sign-up in an application without tenants, where opening a sign-in method names the role each new person gets; a tenanted application opens a method with no role, and a person who signs up creates a tenant of their own, so remove the file and prove sign-up as the reference's self_service_test.go does",
 		"test/integration/sign_up_role_test.go":        "test/integration/sign_up_role_test.go proves the list the role of a person who signs up is picked from, which the generator no longer writes once the application has tenants (its generated file is removed by the regeneration); remove the file",
-		"test/integration/first_administrator_test.go": "test/integration/first_administrator_test.go still holds, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
+		"test/integration/first_administrator_test.go": "test/integration/first_administrator_test.go proves what tenancy leaves as it was, since the first administrator signs in as before; it is written against the base's harness, so where the harness takes the reference's sign-in helpers this file's calls of them follow",
 	}
 	tests := []struct {
 		name  string

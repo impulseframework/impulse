@@ -192,8 +192,19 @@ type renderReport struct {
 	goProcs []string
 	// web lists the browser workspaces and the ng serve ports of their projects.
 	web []webWorkspace
+	// signIn is how a development run signs a person in where the application starts
+	// with no password sign-in; nil for an application whose development login is the
+	// base's, admin with a password.
+	signIn *developmentSignIn
 	// styled turns on ANSI bold for the heading and step numbers.
 	styled bool
+}
+
+// developmentSignIn is how a development run signs a person in where the application
+// starts with no password sign-in: the registration of the sign-in method the person
+// goes through, and who the run answers that sign-in as.
+type developmentSignIn struct {
+	method, as string
 }
 
 // webWorkspace is one Angular workspace in the rendered tree.
@@ -259,7 +270,7 @@ func (r *renderReport) write(w io.Writer) {
 		}
 		next("overmind start")
 		note("The first run compiles and bootstraps before it listens. Wait for \"Starting Server\",")
-		note("then sign in as admin with the password \"password\".")
+		r.signInNotes(note, "", "")
 		if len(r.web) > 0 {
 			r.formatStep(next, note)
 		}
@@ -270,7 +281,7 @@ func (r *renderReport) write(w io.Writer) {
 
 	next("overmind start -l %s", strings.Join(r.goProcs, ","))
 	note("The Go side alone. The first run compiles and bootstraps before it listens; wait for")
-	note("\"Starting Server\", then sign in against the API as admin with the password \"password\".")
+	r.signInNotes(note, "\"Starting Server\", ", " against the API")
 	r.installSteps(next, note)
 	r.formatStep(next, note)
 	next("overmind start")
@@ -286,6 +297,21 @@ func (r *renderReport) write(w io.Writer) {
 		note("Everything, with ng serve for the %s.", strings.Join(urls, " and the "))
 	}
 	r.optionsStep(next, note)
+}
+
+// signInNotes ends the note of the step that starts the server with how a person signs
+// in once it listens: lead is what the line opens with, and where says what the person
+// signs in against. The base's development login is admin with a password; an
+// application that starts with no password sign-in names the method a person goes
+// through and who a development run answers it as (signIn).
+func (r *renderReport) signInNotes(note func(format string, args ...any), lead, where string) {
+	if r.signIn == nil {
+		note("%sthen sign in%s as admin with the password \"password\".", lead, where)
+
+		return
+	}
+	note("%sthen sign in%s through the %s method.", lead, where, r.signIn.method)
+	note("A development run answers that sign-in as %s.", r.signIn.as)
 }
 
 // writePorts states the development ports the environment template names: the server's

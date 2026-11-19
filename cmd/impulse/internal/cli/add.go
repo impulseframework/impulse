@@ -380,8 +380,18 @@ people come by invitation alone: the command writes no tenant directories
 (--tenant-directories=false), whatever sign-in methods the application already
 registers, and names the ones that go through an organization's directory as ways for
 an invited person to sign in. In the other two a tenant's people come through its own
-directory: the command writes the tenant directories, and where no sign-in method goes
-through an organization's directory yet it says which impulse add method adds it.
+directory, and the command writes the tenant directories. In
+global-users-each-tenant-chooses, where no sign-in method goes through an organization's
+directory yet, it says which impulse add method adds it. In
+tenant-owned-users-by-directory every person of a tenant signs in through the tenant's
+directory, so on each auth whose roles the application gives that registers neither a
+Google nor a Microsoft method the command writes both, as impulse add method would: a
+Google method open to any Google Workspace and a Microsoft method open to any Microsoft
+Entra tenant, neither with personal accounts, the application giving the roles. An auth
+that has either is left as its author made it. That shape has no password sign-in, and
+no command removes a sign-in method: an auth's password method stays, the command says
+that it keeps the application outside the shape and names the hand step that takes it
+out, and impulse audit says the same until it is gone.
 Whether a tenant takes a directory, and whether that directory's people get an account
 without an invitation, is each tenant's choice, made while the application runs. A flag
 given beside --shape that contradicts it is refused, naming both, and impulse audit
@@ -397,13 +407,19 @@ obligations.`,
 			if err != nil {
 				return err
 			}
+			steps := []transition{step}
 			if start != nil {
-				if f.start, err = tenancyStartingPoint(start, f.appDir); err != nil {
+				// A shape whose tenants' people come through a directory alone writes the
+				// methods they come through first, so the tenancy step lays its
+				// directories over them.
+				var methods []transition
+				if f.start, methods, err = tenancyStartingPoint(start, f.appDir); err != nil {
 					return err
 				}
+				steps = append(methods, steps...)
 			}
 
-			return runTransition(cmd, &f, step, transition_.TenancyReferenceCandidate)
+			return runSteps(cmd, &f, steps, transition_.TenancyReferenceCandidate)
 		},
 	}
 	f.bind(cmd)
@@ -803,6 +819,12 @@ func askAuthority(cmd *cobra.Command) (string, error) {
 // deterministic half, go generate through the transition, the check with its fixes,
 // staging, and the handoff.
 func runTransition(cmd *cobra.Command, f *transitionFlags, t transition, reference string) error {
+	return runSteps(cmd, f, []transition{t}, reference)
+}
+
+// runSteps is the same flow for a subcommand whose change is more than one step: the
+// steps are applied in order on the one clean tree, and end in one check and one brief.
+func runSteps(cmd *cobra.Command, f *transitionFlags, ts []transition, reference string) error {
 	ctx := cmd.Context()
 	a, err := app.Discover(f.appDir)
 	if err != nil {
@@ -820,7 +842,7 @@ func runTransition(cmd *cobra.Command, f *transitionFlags, t transition, referen
 		return errors.Newf("the working tree is not clean (%d path(s)): commit or stash first, so the transition is one reviewable diff", len(dirty))
 	}
 
-	return runTransitions(cmd, f, repo, []transition{t}, reference)
+	return runTransitions(cmd, f, repo, ts, reference)
 }
 
 // runTransitions applies the transitions in order, each on the tree the one before it

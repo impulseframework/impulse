@@ -40,7 +40,13 @@ func TestAll(t *testing.T) {
 	if got, want := Keys(OfTenants()), "tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses"; got != want {
 		t.Errorf("Keys(OfTenants()) = %q, want %q", got, want)
 	}
+	if got, want := Keys(OfNew()), "directory-roles, tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses"; got != want {
+		t.Errorf("Keys(OfNew()) = %q, want %q", got, want)
+	}
 	for _, s := range All() {
+		if none := s.Number == 3 || s.Number == 6; s.NoPassword() != none {
+			t.Errorf("%s: NoPassword() = %v, want %v", s, s.NoPassword(), none)
+		}
 		if tenants := s.Number >= 5; s.HasTenants() != tenants {
 			t.Errorf("%s: HasTenants() = %v, want %v", s, s.HasTenants(), tenants)
 		}
@@ -71,6 +77,15 @@ func TestFind(t *testing.T) {
 		{name: "a tenants' shape", key: "global-users-each-tenant-chooses", offered: OfTenants(), command: "impulse new", want: "8 Global users, each tenant chooses"},
 		{name: "a method's shape by its number", key: "4", offered: OfMethods(), command: "impulse add auth", want: "4 Open sign-up"},
 		{name: "a tenants' shape by its number", key: "5", offered: OfTenants(), command: "impulse add tenancy", want: "5 Tenant-owned users, invite only"},
+		{name: "Directory roles as a new application's start", key: "directory-roles", offered: OfNew(), command: "impulse new", want: "3 Directory roles"},
+		{
+			name: "Directory roles given to the tenants' command", key: "3", offered: OfTenants(), command: "impulse add tenancy",
+			wantErr: "--shape 3: impulse add tenancy does not know that shape. It knows tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses. 3 Directory roles is a starting point of impulse new, impulse add auth and impulse add method, since a sign-in method's choices tell it apart",
+		},
+		{
+			name: "a method's shape a new application does not start from", key: "open-sign-up", offered: OfNew(), command: "impulse new",
+			wantErr: "--shape open-sign-up: impulse new does not know that shape. It knows directory-roles, tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses. 4 Open sign-up is a starting point of impulse add auth and impulse add method, since a sign-in method's choices tell it apart",
+		},
 		{
 			name: "a number no shape has", key: "9", offered: OfTenants(), command: "impulse new",
 			wantErr: "--shape 9: impulse new does not know that shape. It knows tenant-owned-users-invite-only, tenant-owned-users-by-directory, global-users-invite-only, global-users-each-tenant-chooses",
@@ -547,5 +562,82 @@ func TestShape_tenants(t *testing.T) {
 				t.Errorf("TenantsSay() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestByDirectoryMethods holds the methods Tenant-owned users, by directory, starts
+// with to what the shape typically is: a Google method open to any Google Workspace and
+// a Microsoft method open to any Microsoft Entra tenant, neither with personal accounts,
+// the application giving the roles of both.
+func TestByDirectoryMethods(t *testing.T) {
+	t.Parallel()
+
+	want := []string{
+		"google google: the accounts of any Google Workspace, roles from the application",
+		"azure azure: the accounts of any Microsoft Entra tenant, roles from the application",
+	}
+	var got []string
+	for _, m := range ByDirectoryMethods() {
+		if err := m.Validate(); err != nil {
+			t.Errorf("the %s method is not one impulse writes: %v", m.Name, err)
+		}
+		got = append(got, m.Kind+" "+m.Name+": "+SlotWidth(&m).Words+", roles from the "+m.Authority)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ByDirectoryMethods() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestStartsWithoutPassword pins what impulse new says of the first auth of each shape
+// that has no password sign-in: why it has none, what stands in the password's place,
+// and how a development run signs a person in.
+func TestStartsWithoutPassword(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		shape string
+		want  []string
+	}{
+		{shape: "directory-roles", want: []string{
+			"The staff auth has no password sign-in and invites no first administrator",
+			"the directory gives every role, the Super Administrator's included",
+			"the person APP_USERNAME names in the environment template, with the roles APP_ROLES names there",
+		}},
+		{shape: "tenant-owned-users-by-directory", want: []string{
+			"The staff auth has no password sign-in: every person of a tenant signs in through the tenant's own directory, so a password could enter no tenant",
+			"a Google method open to any Google Workspace and a Microsoft method open to any Microsoft Entra tenant, neither with personal accounts",
+			"Register the application at both providers before it deploys",
+			"its first administrator among them, come by invitation and accept it through either method",
+			"a development run signs its administrator in through it, as the persona admin",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.shape, func(t *testing.T) {
+			t.Parallel()
+
+			got := shapeOf(t, tt.shape).StartsWithoutPassword("staff", "admin")
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("StartsWithoutPassword() = %q, want it to say %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestAddTenancySays pins what impulse add tenancy says where it starts an application
+// as Tenant-owned users, by directory: of an auth it writes the shape's methods on, and
+// of an auth whose password method it leaves, which it says keeps the application
+// outside the shape, with the hand step that takes the method out.
+func TestAddTenancySays(t *testing.T) {
+	t.Parallel()
+
+	s := shapeOf(t, "tenant-owned-users-by-directory")
+	if got, want := s.WritesMethods("staff"), "The staff auth registered neither a Google nor a Microsoft method, so the command writes both: a Google method open to any Google Workspace and a Microsoft method open to any Microsoft Entra tenant, neither with personal accounts, the application giving the roles, which is how 6 Tenant-owned users, by directory is typically used."; !strings.HasPrefix(got, want) {
+		t.Errorf("WritesMethods() = %q, want it to begin %q", got, want)
+	}
+	want := "The staff auth keeps its password method, since no command removes a sign-in method, and the method keeps the application outside 6 Tenant-owned users, by directory: in that shape every person of a tenant signs in through the tenant's own directory, so a password could enter no tenant, and impulse audit says so until it is gone. Taking it out is a hand step (remove pkg/auth/staff/password.go and the registerPassword call in pkg/auth/staff/staff.go, take generation.PasswordMethod() out of the auth's declaration on its outlets in the generator program, and run go generate ./...)."
+	if got := s.PasswordKeepsOutside("staff", "pkg/auth/staff", "pkg/auth/staff/staff.go"); got != want {
+		t.Errorf("PasswordKeepsOutside() mismatch (-want +got):\n%s", cmp.Diff(want, got))
 	}
 }

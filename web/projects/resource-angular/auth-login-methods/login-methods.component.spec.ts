@@ -2367,6 +2367,86 @@ describe('LoginMethodsComponent shows the directory buttons that could admit the
   });
 });
 
+describe('LoginMethodsComponent over an auth that registers no password method', () => {
+  /**
+   * What the methods route of such an auth answers: its two directory methods, and none
+   * of the password method's routes (the change of a password, the reset of one, signing
+   * up with one, an account with a password for an invitation), which the server names
+   * only where the method is registered.
+   */
+  const directoryList: LoginMethods = {
+    methods: [google, entra],
+    pending: pendingRoutes,
+    invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept },
+    email: emailRoutes,
+  };
+
+  it('offers the directory buttons alone: no password form, no "Forgot your password?" and no account to create', async () => {
+    const page = await pageOver(server({ methods: directoryList }));
+    expect(buttonsOf(page)).toEqual(['Sign in with Google', 'Sign in with Lakeside staff']);
+    expect(page.element.querySelector('input[name="username"]')).toBeNull();
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-forgot')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-sign-up')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(orderOf(page)).toEqual([
+      'impulse-login-redirect',
+      'impulse-login-redirect',
+      'impulse-login-different-account',
+    ]);
+    // Nothing of the password method is asked for, whatever is called.
+    page.transport.requests.length = 0;
+    page.component.username = 'gale';
+    page.component.password = 'orbit-and-anchor';
+    await page.component.login();
+    page.component.beginReset();
+    page.component.beginSignUp();
+    await page.settle();
+    expect(sent(page.transport)).toEqual([]);
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it('an invitation is accepted through a directory button: no password form and no account with a password', async () => {
+    const page = await pageOver(
+      server({
+        methods: directoryList,
+        invitationOpen: {
+          status: 200,
+          body: {
+            ...invited,
+            signUp: false,
+            methods: ['google', 'lakeside-entra'],
+            accountExists: false,
+            hasPassword: false,
+          },
+        },
+      }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
+    expect(page.component.invitationPaths()).toEqual({
+      known: true,
+      redirects: [google, entra],
+      password: false,
+      create: false,
+    });
+    expect(buttonsOf(page)).toEqual([
+      'Continue with Google as ensign@fleet.example',
+      'Continue with Lakeside staff as ensign@fleet.example',
+    ]);
+    expect(page.element.querySelector('.impulse-login-invitation-note')?.textContent?.trim()).toBe(
+      'The invitation is for ensign@fleet.example.',
+    );
+    expect(page.element.querySelector('input[type="password"]')).toBeNull();
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.component.account()).toBeUndefined();
+    page.component.signInThrough(entra);
+    expect(page.left).toEqual([
+      `/console/api/user/lakeside-entra/login?returnUrl=${encodeURIComponent('/dashboard')}&login_hint=${encodeURIComponent('ensign@fleet.example')}`,
+    ]);
+  });
+});
+
 describe('LoginMethodsComponent signs a person up', () => {
   it('offers the step when the list names sign-up routes, asks for the address, posts it and says the link is on its way', async () => {
     const page = await pageOver(server({ methods: mailingList }));
