@@ -1,3 +1,5 @@
+@use '../../styles/headings';
+
 .container {
   border: 1px solid var(--impulse-outline);
   border-radius: 5px;
@@ -30,18 +32,38 @@
   position: relative;
 }
 
+// The page's title and, at the far end of its line or under it, the view's buttons.
 .header-container {
-  display: flex;
-  flex-direction: row;
+  @include headings.row;
   top: 0;
   z-index: 11;
   background: transparent;
 }
 
-.title {
+// The page's title, which the page hands the view to draw here: where the page drew it
+// itself it lay over this row, and over the buttons on a narrow screen. It keeps the
+// place it had, 48 pixels in from the row's start, and adds no height to a row of buttons.
+.page-title {
+  @include headings.page-title;
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  margin: 0 0 0 48px;
+
+  &.section {
+    @include headings.section-title;
+  }
+}
+
+// The title of the panel a view that is not a page's row is drawn in, and the header it
+// is in, which grows with a title of two lines.
+.title {
+  @include headings.panel-title;
+  display: flex;
+  align-items: center;
+}
+
+mat-expansion-panel-header {
+  @include headings.panel-header;
 }
 
 .message {
@@ -53,14 +75,17 @@
   padding: 1rem 1.5rem;
 }
 
+// The buttons stay at the far end, and wrap among themselves where one line does not hold them.
 .state-buttons {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   margin-top: auto;
   margin-bottom: auto;
   justify-content: right;
   flex-grow: 1;
-  gap: 20px;
+  gap: 8px 20px;
   margin-right: 20px;
   min-height: 36px;
 }

@@ -632,6 +632,72 @@ describe('a text cut short', () => {
     expect(tooltip()).toBeNull();
   });
 
+  describe('the anchor the tooltip is hung on', () => {
+    const box = (left: number, top: number, width: number, height: number): DOMRect => {
+      return { left, top, width, height, right: left + width, bottom: top + height } as DOMRect;
+    };
+    const anchor = (): HTMLElement => {
+      return element.querySelector('.cut-short-anchor') as HTMLElement;
+    };
+    /** The list's own box, which the anchor is placed in, and a cell's, as a browser's layout would give them. */
+    const laidOut = (cut: HTMLElement, list: DOMRect, cellBox: DOMRect): void => {
+      const host = element.querySelector('.impulse-grid-host') as HTMLElement;
+      // jsdom lays nothing out, so it knows no box an element is positioned in.
+      Object.defineProperty(anchor(), 'offsetParent', { configurable: true, value: host });
+      host.getBoundingClientRect = (): DOMRect => list;
+      cut.getBoundingClientRect = (): DOMRect => cellBox;
+    };
+    const placed = (): string[] => {
+      const style = anchor().style;
+      return [style.left, style.top, style.width, style.height];
+    };
+
+    it('is laid over the text, in the list', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['100px', '50px', '180px', '49px']);
+    });
+
+    it("is laid over no more of a text than is inside the list: a cell the list has partly scrolled out of view is offered over the part in view, and the anchor never reaches past the list's edge", async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      // The cell starts 40 before the list's right edge and runs 140 past it.
+      laidOut(cut, box(20, 100, 336, 400), box(316, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['296px', '50px', '40px', '49px']);
+      const [left, , width] = placed().map((length) => parseFloat(length));
+      expect(left + width).toBeLessThanOrEqual(336);
+    });
+
+    it('is taken back to nothing once the tooltip has closed and faded, so it is not left where the list may no longer be', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+      await pointerOff(cut);
+
+      // While the tooltip fades it stays where it was hung.
+      expect(placed()).toEqual(['100px', '50px', '180px', '49px']);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+      expect(placed()).toEqual(['0px', '0px', '0px', '0px']);
+    });
+
+    it('is kept where a text is offered again before the wait is over', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+      await pointerOff(cut);
+      await pointerOnto(cut);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['100px', '50px', '180px', '49px']);
+    });
+  });
+
   describe('where the whole pixels call it a fit', () => {
     // jsdom has no measure of a text's own width; a browser's is put in its place.
     const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };
@@ -1496,5 +1562,60 @@ describe('a list and the width of its frame', () => {
         expect(outer.scrollLeft).toBe(300);
       }
     });
+  });
+});
+
+// The pager under the list: the rows the page spans and the buttons that turn it. On one
+// line while they fit; in a frame too narrow for both, the buttons go under the words, at
+// the far end, and wrap among themselves, so nothing of the pager is cut off by the
+// list's edge, which clips whatever leaves it.
+describe("the list's pager", () => {
+  let element: HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'Commendations' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name' }]);
+    fixture.componentRef.setInput('page', { offset: 0, total: 34, hasPrev: false, hasNext: true });
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  /** What the list's stylesheet declares in the rules whose selector names `name`. */
+  const declares = (name: string): string => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      .filter(([, selector]) => selector.includes(name))
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  };
+
+  it('says the rows and offers the three buttons, each with its icon and its words', () => {
+    const pager = element.querySelector('.impulse-grid-pager') as HTMLElement;
+
+    expect(pager.querySelector('.pager-rows')?.textContent).toBe('1–1 of 34');
+    expect(
+      Array.from(pager.querySelectorAll('.pager-buttons button')).map((b) =>
+        b.textContent?.replace(/\s+/g, ' ').trim(),
+      ),
+    ).toEqual(['first_page First', 'chevron_left Previous', 'Next chevron_right']);
+  });
+
+  it('wraps in a frame too narrow for the words and the buttons on one line: the buttons go under the words, at the far end, and wrap among themselves', () => {
+    const pager = element.querySelector('.impulse-grid-pager') as HTMLElement;
+    const buttons = pager.querySelector('.pager-buttons') as HTMLElement;
+
+    expect(getComputedStyle(pager).flexWrap).toBe('wrap');
+    expect(getComputedStyle(buttons).flexWrap).toBe('wrap');
+    expect(declares('.pager-buttons')).toContain('margin-left: auto');
+    expect(declares('.pager-buttons')).toContain('justify-content: flex-end');
+    // What is past the list's edge is not drawn, so the pager must not reach past it.
+    expect(getComputedStyle(element.querySelector('.impulse-grid-host') as HTMLElement).overflow).toBe('hidden');
   });
 });

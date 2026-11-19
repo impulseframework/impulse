@@ -1,22 +1,29 @@
+@use '../../styles/headings';
+
 .page-container {
   position: relative;
   margin: 10px 0 0 0;
 }
 
+// The list's title and, at the far end of its line or under it, what the list offers.
 .header-container {
+  @include headings.row;
   margin-top: 10px;
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
   top: 0;
   z-index: 10;
   width: 100%;
 }
 
+// The page's own title where the list is the page, a section's where the list is one of
+// the things under a row.
 .title {
+  @include headings.page-title;
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+
+  &.section {
+    @include headings.section-title;
+  }
 }
 
 // A page's standing notice: what must not be overlooked while it holds, in the
@@ -49,9 +56,12 @@
   padding-left: 10px;
 }
 
+// The buttons wrap among themselves where one line does not hold them, each whole.
 .list-methods {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
   margin-top: auto;

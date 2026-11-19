@@ -24,6 +24,7 @@ import {
   METHOD_META,
   RESOURCE_META,
   ResourceMeta,
+  RootConfig,
   rootConfig,
   viewConfig,
 } from '@impulseframework/resource-angular/types';
@@ -215,10 +216,11 @@ async function settle(done: () => boolean): Promise<void> {
 }
 
 async function pageOver(
-  config: ReturnType<typeof viewConfig>,
+  config: ReturnType<typeof viewConfig> | undefined,
   script: Script,
   api: ApiDescriptor = descriptor,
   methodMetas: Record<string, MethodMeta> = {},
+  root?: RootConfig,
 ): Promise<ComponentFixture<CompoundResourceComponent>> {
   const listPage = listViewConfig({ primaryResource: 'Squadrons' as Resource, elements: [], listColumns: [] });
   await TestBed.configureTestingModule({
@@ -236,7 +238,8 @@ async function pageOver(
         useValue: {
           snapshot: {
             data: {
-              config: rootConfig({ parentConfig: listPage, routeData: { route: 'squadrons', hasViewRoute: true } }),
+              config:
+                root ?? rootConfig({ parentConfig: listPage, routeData: { route: 'squadrons', hasViewRoute: true } }),
             },
             params: {},
             queryParams: {},
@@ -247,9 +250,32 @@ async function pageOver(
   }).compileComponents();
   const fixture = TestBed.createComponent(CompoundResourceComponent);
   fixture.componentRef.setInput('uuid', 'sq-1');
-  fixture.componentRef.setInput('resourceConfig', config);
+  if (config) {
+    // A page handed no configuration is the route's own page.
+    fixture.componentRef.setInput('resourceConfig', config);
+  }
   fixture.detectChanges();
   return fixture;
+}
+
+/**
+ * What the stylesheet of the component an element belongs to declares, in the rules whose
+ * selector names every one of `names` and none of `without`: the rules as the page was
+ * given them, for what a spec's page, which lays nothing out, cannot show by drawing.
+ */
+function declared(of: Element, names: string[], without: string[] = []): string {
+  const scope = Array.from(of.attributes).find((attribute) => attribute.name.startsWith('_ngcontent'))?.name ?? '';
+  const sheet = Array.from(document.querySelectorAll('style'))
+    .map((style) => style.textContent ?? '')
+    .join('\n');
+  return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+    .filter(([, selector]) => {
+      return (
+        [scope, ...names].every((name) => selector.includes(name)) && without.every((name) => !selector.includes(name))
+      );
+    })
+    .map(([, , declarations]) => declarations)
+    .join('\n');
 }
 
 const urls = (script: Script): string[] => script.transport.requests.map((r) => r.url);
@@ -425,4 +451,175 @@ describe('CompoundResourceComponent row page, a method above a child list that n
       expect(buttons(fixture)).toEqual(tt.want);
     });
   }
+});
+
+// The page's title and the buttons of the page's own row view are one row. The view draws
+// the title the page hands it, first in the row its buttons end, and the row wraps: on a
+// screen too narrow for both, the buttons go under the title and are never drawn over it,
+// and a title longer than its line breaks. The page draws the title itself only where no
+// such view does. The sizes are the library's two tokens, a page's title and a section's.
+describe("CompoundResourceComponent: the page's title", () => {
+  const roster = listViewConfig({
+    title: 'Roster',
+    primaryResource: 'SquadronRosters' as Resource,
+    parentRelation: { parentKey: 'id' as FieldName, childKey: 'squadronId' as FieldName },
+    listColumns: [{ id: 'pilotName' as FieldName }],
+    elements: [],
+    showBackButton: false,
+  });
+  /** A squadron's page whose row view is drawn on the page itself, not folded into a panel. */
+  const titled = viewConfig({
+    title: 'Squadron',
+    primaryResource: 'Squadrons' as Resource,
+    elements: [],
+    collapsible: false,
+    relatedConfigs: [roster],
+  });
+  const element = (fixture: ComponentFixture<unknown>): HTMLElement => {
+    return fixture.nativeElement as HTMLElement;
+  };
+  /** The title where the page draws it itself. */
+  const ownTitle = (fixture: ComponentFixture<unknown>): Element | null => {
+    return element(fixture).querySelector(':scope > .page-container > .header-container h1');
+  };
+  /** The row the view draws the title and its buttons in. */
+  const headingRow = (fixture: ComponentFixture<unknown>): HTMLElement => {
+    return element(fixture).querySelector('impulse-resource-view .header-container') as HTMLElement;
+  };
+  const present = async (
+    config: ReturnType<typeof viewConfig> | undefined,
+    root?: RootConfig,
+  ): Promise<ComponentFixture<CompoundResourceComponent>> => {
+    const script = scripted();
+    const fixture = await pageOver(config, script, descriptor, {}, root);
+    await settle(() => rowReads(script).length === 1);
+    script.releaseRow();
+    await settle(() => rosterLists(script).length === 1);
+    return fixture;
+  };
+
+  it('hands its title to the view of its row, which draws it first in the row its buttons end, and does not draw it itself', async () => {
+    const fixture = await present(titled);
+    const row = headingRow(fixture);
+
+    expect(Array.from(row.children).map((child) => `${child.tagName.toLowerCase()}.${child.classList[0]}`)).toEqual([
+      'h1.page-title',
+      'div.state-buttons',
+    ]);
+    expect(row.querySelector('h1')?.textContent).toBe('Squadron');
+    // The close button is one of the buttons of that row, so it goes where they go.
+    expect(row.querySelector('.state-buttons .close-button button')).not.toBeNull();
+    expect(ownTitle(fixture)).toBeNull();
+    const drawn = Array.from(element(fixture).querySelectorAll('h1')).filter(
+      (h) => h.textContent?.trim() === 'Squadron',
+    );
+    expect(drawn).toHaveLength(1);
+  });
+
+  it('keeps the title in its row while the row is still being read, with no button beside it yet', async () => {
+    const script = scripted();
+    const fixture = await pageOver(titled, script);
+    await settle(() => rowReads(script).length === 1);
+
+    expect(headingRow(fixture).querySelector('h1.page-title')?.textContent).toBe('Squadron');
+    expect(headingRow(fixture).querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('holds that row to the rule of every heading row: it wraps, what follows the title is pushed to the far end of its line, and the buttons wrap among themselves', async () => {
+    const fixture = await present(titled);
+    const row = headingRow(fixture);
+
+    expect(declared(row, ['.header-container'], ['>'])).toContain('flex-wrap: wrap');
+    expect(declared(row, ['.header-container', '>', '+'])).toContain('margin-left: auto');
+    expect(declared(row, ['.state-buttons'])).toContain('flex-wrap: wrap');
+    expect(declared(row, ['.state-buttons'])).toContain('justify-content: right');
+  });
+
+  it('draws a title that breaks where its line ends, on lines of a set height, at the size of its kind', async () => {
+    const fixture = await present(titled);
+    const title = headingRow(fixture).querySelector('h1') as HTMLElement;
+
+    const any = declared(title, ['.page-title'], ['.section']);
+    expect(any).toContain('overflow-wrap: anywhere');
+    expect(any).toContain('min-width: 0');
+    expect(any).toContain('line-height: 1.2');
+    expect(any).toContain('font-size: var(--impulse-page-title-size)');
+    expect(declared(title, ['.page-title', '.section'])).toContain('font-size: var(--impulse-section-title-size)');
+    // In the row, so it takes its own room: the page no longer lays it over the row.
+    expect(declared(title, ['.page-title'])).not.toContain('position');
+  });
+
+  it("draws the title of a page that is a part of another as a section's, and the lists under it as sections too", async () => {
+    const fixture = await present(titled);
+
+    expect(headingRow(fixture).querySelector('h1')?.classList.contains('section')).toBe(true);
+    expect(element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('section')).toBe(true);
+  });
+
+  it("draws the title of the route's own page as the page's, and the lists under it as sections", async () => {
+    const fixture = await present(
+      undefined,
+      rootConfig({
+        parentConfig: listViewConfig({
+          title: 'Squadron',
+          primaryResource: 'Squadrons' as Resource,
+          elements: [],
+          listColumns: [],
+        }),
+        relatedConfigs: [roster],
+        routeData: { route: 'squadrons', hasViewRoute: true },
+      }),
+    );
+
+    const title = headingRow(fixture).querySelector('h1');
+    expect(title?.textContent).toBe('Squadron');
+    expect(title?.classList.contains('section')).toBe(false);
+    expect(element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('section')).toBe(true);
+  });
+
+  it('draws the title itself where the view of its row is folded into a panel, which has a title of its own', async () => {
+    const fixture = await present(viewConfig({ ...titled, collapsible: true }));
+
+    expect(ownTitle(fixture)?.textContent).toBe('Squadron');
+    expect(ownTitle(fixture)?.classList.contains('section')).toBe(true);
+    expect(element(fixture).querySelector('impulse-resource-view h1.page-title')).toBeNull();
+    const own = ownTitle(fixture) as Element;
+    expect(declared(own, ['.title', 'h1'], ['.section'])).toContain('font-size: var(--impulse-page-title-size)');
+    expect(declared(own, ['.title', 'h1', '.section'])).toContain('font-size: var(--impulse-section-title-size)');
+    expect(declared(own, ['.title', 'h1'], ['.section'])).toContain('overflow-wrap: anywhere');
+  });
+
+  it("draws the title of a section that folds away as a section's, in a header that grows with a title of two lines", async () => {
+    const script = scripted();
+    const fixture = await pageOver(squadronPage, script);
+    await settle(() => rowReads(script).length === 1);
+    script.releaseRow();
+    await settle(() => arrayLists(script).length === 1 && rosterLists(script).length === 1);
+    const header = element(fixture).querySelector(
+      'impulse-resource-array-view mat-expansion-panel-header',
+    ) as HTMLElement;
+    const title = header.querySelector('h1.title') as HTMLElement;
+
+    expect(title.textContent?.trim()).toBe('Other squadrons');
+    expect(declared(title, ['.title'])).toContain('font-size: var(--impulse-section-title-size)');
+    expect(declared(title, ['.title'])).toContain('overflow-wrap: anywhere');
+    // The header centers the title, which brings no space of its own.
+    expect(declared(title, ['.title'])).toContain('margin: 0');
+    // Material gives a header one height; here that is the least it is, and a title of two lines makes it taller.
+    const folded = declared(header, ['mat-expansion-panel-header'], ['.mat-expanded']);
+    expect(folded).toContain('height: auto');
+    expect(folded).toContain('min-height: var(--mat-expansion-header-collapsed-state-height, 48px)');
+    const open = declared(header, ['mat-expansion-panel-header', '.mat-expanded']);
+    expect(open).toContain('height: auto');
+    expect(open).toContain('min-height: var(--mat-expansion-header-expanded-state-height, 64px)');
+  });
+
+  it('draws the title itself on a page with no view of its row', async () => {
+    const script = scripted();
+    const fixture = await pageOver(viewConfig({ ...titled, relatedConfigs: [] }), script);
+    await settle(() => rowReads(script).length === 1);
+
+    expect(element(fixture).querySelector('impulse-resource-view')).toBeNull();
+    expect(ownTitle(fixture)?.textContent).toBe('Squadron');
+  });
 });

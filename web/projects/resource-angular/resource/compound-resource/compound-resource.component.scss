@@ -1,20 +1,32 @@
+@use '../../styles/headings';
+
 .page-container {
   position: relative;
 }
 
+// The title where the page draws it itself: a page with no row view of its own.
 .header-container {
   display: flex;
   flex-direction: row;
   position: absolute;
   top: 0;
   z-index: 11;
+  max-width: 100%;
   background: transparent;
 }
 
 .title {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  min-width: 0;
+
+  h1 {
+    @include headings.page-title;
+
+    &.section {
+      @include headings.section-title;
+    }
+  }
 }
 
 .title-without-back {

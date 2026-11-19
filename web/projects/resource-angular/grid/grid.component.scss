@@ -463,12 +463,16 @@ $held-header-layer: 6;
   z-index: 1;
 }
 
+// The rows the page spans and, at the far end, the buttons that turn it: on one line
+// while they fit, and the buttons under the words, still at the far end, in a frame too
+// narrow for both. Nothing of the pager is ever cut off by the list's edge.
 .impulse-grid-pager {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0 12px;
   border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   padding: 4px 12px;
 }
@@ -479,10 +483,14 @@ $held-header-layer: 6;
   white-space: nowrap;
 }
 
+// The buttons wrap among themselves in a frame narrower than the three of them.
 .pager-buttons {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 4px;
+  gap: 0 4px;
+  margin-left: auto;
 }
 
 .filter-trigger-wrap {

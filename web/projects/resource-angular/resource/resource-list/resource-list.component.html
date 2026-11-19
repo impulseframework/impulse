@@ -1,6 +1,6 @@
 <div [class]="linkCreateType() ? 'page-container hide' : 'page-container'">
   <div class="header-container" [class.show-background]="!config().collapsible" [class.indent]="indentTitle()">
-    <h1 class="title">{{ listTitle() }}</h1>
+    <h1 class="title" [class.section]="isRootList() === false">{{ listTitle() }}</h1>
     <action-access-control-wrapper [actionContext]="createButtonContext()">
       <div class="create-button">
         <button mat-raised-button color="accent" (click)="createResource($event)">
