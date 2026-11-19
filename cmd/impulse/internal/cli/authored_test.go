@@ -15,7 +15,9 @@ import (
 
 	"github.com/go-playground/errors/v5"
 
+	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/handoff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/shape"
 )
 
 // runAuthored, set in the environment, runs TestAuthoredApplication. The test makes an
@@ -24,18 +26,40 @@ import (
 // the job that has the emulator and golangci-lint at hand.
 const runAuthored = "IMPULSE_AUTHORED"
 
-// authoredModule is the module path of the application the test makes.
-const authoredModule = "example.com/ci/wharf"
+// authoredModule is the module path the applications the test makes are under, each by
+// its name.
+const authoredModule = "example.com/ci"
 
 // vetFileRE reads a file the compiler stopped at from the go command's output.
 var vetFileRE = regexp.MustCompile(`(?m)^(?:vet: )?(\S+\.go):\d+:\d+: `)
 
-// TestAuthoredApplication makes an application the way its author does, with the
-// commands and nothing else, and holds what they left to the application's own
-// formatting and lint and to the brief: impulse new with a sign-in shape that composes
-// tenancy, then a Google method and an organization's identity provider added, a commit
-// after each as an author checkpoints the work. The commands leave obligations, and
-// the brief is where each is named, so the test holds that nothing else is left:
+// authoredApplication is an application made the way its author makes one, with the
+// commands and nothing else: where it is, and the briefs the commands left.
+type authoredApplication struct {
+	dir string
+	// tenancyBrief is the brief impulse new left, and standing the brief as the last
+	// command left it.
+	tenancyBrief, standing string
+	// madeAs is the staff auth as impulse audit read it once impulse new was done,
+	// before any method was added.
+	madeAs *shape.Auth
+}
+
+// read reads a file of the application by its path from the root.
+func (a *authoredApplication) read(t *testing.T, rel string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(a.dir, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("reading %s: %v", rel, err)
+	}
+
+	return string(data)
+}
+
+// author makes an application under the name with impulse new, given the sign-in
+// shape, and one impulse add method for each of the methods, a commit after each as an
+// author checkpoints the work, and holds what the commands left to the application's
+// own formatting and lint and to the brief:
 //
 //   - every Go file is formatted, by gofmt and by the formatters the application's lint
 //     configuration names;
@@ -44,30 +68,13 @@ var vetFileRE = regexp.MustCompile(`(?m)^(?:vet: )?(\S+\.go):\d+:\d+: `)
 //     tenancy brief says what becomes of each suite the base carried;
 //   - the application's own lint, under both of its tag sets, finds nothing in any
 //     package that compiles;
-//   - an auth sets one sign-in rule, the brief is in no commit, the auth package's doc and
-//     the README say what the application is now, and the words given for the provider
-//     are on its declaration, in the file the brief names.
-//
-// It costs about a minute and a half and under four gigabytes on a machine whose Go
-// caches and emulator image are warm: seventy seconds for the three commands (each
-// regenerates against the emulator), the rest the build, the vet and the lint runs.
-func TestAuthoredApplication(t *testing.T) {
-	if os.Getenv(runAuthored) == "" {
-		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy) and the application's lint (golangci-lint), about a minute and a half", runAuthored)
-	}
-	if _, err := osexec.LookPath("golangci-lint"); err != nil {
-		t.Fatalf("%s is set and golangci-lint is not on the PATH: the application's own lint is what the result is held to", runAuthored)
-	}
-	checkout, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The commits are made under an identity of the test's own, whatever the machine has.
-	t.Setenv("GIT_AUTHOR_NAME", "ci")
-	t.Setenv("GIT_AUTHOR_EMAIL", "ci@example.com")
-	t.Setenv("GIT_COMMITTER_NAME", "ci")
-	t.Setenv("GIT_COMMITTER_EMAIL", "ci@example.com")
-	dir := filepath.Join(t.TempDir(), "wharf")
+//   - an auth sets one sign-in rule, the brief is in no commit, and neither the README
+//     nor the App still says the application has no tenants.
+func author(t *testing.T, checkout, name, shapeKey string, methods [][]string) *authoredApplication {
+	t.Helper()
+
+	made := &authoredApplication{dir: filepath.Join(t.TempDir(), name)}
+	dir := made.dir
 	run := func(name string, args ...string) (string, error) {
 		cmd := osexec.CommandContext(t.Context(), name, args...) //nolint:gosec // the test's own commands: go, git and golangci-lint, with the arguments written below
 		cmd.Dir = dir
@@ -86,21 +93,8 @@ func TestAuthoredApplication(t *testing.T) {
 	}
 	brief := func() string {
 		t.Helper()
-		data, err := os.ReadFile(filepath.Join(dir, handoff.File))
-		if err != nil {
-			t.Fatalf("reading the brief: %v", err)
-		}
 
-		return string(data)
-	}
-	read := func(rel string) string {
-		t.Helper()
-		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
-		if err != nil {
-			t.Fatalf("reading %s: %v", rel, err)
-		}
-
-		return string(data)
+		return made.read(t, handoff.File)
 	}
 	checkpoint := func(message string) {
 		t.Helper()
@@ -111,31 +105,29 @@ func TestAuthoredApplication(t *testing.T) {
 		}
 	}
 
-	// The author's three commands.
+	// The author's commands.
 	var said bytes.Buffer
 	create := newNew()
 	create.SetOut(&said)
 	create.SetErr(&said)
-	create.SetArgs([]string{dir, "--module", authoredModule, "--auth", "staff", "--shape", "global-users-each-tenant-chooses", "--dev-root", checkout})
+	create.SetArgs([]string{dir, "--module", authoredModule + "/" + name, "--auth", "staff", "--shape", shapeKey, "--dev-root", checkout})
 	if err := create.Execute(); err != nil {
 		t.Fatalf("impulse new error = %v\n%s", err, said.String())
 	}
-	tenancyBrief := brief()
-	standing := tenancyBrief
+	made.tenancyBrief = brief()
+	made.standing = made.tenancyBrief
 	checkpoint("checkpoint: tenancy as impulse new composed it")
-	for _, method := range [][]string{
-		{"staff", "google", "--slot", "any", "--authority", "application"},
-		{"staff", "oidc", "sso", "--authority", "application", "--label", "Lakeside ID"},
-	} {
+	made.madeAs = readShape(t, dir)
+	for _, method := range methods {
 		said.Reset()
 		add := newAddMethod()
 		add.SetOut(&said)
 		add.SetErr(&said)
-		add.SetArgs(append(method, "--app", dir))
+		add.SetArgs(append(slices.Clone(method), "--app", dir))
 		if err := add.Execute(); err != nil {
 			t.Fatalf("impulse add method %s error = %v\n%s", strings.Join(method, " "), err, said.String())
 		}
-		standing = brief()
+		made.standing = brief()
 		checkpoint("checkpoint: the " + method[1] + " method")
 	}
 
@@ -190,12 +182,12 @@ func TestAuthoredApplication(t *testing.T) {
 		if !strings.HasSuffix(file, "_test.go") {
 			t.Errorf("%s does not compile, and it is no test: the commands leave an application that builds\n%s", file, vet)
 		}
-		if !strings.Contains(standing, file) {
+		if !strings.Contains(made.standing, file) {
 			t.Errorf("%s does not compile, and the standing brief does not name it:\n%s", file, vet)
 		}
 	}
 	for _, suite := range []string{"test/integration/sign_up_test.go", "test/integration/sign_up_role_test.go", "test/integration/first_administrator_test.go"} {
-		if !strings.Contains(tenancyBrief, "- "+suite+" ") {
+		if !strings.Contains(made.tenancyBrief, "- "+suite+" ") {
 			t.Errorf("the tenancy brief does not say what becomes of %s, a suite the base carried", suite)
 		}
 	}
@@ -205,7 +197,7 @@ func TestAuthoredApplication(t *testing.T) {
 	// --dev-root writes, which the lint rightly refuses and CI sets aside the same way.
 	var healthy []string
 	for pkg := range strings.Lines(must("go", "list", "./...")) {
-		rel := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(pkg), authoredModule), "/")
+		rel := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(pkg), authoredModule+"/"+name), "/")
 		if rel == "" {
 			rel = "."
 		}
@@ -224,24 +216,193 @@ func TestAuthoredApplication(t *testing.T) {
 	}
 
 	// What the commands say of the application is true of it.
-	auth := read("pkg/auth/staff/staff.go")
-	if n := strings.Count(auth, ".SetSignInPolicy("); n != 1 {
+	if n := strings.Count(made.read(t, "pkg/auth/staff/staff.go"), ".SetSignInPolicy("); n != 1 {
 		t.Errorf("pkg/auth/staff/staff.go sets the sign-in rule %d time(s), want once: an Auth has one rule and a second call panics when the auth opens", n)
 	}
-	if want := "// Package staff is the staff auth: the people who sign in to the console with a password,\n// or with any Google account, or through the organization's own identity provider, who\n// hold their roles in the staff permission store.\n//\n"; !strings.HasPrefix(auth, want) {
-		t.Errorf("pkg/auth/staff/staff.go starts %q, want %q", auth[:min(len(auth), 320)], want)
-	}
-	if readme := read("README.md"); strings.Contains(readme, "no tenancy") || !strings.Contains(readme, "tenancy as data: the `Tenant` record") {
+	if readme := made.read(t, "README.md"); strings.Contains(readme, "no tenancy") || !strings.Contains(readme, "tenancy as data: the `Tenant` record") {
 		t.Errorf("README.md still describes an application without tenants:\n%s", readme[:min(len(readme), 500)])
 	}
-	if app := read("app/app.go"); strings.Contains(app, "The application has no tenants") {
+	if appFile := made.read(t, "app/app.go"); strings.Contains(appFile, "The application has no tenants") {
 		t.Error("app/app.go still says the application has no tenants")
 	}
-	program := "cmd/generate/resourcegenerator/generator.go"
-	if !strings.Contains(read(program), `generation.OIDCMethod("sso").Labeled("Lakeside ID")`) {
-		t.Errorf("%s does not carry the words given for the provider:\n%s", program, read(program))
+
+	return made
+}
+
+// TestAuthoredApplication makes two applications the way their author does, with the
+// commands and nothing else, and holds what the commands left to each application's own
+// formatting and lint and to the brief (author). The commands leave obligations, and
+// the brief is where each is named, so the test holds that nothing else is left.
+//
+// The first is an application whose tenants can have directories: impulse new with the
+// shape Global users, each tenant chooses, then a Google method and an organization's
+// identity provider added. Its auth package's doc says what the auth is now, and the
+// words given for the provider are on its declaration, in the file the brief names.
+//
+// The second is an application whose tenants have no directories: impulse new with the
+// shape Tenant-owned users, invite only, then a Google method added. It is read as that
+// shape before the method is added and after it, the reading names the method as a way
+// for an invited person to sign in, and nothing the commands wrote or generated names a
+// tenant's directory: no record, no reader, no admission, no route.
+//
+// It costs about three minutes and under four gigabytes on a machine whose Go caches
+// and emulator image are warm: each command regenerates against the emulator (about
+// twenty-five seconds), and the rest is each application's build, vet and lint runs.
+func TestAuthoredApplication(t *testing.T) {
+	if os.Getenv(runAuthored) == "" {
+		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy) and the application's lint (golangci-lint), about three minutes", runAuthored)
 	}
-	if want := program + `: people read the sso method as "Lakeside ID"`; !strings.Contains(standing, want) {
-		t.Errorf("the brief does not name the file that holds the provider's words (%q):\n%s", want, standing)
+	if _, err := osexec.LookPath("golangci-lint"); err != nil {
+		t.Fatalf("%s is set and golangci-lint is not on the PATH: the application's own lint is what the result is held to", runAuthored)
 	}
+	checkout, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The commits are made under an identity of the test's own, whatever the machine has.
+	t.Setenv("GIT_AUTHOR_NAME", "ci")
+	t.Setenv("GIT_AUTHOR_EMAIL", "ci@example.com")
+	t.Setenv("GIT_COMMITTER_NAME", "ci")
+	t.Setenv("GIT_COMMITTER_EMAIL", "ci@example.com")
+
+	// The two applications are made one after the other: each regenerates against the
+	// emulator and runs its own lint, and side by side they would need twice the memory.
+	t.Run("tenants that can have directories", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above says
+		made := author(t, checkout, "wharf", "global-users-each-tenant-chooses", [][]string{
+			{"staff", "google", "--slot", "any", "--authority", "application"},
+			{"staff", "oidc", "sso", "--authority", "application", "--label", "Lakeside ID"},
+		})
+		auth := made.read(t, "pkg/auth/staff/staff.go")
+		if want := "// Package staff is the staff auth: the people who sign in to the console with a password,\n// or with any Google account, or through the organization's own identity provider, who\n// hold their roles in the staff permission store.\n//\n"; !strings.HasPrefix(auth, want) {
+			t.Errorf("pkg/auth/staff/staff.go starts %q, want %q", auth[:min(len(auth), 320)], want)
+		}
+		program := "cmd/generate/resourcegenerator/generator.go"
+		if !strings.Contains(made.read(t, program), `generation.OIDCMethod("sso").Labeled("Lakeside ID")`) {
+			t.Errorf("%s does not carry the words given for the provider:\n%s", program, made.read(t, program))
+		}
+		if want := program + `: people read the sso method as "Lakeside ID"`; !strings.Contains(made.standing, want) {
+			t.Errorf("the brief does not name the file that holds the provider's words (%q):\n%s", want, made.standing)
+		}
+		// Until a method through an organization's directory is added, no tenant's
+		// people can come through one, and the application reads as the invite-only shape.
+		if want := "7 Global users, invite only"; made.madeAs.Shape == nil || made.madeAs.Shape.String() != want {
+			t.Errorf("before a method is added, impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
+		}
+		if got, want := readShape(t, made.dir), "8 Global users, each tenant chooses"; got.Shape == nil || got.Shape.String() != want {
+			t.Errorf("impulse audit reads the staff auth as %v, want %s", got.Shape, want)
+		}
+	})
+
+	t.Run("tenants with no directories", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "yard", "tenant-owned-users-invite-only", [][]string{
+			{"staff", "google", "--slot", "any", "--authority", "application"},
+		})
+		// The application is the shape it was made as, before the Google method is on it
+		// and after.
+		const noDirectories = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
+		if want := "5 Tenant-owned users, invite only"; made.madeAs.Shape == nil || made.madeAs.Shape.String() != want {
+			t.Errorf("before a method is added, impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
+		}
+		if want := noDirectories + "."; made.madeAs.Says != want {
+			t.Errorf("before a method is added, impulse audit says %q of the staff auth, want %q", made.madeAs.Says, want)
+		}
+		got := readShape(t, made.dir)
+		if want := "5 Tenant-owned users, invite only"; got.Shape == nil || got.Shape.String() != want {
+			t.Errorf("impulse audit reads the staff auth as %v, want %s: a method through an organization's directory does not change the shape of an application whose tenants have no directories", got.Shape, want)
+		}
+		if want := noDirectories + ", and the google method is a way for an invited person to sign in and nothing more."; got.Says != want {
+			t.Errorf("impulse audit says %q of the staff auth, want %q", got.Says, want)
+		}
+		if !slices.ContainsFunc(got.Methods, func(m shape.Method) bool { return m.Name == "google" }) {
+			t.Errorf("impulse audit reads no google method on the staff auth: %+v", got.Methods)
+		}
+		// The brief the tenancy step left says the tenants have no directories, and that
+		// laying them in is the author's act.
+		for _, want := range []string{"No tenant has a directory in this application (`--tenant-directories=false`)", "Giving the application tenant directories later is the author's act and no command's"} {
+			if !strings.Contains(made.tenancyBrief, want) {
+				t.Errorf("the tenancy brief does not say %q", want)
+			}
+		}
+		// Nothing the commands wrote or the generator emitted gives a tenant a directory:
+		// no record or table, no switch on the tenant record, no reader or admission in
+		// the auth or the data level, no route and no page. (The generated code that every
+		// application carries still says in its comments what the library does with a
+		// directory, and the generated maker refuses an invitation that asks for one.)
+		tree, err := os.OpenRoot(made.dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tree.Close()
+		// absent are the words no file under the path may hold.
+		absent := []struct {
+			under string
+			words []string
+		}{
+			{under: "schema/", words: []string{"TenantDirector", "DirectoryOnly"}},
+			{under: "pkg/resources/", words: []string{"TenantDirector", "DirectoryOnly", "@tenantDirectory", "@directoryOnly"}},
+			{under: "pkg/auth/", words: []string{"TenantDirectories", "SetDirectoryAdmission", "DirectoryReader"}},
+			{under: "pkg/config/", words: []string{"TenantDirectories", "DirectoryReader"}},
+			{under: "pkg/router/", words: []string{"TenantDirector", "tenant-director", "DirectoryOnly", "directory-only", "to-directory"}},
+			{under: "web/", words: []string{"TenantDirector", "tenantDirector", "tenant-director", "directoryOnly", "DirectoryOnly", "tenantSignInPage", "tenantSignInRoute", "sign-in.routes"}},
+		}
+		err = fs.WalkDir(tree.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return errors.Wrap(err, "fs.WalkDir()")
+			}
+			if d.IsDir() {
+				if d.Name() == ".git" || d.Name() == "node_modules" {
+					return fs.SkipDir
+				}
+
+				return nil
+			}
+			if name := d.Name(); name == "tenant_directories.go" || strings.HasPrefix(name, "zz_gen_tenant_director") || strings.HasPrefix(name, "tenant-sign-in.") {
+				t.Errorf("%s is a file of a tenant's directory, in an application whose tenants have no directories", p)
+			}
+			if !slices.Contains([]string{".go", ".ts", ".html", ".sql", ".json"}, path.Ext(p)) {
+				return nil
+			}
+			src, err := fs.ReadFile(tree.FS(), p)
+			if err != nil {
+				return errors.Wrap(err, "fs.ReadFile()")
+			}
+			for _, held := range absent {
+				if !strings.HasPrefix(p, held.under) {
+					continue
+				}
+				for _, word := range held.words {
+					if bytes.Contains(src, []byte(word)) {
+						t.Errorf("%s names %s, in an application whose tenants have no directories", p, word)
+					}
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// readShape reads the staff auth of the application as impulse audit does.
+func readShape(t *testing.T, dir string) *shape.Auth {
+	t.Helper()
+
+	a, err := app.Discover(dir)
+	if err != nil {
+		t.Fatalf("app.Discover() error = %v", err)
+	}
+	reading, err := shape.Read(a)
+	if err != nil {
+		t.Fatalf("shape.Read() error = %v", err)
+	}
+	for i := range reading.Auths {
+		if reading.Auths[i].Name == "staff" {
+			return &reading.Auths[i]
+		}
+	}
+	t.Fatalf("impulse audit reads no staff auth in %s", dir)
+
+	return nil
 }

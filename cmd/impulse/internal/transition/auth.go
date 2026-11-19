@@ -515,7 +515,9 @@ func modulePath(a *app.App) string {
 // reader the data level hands in (the settings copied from the source auth carry it),
 // admitting a person who holds no tenant where the auth's people create a tenant of
 // their own (admitWithoutTenant): a person who signs up through a method an
-// administrator opened signs in first and creates one. Nil for a site without tenants.
+// administrator opened signs in first and creates one. The policy says whether the
+// application has tenant directories, which decides whether the auth carries the
+// directory reader and sets the directory admission. Nil for a site without tenants.
 func tenantPolicy(a *app.App, site *app.Site, admitWithoutTenant bool) *authpkg.TenantPolicy {
 	if !site.Tenanted() {
 		return nil
@@ -525,8 +527,20 @@ func tenantPolicy(a *app.App, site *app.Site, admitWithoutTenant bool) *authpkg.
 	return &authpkg.TenantPolicy{
 		Record:             record,
 		Reader:             packageNameOf(a, site.Generator.HandlersDir()) + ".New" + record + "DeclarationReader",
+		Directories:        hasTenantDirectories(a),
 		AdmitWithoutTenant: admitWithoutTenant,
 	}
+}
+
+// hasTenantDirectories reports whether the application's tenants can have directories:
+// some site's resource package declares a directories record (@tenantDirectory). It is
+// asked of the application and not of one site, as impulse audit asks it: a site that
+// declares the tenant record another site serves declares no directories record of its
+// own, and its auths carry that site's readers all the same.
+func hasTenantDirectories(a *app.App) bool {
+	profile := a.Profile()
+
+	return slices.ContainsFunc(profile.Sites, func(site app.Site) bool { return site.Directories != nil })
 }
 
 // servesTenantRecord reports whether the site's tenant record is served on the outlet:

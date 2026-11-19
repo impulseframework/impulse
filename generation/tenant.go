@@ -4,6 +4,7 @@ import (
 	"go/types"
 	"log"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -221,9 +222,19 @@ func (r *resourceGenerator) requireTenantRecordForMethods() error {
 	return nil
 }
 
+// declaresNoDirectories reports a tenant record of an application whose tenants have no
+// directories, as one package can know it: the record declares none (declaration is
+// nil) and its rows are made here, its patch handler not suppressed. A package that
+// declares the record another site serves suppresses the handler, and says nothing of
+// the application's directories, which are that site's to declare.
+func declaresNoDirectories(tenant *resourceInfo, declaration *tenantDeclarationColumns) bool {
+	return declaration == nil && !slices.Contains(tenant.SuppressedHandlers, PatchHandler)
+}
+
 // tenantsData feeds the handler package's tenants file: the record's roster constructor
-// and, where the record declares who may enter a tenant, the declaration's columns and
-// the sign-in policy's reader constructor.
+// and the sign-in policy's reader constructor, over the declaration's columns where the
+// record declares who may enter a tenant, and answering nothing where the application's
+// tenants have no directories (NoDirectories).
 type tenantsData struct {
 	Source  string
 	Package string
@@ -245,7 +256,13 @@ type tenantsData struct {
 	// refusal of the directory's rules calls one tenant, and ResourcePackage the
 	// package of the record's create patch; all three are empty where the record
 	// declares none.
-	Declaration         *tenantDeclarationColumns
+	Declaration *tenantDeclarationColumns
+	// NoDirectories reports a record that declares no directories and whose rows are
+	// made in this package (its patch handler is not suppressed): the application's
+	// tenants have no directories, and the file carries the reader that answers nothing
+	// for every tenant. It is false for a record another site serves, declared here for
+	// its segment and its roster alone, which gets no reader.
+	NoDirectories       bool
 	Directories         string
 	DefaultSeat         string
 	Directory           *tenantDirectoryWrite
@@ -324,9 +341,14 @@ func (r *resourceGenerator) tenantMakerData(record *resourceInfo) *tenantMakerDa
 }
 
 // generateTenants emits the tenant record's roster constructor, New<Record>Roster, into
-// the handler package whenever the package declares a tenant record, and beside it,
-// when the record declares who may enter a tenant, New<Record>DeclarationReader, the
-// sign-in policy's reader of the declaration.
+// the handler package whenever the package declares a tenant record, and beside it
+// New<Record>DeclarationReader, the sign-in policy's reader of what a tenant declares
+// about who may enter it: the reader of the declaration when the record declares one,
+// and a reader that answers nothing when it declares no directories and its rows are
+// made here, so every application with tenants hands its auths the same constructor. A
+// package that declares the record another site serves (its patch handler suppressed)
+// and no directories record gets no reader: the directories, where the application has
+// them, are that site's to declare, and its reader is the one the auths are handed.
 func (r *resourceGenerator) generateTenants() error {
 	tenant := r.tenantRecord()
 	if tenant == nil {
@@ -337,6 +359,7 @@ func (r *resourceGenerator) generateTenants() error {
 	destinationFilePath := filepath.Join(r.handler.Dir(), generatedGoFileName(tenantRosterOutputName))
 
 	keyColumn, _ := tenant.PrimaryKey().LookupTag(spannerTagKey)
+	declaration := r.declarationColumns(tenant)
 	data := &tenantsData{
 		Source:              r.resource.Dir(),
 		Package:             r.handler.Package(),
@@ -344,7 +367,8 @@ func (r *resourceGenerator) generateTenants() error {
 		Table:               r.pluralize(tenant.Name()),
 		KeyColumn:           keyColumn,
 		RecordLower:         strings.ToLower(strcase.ToCase(tenant.Name(), strcase.LowerCase, ' ')),
-		Declaration:         r.declarationColumns(tenant),
+		Declaration:         declaration,
+		NoDirectories:       declaresNoDirectories(tenant, declaration),
 		LocalPackageImports: r.localPackageImports(),
 		RouterPackage:       r.router.Package(),
 		ApplicationName:     r.applicationName,

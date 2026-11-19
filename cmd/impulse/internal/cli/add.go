@@ -330,12 +330,7 @@ the failing checks as the obligations.`,
 }
 
 func newAddTenancy() *cobra.Command {
-	var (
-		f         transitionFlags
-		table     string
-		shapeKey  string
-		oneTenant bool
-	)
+	var f transitionFlags
 
 	cmd := &cobra.Command{
 		Use:   "tenancy",
@@ -350,10 +345,10 @@ signal and started where the configuration is built (a new file plus a field and
 start in DataConfiguration), so a tenant made on any instance is usable at once,
 without a restart; the app exposes the roster to the generated code as TenantRoster()
 and hands its Domains to the session permissions (a new file plus the Configurer, App
-and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page,
-All tenants and the dialog a person who signed up creates their own tenant through) are
-copied into the browser app, whose frame carries the tenant the URL names, the guard and
-the place switcher.
+and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page
+where a tenant can have a directory, All tenants and the dialog a person who signed up
+creates their own tenant through) are copied into the browser app, whose frame carries
+the tenant the URL names, the guard and the place switcher.
 
 Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
 an organization in by inviting one person, and that person's first sign-in makes the
@@ -366,19 +361,31 @@ tenants own their people: every auth whose roles the application gives builds it
 identity client with identity.WithOneTenantPerPerson(), so a role in a second tenant is
 refused however it would be given. Without it a person can be in several tenants.
 
+--tenant-directories says whether a tenant can have a directory of its own, and is on
+unless told otherwise. With it the command writes the directories record and its table,
+the tenant record's directory-only switch, each auth's directory admission and the
+tenant's Sign-in page, so a tenant's administrator, signed in through their
+organization's directory, makes it the tenant's, opens the tenant to it and makes the
+tenant directory only. With --tenant-directories=false it writes none of them: no tenant
+has a directory, a tenant's people come by invitation alone, and a Google, Microsoft or
+other provider's method is a way for an invited person to sign in and nothing more,
+whichever methods the application has or gets later. Laying the directories in
+afterward is the author's act; no impulse add method does it.
+
 --shape names a sign-in shape to start from, one of the four an application with tenants
 has, and fills in the tenants' choices: ` + shape.Keys(shape.OfTenants()) + `.
 The two tenant-owned shapes hold a person to one tenant (--one-tenant-per-person), and in
 the two global ones a person can be in several. In the two invite-only shapes a tenant's
-people come by invitation alone, which is so while no sign-in method goes through an
-organization's directory: the command refuses one of them where the application already
-registers such a method. In the other two a tenant's people come through its own
-directory: the tenant record declares one either way, and where no sign-in method goes
-through an organization's directory yet the command says which impulse add method adds
-it. Whether a tenant takes a directory, and whether that directory's people get an
-account without an invitation, is each tenant's choice, made while the application runs.
-A flag given beside --shape that contradicts it is refused, naming both, and impulse
-audit reads the shape back from the code (its sign-in section).
+people come by invitation alone: the command writes no tenant directories
+(--tenant-directories=false), whatever sign-in methods the application already
+registers, and names the ones that go through an organization's directory as ways for
+an invited person to sign in. In the other two a tenant's people come through its own
+directory: the command writes the tenant directories, and where no sign-in method goes
+through an organization's directory yet it says which impulse add method adds it.
+Whether a tenant takes a directory, and whether that directory's people get an account
+without an invitation, is each tenant's choice, made while the application runs. A flag
+given beside --shape that contradicts it is refused, naming both, and impulse audit
+reads the shape back from the code (its sign-in section).
 
 Which resources become tenant-scoped and how their rows are assigned, the bootstrap
 order, the harnesses, the tests, the tenant segment in the browser's routes, and the
@@ -386,7 +393,7 @@ tenant menus in its menu file are handed to the agent with the failing checks as
 obligations.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			start, one, err := tenantShape(cmd, shapeKey, oneTenant)
+			step, start, err := tenancyAsked(cmd)
 			if err != nil {
 				return err
 			}
@@ -396,15 +403,45 @@ obligations.`,
 				}
 			}
 
-			return runTransition(cmd, &f, transition_.Tenancy{Table: table, OneTenantPerPerson: one}, transition_.TenancyReferenceCandidate)
+			return runTransition(cmd, &f, step, transition_.TenancyReferenceCandidate)
 		},
 	}
 	f.bind(cmd)
-	cmd.Flags().StringVar(&table, "tenant-table", "Tenants", "the tenant-record table, PascalCase and plural")
-	cmd.Flags().BoolVar(&oneTenant, shape.OneTenantFlag, false, oneTenantUsage)
-	bindShape(cmd, &shapeKey, shape.OfTenants(), "the tenants' choices")
+	// The step's own flags are read back from the command (tenancyAsked).
+	cmd.Flags().String(tenantTableFlag, "Tenants", "the tenant-record table, PascalCase and plural")
+	cmd.Flags().Bool(shape.OneTenantFlag, false, oneTenantUsage)
+	cmd.Flags().Bool(shape.DirectoriesFlag, true, directoriesUsage)
+	bindShape(cmd, new(string), shape.OfTenants(), "the tenants' choices")
 
 	return cmd
+}
+
+// tenantTableFlag is add tenancy's flag for the tenant record's table.
+const tenantTableFlag = "tenant-table"
+
+// tenancyAsked is the tenancy step add tenancy was asked for, read from its flags: the
+// tenant record's table and the tenants' choices, which the shape settles where one is
+// given and the flags settle otherwise. start is the shape, nil without --shape. A flag
+// that says the opposite of the shape is refused.
+func tenancyAsked(cmd *cobra.Command) (step transition_.Tenancy, start *shape.Shape, err error) {
+	table, err := cmd.Flags().GetString(tenantTableFlag)
+	if err != nil {
+		return transition_.Tenancy{}, nil, errors.Wrap(err, "pflag.FlagSet.GetString()")
+	}
+	shapeKey, err := cmd.Flags().GetString(shape.FlagName)
+	if err != nil {
+		return transition_.Tenancy{}, nil, errors.Wrap(err, "pflag.FlagSet.GetString()")
+	}
+	oneTenant, err := cmd.Flags().GetBool(shape.OneTenantFlag)
+	if err != nil {
+		return transition_.Tenancy{}, nil, errors.Wrap(err, "pflag.FlagSet.GetBool()")
+	}
+	start, chosen, err := tenantShape(cmd, shapeKey, oneTenant)
+	if err != nil {
+		return transition_.Tenancy{}, nil, err
+	}
+
+	return transition_.Tenancy{Table: table, OneTenantPerPerson: chosen.oneTenant, NoDirectories: chosen.noDirectories}, start, nil
 }
 
 func newAddAuth() *cobra.Command {

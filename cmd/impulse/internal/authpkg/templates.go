@@ -199,10 +199,17 @@ type Settings struct {
 	{{.Pascal}} {{.SettingsType}}
 {{- end}}{{end}}
 {{- if .TenantPolicy}}
+{{- if .TenantPolicy.Directories}}
 	// TenantDeclarations reads what a tenant declares about who may enter it, in the
 	// sign-in's transaction, which the sign-in rule decides with: the generated reader
 	// over the {{.TenantPolicy.Record}} record and its directories ({{.TenantPolicy.Reader}}).
 	// Required; New refuses nil.
+{{- else}}
+	// TenantDeclarations reads what a tenant declares about who may enter it, which the
+	// sign-in rule decides with: the generated reader over the {{.TenantPolicy.Record}} record
+	// ({{.TenantPolicy.Reader}}), which answers nothing for every tenant, since
+	// the application has no tenant directories. Required; New refuses nil.
+{{- end}}
 	TenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]
 {{- end}}
 {{- if .DirectoryAdmission}}
@@ -519,6 +526,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	handlers.{{.Name}} = session.RegisterMachineOutlet(authSession, {{.Pascal}}Outlet)
 {{- end}}
 {{- if .TenantPolicy}}
+{{- if .TenantPolicy.Directories}}
 
 	// The sign-in rule: the library's tenant policy. A person's tenants are where they
 	// hold a role (the engine's memberships), and what each tenant admits is its
@@ -533,6 +541,17 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// administrator who signs in with a password is not refused either: the sign-in is
 	// held for the mailed code, and the session then enters that tenant
 	// (access.WithTenantAdministratorRoles names the roles).
+{{- else}}
+
+	// The sign-in rule: the library's tenant policy. A person's tenants are where they
+	// hold a role (the engine's memberships). The application has no tenant
+	// directories, so no tenant declares who may enter it and the generated reader
+	// answers nothing for every tenant: a tenant admits everyone it seats, however they
+	// signed in, a person who holds a role outside any one tenant (a global role, or
+	// one held in every tenant) is admitted on the library's checks, and a super
+	// administrator before any of it. A sign-in method through an organization's
+	// directory is a way for an invited person to sign in and nothing more.
+{{- end}}
 {{- if .TenantPolicy.AdmitWithoutTenant}}
 	// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a
 	// person who signs up through a sign-in method an administrator opened signs in
@@ -544,6 +563,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// and creates a {{.TenantPolicy.Record}} of their own, since another auth's outlets serve the
 	// record or a directory gives this one's roles.
 {{- end}}
+{{- if .TenantPolicy.Directories}}
 	// Which tenants the session then reaches is decided again, tenant by tenant, where
 	// its tenant list is computed (UserPermissions): a super administrator's session
 	// reaches every tenant, a tenant's own administrator's reaches theirs with a
@@ -552,6 +572,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
 	// transaction's context as a nested transaction. A sign-in the rule admits then
 	// carries a second factor (requireSecondFactor).
+{{- else}}
+	// Which tenants the session then reaches is where its tenant list is computed
+	// (UserPermissions): a super administrator's session reaches every tenant, and
+	// anybody else's the tenants that seat them. The memberships are read outside the
+	// sign-in's transaction (resource.SignInRoles): the Spanner client refuses the
+	// engine's read under the transaction's context as a nested transaction. A sign-in
+	// the rule admits then carries a second factor (requireSecondFactor).
+{{- end}}
 	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations{{if .TenantPolicy.AdmitWithoutTenant}}, signin.AdmitWithoutTenant(){{end}}).Then(requireSecondFactor))
 {{- else}}
 
@@ -573,10 +601,16 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The client makes the tenants too. Nobody creates a {{.TenantPolicy.Record}} directly: staff invite
 	// one person with the tenant's details, which the client checks against the record's
 	// own create under the sender's grants, and that person's first sign-in makes the
+{{- if .TenantPolicy.Directories}}
 	// tenant through the generated maker (settings.TenantMaker), seats them with the
 	// roles that administer it and, where they came through an organization's
 	// directory, makes that directory the tenant's own, all in the transaction that
 	// consumes the invitation.
+{{- else}}
+	// tenant through the generated maker (settings.TenantMaker) and seats them with the
+	// roles that administer it, in the transaction that consumes the invitation,
+	// however they signed in: no tenant takes a directory.
+{{- end}}
 {{- end}}
 	identityClient, err := {{.Name}}identity.NewClient(accessClient, authSession.API(){{if .MakesTenants}}, settings.TenantMaker{{end}}{{if .Foothold}}, identity.WithAdministratorRoles(tenantAdministrators){{end}})
 	if err != nil {
@@ -623,8 +657,13 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// client's InvitationAccepted, which the session library runs inside it): the
 	// invitation is spent and its roles given together or neither is, and the sign-in
 	// rule that follows finds the memberships.{{if .MakesTenants}} An invitation that makes a tenant
+{{- if .TenantPolicy.Directories}}
 	// is accepted there too: the tenant's row, the person's administrator roles and the
-	// tenant's directory are written with the invitation's consumption or not at all.{{end}}
+	// tenant's directory are written with the invitation's consumption or not at all.
+{{- else}}
+	// is accepted there too: the tenant's row and the person's administrator roles are
+	// written with the invitation's consumption or not at all.
+{{- end}}{{end}}
 	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 
 	// A person who signs up through a sign-in method an administrator opened is given
@@ -1066,10 +1105,14 @@ func (h *Handlers) {{.Pascal}}FrontChannelLogout() http.HandlerFunc {
 {{- if .SignUpChoice}}
 // invitation: the method is invite only until an administrator opens it to sign-up on
 // the application's Sign-in page, and anyone else is refused (not_invited). A person
-{{- else}}
+{{- else if .TenantDirectories}}
 // invitation, or the directory of a tenant that names a default role: the method is
 // invite only and is never opened to sign-up, since nobody who signed up to this auth
 // could be given a tenant, and anyone else is refused (not_invited). A person
+{{- else}}
+// invitation: the method is invite only and is never opened to sign-up, since nobody
+// who signed up to this auth could be given a tenant, and anyone else is refused
+// (not_invited). A person
 {{- end}}
 // admitted becomes a user under their user principal name, with no password, linked by
 // the directory's immutable tenant and object ids so a renamed account stays the same
@@ -1263,11 +1306,16 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // A person Google verifies for the first time, who has no account, needs an invitation:
 // the method is invite only until an administrator opens it to sign-up on the
 // application's Sign-in page, and anyone else is refused (not_invited). A person
-{{- else}}
+{{- else if .TenantDirectories}}
 // A person Google verifies for the first time, who has no account, needs an invitation,
 // or the directory of a tenant that names a default role: the method is invite only and
 // is never opened to sign-up, since nobody who signed up to this auth could be given a
 // tenant, and anyone else is refused (not_invited). A person
+{{- else}}
+// A person Google verifies for the first time, who has no account, needs an
+// invitation: the method is invite only and is never opened to sign-up, since nobody
+// who signed up to this auth could be given a tenant, and anyone else is refused
+// (not_invited). A person
 {{- end}}
 // admitted becomes a user under their verified email, with no password, linked by
 // Google's immutable subject so a renamed account stays the same person; a user created
@@ -1480,10 +1528,14 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 {{- if .SignUpChoice}}
 // invitation: the method is invite only until an administrator opens it to sign-up on
 // the application's Sign-in page, and anyone else is refused (not_invited). A person
-{{- else}}
+{{- else if .TenantDirectories}}
 // invitation, or the directory of a tenant that names a default role: the method is
 // invite only and is never opened to sign-up, since nobody who signed up to this auth
 // could be given a tenant, and anyone else is refused (not_invited). A person
+{{- else}}
+// invitation: the method is invite only and is never opened to sign-up, since nobody
+// who signed up to this auth could be given a tenant, and anyone else is refused
+// (not_invited). A person
 {{- end}}
 // admitted becomes a user under the name the provider presents (the preferred username,
 // or the email when it sends none), with no password, linked by the provider's subject

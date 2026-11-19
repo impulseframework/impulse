@@ -91,9 +91,9 @@ func tenantPolicy(candidate string) *authpkg.TenantPolicy {
 	case Base:
 		return nil
 	case "sites":
-		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "consoleapp.NewTenantDeclarationReader", AdmitWithoutTenant: true}
+		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "consoleapp.NewTenantDeclarationReader", Directories: true, AdmitWithoutTenant: true}
 	default:
-		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}
+		return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true, AdmitWithoutTenant: true}
 	}
 }
 
@@ -101,7 +101,7 @@ func tenantPolicy(candidate string) *authpkg.TenantPolicy {
 // portal's people, whose outlet does not serve the Tenant record, so nobody signs up to
 // it and a person who holds no tenant is refused.
 func membersTenantPolicy() *authpkg.TenantPolicy {
-	return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader"}
+	return &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true}
 }
 
 // tenantedStaffSpec is the tenanted candidate's staff auth: the password auth with a

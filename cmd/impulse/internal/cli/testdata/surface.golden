@@ -68,6 +68,7 @@ impulse add tenancy
   --one-tenant-per-person bool
   --shape string
   --skip-generate bool
+  --tenant-directories bool (default true)
   --tenant-table string (default Tenants)
 impulse advise
   --agent bool
@@ -113,6 +114,7 @@ impulse new <dir>
   --skip-generate bool
   --skip-git bool
   --tenancy bool
+  --tenant-directories bool (default true)
   --tenant-table string (default Tenants)
 impulse remove
 impulse remove feature <name>

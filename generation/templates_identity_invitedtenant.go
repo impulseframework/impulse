@@ -26,12 +26,21 @@ import (
 type (
 	// {{ .InviteTenant }} brings an organization in by inviting one person: a link is
 	// mailed to the address, and the first sign-in of whoever follows it makes the
+	{{- if .TenantDirectories }}
 	// {{ .TenantWord }} from the details given here, seats the person as its first
 	// administrator and, where they signed in through their organization's directory (a
 	// Google Workspace, a Microsoft Entra tenant), makes that the {{ .TenantWord }}'s
 	// directory. The invited person enters nothing and changes nothing by accepting. No
 	// {{ .TenantWord }} exists until then: to change the details, withdraw the invitation
 	// ({{ .WithdrawInvitedTenant }}) and send another.
+	{{- else }}
+	// {{ .TenantWord }} from the details given here and seats the person as its first
+	// administrator, whichever sign-in method they came through: the application
+	// declares no directories record, so no {{ .TenantWord }} takes a directory. The
+	// invited person enters nothing and changes nothing by accepting. No
+	// {{ .TenantWord }} exists until then: to change the details, withdraw the invitation
+	// ({{ .WithdrawInvitedTenant }}) and send another.
+	{{- end }}
 	//
 	// The details are the {{ .TenantName }} record's own fields, each named for the
 	// record, and they are held to the rules the record's create applies when the
