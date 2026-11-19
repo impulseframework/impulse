@@ -177,6 +177,32 @@ describe('Break glass', () => {
     expect(domain.map((config) => config.page?.label)).not.toContain('Break glass');
   });
 
+  it("is no page of a tenant's side, even of one whose description names the list", () => {
+    // The page takes a role in any tenant and lists who holds one in each: the whole
+    // application's to see, whatever a tenant's side of a description names.
+    const named = {
+      ...descriptor,
+      identity: [
+        {
+          ...crew,
+          sides: crew.sides.map((side) =>
+            side.scope === 'domain'
+              ? {
+                  ...side,
+                  lists: { ...side.lists, takenRoles: 'CrewTakenRoles' },
+                  methods: { ...side.methods, takeRole: 'TakeCrewRole' },
+                }
+              : side,
+          ),
+        },
+      ],
+    } as ApiDescriptor;
+    const labels = (scope: 'global' | 'domain'): (string | undefined)[] =>
+      identityPages(named, resourceMeta, { auth: 'Crew', scope }).map((config) => config.page?.label);
+    expect(labels('domain')).not.toContain('Break glass');
+    expect(labels('global')).toContain('Break glass');
+  });
+
   it('is left out where nobody takes a role by hand: the description names no such list', () => {
     const labels = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' }).map(
       (config) => config.page?.label,

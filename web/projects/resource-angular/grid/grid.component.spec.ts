@@ -1012,6 +1012,13 @@ describe('what a row says of a list, a missing key and a method it does not offe
     );
     const links = [0, 1, 2].map((row) => cellsOf(row)[1].querySelector('a')?.getAttribute('href') ?? null);
     expect(links).toEqual(['/groups/g-1', null, null]);
+    // The key the column opens a row by is nothing for such a row, and for one that
+    // carries no such field: never an empty text, which is a key to whoever reads it.
+    const view = fixture.componentInstance.columnDefs()[1];
+    const keys = [...fixture.componentInstance.rowData(), { role: 'Clerk' } as RecordData].map((row) =>
+      fixture.componentInstance.linkKeyOf(row, view),
+    );
+    expect(keys).toEqual(['g-1', undefined, undefined, undefined]);
   });
 
   it("draws an entry that only says something grayed out in the row's menu, and runs nothing from it", async () => {

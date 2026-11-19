@@ -359,6 +359,24 @@ describe("a person's roles, one list", () => {
     expect(hidden(ofAccount)).toContain('groupId');
   });
 
+  it('links a row to a group only by a field that names the groups this side lists', () => {
+    // A field called `groupId` that names no resource, or the groups of another side: the
+    // pages mount no page of a group for it, so the rows open nowhere.
+    const named: Record<string, string>[] = [{}, { groupId: 'CrewSectorGroups' }];
+    for (const names of named) {
+      const meta = (resource: Resource): ResourceMeta =>
+        resource === 'CrewHeldRoles' ? fields([...held, ...period, 'reason'], names) : metas[resource];
+      // A description of its own: the pages of one description are made once.
+      const roles = under(
+        page(identityPages({ ...descriptor }, meta, { auth: 'Crew', scope: 'global' }), 'Accounts'),
+        'Roles held',
+      );
+      expect([roles.showViewButton, roles.rowRoute]).toEqual([false, undefined]);
+      // The list still says where each role comes from: the Auth keeps groups.
+      expect(shown(roles).map(([id]) => id)).toContain('groupName');
+    }
+  });
+
   it('says nothing of where a role comes from where the Auth keeps no groups, and the rows link nowhere', () => {
     const roles = under(
       page(identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' }), 'Accounts'),
@@ -448,6 +466,22 @@ describe('the Groups page, where a directory decides the roles', () => {
       ['Groups', ['sectors/:sectorID/members-groups']],
     ]);
     expect(identityPages(descriptor, resourceMeta, tenant).map((config) => config.page?.label)).toEqual(['People']);
+  });
+
+  it('gives way to the list of groups where an Auth that names a directory keeps groups of its own', () => {
+    const both = { ...descriptor, identity: [{ ...crew, rolesFrom: 'Google' }] } as ApiDescriptor;
+    const keepsGroups = { auth: 'Crew', scope: 'global' } as const;
+    expect(
+      identityRoutes(both, resourceMeta, keepsGroups).filter(
+        (route) => route.data?.[directoryGroupsSaysKey] !== undefined,
+      ),
+    ).toEqual([]);
+    // One Groups entry, the list's: the page of the groups the Auth keeps.
+    const groups = identityMenuPages(both, resourceMeta, keepsGroups).filter((entry) => entry.label === 'Groups');
+    expect(groups.map((entry) => entry.route)).toEqual([['crew-groups']]);
+    expect(page(identityPages(both, resourceMeta, keepsGroups), 'Groups').parentConfig.primaryResource).toBe(
+      'CrewListedGroups',
+    );
   });
 
   it('is not drawn where the Auth keeps its own groups, or where no directory is named', () => {
