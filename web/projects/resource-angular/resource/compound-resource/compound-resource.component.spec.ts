@@ -539,12 +539,14 @@ describe("CompoundResourceComponent: the page's title", () => {
     const fixture = await present(titled);
     const title = headingRow(fixture).querySelector('h1') as HTMLElement;
 
-    const any = declared(title, ['.page-title'], ['.section']);
+    const any = declared(title, ['.page-title'], ['.impulse-section']);
     expect(any).toContain('overflow-wrap: anywhere');
     expect(any).toContain('min-width: 0');
     expect(any).toContain('line-height: 1.2');
     expect(any).toContain('font-size: var(--impulse-page-title-size)');
-    expect(declared(title, ['.page-title', '.section'])).toContain('font-size: var(--impulse-section-title-size)');
+    expect(declared(title, ['.page-title', '.impulse-section'])).toContain(
+      'font-size: var(--impulse-section-title-size)',
+    );
     // In the row, so it takes its own room: the page no longer lays it over the row.
     expect(declared(title, ['.page-title'])).not.toContain('position');
   });
@@ -552,8 +554,14 @@ describe("CompoundResourceComponent: the page's title", () => {
   it("draws the title of a page that is a part of another as a section's, and the lists under it as sections too", async () => {
     const fixture = await present(titled);
 
-    expect(headingRow(fixture).querySelector('h1')?.classList.contains('section')).toBe(true);
-    expect(element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('section')).toBe(true);
+    const title = headingRow(fixture).querySelector('h1') as HTMLElement;
+    expect(title.classList.contains('impulse-section')).toBe(true);
+    expect(
+      element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('impulse-section'),
+    ).toBe(true);
+    // No rule of the view's own (its sections' space above) is laid on it: it sits in the
+    // row as the page's title does, as high as the buttons beside it.
+    expect(getComputedStyle(title).marginTop).toBe('0px');
   });
 
   it("draws the title of the route's own page as the page's, and the lists under it as sections", async () => {
@@ -573,20 +581,26 @@ describe("CompoundResourceComponent: the page's title", () => {
 
     const title = headingRow(fixture).querySelector('h1');
     expect(title?.textContent).toBe('Squadron');
-    expect(title?.classList.contains('section')).toBe(false);
-    expect(element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('section')).toBe(true);
+    expect(title?.classList.contains('impulse-section')).toBe(false);
+    expect(
+      element(fixture).querySelector('impulse-resource-list h1.title')?.classList.contains('impulse-section'),
+    ).toBe(true);
   });
 
   it('draws the title itself where the view of its row is folded into a panel, which has a title of its own', async () => {
     const fixture = await present(viewConfig({ ...titled, collapsible: true }));
 
     expect(ownTitle(fixture)?.textContent).toBe('Squadron');
-    expect(ownTitle(fixture)?.classList.contains('section')).toBe(true);
+    expect(ownTitle(fixture)?.classList.contains('impulse-section')).toBe(true);
     expect(element(fixture).querySelector('impulse-resource-view h1.page-title')).toBeNull();
     const own = ownTitle(fixture) as Element;
-    expect(declared(own, ['.title', 'h1'], ['.section'])).toContain('font-size: var(--impulse-page-title-size)');
-    expect(declared(own, ['.title', 'h1', '.section'])).toContain('font-size: var(--impulse-section-title-size)');
-    expect(declared(own, ['.title', 'h1'], ['.section'])).toContain('overflow-wrap: anywhere');
+    expect(declared(own, ['.title', 'h1'], ['.impulse-section'])).toContain(
+      'font-size: var(--impulse-page-title-size)',
+    );
+    expect(declared(own, ['.title', 'h1', '.impulse-section'])).toContain(
+      'font-size: var(--impulse-section-title-size)',
+    );
+    expect(declared(own, ['.title', 'h1'], ['.impulse-section'])).toContain('overflow-wrap: anywhere');
   });
 
   it("draws the title of a section that folds away as a section's, in a header that grows with a title of two lines", async () => {
@@ -603,8 +617,13 @@ describe("CompoundResourceComponent: the page's title", () => {
     expect(title.textContent?.trim()).toBe('Other squadrons');
     expect(declared(title, ['.title'])).toContain('font-size: var(--impulse-section-title-size)');
     expect(declared(title, ['.title'])).toContain('overflow-wrap: anywhere');
-    // The header centers the title, which brings no space of its own.
+    // The header centers the title, which brings no margin of its own, and a little air
+    // above and below it that a title of one line keeps inside the header's own height:
+    // the header keeps Material's padding, none above or below.
     expect(declared(title, ['.title'])).toContain('margin: 0');
+    expect(declared(title, ['.title'])).toContain('padding-top: 8px');
+    expect(declared(title, ['.title'])).toContain('padding-bottom: 8px');
+    expect([getComputedStyle(header).paddingTop, getComputedStyle(header).paddingBottom]).toEqual(['0px', '0px']);
     // Material gives a header one height; here that is the least it is, and a title of two lines makes it taller.
     const folded = declared(header, ['mat-expansion-panel-header'], ['.mat-expanded']);
     expect(folded).toContain('height: auto');

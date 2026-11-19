@@ -30,21 +30,22 @@
 }
 
 /// The title of a section that folds away, in the header of its panel: a section's title
-/// with no space of its own above or below, since the header centers it.
+/// with no margin of its own, since the header centers it, and a little air above and
+/// below it that a title of one line keeps inside the header's own height.
 @mixin panel-title {
   @include section-title;
   margin: 0;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 /// The header of a panel whose title is a section's: as tall as Material makes it for a
-/// title of one line, and as tall as the title where that takes two, with a little air
-/// above and below it. Material gives a header one height and a title of two lines would
-/// be cut off by it.
+/// title of one line, and as tall as the title where that takes two. Material gives a
+/// header one height and a title of two lines would be cut off by it. The header keeps
+/// Material's padding, none above or below, so the height of one line is Material's.
 @mixin panel-header {
   height: auto;
   min-height: var(--mat-expansion-header-collapsed-state-height, 48px);
-  padding-top: 8px;
-  padding-bottom: 8px;
 
   &.mat-expanded {
     height: auto;
@@ -53,10 +54,10 @@
 }
 
 /// The row a title shares with what the page offers beside it. The title comes first, and
-/// every part after it is pushed to the far end of its line: beside the title while they
-/// fit one line, which is the row as it always was, and on the next line, still at the far
-/// end, where they do not. So the buttons are beside the title or under it, never over it
-/// and never past the edge.
+/// the parts after it share the rest of its line as they always have, the last of them at
+/// the far end: beside the title while they fit one line, which is the row as it always
+/// was, and on the next line, again with the last at the far end, where they do not. So
+/// the buttons are beside the title or under it, never over it and never past the edge.
 @mixin row {
   display: flex;
   flex-direction: row;

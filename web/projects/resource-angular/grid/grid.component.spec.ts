@@ -645,6 +645,11 @@ describe('a text cut short', () => {
       // jsdom lays nothing out, so it knows no box an element is positioned in.
       Object.defineProperty(anchor(), 'offsetParent', { configurable: true, value: host });
       host.getBoundingClientRect = (): DOMRect => list;
+      // The list's box has a line of a pixel around it, and what it holds lies inside the line.
+      Object.defineProperty(host, 'clientLeft', { configurable: true, value: 1 });
+      Object.defineProperty(host, 'clientTop', { configurable: true, value: 1 });
+      Object.defineProperty(host, 'clientWidth', { configurable: true, value: list.width - 2 });
+      Object.defineProperty(host, 'clientHeight', { configurable: true, value: list.height - 2 });
       cut.getBoundingClientRect = (): DOMRect => cellBox;
     };
     const placed = (): string[] => {
@@ -658,19 +663,42 @@ describe('a text cut short', () => {
       await pointerOnto(cut);
 
       expect(tooltip()).toBe(notes);
-      expect(placed()).toEqual(['100px', '50px', '180px', '49px']);
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
     });
 
     it("is laid over no more of a text than is inside the list: a cell the list has partly scrolled out of view is offered over the part in view, and the anchor never reaches past the list's edge", async () => {
       const cut = measured(cell(0, 1), 620, 180);
-      // The cell starts 40 before the list's right edge and runs 140 past it.
+      // The cell starts 40 before the list's right edge, 39 before the inside of its line,
+      // and runs 140 past it.
       laidOut(cut, box(20, 100, 336, 400), box(316, 150, 180, 49));
       await pointerOnto(cut);
 
       expect(tooltip()).toBe(notes);
-      expect(placed()).toEqual(['296px', '50px', '40px', '49px']);
+      expect(placed()).toEqual(['295px', '49px', '39px', '49px']);
       const [left, , width] = placed().map((length) => parseFloat(length));
-      expect(left + width).toBeLessThanOrEqual(336);
+      expect(left + width).toBeLessThanOrEqual(334);
+    });
+
+    it('is laid over the part in view of a text the list has scrolled out of view at its left edge', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      // The cell starts 30 before the inside of the list's line and runs 150 into it.
+      laidOut(cut, box(20, 100, 336, 400), box(-9, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['0px', '49px', '150px', '49px']);
+    });
+
+    it('lies in a box that clips what it holds and is never scrolled, by a script or by the browser bringing something into view', () => {
+      const sheet = Array.from(document.querySelectorAll('style'))
+        .map((style) => style.textContent ?? '')
+        .join('\n');
+      const host = Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter(([, selector]) => selector.trim().startsWith('.impulse-grid-host') && !selector.trim().includes(' '))
+        .map(([, , declarations]) => declarations)
+        .join('\n');
+      expect(host).toContain('overflow: clip');
+      expect(host).not.toContain('overflow: hidden');
     });
 
     it('is taken back to nothing once the tooltip has closed and faded, so it is not left where the list may no longer be', async () => {
@@ -680,7 +708,7 @@ describe('a text cut short', () => {
       await pointerOff(cut);
 
       // While the tooltip fades it stays where it was hung.
-      expect(placed()).toEqual(['100px', '50px', '180px', '49px']);
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
       await new Promise((resolve) => setTimeout(resolve, 260));
       expect(placed()).toEqual(['0px', '0px', '0px', '0px']);
     });
@@ -694,7 +722,7 @@ describe('a text cut short', () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
 
       expect(tooltip()).toBe(notes);
-      expect(placed()).toEqual(['100px', '50px', '180px', '49px']);
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
     });
   });
 
@@ -1177,7 +1205,7 @@ describe('a list and the width of its frame', () => {
       expect(table().parentElement).toBe(frame());
       expect(parseFloat(table().style.minWidth)).toBeGreaterThan(phone);
       expect(getComputedStyle(frame()).overflow).toBe('auto');
-      expect(getComputedStyle(element.querySelector('.impulse-grid-host') as HTMLElement).overflow).toBe('hidden');
+      expect(declares(['.impulse-grid-host'])).toContain('overflow: clip');
     });
 
     it('holds the first column at the left edge, in the header and in every row, and no other', async () => {
@@ -1593,9 +1621,12 @@ describe('a list and the width of its frame', () => {
     let placed: Map<Element, { left: number; right: number }>;
     /** What a font that has arrived tells the list, and whether the list still listens. */
     let fonts: { arrived?: () => void; listening: boolean };
+    /** How much wider than the font's the letters are drawn: wider while a font has not arrived. */
+    let wider: number;
 
     beforeEach(() => {
       reads = 0;
+      wider = 1;
       placed = new Map();
       fonts = { listening: false };
       ranges.getBoundingClientRect = function (this: Range): DOMRect {
@@ -1604,9 +1635,9 @@ describe('a list and the width of its frame', () => {
         const icon = drawn.querySelector('mat-icon');
         const width = icon
           ? icon.classList.contains('cell-yes')
-            ? 20
+            ? 30
             : 24
-          : (drawn.textContent ?? '').trim().length * character;
+          : (drawn.textContent ?? '').trim().length * character * wider;
         return { width } as DOMRect;
       };
       const view = document.defaultView as Window;
@@ -1754,10 +1785,12 @@ describe('a list and the width of its frame', () => {
         await settle(fixture);
         frameIs(100);
 
-        // The icon's 20 pixels, not the five letters it is written with.
+        // The icon's 30 pixels, not the five letters it is written with, and more than the
+        // least a column goes.
         expect(cells(0)[1].querySelector('mat-icon.cell-yes')?.textContent).toBe('check');
-        expect(widths()[1]).toBe(`${Math.max(48, 20 + aroundCell + spare)}px`);
-        expect(5 * character + aroundCell + spare).toBeGreaterThan(48);
+        expect(widths()[1]).toBe(`${30 + aroundCell + spare}px`);
+        expect(30 + aroundCell + spare).toBeGreaterThan(48);
+        expect(5 * character + aroundCell + spare).toBeGreaterThan(30 + aroundCell + spare);
       });
 
       it('is the same for the first column, which is held at it: the held width and the room kept beside it follow', async () => {
@@ -1933,6 +1966,30 @@ describe('a list and the width of its frame', () => {
         expect(reads).toBe(first);
       });
 
+      it('reads once where the frame has its width from the first, as in a browser: the report of its size that follows reads nothing more', async () => {
+        const laid = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+        Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+          configurable: true,
+          get(this: HTMLElement): number {
+            return this.classList.contains('impulse-grid-scroll') ? phone : 0;
+          },
+        });
+        try {
+          await plain();
+          const first = reads;
+          expect(first).toBeGreaterThan(0);
+
+          frameIs(phone);
+          expect(reads).toBe(first);
+        } finally {
+          if (laid) {
+            Object.defineProperty(HTMLElement.prototype, 'clientWidth', laid);
+          } else {
+            delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+          }
+        }
+      });
+
       it("reads a value once for each column it is shown in, no value of a column already at the library's width, and no column with a width of its own", async () => {
         await plain();
         frameIs(phone);
@@ -1993,6 +2050,19 @@ describe('a list and the width of its frame', () => {
         leave();
         expect(fonts.listening).toBe(false);
       });
+
+      it('measures afresh when a font arrives: a column read in the wider letters drawn before it comes down to what it needs in the font', async () => {
+        wider = 1.25;
+        await plain();
+        frameIs(phone);
+        // "Commendations" in letters a quarter wider.
+        expect(widths()[0]).toBe(`${Math.ceil(13 * character * 1.25) + aroundCell + spare}px`);
+
+        wider = 1;
+        fonts.arrived?.();
+        detect();
+        expect(widths()[0]).toBe(`${name}px`);
+      });
     });
   });
 });
@@ -2048,6 +2118,6 @@ describe("the list's pager", () => {
     expect(declares('.pager-buttons')).toContain('margin-left: auto');
     expect(declares('.pager-buttons')).toContain('justify-content: flex-end');
     // What is past the list's edge is not drawn, so the pager must not reach past it.
-    expect(getComputedStyle(element.querySelector('.impulse-grid-host') as HTMLElement).overflow).toBe('hidden');
+    expect(declares('.impulse-grid-host')).toContain('overflow: clip');
   });
 });

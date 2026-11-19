@@ -245,9 +245,9 @@ export class CutShortTooltipDirective implements OnInit {
 
   /**
    * Lays the anchor over the text, in the coordinates of the box the anchor is positioned
-   * in, and over no more of the text than lies inside that box: a cell the list has partly
-   * scrolled out of view is offered over the part in view, and the anchor never reaches
-   * past the list's edge.
+   * in, and over no more of the text than lies inside that box's line: a cell the list has
+   * partly scrolled out of view is offered over the part in view, and the anchor never
+   * reaches past the list's edge.
    */
   private place(text: HTMLElement): void {
     const frame = this.anchor.offsetParent;
@@ -256,13 +256,20 @@ export class CutShortTooltipDirective implements OnInit {
     }
     clearTimeout(this.kept);
     const over = text.getBoundingClientRect();
-    const within = frame.getBoundingClientRect();
-    const left = Math.max(over.left, within.left);
-    const top = Math.max(over.top, within.top);
+    const box = frame.getBoundingClientRect();
+    // Inside the box's line, where what it holds lies.
+    const inside = {
+      left: box.left + frame.clientLeft,
+      top: box.top + frame.clientTop,
+      right: box.left + frame.clientLeft + frame.clientWidth,
+      bottom: box.top + frame.clientTop + frame.clientHeight,
+    };
+    const left = Math.max(over.left, inside.left);
+    const top = Math.max(over.top, inside.top);
     const style = this.anchor.style;
-    style.left = `${left - within.left - frame.clientLeft + frame.scrollLeft}px`;
-    style.top = `${top - within.top - frame.clientTop + frame.scrollTop}px`;
-    style.width = `${Math.max(0, Math.min(over.right, within.right) - left)}px`;
-    style.height = `${Math.max(0, Math.min(over.bottom, within.bottom) - top)}px`;
+    style.left = `${left - inside.left + frame.scrollLeft}px`;
+    style.top = `${top - inside.top + frame.scrollTop}px`;
+    style.width = `${Math.max(0, Math.min(over.right, inside.right) - left)}px`;
+    style.height = `${Math.max(0, Math.min(over.bottom, inside.bottom) - top)}px`;
   }
 }

@@ -48,7 +48,7 @@
     @if (pageTitle() !== '' || !showCreateForm()) {
       <div class="header-container">
         @if (pageTitle() !== '') {
-          <h1 class="page-title" [class.section]="pageTitleIsSection()">{{ pageTitle() }}</h1>
+          <h1 class="page-title" [class.impulse-section]="pageTitleIsSection()">{{ pageTitle() }}</h1>
         }
         @if (!showCreateForm()) {
           <ng-container *ngTemplateOutlet="headerSlot"></ng-container>

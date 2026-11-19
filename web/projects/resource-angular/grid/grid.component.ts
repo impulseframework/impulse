@@ -234,11 +234,15 @@ export class AppGridComponent {
    * the narrowest a column goes where nobody dragged it and the page gave it no width. A
    * column is here once it has been measured, between the least a column goes and
    * MIN_TEXT_COLUMN_WIDTH, and its entry only grows while the list keeps its columns, so
-   * a page of shorter values, a sort or a filter narrows nothing under a person's eyes.
+   * a page of shorter values, a sort or a filter narrows nothing under a person's eyes. A
+   * font that arrives changes how wide every text is drawn, and the list then reads what
+   * it shows afresh.
    */
   private readonly needs = signal<ReadonlyMap<string, number>>(new Map());
   /** The columns `needs` was measured for, by id and heading, in order: other columns start again. */
   private measuredColumns = '';
+  /** Whether the frame was not laid out when the columns were last to be read, so its first width reads them. */
+  private unlaid = true;
   /** How far the frame was scrolled sideways when it last scrolled. */
   private lastScrollLeft = 0;
   /** Whether the pointer was just pressed on the list: the focus that follows a press is the pointer's, not the keyboard's. */
@@ -449,11 +453,12 @@ export class AppGridComponent {
       }
       const observer = new ResizeObserver(() => {
         const width = container.clientWidth;
-        const wasLaidOut = this.frameWidth() !== undefined;
         this.frameWidth.set(width > 0 ? width : undefined);
         this.readGround(container);
-        // A list first drawn inside something hidden had nothing to measure until now.
-        if (!wasLaidOut && width > 0) {
+        // A list drawn inside something hidden had nothing to measure until now. One that was
+        // laid out when it was drawn was read then, and a frame that only changes width
+        // changes nothing a column needs.
+        if (this.unlaid && width > 0) {
           this.measureColumns();
         }
       });
@@ -464,8 +469,12 @@ export class AppGridComponent {
       const page = container.ownerDocument;
       look.observe(page.documentElement, { attributes: true });
       look.observe(page.body, { attributes: true });
-      // A font that arrives after the list was drawn changes how wide every text is.
-      const lettered = (): void => this.measureColumns();
+      // A font that arrives after the list was drawn changes how wide every text is: what
+      // was read in the letters drawn before it is read again, afresh.
+      const lettered = (): void => {
+        this.measuredColumns = '';
+        this.measureColumns();
+      };
       const fonts = page.fonts as FontFaceSet | undefined;
       fonts?.addEventListener('loadingdone', lettered);
       onCleanup(() => {
@@ -562,7 +571,11 @@ export class AppGridComponent {
     const frame = this.scrollContainer()?.nativeElement;
     const table = this.table()?.nativeElement;
     const view = frame?.ownerDocument.defaultView;
-    if (!frame || !table || !view || frame.clientWidth === 0 || this.loading()) {
+    if (!frame || !table || !view) {
+      return;
+    }
+    this.unlaid = frame.clientWidth === 0;
+    if (this.unlaid || this.loading()) {
       return;
     }
     const range = frame.ownerDocument.createRange();

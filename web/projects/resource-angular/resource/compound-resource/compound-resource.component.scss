@@ -23,7 +23,7 @@
   h1 {
     @include headings.page-title;
 
-    &.section {
+    &.impulse-section {
       @include headings.section-title;
     }
   }

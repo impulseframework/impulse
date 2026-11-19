@@ -21,7 +21,7 @@
   display: flex;
   align-items: center;
 
-  &.section {
+  &.impulse-section {
     @include headings.section-title;
   }
 }

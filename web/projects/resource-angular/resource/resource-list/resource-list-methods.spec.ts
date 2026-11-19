@@ -433,19 +433,19 @@ describe('ResourceListComponent row methods', () => {
 
     // The title, with how many the list holds.
     expect(title.textContent).toBe('People (2)');
-    expect(title.classList.contains('section')).toBe(false);
-    const any = declared(title, ['.title'], ['.section']);
+    expect(title.classList.contains('impulse-section')).toBe(false);
+    const any = declared(title, ['.title'], ['.impulse-section']);
     expect(any).toContain('font-size: var(--impulse-page-title-size)');
     expect(any).toContain('overflow-wrap: anywhere');
     expect(any).toContain('min-width: 0');
     expect(any).toContain('line-height: 1.2');
     // It may give way: a title that could not shrink is what ran past the edge.
     expect(any).not.toContain('flex-shrink');
-    expect(declared(title, ['.title', '.section'])).toContain('font-size: var(--impulse-section-title-size)');
+    expect(declared(title, ['.title', '.impulse-section'])).toContain('font-size: var(--impulse-section-title-size)');
 
     fixture.componentRef.setInput('isRootList', false);
     fixture.detectChanges();
-    expect(title.classList.contains('section')).toBe(true);
+    expect(title.classList.contains('impulse-section')).toBe(true);
   });
 
   it('offers on every row a method that names no row and that the page fills from the row, while the digest grants it', async () => {
