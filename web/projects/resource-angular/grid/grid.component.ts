@@ -84,6 +84,15 @@ export const MIN_TEXT_COLUMN_WIDTH = 160;
  */
 const SPARE_WIDTH = 2;
 
+/**
+ * The room a heading a person can sort by keeps after its words for the sort's arrow, in
+ * pixels, whether or not the arrow is drawn: the arrow's 14 and the gap of 2 before it, as
+ * the stylesheet draws them (`.sort-icon`, `.header-label`). The room is kept from the
+ * start, so a column as wide as its heading needs does not grow when a person first sorts
+ * by it.
+ */
+const SORT_ARROW_ROOM = 16;
+
 /** How wide what an element holds is drawn, cut short or not: its text's own line, the box of an icon. */
 function drawnWidth(element: Element, range: Range): number {
   range.selectNodeContents(element);
@@ -652,7 +661,10 @@ export class AppGridComponent {
    * arrow and its number, the filter's button) with the gaps between, and the cell's
    * padding and line. The words are measured as they would be drawn whole, and the marks
    * from where the words end to where the last mark ends, which is the same however much
-   * room the heading has now.
+   * room the heading has now. A heading a person can sort by, which is drawn as a button,
+   * needs the room of the sort's arrow whether or not the arrow is drawn
+   * (SORT_ARROW_ROOM), and more only where what is drawn after its words takes more: the
+   * number of a second sort.
    */
   private headingNeeds(heading: HTMLElement, range: Range, view: Window): number {
     const cell = heading.querySelector(':scope > .header-cell');
@@ -664,10 +676,12 @@ export class AppGridComponent {
     const lastOfLabel = label.lastElementChild;
     const lastOfCell = cell.lastElementChild;
     let need = words ? drawnWidth(words, range) : 0;
+    let marks = 0;
     if (lastOfLabel && lastOfLabel !== words) {
       const from = words ? words.getBoundingClientRect().right : label.getBoundingClientRect().left;
-      need += lastOfLabel.getBoundingClientRect().right - from;
+      marks = lastOfLabel.getBoundingClientRect().right - from;
     }
+    need += label.tagName === 'BUTTON' ? Math.max(SORT_ARROW_ROOM, marks) : marks;
     if (lastOfCell && lastOfCell !== label) {
       need += lastOfCell.getBoundingClientRect().right - label.getBoundingClientRect().right;
     }

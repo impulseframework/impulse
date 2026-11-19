@@ -22,6 +22,7 @@ import {
   iconCellKey,
   listViewConfig,
   ListViewConfigOptions,
+  MultiColumnConfig,
   multiColumnConfig,
   RESOURCE_DOMAIN,
   RESOURCE_META,
@@ -404,6 +405,94 @@ describe('ResourceListComponent', () => {
             `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.filter-trigger') ? 'filter' : 'none'}`,
         );
       expect(filters).toEqual(['Name: none', 'Client: none', 'Home port: filter', 'Registry: none']);
+    });
+
+    /** A list of ships whose client column, and whose home port column where asked, name a client; the server answers for the clients as told. */
+    const shipsUnder = async (clientsAnswer: TransportResponse, homePort = false): Promise<HTMLElement> => {
+      const rows = [
+        { id: 's-1', name: 'Kestrel', clientId: 'c-1', homePort: 'c-2' },
+        { id: 's-2', name: 'Vega', clientId: '', homePort: '' },
+      ];
+      const named = (id: string, header?: string): MultiColumnConfig =>
+        multiColumnConfig({
+          id: id as FieldName,
+          ...(header ? { header } : {}),
+          additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+          concatFn: 'hyphen-concat',
+          fallback: (row: Record<string, unknown>) => (row[id] ? `Client ${String(row[id])}` : 'Nobody'),
+        });
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            named('clientId', 'Client'),
+            ...(homePort ? [named('homePort')] : []),
+          ],
+        },
+        rows,
+        (request) =>
+          request.url.split('?')[0] === '/api/clients'
+            ? clientsAnswer
+            : { status: 200, body: rows, headers: { 'total-count': String(rows.length) } },
+      );
+      fixture.detectChanges();
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    };
+
+    const cellsOf = (element: HTMLElement): (string | undefined)[][] =>
+      Array.from(element.querySelectorAll('tbody tr')).map((row) =>
+        Array.from(row.querySelectorAll('td.data-col:not(.action-col)')).map((cell) => cell.textContent?.trim()),
+      );
+
+    const noticesOf = (element: HTMLElement): (string | undefined)[] =>
+      Array.from(element.querySelectorAll('.notice[role="status"] .notice-words')).map((words) =>
+        words.textContent?.trim(),
+      );
+
+    it('draws its rows when the related read is refused: the wait ends, a cell says what the page gives for a row whose record is not read, and the list says above its rows what it could not read', async () => {
+      const element = await shipsUnder({ status: 403, body: { message: 'no List on Clients' } });
+      // The related read was asked once and is over: the list is not drawn as loading.
+      expect(transport.requests.filter((request) => request.url.split('?')[0] === '/api/clients').length).toBe(1);
+      expect(fixture.componentInstance.loadingRowData()).toBe(false);
+      expect(element.querySelector('.impulse-grid-loading-overlay')).toBeNull();
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Client c-1'],
+        ['Vega', 'Nobody'],
+      ]);
+      expect(noticesOf(element)).toEqual([
+        'The records named in the Client column are not available to you: no List on Clients',
+      ]);
+    });
+
+    it('says so once for a read two of its columns name, each by the heading the table draws, and in other words for a read that failed', async () => {
+      const element = await shipsUnder({ status: 500, body: { message: 'the database is away' } }, true);
+      expect(element.querySelector('.impulse-grid-loading-overlay')).toBeNull();
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Client c-1', 'Client c-2'],
+        ['Vega', 'Nobody', 'Nobody'],
+      ]);
+      expect(noticesOf(element)).toEqual([
+        'The records named in the Client and Home Port columns could not be loaded: the database is away',
+      ]);
+    });
+
+    it('says nothing above a list whose related read answered', async () => {
+      const element = await shipsUnder({
+        status: 200,
+        body: [{ id: 'c-1', name: 'Corvid Lines' }],
+        headers: { 'total-count': '1' },
+      });
+      expect(cellsOf(element)).toEqual([
+        ['Kestrel', 'Corvid Lines'],
+        ['Vega', 'Nobody'],
+      ]);
+      expect(noticesOf(element)).toEqual([]);
     });
   });
 

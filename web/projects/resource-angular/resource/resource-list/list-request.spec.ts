@@ -10,6 +10,7 @@ import {
   positionAfter,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
+  relatedUnreadMessage,
   searchEligibility,
 } from './list-request';
 
@@ -156,6 +157,48 @@ describe('listEmptyMessage', () => {
   for (const tt of cases) {
     it(tt.name, () => {
       expect(listEmptyMessage(tt.error, tt.noColumns, tt.empty)).toBe(tt.want);
+    });
+  }
+});
+
+describe('relatedUnreadMessage', () => {
+  const refused = new ApiError('GET', '/api/sectors', 403, { message: 'no List on Sectors' });
+  const cases: { name: string; error: unknown; headings: string[]; want: string }[] = [
+    {
+      name: 'a refused read names the column and reads as a refusal, in the server\'s words',
+      error: refused,
+      headings: ['Kept in'],
+      want: 'The records named in the Kept in column are not available to you: no List on Sectors',
+    },
+    {
+      name: 'two columns over one read are both named',
+      error: refused,
+      headings: ['Kept in', 'Owner'],
+      want: 'The records named in the Kept in and Owner columns are not available to you: no List on Sectors',
+    },
+    {
+      name: 'three are named as a person lists them',
+      error: refused,
+      headings: ['Kept in', 'Owner', 'Home port'],
+      want: 'The records named in the Kept in, Owner and Home port columns are not available to you: no List on Sectors',
+    },
+    {
+      name: 'a read the server could not serve is not a refusal of the person',
+      error: new ApiError('GET', '/api/sectors', 500, { message: 'the database is away' }),
+      headings: ['Kept in'],
+      want: 'The records named in the Kept in column could not be loaded: the database is away',
+    },
+    {
+      name: 'any other failure names itself',
+      error: new Error('network down'),
+      headings: ['Kept in'],
+      want: 'The records named in the Kept in column could not be loaded: network down',
+    },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(relatedUnreadMessage(tt.error, tt.headings)).toBe(tt.want);
     });
   }
 });

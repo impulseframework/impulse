@@ -21,6 +21,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialog } from '@angular/material/dialog';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import {
   AppGridComponent,
   ColumnFilter,
@@ -89,10 +90,14 @@ import {
   listEmptyMessage,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
+  relatedUnreadMessage,
   searchEligibility,
 } from './list-request';
 import { listableColumns, sameColumns } from './listable-columns';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
+
+/** A column's heading where the page gives none: its field's name in words, as the table draws it. */
+const headingTitle = new CamelCaseToTitlePipe();
 
 @Component({
   standalone: true,
@@ -219,6 +224,26 @@ export class ResourceListComponent implements OnInit {
    * page gives none, or where its rows give it nothing to say.
    */
   notice = computed(() => this.config()?.notice?.(this.store.page().rows) ?? '');
+
+  /**
+   * What the list could not read of the records its columns name: one sentence for each
+   * related read the server refused or that failed, naming the shown columns it fills by
+   * their headings. Such a read is over, so the list is drawn with the rows it has, and
+   * the sentences stand above them until the read is asked again and answers.
+   */
+  unread = computed<string[]>(() => {
+    const sentences: string[] = [];
+    for (const [refKey, ref] of this.resourceRefMap()) {
+      if (ref.status() !== 'error') {
+        continue;
+      }
+      const headings = this.headingsOver(refKey);
+      if (headings.length > 0) {
+        sentences.push(relatedUnreadMessage(ref.error(), headings));
+      }
+    }
+    return sentences;
+  });
 
   indentTitle = computed(() => {
     if (this.config() === undefined) {
@@ -662,7 +687,10 @@ export class ResourceListComponent implements OnInit {
               } else {
                 const refKey = this.resourceRefKey(additionalCol.resource, additionalCol.id as FieldName);
                 const resourceRef = refmap.get(refKey);
-                const resData = resourceRef?.value();
+                // A related read the server refused, or one that failed, holds no rows (reading
+                // its value would throw): the cell says what the page gives for a row whose
+                // record is not read, and the list says above its rows what it could not read.
+                const resData = resourceRef?.hasValue() ? resourceRef.value() : undefined;
                 if (!resData) {
                   return;
                 }
@@ -995,6 +1023,25 @@ export class ResourceListComponent implements OnInit {
 
   private resourceRefKey(resource: Resource, keyField: FieldName): string {
     return `${resource}::${keyField}`;
+  }
+
+  /** The headings, as the table draws them, of the shown columns that name a record of the related read under the key. */
+  private headingsOver(refKey: string): string[] {
+    const headings: string[] = [];
+    for (const col of this.listColumns()) {
+      if (col.hidden || !('additionalIds' in col)) {
+        continue;
+      }
+      const reads = col.additionalIds.some(
+        (additional) =>
+          additional.resource !== undefined &&
+          this.resourceRefKey(additional.resource, additional.id as FieldName) === refKey,
+      );
+      if (reads) {
+        headings.push(headingTitle.transform(col.header || col.id));
+      }
+    }
+    return headings;
   }
 
   private getUniqueId(baseId: string, usedIds: Set<string>): string {

@@ -603,6 +603,36 @@ describe("CompoundResourceComponent: the page's title", () => {
     expect(declared(own, ['.title', 'h1'], ['.impulse-section'])).toContain('overflow-wrap: anywhere');
   });
 
+  it("draws its own title in the page's flow, in a row of its own that a title of two lines makes taller, so it is never laid over what follows", async () => {
+    const fixture = await present(viewConfig({ ...titled, collapsible: true }));
+    const own = ownTitle(fixture) as HTMLElement;
+    const box = own.parentElement as HTMLElement;
+    const row = box.parentElement as HTMLElement;
+
+    expect(row.classList.contains('header-container')).toBe(true);
+    // Not taken out of the page's flow: what follows starts where the row ends.
+    expect(declared(row, ['.header-container'])).not.toContain('position');
+    // At least the 48 pixels the title was laid over, and as tall as the title where that is more.
+    expect(box.classList.contains('title-without-back')).toBe(true);
+    const height = declared(box, ['.title-without-back']);
+    expect(height).toContain('min-height: 48px');
+    expect(height.replace('min-height: 48px', '')).not.toContain('height');
+    // The row is as tall as the title, with no margin of the heading's added.
+    expect(declared(own, ['.title', 'h1'], ['.impulse-section'])).toContain('margin: 0');
+    // The title takes its own room, so what follows leaves none for it.
+    const follows = element(fixture).querySelector(':scope > .page-container > .resource-container') as HTMLElement;
+    expect(follows.classList.contains('empty-elements')).toBe(false);
+  });
+
+  it('keeps the room above what it holds on a page with no title and no form of its own', async () => {
+    const fixture = await present(viewConfig({ ...titled, title: '', collapsible: true }));
+
+    expect(ownTitle(fixture)).toBeNull();
+    const holds = element(fixture).querySelector(':scope > .page-container > .resource-container') as HTMLElement;
+    expect(holds.classList.contains('empty-elements')).toBe(true);
+    expect(declared(holds, ['.empty-elements'])).toContain('padding-top: 30px');
+  });
+
   it("draws the title of a section that folds away as a section's, in a header that grows with a title of two lines", async () => {
     const script = scripted();
     const fixture = await pageOver(squadronPage, script);

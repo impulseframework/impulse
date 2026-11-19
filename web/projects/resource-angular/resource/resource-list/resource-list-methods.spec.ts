@@ -427,6 +427,19 @@ describe('ResourceListComponent row methods', () => {
     ]);
   });
 
+  it('draws that row as wide as the list under it and no wider: the indent of its title is inside its width', async () => {
+    await create({ primaryResource: people, title: 'People' });
+    const row = element().querySelector('.header-container') as HTMLElement;
+
+    // The row is indented, and as wide as what holds it: an indent added to that width
+    // put its far end 20 pixels past the list's.
+    expect(row.classList.contains('indent')).toBe(true);
+    expect(declared(row, ['.indent'])).toContain('padding-left: 20px');
+    const rule = declared(row, ['.header-container'], ['>']);
+    expect(rule).toContain('width: 100%');
+    expect(rule).toContain('box-sizing: border-box');
+  });
+
   it("draws its title as the page's where the list is the page and as a section's where it is one of the things under a row, and lets it break where its line ends", async () => {
     await create({ primaryResource: people, title: 'People' });
     const title = element().querySelector('h1.title') as HTMLElement;

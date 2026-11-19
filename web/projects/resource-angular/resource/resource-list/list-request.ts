@@ -188,3 +188,21 @@ export function listEmptyMessage(error: unknown, noListableColumns: boolean, emp
   }
   return empty || noRecordsFound;
 }
+
+/**
+ * What a list says above its rows when it could not read the records some of its columns
+ * name (a related record's name, read by the keys the rows carry): the columns, by their
+ * headings, and the server's own message when it refused the read (a 403: the caller holds
+ * no List on the record) or the read failed. The rows are drawn all the same, each such
+ * cell saying what the page gives for a row whose record is not read.
+ */
+export function relatedUnreadMessage(error: unknown, headings: readonly string[]): string {
+  const columns =
+    headings.length === 1
+      ? `the ${headings[0]} column`
+      : `the ${headings.slice(0, -1).join(', ')} and ${headings.at(-1)} columns`;
+  if (error instanceof ApiError && error.status === 403) {
+    return `The records named in ${columns} are not available to you: ${error.message}`;
+  }
+  return `The records named in ${columns} could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
+}

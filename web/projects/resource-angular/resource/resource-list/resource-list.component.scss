@@ -6,12 +6,15 @@
 }
 
 // The list's title and, at the far end of its line or under it, what the list offers.
+// The row is as wide as the list under it: the indent of its title is inside that width,
+// not added to it, so the row never reaches past the list's far edge.
 .header-container {
   @include headings.row;
   margin-top: 10px;
   top: 0;
   z-index: 10;
   width: 100%;
+  box-sizing: border-box;
 }
 
 // The page's own title where the list is the page, a section's where the list is one of
