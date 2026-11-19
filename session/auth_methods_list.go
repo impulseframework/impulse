@@ -73,6 +73,21 @@ type MethodList struct {
 	// is told them only while an administrator has the password method open to
 	// sign-up, which the answer reads as each request arrives.
 	SignUp SignUpRoutes
+	// PasswordReset are the paths of the password reset handlers
+	// (PasswordReset().Request(), Open() and Complete()), all three or none; they need
+	// the password method listed. The page is always told Open and Complete, where a
+	// link an administrator sent is followed, and is told Request, behind its "Forgot
+	// your password?", only while an administrator has self-service reset turned on,
+	// which the answer reads as each request arrives.
+	PasswordReset PasswordResetRoutes
+}
+
+// PasswordResetRoutes are the paths of the password reset handlers, as a MethodList
+// names them.
+type PasswordResetRoutes struct {
+	Request  string
+	Open     string
+	Complete string
 }
 
 // InvitationRoutes are the paths of the invitation handlers, as a MethodList names
@@ -83,10 +98,14 @@ type InvitationRoutes struct {
 	SignUp string
 }
 
-// EmailRoutes are the paths of the email address handlers, as a MethodList names them.
+// EmailRoutes are the paths of the email address handlers, as a MethodList names them:
+// Add and Verify, a signed-in person's own change, both or none, and Confirm, where the
+// reader of an address an administrator asked to put on an account confirms it, which
+// goes with them or is left out.
 type EmailRoutes struct {
-	Add    string
-	Verify string
+	Add     string
+	Verify  string
+	Confirm string
 }
 
 // FirstPasswordRoutes are the paths of the first password handlers, as a MethodList
@@ -145,6 +164,18 @@ type methodsAnswer struct {
 	Invitation      *invitationAnswer `json:"invitation,omitempty"`
 	Email           *emailAnswer      `json:"email,omitempty"`
 	SignUp          *signUpAnswer     `json:"signUp,omitempty"`
+	// PasswordReset is the password reset block: where a reset link is followed, and,
+	// while self-service reset is on, where a person asks for one.
+	PasswordReset *passwordResetRoutesAnswer `json:"passwordReset,omitempty"`
+}
+
+// passwordResetRoutesAnswer is the password reset block of a methods answer. Request is
+// absent while an administrator has not turned self-service reset on, and the page then
+// offers no "Forgot your password?".
+type passwordResetRoutesAnswer struct {
+	Request  string `json:"request,omitempty"`
+	Open     string `json:"open"`
+	Complete string `json:"complete"`
 }
 
 // invitationAnswer is the invitation block of a methods answer.
@@ -192,8 +223,9 @@ type firstPasswordAnswer struct {
 
 // emailAnswer is the email block of a methods answer.
 type emailAnswer struct {
-	Add    string `json:"add"`
-	Verify string `json:"verify"`
+	Add     string `json:"add"`
+	Verify  string `json:"verify"`
+	Confirm string `json:"confirm,omitempty"`
 }
 
 // signUpAnswer is the sign-up block of a methods answer.
@@ -253,7 +285,7 @@ func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if answer.Invitation == nil && answer.SignUp == nil {
+		if answer.Invitation == nil && answer.SignUp == nil && answer.PasswordReset == nil {
 			return httpio.NewEncoder(w).Ok(answer)
 		}
 
@@ -267,6 +299,13 @@ func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 			now = answer.withSignUp(open)
+		}
+		if answer.PasswordReset != nil {
+			open, err := a.selfServiceResetOpen(ctx)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			now = now.withOwnReset(open)
 		}
 		if now.Invitation == nil {
 			return httpio.NewEncoder(w).Ok(now)
@@ -289,6 +328,21 @@ func (m *methodsAnswer) withSignUp(open bool) *methodsAnswer {
 	}
 	answer := *m
 	answer.SignUp = nil
+
+	return &answer
+}
+
+// withOwnReset is the answer as a page reads it now: with the path a person asks for
+// their own reset link at while self-service reset is on, and without it, as a copy,
+// while it is off. The paths a link is followed at stay either way.
+func (m *methodsAnswer) withOwnReset(open bool) *methodsAnswer {
+	if open {
+		return m
+	}
+	answer := *m
+	reset := *m.PasswordReset
+	reset.Request = ""
+	answer.PasswordReset = &reset
 
 	return &answer
 }
@@ -407,8 +461,25 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
 	answer.SignUp = signUpAnswerOf(list.SignUp, passwordListed)
+	answer.PasswordReset = passwordResetAnswerOf(list.PasswordReset, passwordListed)
 
 	return answer
+}
+
+// passwordResetAnswerOf validates the password reset routes: none, or all three as
+// canonical paths with the password method listed.
+func passwordResetAnswerOf(p PasswordResetRoutes, passwordListed bool) *passwordResetRoutesAnswer {
+	if p == (PasswordResetRoutes{}) {
+		return nil
+	}
+	if !advertisedPath(p.Request) || !advertisedPath(p.Open) || !advertisedPath(p.Complete) {
+		panic("session: Methods names some of the password reset routes: name all three (PasswordReset().Request(), Open() and Complete()), each a canonical path in the application, or none")
+	}
+	if !passwordListed {
+		panic("session: Methods names the password reset routes without the password method: a reset chooses a new password, so list the password method or drop the routes")
+	}
+
+	return &passwordResetRoutesAnswer{Request: p.Request, Open: p.Open, Complete: p.Complete}
 }
 
 // invitationAnswerOf validates the invitation routes: none, or open and accept as
@@ -436,11 +507,12 @@ func emailAnswerOf(p EmailRoutes) *emailAnswer {
 	if p == (EmailRoutes{}) {
 		return nil
 	}
-	if !advertisedPath(p.Add) || !advertisedPath(p.Verify) {
-		panic(fmt.Sprintf("session: Methods is given the email routes %+v: name the add and verify paths together, each a canonical path in the application", p))
+	if !advertisedPath(p.Add) || !advertisedPath(p.Verify) || (p.Confirm != "" && !advertisedPath(p.Confirm)) {
+		panic(fmt.Sprintf("session: Methods is given the email routes %+v: name the add and verify paths together, and the confirm path with them or not at all, "+
+			"each a canonical path in the application", p))
 	}
 
-	return &emailAnswer{Add: p.Add, Verify: p.Verify}
+	return &emailAnswer{Add: p.Add, Verify: p.Verify, Confirm: p.Confirm}
 }
 
 // signUpAnswerOf validates the sign-up routes: none, or all three as canonical paths,

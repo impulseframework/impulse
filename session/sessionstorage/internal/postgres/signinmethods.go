@@ -14,19 +14,22 @@ import (
 
 // signInMethodColumns are the sign-in methods table's columns, in signInMethodRow's
 // order.
-const signInMethodColumns = `"Name", "OpenSignUp", "OpenedFor", "DefaultRole", "UpdatedAt"`
+const signInMethodColumns = `"Name", "OpenSignUp", "OpenedFor", "DefaultRole", "SelfServiceReset", "UpdatedAt"`
 
 // signInMethodRow is a sign-in method's row as the table holds it.
 type signInMethodRow struct {
-	Name        string    `db:"Name"`
-	OpenSignUp  bool      `db:"OpenSignUp"`
-	OpenedFor   *string   `db:"OpenedFor"`
-	DefaultRole *string   `db:"DefaultRole"`
-	UpdatedAt   time.Time `db:"UpdatedAt"`
+	Name             string    `db:"Name"`
+	OpenSignUp       bool      `db:"OpenSignUp"`
+	OpenedFor        *string   `db:"OpenedFor"`
+	DefaultRole      *string   `db:"DefaultRole"`
+	SelfServiceReset bool      `db:"SelfServiceReset"`
+	UpdatedAt        time.Time `db:"UpdatedAt"`
 }
 
 func (r *signInMethodRow) record() *dbtype.SignInMethod {
-	return &dbtype.SignInMethod{Name: r.Name, OpenSignUp: r.OpenSignUp, OpenedFor: r.OpenedFor, DefaultRole: r.DefaultRole, UpdatedAt: r.UpdatedAt}
+	return &dbtype.SignInMethod{
+		Name: r.Name, OpenSignUp: r.OpenSignUp, OpenedFor: r.OpenedFor, DefaultRole: r.DefaultRole, SelfServiceReset: r.SelfServiceReset, UpdatedAt: r.UpdatedAt,
+	}
 }
 
 func (s *SessionStorageDriver) signInMethodsTable() string {
@@ -83,10 +86,11 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, now())
-		ON CONFLICT ("Name") DO UPDATE SET "OpenSignUp" = EXCLUDED."OpenSignUp", "OpenedFor" = EXCLUDED."OpenedFor", "DefaultRole" = EXCLUDED."DefaultRole", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, now())
+		ON CONFLICT ("Name") DO UPDATE SET "OpenSignUp" = EXCLUDED."OpenSignUp", "OpenedFor" = EXCLUDED."OpenedFor", "DefaultRole" = EXCLUDED."DefaultRole",
+			"SelfServiceReset" = EXCLUDED."SelfServiceReset", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
 		s.signInMethodsTable(), signInMethodColumns)
-	if _, err := s.conn.Exec(ctx, query, m.Name, m.OpenSignUp, m.OpenedFor, m.DefaultRole); err != nil {
+	if _, err := s.conn.Exec(ctx, query, m.Name, m.OpenSignUp, m.OpenedFor, m.DefaultRole, m.SelfServiceReset); err != nil {
 		return errors.Wrap(err, "pgx.Conn.Exec()")
 	}
 

@@ -352,6 +352,30 @@ describe('filledMethods and filledBody', () => {
     expect(filledMethods(held, presentations, metaOf, (method) => method === 'AssignCrewRole')).toEqual([]);
   });
 
+  it('offers a method the page presents twice as each entry presents it: its own words, predicate and fill', () => {
+    // One method says a setting either way: the page offers the change that is left to make.
+    const twice: MethodPresentation[] = [
+      {
+        method: 'RemoveCrewRole' as Method,
+        label: 'Take it for this sector',
+        when: (row) => row['kind'] === 'domain',
+        fill: (row) => ({ role: row['role'], domain: row['domain'] }),
+      },
+      {
+        method: 'RemoveCrewRole' as Method,
+        label: 'Take it everywhere',
+        when: (row) => row['kind'] !== 'domain',
+        fill: (row) => ({ role: row['role'] }),
+      },
+    ];
+    const here = filledMethods(held, twice, metaOf, all);
+    expect(here.map((m) => m.label)).toEqual(['Take it for this sector']);
+    expect(filledBody(here[0], held)).toEqual({ role: 'Cadet', domain: 'anvil' });
+    const everywhere = filledMethods({ ...held, kind: 'global' }, twice, metaOf, all);
+    expect(everywhere.map((m) => m.label)).toEqual(['Take it everywhere']);
+    expect(filledBody(everywhere[0], held)).toEqual({ role: 'Cadet' });
+  });
+
   it('offers nothing a page hides, nothing with no metadata, and nothing where the page names no method', () => {
     expect(filledMethods(held, [{ ...presentations[0], hidden: true }], metaOf, all)).toEqual([]);
     expect(filledMethods(held, [{ method: 'Unknown' as Method, fill: () => ({}) }], () => undefined, all)).toEqual([]);

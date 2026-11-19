@@ -39,6 +39,10 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 // adds an address and proves it by following the link sent to it{{if and .Password .SignUpChoice}}; and, while an
 // administrator has the password method open to sign-up, a stranger signs up from a link
 // mailed to the address they give{{end}}.
+// An address an administrator sets for a person is theirs once its mailbox confirms it,
+// by the link the auth mails there{{if .Password}}; and a person who forgot their password gets back
+// in by a link mailed to the address they confirmed, which an administrator sends or,
+// while an administrator allows it, the person asks for at the sign-in page{{end}}.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -47,7 +51,11 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 // person's verified address (a person who holds none gives one first), unless the
 // browser is one the person asked to be remembered after a code (the {{.Name}}-trusted
 // cookie); a sign-in through a directory the deployment administers, or whose token says
-// a second factor was passed, carries the directory's and is asked for nothing. An
+// a second factor was passed, carries the directory's and is asked for nothing.{{if .Directory}} Every
+// account a person signs in to has a confirmed address, so a person who comes through a
+// directory that does not vouch for theirs (Microsoft Entra ID vouches for none)
+// confirms one at their first sign-in with a code mailed to it, whatever the directory
+// attests.{{end}} An
 // administrator makes the server forget the browsers a person asked to be remembered,
 // from the person's account page, so their next sign-in asks again.
 package {{.Name}}
@@ -326,6 +334,14 @@ func (h *Handlers) EmailAdd() http.HandlerFunc {
 // EmailVerify completes an address change from its link: the address is stored verified.
 func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
+}
+
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address: the account holds the address it had until then. The
+// reader of the link confirms it signed in or not, since they may have lost the mailbox
+// their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
 // DeviceAuthorize starts a command-line client's device authorization ({"client_id",
@@ -673,8 +689,13 @@ func (a *Auth) Identity() *{{.Name}}identity.Client {
 }
 {{- end}}
 
-// Close releases the permission engine, which ends its subscription to the policy kind.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine, which ends its subscription to the policy kind. A reset link a person asked
+// for is mailed after their request is answered (session.AuthAPI.WaitForMail), so an
+// application that has stopped serving closes the auth before it closes the database,
+// and no link a person was promised is lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}
@@ -767,6 +788,27 @@ func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
 // old one (PasswordChange).
 func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
 	return h.FirstPassword().Set()
+}
+
+// PasswordResetRequest takes a person's own request for a link that resets their
+// password, served while an administrator has turned that on: the answer is the same
+// whether or not the address has an account, and an address with none is mailed
+// nothing.
+func (h *Handlers) PasswordResetRequest() http.HandlerFunc {
+	return h.PasswordReset().Request()
+}
+
+// PasswordResetOpen opens a password reset link, the person's own or one an
+// administrator sent, and answers the username it resets the password of.
+func (h *Handlers) PasswordResetOpen() http.HandlerFunc {
+	return h.PasswordReset().Open()
+}
+
+// PasswordResetComplete sets the new password a reset link's reader chose: the link is
+// spent, the old password is refused from then on, every session of the person ends,
+// and they sign in with the new password.
+func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
+	return h.PasswordReset().Complete()
 }
 
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee

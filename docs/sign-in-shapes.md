@@ -14,6 +14,8 @@ that start an application from one, and what `impulse audit` prints for it.
 - [How wide a Google or Microsoft sign-in can be opened](#how-wide-a-google-or-microsoft-sign-in-can-be-opened)
 - [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
 - [Shapes and the impulse command](#shapes-and-the-impulse-command)
+- [In every shape](#in-every-shape): the email address on an account, the way back in, and
+  the mail an account gets
 - [Without tenants](#without-tenants): shapes [1](#1-invite-only),
   [2](#2-directory-members), [3](#3-directory-roles) and [4](#4-open-sign-up)
 - [In every shape with tenants](#in-every-shape-with-tenants)
@@ -243,7 +245,9 @@ One thing differs between Google and Microsoft: invitations. An invitation is ac
 only with the invited email address: the address of the sign-in must be the invited one.
 A Google sign-in carries the person's address. A Microsoft sign-in carries none unless
 the application's registration at Microsoft is set up to send it, and without it an
-invited person who signs in with Microsoft is refused. A person can still accept with a
+invited person who signs in with Microsoft is refused. (A person who is not accepting an
+invitation and signs in with Microsoft confirms their address with a mailed code the first
+time, as described under [In every shape](#in-every-shape).) A person can still accept with a
 password where the auth has the password method. A new person chooses a password from the
 link, and the account is made with the invited address. An account that has no address
 yet accepts by the link alone and takes the invited address. This is described under
@@ -339,6 +343,73 @@ leaves what `--shape` or `--tenancy` added staged in the same way. The examples 
 show each commit.
 
 Every command and flag is described in [cmd/impulse/README.md](../cmd/impulse/README.md).
+
+## In every shape
+
+These things hold for all eight shapes, wherever the auth sends mail.
+
+### The email address on an account
+
+An account's email address counts once the person has shown that the mailbox is theirs.
+The address is then confirmed. It gets confirmed in one of these ways:
+
+- The person accepted an invitation mailed to it, or signed up from a link mailed to it.
+- Google vouched for it at a sign-in.
+- The person entered a code mailed to it. Microsoft and other identity providers do not
+  vouch for an address. So the first time a person signs in through one of them to an
+  account that holds no confirmed address, the login page stops before the application
+  opens: it asks for the address where the account has none, mails it a code, and the code
+  confirms the address. Later sign-ins are not stopped for it.
+- The person followed a link mailed to it: their own change on the Your account page, or
+  a change an administrator asked for.
+
+An administrator does not write an address onto an account. They ask for the change. The
+new address is mailed a link, nothing changes until somebody follows it, and the address
+the account held before is then told that it was replaced. The address of a person who
+signs in through an organization's directory is the directory's: it is not changed in the
+application, by the person or by an administrator.
+
+### The way back in: a password reset link
+
+Where an auth has the password method, a person who cannot sign in gets back in with a
+link mailed to the confirmed address of their account.
+
+- An administrator sends the link from the person's row: the application's administrators
+  to any account, a tenant's administrator to a person of the tenant. The message says
+  whose administrator asked.
+- A person asks for their own on the login page, under "Forgot your password?", only while
+  the application lets them. That is a switch on the auth's Sign-in page, which an
+  administrator turns on and off while the application runs. It starts off. The switch is
+  there where the Sign-in page carries the choice of who may sign up. An auth without that
+  choice (its directory gives the roles, or it has tenants and its people do not create
+  one) has no switch yet, and its people ask an administrator.
+- The login page answers a person's own request the same way whether or not the address
+  has an account. An address with no account is mailed nothing.
+- Sending a link changes nothing. The password the account has still signs in, and the
+  person's sessions stay open, until the link is used.
+- The link works once, and for a day unless the application sets another time. Using it
+  sets the new password and ends every session of the person. It signs nobody in: the
+  person signs in with the new password.
+- One address is sent at most five reset links in fifteen minutes, whoever asks. The next
+  is refused for fifteen minutes, and an administrator who asked is told why. Sign-in
+  codes are counted apart, so reset links never use up a person's codes.
+- No link is sent to an account that has no password or no confirmed address. The
+  administrator who asked is told so.
+- Turning the switch off stops new requests. A link a person asked for while it was on
+  still works until it is used or runs out.
+
+### The mail an account gets without asking
+
+- The address an account held is told when the account's address was changed.
+- A person is told when an administrator forgets the browsers they trusted, so that their
+  next sign-in asks for the code again.
+- A person is told when an administrator removes them from a tenant: when the last role
+  they held there is taken, whether it was their own or one they had through a group. The
+  message says so when the account was deleted with it.
+
+Nothing is mailed when an account is disabled or enabled, when a role ends by itself, when
+a person leaves a tenant themselves, or when an administrator deletes the account
+outright.
 
 ## Without tenants
 
@@ -787,7 +858,8 @@ a tenant's administrator can do this much:
 | Withdraw an invitation | An invitation of the tenant that still stands |
 | See the name a person signs in with and their name, whether the account is disabled, and when it was created and last signed in | Everyone in the tenant |
 | See a person's email address, and whether they must choose a new password | A person who holds no role in another tenant or in every tenant (`heldElsewhere = false`) |
-| Disable and enable the account, delete it, rename it, set its email address or name, set a temporary password, require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
+| Send a password reset link | Everyone in the tenant who has a password and a confirmed email address |
+| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), set a temporary password, require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
 
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.

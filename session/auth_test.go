@@ -52,9 +52,27 @@ func newAuthStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockAuthStor
 	// The bookkeeping after a sign-in, and the hint the session read looks for, read
 	// an empty store unless a test says otherwise.
 	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
-	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, userID impulse.UUID) ([]*sessionstorage.SessionIdentity, error) {
+		links, _ := linkedIdentities.Load(userID)
+		identities, _ := links.([]*sessionstorage.SessionIdentity)
+
+		return identities, nil
+	}).AnyTimes()
 
 	return storage
+}
+
+// linkedIdentities are the identities a test gave a user (linkIdentities), by the user's
+// id: what every mocked store answers IdentitiesByUser with, and none for a user no test
+// named. A test's users have ids of their own, so tests run at once share nothing.
+var linkedIdentities sync.Map
+
+// linkIdentities makes every mocked store answer userID's identities with links, until
+// the test ends or names others.
+func linkIdentities(t *testing.T, userID impulse.UUID, links ...*sessionstorage.SessionIdentity) {
+	t.Helper()
+	linkedIdentities.Store(userID, links)
+	t.Cleanup(func() { linkedIdentities.Delete(userID) })
 }
 
 // resolveAll is an account rule of a method's identity type I that provisions the user

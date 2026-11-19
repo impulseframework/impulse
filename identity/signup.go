@@ -60,6 +60,10 @@ type SignInMethodRow struct {
 	OpenedFor *string
 	// DefaultRole is the role such a person is given with their account, nil for none.
 	DefaultRole *string
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password. It is read on the password method's row alone, and is
+	// written by SetSelfServiceReset alone: SetSignInMethod leaves it as it stands.
+	SelfServiceReset bool
 }
 
 // SignInMethod is one sign-in method the auth registers, with what an administrator
@@ -88,6 +92,9 @@ type SignInMethod struct {
 	// Says is the row's state as a sentence a person reads: what a person with no
 	// invitation meets at this method.
 	Says string
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password: the password method's alone, false for every other.
+	SelfServiceReset bool
 }
 
 // SignUp is what opening a sign-in method to sign-up asks for.
@@ -143,6 +150,7 @@ func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignIn
 	method := SignInMethod{
 		Name: registered.Name, Label: registered.Label, Admits: sentenceStart(registered.Audience.Words()),
 		OpenSignUp: false, DefaultRole: "", DirectoryGivesRoles: registered.SyncsRoles, OwnRule: registered.OwnRule, Says: "",
+		SelfServiceReset: row != nil && row.SelfServiceReset && registered.Method == sessioninfo.MethodPassword,
 	}
 	now := registered.Audience.Words()
 	switch {
@@ -250,7 +258,8 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 	audience := registered.Audience.Key()
-	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil}
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, OpenedFor: &audience, DefaultRole: nil, SelfServiceReset: false}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
 		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
@@ -317,8 +326,32 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	if row := rowNamed(rows, method); row == nil || !row.OpenSignUp {
 		return nil
 	}
-	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil}); err != nil {
+	// SelfServiceReset is not this write's: SetSignInMethod leaves it as it stands.
+	closed := &SignInMethodRow{Name: method, OpenSignUp: false, OpenedFor: nil, DefaultRole: nil, SelfServiceReset: false}
+	if err := m.store.SetSignInMethod(ctx, txn, closed); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
+	}
+
+	return nil
+}
+
+// SetSelfServiceReset buffers an administrator's choice of whether a person may ask at
+// the sign-in page for a link that resets their own password, in the caller's
+// transaction: the one field of the password method's row, with what else the row says
+// left as it stands. The session library reads the row on every request, so the choice
+// holds in the running application from the commit on, with no restart. A link asked
+// for while it was on still works once it is off, until it is used or runs out; a link
+// an administrator sends is never held to the choice. An auth nobody signs in to with
+// a password is refused.
+func (m *Manager) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, on bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !m.signsInWithPassword() {
+		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset")
+	}
+	if err := m.store.SetSelfServiceReset(ctx, txn, string(sessioninfo.MethodPassword), on); err != nil {
+		return errors.Wrap(err, "identity.Store.SetSelfServiceReset()")
 	}
 
 	return nil

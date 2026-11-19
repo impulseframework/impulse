@@ -298,3 +298,85 @@ func TestManager_memberships_oneTransaction(t *testing.T) {
 		t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
 	}
 }
+
+// TestManager_RemoveRole_notice pins the notice of a removal from a tenant: it is mailed
+// to the address the person confirmed, once the removal has committed, when an
+// administrator takes the last thing the person holds in the tenant, and says so when
+// the account goes with it; and not on any other removal.
+func TestManager_RemoveRole_notice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// held are the memberships the person holds beside the one removed, their Steward
+		// role in alpha.
+		held      []access.MembershipKey
+		scope     accesstypes.PolicyScope
+		caller    accesstypes.User
+		unknown   bool
+		wantAsked []string
+	}{
+		{
+			name: "the last role in the tenant, and the last anywhere: the notice says the account went with it", scope: alphaScope, caller: erin,
+			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=true"},
+		},
+		{
+			name: "the last role in the tenant of a person another tenant holds: the account stays", scope: alphaScope, caller: erin,
+			held:      []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Steward")},
+			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
+		},
+		{
+			name: "a role taken while another holds the person in the tenant is no removal from it", scope: alphaScope, caller: erin,
+			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Clerk")},
+		},
+		{name: "a person who leaves a tenant themselves is told nothing", scope: alphaScope, caller: dana, held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Steward")}},
+		{name: "a role held for the whole application is no tenant's", scope: globalScope, caller: erin, held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Steward")}},
+		{name: "a person with no confirmed address is mailed nothing", scope: alphaScope, caller: erin, unknown: true},
+		{
+			name: "a role held in every tenant at once is no one tenant's", scope: accesstypes.EveryDomainPolicyScope(), caller: erin,
+			held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Steward")},
+		},
+		{
+			name: "a role taken in a tenant the person still reaches through a role held in every tenant is no removal from it", scope: alphaScope, caller: erin,
+			held: []access.MembershipKey{access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), dana, "Clerk")},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			removed := access.NewMembershipKey(tt.scope, dana, "Steward")
+			store := &fakeStore{
+				memberships: map[access.MembershipKey]bool{removed: true},
+				usernames:   map[impulse.UUID]string{userID: "dana"},
+				emails:      map[string]impulse.UUID{"dana@example.com": userID},
+			}
+			if tt.unknown {
+				store.emails = nil
+			}
+			for _, key := range tt.held {
+				store.memberships[key] = true
+			}
+			mail := &fakeMail{}
+			// The tenants' administrators are the Wardens, so a Steward may give the role up.
+			m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, fakeSessions{mail: mail}, administrators)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				err := m.RemoveRole(asCaller(ctx, tt.caller), txn, tt.scope, userID, "Steward")
+				if len(mail.asked) != 0 {
+					t.Errorf("before the commit the session library was asked %v, want nothing", mail.asked)
+				}
+
+				return err
+			}); err != nil {
+				t.Fatalf("RemoveRole() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantAsked, mail.asked); diff != "" {
+				t.Errorf("notices after the commit (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

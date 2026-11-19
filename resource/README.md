@@ -1052,8 +1052,16 @@ the session library wires them: `POST user/password/login`, `POST user/password/
 `POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
 the sign-in code to a sign-in that waits for the second factor), `POST
 user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
-none gives for the code); a browser reaches them with the XSRF cookie its first request
-was issued, echoed in the header. The password change
+none gives for the code); `POST user/email/confirm` (the link an administrator's change
+of a person's address mails to the new address, confirmed by a person who need not be
+signed in); and, for an Auth with a password method, `POST user/password-reset` (a
+person's own request for a reset link), `POST user/password-reset/open` and `POST
+user/password-reset/complete` (the mailed link opened, and completed with the new
+password). A browser reaches them with the XSRF cookie its first request
+was issued, echoed in the header. The methods route names the reset paths
+(`passwordReset`), the request's only while an administrator lets people ask for a link
+themselves (section 21, "Who may sign up"), so the login page offers "Forgot your
+password?" from the list it already reads. The password change
 (`PasswordChange`, the password method's `ChangeUserPassword`) validates the session
 itself, so it sits outside `ValidateSession`: a person whose operator-set password must
 change before anything else is served reaches it, and the methods route tells the login
@@ -3470,7 +3478,8 @@ POST <prefix>/create-crew-user                {"username","name","email","passwo
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-email             {"userId","email"}               Execute on SetCrewUserEmail, targeting CrewSessionUsers
+POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewSessionUsers
+POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewSessionUsers
 POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
@@ -3498,6 +3507,7 @@ POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyD
 POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
 POST <prefix>/make-crew-invite-only           {"name"}                         Execute on MakeCrewInviteOnly
+POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
 POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
@@ -3513,8 +3523,9 @@ POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","u
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
-     set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
-     end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
+     set-crew-sector-temporary-password, send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
+     revoke-crew-sector-user-trusted-devices, end-crew-sector-user-sessions
+                                              the whole application's bodies and answers    Execute on each, targeting CrewSectorUsers
 ```
 
 The names are table-derived: the Auth's package name in PascalCase and the library's own
@@ -3528,7 +3539,9 @@ decides which methods exist: the two role methods, the two invitation methods, t
 create, and the list and the two methods of the sign-in methods ("Who may sign up",
 below) are left out for an Auth whose roles a directory writes (`SyncsRoles`), where the
 directory admits its own members and the first sign-in creates the row, the two password
-methods (and the create's `password`) for an Auth with no password method, as are the
+methods (and the create's `password`), the method that mails a reset link and the one
+that says whether a person may ask for one themselves for an Auth with no password
+method, as are the
 method that removes a person's password and the list of how a person signs in, which are
 also written only where the schema holds the identities table (the rule they keep reads a
 person's identity links), the rename and
@@ -4024,16 +4037,39 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
 - A rename takes with it what is held under the old name: the person's sessions, the
   sessions they hold as someone else with their impersonation records, and every role
   membership. A name another user holds is refused (409).
-- An address set by hand is written bare and held unverified, whatever the one before it
-  was: it is trusted for nothing until the person verifies it themselves, and it
-  reserves the address, so one another user holds is refused at the commit. No address
-  (`email` null or left out) takes the one held off.
+- An address an administrator sets changes nothing until the person confirms it. The
+  method mails a link to the new address once the transaction has committed, and the
+  account keeps the address it has until the person follows that link from the new
+  mailbox (`POST user/email/confirm`, which the login page reaches with
+  `?address=<token>`). The old address is told once the change is made, and never asked
+  to allow it. One change stands at a time: a second request withdraws the first one's
+  link. An account always keeps an address, so the method replaces one and never takes
+  one off, and the answer says whether the link went (`sent`) and, where it did not,
+  why (`reason`), which the page shows the administrator.
+- A password reset link is mailed to the address the person confirmed, once the
+  transaction has committed, and changes nothing until it is used: the password the
+  account has signs the person in and their sessions stand. The message says who asked,
+  an administrator of the tenant the request was checked in or of the application. The
+  link works once; the new password ends every session of the person. The answer says
+  whether the link went and why not (the account has no password or no confirmed
+  address, or the address was sent too many reset links: five in fifteen minutes, the
+  person's own requests counted with the administrators' and apart from sign-in codes).
+  The role file decides who may send one, as for every method of the set.
 - Deleting a user removes their role memberships, ends their sessions, and removes
   their identity links and the account; whatever else the Auth keeps for the person
   goes with the row.
 - Resetting a person's second factor forgets every browser the Auth remembered for
   them, so their next sign-in from any of them is asked for the factor. The sessions
-  that stand are left.
+  that stand are left. The person is told at their confirmed address, once the
+  transaction has committed.
+- A person an administrator takes out of a tenant is told at their confirmed address,
+  once the transaction has committed: when the last role they held there is taken away,
+  when they are taken out of the group that gave them their last holding there, and
+  when that group's role is taken away, each of its people who held nothing else there
+  told. Where it was the last thing the person held anywhere and the account went with
+  it, the notice says so. Nothing is mailed when an administrator deletes the account
+  outright, when a tenant is cleared, for a role that ended by itself, or to a person
+  who still holds something in the tenant, of their own or through another group.
 - A lockout is cleared by removing the count of failed sign-ins kept under the name.
   Each instance of the application trusts what it remembers of a name for five seconds,
   a lock included, so the lock is gone from every instance within that time of the
@@ -4119,7 +4155,9 @@ assigns the page's two halves, with nothing written by the application:
   (`admits`: "Anyone with a Google account", "Anyone with an account at acme.example",
   from how wide the method's registration is), `openSignUp`, `defaultRole`,
   `directoryGivesRoles` and `ownRule` (the two kinds of method nothing is chosen for,
-  below), and `says`, what a person with no invitation meets, as a sentence. It is
+  below), `selfServiceReset` (on the password method's row alone: people may ask at the
+  sign-in page for a link that resets their own password), and `says`, what a person
+  with no invitation meets, as a sentence. It is
   computed from the Auth's registrations and the table's rows, so a method with no row is
   listed as invite only, and a row of a method the Auth no longer registers is not listed.
 - `OpenCrewSignUp` and `MakeCrewInviteOnly`, the two methods that write the row. Opening
@@ -4128,6 +4166,16 @@ assigns the page's two halves, with nothing written by the application:
   gets, with the words for the confirm button ("Open to anyone with a Google account"),
   and saves nothing. Making a method invite only says nothing first: the people who have
   accounts keep them, and new people need an invitation.
+- `SetCrewSelfServiceReset`, for an Auth with a password method: whether a person may
+  ask at the sign-in page for a link that resets their own password (`on`). It is off
+  until an administrator turns it on, and the choice holds in the running application
+  from the commit on, with no restart: the methods route names the request's path while
+  it is on, the login page offers "Forgot your password?" from it, and the request's
+  route answers 404 while it is off. A link asked for while it was on still works once
+  it is off, until it is used or runs out, and a link an administrator sends is never
+  held to the choice. An Auth with a password and no list of sign-in methods (one whose
+  application lets nobody sign up to it) has no such method: its people are sent a
+  reset link by an administrator.
 
 What a person who signs up gets depends on the application. Without tenants they get the
 method's default role, a role held for the whole application: opening a method without
@@ -4189,7 +4237,7 @@ nothing once it is closed. The table's rows are written through its generated pa
 with change tracking on, so the change record keeps who opened a method and who made it
 invite only, and when (`DataChangeEvents` under `CrewSessionSignInMethods`); the table
 itself has no route, and nothing but the two methods writes it. The role file grants
-List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the two methods to the
+List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the methods to the
 roles that may decide, and nobody else reads the list or the warning.
 
 **What the application supplies.** One client per Auth, built by the Auth's own package
@@ -4506,9 +4554,9 @@ the tenant record's name where the application has one, and a side for each scop
 each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
-`rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
+`rename`, `setEmail`, `setTemporaryPassword`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
-the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
+the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
 what the outlet serves, so a method the Auth's shape leaves out, or a list the schema has
 no table for, is absent, and a side without its list of people is not listed. The Angular

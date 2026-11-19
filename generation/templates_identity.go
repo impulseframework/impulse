@@ -247,8 +247,10 @@ type (
 	// {{ .SignInAttempt }} is the count of failed sign-ins the {{ .Auth }} auth keeps
 	// for one name: a row of {{ .Tables.SignInAttempts }}. Name is what was typed into
 	// the username field, folded as the auth compares names, whether or not a user
-	// holds it; the rows the auth keeps for the mail it sends to an address are named
-	// mail: and the address. A name is locked while LockedUntil is ahead.
+	// holds it; the rows the auth keeps for its own counts are named in capitals, which
+	// no folded name holds: MAIL: and RESET: and the address for the mail and the reset
+	// links an address is sent, FIRST-PASSWORD: and the account for the guesses at the
+	// code of a first password. A name is locked while LockedUntil is ahead.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -826,18 +828,6 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	if change.Name != nil {
 		patch.SetName(change.Name.Name)
 	}
-	{{- if .UsernameIsEmail }}
-	// The auth's usernames are the addresses: the table derives the address from the
-	// username, and it changes when the person verifies a new one.
-	if change.Email != nil {
-		return errors.New("the auth's usernames are the addresses: an address is not set on a user by hand")
-	}
-	{{- else }}
-	// An address entered by hand is unverified, whatever the one before it was.
-	if change.Email != nil {
-		patch.SetEmail(change.Email.Address).SetEmailVerifiedAt(nil)
-	}
-	{{- end }}
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}UpdatePatch.Buffer()")
 	}
@@ -1147,6 +1137,24 @@ func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTran
 	}
 
 	return id, found, nil
+}
+
+func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error) {
+	// A read that goes past the declarations, as UserByVerifiedEmail's is: an address
+	// nobody confirmed is no address to mail a person at, so it is not answered.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Email FROM {{ .Tables.Users }} WHERE Id = @id AND Email IS NOT NULL AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"id": id.String()},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &email)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return email, found, nil
 }
 
 func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {

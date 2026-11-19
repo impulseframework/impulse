@@ -258,7 +258,8 @@
                 "label",
                 "openSignUp",
                 "ownRule",
-                "says"
+                "says",
+                "selfServiceReset"
               ]
             },
             {
@@ -799,6 +800,9 @@
               "resource": "SetCrewTemporaryPassword"
             },
             {
+              "resource": "SendCrewUserPasswordResetLink"
+            },
+            {
               "resource": "RevokeCrewUserTrustedDevices"
             },
             {
@@ -821,6 +825,9 @@
             },
             {
               "resource": "MakeCrewInviteOnly"
+            },
+            {
+              "resource": "SetCrewSelfServiceReset"
             },
             {
               "resource": "InviteCrewUser"
@@ -2086,6 +2093,9 @@
             {
               "resource": "SetCrewSectorTemporaryPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "SendCrewSectorUserPasswordResetLink"
             },
             {
               "resource": "RequireCrewSectorPasswordChange",

@@ -1090,13 +1090,16 @@ CREATE TABLE CrewSessionSignInAttempts (
 -- role such a person is given with their account, and holds nothing here, where a person
 -- who signs up charts a sector of their own. A method with
 -- no row is invite only, so the table starts empty and every method starts invite only.
--- UpdatedAt takes the commit time.
+-- SelfServiceReset, read on the password method's row alone, says a person may ask at
+-- the sign-in page for a link that resets their own password; it starts false, and with
+-- no row nobody may. UpdatedAt takes the commit time.
 CREATE TABLE CrewSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
@@ -1115,11 +1118,15 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
 -- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
+-- verification link, a first-password code, a reset link and an address confirmation
+-- go with their user. CreatedAt and
 -- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE CrewSessionMailLinks (
     Id         STRING(36) NOT NULL,
@@ -1136,7 +1143,7 @@ CREATE TABLE CrewSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_CrewSessionMailLinks_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
@@ -1177,13 +1184,16 @@ CREATE TABLE MembersSessionSignInAttempts (
 -- role such a person is given with their account, and holds nothing here, where a person
 -- who signs up charts a sector of their own. A method with
 -- no row is invite only, so the table starts empty and every method starts invite only.
--- UpdatedAt takes the commit time.
+-- SelfServiceReset, read on the password method's row alone, says a person may ask at
+-- the sign-in page for a link that resets their own password; it starts false, and with
+-- no row nobody may. UpdatedAt takes the commit time.
 CREATE TABLE MembersSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);
@@ -1202,11 +1212,15 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
 -- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
+-- verification link, a first-password code, a reset link and an address confirmation
+-- go with their user. CreatedAt and
 -- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE MembersSessionMailLinks (
     Id         STRING(36) NOT NULL,
@@ -1223,7 +1237,7 @@ CREATE TABLE MembersSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_MembersSessionMailLinks_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 

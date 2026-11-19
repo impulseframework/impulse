@@ -385,9 +385,10 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 // satisfy proceeds, a Deny refuses the completion (no session; the pending identity is
 // consumed), and a RequireMFA for a factor the person did not give holds the sign-in
 // again. The session records the sign-in's events followed by stepUp. If the sign-in
-// must wait again (the resolver now asks for a confirmation, or the policy for another
-// factor), the error is a *signin.PendingSignInError and the pending identity is
-// replaced.
+// must wait again (the resolver now asks for a confirmation, the policy for another
+// factor, or the person came through a directory that does not vouch for an address and
+// their account holds no confirmed one, which the mailed code alone answers), the error
+// is a *signin.PendingSignInError and the pending identity is replaced.
 //
 // A pending identity that a password started, or confirmed, completes only while the
 // user still holds that password: once it was changed, reset or removed, the

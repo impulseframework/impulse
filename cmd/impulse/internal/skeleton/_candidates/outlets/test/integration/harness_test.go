@@ -170,10 +170,11 @@ type served struct {
 	// tenant declares in code, as a sign-in would, and reloads it as a write path does.
 	tenants *resource.TenantRoster
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
-	// sign-in code a sign-in waits for.
+	// sign-in code a staff sign-in waits for.
 	mail *mail.Recorder
 	// membersMail is the recorder the members auth sends its mail to: the invitation of
-	// its first administrator, where a suite invites one.
+	// its first administrator, where a suite invites one, and the code that confirms the
+	// address a member gives at their first sign-in through the directory.
 	membersMail *mail.Recorder
 	// codeMu lets one sign-in at a time run its second factor on the stack, so the code a
 	// browser reads from the recorder is its own, and trusted holds, per login, the token
@@ -217,7 +218,7 @@ func newServedInviting(ctx context.Context, t *testing.T, membersAdministrator s
 	if err := roster.Start(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
 	}
-	// The recorder the staff auth's mail goes to: the suites read the sign-in codes from it.
+	// The recorder the auths' mail goes to: the suites read the sign-in codes from it.
 	sent := &mail.Recorder{}
 	staffAuth, err := staff.New(ctx, db.Client, &staff.Settings{
 		Collection:         router.Collection(),
@@ -252,7 +253,9 @@ func newServedInviting(ctx context.Context, t *testing.T, membersAdministrator s
 	// registration whether or not the directory is simulated. The tenant is declared as
 	// one the deployment administers, so a sign-in through the directory carries the
 	// tenant's own second factor and opens its session at the callback, with no sign-in
-	// code asked.
+	// code asked, once the person's account holds a confirmed address: the directory
+	// vouches for none, so their first sign-in waits for the code that confirms one,
+	// mailed to the members auth's own recorder (served.membersMail).
 	membersSent := &mail.Recorder{}
 	membersAuth, err := members.New(ctx, db.Client, &members.Settings{
 		Collection:     router.Collection(),

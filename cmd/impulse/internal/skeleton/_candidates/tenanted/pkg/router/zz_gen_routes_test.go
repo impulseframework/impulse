@@ -1099,8 +1099,20 @@ func (s *generatedHandlersStub) RevokeStaffUserTrustedDevices() http.HandlerFunc
 	return s.record("RevokeStaffUserTrustedDevices")
 }
 
+func (s *generatedHandlersStub) SendStaffTenantUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffTenantUserPasswordResetLink")
+}
+
+func (s *generatedHandlersStub) SendStaffUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffUserPasswordResetLink")
+}
+
 func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 	return s.record("SetFeature")
+}
+
+func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
+	return s.record("SetStaffSelfServiceReset")
 }
 
 func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {

@@ -1170,9 +1170,12 @@ and it refuses an impersonated session; the generated router mounts it at
 `/user/browser/forget` and names it in the methods list (`MethodList.ForgetBrowser`). The
 session read (`Authenticated`) says `browserRemembered: true` while the browser carries the
 person's remembered entry, so the page offers the action only then. The email code itself has nothing to reset: a person who lost
-their mailbox is given a new address by an operator (`SetSessionUserEmail`),
-unverified, and the next code proves it. Recovery codes are not offered. Live sessions
-are not touched by the reset; `DestroyUserSessions` ends them.
+their mailbox has an administrator ask for a new address (`RequestAddressChange`), and
+the code keeps going to the address the account holds until the person confirms the new
+one from its mailbox. Recovery codes are not offered. Live sessions
+are not touched by the reset; `DestroyUserSessions` ends them. The person is told of an
+administrator's reset by a notice to the address they confirmed (`NoticeFactorReset`
+sends it for an application that resets the factor in rows of its own).
 
 **What the tables hold.** A code is a row of `SessionFactorCodes`: the pending sign-in
 it was sent for, the address, the code's hash salted by the pending sign-in, the wrong
@@ -1291,7 +1294,11 @@ and is not asked.
 | `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
 | `DirectoryName(method, connection)` | What the Auth's sign-in registrations call the directory an identity of this method and connection came through, for a sentence that names it to a person: the name a registration that takes the connection gives it (`signin.Method.ConnectionName`: a tenant listed with `azure.NamedTenant`, a Google Workspace's name or the domain of one admitted as any Workspace, an OpenID Connect provider's name or its issuer's host), and the label of the button of the first registration of the login page that takes the connection; each is empty where the registrations have none. A tenant listed by its id alone (`azure.Tenant`), one admitted as any tenant, and a method that names no connection have no name, so a sentence says such a directory by the label ("your organization's Microsoft directory") and never by the connection, which for an Entra tenant is an id. It reads nothing. |
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
-| `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
+| `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
+| `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
+| `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address. See "A password reset". |
+| `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
+| `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 | `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
@@ -1498,6 +1505,56 @@ the validated group, where the auth has the password method
 list. The account page offers "Choose a password" to a person the server says holds
 none.
 
+### A password reset
+
+A person gets back in by a link mailed to the address they confirmed
+(`Auth.PasswordReset()`, which needs mail). Three parties send one: an administrator of
+the application or of a tenant (`AuthAPI.SendPasswordReset(ctx, id, by)`, where `by` is
+`AskedByApplication()` or `AskedByTenant(key)`), and the person, from the sign-in page
+(`PasswordReset().Request()`). The message says who asked: "You asked to reset the
+password", or "An administrator of <the tenant, or the application> asked us to send
+you a link". There is no second mail.
+
+- **Sending changes nothing.** The password the account has signs the person in, and
+  their sessions stand, until the link is used.
+- **The link works once**, for `MailSettings.LinkTimeout`, and for the account whose
+  confirmed address it was mailed to: it is dead once that address or the password
+  changed. Every write and removal of a password in the library withdraws the
+  account's standing reset links, and an application that writes one in rows of its
+  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
+  `PasswordReset().Complete()` takes the new password; the login page reaches both with
+  `?reset=<token>`. The new password is held to the same rule as any other, the old one
+  is refused from then on, every session of the person ends, the other reset links of
+  the account are withdrawn, and the person signs in with the new password: completing
+  a reset starts no session.
+- **It goes to a confirmed address and to an account that has a password.** An
+  administrator is told in one sentence when no link was sent (Conflict). A person's
+  own request answers the same whether or not the address has an account, mails
+  nothing where there is none, and does its work after the answer, so neither the
+  answer nor its timing says which. `WaitForMail` waits for that work, so a shutdown
+  loses no link a person was promised: the auth package `impulse` writes calls it in
+  its `Close`.
+- **A limit of their own.** Reset links are counted per address, five in fifteen
+  minutes, then fifteen minutes closed, whoever asked: an administrator's link and the
+  person's own request share the one count, and a link that is used resets it. The
+  count is kept apart from the one for sign-in codes and the other links: a request
+  anyone can make for an address never uses up the codes a person who is past their
+  password needs, and a code that is used does not reopen the address to reset links.
+- **Self-service is a setting, read on each request.** The person's own request is
+  served only while the password method's row of the sign-in methods table says so
+  (`SelfServiceReset`, false until an administrator turns it on, and false with no
+  row): turning it on or off takes effect in the running application with no restart.
+  `AuthAPI.SetSelfServiceReset(ctx, on)` writes that one field and leaves what else
+  the row says as it is.
+  While it is off the request is NotFound, in words that say to ask an administrator,
+  and the methods listing leaves the request route out, so the page draws no "Forgot
+  your password?". A link a person asked for while it was on still works once it is
+  turned off, until it is used or runs out: turning it off stops new requests, and
+  takes back nothing already mailed.
+
+The methods listing names the routes (`MethodList.PasswordReset`, and
+`MethodList.Email.Confirm` for the confirmation of an address an administrator set).
+
 ### Users and their email address
 
 A user may hold one email address, in two states. **Verified before trusted**: an
@@ -1528,10 +1585,41 @@ How an address gets onto a user:
   the limit before anything is mailed, so of links asked for at once no more than five
   are mailed. A link that is followed resets the count, as a sign-in code that is used
   does.
-- **An operator enters one**, unverified: `CreateUserRequest.Email` or
-  `SetSessionUserEmail`. The entry reserves the address within the auth: a later
-  sign-up with it is pointed at this account by mail, and the person verifies it
-  through the same add step. An entry over a verified address leaves it unverified.
+- **An operator enters one at creation**, unverified: `CreateUserRequest.Email`. The
+  entry reserves the address within the auth: a later sign-up with it is pointed at
+  this account by mail, and the first code mailed to it at a sign-in confirms it.
+- **An administrator asks for a change** (`RequestAddressChange`): a link goes to the
+  new address, good for `MailSettings.LinkTimeout` and once, and the account keeps the
+  address it has, where its codes and links still go, until the link is followed. The
+  link is followed without a session (`Email().Confirm()`, a public route the login
+  page reaches with `?address=<token>`), since the person may have lost the mailbox
+  their sign-in code went to. Nothing is mailed to the old address to confirm the
+  change; once it is made, the old address is told (a notice with the new address
+  masked, and no link). An address another account holds is told so by mail and gets
+  no link, and the answer is the same. One change stands at a time: asking again
+  withdraws the links asked for before, and a link is dead once the account confirmed
+  any address after it was mailed. A sign-in code never replaces a confirmed address,
+  and a code mailed to an address the account has replaced since is dead
+  (`code_expired`). Nothing writes an address onto an account unconfirmed after its
+  creation.
+- **A directory keeps its people's**: the address of a person with an identity linked
+  through an organization's directory (`signin.Directory.Organization()`) is changed in
+  the directory. Their own add and verify, an administrator's request and the
+  confirmation of a link sent before the identity was linked are each refused
+  (Conflict); a directory person who holds no confirmed address may still confirm
+  their first, and so may one whose directory vouched for a value no message can be
+  sent to, as the simulated build's directories do under a login name.
+- **A directory that does not vouch for an address leaves it to a code**: a sign-in
+  through an external method whose identity does not assert a verified address
+  (Entra, WorkOS, an OpenID Connect provider that says nothing) is held for the email
+  code while the account holds no confirmed address, whatever the token attests and
+  whatever the sign-in policy says about a second factor (`PendingMFA`, the email code
+  its one factor). The person gives the address where the account has none
+  (`Pending().EnrollEmail()`), and the code confirms it; their next sign-in is not held
+  for it. An Auth that sends no mail holds nobody: nothing is ever mailed there, no
+  code, no link and no notice, so there is no unconfirmed address that could be mailed
+  to, and no code that could confirm one. A registration of seeded users holds nobody
+  either.
 - **Google writes its own**: a Google sign-in writes the address Google verified
   onto the user, verified at the time of the sign-in, when the user holds no verified
   address yet and no other user holds it (any method that asserts
@@ -1976,6 +2064,15 @@ the generated user management's unlock method does in a transaction of the
 application's, lifts the lock on every instance within five seconds, since no instance
 trusts what it remembers of a name for longer.
 
+The same table keeps the library's own counts: the mail an address is sent, the reset
+links an address is sent, and the guesses at the code of an account's first password,
+under `MAIL:`, `RESET:` and `FIRST-PASSWORD:` and what each counts. A name is counted
+under its case-folded form, which holds no capital, so nothing a person types into the
+username field is ever one of those keys: failing to sign in under the text of one
+counts against a name nobody holds, and closes no address to its mail. A caller that
+clears a row a list shows, whichever kind it is, clears the row of
+`SignInAttemptKey(listed)`.
+
 **Attempts made at once.** An attempt takes its place under the limit before its
 password is compared: the store counts it against the name in one transaction and says
 whether it was counted (`AuthStore.RecordSignInFailure`, `SignInAttempts.Counted`), and
@@ -2191,8 +2288,19 @@ when they want it gone there too.
 
 The library sends mail for the flows that need a link or a code in someone's mailbox:
 the invitation a tenant's administrator sends to an address, the link that verifies an
-address a person adds or changes, the link a password sign-up starts from, and the
-sign-in code of the second factor. It writes
+address a person adds or changes, the link a password sign-up starts from, the link
+that resets a password, the link that confirms an address an administrator set, and the
+sign-in code of the second factor. It also sends notices, which carry no link and are
+not counted against the limit on mail to an address: that an account's address changed
+(to the old address), that an administrator reset a person's second factor, and that an
+administrator removed a person from a tenant, which says so when the account went with
+it. The removal notice is for an administrator's act that leaves the person with no role
+in the tenant, of their own or through a group: a role taken, the person taken out of a
+group, or a role taken from a group; where that was the last thing the person held
+anywhere and the account went with it, the notice says so. It is not sent when an
+administrator deletes the account outright or a tenant is cleared, for a role that ends
+by itself, or when the person leaves themselves. A link, a code or a notice goes to a confirmed address or, where it is what
+confirms one, to the address being confirmed. It writes
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
 plain text with one link in it (`mail.Message`: the recipient, the subject and the body),

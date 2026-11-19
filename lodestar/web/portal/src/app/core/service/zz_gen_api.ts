@@ -4,7 +4,7 @@ import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
 import { ClientContacts, ClientRosters, DistressCalls, MembersRoles, MembersRoleGrants, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, FeatureFlags } from './zz_gen_resources';
-import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserName, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -424,9 +424,9 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.RenameMembersUser]: { method: Methods.RenameMembersUser, property: 'renameMembersUser', route: 'rename-members-user', scope: 'global', statuses: [204] },
     [Methods.RevokeMembersSectorUserTrustedDevices]: { method: Methods.RevokeMembersSectorUserTrustedDevices, property: 'revokeMembersSectorUserTrustedDevices', route: 'revoke-members-sector-user-trusted-devices', scope: 'domain', statuses: [204] },
     [Methods.RevokeMembersUserTrustedDevices]: { method: Methods.RevokeMembersUserTrustedDevices, property: 'revokeMembersUserTrustedDevices', route: 'revoke-members-user-trusted-devices', scope: 'global', statuses: [204] },
-    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', statuses: [204] },
+    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', answers: true },
     [Methods.SetMembersSectorUserName]: { method: Methods.SetMembersSectorUserName, property: 'setMembersSectorUserName', route: 'set-members-sector-user-name', scope: 'domain', statuses: [204] },
-    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', statuses: [204] },
+    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', answers: true },
     [Methods.SetMembersUserName]: { method: Methods.SetMembersUserName, property: 'setMembersUserName', route: 'set-members-user-name', scope: 'global', statuses: [204] },
     [Methods.StandDownMission]: { method: Methods.StandDownMission, property: 'standDownMission', route: 'stand-down-mission', scope: 'domain' },
     [Methods.UnlinkMembersSectorSessionIdentity]: { method: Methods.UnlinkMembersSectorSessionIdentity, property: 'unlinkMembersSectorSessionIdentity', route: 'unlink-members-sector-session-identity', scope: 'domain', statuses: [204] },
@@ -477,7 +477,7 @@ export interface GlobalApi {
   endMembersUserSessions: MethodHandle<EndMembersUserSessions>;
   renameMembersUser: MethodHandle<RenameMembersUser>;
   revokeMembersUserTrustedDevices: MethodHandle<RevokeMembersUserTrustedDevices>;
-  setMembersUserEmail: MethodHandle<SetMembersUserEmail>;
+  setMembersUserEmail: MethodHandle<SetMembersUserEmail, SetMembersUserEmailResult>;
   setMembersUserName: MethodHandle<SetMembersUserName>;
   unlinkMembersSessionIdentity: MethodHandle<UnlinkMembersSessionIdentity>;
   unlockMembersSignIn: MethodHandle<UnlockMembersSignIn>;
@@ -500,7 +500,7 @@ export interface DomainApi {
   endMembersSectorUserSessions: MethodHandle<EndMembersSectorUserSessions>;
   renameMembersSectorUser: MethodHandle<RenameMembersSectorUser>;
   revokeMembersSectorUserTrustedDevices: MethodHandle<RevokeMembersSectorUserTrustedDevices>;
-  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail>;
+  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail, SetMembersSectorUserEmailResult>;
   setMembersSectorUserName: MethodHandle<SetMembersSectorUserName>;
   standDownMission: MethodHandle<StandDownMission>;
   unlinkMembersSectorSessionIdentity: MethodHandle<UnlinkMembersSectorSessionIdentity>;

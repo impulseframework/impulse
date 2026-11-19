@@ -103,8 +103,9 @@ func TestTenantAccountsCandidates(t *testing.T) {
 	}
 }
 
-// methodTypeRE finds the method a generated source file declares.
-var methodTypeRE = regexp.MustCompile(`(?m)^type ([A-Z][A-Za-z0-9]*) struct`)
+// methodTypeRE finds the method a generated source file declares: its one type, or the
+// first of the block that declares the method and the answer it gives.
+var methodTypeRE = regexp.MustCompile(`(?m)^(?:type |\t)([A-Z][A-Za-z0-9]*) struct`)
 
 // TestTenantAccountMethodsAreTheGenerators holds the check's list of account methods to
 // the generator's own word: every tenant method the generator writes with the sentence

@@ -106,9 +106,13 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
 		{url: "/console/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/console/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
+		{url: "/console/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
 		{url: "/console/api/user/sign-up", suffix: "/user/sign-up", method: http.MethodPost, handler: "SignUpStart", xsrf: true},
 		{url: "/console/api/user/sign-up/open", suffix: "/user/sign-up/open", method: http.MethodPost, handler: "SignUpOpen", xsrf: true},
 		{url: "/console/api/user/sign-up/complete", suffix: "/user/sign-up/complete", method: http.MethodPost, handler: "SignUpComplete", xsrf: true},
+		{url: "/console/api/user/password-reset", suffix: "/user/password-reset", method: http.MethodPost, handler: "PasswordResetRequest", xsrf: true},
+		{url: "/console/api/user/password-reset/open", suffix: "/user/password-reset/open", method: http.MethodPost, handler: "PasswordResetOpen", xsrf: true},
+		{url: "/console/api/user/password-reset/complete", suffix: "/user/password-reset/complete", method: http.MethodPost, handler: "PasswordResetComplete", xsrf: true},
 		{url: "/console/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
 		{url: "/console/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "EmailAdd", xsrf: true, validated: true},
 		{url: "/console/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "EmailVerify", xsrf: true, validated: true},
@@ -137,6 +141,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "PortalChangeName", xsrf: true},
 		{url: "/portal/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "PortalChangeLook", xsrf: true},
 		{url: "/portal/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "PortalInvitationOpen", xsrf: true},
+		{url: "/portal/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "PortalEmailConfirm", xsrf: true},
 		{url: "/portal/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "PortalInvitationAccept", xsrf: true, validated: true},
 		{url: "/portal/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "PortalEmailAdd", xsrf: true, validated: true},
 		{url: "/portal/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "PortalEmailVerify", xsrf: true, validated: true},
@@ -636,6 +641,9 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/revoke-staff-session-token", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/portal/api/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/portal/api/send-staff-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/portal/api/set-staff-self-service-reset", method: http.MethodPost},
 		foreign{url: "/portal/api/set-staff-temporary-password", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		foreign{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -926,10 +934,13 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/devices/revoke-staff-session-token", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		foreign{url: "/devices/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		foreign{url: "/devices/send-staff-user-password-reset-link", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-email", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-name", method: http.MethodPost},
 		foreign{url: "/devices/set-members-user-email", method: http.MethodPost},
 		foreign{url: "/devices/set-members-user-name", method: http.MethodPost},
+		foreign{url: "/devices/set-staff-self-service-reset", method: http.MethodPost},
 		foreign{url: "/devices/set-staff-temporary-password", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		foreign{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -1636,6 +1647,10 @@ func (s *routerDefaultSessionStub) InvitationSignUp() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationSignUp")
 }
 
+func (s *routerDefaultSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
+}
+
 func (s *routerDefaultSessionStub) SignUpStart() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpStart")
 }
@@ -1646,6 +1661,18 @@ func (s *routerDefaultSessionStub) SignUpOpen() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) SignUpComplete() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpComplete")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetRequest() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetRequest")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetOpen() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetOpen")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetComplete() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetComplete")
 }
 
 func (s *routerDefaultSessionStub) InvitationAccept() http.HandlerFunc {
@@ -1793,6 +1820,10 @@ func (s *routerPortalSessionStub) ChangeLook() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) InvitationOpen() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationOpen")
+}
+
+func (s *routerPortalSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
 }
 
 func (s *routerPortalSessionStub) InvitationAccept() http.HandlerFunc {

@@ -108,7 +108,11 @@ type GeneratedHandlers interface {
 
 	RevokeStaffUserTrustedDevices() http.HandlerFunc
 
+	SendStaffUserPasswordResetLink() http.HandlerFunc
+
 	SetFeature() http.HandlerFunc
+
+	SetStaffSelfServiceReset() http.HandlerFunc
 
 	SetStaffTemporaryPassword() http.HandlerFunc
 
@@ -253,7 +257,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/api/revoke-staff-user-trusted-devices", h.RevokeStaffUserTrustedDevices())
 
+	asked.Post("/api/send-staff-user-password-reset-link", h.SendStaffUserPasswordResetLink())
+
 	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
+
+	asked.Post("/api/set-staff-self-service-reset", h.SetStaffSelfServiceReset())
 
 	asked.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
 

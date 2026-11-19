@@ -52,6 +52,8 @@ type memUser struct {
 	username string
 	email    string
 	name     string
+	// confirmed says the person has confirmed the address the row holds.
+	confirmed bool
 }
 
 // memStore is the committed state, the steps taken against it, and what the next
@@ -192,7 +194,7 @@ func (d *memDriver) UserIn(_ context.Context, _ *memTx, userID impulse.UUID) (*d
 		return nil, httpio.NewNotFoundMessagef("user %s not found", userID)
 	}
 
-	return &dbtype.User{ID: userID, Username: user.username}, nil
+	return &dbtype.User{ID: userID, Username: user.username, EmailConfirmed: user.confirmed}, nil
 }
 
 func (d *memDriver) LockUserIn(ctx context.Context, tx *memTx, userID impulse.UUID) (*dbtype.User, error) {

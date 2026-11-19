@@ -384,6 +384,18 @@ func (a *App) RevokeStaffUserTrustedDevices() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RevokeStaffUserTrustedDevices()
 }
 
+func (a *App) SendStaffTenantUserPasswordResetLink() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).SendStaffTenantUserPasswordResetLink()
+}
+
+func (a *App) SendStaffUserPasswordResetLink() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).SendStaffUserPasswordResetLink()
+}
+
+func (a *App) SetStaffSelfServiceReset() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).SetStaffSelfServiceReset()
+}
+
 func (a *App) SetStaffTemporaryPassword() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffTemporaryPassword()
 }

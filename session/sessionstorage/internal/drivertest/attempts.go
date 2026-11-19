@@ -179,6 +179,35 @@ func testSignInAttemptsCleared(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 }
 
+// testSignInAttemptsKeyedExactly checks that a record is found under its name exactly as
+// it was written, and under no other spelling. The session library keeps its own counts
+// under keys spelled in capitals, which no name a person signs in under folds to, and
+// that keeps a stranger's failed sign-ins away from them only while the table compares
+// its keys exactly.
+func testSignInAttemptsKeyedExactly(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	now := time.Now()
+	const typed, own = "reset:pat@lakeside.edu", "RESET:pat@lakeside.edu"
+	for range attemptLimit.Failures {
+		if _, err := in.Driver.RecordSignInFailure(ctx, typed, now, attemptLimit); err != nil {
+			t.Fatalf("RecordSignInFailure() error = %v", err)
+		}
+	}
+
+	if _, err := in.Driver.SignInAttempts(ctx, own); !httpio.HasNotFound(err) {
+		t.Errorf("SignInAttempts(%q) with %q locked error = %v, want NotFound: another spelling is another key", own, typed, err)
+	}
+	if r, err := in.Driver.RecordSignInFailure(ctx, own, now, attemptLimit); err != nil || r.Failures != 1 || r.LockedUntil != nil || !r.Counted {
+		t.Errorf("RecordSignInFailure(%q) with %q locked = %+v, %v; want its first failure, counted and not locked", own, typed, r, err)
+	}
+	if err := in.Driver.ClearSignInAttempts(ctx, own); err != nil {
+		t.Fatalf("ClearSignInAttempts() error = %v", err)
+	}
+	if r, err := in.Driver.SignInAttempts(ctx, typed); err != nil || r.Failures != int64(attemptLimit.Failures) || r.LockedUntil == nil {
+		t.Errorf("SignInAttempts(%q) after %q was cleared = %+v, %v; want its failures and its lock kept", typed, own, r, err)
+	}
+}
+
 func testSignInAttemptsConcurrent(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	limit := dbtype.SignInAttemptLimit{Failures: 100, Window: time.Hour, Lock: time.Hour}

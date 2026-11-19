@@ -245,13 +245,16 @@ CREATE TABLE %[1]sSessionSignInAttempts (
 -- since is invite only until it is opened again. DefaultRole names the role such a
 -- person is given with their account, and holds nothing in an application whose people
 -- get their roles in a tenant. A method with no row is invite
--- only, so the table starts empty and every method starts invite only.
+-- only, so the table starts empty and every method starts invite only. SelfServiceReset,
+-- read on the password method's row alone, says a person may ask at the sign-in page for
+-- a link that resets their own password; it starts false, and with no row nobody may.
 CREATE TABLE %[1]sSessionSignInMethods (
-    Name        STRING(MAX) NOT NULL,
-    OpenSignUp  BOOL NOT NULL,
-    OpenedFor   STRING(MAX),
-    DefaultRole STRING(MAX),
-    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    Name             STRING(MAX) NOT NULL,
+    OpenSignUp       BOOL NOT NULL,
+    OpenedFor        STRING(MAX),
+    DefaultRole      STRING(MAX),
+    SelfServiceReset BOOL NOT NULL DEFAULT (false),
+    UpdatedAt        TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 `, p, who, guidCheck)
@@ -269,11 +272,15 @@ func mailLinksUp(p, who string) string {
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); a sign-up a person starts by giving their address; or the code a
 -- signed-in person who has no password is mailed to choose their first one (UserId
--- names the account, and the row keeps the code's hash where a link keeps its token's).
+-- names the account, and the row keeps the code's hash where a link keeps its token's);
+-- the link that resets a password (UserId names the account, Email the confirmed
+-- address it was mailed to); or the confirmation of an address an administrator set
+-- for a person (UserId names the account, Email the new address).
 -- The mail carries an opaque token and the row keeps its hash; the row is accepted only
 -- while it is live, not expired and not consumed, and is consumed by a conditional
 -- update so one link completes once. A revoked invitation is consumed by hand. A
--- verification link and a first-password code go with their user. CreatedAt and
+-- verification link, a first-password code, a reset link and an address confirmation
+-- go with their user. CreatedAt and
 -- ConsumedAt take the commit time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE %[1]sSessionMailLinks (
     Id         STRING(36) NOT NULL,
@@ -290,7 +297,7 @@ CREATE TABLE %[1]sSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password')),
+    CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_%[1]sSessionMailLinks_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 

@@ -22,7 +22,14 @@ import (
 func (h *Handlers) SetStaffUserEmail() http.HandlerFunc {
 	type request struct {
 		UserID impulse.UUID `json:"userId"`
-		Email  *string      `json:"email"`
+		Email  string       `json:"email"`
+	}
+
+	// The answer as the wire carries it: Execute's result mirrored with generated
+	// wire names, encoded after the transaction commits.
+	type response struct {
+		Sent   bool   `json:"sent"`
+		Reason string `json:"reason"`
 	}
 
 	decoder := NewTargetedRPCDecoder[staffidentity.SetStaffUserEmail, request](h, accesstypes.Execute)
@@ -62,6 +69,9 @@ func (h *Handlers) SetStaffUserEmail() http.HandlerFunc {
 		// the commit lands and before the answer; a transaction that rolls back wrote
 		// nothing to publish.
 		ctx, touched := resource.CollectTouchedRows(ctx)
+		// Captured inside the transaction, encoded after it commits: under
+		// abort-and-retry the value is the committing attempt's.
+		var result *staffidentity.SetStaffUserEmailResult
 		// A dry run (X-Dry-Run: true) runs the whole frame and the body, then
 		// rolls the transaction back: every refusal answers as the real call
 		// would, and a call that would have succeeded answers 200 with no body.
@@ -90,9 +100,11 @@ func (h *Handlers) SetStaffUserEmail() http.HandlerFunc {
 			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "StaffSessionUsers", Label: "StaffSessionUser", PKColumns: []string{"Id"}}, p.UserID); err != nil {
 				return err
 			}
-			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
+			answer, err := p.Execute(ctx, txn, h.RPCClient())
+			if err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
 			}
+			result = answer
 			if dryRun {
 				return resource.ErrDryRun
 			}
@@ -107,9 +119,10 @@ func (h *Handlers) SetStaffUserEmail() http.HandlerFunc {
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)
+		if result == nil {
+			return httpio.NewEncoder(w).Ok(nil)
+		}
 
-		w.WriteHeader(http.StatusNoContent)
-
-		return nil
+		return httpio.NewEncoder(w).Ok((*response)(result))
 	})
 }
