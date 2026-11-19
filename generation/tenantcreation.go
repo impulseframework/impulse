@@ -27,15 +27,16 @@ import (
 // running application, and the route reads that choice in the transaction that writes
 // the row, so it refuses while every method is invite only. A page offers a person only
 // what they may do, so the same route answers a GET with whether the caller may create
-// a tenant now, by the two facts the POST refuses on (the session holds no tenant, and
-// a method is open), and the page that offers the create-your-tenant card asks it
-// first. Both ways are generated wherever they can serve: the record is on session
-// outlets of one auth, whose management the program generates and whose roles no
-// directory writes. Nobody creates a tenant directly: the record's patch handlers
-// refuse a create op (resourceInfo.RefusesCreate), and an administrator of one tenant
-// never creates another, since the record is global and domain roles cannot touch it.
-// @tenant(creation: ...), which declared the choice in code, is refused with what
-// replaced it.
+// a tenant now, by the three facts the POST refuses on (the session holds no tenant, a
+// method is open, and the caller is not the real person behind a session that acts as a
+// role, who would be seated as the administrator), and the page that offers the
+// create-your-tenant card asks it first. Both ways are generated wherever they can
+// serve: the record is on session outlets of one auth, whose management the program
+// generates and whose roles no directory writes. Nobody creates a tenant directly: the
+// record's patch handlers refuse a create op (resourceInfo.RefusesCreate), and an
+// administrator of one tenant never creates another, since the record is global and
+// domain roles cannot touch it. @tenant(creation: ...), which declared the choice in
+// code, is refused with what replaced it.
 
 // tenantCreation says what the generator writes to make a tenant of the record.
 type tenantCreation string

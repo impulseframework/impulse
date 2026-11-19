@@ -1260,12 +1260,14 @@ application offers one page, create your tenant; the generated route
 writes the row and refuses while every method is invite only, writes the row, seats the
 person with the domain roles the App names in `<Record>AdministratorRoles()` and hands the
 tenant to the roster, so their next request stands in it, and a person who already holds a
-tenant is refused, an administrator of one tenant never creating another. The generated
+tenant is refused, an administrator of one tenant never creating another. So is the real
+person behind a session that acts as a role, who would become the administrator: nobody is
+the subject of what they do while they act as someone else. The generated
 client exports the route and the body's shape (`create<Record>Route`, `Create<Record>`) for
 the page, which each tenanted skeleton's console offers from its dashboard to a session
 without a tenant, and only while the route would serve: the dashboard asks the same route
 with `GET`, which answers whether the caller may create a tenant now
-(`Create<Record>Offered`, by the two facts the creation refuses on), and shows its card
+(`Create<Record>Offered`, by the three facts the creation refuses on), and shows its card
 on a yes alone, so nobody is offered a dialog the server would refuse while every method is
 invite only. The route is generated wherever it can serve: the record is on session
 outlets of one auth whose management the program generates and whose roles no directory
