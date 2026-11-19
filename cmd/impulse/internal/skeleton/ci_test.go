@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"go/build"
 	"io/fs"
 	"os"
 	"path"
@@ -15,9 +16,11 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"golang.org/x/mod/modfile"
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/ci"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/framework"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
@@ -142,8 +145,8 @@ func TestChecksAreTheRenderedJobs(t *testing.T) {
 // TestRenderEqualsTheCandidates is the golden per candidate: the committed owned
 // workflows of every embedded skeleton (ci.yml, ci-cache.yml and security-scan.yml) are
 // what the code renders over the rendered tree, byte for byte. A change to a template or
-// the pins is a change to the twelve files in the same commit (go test ./ci -update
-// rewrites them).
+// the pins is a change to the twelve files in the same commit (go test
+// ./cmd/impulse/internal/skeleton -update rewrites them).
 func TestRenderEqualsTheCandidates(t *testing.T) {
 	t.Parallel()
 
@@ -176,7 +179,7 @@ func TestRenderEqualsTheCandidates(t *testing.T) {
 					t.Fatalf("the %s candidate carries no %s: %v", candidate, file, err)
 				}
 				if diff := cmp.Diff(string(committed), string(rendered)); diff != "" {
-					t.Errorf("%s: the committed %s differs from the rendering (-committed +rendered); go test ./ci -update rewrites it:\n%s", candidate, file, diff)
+					t.Errorf("%s: the committed %s differs from the rendering (-committed +rendered); go test ./cmd/impulse/internal/skeleton -update rewrites it:\n%s", candidate, file, diff)
 				}
 			}
 			if *update {
@@ -1005,6 +1008,102 @@ func shipsProgram(dir string, platforms ...string) app.Arg {
 	}
 
 	return app.Arg{Kind: app.ArgCall, Call: &app.Call{Name: "ShipsProgram", Args: []app.Arg{{Kind: app.ArgString, Str: dir}, {Kind: app.ArgCall, Call: call}}}}
+}
+
+// TestMigrationsRunBedrockFromItsOwnModule: the migrations job reads the bedrock pin from
+// the placement and runs bedrock at it from BedrockModule, which is the path bedrock's own
+// go.mod declares (written out here, so the constant is held to it) and never a path under
+// this module's. bedrock is another repository's, and the Go toolchain looks for a path
+// under this module's inside this repository, where there is no bedrock, so a step
+// written that way fails every pull request of a registered application.
+func TestMigrationsRunBedrockFromItsOwnModule(t *testing.T) {
+	t.Parallel()
+
+	rendered, err := ci.Render(&app.App{})
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	migrations := job(rendered, "migrations")
+	if migrations == "" {
+		t.Fatal("the rendered workflow has no migrations job")
+	}
+	for _, want := range []string{
+		`          pin="$(jq -r '.bedrockVersion // empty' infrastructure/placement.json)"` + "\n",
+		`          go run github.com/impulseframework/bedrock@"$pin" migration check`,
+		`          go run ` + ci.BedrockModule + `@"$pin" migration check`,
+	} {
+		if !strings.Contains(migrations, want) {
+			t.Errorf("the migrations job lacks %q:\n%s", want, migrations)
+		}
+	}
+	if ci.BedrockModule == framework.Module || strings.HasPrefix(ci.BedrockModule, framework.Module+"/") {
+		t.Errorf("BedrockModule is %s, a path under this module's (%s); bedrock is the module of its own repository and is fetched by the path its go.mod declares", ci.BedrockModule, framework.Module)
+	}
+}
+
+// fetchedCommand reads every go run, go install or go get of a package at a version
+// (<package>@<version>) out of a rendered workflow, a step's or one the header tells a
+// person to run: the verb, its flags and the package, each fetched by the path written
+// there. It reads a command written on one line with flags that carry no separate value.
+var fetchedCommand = regexp.MustCompile(`\bgo (run|install|get)((?: -\S+)*) ["']?([A-Za-z0-9._~/-]+)@`)
+
+// TestFetchedCommandsOfThisModuleExist: a package the rendered workflows fetch by a path
+// under this module's is a package of this repository, and one they run (go run, go
+// install, go get -tool) is a command here, a directory holding a main package. A path
+// under this module's that names nothing here is a command that lives in another
+// repository and is written with a path it does not have. No render sees that, and
+// neither does the comparison with the candidates, since they are rendered from the same
+// template; the job fails when it runs, and a line behind a condition runs late (the
+// migrations job's last step ends before its bedrock line until the application is
+// registered).
+func TestFetchedCommandsOfThisModuleExist(t *testing.T) {
+	t.Parallel()
+
+	// The package's directory is four below the module's root.
+	root := filepath.Join("..", "..", "..", "..")
+	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatalf("reading the framework's go.mod: %v", err)
+	}
+	if got := modfile.ModulePath(goMod); got != framework.Module {
+		t.Fatalf("the go.mod four directories up declares module %q, want %s: the test reads the framework's own tree", got, framework.Module)
+	}
+	var fetched []string
+	for _, file := range ci.Files {
+		rendered, err := ci.RenderFile(&app.App{WebApps: []app.WebApp{{Dir: "web"}}}, file)
+		if err != nil {
+			t.Fatalf("RenderFile(%s) error = %v", file, err)
+		}
+		for _, m := range fetchedCommand.FindAllStringSubmatch(string(rendered), -1) {
+			verb, flags, fetchedPackage := m[1], m[2], m[3]
+			fetched = append(fetched, fetchedPackage)
+			dir, inside := strings.CutPrefix(fetchedPackage, framework.Module+"/")
+			switch {
+			case fetchedPackage == framework.Module:
+				dir = "."
+			case !inside:
+				continue
+			}
+			pkg, err := build.ImportDir(filepath.Join(root, filepath.FromSlash(dir)), 0)
+			if err != nil {
+				t.Errorf("%s fetches %s, a path under this module's (%s) that names no package of this repository (%v); a command of another repository is fetched by its own module path", file, fetchedPackage, framework.Module, err)
+
+				continue
+			}
+			// go get adds a requirement and runs nothing, unless it adds a tool.
+			runs := verb != "get" || strings.Contains(flags, " -tool")
+			if runs && !pkg.IsCommand() {
+				t.Errorf("%s fetches %s to run it, which is package %s here and not a command", file, fetchedPackage, pkg.Name)
+			}
+		}
+	}
+	// The commands the jobs are known to fetch are among those read, so a change to how a
+	// step is written cannot leave this test reading nothing.
+	for _, want := range []string{ci.BedrockModule, "golang.org/x/vuln/cmd/govulncheck"} {
+		if !slices.Contains(fetched, want) {
+			t.Errorf("the commands read from the rendered workflows lack %s, which a job fetches; read: %s", want, strings.Join(fetched, ", "))
+		}
+	}
 }
 
 // TestTitleTypes: the title job accepts exactly TitleTypes, in their order, so the list

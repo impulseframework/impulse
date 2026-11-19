@@ -410,9 +410,10 @@ so the gate covers every job:
   ended) is the one change that removes committed migrations, and the job accepts it by
   that shape alone, the fold being the concatenation it is. Then the whole directory, and the seed directory
   beside it, is read by the sequence rule the migrate command needs (`bedrock migration
-  check`, run with the bedrock the placement pins), so a gap already on the default branch
-  fails the next pull request; before the application is registered there is no placement,
-  and the step says so and passes.
+  check`, run with the bedrock the placement pins, which the job fetches with `go run` from
+  bedrock's own module, `github.com/impulseframework/bedrock`), so a gap already on the
+  default branch fails the next pull request; before the application is registered there
+  is no placement, and the step says so and passes.
 
 The security scan. The pull request checks run only when a pull request changes, and a
 vulnerability is published on its own day, so `security-scan.yml` runs every day at 14:00
