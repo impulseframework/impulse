@@ -67,11 +67,14 @@ func (a *authoredApplication) read(t *testing.T, rel string) string {
 //     configuration names;
 //   - the application builds;
 //   - the tests that do not compile yet are files the standing brief names, and the
-//     brief impulse new left says what becomes of each suite the base carried;
+//     brief impulse new left says what becomes of each suite the base carried: what the
+//     author does with it where the application signs in with a password, and why the
+//     start took it out where the application has no password sign-in;
 //   - the application's own lint, under both of its tag sets, finds nothing in any
 //     package that compiles;
 //   - an auth sets one sign-in rule, the brief is in no commit, and, where the shape has
-//     tenants, neither the README nor the App still says the application has none.
+//     tenants, neither the README nor the App still says the application has none and
+//     the role file grants nothing the application stopped serving.
 func author(t *testing.T, checkout, name, shapeKey string, start []string, methods [][]string) *authoredApplication {
 	t.Helper()
 
@@ -105,6 +108,11 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 		if out, err := run("git", "ls-files", "--error-unmatch", handoff.File); err == nil {
 			t.Errorf("the brief is in the commit %q: %s", message, out)
 		}
+	}
+
+	startsFrom, err := shape.Find(shapeKey, shape.OfNew(), "impulse new")
+	if err != nil {
+		t.Fatalf("shape.Find() error = %v", err)
 	}
 
 	// The author's commands.
@@ -189,6 +197,18 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 		}
 	}
 	for _, suite := range []string{"test/integration/sign_up_test.go", "test/integration/sign_up_role_test.go", "test/integration/first_administrator_test.go"} {
+		if startsFrom.NoPassword() {
+			// The start wrote the application's tests for the sign-in it has, and took
+			// out the base's tests of what the auth does not have, each with the reason.
+			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(suite))); err == nil {
+				t.Errorf("%s is still there: a suite the base carried that proves what the application does not have", suite)
+			}
+			if !strings.Contains(made.newBrief, suite+" (") {
+				t.Errorf("the brief impulse new left does not say why %s was taken out, a suite the base carried", suite)
+			}
+
+			continue
+		}
 		if !strings.Contains(made.newBrief, "- "+suite+" ") {
 			t.Errorf("the brief impulse new left does not say what becomes of %s, a suite the base carried", suite)
 		}
@@ -221,10 +241,6 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	if n := strings.Count(made.read(t, "pkg/auth/staff/staff.go"), ".SetSignInPolicy("); n != 1 {
 		t.Errorf("pkg/auth/staff/staff.go sets the sign-in rule %d time(s), want once: an Auth has one rule and a second call panics when the auth opens", n)
 	}
-	startsFrom, err := shape.Find(shapeKey, shape.OfNew(), "impulse new")
-	if err != nil {
-		t.Fatalf("shape.Find() error = %v", err)
-	}
 	if !startsFrom.HasTenants() {
 		return made
 	}
@@ -234,8 +250,30 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	if appFile := made.read(t, "app/app.go"); strings.Contains(appFile, "The application has no tenants") {
 		t.Error("app/app.go still says the application has no tenants")
 	}
+	// An application with tenants lists no roles for a person who signs up, and the
+	// permission engine refuses a role file that grants a resource nothing serves.
+	if roles := made.read(t, "pkg/auth/staff/roles.json"); strings.Contains(roles, `"StaffSignUpRoles"`) {
+		t.Error("pkg/auth/staff/roles.json still grants StaffSignUpRoles, a list the generator does not emit for an application with tenants: the application would not start")
+	}
 
 	return made
+}
+
+// vetsAsMade holds an application impulse new just made from a shape with no password
+// sign-in to passing go vet as it stands, under the default build and under the
+// simulated directory's tag, which compiles every test of every package: the start
+// writes the application's tests for the sign-in it has, so none of them waits for the
+// author to compile.
+func vetsAsMade(t *testing.T, made *authoredApplication) {
+	t.Helper()
+
+	for _, args := range [][]string{{"vet", "./..."}, {"vet", "-tags", "skipAuth", "./..."}} {
+		cmd := osexec.CommandContext(t.Context(), "go", args...) //nolint:gosec // the test's own command, with the arguments written above
+		cmd.Dir = made.dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("go %s: %v: an application that starts with no password sign-in passes go vet as impulse new made it\n%s", strings.Join(args, " "), err, out)
+		}
+	}
 }
 
 // holdsNoPassword holds an application that started from a shape with no password
@@ -317,13 +355,15 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 // nothing said of a provider. Its auth registers a Google and a Microsoft method, each
 // open to any organization, and the persona method of the test environments; nothing
 // the commands wrote or generated serves a password; and a development run signs its
-// administrator in as the cast's persona.
+// administrator in as the cast's persona. Its tests are the start's own, written for
+// that sign-in, and go vet passes under both tag sets as the application is made.
 //
 // The fourth is an application one directory gives every role of, with no password
 // sign-in either: impulse new with the shape Directory roles, Google and one Workspace
 // named. Its auth registers that one method, nobody is invited, no generated handler
 // gives a role or invites a person, and a development run signs in the person and the
-// roles the environment template names.
+// roles the environment template names. Its tests are the start's own too, and go vet
+// passes under both tag sets as the application is made.
 //
 // It costs about six minutes and under seven gigabytes on a machine whose Go caches and
 // emulator image are warm: each command regenerates against the emulator (about
@@ -476,6 +516,7 @@ func TestAuthoredApplication(t *testing.T) {
 			"google: the accounts of any Google Workspace; the application gives the roles",
 			"persona: the personas of the test environments' persona provider; the application gives the roles",
 		})
+		vetsAsMade(t, made)
 		// A development run signs its administrator in as the cast's persona, whose
 		// account the bootstrap seeds.
 		if env, want := made.read(t, ".envrc.template"), "\nexport APP_PERSONA_USERNAME=admin\n"; !strings.Contains(env, want) {
@@ -499,6 +540,7 @@ func TestAuthoredApplication(t *testing.T) {
 			t.Errorf("impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
 		}
 		holdsNoPassword(t, made, []string{"google: the accounts of one Google Workspace; the directory gives the roles"})
+		vetsAsMade(t, made)
 		// Nobody is invited and nothing in the application gives a role: the auth has no
 		// foothold, and its generated management neither gives a role nor makes or
 		// invites a person.
