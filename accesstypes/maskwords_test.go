@@ -1,6 +1,7 @@
 package accesstypes
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -72,7 +73,7 @@ func TestNullMaskWords_readsAColumn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal() error = %v", err)
 			}
-			if string(wire) != string(want) {
+			if !bytes.Equal(wire, want) {
 				t.Errorf("the list carries %s, want %s", wire, want)
 			}
 		})

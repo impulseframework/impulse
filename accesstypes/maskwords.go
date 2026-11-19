@@ -24,8 +24,17 @@ const unreadableMaskWords = "nothing (the stored mask does not read)"
 // nothing, with the reason.
 //
 // It is read only. The session library writes the column, and a NullMaskWords refuses
-// to be written to a database, so words never take the place of a mask's text.
+// to be written to a database, so words never take the place of a mask's text. A list
+// is not sorted by it: the database would order the rows by the stored text, and the
+// words are another order (resource.Unordered).
 type NullMaskWords string
+
+// Unordered marks the words as no value a list is ordered by (resource.Unordered): the
+// column holds the mask's text, and the words sort otherwise.
+func (NullMaskWords) Unordered() {
+	// A marker: the resource package asks whether a field's type has the method, and
+	// never calls it.
+}
 
 // MaskWordsOf returns the words of the mask a column holds: column is the mask's text,
 // nil for a NULL column.
