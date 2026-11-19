@@ -138,6 +138,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/feature-flags", method: http.MethodPost},
 		{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		{url: "/droids/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		{url: "/droids/set-feature", method: http.MethodPost},
 		{url: "/droids/clients", method: http.MethodGet},
 		{url: "/droids/clients", method: http.MethodPost},
@@ -2859,6 +2860,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
+			url: "/console/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
 			url: "/console/api/set-feature", method: http.MethodPost,
 			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -2891,6 +2897,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/feature-flags/testFeatureFlagName", method: http.MethodPost,
 			handlerFunc: "FeatureFlag",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
+			url: "/portal/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
@@ -3472,6 +3483,10 @@ func (s *generatedHandlersStub) FeatureFlags() http.HandlerFunc {
 
 func (s *generatedHandlersStub) FeatureFlag() http.HandlerFunc {
 	return s.record("FeatureFlag")
+}
+
+func (s *generatedHandlersStub) FeatureFlagChanges() http.HandlerFunc {
+	return s.record("FeatureFlagChanges")
 }
 
 func (s *generatedHandlersStub) Features() http.HandlerFunc {

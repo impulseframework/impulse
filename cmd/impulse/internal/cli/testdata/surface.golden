@@ -39,6 +39,7 @@ impulse add method <auth> <kind> [<registration>]
   --agent-command string (default claude)
   --app string (default .)
   --authority string
+  --label string
   --shape string
   --skip-generate bool
   --slot string

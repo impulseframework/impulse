@@ -1175,6 +1175,21 @@ proves it: in range answered, below or above refused with the header and no hand
 and no body read, no header and `dev` answered, session and file routes answered at any
 release, the machine outlets unchecked, and the refusal landing before the hook.
 
+**The environment's name.** Beside its release a server names the environment it runs in,
+wherever that is not production, so a browser application can show it and a problem
+report can say where it happened. The name is `Handlers.ServerEnvironment()`, which the
+application answers from its configuration's `APP_ENVIRONMENT`: a deployment sets the
+variable to the environment's name (`tst`, `development`) everywhere but production,
+which leaves it unset. The generated router names it on every answer in `X-Environment`
+(`resource.NameEnvironment`, in front of every route, last in the chain every request
+passes), percent-encoded as a path segment is, so a name with a space or a letter outside
+ASCII arrives whole; a server that reports no name sends no such header, which is how
+production reads. The browser's client keeps the name from any answer
+(`client.serverEnvironment`) and the library's About pop-up shows it and copies it, with
+the application's name and the release, as one line for a report. The generated test
+proves both halves: a server told its environment names it on an answer, the answer for
+an address no route serves included, and a server told none names none.
+
 **The release file.** Beside the router the generator writes `zz_gen_release.json`, which
 names every outlet and, for each session outlet, the oldest release it answers, so a
 deploy tells from the checkout alone, without building or running the server, whether a
@@ -2274,7 +2289,15 @@ domain-scoped resource holds no grant, and the subscription is dropped. Revocati
 therefore ends a subscription at the next renewal, and the refetch is refused meanwhile;
 the publisher never checks permission. A page sends `unsubscribe {tab}` best effort as it
 leaves; a logout sends `{tab, all: true}`, which deletes every subscription of the
-principal and revokes the browser's identity. The token route answers the session
+principal and revokes the browser's identity. An unsubscribe that has reached its
+handler is finished whatever becomes of the connection: its deletes run under the
+handler's own five seconds and not under the request's context, so a page that closes
+before the answer leaves no subscription behind, and its closing logs nothing. A record
+that refuses the delete, or does not answer within the five seconds, is logged as any
+failure is. An unsubscribe that never reaches the handler leaves the tab's subscriptions
+to their expiry: they are not renewed, the publisher's lookups pass them over five
+minutes after their last renewal at the latest, and the time-to-live policy deletes the
+documents (`live/firestore/README.md`). The token route answers the session
 principal's id (below), how to reach the change set, and the identity: in production a
 Firebase custom token the browser signs in with, against the emulator an empty token and
 the emulator host, which the browser connects to with the SDK's mock user token. A
@@ -2340,8 +2363,21 @@ written after it was made, while one made after it hears only the signals after 
 with backoff by the subscriber, the one place that owns reconnection, and on the
 reopen every kind that advanced while it was down wakes once. A signal carries nothing
 but the fact of a change, so the signaler coalesces: while a write of a kind is in
-flight, later signals of the kind are absorbed into one following write. A signal's
-failure is returned for the caller to log and never fails the request, since every
+flight, later signals of the kind wait for one write that covers them all, which one
+of their callers makes when the write in flight ends, so a burst costs two writes where
+the channel answers well inside the limit below. A `Signal` returns once its signal is
+sent and leaves nothing to be sent behind it, so an instance that gets no CPU once its
+requests have answered (Cloud Run's default) owes no signal; a covering write that fails is the failure of every
+caller that waited for it. No caller's context ends another's signal: a caller whose
+context ends under the covering write it is making fails alone and another waiting
+caller makes the write, so no call makes more than one write or waits past its context.
+The live service gives every `Signal` its own limit of two seconds
+(`live.SignalTimeout`), for its wait and its write together and on top of the caller's
+context: a caller that brings no deadline, as the tenant write paths do, is not held by
+a channel that does not answer, and a caller whose own deadline is shorter keeps it. On
+a channel too slow for both writes of a burst to fit in two seconds, the callers that
+waited reach their limit in turn, each of them alone.
+A signal's failure is returned for the caller to log and never fails the request, since every
 subscriber also holds its copy to its own backstop, on the request's path and not only
 on a loop's (sections 15 and 16: the feature flags and the tenant roster; the permission
 engine's heartbeat interval in the access package). The kinds are `resource.SignalKind`
@@ -2442,12 +2478,13 @@ one from a read no older than the backstop. A failed reread is logged, the copy 
 it was, and the table is left alone for one second: lookups in that pause are answered
 from the copy without a read, so a database that is down is read, and its failure
 logged, once a pause and not once a lookup, and the first lookup after the pause tries
-again. `Reload`, which a flip's handler calls after
-its commit, records the flip before it reads, so a reload that fails (the request that
-flipped had ended) is made good by the next lookup (the first after the pause, where a
-reread has just failed), under the set's own context. A
-database that does not answer holds a lookup for less than twice the read's timeout
-(ten seconds): the read in flight when the lookup came, and at most one after it. A flip therefore reaches every instance that
+again. `Reload`, which a flip's handler calls after its commit, records the flip before
+it reads, so a reload that fails (the request that flipped had ended) is made good by
+the next lookup, under the set's own context. A flip of this instance ends the pause
+too: the database has just taken a write, so the next lookup reads it, and a read that
+fails after the flip begins a pause of its own. A database that does not answer holds a
+lookup for less than twice the read's timeout (ten seconds): the read in flight when the
+lookup came, and at most one after it. A flip therefore reaches every instance that
 is serving within a moment, and the backstop bounds the rest. The subscriber is the application's live service,
 which every application wires; `Follow` refuses a nil one. The application exposes the
 copy as `FeatureSet() *resource.FeatureSet`, asserted on the application type beside
@@ -2461,6 +2498,9 @@ through the configuration's database client when the App is built and follows it
 GET  <prefix>/features                       → 200 {"enabled":["debriefs", ...]}     anyone signed in, every outlet
 GET  <prefix>/feature-flags                  → the FeatureFlags list, sort=name       List on FeatureFlags (global)
 GET  <prefix>/feature-flags/{featureFlagName} → one flag                              Read on FeatureFlags (global)
+GET  <prefix>/feature-flags/{featureFlagName}/changes
+                                             → 200 {"changes":[{"changedAt","enabled","changedBy"}, ...],"more":false}
+                                                                                      List on FeatureFlags (global)
 POST <prefix>/set-feature                    {"name":"debriefs","enabled":true}      Execute on SetFeature (global)
                                              → 200 {"name","enabled","updatedAt"}; an undeclared flag is 404
 ```
@@ -2471,16 +2511,58 @@ again after a flip, and what the client's `features` state (`enabled(name)`,
 generator registers in every application's collection (List and Read over `description`,
 `enabled`, `updatedAt` and `updatedBy`, `name` the key, listed by name) and carries in
 the TypeScript constants, metadata and descriptor exactly as a generated resource, so
-the feature flags dialog reads it through an ordinary handle; the routes are the
-library's handlers (`resource.FeatureFlagsHandler`, `resource.FeatureFlagHandler`),
-delegated to from the generated `zz_gen_features.go` in the handler package, and a
-struct or a manual registration that would take the name `FeatureFlags` is refused.
+the Feature flags page is the library's list over it and reads it through an ordinary
+handle; the routes are the library's handlers (`resource.FeatureFlagsHandler`,
+`resource.FeatureFlagHandler`), delegated to from the generated `zz_gen_features.go` in
+the handler package, and a struct or a manual registration that would take the name
+`FeatureFlags` is refused. Three of its fields are served as a person reads them. The
+`description` is the constant's doc comment with the flag's name in words in the
+constant's place where the comment opens with it, as a Go comment does
+(`FeatureDeclaration.Words`: "CargoManifest shows a ship's cargo bays." is served as
+"Cargo manifest shows a ship's cargo bays."), which is how `MigrateFeatures` writes the
+table. `updatedAt` and `updatedBy` are when the flag was last flipped and by whom, read
+from the flag's newest change record and not from the row's columns of those names,
+since the deploy step that declares a flag writes the row too, under a process's name
+and at the time of the deploy: so the list says what the flag's history says.
+`updatedAt` is the moment of the last flip, and `null` for a flag nobody has flipped.
+`updatedBy` is the name the person signs in under, read out of the event source the flip
+recorded (`resource.EventActor`; the session and the account's id stay in the table as
+evidence), a process's source as it was recorded where a process flipped it, and the
+empty string for a flag nobody has flipped. `EventActor` reads the words of a sentence
+in which nothing is escaped, so the name is for showing to a reader and for no decision.
+A list request that asks for a sort on `updatedAt` or `updatedBy` is refused with 400,
+in a sentence that says the two are worked out from the flag's history and what the list
+can be sorted on (`name`, `description`, `enabled`): the statement that orders the list
+reads the row's own columns, the last write of any kind, so the order would be by
+something the answer does not show. The Feature flags page offers no sort on them.
+
+**A flag's history.** `GET <prefix>/feature-flags/{featureFlagName}/changes`
+(`resource.FeatureFlagChangesHandler`) reads the flag's change records back newest
+first: when each flip was committed, what the flag was turned to, and who did it, by the
+same rule as `updatedBy`. It asks no grant of its own. The flag is read first as the
+list reads it, under List on `FeatureFlags` with whatever condition the grant carries, so
+whoever may see the flag in the list may see its history, a caller without the grant is
+refused with 403 and an undeclared flag is 404. Each flip carries what the caller may see
+of the flag: its facts ride the grants on the flag's fields that hold the same facts
+today (`changedAt` under `updatedAt`, `enabled` under `enabled`, `changedBy` under
+`updatedBy`), so a grant that leaves out who last flipped a flag leaves `changedBy` out
+of every flip, and a caller who may list none of the three (the description alone, say)
+is refused with 403, since the answer would tell them only how often the flag was
+flipped. The request's query is not read; nothing asked of the list (`columns`, a
+filter, a page) narrows the history. One read answers the newest
+`resource.FeatureFlagChangesLimit` flips (100) and says with `more` when older ones are
+left out; a flag nobody has flipped answers an empty list. The route reads the change
+table and never the `FeatureSet`, so it adds nothing to how the instances keep their
+copies.
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
 one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
-signals the other instances through the live service (`Signal(ctx,
-resource.KindFeatures)`, bounded by two seconds, a failure logged), reloads this
-instance's copy, and answers the flag as written. An `@rpc` struct named `SetFeature`
+reloads this instance's copy, then signals the other instances through the live
+service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
+logged), and answers the flag as written. The reload comes first, so this instance
+answers from the flip while the signal is being sent; the signal does not run under the
+request's context, so a request that ends once the flip is committed still tells the
+other instances. An `@rpc` struct named `SetFeature`
 is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and
@@ -2497,8 +2579,9 @@ Read on `FeatureFlags` with its four non-key fields, in the global scope:
 }
 ```
 
-The digest decides what the dialog may do: a user without Execute sees the flags and
-cannot flip them; a user without List is never shown the dialog.
+The digest decides what the Feature flags page may do: a user without Execute sees the
+flags and each flag's history and cannot flip one; a user without List is never shown the
+page.
 
 **Tests.** The generated authorization matrix carries the features route as an open
 case (200 without a grant), the FeatureFlags routes as query pairs, and SetFeature as
@@ -2618,12 +2701,14 @@ from a read no older than the backstop, and an instance that missed a signal is 
 that far behind. A failed reread is logged, the set stays as it was, and the table is
 left alone for one second: lookups in that pause are answered from the set without a
 read, so a database that is down is read, and its failure logged, once a pause and not
-once a lookup, and the first lookup after the pause tries again. `Reload` records the change before it reads, so a reload that fails
-(the request that wrote had ended) is made good by the next lookup (the first after the
-pause, where a reread has just failed), under the roster's own context. A database that does not answer holds a lookup for less than twice the
-read's timeout (ten seconds): the read in flight when the lookup came, and at most one
-after it. A role held in every tenant domain reaches a new
-tenant with nothing written for it; the one membership written when a tenant is made is
+once a lookup, and the first lookup after the pause tries again. `Reload` records the
+change before it reads, so a reload that fails (the request that wrote had ended) is
+made good by the next lookup, under the roster's own context. A write of this instance
+ends the pause too: the database has just taken a write, so the next lookup reads it,
+and a read that fails after the write begins a pause of its own. A database that does
+not answer holds a lookup for less than twice the read's timeout (ten seconds): the read
+in flight when the lookup came, and at most one after it. A role held in every tenant
+domain reaches a new tenant with nothing written for it; the one membership written when a tenant is made is
 its first administrator's. `Add` stays for a test harness that seeds a roster without a
 table; the generated paths never call it.
 
@@ -3091,9 +3176,17 @@ withdrawn. A person who held roles in the tenant alone then holds none anywhere 
 deleted with their identity links and sessions, by the rule on an account nothing admits
 (section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
 role held in every tenant, which is no one tenant's. The permission engine is told once
-the delete has committed. The rows the tenant owns are the application's: a foreign key
-on a tenancy column refuses the delete while they remain. An application that deletes a
-tenant in a transaction of its own calls `ClearTenant` there, and a program that
+the delete has committed. The tenant's directory goes with it in the same transaction,
+whether the tenant is directory only or not: the generated delete removes the directories
+record's row through the record's own delete patch (the generated
+`Clear<Record>Directory` of the roster file), so its change event is written and the
+directory is free for another tenant. The rule that keeps the directory of a
+directory-only tenant is for a tenant that stays and is not asked. The rows the tenant
+owns are the application's, and go by the application's schema: a foreign key on a
+tenancy column declared `ON DELETE CASCADE` takes them in the same transaction, which is
+how the skeletons' sample tenant table is declared, and one without the rule refuses the
+delete while its rows remain. An application that deletes a tenant in a transaction of
+its own calls `ClearTenant` and `Clear<Record>Directory` there, and a program that
 generates no auth's management removes the memberships itself.
 
 With the last-owner rule (section 21, "The rules") an operator brings a customer's

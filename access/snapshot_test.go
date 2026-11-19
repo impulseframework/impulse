@@ -1532,7 +1532,8 @@ func Test_snapshotEngine_refusedReloadIsReported(t *testing.T) {
 		t.Errorf("reload errors reported = %v, want the one refusal", got)
 	}
 
-	// The store answers again. Inside the pause the engine does not try it; the first
+	// The store answers again. The refusal met a read that began after the write, so
+	// the pause it began stands: inside it the engine does not try the store; the first
 	// check after the pause does, and sees the write.
 	store.setFail(nil)
 	if widgets() {

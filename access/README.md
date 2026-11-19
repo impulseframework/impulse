@@ -142,8 +142,7 @@ finds the snapshot fresh is lock-free and allocation-free and does not touch the
 database. Policy changes propagate between instances in near-realtime through a
 change signal the application supplies (see Change signal below), and the
 heartbeat interval (default 1m) bounds the staleness whatever happens to the
-signal. Writes made through this client are visible to its own checks at once;
-in the second after a reload failed, to the first check after that pause.
+signal. Writes made through this client are visible to its own checks at once.
 
 **Freshness is the check's own.** A check reads the policy store before it
 answers in three cases: no snapshot is loaded yet; the snapshot's store read
@@ -177,12 +176,15 @@ read in flight when the check came, and at most one after it.
 snapshot answers. The store is then left alone for one second: the checks that
 come in that pause are answered from the last good snapshot without a read, so a
 store that is down is read, and its failure reported, once a pause and not once
-a check; a change announced meanwhile stays recorded, and the first check after
-the pause reads. The pause counts from the moment the read's time ran out when
-the read is found failed later than that, so on an instance that lost its CPU
-with a reload in flight, and sat idle past that reload's timeout and the pause
-after it, the first check reads the store itself. Only the first load has no
-snapshot to fall back on: its failure is the check's error.
+a check; a hint from another instance that arrives meanwhile stays recorded, and
+the first check after the pause reads. A policy write on this instance ends the
+pause, since a store that has just accepted a write is not down: the next check
+reads it, and a read that fails after the write begins a pause of its own. The
+pause counts from the moment the read's time ran out when the read is found
+failed later than that, so on an instance that lost its CPU with a reload in
+flight, and sat idle past that reload's timeout and the pause after it, the
+first check reads the store itself. Only the first load has no snapshot to fall
+back on: its failure is the check's error.
 
 The snapshot compiles the release's default roles from the role file beside the
 store's rows, in three parts: the global partition; the policy held in every
@@ -249,32 +251,37 @@ with neither its old grant nor its new one.
 
 ### Change signal
 
-The engine announces on the change signal as the last step of every successful
-policy write, before the write returns, and watches it for the hints other
-instances announce. The engine leaves nothing to publish once the write has
-returned, so an instance that gets no CPU once it has answered (Cloud Run's
-default) holds no announcement of the engine's back, and a write that has
-returned before `Close` (a migrate command's seed) has handed its announcement
-to the channel before the application closes it. What a channel does with a
-signal it has taken is the channel's own: the resource package's live service
-absorbs a signal made while another of the same kind is being written, and
-sends one covering write when that one ends, from a goroutine of its own. A
-write that stores several rows announces after each row, one after another.
-Each announcement has two seconds: one that fails or runs out is reported to
-the reload-error hook and never fails the write, and the other instances then
-learn of the change at their heartbeat interval. A hint is recorded the moment
-it arrives, before any reload is tried, and wakes the background loop: from
-then the next check reads the policy store before it answers, whether or not
-the loop got there first, so a change that was announced waits for no loop on
-an instance that heard the announcement; the old snapshot answers only while
-the store cannot be read (see A read that fails, above). The signal carries no
-policy, so a lost hint costs latency, bounded by the heartbeat interval, and a
-duplicated one costs a read. Watch errors reach the reload-error hook too.
+The engine announces on the change signal once for every call that writes
+policy, as the call's last step and before it returns, and watches the signal
+for the hints other instances announce. A call of the `UserManager` announces
+once however many rows it writes: giving a role to thirty people is one
+announcement, and a call that fails part-way announces what it wrote. Each row
+is visible to this instance's own checks the moment it is stored. The engine
+leaves nothing to publish once the call has returned, so an instance that gets
+no CPU once it has answered (Cloud Run's default) holds no announcement of the
+engine's back, and a write that has returned before `Close` (a migrate
+command's seed) has handed its announcement to the channel before the
+application closes it. The channel is to do the same and return once the signal
+is sent: the resource package's live service sends one write for the signals of
+a kind that overlap, and each of them waits for the write that covers it. The
+announcement has two seconds: one that fails or runs out is reported to the
+reload-error hook, once for the call, and never fails the write, and the other
+instances then learn of the change at their heartbeat interval. So a channel
+that is down costs a call two seconds, whatever the call wrote.
+
+A hint is recorded the moment it arrives, before any reload is tried, and wakes
+the background loop: from then the next check reads the policy store before it
+answers, whether or not the loop got there first, so a change that was
+announced waits for no loop on an instance that heard the announcement; the old
+snapshot answers only while the store cannot be read (see A read that fails,
+above). The signal carries no policy, so a lost hint costs latency, bounded by
+the heartbeat interval, and a duplicated one costs a read. Watch errors reach
+the reload-error hook too.
 
 The application supplies the signal as an adapter over its one signal channel,
 through `access.ChangeSignalFunc(announce, watch)`. `announce` publishes the
-policy kind on the channel and returns when its context ends, since the write
-waits for it. `watch` subscribes to the policy kind, hands every
+policy kind on the channel and returns when its context ends, since the call
+that wrote waits for it. `watch` subscribes to the policy kind, hands every
 signal to the `onChange` the engine passes, and blocks until its context ends;
 that is the `Watch` contract, and it keeps the subscription open for the life of
 the client, its stop running when `watch` returns. Whenever `watch` returns

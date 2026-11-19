@@ -41,6 +41,16 @@ export class ReleaseComponent {
 }
 
 /** Whether two releases are the same one, a leading v aside (v0.3.1 and 0.3.1 are one release). */
-function sameRelease(a: string, b: string): boolean {
+export function sameRelease(a: string, b: string): boolean {
   return a.replace(/^v/, '') === b.replace(/^v/, '');
+}
+
+/**
+ * The release line as one piece of text, the words the component draws: the server's
+ * release, and which build the tab runs where this build names a release that is not the
+ * server's ("v0.3.1 (this tab runs v0.3.0)"). What a person pastes into a problem report.
+ * `build` is undefined for a local build, which names no release.
+ */
+export function releaseWords(server: string, build: string | undefined): string {
+  return build !== undefined && !sameRelease(build, server) ? `${server} (this tab runs ${build})` : server;
 }

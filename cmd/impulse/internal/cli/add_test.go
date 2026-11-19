@@ -72,6 +72,71 @@ func Test_addMethod_identityProviderName(t *testing.T) {
 	}
 }
 
+// Test_addMethod_label holds --label to the one kind that takes it, before anything is
+// asked or read: the words are an organization's identity provider's, a flag given with
+// no words is refused, and every other kind is told where its words are changed.
+func Test_addMethod_label(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "words for a Google method", args: []string{"staff", "google", "--authority", "application", "--label", "Lakeside"}, want: `the google method is shown by what it is. To show it under other words, chain .Labeled("Lakeside") on its declaration in the generator program`},
+		{name: "words for the password method", args: []string{"staff", "password", "--label", "Lakeside"}, want: "the password method is shown by what it is"},
+		{name: "words for a method impulse does not compose", args: []string{"staff", "ldap", "--label", "Lakeside"}, want: `"ldap" is not a sign-in method impulse composes`},
+		{name: "the flag with no words", args: []string{"staff", "oidc", "company-sso", "--authority", "application", "--label", ""}, want: "--label takes the words people read for the provider"},
+		{name: "the flag with spaces alone", args: []string{"staff", "oidc", "company-sso", "--authority", "application", "--label", "  "}, want: "--label takes the words people read for the provider"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := newAddMethod()
+			cmd.SetArgs(tt.args)
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Execute() error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// Test_methodSpec_label holds what the method carries from --label: the words given for
+// an organization's identity provider, and none where the flag was not given, so the
+// declaration is written as it was before the flag existed.
+func Test_methodSpec_label(t *testing.T) {
+	t.Parallel()
+
+	said := newAddMethod()
+	if err := said.Flags().Set("label", "Lakeside ID"); err != nil {
+		t.Fatalf("Flags().Set() error = %v", err)
+	}
+	got, err := methodSpec(said, "oidc", "company-sso", "", "application", "Lakeside ID", false, nil)
+	if err != nil {
+		t.Fatalf("methodSpec() with words error = %v", err)
+	}
+	if want := (authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityApplication, Label: "Lakeside ID"}); got != want {
+		t.Errorf("methodSpec() with words = %+v, want %+v", got, want)
+	}
+	if want := `generation.OIDCMethod("company-sso").Labeled("Lakeside ID")`; got.Declaration() != want {
+		t.Errorf("the declaration with words = %s, want %s", got.Declaration(), want)
+	}
+
+	got, err = methodSpec(newAddMethod(), "oidc", "company-sso", "", "application", "", false, nil)
+	if err != nil {
+		t.Fatalf("methodSpec() with no words error = %v", err)
+	}
+	if want := (authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityApplication}); got != want {
+		t.Errorf("methodSpec() with no words = %+v, want %+v", got, want)
+	}
+	if want := `generation.OIDCMethod("company-sso")`; got.Declaration() != want {
+		t.Errorf("the declaration with no words = %s, want %s: it is written as before", got.Declaration(), want)
+	}
+}
+
 // Test_add_accountsRetired refuses --accounts on add auth and add method before anything
 // is asked, read or written, whatever value it carries, and says where the choice is made
 // now: in the running application, for each method, on its Sign-in page. The flag stays

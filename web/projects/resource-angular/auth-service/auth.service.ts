@@ -48,12 +48,11 @@ import { from, map, Observable, of, switchMap, tap } from 'rxjs';
  * the digest, `featureEnabled` answers from it for the `impulseFeature` directive, the
  * `featureMatch` route guard, and the application's own code, and a logout forgets it.
  * The set is loaded at sign-in and not polled: a flip by someone else is seen at the next
- * sign-in, while the person flipping, through the feature flags dialog, has their own set
- * and digest refreshed once the write succeeds. An API that serves no feature flags (its
+ * sign-in, while the person flipping, on the Feature flags page, has their own set and
+ * digest refreshed once the write succeeds. An API that serves no feature flags (its
  * descriptor carries no features route) loads nothing: every flag answers off, so each
- * gate stays closed, the dialog says the API serves none, and the first ask of each flag
- * is announced through the client's warn hook (the console by default) naming the
- * regeneration that would serve it.
+ * gate stays closed, and the first ask of each flag is announced through the client's
+ * warn hook (the console by default) naming the regeneration that would serve it.
  */
 @Injectable({
   providedIn: 'root',

@@ -49,6 +49,8 @@ func ValidatePeriod(role accesstypes.Role, period accesstypes.Period) error {
 func (u *userManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignUserRoles(ctx, scope, user, period, role)
 }
@@ -59,6 +61,8 @@ func (u *userManager) AssignUserRole(ctx context.Context, scope accesstypes.Poli
 func (u *userManager) AssignGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupUsers(ctx, group, period, user)
 }
@@ -69,6 +73,8 @@ func (u *userManager) AssignGroupUser(ctx context.Context, group accesstypes.Gro
 func (u *userManager) AssignGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignGroupRoles(ctx, group, scope, period, role)
 }

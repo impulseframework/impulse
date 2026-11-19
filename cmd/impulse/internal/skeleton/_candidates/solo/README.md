@@ -125,7 +125,7 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. `GET /api/features` lists what is on to anyone signed in. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+login holds; the library's Feature flags page runs it: the list of the flags, each in words with who last turned it on or off, a row's menu that turns the flag on or off after asking, and a History button that opens the flag's flips in a pop-up. The menu file places the page (`featureFlagsPage`) in
 the System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
@@ -202,7 +202,10 @@ link opens the login page under `APP_PUBLIC_URL`.
 ### Browser apps
 
 The console is an Angular workspace under `web/` that installs the published
-`@impulseframework/resource` and `@impulseframework/resource-angular` (pinned in `package.json`). To develop
+`@impulseframework/resource` and `@impulseframework/resource-angular` (pinned in `package.json`). Install them
+once with `bun install` in `web/`: it writes `bun.lock`, which the workflows install
+from (`bun ci`) and the repository keeps, and `impulse check` fails while the web root
+has none (`package-manager`). To develop
 against a local checkout of the framework, attach its web packages through yalc, a local
 state that is never committed (the script builds the three packages, publishes them to the
 local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts the pins back):
@@ -269,8 +272,8 @@ permission digest over a scripted client from `@impulseframework/resource-angula
 request and answers from the test), and the menu file's spec holds every page the routes
 carry to a place in the menus (`unplacedPages`). The console sits in the library's frame
 (`provideFrame` in `app.config.ts`): the bar with the application's name and the menus of
-`app.menus.ts` (System: the staff's accounts and Feature flags…), Help ending with About,
-which carries the release, and the person's own menu (Your account, with the email address
+`app.menus.ts` (System: the staff's accounts and Feature flags), Help ending with About,
+a pop-up that carries the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production), and the person's own menu (Your account, with the email address
 and Change your password; Appearance; Sign out); the frame is the library's, tested there.
 
 ## Live pages

@@ -9,6 +9,7 @@ import {
   methodsTargeting,
   nameInWords,
   offered,
+  offeredAs,
   requestBody,
   rowMethods,
   targetBody,
@@ -92,6 +93,11 @@ describe('nameInWords', () => {
     ['roles', 'Roles'],
     ['SetHTTPStatus', 'Set http status'],
     ['emailVerifiedAt', 'Email verified at'],
+    // A name written with underscores, as a feature flag's is.
+    ['cargo_manifest', 'Cargo manifest'],
+    ['persona_entry', 'Persona entry'],
+    ['debriefs', 'Debriefs'],
+    ['_leading__and_trailing_', 'Leading and trailing'],
   ];
   for (const [name, want] of cases) {
     it(`${name} is "${want}"`, () => {
@@ -143,6 +149,57 @@ describe('rowMethods', () => {
     expect(rowMethods(row(all, { disabled: true }), targeting, metaOf, presentations).map((m) => m.label)).toEqual([
       'Enable',
     ]);
+  });
+});
+
+describe('a method the page names more than once', () => {
+  const targeting = methodsTargeting(every, metaOf, people);
+  const row = (disabled: boolean): RecordData =>
+    ({
+      id: 'u-1',
+      user: 'ada',
+      disabled,
+      zzCapabilities: { Execute: ['AssignCrewSectorRole'] },
+    }) as unknown as RecordData;
+  const twice: MethodPresentation[] = [
+    { method: 'AssignCrewSectorRole' as Method, label: 'Make an officer', when: (r) => r['disabled'] === false },
+    { method: 'AssignCrewSectorRole' as Method, label: 'Make a cadet' },
+    {
+      method: 'AssignCrewRole' as Method,
+      label: 'Turn on',
+      when: (r) => r['disabled'] === true,
+      fill: (r) => ({ username: r['user'], role: 'on' }),
+    },
+    {
+      method: 'AssignCrewRole' as Method,
+      label: 'Turn off',
+      when: (r) => r['disabled'] === false,
+      fill: (r) => ({ username: r['user'], role: 'off' }),
+    },
+  ];
+
+  it('is offered on a row once for each presentation that holds there, each as itself', () => {
+    expect(rowMethods(row(false), targeting, metaOf, twice).map((m) => m.label)).toEqual([
+      'Make an officer',
+      'Make a cadet',
+    ]);
+    expect(rowMethods(row(true), targeting, metaOf, twice).map((m) => m.label)).toEqual(['Make a cadet']);
+  });
+
+  it('is filled as the presentation offered fills it, not as the first that names the method does', () => {
+    const on = filledMethods(row(true), twice, metaOf, () => true);
+    const off = filledMethods(row(false), twice, metaOf, () => true);
+    expect(on.map((m) => [m.label, filledBody(m, row(true))])).toEqual([['Turn on', { username: 'ada', role: 'on' }]]);
+    expect(off.map((m) => [m.label, filledBody(m, row(false))])).toEqual([
+      ['Turn off', { username: 'ada', role: 'off' }],
+    ]);
+  });
+
+  it('offered finds the first presentation of a name, and offeredAs takes the one it is given', () => {
+    const meta = metaOf('AssignCrewRole');
+    expect(offered('AssignCrewRole', meta, twice).label).toBe('Turn on');
+    expect(offeredAs('AssignCrewRole', meta, twice[3]).label).toBe('Turn off');
+    expect(offeredAs('AssignCrewRole', meta, undefined).label).toBe('Assign crew role');
   });
 });
 

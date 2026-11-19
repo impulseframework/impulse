@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/generation"
 )
 
 // smokeSpecs are the auth packages the rendering is held to: the skeleton's two, and one
@@ -620,7 +621,15 @@ func TestValidate(t *testing.T) {
 		{name: "an identity provider whose name is not a route segment", method: Method{Kind: app.MethodOIDC, Name: "Okta", Authority: app.AuthorityApplication}, wantErr: "registration"},
 		{name: "an identity provider under the application authority", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}},
 		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}},
+		{name: "an identity provider with the words its people read", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityApplication, Label: "Lakeside ID"}},
+		{name: "an identity provider whose words run over a line", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityApplication, Label: "Lakeside\nsign-in"}, wantErr: "the words the login page shows for the provider, on one line"},
+		{name: "an identity provider whose words carry a space before them", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityApplication, Label: " Lakeside"}, wantErr: "with no space before or after them"},
+		{name: "words for a Google method, which is shown by its brand", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityApplication, Label: "Lakeside"}, wantErr: `a label names an organization's identity provider (the oidc method), whose words are otherwise made from its registration name; the google method is shown by what it is. To show it under other words, chain .Labeled("Lakeside") on its declaration in the generator program`},
+		{name: "words for a Microsoft method, which is shown by its brand", method: Method{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityApplication, Label: "Lakeside"}, wantErr: "the azure method is shown by what it is"},
+		{name: "words for the password method, which is shown by what it is", method: Method{Kind: app.MethodPassword, Label: "Lakeside"}, wantErr: "the password method is shown by what it is"},
+		{name: "words for the persona method, which is shown by what it is", method: Method{Kind: app.MethodPersona, Name: "persona", Label: "Lakeside"}, wantErr: "the persona method is shown by what it is"},
 		{name: "a method impulse does not compose", method: Method{Kind: "ldap", Name: "ldap"}, wantErr: "password, azure, google, oidc or persona"},
+		{name: "a method impulse does not compose, given words", method: Method{Kind: "ldap", Name: "ldap", Label: "Lakeside"}, wantErr: `"ldap" is not a sign-in method impulse composes`},
 		{name: "fine", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityDirectory}},
 	}
 	for _, tt := range tests {
@@ -661,6 +670,8 @@ func TestDeclaration(t *testing.T) {
 		{name: "the persona method under another registration name", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication}, want: `generation.PersonaMethod("reviewers")`},
 		{name: "an identity provider whose members the application gives roles", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}, want: `generation.OIDCMethod("okta")`},
 		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}, want: `generation.OIDCMethod("company-sso").SyncsRoles()`},
+		{name: "an identity provider with the words its people read", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityApplication, Label: "Lakeside ID"}, want: `generation.OIDCMethod("company-sso").Labeled("Lakeside ID")`},
+		{name: "an identity provider with its words, whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory, Label: `The "Lakeside" sign-in`}, want: `generation.OIDCMethod("company-sso").Labeled("The \"Lakeside\" sign-in").SyncsRoles()`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -672,6 +683,26 @@ func TestDeclaration(t *testing.T) {
 				t.Errorf("Declaration() = %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestDefaultWordsAreTheGeneratorsLabel holds the words the command says people read
+// for an organization's identity provider added with none to the label the generation
+// package gives its declaration: the brief quotes them, so the two are one rule.
+func TestDefaultWordsAreTheGeneratorsLabel(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"sso", "okta", "company-sso", "id-2", "a"} {
+		m := Method{Kind: app.MethodOIDC, Name: name, Authority: app.AuthorityApplication}
+		if got, want := m.DefaultWords(), generation.OIDCMethod(name).Label(); got != want {
+			t.Errorf("DefaultWords() of %s = %q, and the generation package's label is %q", name, got, want)
+		}
+		if got, want := m.Words(), generation.OIDCMethod(name).Label(); got != want {
+			t.Errorf("Words() of %s with no label = %q, want the default %q", name, got, want)
+		}
+		m.Label = "Lakeside ID"
+		if got, want := m.Words(), generation.OIDCMethod(name).Labeled("Lakeside ID").Label(); got != want {
+			t.Errorf("Words() of %s with a label = %q, want %q", name, got, want)
+		}
 	}
 }
 

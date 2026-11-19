@@ -781,6 +781,11 @@ func TestAuthApply(t *testing.T) {
 				programFile:                           authRouterProgram,
 				"pkg/resources/tenant_directories.go": "package resources\n\ntype (\n\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\tTenantDirectory struct {\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t}\n)\n",
 			},
+			wantDid: []string{
+				// The auth's identity provider was given no words: the brief says what people
+				// read for it and names the file where its own name goes.
+				programFile + `: people read the company-sso method as "Company Sso", words made from its registration name, on the login page's button (Sign in with Company Sso) and in the lists of a person's ways to sign in; to show the provider's own name, chain .Labeled("<words>") on the declaration (generation.OIDCMethod("company-sso").Labeled("Lakeside ID")) and run go generate ./...`,
+			},
 			wantSkipped: []string{
 				`test/integration/harness_test.go and cmd/deployment/migrate/main_test.go: the company-sso registration validates its issuer at registration whether or not the directory is simulated, so give the employees auth's construction in the harness CompanySso: employees.CompanySsoSettings{Issuer: "https://provider.example.com", RedirectURL: <the served callback>} and set APP_EMPLOYEES_COMPANY_SSO_ISSUER=https://provider.example.com where the migrate run's environment is`,
 				`pkg/resources/tenant_directories.go: the tenants declare the directory their people enter through (TenantDirectory), and a sign-in through company-sso is a directory's to the sign-in policy, method oidc under the connection "company-sso": a tenant's administrator who is signed in through it makes it the tenant's directory on the console's Sign-in page, and a tenant that is directory only then admits the people who sign in through it and nobody else, while a tenant that is not admits everyone it seats, however they signed in. The record's method column must admit oidc for a tenant to take the provider: add tenancy composes the column's check with google, azure, workos and oidc, so a table whose check names fewer needs a migration that adds oidc, and the Sign-in page names the directory by what its directoryKinds calls the method`,
@@ -1138,10 +1143,16 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 				renderedConfig,
 			},
 			wantSkipped: []string{portalProgram + ": the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the members auth, so the tool adds none: the members auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does; impulse check refuses an auth whose roles the application gives while it builds no identity client (first-administrator). To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does"},
+			// The generated metadata stays imported: the Feature flags page, which is no page
+			// of the management, reads it in both files.
+			wantText: map[string][]string{
+				portalRoutes: {"import { resourceMeta } from '@app/service/zz_gen_resources';\n", "      featureFlagsRoute(resourceMeta),\n"},
+				portalMenus:  {"import { resourceMeta } from '@app/service/zz_gen_resources';\n", "            featureFlagsPage(resourceMeta),\n"},
+			},
 			neverText: map[string][]string{
 				portalProgram:                 {"GenerateIdentity"},
-				portalRoutes:                  {"identityRoutes", "apiDescriptor", "resourceMeta"},
-				portalMenus:                   {"identityMenuPages", "apiDescriptor", "resourceMeta"},
+				portalRoutes:                  {"identityRoutes", "apiDescriptor"},
+				portalMenus:                   {"identityMenuPages", "apiDescriptor"},
 				"pkg/auth/members/members.go": {"identityClient", "membersidentity"},
 			},
 		},

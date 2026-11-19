@@ -37,10 +37,20 @@
   font-size: 13px;
   font-weight: 500;
 
+  // Two initials share the circle one has: a little smaller, so two wide letters fit
+  // inside it. The circle keeps its size.
+  &.two {
+    font-size: 11px;
+  }
+
   &.large {
     width: 36px;
     height: 36px;
     font-size: 16px;
+
+    &.two {
+      font-size: 14px;
+    }
   }
 }
 

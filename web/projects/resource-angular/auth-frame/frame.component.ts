@@ -12,8 +12,8 @@ import { PlaceService } from './place.service';
 /**
  * The frame every signed-in page sits in: the bar across the top, the page, and the side
  * panel the menus open in on a phone. The panel closes itself when the screen grows past
- * a phone's, where the menus are on the bar. It has no footer: the release is on the About
- * page. An application's banner (provideFrame's banner) goes above the bar. Route it as
+ * a phone's, where the menus are on the bar. It has no footer: the release is in the About
+ * pop-up. An application's banner (provideFrame's banner) goes above the bar. Route it as
  * the parent of every signed-in page, behind the sign-in guard. While it is on the screen
  * the place the page is in is remembered as where the person works (PlaceService), which
  * the sign-in and sign-out pages, routed outside it, never are.

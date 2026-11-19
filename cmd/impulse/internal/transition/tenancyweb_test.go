@@ -58,8 +58,8 @@ func wantContains(t *testing.T, a *app.App, rel string, want, notWant []string) 
 }
 
 // TestTenancyBrowser pins the browser half of add tenancy over the base skeleton's
-// console: the tenant menus ahead of the others in the menu file, the feature flags entry
-// in the place outside every tenant, Configuration named in the frame's configuration,
+// console: the tenant menus ahead of the others in the menu file, the Feature flags page
+// placed as it was, Configuration named in the frame's configuration,
 // the routes in the tenant shape, the reference's, and a sign-in arriving at the root.
 func TestTenancyBrowser(t *testing.T) {
 	t.Parallel()
@@ -74,13 +74,13 @@ func TestTenancyBrowser(t *testing.T) {
 		"import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';\n",
 		"import { tenantSignInPage } from '@components/ui/sign-in/sign-in.routes';\n",
 		"import { tenantsConfig } from './configs/tenants.config';\n",
-		"export function appMenus(actions: FrameActions): Menu[] {\n  return [\n    {\n      label: 'Tenants',",
+		"export function appMenus(): Menu[] {\n  return [\n    {\n      label: 'Tenants',",
 		"          entries: [resourcePage(tenantsConfig, resourceMeta)],\n",
 		"...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'domain' }),",
 		"...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),",
 		"      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage] }],\n    },\n    {\n      label: 'System',",
-		"              run: () => actions.featureFlags(),\n              place: 'outside',\n              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },\n",
-	}, []string{"New tenant", "openNewTenantDialog", "MatDialog", "Permissions.Create"})
+		"            featureFlagsPage(resourceMeta),\n",
+	}, []string{"New tenant", "openNewTenantDialog", "MatDialog", "Permissions.Create", "FrameActions", "place: 'outside'"})
 	if got := read(t, a, menus); strings.Count(got, "import { identityMenuPages }") != 1 || strings.Count(got, "label: 'System'") != 1 {
 		t.Errorf("%s repeats an import or a menu:\n%s", menus, got)
 	}

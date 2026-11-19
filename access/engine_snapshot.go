@@ -35,8 +35,11 @@ const (
 	// reload of its own failed: the checks that come inside it are answered
 	// from the last good snapshot and none of them reads, so a store that
 	// refuses at once is read once a pause and not once a check, and the
-	// failure is reported at that rate. A change announced meanwhile stays
-	// recorded, and the first check after the pause reads.
+	// failure is reported at that rate. A change another instance announced
+	// meanwhile stays recorded, and the first check after the pause reads. A
+	// policy write of this instance ends the pause: a store that has just
+	// accepted a write is not down, so the next check reads it, and a reload
+	// that fails after the write begins a pause of its own.
 	reloadPause = time.Second
 
 	// watchRetryDelay is how long the engine waits before re-invoking
@@ -46,7 +49,10 @@ const (
 	// defaultAnnounceTimeout bounds the announcement of a policy write to the
 	// other instances, which the write waits for: past it the write returns,
 	// the failure is reported, and the other instances learn of the change at
-	// their heartbeat interval. It is what a feature flip's signal gets.
+	// their heartbeat interval. It is what a feature flip's signal gets. A
+	// call of the user manager makes one announcement however many rows it
+	// writes (holdAnnouncement), so a channel that is down costs the call this
+	// once.
 	defaultAnnounceTimeout = 2 * time.Second
 
 	// maxWindows bounds the snapshots kept for instants outside the current
@@ -76,7 +82,8 @@ const (
 // Failure semantics: the first load must succeed before checks are served
 // (errors are returned, never panicked); once a snapshot exists, a failed
 // reload serves the last good snapshot and reports through onError, and the
-// store is tried again by the first check after a short pause (reloadPause).
+// store is tried again by the first check after a short pause (reloadPause),
+// or by the next check where this instance has written the policy since.
 //
 // An assignment counts inside its period alone, and a snapshot holds the ones
 // that count in a window of time (snapshot.holdsAt). A check is answered from
@@ -167,27 +174,38 @@ func (s *snapshotEngine) now() time.Time {
 
 // reloadFailed reports a reload the engine made itself that failed: the
 // check's or the loop's, refused or failed. The last good snapshot answers,
-// and the first check after the pause tries the store again.
+// and the first check after the pause tries the store again, or the next
+// check after a policy write of this instance.
 func (s *snapshotEngine) reloadFailed(_ context.Context, err error) {
 	s.onError(err)
 }
 
-// policyChanged is invoked by the policy write path after every successful
-// write: the local snapshot reloads on the next check (read-your-writes; on
-// the first check after the pause, where a reload has just failed), the
-// background loop is nudged, and the announcement is handed to the change
-// signal before it returns.
+// policyChanged is what a policy write that is not held calls once it has
+// succeeded (Client.PolicyChanged, and a store manager no call of the user
+// manager is holding): the write is recorded (policyWritten), and its
+// announcement is handed to the change signal before this returns.
 func (s *snapshotEngine) policyChanged() {
-	s.invalidate()
-	s.hint()
+	s.policyWritten()
 	s.announce()
 }
 
+// policyWritten records a policy write of this instance and announces
+// nothing: the local snapshot reloads on the next check (read-your-writes),
+// and the background loop is woken to reload ahead of it. Whoever calls it
+// owes the other instances an announcement (announce): policyChanged makes it
+// at once, and a call of the user manager makes one for all its writes when
+// it ends (holdAnnouncement).
+func (s *snapshotEngine) policyWritten() {
+	s.invalidate()
+	s.hint()
+}
+
 // invalidate marks the current snapshot as predating a local policy write:
-// the next check reads the store before it answers, or the first check after
-// the pause a failed reload left. Safe to call concurrently.
+// the next check reads the store before it answers, inside the pause a failed
+// reload left too, since the store has accepted a write since that reload
+// began. Safe to call concurrently.
 func (s *snapshotEngine) invalidate() {
-	s.fresh.Nudge()
+	s.fresh.Wrote()
 }
 
 // hinted is what the change signal's watch calls when another instance
@@ -210,18 +228,19 @@ func (s *snapshotEngine) hint() {
 
 // announce tells the other instances of the change, and returns once the
 // announcement has been handed to the signal or its time has run out. It is
-// the last thing a policy write does, inside the write, so the engine leaves
-// nothing to publish once the write has returned: an instance that gets no
-// CPU after it has answered holds no announcement of the engine's back, and
-// a write that has returned before Close has handed its announcement to the
-// channel the signal rides on. What a signal does with an announcement it has
-// taken is the signal's own: one that takes it and sends it later holds that
-// part itself. The announcement runs under the engine's own timeout and no
-// caller's context. One that fails or runs out does not fail the write, which
-// is committed: it is reported through onError, as a failed reload is, and
-// the other instances learn of the change at their heartbeat interval. A
-// write path that stores several rows calls this after each, so its
-// announcements are made one after another, each under its own timeout.
+// the last thing a policy write does, inside the call that wrote, so the
+// engine leaves nothing to publish once the call has returned: an instance
+// that gets no CPU after it has answered holds no announcement of the
+// engine's back, and a write that has returned before Close has handed its
+// announcement to the channel the signal rides on. The signal is to return
+// once the announcement is sent and to leave nothing sending behind it
+// (ChangeSignal.Announce), as the resource package's live service does. The
+// announcement runs under the engine's own timeout and no caller's context.
+// One that fails or runs out does not fail the write, which is committed: it
+// is reported through onError, as a failed reload is, and the other instances
+// learn of the change at their heartbeat interval. A call of the user manager
+// that stores several rows calls this once, after the last of them
+// (holdAnnouncement).
 func (s *snapshotEngine) announce() {
 	if s.signal == nil {
 		return

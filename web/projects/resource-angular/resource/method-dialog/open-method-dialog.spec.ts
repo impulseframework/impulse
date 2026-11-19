@@ -1,6 +1,6 @@
 import { Method, MethodMeta, MethodPresentation } from '@impulseframework/resource-angular/types';
 import { OfferedMethod } from '../row-methods/row-methods';
-import { methodDoneNotice } from './open-method-dialog';
+import { methodDoneMessage } from './open-method-dialog';
 
 const method = 'SendUserPasswordResetLink' as Method;
 
@@ -10,13 +10,13 @@ function offered(parts?: Partial<MethodPresentation>): OfferedMethod {
   return { method, meta: {} as MethodMeta, label: 'Send a password reset link', presentation };
 }
 
-describe('methodDoneNotice', () => {
+describe('methodDoneMessage', () => {
   it("says the page's words for a method that has run, or the label and done", () => {
-    expect(methodDoneNotice(offered({ successMessage: 'Sent.' }), undefined)).toEqual({
+    expect(methodDoneMessage(offered({ successMessage: 'Sent.' }), undefined)).toEqual({
       message: 'Sent.',
       failed: false,
     });
-    expect(methodDoneNotice(offered(), undefined)).toEqual({
+    expect(methodDoneMessage(offered(), undefined)).toEqual({
       message: 'Send a password reset link: done.',
       failed: false,
     });
@@ -30,11 +30,11 @@ describe('methodDoneNotice', () => {
           ? { message: 'The link is on its way.' }
           : { message: 'No link was sent.', failed: true },
     });
-    expect(methodDoneNotice(presented, { sent: true })).toEqual({
+    expect(methodDoneMessage(presented, { sent: true })).toEqual({
       message: 'The link is on its way.',
       failed: false,
     });
-    expect(methodDoneNotice(presented, { sent: false })).toEqual({
+    expect(methodDoneMessage(presented, { sent: false })).toEqual({
       message: 'No link was sent.',
       failed: true,
     });
@@ -42,6 +42,6 @@ describe('methodDoneNotice', () => {
 
   it("falls back to the page's words when the reading of the answer says nothing", () => {
     const presented = offered({ successMessage: 'Saved.', answered: () => undefined });
-    expect(methodDoneNotice(presented, {})).toEqual({ message: 'Saved.', failed: false });
+    expect(methodDoneMessage(presented, {})).toEqual({ message: 'Saved.', failed: false });
   });
 });

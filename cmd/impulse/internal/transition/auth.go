@@ -460,6 +460,13 @@ func (au Auth) bindOutlet(a *app.App, choice *OutletChoice, spec *authpkg.Spec, 
 		was = fmt.Sprintf("in place of the %s auth's", authName(a, choice.Outlet.Auth.ImportPath))
 	}
 	ch.didf("%s: the %s outlet's declaration names the %s auth with its methods, %s, %s, so the regenerated router mounts the auth's session group under %s: one login route per method, the methods route its login page renders from, and the pending sign-in routes", file, choice.Key, au.Name, declaration, was, prefix)
+	for i := range spec.Methods {
+		// An identity provider declared here carries no words of its own: the brief says
+		// what people read for it and names this file, where its own name goes.
+		if m := &spec.Methods[i]; m.Kind == app.MethodOIDC {
+			ch.didf("%s", wordsLine(file, m))
+		}
+	}
 	switch {
 	case tree == "":
 		ch.skipf("%[1]s: the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the %[2]s auth, so the tool adds none: the %[2]s auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does; impulse check refuses an auth whose roles the application gives while it builds no identity client (first-administrator). To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does", file, au.Name)

@@ -102,11 +102,19 @@ func (s *announcedSignal) lastContext(t *testing.T) context.Context {
 func announcingClient(t *testing.T, signal ChangeSignal) (client *Client, reported func() []error) {
 	t.Helper()
 
+	return announcingClientOver(t, engineFakeStore(t), signal)
+}
+
+// announcingClientOver is a Client over store that announces on the signal, with the
+// errors its reload-error hook receives collected.
+func announcingClientOver(t *testing.T, store Store, signal ChangeSignal) (client *Client, reported func() []error) {
+	t.Helper()
+
 	var (
 		mu       sync.Mutex
 		received []error
 	)
-	client, err := New(engineFakeStore(t), WithChangeSignal(signal), WithReloadErrorHandler(func(err error) {
+	client, err := New(store, WithChangeSignal(signal), WithReloadErrorHandler(func(err error) {
 		mu.Lock()
 		defer mu.Unlock()
 		received = append(received, err)

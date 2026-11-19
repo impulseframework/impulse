@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/semver"
 
 	"github.com/impulseframework/impulse/app"
@@ -23,8 +24,12 @@ import (
 // step is read from go.mod as the walk reads it (Env.Ledger), so the check never needs a
 // record of its own. A pin behind the step's fails, since impulse upgrade is what moves it
 // (every web root's package.json, then bun install there); one ahead of it warns, as a Go
-// pin bumped by hand ahead of its step is left where it stands. A web root naming none of
-// the library's packages is not one of the library's and is passed over.
+// pin bumped by hand ahead of its step is left where it stands. A pin at the release
+// go.mod requires the framework at is not ahead of anything, though that release is
+// later than the step: the browser packages release with the module at its version, and
+// that is where impulse new pins them, so an application made at a release no step was
+// written for stands where it was put. A web root naming none of the library's packages
+// is not one of the library's and is passed over.
 type webPins struct{}
 
 func (webPins) Name() string { return "web-pins" }
@@ -177,11 +182,17 @@ func (c webPins) Run(_ context.Context, env *Env) Result {
 	if len(roots) == 0 {
 		return skip(c.Name(), "no web root names the browser packages")
 	}
+	own := ownWebVersion(a.GoMod)
 	var failures, warnings []string
+	// made counts the pins that stand at the application's own release, beyond the
+	// step's, of pins in all.
+	made, pins := 0, 0
 	for i := range roots {
-		behind, ahead := c.root(&roots[i], want)
+		behind, ahead, atOwn := c.root(&roots[i], want, own)
 		failures = append(failures, behind...)
 		warnings = append(warnings, ahead...)
+		made += atOwn
+		pins += len(roots[i].Pins)
 	}
 
 	switch {
@@ -189,20 +200,49 @@ func (c webPins) Run(_ context.Context, env *Env) Result {
 		return fail(c.Name(), fmt.Sprintf("%d web pin(s) differ from the ledger step the application stands at (%s); impulse upgrade moves them", len(failures), WebLine(want)), append(failures, warnings...)...)
 	case len(warnings) > 0:
 		return warn(c.Name(), fmt.Sprintf("%d web pin(s) stand ahead of the ledger step the application stands at (%s)", len(warnings), WebLine(want)), warnings...)
+	case made > 0 && made == pins:
+		return pass(c.Name(), fmt.Sprintf("%d web root(s) pin the browser packages at the application's own release (%s), where impulse new wrote them, beyond the ledger step's (%s)", len(roots), own, WebLine(want)))
+	case made > 0:
+		return pass(c.Name(), fmt.Sprintf("%d web root(s) pin the browser packages at the ledger step's versions (%s), but for %d pin(s) at the application's own release (%s), where impulse new wrote them", len(roots), WebLine(want), made, own))
 	default:
 		return pass(c.Name(), fmt.Sprintf("%d web root(s) pin the browser packages at the ledger step's versions (%s)", len(roots), WebLine(want)))
 	}
 }
 
+// ownWebVersion is the browser packages' version of the release go.mod requires the
+// framework at ("0.5.0" for v0.5.0), which is what impulse new pins every web root at; ""
+// when go.mod requires the framework at no release (a commit's pseudo-version, or no
+// requirement at all).
+func ownWebVersion(mod *modfile.File) string {
+	if mod == nil {
+		return ""
+	}
+	for _, r := range mod.Require {
+		if r.Mod.Path != FrameworkModule {
+			continue
+		}
+		if v := r.Mod.Version; semver.IsValid(v) && semver.Canonical(v) == v && semver.Prerelease(v) == "" {
+			return strings.TrimPrefix(v, "v")
+		}
+	}
+
+	return ""
+}
+
 // root reads one web root against the step's web pins: every spec of a package the step
 // pins, in every section, and every package the step pins that the file does not name.
-func (webPins) root(r *WebRoot, want map[string]string) (behind, ahead []string) {
+// own is the browser packages' version of the application's own framework release
+// (ownWebVersion): a pin there, beyond the step's, is where the application was made,
+// and atOwn counts them, so a passing answer says where the pins stand.
+func (webPins) root(r *WebRoot, want map[string]string, own string) (behind, ahead []string, atOwn int) {
 	named := map[string]bool{}
 	for _, p := range r.Pins {
 		named[p.Package] = true
 		step := want[p.Package]
 		switch {
 		case p.Version == step:
+		case own != "" && p.Version == own && !WebBehind(p.Version, step):
+			atOwn++
 		case WebBehind(p.Version, step):
 			behind = append(behind, fmt.Sprintf("%s %s: %s is %s and the step pins %s", r.File, p.Section, p.Package, p.Version, step))
 		default:
@@ -215,7 +255,7 @@ func (webPins) root(r *WebRoot, want map[string]string) (behind, ahead []string)
 		}
 	}
 
-	return behind, ahead
+	return behind, ahead, atOwn
 }
 
 // Meaning explains the invariant for the brief.

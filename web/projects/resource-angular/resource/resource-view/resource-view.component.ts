@@ -52,7 +52,7 @@ import {
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
 import { RpcButtonComponent } from '../actions/rpc-button/rpc-button.component';
 import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
-import { methodDoneNotice, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { civildateCoercion, flattenElements } from '../gui-constants';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
@@ -241,7 +241,7 @@ export class ResourceViewComponent implements OnInit {
       if (!result) {
         return;
       }
-      const notice = methodDoneNotice(method, result.answer);
+      const notice = methodDoneMessage(method, result.answer);
       this.notifications.addGlobalNotification({
         message: notice.message,
         type: notice.failed ? AlertType.ERROR : AlertType.SUCCESS,

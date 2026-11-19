@@ -264,7 +264,7 @@ func Test_methodSpec_shape(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := methodSpec(newAddMethod(), tt.kind, tt.registration, tt.slot, tt.authority, false, methodsShape(t, tt.shape))
+			got, err := methodSpec(newAddMethod(), tt.kind, tt.registration, tt.slot, tt.authority, "", false, methodsShape(t, tt.shape))
 			if err != nil {
 				t.Fatalf("methodSpec() error = %v", err)
 			}
@@ -276,7 +276,7 @@ func Test_methodSpec_shape(t *testing.T) {
 
 	// Without a shape a directory method's authority is still asked, and required where
 	// nobody is at the terminal.
-	if _, err := methodSpec(newAddMethod(), "google", "", "", "", false, nil); err == nil || !strings.Contains(err.Error(), "--authority is required for a directory method") {
+	if _, err := methodSpec(newAddMethod(), "google", "", "", "", "", false, nil); err == nil || !strings.Contains(err.Error(), "--authority is required for a directory method") {
 		t.Errorf("methodSpec() without a shape error = %v, want the authority required", err)
 	}
 }

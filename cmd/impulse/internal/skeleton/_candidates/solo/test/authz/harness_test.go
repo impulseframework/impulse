@@ -187,6 +187,11 @@ func (c *testConfigurer) AppVersion() string {
 	return "dev"
 }
 
+// Environment is none: the suites run as production does, which names no environment.
+func (c *testConfigurer) Environment() string {
+	return ""
+}
+
 func (c *testConfigurer) ConsoleDist() string { return "" }
 
 // Live is an in-memory live service: the live service is required in every

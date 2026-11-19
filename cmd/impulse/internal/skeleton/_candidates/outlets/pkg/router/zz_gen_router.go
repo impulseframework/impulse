@@ -4,7 +4,7 @@
 // Package router serves the application. The middleware in front of every route,
 // outermost first, one line per group, each chain followed by what it stands in front of:
 //
-//	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
+//	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment
 //	default (/console/api), sessions of the staff auth (password):
 //	  BindAuth(staff.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means
 //	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/email/confirm, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete, POST /console/api/user/password-reset, POST /console/api/user/password-reset/open, POST /console/api/user/password-reset/complete
@@ -64,6 +64,11 @@ type Handlers interface {
 	// (resource.CheckAPIVersion). A value that is not a release, dev for one, is named
 	// as it is and checks nothing.
 	ServerVersion() string
+	// ServerEnvironment is the name of the environment this server runs in, the
+	// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)
+	// and the About pop-up of a browser application shows. Production is told no name
+	// and reports none, so its answers name no environment.
+	ServerEnvironment() string
 
 	// Every request: where the request log goes; the router builds the request logger from it.
 	LogExporter() logger.Exporter
@@ -296,6 +301,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	r.Use(logger.NewRequestLogger(h.LogExporter()))
 	r.Use(h.SecurityHeaders)
 	r.Use(httpio.WithParams)
+	// The environment this server runs in, named on every answer (X-Environment) where the
+	// application reports one: production reports none.
+	r.Use(resource.NameEnvironment(h.ServerEnvironment()))
 
 	// The application's routes outside every outlet.
 	if hooks.Root != nil {

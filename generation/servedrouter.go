@@ -1530,7 +1530,7 @@ var (
 // Package {{ .Package }} serves the application. The middleware in front of every route,
 // outermost first, one line per group, each chain followed by what it stands in front of:
 //
-//	every request: tracing, hooks.Outermost, request logging{{ if .RequestLog.Declared }} ({{ .RequestLog }}){{ end }}, SecurityHeaders, httpio.WithParams
+//	every request: tracing, hooks.Outermost, request logging{{ if .RequestLog.Declared }} ({{ .RequestLog }}){{ end }}, SecurityHeaders, httpio.WithParams, NameEnvironment
 {{- range .RootMountedRoutes }}
 //	  by hand under {{ .Prefix }}: {{ .Words }}
 {{- end }}
@@ -1667,6 +1667,11 @@ type Handlers interface {
 	// (resource.CheckAPIVersion). A value that is not a release, dev for one, is named
 	// as it is and checks nothing.
 	ServerVersion() string
+	// ServerEnvironment is the name of the environment this server runs in, the
+	// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)
+	// and the About pop-up of a browser application shows. Production is told no name
+	// and reports none, so its answers name no environment.
+	ServerEnvironment() string
 
 	// Every request: where the request log goes; the router builds the request logger from it.
 	LogExporter() logger.Exporter
@@ -1858,6 +1863,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- end }}
 	r.Use(h.SecurityHeaders)
 	r.Use(httpio.WithParams)
+	// The environment this server runs in, named on every answer (X-Environment) where the
+	// application reports one: production reports none.
+	r.Use(resource.NameEnvironment(h.ServerEnvironment()))
 
 	// The application's routes outside every outlet.
 	if hooks.Root != nil {
@@ -2292,6 +2300,36 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 	router.ServeHTTP(rr, req)
 
 	return rr
+}
+
+// TestGeneratedRouterEnvironment proves every answer names the environment the server
+// reports, the answer for an address no route serves included, and that a server which
+// reports none, as production does, names none.
+func TestGeneratedRouterEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		environment string
+		want        []string
+	}{
+		{name: "a server told its environment names it", environment: "tst", want: []string{"tst"}},
+		{name: "a server told none names none", environment: "", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newRouterHandlersStub(newRouterCallRecorder())
+			stub.serverEnvironment = tt.environment
+			rr := httptest.NewRecorder()
+			New(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/no-such-route", http.NoBody))
+
+			if got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {
+				t.Errorf("%s = %q, want %q", resource.ServerEnvironmentHeader, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestGeneratedRouter drives every generated route through New: each request answers
@@ -3211,6 +3249,8 @@ type routerHandlersStub struct {
 	// serverVersion is the release the stub reports; empty, no release, so a case that
 	// sets none is never refused.
 	serverVersion string
+	// serverEnvironment is the environment's name the stub reports; empty, production's.
+	serverEnvironment string
 	// exporter is where the request log goes when a test sets one, the console for the
 	// request log test; nil hands the router the recording stub.
 	exporter logger.Exporter
@@ -3218,6 +3258,10 @@ type routerHandlersStub struct {
 
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
+}
+
+func (s *routerHandlersStub) ServerEnvironment() string {
+	return s.serverEnvironment
 }
 {{- if or .FileStores .SecretFields }}
 

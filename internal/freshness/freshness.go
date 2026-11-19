@@ -12,9 +12,11 @@
 // is past its bound, or when a change was announced (Nudge) and no store read that began
 // after the announcement has landed. One store read serves every request waiting at that
 // moment. A read that fails leaves the copy as it was, and the store is not tried again
-// for a short pause, so a store that is down is not read by every request. The loops
-// remain as accelerators: they pass the same Gate sooner than a request would, and
-// nothing correct depends on their having run.
+// for a short pause, so a store that is down is not read by every request; a change the
+// instance wrote to the store itself (Wrote) ends the pause, since the store took it,
+// and so does a read that lands.
+// The loops remain as accelerators: they pass the same Gate sooner than a request
+// would, and nothing correct depends on their having run.
 package freshness
 
 import (
@@ -53,7 +55,9 @@ type Gate struct {
 	// pause is how long the store is left alone after a read of the Gate's own failed:
 	// the requests that come inside it are answered from the copy as it stands, with
 	// the failure, and none of them reads. So a store that refuses at once is read once
-	// a pause and not once a request, and its failure is reported at that rate.
+	// a pause and not once a request, and its failure is reported at that rate. The
+	// pause ends early where the store is known to answer again: a write of this
+	// instance made after the failed read began (Wrote), or a read that has landed.
 	pause time.Duration
 	// clock is the Gate's present.
 	clock func() time.Time
@@ -69,6 +73,10 @@ type Gate struct {
 	// so a read that was already in flight when an announcement came cannot clear it:
 	// the read recorded the count it began at, and the count has moved on.
 	nudges atomic.Int64
+	// wrote counts the changes this instance wrote to the store itself, each of them
+	// counted among the nudges too. A failed read does not answer a request that has
+	// seen a write made after that read began: the store has accepted a write since.
+	wrote atomic.Int64
 
 	// landed is the last store read that succeeded, nil until the first.
 	landed atomic.Pointer[attempt]
@@ -77,10 +85,11 @@ type Gate struct {
 	// it, and each looks again once it has it: the read it waited for has most often
 	// answered it.
 	mu sync.Mutex
-	// failure is the Gate's own read that failed last, nil once a read has landed since:
-	// what answers the requests that waited on that read, and the ones that come in the
-	// pause after it, in place of a read of their own. It is written with mu held.
-	failure atomic.Pointer[failure]
+	// failure is the Gate's own read that failed last, guarded by mu: what answers the
+	// requests that waited on that read, and the ones that come in the pause after it,
+	// in place of a read of their own, unless this instance has written the store since
+	// that read began. A read that lands clears it: the store has answered since.
+	failure *failure
 }
 
 // keeping is the context a copy is kept fresh under.
@@ -88,17 +97,21 @@ type keeping struct {
 	ctx context.Context
 }
 
-// attempt is one read of the store: when it began, and the announcements recorded before
-// it began, which are the ones it is known to hold once it lands.
+// attempt is one read of the store: when it began, the announcements recorded before
+// it began, which are the ones it is known to hold once it lands, and the writes of
+// this instance counted before it began.
 type attempt struct {
 	began  time.Time
 	nudges int64
+	wrote  int64
 }
 
-// failure is one of the Gate's own reads that failed: what it failed with, and until
-// when it answers the requests that arrive, which is the end of the pause after it.
+// failure is one of the Gate's own reads that failed: what it failed with, until when
+// it answers the requests that arrive, which is the end of the pause after it, and the
+// writes of this instance counted before the read began.
 type failure struct {
 	until time.Time
+	wrote int64
 	err   error
 }
 
@@ -129,14 +142,27 @@ func (g *Gate) Keep(ctx context.Context) {
 	g.kept.Store(&keeping{ctx: ctx})
 }
 
-// Nudge records that a change was announced: a pushed signal arrived, or this instance
-// wrote the store itself. It is recorded at once, before any read is tried, and from
-// then every read of the copy reads the store first, exactly as one past the bound
-// does, until a store read that began after the announcement has landed. So a change
-// that was announced waits for no loop on an instance that heard the announcement: the
-// old copy answers only while the store cannot be read, when a read has failed and
-// through the pause after it, and the announcement stays recorded meanwhile.
+// Nudge records that a change was announced to this instance: a pushed signal arrived.
+// (A change this instance wrote itself is recorded with Wrote.) It is recorded at once,
+// before any read is tried, and from then every read of the copy reads the store first,
+// exactly as one past the bound does, until a store read that began after the
+// announcement has landed. So a change that was announced waits for no loop on an
+// instance that heard the announcement: the old copy answers only while the store
+// cannot be read, when a read has failed and through the pause after it, and the
+// announcement stays recorded meanwhile.
 func (g *Gate) Nudge() {
+	g.nudges.Add(1)
+}
+
+// Wrote records that this instance wrote the store itself: a change as Nudge records
+// one, and the end of any pause for the requests that come after it. The pause is kept
+// because the store did not answer; a store that has just accepted a write does, so the
+// next read of the copy reads the store, pause or no pause. A read that fails after the
+// write, having begun after it, begins a pause as any failed read does.
+func (g *Gate) Wrote() {
+	// The write is counted before the announcement, so a request that has seen the
+	// announcement has seen the write.
+	g.wrote.Add(1)
 	g.nudges.Add(1)
 }
 
@@ -151,24 +177,26 @@ func (g *Gate) Nudge() {
 // made it, to the ones that waited on it, and to the ones that arrive in the pause
 // after it: none of them reads, and nothing more is reported. The copy stays as it
 // was, so a caller that holds a copy answers from it. What is announced meanwhile
-// stays recorded, and the first request after the pause tries the store again.
+// stays recorded, and the first request after the pause tries the store again. A
+// request that has seen a write of this instance made after the failed read began is
+// not answered by that failure: it reads (Wrote). Nor does the failure answer once a
+// read has landed after it (a read asked for outright, Read, reads inside the pause).
 func (g *Gate) Freshen() error {
 	kept := g.kept.Load()
 	if kept == nil || kept.ctx.Err() != nil {
 		return nil
 	}
 	// What this request arrives to, taken before it looks at the copy: the announcements
-	// made so far, and the moment it came. It owes those announcements and no later
-	// one: a request that chased the live count would read again for every change that
-	// lands while it waits, and under steady writes every waiting request would make a
-	// read of its own.
+	// made so far, the writes of this instance among them, and the moment it came. It
+	// owes those announcements and no later one: a request that chased the live count
+	// would read again for every change that lands while it waits, and under steady
+	// writes every waiting request would make a read of its own. The announcements are
+	// taken before the writes, as Wrote counts them in the other order.
 	nudges := g.nudges.Load()
+	wrote := g.wrote.Load()
 	arrived := g.clock()
 	if g.current(g.landed.Load(), nudges, arrived) {
 		return nil
-	}
-	if f := g.failure.Load(); f != nil && arrived.Before(f.until) {
-		return f.err
 	}
 
 	g.mu.Lock()
@@ -179,7 +207,7 @@ func (g *Gate) Freshen() error {
 	if g.answered(nudges, arrived) {
 		return nil
 	}
-	if f := g.failure.Load(); f != nil && arrived.Before(f.until) {
+	if f := g.failure; f.answers(wrote, arrived) {
 		// The read this request waited on failed, or one failed a moment before it came.
 		return f.err
 	}
@@ -194,7 +222,7 @@ func (g *Gate) Freshen() error {
 		// The copy's life ended under the read: the store did not fail.
 		return err
 	}
-	g.failure.Store(&failure{until: g.pausedUntil(made), err: err})
+	g.failure = &failure{until: g.pausedUntil(made), wrote: made.wrote, err: err}
 	g.failed(kept.ctx, err)
 
 	return err
@@ -206,16 +234,17 @@ func (g *Gate) Freshen() error {
 // one in flight may have begun before the caller's write. The read runs under ctx, the
 // caller's, held to the Gate's timeout; its failure is returned to the caller alone,
 // and the copy stays as it was. It reads inside the pause after a failed read too,
-// since the caller asked for it; a failure of its own begins no pause, for it may be
-// the caller's context that failed and not the store.
+// since the caller wrote the store and asked for it; a failure of its own begins no
+// pause, for it may be the caller's context that failed and not the store.
 //
-// The caller's change is recorded first, as Nudge records one, so a read that fails
-// leaves the copy owing it: the next request, or the first after the pause where a
-// read of the Gate's own has just failed, reads the store under the Gate's own
+// The caller's change is recorded first, as Wrote records one, so a read that fails
+// leaves the copy owing it: the next request reads the store under the Gate's own
 // context, where a caller's context that has ended, or that the store refuses, cannot
-// fail the read a second time.
+// fail the read a second time. It reads inside a pause that a failure from before the
+// caller's change left; a read of the Gate's own that fails after the change begins a
+// pause as any failed read does.
 func (g *Gate) Read(ctx context.Context) error {
-	g.Nudge()
+	g.Wrote()
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -228,17 +257,26 @@ func (g *Gate) Read(ctx context.Context) error {
 }
 
 // land reads the store and, when the read succeeds, records it as the one the copy
-// came from, and ends the pause a failed read left: the store has answered. It returns
-// the read it made: when it began and the announcements it holds, which is the count
-// taken before the read began, so every announcement in it was made before the read
-// and a later one leaves the copy behind it. The caller holds mu.
+// came from and ends the pause a failed read left: the store has answered since. It
+// returns the read it made: when it began and the announcements it holds, which is the
+// count taken before the read began, so every announcement in it was made before the
+// read and a later one leaves the copy behind it. The writes are counted before the
+// announcements, so a write made between the two is one the read is not said to have
+// begun after. The caller holds mu.
 func (g *Gate) land(ctx context.Context) (attempt, error) {
-	made := attempt{began: g.clock(), nudges: g.nudges.Load()}
+	var made attempt
+	made.began = g.clock()
+	// In this order: Wrote counts a write before it counts the announcement of it.
+	made.wrote = g.wrote.Load()
+	made.nudges = g.nudges.Load()
 	if err := g.read(ctx); err != nil {
 		return made, err
 	}
 	g.landed.Store(&made)
-	g.failure.Store(nil)
+	// A failure from before this read answers nobody now. Without this a read asked for
+	// outright (Read), whose change was counted before a failed read began and which
+	// landed after it, would leave that failure answering the requests of the pause.
+	g.failure = nil
 
 	return made, nil
 }
@@ -267,6 +305,14 @@ func (g *Gate) answered(nudges int64, arrived time.Time) bool {
 	}
 
 	return g.clock().Sub(l.began) <= g.bound
+}
+
+// answers reports whether the failed read answers a request with its failure, in place
+// of a read of the request's own: the request came before the pause after the failure
+// ended, and had seen no write of this instance made after the failed read began. No
+// failure answers none.
+func (f *failure) answers(wrote int64, arrived time.Time) bool {
+	return f != nil && f.wrote >= wrote && arrived.Before(f.until)
 }
 
 // pausedUntil is the end of the pause after the read that has just failed: the pause

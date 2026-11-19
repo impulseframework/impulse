@@ -43,8 +43,7 @@ type Client struct {
 // hint do the same ahead of the checks; nothing depends on them, so an
 // instance that got no CPU between requests is no staler than the interval.
 // All policy writes (user management) go through the same store and are read
-// by the next check on this instance (by the first check after the pause, in
-// the second after a reload failed).
+// by the next check on this instance.
 //
 // The store's values — domains, users, resources — are opaque labels to
 // access: referential validity belongs to the callers that write them, and

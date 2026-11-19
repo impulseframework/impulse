@@ -34,10 +34,10 @@ draws them from the API description (`identityRoutes` in the console's `app.rout
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
 shows Tenants (All tenants) and System (the staff's accounts, the Invited tenants page and
-Feature flags…) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
+Feature flags) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
 portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
-menu holds Your account, Appearance and Sign out, and Help ends with About, which carries
-the release.
+menu holds Your account, Appearance and Sign out, and Help ends with About, a pop-up that carries
+the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production).
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
@@ -258,7 +258,7 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. Each site serves `features` under its `/api`. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+login holds; the library's Feature flags page runs it: the list of the flags, each in words with who last turned it on or off, a row's menu that turns the flag on or off after asking, and a History button that opens the flag's flips in a pop-up. The menu file places the page (`featureFlagsPage`) in
 the console's System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
@@ -338,7 +338,10 @@ link opens the login page under `APP_PUBLIC_URL`.
 
 Each site has its own Angular workspace, `apps/console/web` and `apps/portal/web`, that
 installs the published `@impulseframework/resource`, `@impulseframework/resource-angular` and
-`@impulseframework/resource-firestore` (pinned in `package.json`). To develop
+`@impulseframework/resource-firestore` (pinned in `package.json`). Install them
+once with `bun install` in each: it writes the workspace's `bun.lock`, which the
+workflows install from (`bun ci`) and the repository keeps, and `impulse check` fails
+while a web root has none (`package-manager`). To develop
 against a local checkout of the framework, attach its web packages to each through yalc, a local
 state that is never committed (the script builds the three packages, publishes them to the
 local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts the pins back):

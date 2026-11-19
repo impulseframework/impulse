@@ -118,8 +118,25 @@ describe('positionAfter', () => {
 });
 
 describe('listEmptyMessage', () => {
-  const cases: { name: string; error: unknown; noColumns: boolean; want: string }[] = [
+  const own = 'This application declares no feature flags.';
+  const cases: { name: string; error: unknown; noColumns: boolean; empty?: string; want: string }[] = [
     { name: 'no error, an empty list', error: undefined, noColumns: false, want: 'No records found' },
+    { name: "no error, an empty list on a page with a sentence of its own", error: undefined, noColumns: false, empty: own, want: own },
+    { name: 'an empty sentence is no sentence', error: undefined, noColumns: false, empty: '', want: 'No records found' },
+    {
+      name: "the digest leaves no column, whatever the page's own sentence",
+      error: undefined,
+      noColumns: true,
+      empty: own,
+      want: 'Your permissions cover none of the columns on this page.',
+    },
+    {
+      name: "a refused list reads as a refusal, never as the page's own sentence",
+      error: new ApiError('GET', '/api/feature-flags', 403, { message: 'no List on FeatureFlags' }),
+      noColumns: false,
+      empty: own,
+      want: 'This list is not available to you: no List on FeatureFlags',
+    },
     { name: 'the digest leaves no column', error: undefined, noColumns: true, want: 'Your permissions cover none of the columns on this page.' },
     {
       name: 'a refused list reads as a refusal',
@@ -138,7 +155,7 @@ describe('listEmptyMessage', () => {
 
   for (const tt of cases) {
     it(tt.name, () => {
-      expect(listEmptyMessage(tt.error, tt.noColumns)).toBe(tt.want);
+      expect(listEmptyMessage(tt.error, tt.noColumns, tt.empty)).toBe(tt.want);
     });
   }
 });

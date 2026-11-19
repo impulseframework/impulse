@@ -244,7 +244,7 @@ func TestFilesApply(t *testing.T) {
 		"test/integration/harness_test.go":       {"func (c *servedConfigurer) Scheduler() *scheduled.Guard", "func (c *servedConfigurer) Jobs() jobs.Starter", "files *filestore.Mem", "files: filestore.NewMem()", "resource.NewSpannerClient(c.db.Client, resource.WithFileStore(c.files))", `"github.com/impulseframework/impulse/resource/filestore"`},
 		"cmd/generate/resourcegenerator/main.go": {"\t\tgeneration.GenerateHandlers(\"app\"),\n\t\tgeneration.WithRPC(\"pkg/rpc\"),\n"},
 		".envrc.template":                        {"# cmd/jobs cleanup-files removes what no row holds.\nexport APP_FILE_STORE=file://uploads\n\n# --- site: the served site ---\n# APP_JOBS_TEMPLATE is the job process's template job", "# export APP_JOBS_TEMPLATE=\nexport PORT="},
-		".gitignore":                             {".app-secret-key.dev\nuploads/\n"},
+		".gitignore":                             {".app-secret-key.dev\n.impulse-handoff.md\nuploads/\n"},
 	}
 	for rel, wants := range wantContains {
 		text := read(t, a, rel)
