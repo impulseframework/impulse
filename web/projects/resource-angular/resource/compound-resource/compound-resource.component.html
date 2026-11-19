@@ -1,7 +1,8 @@
 <div class="page-container">
   <!-- The title is drawn by the page's own row view, in the row it shares with the view's
-       buttons, wherever there is such a view; the page draws it only where there is none,
-       in a row of its own above what the page holds. -->
+       buttons, wherever such a view is drawn on the page itself; the page draws it only
+       where none is, or where the view is folded into a panel, in a row of its own above
+       what the page holds. -->
   @if (!viewDrawsTitle()) {
     <div class="header-container">
       <div class="title" [class.title-without-back]="title()">

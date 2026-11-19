@@ -138,9 +138,15 @@ export class CompoundResourceComponent implements OnInit {
 
   /**
    * Whether the page's own row view draws the page's title, in the row it shares with
-   * its buttons: wherever the page has such a view and the view is not folded into a
-   * panel, which has a title of its own. The page draws the title itself everywhere else
-   * (a page of lists alone, a page whose first part is a component of the application's).
+   * its buttons: wherever the page has a title, draws such a view, and the view is not
+   * folded into a panel, which has a title of its own. The view is drawn for every page
+   * that holds anything, a field or a part under the row, so the view draws the title of
+   * a page of lists alone, having no field to show, and of a page whose first part is a
+   * component of the application's. The page draws the title itself in the three cases
+   * left: the view of its row is folded into a panel; the page holds nothing, no field
+   * and no part under the row, so no view is drawn; the page's configuration is not a
+   * row view's (an array's), which draws no view. A page with no title (a row of an
+   * array, a component of the application's) draws none.
    */
   viewDrawsTitle = computed(() => {
     const config = this.primaryConfig();

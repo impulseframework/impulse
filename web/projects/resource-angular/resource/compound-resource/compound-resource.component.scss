@@ -4,14 +4,20 @@
   position: relative;
 }
 
-// The title where the page draws it itself: a page with no row view of its own, or one
+// The title where the page draws it itself: a page that draws no view of its row, or one
 // whose row view is folded into a panel. It is in the page's flow, as the heading row of a
 // row's view is: it takes its own room, and what follows starts under it however many
-// lines it takes. It is never laid over what follows.
+// lines it takes. It is never laid over what follows. How the row is positioned is the
+// library's rule for every heading row (`.header-container` in the library's styles), by
+// the application's switch for sticky headers: off, the row scrolls away with the page;
+// on, it stays at the top of what scrolls, which is what `top` and `z-index` are for here,
+// as on the heading row of a view, a list and a create form.
 .header-container {
   display: flex;
   flex-direction: row;
   max-width: 100%;
+  top: 0;
+  z-index: 11;
   background: transparent;
 }
 
