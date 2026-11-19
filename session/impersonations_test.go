@@ -96,6 +96,16 @@ func declaredImpersonations(t *testing.T) *Impersonations {
 	return declared
 }
 
+// aliceSession is the session the declaration's tests are signed in on.
+var aliceSession = impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))
+
+// aliceSignedIn is the context of a call that arrives on alice's validated session.
+func aliceSignedIn() context.Context {
+	return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo: &sessioninfo.SessionInfo{ID: aliceSession, Username: "alice"},
+	})
+}
+
 // TestNewImpersonations pins what a declaration is refused for when the application
 // starts: each refusal says what is wrong and what to do.
 func TestNewImpersonations(t *testing.T) {
@@ -439,7 +449,7 @@ func TestImpersonations_Request(t *testing.T) {
 
 			tt.ask.Reason = "ticket 12"
 			tt.ask.MaxDuration = 2 * time.Hour
-			req, err := declared.Request(context.Background(), &tt.ask, holds)
+			req, err := declared.Request(aliceSignedIn(), &tt.ask, holds)
 			if !slices.Equal(asked, tt.wantAsked) {
 				t.Errorf("grants asked about = %v, want %v", asked, tt.wantAsked)
 			}
@@ -459,40 +469,358 @@ func TestImpersonations_Request(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Request() error = %v", err)
 			}
-			if !req.Mask.Equal(tt.wantMask) {
-				t.Errorf("Request().Mask = %q, want %q", req.Mask.Text(), tt.wantMask.Text())
+			if !req.Mask().Equal(tt.wantMask) {
+				t.Errorf("Request().Mask() = %q, want %q", req.Mask().Text(), tt.wantMask.Text())
 			}
-			if req.Principal != tt.wantPrincipal {
-				t.Errorf("Request().Principal = %v, want %v", req.Principal, tt.wantPrincipal)
+			if req.Principal() != tt.wantPrincipal {
+				t.Errorf("Request().Principal() = %v, want %v", req.Principal(), tt.wantPrincipal)
 			}
-			if req.Reason != "ticket 12" || req.MaxDuration != 2*time.Hour {
-				t.Errorf("Request() reason %q, cap %v, want the ask's", req.Reason, req.MaxDuration)
+			if req.Kind() != tt.ask.Kind {
+				t.Errorf("Request().Kind() = %q, want the kind asked for, %q", req.Kind(), tt.ask.Kind)
 			}
-			if req.Actor != "" || req.SourceSessionID.Valid {
-				t.Errorf("Request() without a session in the context names the actor %q: a server-to-server caller sets it", req.Actor)
+			if req.Reason() != "ticket 12" || req.MaxDuration() != 2*time.Hour {
+				t.Errorf("Request() reason %q, cap %v, want the ask's", req.Reason(), req.MaxDuration())
+			}
+			if req.Actor() != "alice" || req.ActorRealm() != "" || req.ActorSessionID() != impulse.NullUUIDFromUUID(aliceSession) {
+				t.Errorf("Request() actor %q of %q from session %v, want alice, of this application, from the session the call arrived on", req.Actor(), req.ActorRealm(), req.ActorSessionID())
 			}
 		})
 	}
 }
 
-// TestImpersonations_Request_actorFromSession pins that a request made on a validated
-// session names that session's user as the actor and the session as the actor's own.
-func TestImpersonations_Request_actorFromSession(t *testing.T) {
+// TestImpersonations_Request_needsASignedInSession pins that Request reads the actor off
+// the validated session the call arrives on and nowhere else: a call that carries none
+// is refused before anything is asked, as a mistake in the program (no client
+// message), with the way a server-side caller names its actor.
+func TestImpersonations_Request_needsASignedInSession(t *testing.T) {
 	t.Parallel()
 
-	sessionID := impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))
-	ctx := context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
-		SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "alice"},
-	})
+	contexts := map[string]context.Context{
+		"no session":                      context.Background(),
+		"a session value with no session": context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{}),
+	}
+	for name, ctx := range contexts {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	req, err := declaredImpersonations(t).Request(ctx, &ImpersonationAsk{Kind: "view", Principal: "bob"}, func(context.Context, accesstypes.Resource) (bool, error) {
+			asked := false
+			req, err := declaredImpersonations(t).Request(ctx, &ImpersonationAsk{Kind: "view", Principal: "bob"}, func(context.Context, accesstypes.Resource) (bool, error) {
+				asked = true
+
+				return true, nil
+			})
+			if req != nil || err == nil {
+				t.Fatalf("Request() = %+v, %v, want no request and a refusal", req, err)
+			}
+			if clientStatus(err) != 0 {
+				t.Errorf("Request() error = %v, want a plain error: the route is mounted wrong, which no person can put right", err)
+			}
+			for _, want := range []string{"reads the actor off the signed-in session the call arrives on, and this call carries none", "mount the route behind ValidateSession", "RequestFor"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Request() error = %q, want it to carry %q", err, want)
+				}
+			}
+			if asked {
+				t.Error("the grant was asked about for a call that names no actor")
+			}
+		})
+	}
+}
+
+// TestImpersonations_RequestFor pins the server-side caller's way to a request: the
+// actor is named by the call, an actor another system signed in with that system and a
+// person of this application with their own session; the caller's own check answers for
+// the kind's grant; and the kind's mask, its narrowing and its refusals are Request's.
+func TestImpersonations_RequestFor(t *testing.T) {
+	t.Parallel()
+
+	theirSession := impulse.NullUUIDFromUUID(impulse.Must(impulse.UUIDFromString("5a4dbc1e-0e0b-4b6c-9d43-6a4f0f8f1f11")))
+	// The calling system is the one the handler authenticated: here it may view and
+	// act, and may not start a session that acts as a role.
+	portalMay := func(_ context.Context, grant accesstypes.Resource) (bool, error) {
+		return grant == "ViewAsUser" || grant == "ActAsUser", nil
+	}
+
+	tests := []struct {
+		name        string
+		actor       ImpersonationActor
+		ask         ImpersonationAsk
+		wantMask    accesstypes.PermissionMask
+		wantStatus  int
+		wantMessage string
+	}{
+		{
+			name:     "an actor another system signed in: recorded under that system, with the kind's mask",
+			actor:    ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"},
+			ask:      ImpersonationAsk{Kind: "view", Principal: "bob"},
+			wantMask: readOnlyMask,
+		},
+		{
+			name:     "their session in the other system rides along",
+			actor:    ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal", SessionID: theirSession},
+			ask:      ImpersonationAsk{Kind: "act", Principal: "bob", Mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Launch"))},
+			wantMask: exceptCredentialMask.Refusing(accesstypes.RefuseAction("Launch")),
+		},
+		{
+			name:     "a person of this application, named with their own session",
+			actor:    ImpersonationActor{Name: "alice", SessionID: theirSession},
+			ask:      ImpersonationAsk{Kind: "view", Principal: "bob"},
+			wantMask: readOnlyMask,
+		},
+		{
+			name:        "no actor named",
+			actor:       ImpersonationActor{Realm: "admin-portal"},
+			ask:         ImpersonationAsk{Kind: "view", Principal: "bob"},
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "an impersonated session acts on behalf of someone: name the actor (ImpersonationActor.Name)",
+		},
+		{
+			name:        "the calling system's own check refuses the kind",
+			actor:       ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"},
+			ask:         ImpersonationAsk{Kind: "role", Principal: "Dispatcher"},
+			wantStatus:  http.StatusForbidden,
+			wantMessage: `this caller may not start a session of the kind "role": the application's check of the kind's grant, AssumeRole, refused it`,
+		},
+		{
+			name:        "more than the kind gives is refused for a server-side caller too",
+			actor:       ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"},
+			ask:         ImpersonationAsk{Kind: "view", Principal: "bob", Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Execute)},
+			wantStatus:  http.StatusForbidden,
+			wantMessage: `the kind "view" gives reading only, and the request asks for Execute as well: ask for no more than the kind gives, or name no mask to take all of it`,
+		},
+		{
+			name:        "a kind the application does not offer",
+			actor:       ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"},
+			ask:         ImpersonationAsk{Kind: "everything", Principal: "bob"},
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: `"everything" is not a kind of impersonation this application offers: it offers view, act, role`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := declaredImpersonations(t).RequestFor(context.Background(), tt.actor, &tt.ask, portalMay)
+			if tt.wantStatus != 0 {
+				if req != nil {
+					t.Errorf("RequestFor() answered a request to establish beside its refusal: %+v", req)
+				}
+				if got := clientStatus(err); got != tt.wantStatus {
+					t.Fatalf("RequestFor() error = %v (status %d), want status %d", err, got, tt.wantStatus)
+				}
+				if msg := httpio.Message(err); msg != tt.wantMessage {
+					t.Errorf("RequestFor() message = %q, want %q", msg, tt.wantMessage)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("RequestFor() error = %v", err)
+			}
+			if req.Actor() != tt.actor.Name || req.ActorRealm() != tt.actor.Realm || req.ActorSessionID() != tt.actor.SessionID {
+				t.Errorf("RequestFor() actor %q of %q from session %v, want the actor as the call named them: %+v", req.Actor(), req.ActorRealm(), req.ActorSessionID(), tt.actor)
+			}
+			if !req.Mask().Equal(tt.wantMask) {
+				t.Errorf("RequestFor().Mask() = %q, want %q", req.Mask().Text(), tt.wantMask.Text())
+			}
+			if req.Kind() != tt.ask.Kind || req.Principal() != accesstypes.UserPrincipal(accesstypes.User(tt.ask.Principal)) {
+				t.Errorf("RequestFor() kind %q, principal %v, want the ask's", req.Kind(), req.Principal())
+			}
+		})
+	}
+}
+
+// TestImpersonations_RequestFor_mistakesInTheProgram pins the two calls RequestFor
+// answers with a plain error, before the grant is asked about: one that arrives on a
+// signed-in session of this application, whose user is the actor and may name no other,
+// and one whose actor has neither a system that signed them in nor a session here.
+func TestImpersonations_RequestFor_mistakesInTheProgram(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		ctx   context.Context
+		actor ImpersonationActor
+		want  []string
+	}{
+		{
+			name:  "a call that carries a signed-in session names another actor",
+			ctx:   aliceSignedIn(),
+			actor: ImpersonationActor{Name: "root@example.com", Realm: "admin-portal"},
+			want:  []string{"this call carries a signed-in session", "its user is the actor, so make the request with Request"},
+		},
+		{
+			name:  "a call that carries a signed-in session names a person of this application by another session",
+			ctx:   aliceSignedIn(),
+			actor: ImpersonationActor{Name: "carol", SessionID: impulse.NullUUIDFromUUID(impulse.Must(impulse.UUIDFromString("5a4dbc1e-0e0b-4b6c-9d43-6a4f0f8f1f11")))},
+			want:  []string{"this call carries a signed-in session", "its user is the actor, so make the request with Request"},
+		},
+		{
+			name:  "an actor with no system that signed them in and no session here",
+			ctx:   context.Background(),
+			actor: ImpersonationActor{Name: "alice"},
+			want:  []string{`the actor "alice" is named with no Realm and no SessionID`, "ImpersonationActor.Realm", "ImpersonationActor.SessionID"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			asked := false
+			req, err := declaredImpersonations(t).RequestFor(tt.ctx, tt.actor, &ImpersonationAsk{Kind: "view", Principal: "bob"}, func(context.Context, accesstypes.Resource) (bool, error) {
+				asked = true
+
+				return true, nil
+			})
+			if req != nil || err == nil || clientStatus(err) != 0 {
+				t.Fatalf("RequestFor() = %+v, %v, want no request and a plain error", req, err)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("RequestFor() error = %q, want it to carry %q", err, want)
+				}
+			}
+			if asked {
+				t.Error("the grant was asked about for a call that is a mistake in the program")
+			}
+		})
+	}
+}
+
+// TestImpersonations_Request_refusesAnImpersonatedSession pins that an impersonated
+// session is made no request: the refusal is the one starting a session gives, and the
+// grant is not asked about under the impersonated person's permissions.
+func TestImpersonations_Request_refusesAnImpersonatedSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo:   &sessioninfo.SessionInfo{ID: aliceSession, Username: "bob"},
+		Impersonation: &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
+	})
+	asked := false
+	req, err := declaredImpersonations(t).Request(ctx, &ImpersonationAsk{Kind: "view", Principal: "carol"}, func(context.Context, accesstypes.Resource) (bool, error) {
+		asked = true
+
 		return true, nil
 	})
-	if err != nil {
-		t.Fatalf("Request() error = %v", err)
+	if req != nil || clientStatus(err) != http.StatusForbidden || httpio.Message(err) != "an impersonated session cannot establish another impersonated session" {
+		t.Errorf("Request() from an impersonated session = %+v, %v, want no request and 403 saying an impersonated session cannot establish another", req, err)
 	}
-	if req.Actor != "alice" || !req.SourceSessionID.Valid || req.SourceSessionID.UUID != sessionID {
-		t.Errorf("Request() actor %q, source session %v, want alice and the session the request arrived on", req.Actor, req.SourceSessionID)
+	if asked {
+		t.Error("the grant was asked about under the impersonated person's permissions")
+	}
+}
+
+// TestImpersonations_noDeclaration pins that a request asked of no declaration is
+// refused with a sentence, where a nil declaration would otherwise have panicked.
+func TestImpersonations_noDeclaration(t *testing.T) {
+	t.Parallel()
+
+	var none *Impersonations
+	holds := func(context.Context, accesstypes.Resource) (bool, error) {
+		return true, nil
+	}
+	want := "the application declares no impersonation"
+
+	req, err := none.Request(aliceSignedIn(), &ImpersonationAsk{Kind: "view", Principal: "bob"}, holds)
+	if req != nil || err == nil || !strings.Contains(err.Error(), want) || clientStatus(err) != 0 {
+		t.Errorf("Request() of no declaration = %+v, %v, want no request and a plain error carrying %q", req, err, want)
+	}
+	req, err = none.RequestFor(context.Background(), ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"}, &ImpersonationAsk{Kind: "view", Principal: "bob"}, holds)
+	if req != nil || err == nil || !strings.Contains(err.Error(), want) || clientStatus(err) != 0 {
+		t.Errorf("RequestFor() of no declaration = %+v, %v, want no request and a plain error carrying %q", req, err, want)
+	}
+}
+
+// TestNamedActions pins what a declaration is held to in an application with no
+// generated collection: the names given are its actions, so a kind's grant and a
+// refusal by name must be one of them; none carries a class, so a mask that refuses a
+// class is refused; and a mask of permission kinds is taken as it is.
+func TestNamedActions(t *testing.T) {
+	t.Parallel()
+
+	actions := NamedActions("ViewAsUser", "ActAsUser", "Launch")
+
+	tests := []struct {
+		name    string
+		kinds   []ImpersonationKind
+		wantErr string
+	}{
+		{
+			name: "kinds of permission kinds, and a named action refused",
+			kinds: []ImpersonationKind{
+				ImpersonatesUser("view", "ViewAsUser", readOnlyMask),
+				ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Launch"))),
+			},
+		},
+		{
+			name:    "a grant that was not named",
+			kinds:   []ImpersonationKind{ImpersonatesRole("role", "AssumeRole", accesstypes.AllowAll())},
+			wantErr: `the kind "role" is allowed by the grant "AssumeRole", which is no action of the application`,
+		},
+		{
+			name:    "a mask that refuses a class: no named action carries one",
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", exceptCredentialMask)},
+			wantErr: `the widest mask of the kind "act" refuses the class "credential", which no action of the application carries (the classes in use: none)`,
+		},
+		{
+			name:    "a mask that refuses an action that was not named",
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Scuttle")))},
+			wantErr: `the widest mask of the kind "act" refuses Execute on "Scuttle", and the application registers no Execute on a resource of that name`,
+		},
+		{
+			name:    "a mask that refuses a record's writes: the application has no records",
+			kinds:   []ImpersonationKind{ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll().Refusing(accesstypes.RefuseWrites("Ships")...))},
+			wantErr: `the widest mask of the kind "act" refuses Create on "Ships", and the application registers no Create on a resource of that name`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewImpersonations(actions, tt.kinds...)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("NewImpersonations() error = %v", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("NewImpersonations() error = %v, want it to carry %q", err, tt.wantErr)
+			}
+		})
+	}
+
+	// The list is the declaration's own: naming more actions afterwards changes nothing.
+	names := []accesstypes.Resource{"ViewAsUser"}
+	held := NamedActions(names...)
+	names[0] = "Renamed"
+	if !held.HasPermission(accesstypes.GlobalPermissionScope, accesstypes.Execute, "ViewAsUser") || held.HasPermission(accesstypes.GlobalPermissionScope, accesstypes.Execute, "Renamed") {
+		t.Error("NamedActions() follows the caller's slice, want its own copy of the names")
+	}
+	if held.HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, "ViewAsUser") || held.HasPermission(accesstypes.GlobalPermissionScope, accesstypes.Read, "ViewAsUser") {
+		t.Error("NamedActions() answers for a tenant's scope or for a record's permission, want Execute in the one scope alone")
+	}
+}
+
+// TestImpersonations_Request_needsAGrantCheck pins that no request is made without a
+// check of the kind's grant: a nil check is refused, on a signed-in call and on a
+// server-side one, where it would otherwise have been a session nobody was asked about.
+func TestImpersonations_Request_needsAGrantCheck(t *testing.T) {
+	t.Parallel()
+
+	declared := declaredImpersonations(t)
+	want := "a request to impersonate is made against a check of the kind's grant, and none was passed"
+
+	req, err := declared.Request(aliceSignedIn(), &ImpersonationAsk{Kind: "view", Principal: "bob"}, nil)
+	if req != nil || err == nil || !strings.Contains(err.Error(), want) || clientStatus(err) != 0 {
+		t.Errorf("Request() with no check = %+v, %v, want no request and a plain error carrying %q", req, err, want)
+	}
+	req, err = declared.RequestFor(context.Background(), ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"}, &ImpersonationAsk{Kind: "view", Principal: "bob"}, nil)
+	if req != nil || err == nil || !strings.Contains(err.Error(), want) || clientStatus(err) != 0 {
+		t.Errorf("RequestFor() with no check = %+v, %v, want no request and a plain error carrying %q", req, err, want)
 	}
 }
 
@@ -502,7 +830,7 @@ func TestImpersonations_Request_grantCheckError(t *testing.T) {
 	t.Parallel()
 
 	boom := errors.New("snapshot unavailable")
-	req, err := declaredImpersonations(t).Request(context.Background(), &ImpersonationAsk{Kind: "view", Principal: "bob"}, func(context.Context, accesstypes.Resource) (bool, error) {
+	req, err := declaredImpersonations(t).Request(aliceSignedIn(), &ImpersonationAsk{Kind: "view", Principal: "bob"}, func(context.Context, accesstypes.Resource) (bool, error) {
 		return true, boom
 	})
 	if req != nil || !errors.Is(err, boom) {
@@ -521,14 +849,14 @@ func TestImpersonations_Request_ceilingIsNotChanged(t *testing.T) {
 		return true, nil
 	}
 
-	if _, err := declared.Request(context.Background(), &ImpersonationAsk{Kind: "act", Principal: "bob", Mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Launch"))}, holds); err != nil {
+	if _, err := declared.Request(aliceSignedIn(), &ImpersonationAsk{Kind: "act", Principal: "bob", Mask: accesstypes.AllowAll().Refusing(accesstypes.RefuseAction("Launch"))}, holds); err != nil {
 		t.Fatalf("Request() error = %v", err)
 	}
-	next, err := declared.Request(context.Background(), &ImpersonationAsk{Kind: "act", Principal: "carol"}, holds)
+	next, err := declared.Request(aliceSignedIn(), &ImpersonationAsk{Kind: "act", Principal: "carol"}, holds)
 	if err != nil {
 		t.Fatalf("Request() error = %v", err)
 	}
-	if !next.Mask.Equal(exceptCredentialMask) {
-		t.Errorf("the next request's mask = %q, want the kind's own %q", next.Mask.Text(), exceptCredentialMask.Text())
+	if !next.Mask().Equal(exceptCredentialMask) {
+		t.Errorf("the next request's mask = %q, want the kind's own %q", next.Mask().Text(), exceptCredentialMask.Text())
 	}
 }

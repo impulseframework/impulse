@@ -102,10 +102,13 @@ type impersonateResponse struct {
 // Impersonate mints an impersonated session on behalf of the authenticated actor, of one
 // of the kinds the console declares (impersonationKinds): a session that views as
 // another person, one that acts as another person, or one that acts as a role. The
-// declaration does the deciding (session.Impersonations.Request): it asks whether the
-// actor holds the kind's grant, checked here in the global scope, and computes the
-// session's mask, the kind's widest when the body names none and the narrower one when
-// it names one. A request for more than the kind gives is refused with nothing started.
+// declaration does the deciding, and is the only way to the request a session starts
+// from (session.Impersonations.Request): a request written out by hand does not
+// compile. It reads the actor off the validated session the call arrives on, asks
+// whether the actor holds the kind's grant, checked here in the global scope, and
+// computes the session's mask, the kind's widest when the body names none and the
+// narrower one when it names one. A request for more than the kind gives is refused
+// with nothing started.
 // The library refuses chaining (an impersonated session cannot mint another) and writes
 // the record atomically with the session, the actor by username and by the id of their
 // account, which it reads from the actor's own session. The response cookie replaces the
@@ -138,6 +141,6 @@ func (a *App) Impersonate() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "session.AuthAPI.StartImpersonatedSession()"))
 		}
 
-		return httpio.NewEncoder(w).Ok(impersonateResponse{SessionID: id, Mask: req.Mask.Words()})
+		return httpio.NewEncoder(w).Ok(impersonateResponse{SessionID: id, Mask: req.Mask().Words()})
 	})
 }

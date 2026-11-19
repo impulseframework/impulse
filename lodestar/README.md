@@ -1061,7 +1061,9 @@ Impersonation is granted with a mask: to let someone impersonate a person with n
 is to give them what that person holds, and the mask is the control. The console
 declares three kinds (`app/impersonate.go`, `session.NewImpersonations`), each with the
 grant that allows it and the widest mask that grant gives, and the role file gives each
-grant on purpose:
+grant on purpose. The declaration is the only way to start an impersonated session: the
+mint route takes its request from it (`Impersonations.Request`), and a request written
+out by hand does not compile:
 
 | Kind | Grant | Role | The widest mask |
 | --- | --- | --- | --- |

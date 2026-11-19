@@ -231,6 +231,7 @@ func withCustomData[Tx any](t *testing.T, store *sessionstorage.Auth[Tx], h *hoo
 // /session-data that reports its custom data.
 func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserData, Tx], routes func(r chi.Router)) {
 	api := auth.API()
+	impersonations := declaredForAnyone()
 
 	r.Use(auth.StartSession, auth.SetXSRFToken)
 	r.Get("/authenticated", auth.Authenticated())
@@ -302,11 +303,15 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 
 					return
 				}
-				_, err = api.StartImpersonatedSession(r.Context(), w, &session.ImpersonationRequest{
-					Actor:           sessioninfo.FromCtx(r.Context()).Username,
-					SourceSessionID: impulse.NullUUIDFromUUID(sessioninfo.IDFromRequest(r)),
-					Principal:       accesstypes.UserPrincipal(accesstypes.User(user.ID.String())),
-				})
+				// The declaration makes the request: the actor is the validated session's
+				// user, acting from that session.
+				req, err := impersonations.Request(r.Context(), &session.ImpersonationAsk{Kind: kindFull, Principal: user.ID.String()}, anyoneMay)
+				if err != nil {
+					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+					return
+				}
+				_, err = api.StartImpersonatedSession(r.Context(), w, req)
 				if err != nil {
 					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 
@@ -1284,8 +1289,87 @@ func seamDisabledAndImpersonation[Tx any](ctx context.Context, t *testing.T, a *
 		t.Errorf("impersonation = actor %q (%s) as %s, want pat@lakeside.edu (%s) as the user %s", imp.Actor, imp.ActorUser(), imp.Principal, pat, bob)
 	}
 
+	serverSideImpersonation(ctx, t, a, tab.sessionID(ctx), pat, bob)
+
 	a.db.disableUser(ctx, t, pat)
 	tab.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+}
+
+// serverSideImpersonation is the server-side caller's way to an impersonated session, on
+// an Auth over the real store: a call that arrives on no session of the application
+// names its actor (session.Impersonations.RequestFor) and answers for the kind's grant
+// with a check of its own. An actor another system signed in views as bob: the session
+// is bob's, under the kind's mask, and the record names the actor with the system that
+// signed them in. A person of this application is named with their own live session,
+// which the library verifies: pat's session vouches for pat, and for nobody else.
+func serverSideImpersonation[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], patsSession string, pat, bob impulse.UUID) {
+	t.Helper()
+
+	declared := declaredForAnyone()
+	// The calling system may start a session that views, and no other.
+	portalMay := func(_ context.Context, grant accesstypes.Resource) (bool, error) {
+		return grant == grantView, nil
+	}
+	recordOf := func(id impulse.UUID) *sessioninfo.Impersonation {
+		t.Helper()
+		imps, err := a.api.ActiveImpersonations(ctx, nil)
+		if err != nil {
+			t.Fatalf("ActiveImpersonations() error = %v", err)
+		}
+		for _, imp := range imps {
+			if imp.SessionID == id {
+				return imp
+			}
+		}
+		t.Fatalf("ActiveImpersonations() = %v, want the session %s among them", imps, id)
+
+		return nil
+	}
+
+	foreign := session.ImpersonationActor{Name: "ops@example.com", Realm: "admin-portal"}
+	if req, err := declared.RequestFor(ctx, foreign, &session.ImpersonationAsk{Kind: kindFull, Principal: bob.String()}, portalMay); req != nil || !httpio.HasForbidden(err) {
+		t.Errorf("RequestFor() for a kind the calling system may not start = %v, %v, want no request and 403", req, err)
+	}
+	req, err := declared.RequestFor(ctx, foreign, &session.ImpersonationAsk{Kind: kindView, Principal: bob.String(), Reason: "ticket 12"}, portalMay)
+	if err != nil {
+		t.Fatalf("RequestFor() error = %v", err)
+	}
+	id, err := a.api.StartImpersonatedSession(ctx, httptest.NewRecorder(), req)
+	if err != nil {
+		t.Fatalf("StartImpersonatedSession() from a server-side caller's request error = %v", err)
+	}
+	if imp := recordOf(id); imp.Actor != "ops@example.com" || imp.ActorRealm != "admin-portal" || imp.ActorID.Valid ||
+		imp.Principal != accesstypes.UserPrincipal(accesstypes.User(bob.String())) || imp.Mask.Text() != "List,Read" || imp.Reason != "ticket 12" {
+		t.Errorf("the record of a session a server-side caller started = %+v, want the actor ops@example.com of admin-portal, who holds no account here, as bob, reading only", imp)
+	}
+
+	// A person of this application, named with their own live session.
+	patsID, err := impulse.UUIDFromString(patsSession)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString(%q) error = %v", patsSession, err)
+	}
+	own := session.ImpersonationActor{Name: "pat@lakeside.edu", SessionID: impulse.NullUUIDFromUUID(patsID)}
+	req, err = declared.RequestFor(ctx, own, &session.ImpersonationAsk{Kind: kindView, Principal: bob.String()}, portalMay)
+	if err != nil {
+		t.Fatalf("RequestFor() for a person of this application error = %v", err)
+	}
+	id, err = a.api.StartImpersonatedSession(ctx, httptest.NewRecorder(), req)
+	if err != nil {
+		t.Fatalf("StartImpersonatedSession() for a person named with their own session error = %v", err)
+	}
+	if imp := recordOf(id); imp.Actor != "pat@lakeside.edu" || imp.ActorRealm != "" || imp.ActorUser() != accesstypes.User(pat.String()) || imp.Mask.Text() != "List,Read" {
+		t.Errorf("the record of a session started for a person named with their own session = %+v, want pat, of this application, by the id of her account, reading only", imp)
+	}
+	// Pat's session vouches for pat alone: the same session named for someone else
+	// starts nothing.
+	other := session.ImpersonationActor{Name: "bob@lakeside.edu", SessionID: impulse.NullUUIDFromUUID(patsID)}
+	req, err = declared.RequestFor(ctx, other, &session.ImpersonationAsk{Kind: kindView, Principal: pat.String()}, portalMay)
+	if err != nil {
+		t.Fatalf("RequestFor() error = %v", err)
+	}
+	if _, err := a.api.StartImpersonatedSession(ctx, httptest.NewRecorder(), req); !httpio.HasForbidden(err) {
+		t.Errorf("StartImpersonatedSession() for bob named with pat's session error = %v, want 403: a session vouches for its own user", err)
+	}
 }
 
 // seamWorkOSCrossConnectionLink: sam signs in through Lakeside and is provisioned

@@ -90,9 +90,10 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 // this application to that session. The request's own session is proof of who is at
 // the keyboard, so the actor must be its user, and a local actor's SourceSessionID
 // must be it (and defaults to it when omitted). A claim to a foreign realm is refused:
-// an actor logged in here is local. Without a validated session in ctx (a
-// server-to-server handoff) the request's claims stand as given, for verifyLocalActor
-// and the application's guard to check.
+// an actor logged in here is local. Without a validated session in ctx (a server-side
+// caller, which names the actor through session.Impersonations.RequestFor) the
+// request's claims stand as given, for verifyLocalActor and the caller's own check of
+// the kind's grant to hold.
 //
 // Without this, an actor who learned another user's session ID — it appears in logs,
 // spans and ActiveImpersonations — could mint a session as that user by naming them.
@@ -103,7 +104,10 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 	}
 
 	if imp.ActorRealm != "" {
-		return httpio.NewForbiddenMessage("the request carries a session of this application, so the actor is local: leave ActorRealm empty")
+		return httpio.NewForbiddenMessage(
+			"the request carries a session of this application, so the actor is that session's user: " +
+				"an actor another system signed in is named only by a call that carries no session here",
+		)
 	}
 	if imp.Actor != sessData.Username {
 		return httpio.NewForbiddenMessagef("actor %q is not the user of the session making the request", imp.Actor)
@@ -114,7 +118,7 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 		return nil
 	}
 	if imp.SourceSessionID.UUID != sessData.ID {
-		return httpio.NewForbiddenMessage("SourceSessionID is not the session making the request")
+		return httpio.NewForbiddenMessage("the session named as the actor's own is not the session making the request")
 	}
 
 	return nil
@@ -132,7 +136,7 @@ func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Imp
 		return nil
 	}
 	if !imp.SourceSessionID.Valid {
-		return httpio.NewBadRequestMessage("a local actor must name their own session as SourceSessionID; an actor authenticated by another application sets ActorRealm")
+		return httpio.NewBadRequestMessage("a person of this application acts from their own session, and the call names none: name it, or, for an actor another system signed in, name that system")
 	}
 
 	src, err := s.Storage.Session(ctx, imp.SourceSessionID.UUID)

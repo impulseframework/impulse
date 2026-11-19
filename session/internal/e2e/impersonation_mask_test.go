@@ -125,9 +125,20 @@ type maskAsk struct {
 // maskListed is one live impersonated session as the mask scenarios' list answers it:
 // the mask as the record keeps it and as a person would say it.
 type maskListed struct {
-	SessionID string `json:"sessionId"`
-	Mask      string `json:"mask"`
-	Words     string `json:"words"`
+	SessionID  string `json:"sessionId"`
+	Actor      string `json:"actor"`
+	ActorRealm string `json:"actorRealm"`
+	Mask       string `json:"mask"`
+	Words      string `json:"words"`
+}
+
+// maskHandOff is the body of the mask scenarios' POST /handoff: the server-side
+// caller's way in. The calling system names itself and the person it signed in, then
+// asks as a person does.
+type maskHandOff struct {
+	System string `json:"system"`
+	Actor  string `json:"actor"`
+	maskAsk
 }
 
 // capturedLog collects what the application logs through the standard logger while a
@@ -165,7 +176,9 @@ func (c *capturedLog) take() string {
 // the session permissions' masked check behind every action. On PostgreSQL and on
 // Spanner alike, the record keeps the mask with its refusals in its one Mask column,
 // the session reads it back and is refused what it refuses with the denial logged as
-// the mask's, and a request for more than the grant gives starts nothing.
+// the mask's, and a request for more than the grant gives starts nothing. A server-side
+// caller, which names an actor another system signed in, goes through the same
+// declaration with a check of its own, and its session is held to the kind's mask.
 //
 // The test runs on its own, never in parallel: the application logs through the
 // standard logger, which the test redirects to read each denial.
@@ -288,6 +301,42 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 		w.WriteHeader(http.StatusNoContent)
 	})
 	r.Get("/authenticated", auth.Authenticated())
+	// The server-side caller's way in: another system signed the actor in and hands
+	// them over. The route sits outside ValidateSession, since the call arrives on no
+	// session of this application, and the application's own check answers for the
+	// kind's grant: which kinds the calling system may start. A real application
+	// authenticates that system; the scenarios take its name from the body.
+	systems := map[string][]accesstypes.Resource{
+		"admin-portal": {grantView},
+	}
+	r.Post("/handoff", func(w http.ResponseWriter, r *http.Request) {
+		var body maskHandOff
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+
+			return
+		}
+		systemMay := func(_ context.Context, grant accesstypes.Resource) (bool, error) {
+			return slices.Contains(systems[body.System], grant), nil
+		}
+		req, err := impersonations.RequestFor(r.Context(),
+			session.ImpersonationActor{Name: body.Actor, Realm: body.System},
+			&session.ImpersonationAsk{Kind: body.Kind, Principal: body.Principal, Mask: accesstypes.MaskPermissions(accesstypes.AllowAll(), body.Mask...)},
+			systemMay,
+		)
+		if err != nil {
+			_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+			return
+		}
+		id, err := api.StartImpersonatedSession(r.Context(), w, req)
+		if err != nil {
+			_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+			return
+		}
+		_ = httpio.NewEncoder(w).Ok(map[string]string{"sessionId": id.String(), "mask": req.Mask().Words()})
+	})
 	r.Group(func(r chi.Router) {
 		r.Use(auth.ValidateSession, auth.ValidateXSRFToken)
 
@@ -321,7 +370,7 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 
 				return
 			}
-			_ = httpio.NewEncoder(w).Ok(map[string]string{"sessionId": id.String(), "mask": req.Mask.Words()})
+			_ = httpio.NewEncoder(w).Ok(map[string]string{"sessionId": id.String(), "mask": req.Mask().Words()})
 		})
 		r.Get("/impersonations", func(w http.ResponseWriter, r *http.Request) {
 			imps, err := api.ActiveImpersonations(r.Context(), nil)
@@ -332,7 +381,7 @@ func newMaskApp[Tx any](t *testing.T, store *sessionstorage.Preauth[Tx]) *httpte
 			}
 			listed := make([]maskListed, 0, len(imps))
 			for _, imp := range imps {
-				listed = append(listed, maskListed{SessionID: imp.SessionID.String(), Mask: imp.Mask.String(), Words: imp.Mask.Words()})
+				listed = append(listed, maskListed{SessionID: imp.SessionID.String(), Actor: imp.Actor, ActorRealm: imp.ActorRealm, Mask: imp.Mask.String(), Words: imp.Mask.Words()})
 			}
 			_ = httpio.NewEncoder(w).Ok(listed)
 		})
@@ -536,6 +585,56 @@ func runImpersonationMask[Tx any](ctx context.Context, t *testing.T, store *sess
 		if got := logged.take(); strings.Contains(got, "denied by mask") {
 			t.Errorf("%s: an action the mask keeps logged a mask denial:\n%s", tt.name, got)
 		}
+	}
+
+	// A server-side caller: the administration application signed alice in and hands
+	// her over to view as bob. The portal's declaration gives the kind's mask as it does
+	// for a person signed in here, its own check answers for the calling system, and the
+	// record names the actor with the system that signed her in. A hand-off the system
+	// may not make, one that asks for more than the kind gives, and one that names no
+	// actor start nothing.
+	handOffs := []struct {
+		name       string
+		body       maskHandOff
+		wantStatus int
+		says       string
+	}{
+		{name: "a kind the calling system may not start", body: maskHandOff{System: "admin-portal", Actor: "alice@example.com", maskAsk: maskAsk{Kind: "act", Principal: "bob"}}, wantStatus: http.StatusForbidden, says: "the application's check of the kind's grant, ActAsUser, refused it"},
+		{name: "a system the portal does not know", body: maskHandOff{System: "nobody", Actor: "alice@example.com", maskAsk: maskAsk{Kind: "view", Principal: "bob"}}, wantStatus: http.StatusForbidden, says: "the application's check of the kind's grant, ViewAsUser, refused it"},
+		{name: "more than the kind gives", body: maskHandOff{System: "admin-portal", Actor: "alice@example.com", maskAsk: maskAsk{Kind: "view", Principal: "bob", Mask: []accesstypes.Permission{accesstypes.List, accesstypes.Read, accesstypes.Execute}}}, wantStatus: http.StatusForbidden, says: "gives reading only, and the request asks for Execute as well"},
+		{name: "no actor named", body: maskHandOff{System: "admin-portal", maskAsk: maskAsk{Kind: "view", Principal: "bob"}}, wantStatus: http.StatusBadRequest, says: "name the actor"},
+	}
+	portal := newBrowser(t, server)
+	for i := range handOffs {
+		tt := &handOffs[i]
+		status, body := portal.do(ctx, http.MethodPost, "/handoff", tt.body)
+		if status != tt.wantStatus || !strings.Contains(string(body), tt.says) {
+			t.Errorf("a hand-off with %s: status %d, want %d saying %q: %s", tt.name, status, tt.wantStatus, tt.says, body)
+		}
+		if authenticated, _, _ := portal.whoami(ctx); authenticated {
+			t.Errorf("a hand-off with %s left a session behind: a refused request starts nothing", tt.name)
+		}
+	}
+	var handed struct {
+		SessionID string `json:"sessionId"`
+		Mask      string `json:"mask"`
+	}
+	if err := json.Unmarshal(portal.expect(ctx, http.StatusOK, http.MethodPost, "/handoff", maskHandOff{System: "admin-portal", Actor: "alice@example.com", maskAsk: maskAsk{Kind: "view", Principal: "bob"}}), &handed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := column(handed.SessionID); got == nil || *got != "List,Read" || handed.Mask != "reading only" {
+		t.Errorf("the handed-over session: the record's Mask column = %v, in words %q; want the kind's own, List,Read and reading only", deref(got), handed.Mask)
+	}
+	if _, username, impersonated := portal.whoami(ctx); username != "bob" || !impersonated {
+		t.Errorf("the handed-over session is %q, impersonated %t; want bob's, impersonated", username, impersonated)
+	}
+	if got := listed(portal)[handed.SessionID]; got.Actor != "alice@example.com" || got.ActorRealm != "admin-portal" || got.Mask != "List,Read" {
+		t.Errorf("the handed-over session's record = %+v, want the actor alice@example.com of admin-portal under the mask List,Read", got)
+	}
+	logged.take()
+	portal.expect(ctx, http.StatusForbidden, http.MethodGet, "/check/"+string(wireFunds), nil)
+	if got, want := logged.take(), "Execute denied by mask (List,Read) for bob on [WireFunds]"; !strings.Contains(got, want) {
+		t.Errorf("the handed-over session's check of WireFunds logged %q, want it to carry %q: the kind's mask holds a session a server-side caller starts", got, want)
 	}
 
 	// A kind whose declaration gives everything keeps no mask: the column is NULL, and

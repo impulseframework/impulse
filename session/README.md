@@ -1224,8 +1224,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   whose asserted roles the application recognizes none of is refused (`no_roles`)
   before anything is resolved or written, so an invitation it carried stands; a role
   store that fails once the session stands expires the session.
-- **Impersonation** is established through `auth.API().StartImpersonatedSession` (see
-  "Impersonated sessions"). A user principal's session belongs to the impersonated
+- **Impersonation** is established through `auth.API().StartImpersonatedSession`, from
+  a request the application's declaration made (see "Impersonated sessions"). A user
+  principal's session belongs to the impersonated
   user; a role principal's belongs to none. The session records an `impersonation`
   event whose connection is the actor.
 - **A request on a machine outlet** is bound to the person whose bearer token it
@@ -3005,7 +3006,8 @@ An impersonated session operates as a principal other than the person who
 authenticated: as another **user** (support staff seeing the application exactly as
 that user does, usually read-only) or as a **role** (an administrator working under a
 role chosen for the session). Every session type supports both, `Auth` and `Preauth`,
-through the same `ImpersonationRequest` on each `API()`.
+through the same request on each `API()`, which only the application's declaration of
+the impersonation it offers makes.
 
 The model rests on two identities that are never conflated:
 
@@ -3052,57 +3054,101 @@ impersonation APIs return a configuration error.
 
 ### Establishing a session
 
-The establishing call runs in the *target* application's session API, typically from a
-server-to-server handoff (an admin application minting a session in a partner portal):
+An impersonated session starts from a request, and **the declaration is the only way
+to make one**. An application declares the kinds of impersonation it offers, each with
+the grant that allows it and the widest mask that grant gives (the next section), and
+the declaration turns what is asked into the request: `Request` for a person signed in
+here, `RequestFor` for a server-side caller. `ImpersonationRequest` has no field an
+application can set, so a request written out by hand does not compile, and the zero
+value, which no declaration made, is refused when a session is started from it. So
+the session API starts no session that no declared kind allows, and none without a
+mask somebody chose: a kind that gives everything the person holds says so where the
+application is read, with `accesstypes.AllowAll()`. (The storage beneath the session
+API is not that API. The store's own `CreateImpersonatedSession` is the write the
+session library makes once it has decided, with no check of its own, as the store's
+`CreateSession` is; an application's handlers start sessions through the session API.)
 
 ```go
-// Support views bob's portal, read-only, for an hour at most. A user principal names
-// the person as the permission store does, by the id of their account.
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:      "alice@example.com",
-    ActorRealm: "admin-portal",
-    Principal:  accesstypes.UserPrincipal(accesstypes.User(bob.ID.String())),
-    Mask:       accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
-    Reason:     "ticket JRN-123",
-})
+// A person signed in here views bob's pages. The route is behind ValidateSession: the
+// actor is the validated session's user, acting from that session.
+req, err := impersonations.Request(ctx, &session.ImpersonationAsk{
+    Kind:      "view",
+    Principal: bob.ID.String(), // a person is named as the permission store names them: by the id of their account
+    Reason:    "ticket JRN-123",
+}, resource.HoldsAction(a.UserPermissions(r), accesstypes.GlobalScope()))
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err) // 400 or 403, a sentence the person can act on
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req)
 
-// An administrator of the admin application works the partner portal under a role.
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:      "alice@example.com",
-    ActorRealm: "admin-portal",
-    Principal:  accesstypes.RolePrincipal("PartnerViewer"),
-}, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
-
-// A user of this application acts under a narrower role for a while — their own
-// session, narrowed. The actor is local: no realm, and their own session as the source.
-// The call arrives on their validated session, so SourceSessionID may be omitted: it
-// defaults to that session, and Actor must be that session's user.
-info := sessioninfo.FromCtx(ctx)
-id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:     info.Username,
-    Principal: accesstypes.RolePrincipal("Auditor"),
-})
+// A server-side caller: the administration application signed alice in and hands her
+// over to this portal, to work under a role. The call arrives on no session of this
+// application, so it names the actor, and the portal's own check of the calling system
+// answers for the kind's grant.
+req, err := impersonations.RequestFor(ctx,
+    session.ImpersonationActor{Name: "alice@example.com", Realm: "admin-portal"},
+    &session.ImpersonationAsk{Kind: "partner", Principal: "PartnerViewer"},
+    func(ctx context.Context, grant accesstypes.Resource) (bool, error) {
+        return handOff.MayStart(ctx, grant) // which kinds the system this handler authenticated may start
+    })
+if err != nil {
+    return httpio.NewEncoder(w).ClientMessage(ctx, err)
+}
+id, err := auth.API().StartImpersonatedSession(ctx, w, req, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
 ```
+
+| The call | Makes the request with | The actor | The check of the kind's grant |
+| --- | --- | --- | --- |
+| Arrives on a person's validated session of this application | `Request` | That session's user, acting from that session. A call that carries no validated session is refused as a mistake in the program | Whether the person holds the grant: `resource.HoldsAction` over the request's permissions |
+| A server-side caller: a hand-off from the system that signed the actor in, or any call that arrives on no session here | `RequestFor`, with an `ImpersonationActor` | Named by the call. With a `Realm`, an actor another system signed in, recorded under the name given. With none, a person of this application, whose own live session the call names in `SessionID`. A call that does carry a validated session, and an actor with neither a `Realm` nor a `SessionID`, are refused as mistakes in the program | The caller's own: what the calling system, which the handler has authenticated, may start. A caller it refuses is answered 403, "this caller may not start a session of the kind…" |
+
+`AuthAPI.StartImpersonatedSession` and `PreauthAPI.StartImpersonatedSession` take the
+same request: a session type that keeps no accounts declares its kinds as any other
+does. A declaration is held to the application's actions, which the generated
+permission collection lists (`router.Collection()`). An application that has none, a
+session type used on its own, names the grants of its kinds itself:
+
+```go
+// A partner portal on Preauth, with no generated collection. Its kinds' grants are
+// names its own check answers for; no action carries a class, so its masks keep or
+// drop permission kinds.
+impersonations, err := session.NewImpersonations(session.NamedActions("ViewAsUser", "WorkAsPartner"),
+    session.ImpersonatesUser("view", "ViewAsUser",
+        accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+    session.ImpersonatesRole("partner", "WorkAsPartner", accesstypes.AllowAll()),
+)
+```
+
+What a request carries is read through its methods (`Kind`, `Actor`, `ActorRealm`,
+`ActorSessionID`, `Principal`, `Mask`, `Reason`, `MaxDuration`), so a route can answer
+the person with what their session may do (`req.Mask().Words()`). None hands out
+anything that can be written to, and a request is for the call that follows it: the
+grant was checked when it was made.
 
 The session row and the record are written in one transaction; the cookie is set only
 after the `Started` event has been delivered (a failing audit hook destroys the session
-and fails the call). Refused everywhere: a missing actor or principal, a caller that is
-itself an impersonated session (no chaining), and a local actor whose `SourceSessionID`
-is missing or is not their own live session here.
+and fails the call). Refused everywhere: a request no declaration made, a missing actor
+or principal, a caller that is itself an impersonated session (no chaining, refused
+when the request is asked for and again when a session starts), and a person of this
+application whose own session is not their live session here.
 
-When the call arrives on a validated session of this application (the context has passed
-`ValidateSession`), the request is bound to that session: `Actor` must be its user,
-`SourceSessionID` must be it (and defaults to it when omitted), and `ActorRealm` must be
-empty — an actor logged in here is local. The binding keeps a caller from minting a
-session as another user by naming them and one of their session IDs, which appear in
-logs, spans and `ActiveImpersonations`. A call with no session in its context (a
-server-to-server handoff) is taken at its word, so its handler must authenticate the
-caller. *Who may impersonate whom* is the application's guard — the library records what
-happened. The guard has a ready-made form, the declaration of the next section, and an
-application that offers impersonation to its own people uses it instead of writing the
-check and the mask by hand. `ImpersonationRequest.Mask` is the mask the session gets,
-taken as given: a call that builds the request itself, with no declaration, gives the
-session whatever mask it names, and the zero mask is no mask at all.
+A call that arrives on a validated session of this application (the context has passed
+`ValidateSession`) is bound to that session twice. The declaration names nobody but its
+user: `Request` reads the actor off it, and `RequestFor` refuses a call that carries
+one. And the library binds again as it establishes: the actor must be the session's
+user, acting from it, and never an actor of another system, since a person signed in
+here is local. The binding keeps a caller from minting a session as another user by
+naming them and one of their session IDs, which appear in logs, spans and
+`ActiveImpersonations`. A call with no session in its context (a server-side caller) is
+taken at its word about the actor, so its handler must authenticate the caller, and its
+check of the grant is where it says what that caller may start.
+
+*Who may start which kind* is what the declaration holds every request to: the kind's
+grant, asked of the application's check. *Whom* a person may impersonate under a kind
+(which people, which roles) is not something a kind says: the check is asked about the
+grant, never about the principal. An application that limits it makes that check
+itself, before it asks for the request or inside the check it passes, which it writes.
+The library records what happened.
 
 ### Impersonation is granted with a mask
 
@@ -3158,7 +3204,7 @@ refuses must be something to refuse:
 | A permission on `Record.field` | The field carries that permission itself (`perm` on the field), which is when a check asks about the field by name; any other field is refused with its record |
 
 A request names the kind and may name a narrower mask. `Request` turns it into the
-`ImpersonationRequest` the library establishes, or refuses it with nothing started:
+`ImpersonationRequest` a session starts from, or refuses it with nothing started:
 
 ```go
 req, err := impersonations.Request(ctx, &session.ImpersonationAsk{
@@ -3189,9 +3235,8 @@ Letting the person choose a narrower mask is a safety precaution, theirs to take
 not a permission: a support engineer who means only to look asks for reading only under
 a grant that would let them act. `Request` also refuses a kind the application does not
 offer (400), a request with no principal (400), and a person who does not hold the
-kind's grant (403). When the call arrives on a validated session it names that
-session's user as the actor and the session as the source; a server-to-server caller
-sets `Actor` and `ActorRealm` on the result.
+kind's grant (403). `RequestFor` does the same for a server-side caller, which names
+the actor and passes its own check ("Establishing a session").
 
 #### What a mask says
 
@@ -3282,13 +3327,14 @@ other (see "Every session").
 
 #### Local and foreign actors
 
-`ActorRealm` says where the actor was authenticated, and it decides what the actor's name
-means in this application's session table:
+The record's `ActorRealm` says where the actor was authenticated, and it decides what
+the actor's name means in this application's session table. It is empty for a request
+`Request` made, and `ImpersonationActor.Realm` for one `RequestFor` made:
 
 | | Local actor (`ActorRealm` empty) | Foreign actor (`ActorRealm` set) |
 | --- | --- | --- |
 | Who | A user of this application, logged in here | Authenticated by another application or IdP |
-| `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username. Defaults to the request's own session when the call arrives on one | Optional; the session in the source application, for correlation |
+| The actor's own session (the record's `SourceSessionID`) | Required and verified: the actor's own live, non-impersonated session here, carrying their username. `Request` names the session the call arrives on; a server-side caller names it in `ImpersonationActor.SessionID` | Optional (`ImpersonationActor.SessionID`); the session in the source application, for correlation |
 | The actor's account | The record carries its id (`Impersonation.ActorID`, the table's `ActorUserId` column), read from the source session: the permission store names the actor by it (`ActorUser`), so the actor's own roles are found under it and a row condition's `subject` binds to it in a role principal's session | None here: `ActorID` is null, the permission store names the actor by the name the record carries, and the actor holds nothing in this application |
 | The actor's name | The username of the source session | Any name that does not read as the id of an account: an Auth refuses a foreign actor whose name parses as one (400, in every form the id parser reads), since a text that reads as an id names an account here |
 | A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |

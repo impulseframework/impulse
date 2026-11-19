@@ -2684,7 +2684,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	tests := []struct {
 		name            string
 		ctx             func() context.Context
-		request         *ImpersonationRequest
+		request         *sessioncore.ImpersonationRequest
 		prepare         func(store *mock_sessionstorage.MockAuthStore[mockTx])
 		wantUserID      impulse.UUID
 		wantActorID     impulse.NullUUID
@@ -2700,7 +2700,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "a user principal's session belongs to the impersonated user, loaded by the id the principal names",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: bob},
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: bob},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
@@ -2711,7 +2711,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id in upper case is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ToUpper(bobID.String())))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ToUpper(bobID.String())))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2719,7 +2719,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id in braces is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("{" + bobID.String() + "}"))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("{" + bobID.String() + "}"))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2727,7 +2727,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id as a urn is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("urn:uuid:" + bobID.String()))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("urn:uuid:" + bobID.String()))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2735,7 +2735,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:          "a user principal that gives the id without its dashes is the same person, and the record names them by the id's canonical text",
 			ctx:           context.Background,
-			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ReplaceAll(bobID.String(), "-", "")))},
+			request:       &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ReplaceAll(bobID.String(), "-", "")))},
 			prepare:       loadsBob,
 			wantUserID:    bobID,
 			wantPrincipal: bob,
@@ -2743,14 +2743,14 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:           "a user principal that names the person by username is refused, and no user is looked up",
 			ctx:            context.Background,
-			request:        &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
+			request:        &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
 			prepare:        func(*mock_sessionstorage.MockAuthStore[mockTx]) {},
 			wantBadRequest: true,
 		},
 		{
 			name:    "a role principal's session belongs to no user",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 			},
@@ -2761,7 +2761,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "a role principal for an actor from another application whose name is a user's username is refused, and no session is created",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&sessionstorage.SessionUser{ID: aliceID, Username: "alice"}, nil)
 			},
@@ -2770,7 +2770,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "a role principal for an actor from another application whose name cannot be looked up fails, and no session is created",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, errors.New("the store is down"))
 			},
@@ -2783,7 +2783,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			ctx: func() context.Context {
 				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
 			},
-			request: &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Viewer")},
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Viewer")},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
 			},
@@ -2795,7 +2795,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			ctx: func() context.Context {
 				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
 			},
-			request: &ImpersonationRequest{Actor: "alice", Principal: bob},
+			request: &sessioncore.ImpersonationRequest{Actor: "alice", Principal: bob},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
 				store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
@@ -2814,7 +2814,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			tt.prepare(f.store)
 			if tt.wantBadRequest || tt.wantForbidden || tt.wantErr {
 				// No CreateImpersonatedSession is expected: the mock fails the test on one.
-				_, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request)
+				_, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), declaredRequest(tt.request))
 				switch {
 				case tt.wantBadRequest && !httpio.HasBadRequest(err):
 					t.Errorf("StartImpersonatedSession() error = %v, want a bad request", err)
@@ -2846,7 +2846,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 					return impulse.Must(impulse.NewUUID()), nil
 				})
 
-			if _, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request); err != nil {
+			if _, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), declaredRequest(tt.request)); err != nil {
 				t.Errorf("StartImpersonatedSession() error = %v", err)
 			}
 		})
@@ -2904,7 +2904,7 @@ func TestAuthAPI_StartImpersonatedSession_ActorNamedAsAccount(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				f := newAuthFixture(t, ctrl)
 				f.store.EXPECT().ImpersonationEnabled().Return(true)
-				request := &ImpersonationRequest{Actor: tt.actor, ActorRealm: tt.realm, Principal: p.principal}
+				request := declaredRequest(&sessioncore.ImpersonationRequest{Actor: tt.actor, ActorRealm: tt.realm, Principal: p.principal})
 				if tt.wantBadRequest {
 					// Nobody is looked up and no session is created: the mock fails the
 					// test on either.

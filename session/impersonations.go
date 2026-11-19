@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -19,7 +20,9 @@ import (
 // an application declares each kind of impersonation it offers with the grant that
 // allows it and the widest mask that grant gives (Impersonations), the person who
 // starts a session may ask for a narrower mask and never a wider one, and the
-// session's mask is the grant's, narrowed by the request.
+// session's mask is the grant's, narrowed by the request. The declaration is the only
+// way to start an impersonated session: a kind that gives everything says so, with
+// accesstypes.AllowAll(), where the application is read.
 
 // ImpersonationKind is one kind of impersonation an application offers: what a request
 // names it by, the grant that allows starting a session of the kind, whether its
@@ -76,7 +79,8 @@ func (k ImpersonationKind) Widest() accesstypes.PermissionMask {
 
 // ImpersonationActions is what a declaration of impersonation is held to: the
 // application's actions and the classes they carry. The generated collection is one
-// (router.Collection()).
+// (router.Collection()); an application with no generated collection names its actions
+// itself (NamedActions).
 type ImpersonationActions interface {
 	// HasPermission reports whether the application registers permission on res
 	// within scope.
@@ -88,11 +92,44 @@ type ImpersonationActions interface {
 	TagsRequiring(res accesstypes.Resource, permission accesstypes.Permission) []accesstypes.Tag
 }
 
+// NamedActions is what a declaration is held to in an application with no generated
+// permission collection: a session type used on its own, whose grants are names its own
+// check answers for. Each name given is an action of the application; none carries a
+// class, and the application has no records. Such an application's kinds give masks of
+// permission kinds, and may refuse the actions named here by name.
+//
+//	session.NewImpersonations(session.NamedActions("ViewAsUser", "ActAsUser"),
+//	    session.ImpersonatesUser("view", "ViewAsUser", accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
+//	    session.ImpersonatesUser("act", "ActAsUser", accesstypes.AllowAll()))
+func NamedActions(actions ...accesstypes.Resource) ImpersonationActions {
+	return namedActions(slices.Clone(actions))
+}
+
+// namedActions is NamedActions' list.
+type namedActions []accesstypes.Resource
+
+// HasPermission reports Execute on a named action, in the application's one scope.
+func (n namedActions) HasPermission(scope accesstypes.PermissionScope, permission accesstypes.Permission, res accesstypes.Resource) bool {
+	return scope == accesstypes.GlobalPermissionScope && permission == accesstypes.Execute && slices.Contains(n, res)
+}
+
+// ClassesInUse reports none: a named action carries no class.
+func (namedActions) ClassesInUse() []accesstypes.ActionClass {
+	return nil
+}
+
+// TagsRequiring reports none: the application has no records.
+func (namedActions) TagsRequiring(accesstypes.Resource, accesstypes.Permission) []accesstypes.Tag {
+	return nil
+}
+
 // Impersonations is what an application declares of the impersonation it offers: its
-// kinds, each with its grant and its widest mask. It turns a person's request to start
-// a session into the ImpersonationRequest the session library establishes (Request),
-// so no application writes the grant's check and the mask's arithmetic by hand. One
-// value is built when the application starts and serves every request.
+// kinds, each with its grant and its widest mask. It is the only way to start an
+// impersonated session: it alone makes the ImpersonationRequest one starts from
+// (Request for a person signed in here, RequestFor for a server-side caller), so no
+// session is started that no kind allows, and no application writes the grant's check
+// and the mask's arithmetic by hand. One value is built when the application starts
+// and serves every request.
 type Impersonations struct {
 	kinds   map[string]ImpersonationKind
 	names   []string
@@ -274,29 +311,126 @@ type ImpersonationAsk struct {
 	MaxDuration time.Duration
 }
 
-// GrantCheck answers whether the person asking holds a grant: Execute on the action,
+// ImpersonationActor names the real person a session is started on behalf of, for a
+// call that arrives on no session of this application: a server-side caller, which has
+// established who is acting by its own means. A call that arrives on a person's own
+// signed-in session names nobody: the declaration reads the actor off that session
+// (Impersonations.Request).
+type ImpersonationActor struct {
+	// Name is the actor: as the system that signed them in names them, or, with no
+	// Realm, the username of a person of this application. Required.
+	Name string
+	// Realm names the application or identity provider that signed the actor in, when
+	// it is not this application ("admin-portal"). The actor then holds nothing here
+	// and is recorded under the name given. Leave it empty only for a person of this
+	// application, whose own live session the call names in SessionID.
+	Realm string
+	// SessionID is the actor's own session. With a Realm it is their session in the
+	// other system, optional, kept for correlation across the two. With no Realm it is
+	// required and verified: a live session of this application, not itself
+	// impersonated, that carries the actor's username.
+	SessionID impulse.NullUUID
+}
+
+// GrantCheck answers whether whoever is asking holds a grant: Execute on the action,
 // in the place the application checks it. resource.HoldsAction builds one from the
-// request's permissions.
+// request's permissions, for a person signed in here. A server-side caller passes a
+// check of its own: whether the system that handed the actor over may start a session
+// of the kind, by whatever it authenticated that system with.
 type GrantCheck func(ctx context.Context, grant accesstypes.Resource) (bool, error)
 
-// Request turns what a person asks for into the request the session library
-// establishes, or refuses it with nothing started. It asks holds whether the person
-// holds the grant of the kind they named, and computes the session's mask: the kind's
-// widest when the request names none, and otherwise the request's, which may only be
-// narrower (accesstypes.PermissionMask.Narrow: the kinds are the request's, each of
-// which the grant must give, and the refusals are joined). A request for more than the
-// grant gives is refused, never trimmed, so nobody believes they hold what they do not.
+// Request turns what a person signed in here asks for into the request an impersonated
+// session starts from, or refuses it with nothing started. It is the way a route behind
+// ValidateSession starts one: the actor is the user of the validated session the call
+// arrives on, and that session is the actor's own, which the library verifies when the
+// session is established. It asks holds whether the person holds the grant of the kind
+// they named, and computes the session's mask: the kind's widest when the request names
+// none, and otherwise the request's, which may only be narrower
+// (accesstypes.PermissionMask.Narrow: the kinds are the request's, each of which the
+// grant must give, and the refusals are joined). A request for more than the grant
+// gives is refused, never trimmed, so nobody believes they hold what they do not.
 //
 // The answer is refused with a client error a handler passes on as it is: 400 for a
 // kind the application does not offer, for no principal, and for a mask that keeps a
 // kind that is no permission kind or refuses a class or a resource the application
 // does not have; 403 for a person who does not hold the grant, and for a mask wider
-// than the grant's.
-//
-// When ctx carries a validated session, the request names its user as the actor and it
-// as the actor's own session, which is what establishing from a signed-in session
-// requires. A server-to-server caller sets Actor and ActorRealm on the result.
+// than the grant's. A call that carries no validated session is a mistake in the
+// program and answers a plain error: a server-side caller names its actor with
+// RequestFor.
 func (i *Impersonations) Request(ctx context.Context, ask *ImpersonationAsk, holds GrantCheck) (*ImpersonationRequest, error) {
+	current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok || current == nil || current.SessionInfo == nil {
+		return nil, errors.New(
+			"session.Impersonations.Request() reads the actor off the signed-in session the call arrives on, and this call carries none: " +
+				"mount the route behind ValidateSession, or name the actor of a server-side call with RequestFor",
+		)
+	}
+
+	return i.request(ctx, &ImpersonationActor{
+		Name:      current.Username,
+		SessionID: impulse.NullUUID{UUID: current.ID, Valid: !current.ID.IsNil()},
+	}, ask, holds, "starting a session of the kind %q takes Execute on %s, which you do not hold")
+}
+
+// RequestFor is Request for a server-side caller: a call that arrives on no session of
+// this application and names the actor itself, typically a hand-off from the system
+// that signed the actor in (an administration application starting a session in a
+// partner portal). The caller declares its kinds as any application does and passes
+// its own check as holds: whether the calling system, which the handler has
+// authenticated, may start a session of the kind for this actor. The kind's widest
+// mask, the narrowing and the refusals are Request's.
+//
+// An actor with a Realm was signed in by another system and is recorded under the name
+// given. An actor with no Realm is a person of this application, whose own live
+// session the call names (ImpersonationActor.SessionID) and the library verifies. A
+// call with no actor's name is refused (400). Every session type takes the request
+// alike: AuthAPI.StartImpersonatedSession and PreauthAPI.StartImpersonatedSession.
+//
+// Two calls are mistakes in the program and answer a plain error. One that arrives on
+// a validated session of this application names nobody: the actor is that session's
+// user, which Request reads off it, so a signed-in person cannot name another. And an
+// actor with neither a Realm nor a SessionID is nobody the library can vouch for.
+func (i *Impersonations) RequestFor(ctx context.Context, actor ImpersonationActor, ask *ImpersonationAsk, holds GrantCheck) (*ImpersonationRequest, error) {
+	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil {
+		return nil, errors.New(
+			"session.Impersonations.RequestFor() names the actor of a call that arrives on no session of this application, and this call carries a signed-in session: " +
+				"its user is the actor, so make the request with Request, which reads the actor off that session",
+		)
+	}
+	if actor.Name == "" {
+		return nil, httpio.NewBadRequestMessage("an impersonated session acts on behalf of someone: name the actor (ImpersonationActor.Name)")
+	}
+	if actor.Realm == "" && !actor.SessionID.Valid {
+		return nil, errors.Newf(
+			"the actor %q is named with no Realm and no SessionID: name the system that signed them in (ImpersonationActor.Realm), "+
+				"or, for a person of this application, their own live session (ImpersonationActor.SessionID)",
+			actor.Name,
+		)
+	}
+
+	return i.request(ctx, &actor, ask, holds, "this caller may not start a session of the kind %q: the application's check of the kind's grant, %s, refused it")
+}
+
+// request is what Request and RequestFor share once the actor is known: the kind, the
+// grant's check and the mask's arithmetic. It is the one place a request an
+// impersonated session starts from is made. notHeld is the sentence a caller the check
+// refuses is answered with, which takes the kind's name and its grant: a person signed
+// in here does not hold the grant, and a server-side caller's own check said no.
+func (i *Impersonations) request(ctx context.Context, actor *ImpersonationActor, ask *ImpersonationAsk, holds GrantCheck, notHeld string) (*ImpersonationRequest, error) {
+	if i == nil {
+		return nil, errors.New("the application declares no impersonation: declare the kinds it offers (session.NewImpersonations) before a request is made")
+	}
+	// An impersonated session starts no other: refused here, before the grant is asked
+	// about under the impersonated person's permissions, as it is when a session starts.
+	if sessioncore.ImpersonatedContext(ctx) {
+		return nil, httpio.NewForbiddenMessage("an impersonated session cannot establish another impersonated session")
+	}
+	if holds == nil {
+		return nil, errors.New(
+			"a request to impersonate is made against a check of the kind's grant, and none was passed: " +
+				"pass resource.HoldsAction over the request's permissions, or the server-side caller's own check",
+		)
+	}
 	if ask == nil {
 		// Nothing asked names no kind, and is refused as a kind nobody offers.
 		ask = &ImpersonationAsk{}
@@ -314,7 +448,7 @@ func (i *Impersonations) Request(ctx context.Context, ask *ImpersonationAsk, hol
 		return nil, errors.Wrap(err, "session.GrantCheck()")
 	}
 	if !held {
-		return nil, httpio.NewForbiddenMessagef("starting a session of the kind %q takes Execute on %s, which you do not hold", kind.name, kind.grant)
+		return nil, httpio.NewForbiddenMessagef(notHeld, kind.name, kind.grant)
 	}
 
 	if problem := i.unknown(ask.Mask); problem != "" {
@@ -333,21 +467,23 @@ func (i *Impersonations) Request(ctx context.Context, ask *ImpersonationAsk, hol
 		)
 	}
 
-	req := &ImpersonationRequest{
-		Principal:   accesstypes.UserPrincipal(accesstypes.User(ask.Principal)),
-		Mask:        mask,
-		Reason:      ask.Reason,
-		MaxDuration: ask.MaxDuration,
-	}
+	principal := accesstypes.UserPrincipal(accesstypes.User(ask.Principal))
 	if kind.asRole {
-		req.Principal = accesstypes.RolePrincipal(accesstypes.Role(ask.Principal))
-	}
-	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil && current.SessionInfo != nil {
-		req.Actor = current.Username
-		req.SourceSessionID = impulse.NullUUID{UUID: current.ID, Valid: !current.ID.IsNil()}
+		principal = accesstypes.RolePrincipal(accesstypes.Role(ask.Principal))
 	}
 
-	return req, nil
+	return &ImpersonationRequest{
+		kind: kind.name,
+		core: sessioncore.ImpersonationRequest{
+			Actor:           actor.Name,
+			ActorRealm:      actor.Realm,
+			SourceSessionID: actor.SessionID,
+			Principal:       principal,
+			Mask:            mask,
+			Reason:          ask.Reason,
+			MaxDuration:     ask.MaxDuration,
+		},
+	}, nil
 }
 
 // permissionList renders permission kinds for a sentence: "Update", "Update and Delete".

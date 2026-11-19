@@ -16,8 +16,11 @@ import (
 	"github.com/impulseframework/impulse/tracer"
 )
 
-// ImpersonationRequest describes the impersonated session to establish. It is a
-// struct so future fields can be added without breaking callers.
+// ImpersonationRequest describes the impersonated session to establish, as the session
+// library works with it. An application never holds one: the public request
+// (session.ImpersonationRequest) wraps it with no field an application can set, and
+// only the declaration of the impersonation an application offers
+// (session.Impersonations) fills it in.
 type ImpersonationRequest struct {
 	// Actor is the authenticated real user the session acts on behalf of. Required.
 	Actor string
@@ -47,10 +50,9 @@ type ImpersonationRequest struct {
 	// accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
 	// is a read-only session, and
 	// accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(accesstypes.ClassCredential))
-	// keeps everything except the credential actions. An application that declares
-	// the kinds of impersonation it offers takes the whole request from the
-	// declaration (Impersonations.Request), which checks the grant and computes the
-	// mask from the grant's widest and the one the actor asked for.
+	// keeps everything except the credential actions. The declaration of the
+	// impersonation the application offers sets it (session.Impersonations): the
+	// kind's widest mask, narrowed by the one the actor asked for.
 	Mask accesstypes.PermissionMask
 	// Reason is a free-text justification (a ticket reference, a support note)
 	// recorded on the impersonation record. Optional; an application's guard may
