@@ -845,6 +845,18 @@ func runSteps(cmd *cobra.Command, f *transitionFlags, ts []transition, reference
 	return runTransitions(cmd, f, repo, ts, reference)
 }
 
+// meaningOf is a transition's account of what it means and leaves: the one written for
+// the application where the transition has one, since what is true of a change can
+// depend on what the application has (how its people sign in, what its tests already
+// build), and the general one otherwise.
+func meaningOf(t transition, a *app.App) string {
+	if in, ok := t.(interface{ MeaningIn(a *app.App) string }); ok {
+		return in.MeaningIn(a)
+	}
+
+	return t.Meaning()
+}
+
 // runTransitions applies the transitions in order, each on the tree the one before it
 // left, then runs the check once, stages everything, and hands what is left to the agent
 // in one brief. impulse new composes its options this way; add runs one.
@@ -872,7 +884,7 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 		}
 		writeChange(out, change)
 		changes = append(changes, change.Text())
-		meanings = append(meanings, t.Meaning())
+		meanings = append(meanings, meaningOf(t, a))
 		left += len(change.Left)
 	}
 	if f.start != nil {

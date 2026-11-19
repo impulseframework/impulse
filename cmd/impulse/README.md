@@ -364,10 +364,24 @@ and `--organization` are refused with any other start. Another identity provider
 directory is an auth of its own (`impulse add auth --shape directory-roles --method
 oidc:<registration>`).
 
-The tests the base starts with are written for a password sign-in. Where the first auth
-is written with no password method they no longer compile or no longer hold, so the
-change lists each of them with what becomes of it, and the command ends in the handoff
-brief with those as the author's work.
+The tests the base starts with are written for a password sign-in, so either start
+writes the application's Go tests for the sign-in it has. The served suite
+(`test/integration`) signs in through the simulated directory, each test proving what
+the base's test of its name proves: run it as the Procfile and CI do, with `go test
+-tags skipAuth ./...`, since under the default build the cases that sign in are skipped
+and say so. The base's tests of what the auth does not have are taken out, and the
+change names each with the reason: a password reset and a sign-up in both starts, and
+with `--shape directory-roles` the first administrator's invitation and the groups too.
+With `--shape directory-roles` the deployment's tests (`pkg/deploy`,
+`cmd/deployment/migrate`) lose the cases of a first administrator and prove that a
+release invites nobody; with `--shape tenant-owned-users-by-directory` the two harnesses
+(`test/integration`, `test/authz`) build the tenant roster and the generated maker, and
+the first administrator's invitation is proven accepted through Google. The new
+application passes `go vet` with and without the tag as it is made. The browser
+application's login page spec is still the author's, and the brief names it. In a start
+with tenants the two served suites wait, as the application itself does, for the hand
+step every start with tenants leaves: the role a tenant's administrator holds, without
+which the application's router is not built; the change and the brief say so first.
 
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent
@@ -1225,7 +1239,11 @@ says the rest of it is the application's to write; the comment over `UserPermiss
 in `app/app.go` says what the function does once it is handed the roster and the
 declarations. The suites the base carried and a tenanted application does not are each
 named in the brief with what becomes of them (`sign_up_test.go` and
-`sign_up_role_test.go` are removed, `first_administrator_test.go` follows the harness). Which resources become
+`sign_up_role_test.go` are removed, `first_administrator_test.go` follows the harness).
+Each auth's role file loses the grants on what the regeneration stopped serving: an
+application with tenants lists no roles for a person who signs up, so the base's grant on
+`<Auth>SignUpRoles` goes, since the permission engine refuses a role file that grants a
+resource the application does not serve. Which resources become
 tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
 tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
 the directories the development seed declares are the agent's, and `tenancy-wired`

@@ -1,0 +1,347 @@
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"testing"
+
+	"github.com/impulseframework/impulse/session/sessioninfo"
+
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
+)
+
+// The second factor every session carries, as the login page completes it: the sign-in
+// code the auth mails to the person's address, which a browser the person asked to be
+// remembered stands in for. The helpers here sign a person in through it.
+
+// heldForFactor is where the callback sends a browser whose sign-in the directory
+// admitted and the second factor holds: the login page's code step, which goes on to the
+// page the sign-in named.
+const heldForFactor = "/login?pending=mfa&returnUrl=%2Fdashboard"
+
+// signIn signs the browser in the way a person does, failing the test on refusal: through
+// a registration of the auth, then the second factor where the sign-in is held for it (a
+// persona's is not: the persona provider attests it). The person's first
+// sign-in on the stack enters the code read from the mail the auth sent and asks for the
+// browser to be remembered; every later sign-in of theirs carries that browser's token
+// (served.trusted), so it is the remembered browser and is not asked. One sign-in at a
+// time runs its factor on the stack, so the code a browser reads from the recorder is its
+// own, and a person is mailed a code once (an address is sent five codes it does not use
+// within fifteen minutes, no more).
+func (b *browser) signIn(ctx context.Context, registration, user string) {
+	b.t.Helper()
+
+	s := b.served
+	s.codeMu.Lock()
+	defer s.codeMu.Unlock()
+	if cookie := s.trusted[user]; cookie != nil {
+		b.remember(cookie)
+	}
+	if status, body := b.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
+		b.t.Fatalf("GET user/session before the sign-in of %s: status %d: %s", user, status, body)
+	}
+	status, location := b.directoryRoundTrip(ctx, registration, user)
+	switch {
+	case status == http.StatusFound && location == landing:
+	case status == http.StatusFound && location == heldForFactor:
+		b.secondFactorLocked(ctx, user, true)
+		s.trusted[user] = b.trustedCookie()
+	default:
+		b.t.Fatalf("the sign-in of %s through the %s registration: status %d to %q, want %d to %q or to %q", user, registration, status, location, http.StatusFound, landing, heldForFactor)
+	}
+}
+
+// remember puts a remembered browser's trusted-device cookie, as its jar holds it, into
+// this browser's jar: the person signs in again from the browser they asked to be
+// remembered.
+func (b *browser) remember(cookie *http.Cookie) {
+	b.t.Helper()
+
+	site, err := url.Parse(b.base)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	b.client.Jar.SetCookies(site, []*http.Cookie{cookie})
+}
+
+// trustedCookie is the trusted-device cookie this browser's jar holds, or nil when the
+// person never asked for the browser to be remembered.
+func (b *browser) trustedCookie() *http.Cookie {
+	b.t.Helper()
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, b.base+"/api/user/session", http.NoBody)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	for _, cookie := range b.client.Jar.Cookies(req.URL) {
+		if cookie.Name == staff.TrustedDeviceCookie {
+			return cookie
+		}
+	}
+
+	return nil
+}
+
+// pendingSignIn is the pending route's answer as the login page reads it: why the sign-in
+// waits, and for the second factor, the state of the sign-in code.
+type pendingSignIn struct {
+	Reason    string   `json:"reason"`
+	Email     string   `json:"email"`
+	Factors   []string `json:"factors"`
+	EmailCode *struct {
+		CodeEmail   string `json:"codeEmail"`
+		EnrollEmail bool   `json:"enrollEmail"`
+		CodeSent    bool   `json:"codeSent"`
+	} `json:"emailCode"`
+}
+
+// pending reads the sign-in this browser waits on.
+func (b *browser) pending(ctx context.Context) *pendingSignIn {
+	b.t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/user/pending", nil)
+	if status != http.StatusOK {
+		b.t.Fatalf("GET user/pending: status %d: %s", status, body)
+	}
+	pending := &pendingSignIn{}
+	if err := json.Unmarshal(body, pending); err != nil {
+		b.t.Fatalf("decoding the pending sign-in: %v: %s", err, body)
+	}
+
+	return pending
+}
+
+// codeSubject finds the sign-in code in a code message's subject ("Your <application>
+// sign-in code is 483 920").
+var codeSubject = regexp.MustCompile(`\b(\d{3}) (\d{3})\b`)
+
+// secondFactor completes the second factor this browser's sign-in waits for, the way the
+// login page does once a directory the deployment does not administer admitted the
+// person: the code asked for and read from the mail the auth sent, and the code verified,
+// without asking for the browser to be remembered. One sign-in at a time runs its factor
+// on the stack.
+func (b *browser) secondFactor(ctx context.Context, user string) {
+	b.t.Helper()
+
+	b.served.codeMu.Lock()
+	defer b.served.codeMu.Unlock()
+	b.secondFactorLocked(ctx, user, false)
+}
+
+// secondFactorLocked completes the second factor for a caller holding the stack's factor
+// lock, asking for the browser to be remembered when remember is set. The code goes to
+// the address the directory vouches for; where it vouches for none the person gives one
+// first, and gives the name the directory signs them in under, which is an address.
+func (b *browser) secondFactorLocked(ctx context.Context, user string, remember bool) {
+	b.t.Helper()
+
+	pending := b.pending(ctx)
+	if pending.Reason != string(sessioninfo.PendingMFA) || pending.EmailCode == nil {
+		b.t.Fatalf("the sign-in of %s waits for %+v, want the second factor with the sign-in code offered", user, pending)
+	}
+	code := b.askCodeLocked(ctx, pending.EmailCode.EnrollEmail, user)
+	if status, body := b.verifyCode(ctx, code, remember); status != http.StatusOK {
+		b.t.Fatalf("verifying the sign-in code of %s: status %d: %s", user, status, body)
+	}
+}
+
+// askCodeLocked asks for the sign-in code, giving the address first where the person holds
+// none, and reads the code from the message the auth sent: the first new message whose
+// subject carries one. The caller holds the stack's factor lock, so the message is this
+// sign-in's.
+func (b *browser) askCodeLocked(ctx context.Context, enroll bool, address string) string {
+	b.t.Helper()
+
+	s := b.served
+	before := len(s.mail.Messages())
+	if enroll {
+		give, err := json.Marshal(map[string]string{"email": address})
+		if err != nil {
+			b.t.Fatal(err)
+		}
+		if status, body := b.do(ctx, http.MethodPost, "/api/user/pending/email", give); status != http.StatusOK {
+			b.t.Fatalf("giving %s for the sign-in code: status %d: %s", address, status, body)
+		}
+	} else if status, body := b.do(ctx, http.MethodPost, "/api/user/pending/code", nil); status != http.StatusOK {
+		b.t.Fatalf("asking for the sign-in code: status %d: %s", status, body)
+	}
+	for _, m := range s.mail.Messages()[before:] {
+		if match := codeSubject.FindStringSubmatch(m.Subject); match != nil {
+			return match[1] + match[2]
+		}
+	}
+	b.t.Fatalf("no sign-in code was mailed after the request (%d messages before)", before)
+
+	return ""
+}
+
+// TestSecondFactor drives the second factor every session carries the way the login page
+// does. The person is the first administrator of a deployed environment, who follows the
+// invitation's link and signs in through Google: the directory admits them and the
+// sign-in waits for the code; a wrong code is refused and the right one, read from the
+// mail the auth sent, opens the session and remembers the browser, which is not asked at
+// its next sign-in; an administrator makes the server forget the person's remembered
+// browsers through the auth's generated management, and the sign-in after that waits for
+// the code again.
+func TestSecondFactor(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	const person = "ada@lakeside.example"
+	token := invitedAdministrator(ctx, t, s, person)
+
+	b := newBrowser(t, s)
+	if status, page := showInvitation(ctx, t, b, token); status != http.StatusOK {
+		t.Fatalf("opening the invitation: status %d: %v", status, page)
+	}
+	if status, location := b.directoryRoundTrip(ctx, staff.GoogleRegistration, person); status != http.StatusFound || location != heldForFactor {
+		t.Fatalf("the sign-in through Google: status %d to %q, want %d to %q, held for the second factor", status, location, http.StatusFound, heldForFactor)
+	}
+	if sess := b.session(ctx); sess.Authenticated {
+		t.Fatalf("session while the sign-in waits = %+v, want none", sess)
+	}
+	pending := b.pending(ctx)
+	if pending.Reason != string(sessioninfo.PendingMFA) || pending.EmailCode == nil || pending.EmailCode.CodeSent {
+		t.Fatalf("the pending sign-in = %+v, want the second factor's wait with no code sent", pending)
+	}
+	// A code entered before any was sent is refused as expired; the page asks for one
+	// first.
+	if status, body := b.verifyCode(ctx, "000000", false); status != http.StatusUnauthorized || !strings.Contains(string(body), string(sessioninfo.RefusedCodeExpired)) {
+		t.Fatalf("a code entered while none was sent: status %d: %s, want 401 naming %s", status, body, sessioninfo.RefusedCodeExpired)
+	}
+
+	// The code is asked for and mailed: a wrong code is refused, and the one in the mail
+	// opens the session, remembering the browser.
+	s.codeMu.Lock()
+	code := b.askCodeLocked(ctx, pending.EmailCode.EnrollEmail, person)
+	s.codeMu.Unlock()
+	wrong := "000000"
+	if wrong == code {
+		wrong = "111111"
+	}
+	if status, body := b.verifyCode(ctx, wrong, false); status != http.StatusUnauthorized || !strings.Contains(string(body), string(sessioninfo.RefusedInvalidCode)) {
+		t.Fatalf("a wrong code: status %d: %s, want 401 naming %s", status, body, sessioninfo.RefusedInvalidCode)
+	}
+	if status, body := b.verifyCode(ctx, code, true); status != http.StatusOK {
+		t.Fatalf("the mailed code: status %d: %s", status, body)
+	}
+	if sess := b.session(ctx); !sess.Authenticated || sess.Username != person {
+		t.Fatalf("session after the code = %+v, want authenticated as %s", sess, person)
+	}
+	if b.trustedCookie() == nil {
+		t.Fatal("the browser asked to be remembered holds no trusted-device cookie")
+	}
+
+	// Signed out and in again from the remembered browser: the directory opens the
+	// session at once.
+	b.logout(ctx)
+	if status, location := b.directoryRoundTrip(ctx, staff.GoogleRegistration, person); status != http.StatusFound || location != landing {
+		t.Fatalf("the sign-in from the remembered browser: status %d to %q, want %d to %q with the session open", status, location, http.StatusFound, landing)
+	}
+	if sess := b.session(ctx); !sess.Authenticated {
+		t.Fatalf("session from the remembered browser = %+v, want authenticated", sess)
+	}
+
+	// An administrator makes the server forget the person's remembered browsers through
+	// the generated method: the next sign-in waits for the code again.
+	reset, err := json.Marshal(map[string]string{"userId": staffUserID(ctx, t, b, person)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/api/revoke-staff-user-trusted-devices", reset); status != http.StatusNoContent {
+		t.Fatalf("POST /api/revoke-staff-user-trusted-devices: status %d: %s", status, body)
+	}
+	b.logout(ctx)
+	if status, location := b.directoryRoundTrip(ctx, staff.GoogleRegistration, person); status != http.StatusFound || location != heldForFactor {
+		t.Fatalf("the sign-in after the reset: status %d to %q, want %d to %q, held for the second factor", status, location, http.StatusFound, heldForFactor)
+	}
+	// The code goes to the address the person holds without asking for one; the page is
+	// told the address masked (a•••@lakeside.example).
+	pending = b.pending(ctx)
+	if pending.EmailCode == nil || pending.EmailCode.EnrollEmail || pending.EmailCode.CodeEmail != "a•••@lakeside.example" {
+		t.Fatalf("the pending sign-in after the reset = %+v, want the code offered to the address the person holds, masked", pending)
+	}
+	b.secondFactor(ctx, person)
+	if sess := b.session(ctx); !sess.Authenticated {
+		t.Fatalf("session after the second code = %+v, want authenticated", sess)
+	}
+}
+
+// staffUserID reads a person's user id from the list of the staff auth's users, as the
+// browser b: what the methods of the auth's generated management name a person by. An
+// invited person's id is known only once they have accepted.
+func staffUserID(ctx context.Context, t *testing.T, b *browser, username string) string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/staff-session-users?limit=200", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET /api/staff-session-users: status %d: %s", status, body)
+	}
+	var users []struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	}
+	if err := json.Unmarshal(body, &users); err != nil {
+		t.Fatalf("the staff auth's users are not a list: %v: %s", err, body)
+	}
+	for _, user := range users {
+		if user.Username == username {
+			return user.ID
+		}
+	}
+	t.Fatalf("the staff auth's users hold nobody named %s: %s", username, body)
+
+	return ""
+}
+
+// verifyCode enters a sign-in code for the waiting sign-in, asking for the browser to be
+// remembered when remember is set, and returns the route's answer.
+func (b *browser) verifyCode(ctx context.Context, code string, remember bool) (status int, body []byte) {
+	b.t.Helper()
+
+	verify, err := json.Marshal(map[string]any{"code": code, "rememberDevice": remember})
+	if err != nil {
+		b.t.Fatal(err)
+	}
+
+	return b.do(ctx, http.MethodPost, "/api/user/pending/code/verify", verify)
+}
+
+// sessionInfo is the session route's answer as the suites read it: who is signed in, and
+// the address they hold, with whether they have proven it.
+type sessionInfo struct {
+	Authenticated bool   `json:"authenticated"`
+	Username      string `json:"username"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"emailVerified"`
+}
+
+// session reads the session route as this browser.
+func (b *browser) session(ctx context.Context) *sessionInfo {
+	b.t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/user/session", nil)
+	if status != http.StatusOK {
+		b.t.Fatalf("GET /api/user/session: status %d: %s", status, body)
+	}
+	sess := &sessionInfo{}
+	if err := json.Unmarshal(body, sess); err != nil {
+		b.t.Fatalf("decoding the session: %v: %s", err, body)
+	}
+
+	return sess
+}
+
+// logout ends this browser's session.
+func (b *browser) logout(ctx context.Context) {
+	b.t.Helper()
+
+	if status, body := b.do(ctx, http.MethodDelete, "/api/user/session", nil); status != http.StatusOK {
+		b.t.Fatalf("DELETE /api/user/session: status %d: %s", status, body)
+	}
+}

@@ -352,11 +352,13 @@ func Test_settleShape(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []transition{transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: tt.wantOne, NoDirectories: tt.wantNone}}
+			tenants := transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: tt.wantOne, NoDirectories: tt.wantNone}
+			want := []transition{tenants}
 			if tt.wantStart {
-				// The first auth's methods come before the tenants, which build on the auth.
+				// The first auth's methods come before the tenants, which build on the auth,
+				// and the start is told the tenants: it writes the application's tests for them.
 				want = append([]transition{&transition_.DirectoryStart{
-					Auth: "staff", ShapeKey: tt.shape, ShapeName: start.String(),
+					Auth: "staff", ShapeKey: tt.shape, ShapeName: start.String(), Tenants: &tenants,
 					Methods: []authpkg.Method{
 						{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Slot: authpkg.SlotAnyWorkspace},
 						{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Slot: authpkg.SlotAny},

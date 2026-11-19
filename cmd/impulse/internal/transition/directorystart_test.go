@@ -441,7 +441,7 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 	t.Parallel()
 
 	start := directoryRolesStart(app.MethodGoogle, "fleet.example")
-	a, ch := started(t, &start, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
+	a, _ := started(t, &start, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
 
 	t.Run("the auth registers the one method, whose directory gives the roles", func(t *testing.T) {
 		t.Parallel()
@@ -477,8 +477,11 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 		if !strings.Contains(deploy, "func AdministratorAuths() []string {\n\treturn nil\n}") {
 			t.Errorf("%s: AdministratorAuths does not answer that no auth invites a first administrator", deployFile)
 		}
-		if !strings.Contains(deploy, "func administratorOf(_ *config.DataConfiguration, auth string) (*firstAdministrator, error) {\n\treturn nil, errors.Newf(") {
-			t.Errorf("%s: administratorOf does not refuse every name", deployFile)
+		// A function that only refused would leave its callers' error checks always true,
+		// which the application's own lint finds once the package's test compiles, so it
+		// looks the name up among the auths that invite, of which there is none.
+		if !strings.Contains(deploy, "func administratorOf(_ *config.DataConfiguration, auth string) (*firstAdministrator, error) {\n\t// No auth of the application invites a first administrator. One that does is added\n\t// here, built from the data level, and named in AdministratorAuths.\n\tadministrators := map[string]*firstAdministrator{}\n\tadministrator, ok := administrators[auth]\n\tif !ok {\n\t\treturn nil, errors.Newf(") {
+			t.Errorf("%s: administratorOf does not refuse every name as a name it does not find among the auths that invite a first administrator:\n%s", deployFile, deploy)
 		}
 		if _, err := parser.ParseFile(token.NewFileSet(), a.Abs(deployFile), nil, parser.SkipObjectResolution); err != nil {
 			t.Errorf("%s does not parse: %v", deployFile, err)
@@ -516,21 +519,6 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 		}
 		if !slices.Contains(resources, "StaffSessionUsers") {
 			t.Error("the role file lost its grant on StaffSessionUsers, which the application still serves")
-		}
-	})
-
-	t.Run("the tests that name the foothold are named with what becomes of them", func(t *testing.T) {
-		t.Parallel()
-
-		for file, want := range map[string]string{
-			"pkg/deploy/deploy_test.go":                    "staff.FirstAdministratorRoles, staff.AdministratorRoles",
-			"cmd/deployment/migrate/main_test.go":          "staff.AdministratorVariable, which the auth no longer has",
-			"test/integration/first_administrator_test.go": "nobody is invited to this auth, whose directory gives every role, so remove it",
-			"test/integration/harness_test.go":             "signs a person in by posting a username and a password",
-		} {
-			if got := leftLine(ch, file+" ", want); len(got) != 1 {
-				t.Errorf("%s: the change leaves %d lines containing %q, want one: %q", file, len(got), want, leftLine(ch, file+" "))
-			}
 		}
 	})
 }

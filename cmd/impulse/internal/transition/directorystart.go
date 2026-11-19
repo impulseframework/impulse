@@ -48,6 +48,11 @@ type DirectoryStart struct {
 	// it and by number and name.
 	ShapeKey  string
 	ShapeName string
+	// Tenants is the tenancy impulse new composes after this step, where the application
+	// starts with tenants: the application's tests are written for it, since the step
+	// that gives the application its tenants writes no test. Nil where the application
+	// starts with none, or where the step is applied alone.
+	Tenants *Tenancy
 }
 
 // DevelopmentPersona is the login of the persona a development run signs its
@@ -203,13 +208,13 @@ func (d *DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Exece
 		if err := writeMethodEnv(a, d.Auth, m, step.callback(a, pkg, m), ch); err != nil {
 			return nil, err
 		}
-		slotHandoff(ch, d.Auth, m)
 	}
 	if err := d.developmentLogins(a, pkg, spec, ch); err != nil {
 		return nil, err
 	}
+	nobody := false
 	if !authpkg.Foothold(spec) {
-		if err := d.inviteNobody(a, pkg, ch); err != nil {
+		if nobody, err = d.inviteNobody(a, pkg, ch); err != nil {
 			return nil, err
 		}
 	}
@@ -221,7 +226,21 @@ func (d *DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Exece
 	if err := d.pruneRoles(a, pkg, before, generatedHandlers(a, handlers), ch); err != nil {
 		return nil, err
 	}
-	d.noteBaseSuites(a, ch)
+	settled, err := d.writeSuites(a, ch)
+	if err != nil {
+		return nil, err
+	}
+	if !settled[integrationHarness] || !settled[migrateTest] {
+		// The tests were not written for the methods, so what each registration
+		// validates is still the author's to give them.
+		for i := range spec.Methods {
+			slotHandoff(ch, d.Auth, &spec.Methods[i])
+		}
+	}
+	if nobody {
+		d.noteFirstAdministrator(ch, settled[migrateTest])
+	}
+	d.noteBaseSuites(a, ch, settled)
 	// Each method's settings are passed by the same step, which says the same of the
 	// login page every time: once is enough.
 	ch.Skipped = distinct(ch.Skipped)
@@ -517,38 +536,51 @@ const deployFile = "pkg/deploy/deploy.go"
 
 // inviteNobody takes the auth out of the deployment's first administrators, where a
 // directory gives its roles: such an auth has no foothold, nobody is invited to it, and
-// the base's deployment package would not compile against it.
-func (d *DirectoryStart) inviteNobody(a *app.App, pkg *app.AuthPackage, ch *Change) error {
+// the base's deployment package would not compile against it. It reports whether the
+// package now invites nobody, which what still speaks of a first administrator is then
+// held to (noteFirstAdministrator).
+func (d *DirectoryStart) inviteNobody(a *app.App, pkg *app.AuthPackage, ch *Change) (bool, error) {
 	byHand := fmt.Sprintf("the %s auth invites no first administrator, since its directory gives every role, the Super Administrator's included: take it out of AdministratorAuths and administratorOf", d.Auth)
 	data, mode, err := readFile(a, deployFile)
 	if err != nil {
 		ch.skipf("%s: not read (%v); %s", deployFile, errors.Cause(err), byHand)
 
-		return nil
+		return false, nil
 	}
 	auths := regexp.MustCompile(`(?m)^\treturn \[\]string\{` + regexp.QuoteMeta(d.Auth) + `\.Name\}\n`)
 	administrator := regexp.MustCompile(`(?m)^func administratorOf\(data \*config\.DataConfiguration, auth string\) \(\*firstAdministrator, error\) \{\n\tswitch auth \{\n\tcase ` + regexp.QuoteMeta(d.Auth) + `\.Name:\n\t\treturn &firstAdministrator\{[^\n]*\}, nil\n\tdefault:\n(\t\treturn nil, errors\.Newf\([^\n]*\)\n)\t\}\n\}\n`)
 	if !auths.Match(data) || !administrator.Match(data) {
 		ch.skipf("%s: AdministratorAuths and administratorOf are not as the base writes them, and the package does not compile against an auth with no foothold; %s", deployFile, byHand)
 
-		return nil
+		return false, nil
 	}
 	out := auths.ReplaceAll(data, []byte("\treturn nil\n"))
-	out = administrator.ReplaceAll(out, []byte("func administratorOf(_ *config.DataConfiguration, auth string) (*firstAdministrator, error) {\n$1}\n"))
+	out = administrator.ReplaceAll(out, []byte("func administratorOf(_ *config.DataConfiguration, auth string) (*firstAdministrator, error) {\n\t// No auth of the application invites a first administrator. One that does is added\n\t// here, built from the data level, and named in AdministratorAuths.\n\tadministrators := map[string]*firstAdministrator{}\n\tadministrator, ok := administrators[auth]\n\tif !ok {\n$1\t}\n\n\treturn administrator, nil\n}\n"))
 	if !strings.Contains(string(out), d.Auth+".") {
 		imported := regexp.MustCompile(`(?m)^\t"` + regexp.QuoteMeta(pkg.Path) + `"\n`)
 		out = imported.ReplaceAll(out, nil)
 	}
 	if out, err = format.Source(out); err != nil {
-		return errors.Wrapf(err, "format.Source(): %s", deployFile)
+		return false, errors.Wrapf(err, "format.Source(): %s", deployFile)
 	}
 	if err := os.WriteFile(a.Abs(deployFile), out, mode); err != nil {
-		return errors.Wrap(err, "os.WriteFile()")
+		return false, errors.Wrap(err, "os.WriteFile()")
 	}
 	ch.didf("%s: no auth invites a first administrator (AdministratorAuths names none, and administratorOf refuses every name): the %s auth's directory gives every role, the Super Administrator's included, so a release invites nobody and asks for no mailbox on that account", deployFile, d.Auth)
-	ch.skipf("%s, pkg/config and the environment template still speak of the %s auth's first administrator (InviteAdministrators and ReinviteAdministrator, the migrate command's -reinvite-administrator, %s): they invite nobody now; say so in their comments or take them out, with the tests that prove them, which the change names among what is left", deployFile, d.Auth, authpkg.AdministratorVariable(d.Auth))
 
-	return nil
+	return true, nil
+}
+
+// noteFirstAdministrator says what still speaks of the auth's first administrator once
+// the deployment invites nobody, and which tests go with it: the cases the start wrote
+// into the migrate command's test where it derived that test, and the tests the change
+// lists as left otherwise.
+func (d *DirectoryStart) noteFirstAdministrator(ch *Change, derived bool) {
+	tests := "with the tests that prove them, which the change names among what is left"
+	if derived {
+		tests = "with the cases of " + migrateTest + " that prove the refusal"
+	}
+	ch.skipf("%s, pkg/config and the environment template still speak of the %s auth's first administrator (InviteAdministrators and ReinviteAdministrator, the migrate command's -reinvite-administrator, %s): they invite nobody now; say so in their comments or take them out, %s", deployFile, d.Auth, authpkg.AdministratorVariable(d.Auth), tests)
 }
 
 // generatedHandlers lists the generated handler files of an auth's management, by name,
@@ -582,21 +614,46 @@ var trailingCommaRE = regexp.MustCompile(`,(\s*\])`)
 // resource the application does not serve, so the application would not start with
 // them. Every other grant is left as it is.
 func (d *DirectoryStart) pruneRoles(a *app.App, pkg *app.AuthPackage, before, after map[string]bool, ch *Change) error {
-	gone := map[string]bool{}
-	for name := range before {
-		if !after[name] {
-			gone[name] = true
-		}
-	}
+	gone := removedHandlers(before, after)
 	rel := path.Join(pkg.Dir, app.RolesFileName)
 	if len(gone) == 0 {
 		ch.skipf("%s: the regeneration removed no handler of the %s auth's management, so no grant was taken out of the role file; a grant on a resource the application no longer serves stops it at start (impulse check, auths-wired)", rel, d.Auth)
 
 		return nil
 	}
+	pruned, err := pruneGrants(a, rel, gone, func(file []byte) []byte {
+		return []byte(strings.Replace(string(file), ", keeps groups of people, and sets temporary passwords.", ", and keeps groups of people.", 1))
+	})
+	if err != nil || len(pruned) == 0 {
+		return err
+	}
+	ch.didf("%s: %d grant(s) taken out, on what the %s auth's generated management no longer serves (%s): the permission engine refuses a role file that grants a resource the application does not serve", rel, len(pruned), d.Auth, strings.Join(pruned, ", "))
+
+	return nil
+}
+
+// removedHandlers are the generated handler files a regeneration removed: the ones
+// listed before it and not after.
+func removedHandlers(before, after map[string]bool) map[string]bool {
+	gone := map[string]bool{}
+	for name := range before {
+		if !after[name] {
+			gone[name] = true
+		}
+	}
+
+	return gone
+}
+
+// pruneGrants takes out of a role file every grant on a resource or a method whose
+// generated handler is gone, named by the handler's file, and returns the resources
+// whose grants were taken out, each once and in order. retell, where one is given,
+// brings the file's own words up to what is left. A file that carries no such grant is
+// left as it is.
+func pruneGrants(a *app.App, rel string, gone map[string]bool, retell func(file []byte) []byte) ([]string, error) {
 	data, mode, err := readFile(a, rel)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var pruned []string
 	out := grantRE.ReplaceAllFunc(data, func(grant []byte) []byte {
@@ -609,18 +666,18 @@ func (d *DirectoryStart) pruneRoles(a *app.App, pkg *app.AuthPackage, before, af
 		return nil
 	})
 	if len(pruned) == 0 {
-		return nil
+		return nil, nil
 	}
 	out = trailingCommaRE.ReplaceAll(out, []byte("$1"))
-	out = []byte(strings.Replace(string(out), ", keeps groups of people, and sets temporary passwords.", ", and keeps groups of people.", 1))
+	if retell != nil {
+		out = retell(out)
+	}
 	if err := os.WriteFile(a.Abs(rel), out, mode); err != nil {
-		return errors.Wrap(err, "os.WriteFile()")
+		return nil, errors.Wrap(err, "os.WriteFile()")
 	}
 	sort.Strings(pruned)
-	pruned = distinct(pruned)
-	ch.didf("%s: %d grant(s) taken out, on what the %s auth's generated management no longer serves (%s): the permission engine refuses a role file that grants a resource the application does not serve", rel, len(pruned), d.Auth, strings.Join(pruned, ", "))
 
-	return nil
+	return distinct(pruned), nil
 }
 
 // distinct drops the repeats of a list, keeping each line where it first stood.
@@ -643,42 +700,47 @@ func distinct(lines []string) []string {
 // directory gives the roles does not have, each with what becomes of it in an
 // application whose first auth has no password method. They are written against the
 // base's harness and its first auth, so they stop compiling or stop holding with this
-// change: the change says what to do with each before the first compile error is met.
+// change. The start writes the Go tests among them for the sign-in the auth has
+// (writeSuites); the change lists the ones it did not settle, and says what to do with
+// each before the first compile error is met.
 // fate holds for every such start; directory is added where a directory gives the roles
 // and application where the application does, and a test with nothing to say of a start
 // is left out of it. {auth} stands for the first auth's name.
 var passwordSuites = []struct{ file, fate, directory, application string }{
-	{file: "test/integration/harness_test.go", fate: "signs a person in by posting a username and a password, which no route takes now; sign in through a method of the auth under -tags skipAuth, as the reference's test/integration/portal_login_skipauth_test.go does (APP_<REGISTRATION>_USERNAME, then user/<registration>/login to the callback), and move the suites that sign in to files built under that tag"},
+	{file: integrationHarness, fate: "signs a person in by posting a username and a password, which no route takes now; sign in through a method of the auth under -tags skipAuth, as the reference's test/integration/portal_login_skipauth_test.go does (APP_<REGISTRATION>_USERNAME, then user/<registration>/login to the callback), and move the suites that sign in to files built under that tag"},
 	{file: "test/authz/harness_test.go", fate: "signs each generated authorization case in with a password; sign in the same way the integration harness now does"},
 	{file: "test/integration/login_test.go", fate: "proves the password login and its refusals; remove it, and prove the sign-in through each method the auth registers"},
-	{file: "test/integration/password_reset_test.go", fate: "proves the reset of a forgotten password; remove it, since no account has a password to reset"},
+	{file: passwordResetSuite, fate: "proves the reset of a forgotten password; remove it, since no account has a password to reset"},
 	{file: "test/integration/second_factor_test.go", fate: "proves the sign-in code after a password; a sign-in through a directory the deployment does not administer is asked for the same code, so prove it there or remove the file"},
-	{file: "test/integration/sign_up_test.go", fate: "proves sign-up with a password; remove it"},
-	{file: "test/integration/sign_up_role_test.go", fate: "proves the role a person who signs up with a password is given; remove it"},
+	{file: signUpSuite, fate: "proves sign-up with a password; remove it"},
+	{file: signUpRoleSuite, fate: "proves the role a person who signs up with a password is given; remove it"},
 	{
-		file: "test/integration/first_administrator_test.go", fate: "has the first administrator choose a password from the invitation's link",
+		file: firstAdministratorSuite, fate: "has the first administrator choose a password from the invitation's link",
 		directory:   "nobody is invited to this auth, whose directory gives every role, so remove it",
 		application: "the invitation is accepted through a method of the auth instead (the link, then user/<registration>/login), so prove that",
 	},
 	{file: "test/integration/groups_test.go", fate: "signs in with a password through the harness; it follows the harness"},
 	{
-		file: "cmd/deployment/migrate/main_test.go", fate: "constructs the auth with the base's settings; give the construction each registration's settings, as the change's lines above say",
+		file: migrateTest, fate: "constructs the auth with the base's settings; give the construction each registration's settings, as the change's lines above say",
 		directory: "it also names the first administrator's address by {auth}.AdministratorVariable, which the auth no longer has, so it does not compile: take out the cases that invite or reinvite a first administrator",
 	},
 	{
-		file:      "pkg/deploy/deploy_test.go",
+		file:      deployTest,
 		directory: "holds the first administrator's roles to the role file ({auth}.FirstAdministratorRoles, {auth}.AdministratorRoles), which an auth whose directory gives the roles does not have, so the package's tests do not compile: take TestFirstAdministratorRoles_areInTheRoleFile and TestAdministratorRoles_areHeldByTheFirstAdministrator out, and keep the test that validates the role file",
 	},
 	{file: "web/console/src/app/components/login/login.component.spec.ts", fate: "answers the methods route with the password method and expects its form; answer it with the methods the auth registers and expect their buttons and no password form"},
 }
 
 // noteBaseSuites records, for each of the base's tests the application still carries
-// that this start breaks, what becomes of it. They are obligations the check cannot
-// see whole: a test that signs in with a password still compiles where it posts one,
-// and fails when it runs, which the check does not do. So the change lists them as left
-// to the author, and is handed on even when the check is clean.
-func (d *DirectoryStart) noteBaseSuites(a *app.App, ch *Change) {
+// that this start breaks and did not settle, what becomes of it. They are obligations
+// the check cannot see whole: a test that signs in with a password still compiles where
+// it posts one, and fails when it runs, which the check does not do. So the change lists
+// them as left to the author, and is handed on even when the check is clean.
+func (d *DirectoryStart) noteBaseSuites(a *app.App, ch *Change, settled map[string]bool) {
 	for _, suite := range passwordSuites {
+		if settled[suite.file] {
+			continue
+		}
 		if _, err := os.Stat(a.Abs(suite.file)); err != nil {
 			continue
 		}
@@ -694,13 +756,38 @@ func (d *DirectoryStart) noteBaseSuites(a *app.App, ch *Change) {
 		}
 		ch.Left = append(ch.Left, suite.file+" "+strings.ReplaceAll(strings.Join(fates, "; "), "{auth}", d.Auth))
 	}
-	if len(ch.Left) > 0 {
+	switch {
+	case len(ch.Left) == 0:
+	case len(settled) > 0:
+		ch.LeftNote = fmt.Sprintf("The application's Go tests were written for the sign-in the %s auth has, which has no password. What the start did not bring to it is yours:", d.Auth)
+	default:
 		ch.LeftNote = fmt.Sprintf("The tests the application started with were written for a first auth that signs in with a password, and the %s auth has none now. Each of these is yours to bring to the sign-in the auth has, the harness first, since the others sign in through it:", d.Auth)
 	}
 }
 
-// Meaning explains the start and names the wiring left to do.
+// Meaning explains the start and names the wiring left to do, as it is for a new
+// application, whose tests the start writes for the sign-in the auth has.
 func (d *DirectoryStart) Meaning() string {
+	set, _, _ := d.suiteSet()
+
+	return d.meaning(set)
+}
+
+// MeaningIn is Meaning for the application the start was applied to: it says the tests
+// were written where they were, which the sign-in through the simulated directory among
+// the application's tests shows, and hands them on where they were not.
+func (d *DirectoryStart) MeaningIn(a *app.App) string {
+	set, _, _ := d.suiteSet()
+	if _, err := os.Stat(a.Abs(simulatedSignIn)); err != nil {
+		set = ""
+	}
+
+	return d.meaning(set)
+}
+
+// meaning is the start's account, given the tests it wrote (a tree of suiteFiles, or
+// none).
+func (d *DirectoryStart) meaning(set string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "The application starts from %s, a shape with no password sign-in, so its first auth, %s, was written again with no password method: no password form on the login page, no forgotten-password link, no password section on a person's account page, and nothing in the generated management that sets, resets or removes a password. ", d.ShapeName, d.Auth)
 	if d.syncsRoles() {
@@ -721,8 +808,15 @@ func (d *DirectoryStart) Meaning() string {
 		}
 	}
 	b.WriteString("\n\nLeft to wire:\n\n")
+	tests := "Bring the tests to the sign-in the auth has. The change names each of the base's tests that signs in with a password or names what the auth no longer has, with what becomes of it; the harness comes first, since the others sign in through it."
+	if set != "" {
+		tests = "Read the tests the start wrote. The application's Go tests sign in through the simulated directory, so run them as the Procfile and CI do, with `go test -tags skipAuth ./...`: under the default build the cases that sign in are skipped. The change names the tests of the base it took out, each with the reason, and lists what it did not bring to the sign-in the auth has: the browser application's login page spec, which still answers the methods route with the password method."
+		if set == byDirectorySuites {
+			tests += " Name a tenant's administrator role first, since nothing that builds the application's router runs before it: " + d.servedSuitesWait() + "."
+		}
+	}
 	items := []string{
-		"Bring the tests to the sign-in the auth has. The change names each of the base's tests that signs in with a password or names what the auth no longer has, with what becomes of it; the harness comes first, since the others sign in through it.",
+		tests,
 		fmt.Sprintf("Read the role file (`pkg/auth/%s/roles.json`). The grants on what the generated management no longer serves were taken out; read what the roles' descriptions say of passwords, and what the remaining grants give.", d.Auth),
 		"Bring the README's account of signing in (the development login, the first administrator's password) to what the application does now, and the comments that still speak of a password: the generator program's (`cmd/generate/resourcegenerator/generator.go`), the bootstrap's (`cmd/bootstrap/main.go`) and `app/users.go`'s.",
 	}

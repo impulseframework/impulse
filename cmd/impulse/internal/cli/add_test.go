@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -9,7 +10,58 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
+	transition_ "github.com/impulseframework/impulse/cmd/impulse/internal/transition"
 )
+
+// generalStep is a transition whose account of itself is the same for every
+// application.
+type generalStep struct{}
+
+// Validate refuses nothing.
+func (generalStep) Validate(*app.App) error {
+	return nil
+}
+
+// Apply changes nothing.
+func (generalStep) Apply(context.Context, *app.App, check.Execer) (*transition_.Change, error) {
+	return &transition_.Change{}, nil
+}
+
+// Meaning is the general account.
+func (generalStep) Meaning() string {
+	return "the general account"
+}
+
+// readingStep is a transition that also writes its account for the application it was
+// applied to.
+type readingStep struct {
+	generalStep
+}
+
+// MeaningIn is the account written for the application, which names its root.
+func (readingStep) MeaningIn(a *app.App) string {
+	return "the account of " + a.Root
+}
+
+// Test_meaningOf holds the brief to the account a transition writes for the application
+// it was applied to, where the transition writes one: what is left of a change can
+// depend on how the application's people sign in.
+func Test_meaningOf(t *testing.T) {
+	t.Parallel()
+
+	a := &app.App{Root: "/srv/depot"}
+	if got, want := meaningOf(generalStep{}, a), "the general account"; got != want {
+		t.Errorf("meaningOf() = %q, want %q", got, want)
+	}
+	if got, want := meaningOf(readingStep{}, a), "the account of /srv/depot"; got != want {
+		t.Errorf("meaningOf() = %q, want %q: the transition writes an account for the application", got, want)
+	}
+	// Tenancy is such a transition.
+	if _, ok := transition(transition_.Tenancy{}).(interface{ MeaningIn(a *app.App) string }); !ok {
+		t.Error("the tenancy step writes no account for the application it was applied to")
+	}
+}
 
 // Test_parseMethods reads add auth's --method flags: the password method when none is
 // given, a registration named after its kind when a Microsoft, Google or persona method

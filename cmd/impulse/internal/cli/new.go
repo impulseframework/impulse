@@ -132,6 +132,10 @@ no password account among its development logins.
     without tenants. A development run signs in through the simulated directory, as the
     person and with the roles the environment template names (APP_USERNAME, APP_ROLES).
 
+Either start writes the application's Go tests for the sign-in it has: the served suite
+signs in through the simulated directory (go test -tags skipAuth ./...), and the base's
+tests of what the auth does not have are taken out, each named with the reason.
+
 In global-users-by-directory the first auth keeps its password method, and the command
 says which impulse add method adds the directory method a tenant's people come through;
 until it is added impulse audit reads the application as the invite-only shape beside it.
@@ -625,7 +629,13 @@ func (o *composedOptions) transitions() ([]transition, error) {
 		ts = append(ts, o.directory)
 	}
 	if o.tenancy {
-		ts = append(ts, transition_.Tenancy{Table: o.tenantTable, OneTenantPerPerson: o.tenants.oneTenant, NoDirectories: o.tenants.noDirectories})
+		tenants := transition_.Tenancy{Table: o.tenantTable, OneTenantPerPerson: o.tenants.oneTenant, NoDirectories: o.tenants.noDirectories}
+		if o.directory != nil {
+			// The start writes the application's tests, and writes them for the tenants
+			// the application is given after it.
+			o.directory.Tenants = &tenants
+		}
+		ts = append(ts, tenants)
 	}
 	for _, kind := range []struct {
 		specs    []string
