@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -108,6 +109,12 @@ func enforcementCollection(t *testing.T) *GeneratedCollection {
 // answer Granted, everything else fails closed to Denied. It records every Check
 // invocation so tests can assert call batching, scope routing, and the decode-stamped
 // Environment.
+//
+// One fake may serve the requests of parallel subtests, which share it for its grants:
+// the grant table is set before the first request and only read after it, and the
+// record is written under mu. A test that reads the record makes a fake of its own and
+// reads it once its requests have returned; a record shared with another subtest would
+// say nothing of either, and the race detector says so.
 type fakeUserPermissions struct {
 	granted     map[accesstypes.Permission][]accesstypes.Resource
 	conditional map[accesstypes.Permission][]accesstypes.Resource
@@ -117,6 +124,8 @@ type fakeUserPermissions struct {
 	conditions map[accesstypes.Resource]string
 	err        error
 
+	// mu guards the record of the Check calls below.
+	mu           sync.Mutex
 	checkCalls   int
 	gotEnvs      []accesstypes.Environment
 	gotScopes    []accesstypes.Scope
@@ -124,10 +133,7 @@ type fakeUserPermissions struct {
 }
 
 func (f *fakeUserPermissions) Check(_ context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
-	f.checkCalls++
-	f.gotEnvs = append(f.gotEnvs, env)
-	f.gotScopes = append(f.gotScopes, scope)
-	f.gotResources = append(f.gotResources, slices.Clone(resources))
+	f.record(env, scope, resources)
 
 	if f.err != nil {
 		return nil, f.err
@@ -150,6 +156,16 @@ func (f *fakeUserPermissions) Check(_ context.Context, env accesstypes.Environme
 	return decisions, nil
 }
 
+// record notes one Check call.
+func (f *fakeUserPermissions) record(env accesstypes.Environment, scope accesstypes.Scope, resources []accesstypes.Resource) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.checkCalls++
+	f.gotEnvs = append(f.gotEnvs, env)
+	f.gotScopes = append(f.gotScopes, scope)
+	f.gotResources = append(f.gotResources, slices.Clone(resources))
+}
+
 func (f *fakeUserPermissions) PermissionDigest(context.Context, accesstypes.Scope) (accesstypes.PermissionDigest, error) {
 	return accesstypes.PermissionDigest{}, nil
 }
@@ -166,7 +182,47 @@ func (f *fakeUserPermissions) Reaches(context.Context, accesstypes.Domain) (bool
 	return true, nil
 }
 
-func (f *fakeUserPermissions) User() accesstypes.User { return "testUser" }
+func (f *fakeUserPermissions) User() accesstypes.User {
+	return "testUser"
+}
+
+// TestFakeUserPermissions_sharedByParallelRequests pins that one fake serves requests
+// made at once, as the parallel subtests that share one for its grants make them: every
+// Check is answered from the grants and none is lost from the record. Under the race
+// detector it fails where the record is written with no lock.
+func TestFakeUserPermissions_sharedByParallelRequests(t *testing.T) {
+	t.Parallel()
+
+	const (
+		requests = 8
+		checks   = 50
+	)
+	perms := &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {enforcedResource}}}
+	var wg sync.WaitGroup
+	for range requests {
+		wg.Go(func() {
+			for range checks {
+				decisions, err := perms.Check(t.Context(), RequestEnvironment(), testScope, accesstypes.List, enforcedResource)
+				if err != nil {
+					t.Errorf("Check() error = %v", err)
+
+					return
+				}
+				if !decisions[enforcedResource].IsGranted() {
+					t.Errorf("Check() = %v, want %s granted", decisions, enforcedResource)
+
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	const want = requests * checks
+	if perms.checkCalls != want || len(perms.gotEnvs) != want || len(perms.gotScopes) != want || len(perms.gotResources) != want {
+		t.Errorf("the record holds %d calls, %d environments, %d scopes and %d resource lists, want %d of each", perms.checkCalls, len(perms.gotEnvs), len(perms.gotScopes), len(perms.gotResources), want)
+	}
+}
 
 var _ ReadWriteTransaction = (*recordingTxn)(nil)
 

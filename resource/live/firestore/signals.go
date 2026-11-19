@@ -44,6 +44,11 @@ const (
 // (live.SignalTimeout) and not the caller's context.
 var errSignalLimit = errors.New("live: the signal was not sent within the live service's own limit")
 
+// limitKey is the key under which a Signal's context carries the time the service's own
+// limit ends it, so that a deadline that has passed can be told for the limit's or the
+// caller's own before the context says which.
+type limitKey struct{}
+
 // signalsState is the signaler's and the subscriber's state: the per-kind write in
 // flight and the write that covers the signals made meanwhile, and the one listener
 // with its consumers.
@@ -166,15 +171,18 @@ func (s *Service) signalsDoc() *cloudfirestore.DocumentRef {
 // No caller's time ends another caller's signal. A caller whose time ends while it waits
 // returns, and the write stays with the callers still waiting; one whose time ends under
 // the covering write it is making fails alone, and another waiting caller makes the write
-// under its own. So a covering write has what is left of its maker's time, a channel that
-// does not answer, or answers too slowly for the write in flight and the covering write
-// to fit in one caller's time, is tried by each waiting caller in turn while its own time
-// lasts, and no call makes more than one write or waits past its context or the limit. A
-// Signal made once the write in flight has ended is not covered by the write that is then
-// due, which may begin before it: it waits for the next. The error is returned for the
-// caller to log; the caller's contract stays log and never fail the request.
+// under its own. A maker's time has ended once its deadline has passed, whether or not
+// its context has ended yet (see whatEnded). So a covering write has what is left of its
+// maker's time, a channel that does not answer, or answers too slowly for the write in
+// flight and the covering write to fit in one caller's time, is tried by each waiting
+// caller in turn while its own time lasts, and no call makes more than one write or waits
+// past its context or the limit. A Signal made once the write in flight has ended is not
+// covered by the write that is then due, which may begin before it: it waits for the
+// next. The error is returned for the caller to log; the caller's contract stays log and
+// never fail the request.
 func (s *Service) Signal(ctx context.Context, kind live.Kind) error {
-	ctx, cancel := context.WithTimeoutCause(ctx, s.signals.limit, errSignalLimit)
+	limitAt := time.Now().Add(s.signals.limit)
+	ctx, cancel := context.WithDeadlineCause(context.WithValue(ctx, limitKey{}, limitAt), limitAt, errSignalLimit)
 	defer cancel()
 	covering := s.beginWrite(kind)
 	if covering != nil {
@@ -252,9 +260,11 @@ func (s *Service) passSlot(kind live.Kind) {
 // makeCovering makes the covering write, as the waiting caller that took its turn and
 // under that caller's context, and hands its outcome to every caller waiting for it.
 // Where the caller's own time has ended, before the write or under it, the failure
-// is the caller's alone and the turn goes back to the callers still waiting. The turn is
-// settled however the write ends, a panic included: a turn that was neither used nor
-// given back would hold the slot, and every caller waiting, for good.
+// is the caller's alone and the turn goes back to the callers still waiting; under the
+// write its time has ended once its deadline has passed, which the client acts on
+// before the context says so (see whatEnded). The turn is settled however the write
+// ends, a panic included: a turn that was neither used nor given back would hold the
+// slot, and every caller waiting, for good.
 func (s *Service) makeCovering(ctx context.Context, kind live.Kind, covering *coveringWrite) (err error) {
 	made := false
 	defer func() {
@@ -269,8 +279,8 @@ func (s *Service) makeCovering(ctx context.Context, kind live.Kind, covering *co
 		return timeEnded(ctx)
 	}
 	err = s.writeSignal(ctx, kind)
-	// A write that failed under a context that has ended is the caller's own failure.
-	made = err == nil || ctx.Err() == nil
+	// A write that failed once its maker's time had ended is the maker's own failure.
+	made = err == nil || whatEnded(ctx) == nil
 
 	return err
 }
@@ -327,6 +337,32 @@ func timeEnded(ctx context.Context) error {
 	return errors.Wrap(context.Cause(ctx), "the signal's time ended before the write that covers it was made")
 }
 
+// whatEnded returns what ended a Signal's time, and nil while the time lasts: the cause
+// of its context once that has ended, and before that, once its deadline has passed,
+// whose deadline it was (errSignalLimit where it is the service's limit,
+// context.DeadlineExceeded where it is the caller's own; a cause the caller gave its
+// deadline is known only once the context has ended).
+//
+// The clock is asked as well as the context because the two part for a moment. A context
+// ends when its timer runs, which on a busy machine is some time after its deadline, and
+// the client does not wait for it: it refuses to begin a call whose deadline has passed
+// and answers DeadlineExceeded with the context still open. A write refused so is its
+// maker's own time ending, as much as one the context cut short.
+func whatEnded(ctx context.Context) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Now().Before(deadline) {
+		return nil
+	}
+	if limitAt, ok := ctx.Value(limitKey{}).(time.Time); ok && limitAt.Equal(deadline) {
+		return errSignalLimit
+	}
+
+	return context.DeadlineExceeded
+}
+
 // writeSignal is the one write: the kind's field set with merge.
 func (s *Service) writeSignal(ctx context.Context, kind live.Kind) error {
 	s.signals.mu.Lock()
@@ -354,10 +390,10 @@ func (s *Service) setSignal(ctx context.Context, kind live.Kind) error {
 		},
 	}
 	if _, err := s.signalsDoc().Set(ctx, data, cloudfirestore.Merge(cloudfirestore.FieldPath{field})); err != nil {
-		if cause := context.Cause(ctx); cause != nil {
+		if why := whatEnded(ctx); why != nil {
 			// The signal's time ended under the write. The client's error does not say
-			// whose time it was, the caller's or the service's limit; the cause does.
-			return errors.Wrapf(cause, "firestore.DocumentRef.Set(): %v", err)
+			// whose time it was, the caller's or the service's limit; what ended it does.
+			return errors.Wrapf(why, "firestore.DocumentRef.Set(): %v", err)
 		}
 
 		return errors.Wrap(err, "firestore.DocumentRef.Set()")
