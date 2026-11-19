@@ -65,18 +65,19 @@ func (i *identityInstance) takesRoles() bool {
 
 // holdingSources are the source files of the whole application's lists of what is held
 // and of the taking of a role: the views in the declarations package, and the method and
-// the two lists its form picks from in the methods package.
+// the two lists its form picks from in the methods package. The groups with what each
+// holds are written only where the auth keeps groups: each of the two files needs the
+// group tables, and a file is written only where the instance holds every table it needs
+// (writeIdentitySources).
 func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySourceFile {
 	view := func(suffix, template string, needs ...identityTable) identitySourceFile {
 		return identitySourceFile{dir: inst.resources, name: fileStem(r.pluralize(inst.auth + suffix)), template: template, needs: needs}
 	}
-	files := []identitySourceFile{view(heldRoleSuffix, identityHeldRolesTemplate, identityUsers, identityMemberships)}
-	if inst.keepsGroups() {
-		needs := append(identityGroupTables(), identityUsers, identityMemberships)
-		files = append(files,
-			view(listedGroupSuffix, identityListedGroupsTemplate, needs...),
-			view(listedGroupRoleSuffix, identityListedGroupRolesTemplate, needs...),
-		)
+	listed := append(identityGroupTables(), identityUsers, identityMemberships)
+	files := []identitySourceFile{
+		view(heldRoleSuffix, identityHeldRolesTemplate, identityUsers, identityMemberships),
+		view(listedGroupSuffix, identityListedGroupsTemplate, listed...),
+		view(listedGroupRoleSuffix, identityListedGroupRolesTemplate, listed...),
 	}
 	if inst.takesRoles() {
 		needs := []identityTable{identityUsers, identityMemberships}

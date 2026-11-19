@@ -155,6 +155,34 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 	}
 }
 
+// Test_prepareIdentity_holdings_noGroups pins what an auth that keeps no groups is
+// written of what is held, where the application gives the roles by hand and its schema
+// holds no group tables: no list of the groups with what each holds and none of a
+// group's roles with who loses each, a person's roles as one list that names no group to
+// come through, and the taking of a role all the same.
+func Test_prepareIdentity_holdings_noGroups(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...)
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		if strings.Contains(file, "listed_group") {
+			t.Errorf("%s is written, and the schema holds no group tables: neither auth keeps groups", file)
+		}
+	}
+	if held := readTreeFile(t, "internal/crewresources/crew_held_roles.go"); strings.Contains(held, "UNION ALL") || strings.Contains(held, "@enumerate") {
+		t.Errorf("the Crew auth's one list of roles reads roles through a group or links to one, and the auth keeps none:\n%s", held)
+	}
+	requireLines(t, map[string][]string{
+		"internal/crewresources/crew_held_roles.go": {"  m.Reason AS Reason\nFROM CrewUserRoles m\nJOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE " + standingSQL("m") + "\n`"},
+		"crewidentity/take_crew_role.go":            {"Reason string `validate:\"required\"`\n}"},
+	})
+}
+
 // Test_prepareIdentity_holdings_tenant pins the same for an application with a tenant
 // record: a tenant has one list of the roles held there, a list of its own beside the
 // roles people hold themselves, a row named by its person, its role and the group it
