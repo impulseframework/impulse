@@ -610,7 +610,7 @@ func (a *App) scanAnnotations(rel string, data []byte) error {
 		}
 		for _, d := range docs {
 			if domainScopeRE.MatchString(d.Doc) {
-				a.DomainResources = append(a.DomainResources, DomainResource{File: rel, Line: d.Line, Name: d.Name})
+				a.DomainResources = append(a.DomainResources, domainResource(rel, &d))
 			}
 			if m := tenantRE.FindStringSubmatch(d.Doc); m != nil {
 				a.TenantRecords = append(a.TenantRecords, TenantRecord{File: rel, Line: d.Line, Name: d.Name})
@@ -639,6 +639,29 @@ func (a *App) scanAnnotations(rel string, data []byte) error {
 	}
 
 	return nil
+}
+
+// domainResource reads a struct annotated @permissionScope(domain): the resource, whether
+// its rows are a table's (@resource), and how they are bound to their tenant, by the
+// field annotated @domain: the column that holds the tenant's key on the row itself, or
+// the join path through another row.
+func domainResource(rel string, d *structDoc) DomainResource {
+	r := DomainResource{File: rel, Line: d.Line, Name: d.Name, Table: resourceRE.MatchString(d.Doc)}
+	for i := range d.Fields {
+		f := &d.Fields[i]
+		if domainBareRE.MatchString(f.Doc) {
+			r.DomainColumn, _, _ = strings.Cut(reflect.StructTag(f.Tag).Get(spannerTag), ",")
+
+			break
+		}
+		if via := domainViaRE.FindStringSubmatch(f.Doc); via != nil {
+			r.DomainVia = via[1]
+
+			break
+		}
+	}
+
+	return r
 }
 
 // directoryRecord reads a struct annotated @tenantDirectory: the record, and the field
@@ -1107,6 +1130,9 @@ const (
 	outletKeyword               = "outlet"
 	tenantKeyword               = "tenant"
 	tenantDirectoryKeyword      = "tenantDirectory"
+	resourceKeyword             = "resource"
+	domainKeyword               = "domain"
+	spannerTag                  = "spanner"
 	directoryDefaultSeatKeyword = "directoryDefaultSeat"
 	accessImportPath            = "github.com/impulseframework/impulse/access"
 )
@@ -1115,13 +1141,19 @@ const (
 // captures the names an @outlet(...) annotation lists; tenantRE matches the @tenant
 // struct annotation, a line of its own in the doc comment, with or without arguments;
 // tenantDirectoryRE matches the @tenantDirectory struct annotation, a line of its own,
-// and directoryDefaultSeatRE the @directoryDefaultSeat field annotation.
+// and directoryDefaultSeatRE the @directoryDefaultSeat field annotation; resourceRE
+// matches the @resource struct annotation, a line of its own, domainBareRE the bare
+// @domain field annotation, a line of its own, and domainViaRE captures the join path of
+// @domain(via: ...).
 var (
 	domainScopeRE          = regexp.MustCompile(`@` + permissionScopeKeyword + `\(\s*domain\s*\)`)
 	outletRE               = regexp.MustCompile(`@` + outletKeyword + `\(([^)]*)\)`)
 	tenantRE               = regexp.MustCompile(`(?m)^\s*@` + tenantKeyword + `\s*(?:\(([^)]*)\))?\s*$`)
 	tenantDirectoryRE      = regexp.MustCompile(`(?m)^\s*@` + tenantDirectoryKeyword + `\s*$`)
 	directoryDefaultSeatRE = regexp.MustCompile(`@` + directoryDefaultSeatKeyword + `\b`)
+	resourceRE             = regexp.MustCompile(`(?m)^\s*@` + resourceKeyword + `\s*(?:\([^)]*\))?\s*$`)
+	domainBareRE           = regexp.MustCompile(`(?m)^\s*@` + domainKeyword + `\s*$`)
+	domainViaRE            = regexp.MustCompile(`(?m)^\s*@` + domainKeyword + `\(\s*via:\s*([^)]*?)\s*\)\s*$`)
 )
 
 // structDoc is one struct type declaration with its doc comment and its fields' comments.

@@ -132,39 +132,59 @@ func methodStartingPoint(s *shape.Shape, appDir, auth string, spec *authpkg.Meth
 	return &startingPoint{shape: *s, says: []string{s.Says(spec, shape.OpeningOf(a, auth))}}, nil
 }
 
+// tenantChoices are the tenants' choices a command settles before it lays tenants in:
+// whether a person belongs to one tenant, and whether a tenant can have a directory of
+// its own. The zero value is the tenancy step's own default: a person can be in several
+// tenants, and a tenant can have a directory.
+type tenantChoices struct {
+	oneTenant     bool
+	noDirectories bool
+}
+
 // tenantShape is the shape impulse new or add tenancy was given, nil without --shape:
-// one of shapes 5 to 8, which the tenants' choices tell apart. It settles whether a
-// person belongs to one tenant, from the shape or, without one, from the flag, and
-// refuses the flag where it says the opposite of the shape.
-func tenantShape(cmd *cobra.Command, key string, oneTenant bool) (*shape.Shape, bool, error) {
+// one of shapes 5 to 8, which the tenants' choices tell apart. It settles the choices,
+// from the shape or, without one, from the flags as given (oneTenant is
+// --one-tenant-per-person, and --tenant-directories is read from the command), and
+// refuses a flag that says the opposite of the shape.
+func tenantShape(cmd *cobra.Command, key string, oneTenant bool) (*shape.Shape, tenantChoices, error) {
+	directories, err := cmd.Flags().GetBool(shape.DirectoriesFlag)
+	if err != nil {
+		return nil, tenantChoices{}, errors.Wrap(err, "pflag.FlagSet.GetBool()")
+	}
 	if key == "" {
-		return nil, oneTenant, nil
+		return nil, tenantChoices{oneTenant: oneTenant, noDirectories: !directories}, nil
 	}
 	s, err := shape.Find(key, shape.OfTenants(), cmd.CommandPath())
 	if err != nil {
-		return nil, false, err
+		return nil, tenantChoices{}, err
 	}
 	oneTenant, err = s.OneTenantChoice(cmd.Flags().Changed(shape.OneTenantFlag), oneTenant)
 	if err != nil {
-		return nil, false, err
+		return nil, tenantChoices{}, err
+	}
+	directories, err = s.DirectoriesChoice(cmd.Flags().Changed(shape.DirectoriesFlag), directories)
+	if err != nil {
+		return nil, tenantChoices{}, err
 	}
 
-	return &s, oneTenant, nil
+	return &s, tenantChoices{oneTenant: oneTenant, noDirectories: !directories}, nil
 }
 
 // oneTenantUsage describes the flag that says a person belongs to one tenant.
 const oneTenantUsage = "a person belongs to one tenant: every auth whose roles the application gives builds its identity client with identity.WithOneTenantPerPerson(), so a role in a second tenant is refused; without it a person can be in several"
 
+// directoriesUsage describes the flag that says whether a tenant can have a directory
+// of its own.
+const directoriesUsage = "a tenant can have a directory of its own: the directories record and its table, the tenant record's directory-only switch and each auth's directory admission are written, so a tenant's administrator can make their organization's directory the tenant's, open the tenant to it and make it directory only; with --" + shape.DirectoriesFlag + "=false none of it is written, and a tenant's people come by invitation alone, whatever sign-in methods the application has or gets"
+
 // tenancyStartingPoint is what add tenancy says of the shape it started from, read
-// against the application as it stood: a shape without tenant directories is refused
-// where a sign-in method already goes through an organization's directory.
+// against the application as it stood: the sign-in methods it already registers through
+// an organization's directory are named, as what a tenant's people come through its
+// directory by or, where the tenants have no directories, as a way for an invited
+// person to sign in.
 func tenancyStartingPoint(s *shape.Shape, appDir string) (*startingPoint, error) {
 	a, err := app.Discover(appDir)
 	if err != nil {
-		return nil, err
-	}
-	methods := shape.DirectoryMethods(a)
-	if err := s.RefuseDirectoryMethods(methods); err != nil {
 		return nil, err
 	}
 	var auths []string
@@ -172,7 +192,7 @@ func tenancyStartingPoint(s *shape.Shape, appDir string) (*startingPoint, error)
 		auths = append(auths, a.AuthPackages[i].Name)
 	}
 
-	return &startingPoint{shape: *s, says: s.TenantsSay(auths, methods)}, nil
+	return &startingPoint{shape: *s, says: s.TenantsSay(auths, shape.DirectoryMethods(a))}, nil
 }
 
 // errTenancyOff is the refusal of --shape beside --tenancy=false on impulse new.

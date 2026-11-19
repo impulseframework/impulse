@@ -46,7 +46,8 @@ func (nf *newFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&nf.skipGit, "skip-git", false, "do not initialize a git repository and make the first commit")
 	cmd.Flags().BoolVar(&nf.opts.tenancy, "tenancy", false, "compose the tenancy option: tenant-scoped resources under a tenant segment, roles per tenant")
 	cmd.Flags().StringVar(&nf.opts.tenantTable, "tenant-table", "Tenants", "the tenant-record table when --tenancy is given, PascalCase and plural")
-	cmd.Flags().BoolVar(&nf.opts.oneTenant, shape.OneTenantFlag, false, "with --tenancy, "+oneTenantUsage)
+	cmd.Flags().BoolVar(&nf.opts.tenants.oneTenant, shape.OneTenantFlag, false, "with --tenancy, "+oneTenantUsage)
+	cmd.Flags().Bool(shape.DirectoriesFlag, true, "with --tenancy, "+directoriesUsage)
 	bindShape(cmd, &nf.opts.shapeKey, shape.OfTenants(), "the tenants' choices and composes --tenancy")
 	cmd.Flags().StringArrayVar(&nf.opts.outlets, "outlet", nil, "compose a session outlet, <name>=<prefix> (repeatable), such as portal=portal/api")
 	cmd.Flags().StringArrayVar(&nf.opts.apiOutlets, "api-outlet", nil, "compose a machine outlet, <name>=<prefix> (repeatable), such as machines=machines: a surface with no browser whose requests carry the tokens the console's auth issues")
@@ -95,15 +96,18 @@ one reviewable diff on top of it.
 has, composes --tenancy and fills in the tenants' choices: ` + shape.Keys(shape.OfTenants()) + `.
 The two tenant-owned shapes hold a person to one tenant (--one-tenant-per-person, which
 has every auth build its identity client with identity.WithOneTenantPerPerson()); in the
-two global ones a person can be in several. The two invite-only shapes are the new
-application as it is, since its first auth signs in with a password and no tenant's
-people come through an organization's directory. For the other two the command says
-which impulse add method adds the directory method a tenant's people come through,
-and until it is added impulse audit reads the application as the invite-only shape
-beside it. A flag given beside --shape that contradicts it is refused, naming both
-(--tenancy=false, --one-tenant-per-person with a global shape). The shapes of an
-application without tenants are a sign-in method's (impulse add auth and impulse add
-method take them).
+two global ones a person can be in several. The two invite-only shapes write an
+application whose tenants have no directories (--tenant-directories=false): a tenant's
+people come by invitation alone, and a Google, Microsoft or other provider's method added
+later with the application giving the roles is a way for an invited person to sign in
+and nothing more, so impulse audit still reads the application as the invite-only shape.
+The other two write the tenant
+directories, and the command says which impulse add method adds the directory method a
+tenant's people come through; until it is added impulse audit reads the application as
+the invite-only shape beside it. A flag given beside --shape that contradicts it is
+refused, naming both (--tenancy=false, --one-tenant-per-person with a global shape,
+--tenant-directories with an invite-only one). The shapes of an application without
+tenants are a sign-in method's (impulse add auth and impulse add method take them).
 
 The first auth signs in with a password; a directory method joins it afterwards with
 impulse add method, registered beside the password method on the same Auth.
@@ -357,10 +361,11 @@ type composedOptions struct {
 	authName    string
 	tenancy     bool
 	tenantTable string
-	// oneTenant says a person belongs to one tenant (--one-tenant-per-person, or a
-	// tenant-owned shape), and shapeKey is the sign-in shape the creation starts from
-	// (--shape), which composes tenancy and settles oneTenant.
-	oneTenant  bool
+	// tenants are the tenants' choices: whether a person belongs to one tenant
+	// (--one-tenant-per-person, or a tenant-owned shape) and whether a tenant can have a
+	// directory of its own (--tenant-directories, or a shape); shapeKey is the sign-in
+	// shape the creation starts from (--shape), which composes tenancy and settles both.
+	tenants    tenantChoices
 	shapeKey   string
 	outlets    []string
 	apiOutlets []string
@@ -369,18 +374,21 @@ type composedOptions struct {
 }
 
 // settleShape reads --shape and the flags it fills in, before anything is asked or
-// written: a shape composes tenancy and settles whether a person belongs to one tenant,
-// and a flag that says the opposite of it (--tenancy=false, --one-tenant-per-person) is
-// refused, naming both. Without a shape, one tenant per person needs --tenancy.
+// written: a shape composes tenancy and settles whether a person belongs to one tenant
+// and whether a tenant can have a directory, and a flag that says the opposite of it
+// (--tenancy=false, --one-tenant-per-person, --tenant-directories) is refused, naming
+// both. Without a shape, either of the tenants' choices needs --tenancy.
 func (o *composedOptions) settleShape(cmd *cobra.Command) (*shape.Shape, error) {
-	start, oneTenant, err := tenantShape(cmd, o.shapeKey, o.oneTenant)
+	start, chosen, err := tenantShape(cmd, o.shapeKey, o.tenants.oneTenant)
 	if err != nil {
 		return nil, err
 	}
-	o.oneTenant = oneTenant
+	o.tenants = chosen
 	switch {
-	case start == nil && o.oneTenant && !o.tenancy:
+	case start == nil && o.tenants.oneTenant && !o.tenancy:
 		return nil, errors.Newf("--%s goes with --tenancy: it says a person belongs to one tenant, and the application is given none", shape.OneTenantFlag)
+	case start == nil && cmd.Flags().Changed(shape.DirectoriesFlag) && !o.tenancy:
+		return nil, errors.Newf("--%s goes with --tenancy: it says whether a tenant can have a directory of its own, and the application is given no tenants", shape.DirectoriesFlag)
 	case start == nil:
 		return nil, nil
 	case cmd.Flags().Changed("tenancy") && !o.tenancy:
@@ -398,7 +406,7 @@ func (o *composedOptions) settleShape(cmd *cobra.Command) (*shape.Shape, error) 
 func (o *composedOptions) transitions() ([]transition, error) {
 	var ts []transition
 	if o.tenancy {
-		ts = append(ts, transition_.Tenancy{Table: o.tenantTable, OneTenantPerPerson: o.oneTenant})
+		ts = append(ts, transition_.Tenancy{Table: o.tenantTable, OneTenantPerPerson: o.tenants.oneTenant, NoDirectories: o.tenants.noDirectories})
 	}
 	for _, kind := range []struct {
 		specs    []string
@@ -436,11 +444,15 @@ func (o *composedOptions) transitions() ([]transition, error) {
 // describe names the composed options for the report.
 func (o *composedOptions) describe() string {
 	var parts []string
-	switch {
-	case o.tenancy && o.oneTenant:
-		parts = append(parts, "tenancy ("+o.tenantTable+", one tenant per person)")
-	case o.tenancy:
-		parts = append(parts, "tenancy ("+o.tenantTable+")")
+	if o.tenancy {
+		tenancy := "tenancy (" + o.tenantTable
+		if o.tenants.oneTenant {
+			tenancy += ", one tenant per person"
+		}
+		if o.tenants.noDirectories {
+			tenancy += ", no tenant directories"
+		}
+		parts = append(parts, tenancy+")")
 	}
 	for _, spec := range o.outlets {
 		parts = append(parts, "the session outlet "+spec)

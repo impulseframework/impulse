@@ -84,13 +84,21 @@ type Spec struct {
 
 // TenantPolicy is the sign-in rule over the tenant record's declaration: who may enter
 // a tenant, as the record declares it (the directories it admits its people through,
-// and whether they are the only way in).
+// and whether they are the only way in). In an application whose tenants have no
+// directories the record declares nothing, the generated reader answers nothing for
+// every tenant, and the rule admits everyone a tenant seats.
 type TenantPolicy struct {
 	// Record is the tenant record's struct name (Tenant).
 	Record string
 	// Reader is the generated reader's constructor as the data level qualifies it
 	// (app.NewTenantDeclarationReader), which the package's comments name.
 	Reader string
+	// Directories reports that the application has tenant directories: its resource
+	// package declares a directories record (@tenantDirectory), so a tenant can take a
+	// directory and the generator emits the directory reader. False in an application
+	// whose tenants come by invitation alone, where no auth carries a directory reader
+	// or sets a directory admission.
+	Directories bool
 	// AdmitWithoutTenant admits a person who holds no tenant (signin.AdmitWithoutTenant):
 	// a person who signs up through a sign-in method an administrator opened signs in
 	// first and creates a tenant of their own, and keeps their account when the method
@@ -139,12 +147,13 @@ func (s *Spec) MakesTenants() bool {
 
 // DirectoryAdmission reports whether the auth sets the library's directory admission
 // (session.Auth.SetDirectoryAdmission) over the tenant record's directory rows: an auth
-// serving a tenanted site whose roles the application assigns. An auth with a
-// registration whose directory writes the roles is the directory's authority for
-// everyone it holds, and sets none: its strangers are provisioned with the roles the
-// directory names.
+// serving a tenanted site with tenant directories whose roles the application assigns.
+// An auth with a registration whose directory writes the roles is the directory's
+// authority for everyone it holds, and sets none: its strangers are provisioned with
+// the roles the directory names. An application whose tenants have no directories has
+// no rows to admit by, and none of its auths sets one.
 func (s *Spec) DirectoryAdmission() bool {
-	if s.TenantPolicy == nil {
+	if s.TenantPolicy == nil || !s.TenantPolicy.Directories {
 		return false
 	}
 	for i := range s.Methods {

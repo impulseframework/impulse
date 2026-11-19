@@ -70,6 +70,7 @@ const (
 	several       = "    a person can be in several tenants (the auth's package hands its identity client no identity.WithOneTenantPerPerson)\n"
 	staffMakes    = "    who creates a tenant: nobody directly; an administrator of the staff auth invites one person, whose first sign-in makes the tenant, and a person who signed up to the staff auth creates their own while one of its methods is open to sign-up, which is chosen while the application runs\n"
 	noDirectory   = "The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone; a directory method whose roles the application gives (impulse add method) makes it "
+	noDirectories = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
 	eachChooses   = " Whether a tenant takes a directory, and whether that directory's people get an account without an invitation, is each tenant's choice, made while the application runs on the tenant's Sign-in page.\n"
 )
 
@@ -185,7 +186,10 @@ func TestWriteSignIn_skeletonsAndLodestar(t *testing.T) {
 
 // TestWriteSignIn_tenantShapes reads the shapes of an application with tenants that no
 // skeleton has as rendered: a person held to one tenant, with and without a way through
-// an organization's directory, and a tenant record that declares no directories.
+// an organization's directory, and tenants that have no directories, which are read as
+// the invite-only shape with a directory method as without one: the reading says in one
+// sentence that the tenants have no directories, and a Google method is named in it as
+// a way for an invited person to sign in.
 func TestWriteSignIn_tenantShapes(t *testing.T) {
 	t.Parallel()
 
@@ -217,10 +221,28 @@ func TestWriteSignIn_tenantShapes(t *testing.T) {
 			},
 		},
 		{
-			name: "a tenant record that declares no directories", candidate: "tenanted",
+			name: "tenants with no directories and a Google method", candidate: "tenanted",
 			edits: map[string]func(text string) string{"pkg/resources/tenant_directories.go": nil},
 			want: []string{
-				several + "    shape: 7 Global users, invite only. The tenant record declares no directories, so no tenant's people come through one.\n",
+				"    google (pkg/auth/staff/google.go:N): admits any Google account; the application gives the roles;",
+				several + "    shape: 7 Global users, invite only. " + noDirectories + ", and the google method is a way for an invited person to sign in and nothing more.\n",
+				"    a tenant's own directory: none (no record is annotated @tenantDirectory)\n",
+			},
+		},
+		{
+			name: "tenants with no directories, one tenant per person and a Google method", candidate: "tenanted",
+			edits: map[string]func(text string) string{"pkg/resources/tenant_directories.go": nil, "pkg/auth/staff/staff.go": oneTenant},
+			want: []string{
+				"    a person belongs to one tenant (identity.WithOneTenantPerPerson, pkg/auth/staff/staff.go:N)\n",
+				"    shape: 5 Tenant-owned users, invite only. " + noDirectories + ", and the google method is a way for an invited person to sign in and nothing more.\n",
+				"    a tenant's own directory: none (no record is annotated @tenantDirectory)\n",
+			},
+		},
+		{
+			name: "tenants with no directories and a password alone", candidate: "sites",
+			edits: map[string]func(text string) string{"apps/console/pkg/resources/tenant_directories.go": nil},
+			want: []string{
+				several + "    shape: 7 Global users, invite only. " + noDirectories + ".\n",
 				"    a tenant's own directory: none (no record is annotated @tenantDirectory)\n",
 			},
 		},

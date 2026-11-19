@@ -282,19 +282,21 @@ func Test_methodSpec_shape(t *testing.T) {
 }
 
 // Test_settleShape composes tenancy into impulse new from each shape it offers, and
-// settles whether a person belongs to one tenant: the two tenant-owned shapes hold a
-// person to one, and the transition the creation composes carries it.
+// settles the tenants' choices: the two tenant-owned shapes hold a person to one
+// tenant, the two invite-only shapes leave the tenants without directories, and the
+// transition the creation composes carries both.
 func Test_settleShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		shape    string
 		wantOne  bool
+		wantNone bool
 		wantSays string
 	}{
-		{shape: "tenant-owned-users-invite-only", wantOne: true, wantSays: "A tenant's people come by invitation alone"},
+		{shape: "tenant-owned-users-invite-only", wantOne: true, wantNone: true, wantSays: "A tenant's people come by invitation alone: the application has no tenant directories"},
 		{shape: "tenant-owned-users-by-directory", wantOne: true, wantSays: "impulse add method staff google --slot any-workspace --authority application"},
-		{shape: "global-users-invite-only", wantSays: "A tenant's people come by invitation alone"},
+		{shape: "global-users-invite-only", wantNone: true, wantSays: "impulse audit reads the application as 7 Global users, invite only with it as without it."},
 		{shape: "global-users-each-tenant-chooses", wantSays: "Until then impulse audit reads the application as 7 Global users, invite only."},
 	}
 	for _, tt := range tests {
@@ -318,7 +320,7 @@ func Test_settleShape(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []transition{transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: tt.wantOne}}
+			want := []transition{transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: tt.wantOne, NoDirectories: tt.wantNone}}
 			if diff := cmp.Diff(want, transitions); diff != "" {
 				t.Errorf("the composed transitions mismatch (-want +got):\n%s", diff)
 			}
@@ -335,11 +337,174 @@ func Test_settleShape(t *testing.T) {
 	if err := cmd.ParseFlags([]string{"--module", "example.com/harbor", "--tenancy", "--one-tenant-per-person"}); err != nil {
 		t.Fatal(err)
 	}
-	if start, err := nf.opts.settleShape(cmd); err != nil || start != nil || !nf.opts.oneTenant {
-		t.Errorf("settleShape() = %v, %v with oneTenant %v; want no shape, no error and one tenant per person", start, err, nf.opts.oneTenant)
+	if start, err := nf.opts.settleShape(cmd); err != nil || start != nil || !nf.opts.tenants.oneTenant || nf.opts.tenants.noDirectories {
+		t.Errorf("settleShape() = %v, %v with the tenants' choices %+v; want no shape, no error, one tenant per person and tenant directories", start, err, nf.opts.tenants)
 	}
 	if got, want := nf.opts.describe(), "tenancy (Tenants, one tenant per person)"; got != want {
 		t.Errorf("describe() = %q, want %q", got, want)
+	}
+}
+
+// Test_settleShape_tenantDirectories settles whether a tenant can have a directory of
+// its own where impulse new is given no shape, or a flag beside one. Without a shape
+// the flag makes the choice beside --tenancy, and tenancy alone writes the tenant
+// directories as it always has. Beside a shape, a flag that says the opposite is
+// refused, naming both and the shape that agrees with the flag, and without --tenancy
+// the flag has nothing to say.
+func Test_settleShape_tenantDirectories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		args         []string
+		wantNone     bool
+		wantDescribe string
+		wantErr      string
+	}{
+		{name: "tenancy alone writes the tenant directories", args: []string{"--tenancy"}, wantDescribe: "tenancy (Tenants)"},
+		{name: "tenancy with the flag said as it is", args: []string{"--tenancy", "--tenant-directories"}, wantDescribe: "tenancy (Tenants)"},
+		{name: "tenancy without tenant directories", args: []string{"--tenancy", "--tenant-directories=false"}, wantNone: true, wantDescribe: "tenancy (Tenants, no tenant directories)"},
+		{
+			name: "both of the tenants' choices", args: []string{"--tenancy", "--one-tenant-per-person", "--tenant-directories=false"},
+			wantNone: true, wantDescribe: "tenancy (Tenants, one tenant per person, no tenant directories)",
+		},
+		{name: "an invite-only shape, said twice", args: []string{"--shape", "global-users-invite-only", "--tenant-directories=false"}, wantNone: true, wantDescribe: "tenancy (Tenants, no tenant directories)"},
+		{name: "a directory shape, said twice", args: []string{"--shape", "global-users-each-tenant-chooses", "--tenant-directories"}, wantDescribe: "tenancy (Tenants)"},
+		{
+			name: "an invite-only shape beside tenant directories", args: []string{"--shape", "tenant-owned-users-invite-only", "--tenant-directories"},
+			wantErr: "--shape tenant-owned-users-invite-only and --tenant-directories contradict each other: in Tenant-owned users, invite only a tenant's people come by invitation alone and no tenant has a directory, and --tenant-directories lets a tenant have one. Take --shape tenant-owned-users-by-directory, or leave --tenant-directories out",
+		},
+		{
+			name: "a directory shape beside no tenant directories", args: []string{"--shape", "global-users-each-tenant-chooses", "--tenant-directories=false"},
+			wantErr: "--shape global-users-each-tenant-chooses and --tenant-directories=false contradict each other: in Global users, each tenant chooses a tenant's people come through the tenant's own directory, and --tenant-directories=false leaves the tenants without directories. Take --shape global-users-invite-only, or leave --tenant-directories out",
+		},
+		{
+			name: "the flag without tenants", args: []string{"--tenant-directories=false"},
+			wantErr: "--tenant-directories goes with --tenancy: it says whether a tenant can have a directory of its own, and the application is given no tenants",
+		},
+		{
+			name: "the flag said as it is, without tenants", args: []string{"--tenant-directories"},
+			wantErr: "--tenant-directories goes with --tenancy: it says whether a tenant can have a directory of its own, and the application is given no tenants",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var nf newFlags
+			cmd := &cobra.Command{Use: "new"}
+			nf.bind(cmd)
+			if err := cmd.ParseFlags(append([]string{"--module", "example.com/harbor"}, tt.args...)); err != nil {
+				t.Fatal(err)
+			}
+			_, err := nf.opts.settleShape(cmd)
+			if tt.wantErr != "" {
+				if err == nil || errors.Cause(err).Error() != tt.wantErr {
+					t.Fatalf("settleShape() error = %v, want %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("settleShape() error = %v", err)
+			}
+			transitions, err := nf.opts.transitions()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(transitions) != 1 {
+				t.Fatalf("the composed transitions are %v, want the tenancy step alone", transitions)
+			}
+			tenancy, ok := transitions[0].(transition_.Tenancy)
+			if !ok || tenancy.NoDirectories != tt.wantNone {
+				t.Errorf("the composed transition is %+v, want the tenancy step with NoDirectories %v", transitions[0], tt.wantNone)
+			}
+			if got := nf.opts.describe(); got != tt.wantDescribe {
+				t.Errorf("describe() = %q, want %q", got, tt.wantDescribe)
+			}
+		})
+	}
+}
+
+// Test_tenancyAsked holds add tenancy's own flags to the step they ask for. With no
+// flag the step is the one it always was: a person can be in several tenants, and a
+// tenant can have a directory. Each flag makes its choice, a shape makes both, and a
+// flag that says the opposite of the shape is refused, naming both.
+func Test_tenancyAsked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		args      []string
+		want      transition_.Tenancy
+		wantShape string
+		wantErr   string
+	}{
+		{name: "no flag", want: transition_.Tenancy{Table: "Tenants"}},
+		{name: "another table", args: []string{"--tenant-table", "Depots"}, want: transition_.Tenancy{Table: "Depots"}},
+		{name: "one tenant per person", args: []string{"--one-tenant-per-person"}, want: transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: true}},
+		{name: "tenant directories, said as it is", args: []string{"--tenant-directories"}, want: transition_.Tenancy{Table: "Tenants"}},
+		{name: "no tenant directories", args: []string{"--tenant-directories=false"}, want: transition_.Tenancy{Table: "Tenants", NoDirectories: true}},
+		{
+			name: "shape 5", args: []string{"--shape", "tenant-owned-users-invite-only"}, wantShape: "tenant-owned-users-invite-only",
+			want: transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: true, NoDirectories: true},
+		},
+		{
+			name: "shape 6", args: []string{"--shape", "tenant-owned-users-by-directory"}, wantShape: "tenant-owned-users-by-directory",
+			want: transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: true},
+		},
+		{
+			name: "shape 7, with its own choice said beside it", args: []string{"--shape", "global-users-invite-only", "--tenant-directories=false", "--tenant-table", "Depots"},
+			wantShape: "global-users-invite-only", want: transition_.Tenancy{Table: "Depots", NoDirectories: true},
+		},
+		{
+			name: "shape 8", args: []string{"--shape", "global-users-each-tenant-chooses"}, wantShape: "global-users-each-tenant-chooses",
+			want: transition_.Tenancy{Table: "Tenants"},
+		},
+		{
+			name: "an invite-only shape beside tenant directories", args: []string{"--shape", "global-users-invite-only", "--tenant-directories"},
+			wantErr: "--shape global-users-invite-only and --tenant-directories contradict each other",
+		},
+		{
+			name: "a directory shape beside no tenant directories", args: []string{"--shape", "tenant-owned-users-by-directory", "--tenant-directories=false"},
+			wantErr: "--shape tenant-owned-users-by-directory and --tenant-directories=false contradict each other",
+		},
+		{
+			name: "a shape that holds a person to one tenant beside the flag turned off", args: []string{"--shape", "tenant-owned-users-invite-only", "--one-tenant-per-person=false"},
+			wantErr: "--shape tenant-owned-users-invite-only and --one-tenant-per-person=false contradict each other",
+		},
+		{name: "a shape of an application without tenants", args: []string{"--shape", "invite-only"}, wantErr: "invite-only"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := newAddTenancy()
+			if err := cmd.ParseFlags(tt.args); err != nil {
+				t.Fatal(err)
+			}
+			got, start, err := tenancyAsked(cmd)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("tenancyAsked() error = %v, want one saying %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("tenancyAsked() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("the step asked for mismatch (-want +got):\n%s", diff)
+			}
+			key := ""
+			if start != nil {
+				key = start.Key
+			}
+			if key != tt.wantShape {
+				t.Errorf("the shape started from is %q, want %q", key, tt.wantShape)
+			}
+		})
 	}
 }
 
@@ -374,31 +539,47 @@ func tenantsShape(t *testing.T, key string) *shape.Shape {
 
 // Test_tenancyStartingPoint reads each shape add tenancy offers against the application
 // it is given. On the base skeleton, whose auth signs in with a password, every shape
-// is taken: the invite-only ones are the application as it is, and the other two say
-// which impulse add method adds the directory method a tenant's people come through. On
-// an application that already registers a method through an organization's directory,
-// an invite-only shape is refused, naming the method, since with tenants the
-// application would be the shape beside it.
+// is taken: the invite-only ones leave the tenants without directories, and the other
+// two say which impulse add method adds the directory method a tenant's people come
+// through. On an application that already registers a method through an organization's
+// directory every shape is taken too: an invite-only shape names the method as a way
+// for an invited person to sign in and nothing more, since its tenants have no
+// directories whatever methods the application has, and a directory shape names it as
+// what a tenant's people can come through their own directory by.
 func Test_tenancyStartingPoint(t *testing.T) {
 	t.Parallel()
 
 	solo, withGoogle := renderedDir(t, skeleton.Base), renderedDir(t, transition_.TenancyReferenceCandidate)
+	const (
+		invited   = "The staff auth's google method (pkg/auth/staff/google.go:N) is a way for an invited person to sign in and nothing more, and impulse audit reads the application as "
+		directory = "A tenant's people can come through its organization's directory, by the staff auth's google method (pkg/auth/staff/google.go:N)"
+	)
 	tests := []struct {
 		shape    string
 		wantSays string
-		// refused is the refusal on the application with the Google method.
-		refused string
+		// wantGoogle is what the shape says on the application with the Google method.
+		wantGoogle string
 	}{
 		{
-			shape: "tenant-owned-users-invite-only", wantSays: "A directory method added later with the application giving the roles (impulse add method) makes the application 6 Tenant-owned users, by directory.",
-			refused: "--shape tenant-owned-users-invite-only: in Tenant-owned users, invite only a tenant's people come by invitation alone, and the application registers the staff auth's google method (pkg/auth/staff/google.go:N), through which a tenant's people could come by their organization's directory, so with tenants it would be 6 Tenant-owned users, by directory. Take --shape tenant-owned-users-by-directory, or run the command without --shape",
+			shape:      "tenant-owned-users-invite-only",
+			wantSays:   "A Google, Microsoft or other provider's method added with impulse add method, the application giving its roles, is a way for an invited person to sign in and nothing more, and impulse audit reads the application as 5 Tenant-owned users, invite only with it as without it. Going to 6 Tenant-owned users, by directory is the author's act",
+			wantGoogle: invited + "5 Tenant-owned users, invite only with it as without it.",
 		},
-		{shape: "tenant-owned-users-by-directory", wantSays: "impulse add method staff azure --slot any --authority application for Microsoft Entra. Until then impulse audit reads the application as 5 Tenant-owned users, invite only."},
 		{
-			shape: "global-users-invite-only", wantSays: "makes the application 8 Global users, each tenant chooses.",
-			refused: "--shape global-users-invite-only: in Global users, invite only a tenant's people come by invitation alone, and the application registers the staff auth's google method (pkg/auth/staff/google.go:N), through which a tenant's people could come by their organization's directory, so with tenants it would be 8 Global users, each tenant chooses. Take --shape global-users-each-tenant-chooses, or run the command without --shape",
+			shape:      "tenant-owned-users-by-directory",
+			wantSays:   "impulse add method staff azure --slot any --authority application for Microsoft Entra. Until then impulse audit reads the application as 5 Tenant-owned users, invite only.",
+			wantGoogle: directory,
 		},
-		{shape: "global-users-each-tenant-chooses", wantSays: "Until then impulse audit reads the application as 7 Global users, invite only."},
+		{
+			shape:      "global-users-invite-only",
+			wantSays:   "Going to 8 Global users, each tenant chooses is the author's act, laying the tenant directories in",
+			wantGoogle: invited + "7 Global users, invite only with it as without it.",
+		},
+		{
+			shape:      "global-users-each-tenant-chooses",
+			wantSays:   "Until then impulse audit reads the application as 7 Global users, invite only.",
+			wantGoogle: directory,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.shape, func(t *testing.T) {
@@ -414,18 +595,11 @@ func Test_tenancyStartingPoint(t *testing.T) {
 			}
 
 			start, err = tenancyStartingPoint(s, withGoogle)
-			if tt.refused != "" {
-				if err == nil || positionRE.ReplaceAllString(errors.Cause(err).Error(), ".go:N") != tt.refused {
-					t.Fatalf("tenancyStartingPoint() over a directory method error = %v, want %q", err, tt.refused)
-				}
-
-				return
-			}
 			if err != nil {
-				t.Fatalf("tenancyStartingPoint() over a directory method error = %v", err)
+				t.Fatalf("tenancyStartingPoint() over a directory method error = %v, want none: every shape with tenants takes any sign-in method", err)
 			}
-			if want, says := "A tenant's people can come through its organization's directory, by the staff auth's google method (pkg/auth/staff/google.go:N)", positionRE.ReplaceAllString(strings.Join(start.says, " "), ".go:N"); !strings.Contains(says, want) {
-				t.Errorf("the starting point says %q, want it to say %q", says, want)
+			if says := positionRE.ReplaceAllString(strings.Join(start.says, " "), ".go:N"); start.shape != *s || !strings.Contains(says, tt.wantGoogle) {
+				t.Errorf("over a directory method the starting point is %s and says %q, want %s saying %q", start.shape, says, s, tt.wantGoogle)
 			}
 		})
 	}
