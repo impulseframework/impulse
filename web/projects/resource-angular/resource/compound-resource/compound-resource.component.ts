@@ -33,7 +33,7 @@ import { ResourceArrayViewComponent } from '../resource-array-view/resource-arra
 import { ResourceListCreateComponent } from '../resource-list-create/resource-list-create.component';
 import { ResourceResolverComponent } from '../resource-resolver/resource-resolver.component';
 import { ResourceStore } from '../resource-store.service';
-import { ResourceViewComponent } from '../resource-view/resource-view.component';
+import { ResourceViewComponent, viewUsesExpansionPanel } from '../resource-view/resource-view.component';
 import { RowStoreDirective } from '../row-store.directive';
 
 @Component({
@@ -134,6 +134,20 @@ export class CompoundResourceComponent implements OnInit {
 
   isRootConfig = computed(() => {
     return this.resourceConfig() === undefined;
+  });
+
+  /**
+   * Whether the page's own row view draws the page's title, in the row it shares with
+   * its buttons: wherever the page has such a view and the view is not folded into a
+   * panel, which has a title of its own. The page draws the title itself everywhere else
+   * (a page of lists alone, a page whose first part is a component of the application's).
+   */
+  viewDrawsTitle = computed(() => {
+    const config = this.primaryConfig();
+    if (this.title() === '' || !(this.hasElements() || this.configs().length > 0)) {
+      return false;
+    }
+    return (config.type === 'View' || config.type === 'ListView') && !viewUsesExpansionPanel(config, true);
   });
 
   configs = computed(() => {
