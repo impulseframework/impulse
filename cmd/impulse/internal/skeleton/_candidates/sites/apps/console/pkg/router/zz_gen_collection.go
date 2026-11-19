@@ -168,6 +168,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffTenantUsers",
 			},
 			{
+				Name:        "SendStaffTenantUserPasswordResetLink",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffTenantUsers",
+			},
+			{
 				Name:        "SetStaffTenantTemporaryPassword",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -642,7 +648,18 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffSessionUsers",
 			},
 			{
+				Name:        "SendStaffUserPasswordResetLink",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffSessionUsers",
+			},
+			{
 				Name:        "SetFeature",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:        "SetStaffSelfServiceReset",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
@@ -1000,6 +1017,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "ownRule", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "selfServiceReset", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
 			},
 			{

@@ -112,10 +112,10 @@ type Signaler interface {
 	// covering write that fails is the failure of every caller that waited for it. No
 	// caller's context ends another's signal: a caller whose context ends returns, and the
 	// write stays with the callers still waiting, each of which makes it in turn where the
-	// one before it lost its context, or reached the limit, under the write; so no call
-	// makes more than one write or waits past its own context or the limit. The error is
-	// returned for the caller to log; the caller's contract stays log and never fail the
-	// request, since every subscriber also rereads at its own backstop.
+	// one before it lost its context, passed its deadline or reached the limit under the
+	// write; so no call makes more than one write or waits past its own context or the
+	// limit. The error is returned for the caller to log; the caller's contract stays log
+	// and never fail the request, since every subscriber also rereads at its own backstop.
 	Signal(ctx context.Context, kind Kind) error
 }
 

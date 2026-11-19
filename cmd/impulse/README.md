@@ -93,7 +93,8 @@ templates, this README, and the tool's source.
   a field its administrators change, kept from a second tenant by a unique index. A
   deleted tenant takes the roles held in it, its standing invitations and its directory
   with it, and the rows of every tenant-scoped table whose foreign key to the tenant
-  table says `ON DELETE CASCADE`, as the skeleton's sample table does. A
+  table says `ON DELETE CASCADE`, as the skeleton's sample table does; `impulse check`
+  fails on a table that carries a tenant's key without the rule (`tenant-delete-rule`). A
   session's tenant list is the roster filtered by where it holds a grant, and a tenant
   is offered only when the session may enter it: the application's tenant declaration
   (what the tenant declares about who may enter it, its directory and whether it
@@ -304,27 +305,34 @@ The first auth signs in with a password; a directory method joins it afterwards 
 same Auth, so nothing about the auth's tables moves.
 
 `--one-tenant-per-person` goes with `--tenancy` and says a person belongs to one tenant
-(section add tenancy); without it a person can be in several. `--shape <name>` starts the
+(section add tenancy); without it a person can be in several. `--tenant-directories` goes
+with `--tenancy` too and says whether a tenant can have a directory of its own; it is on
+unless `--tenant-directories=false` is given (section add tenancy). `--shape <name>` starts the
 application from a sign-in shape by name (section impulse audit lists the eight): `new`
 takes the four an application with tenants has, `tenant-owned-users-invite-only` (5),
 `tenant-owned-users-by-directory` (6), `global-users-invite-only` (7) and
 `global-users-each-tenant-chooses` (8). The shape composes `--tenancy` and fills in the
 tenants' choices: the two tenant-owned shapes hold a person to one tenant, and in the two
-global ones a person can be in several. The two invite-only shapes are the new
-application as it is, since its first auth signs in with a password and no tenant's
-people come through an organization's directory. For the other two the command says
-which `impulse add method` adds the directory method a tenant's people come through, and
+global ones a person can be in several. The two invite-only shapes write an application
+whose tenants have no directories (`--tenant-directories=false`): a tenant's people come
+by invitation alone, a directory method added afterward with the application giving
+the roles is a way for an invited person to sign in and nothing more, and `impulse
+audit` still reads the application as the invite-only shape. The other two write the
+tenant directories, and the command says
+which `impulse add method` adds the directory method a tenant's people come through;
 until it is added `impulse audit` reads the application as the invite-only shape beside
 it. A flag that contradicts the shape is refused before anything is written, naming both
-(`--shape global-users-invite-only --one-tenant-per-person`, `--shape` with
-`--tenancy=false`), and a name the command does not know is refused with the names it
-knows. The four shapes of an application without tenants are told apart by a sign-in
+(`--shape global-users-invite-only --one-tenant-per-person`, `--shape
+global-users-invite-only --tenant-directories`, `--shape` with `--tenancy=false`), and a
+name the command does not know is refused with the names it knows. The four shapes of
+an application without tenants are told apart by a sign-in
 method's choices, so `impulse add auth` and `impulse add method` take those.
 
 ```sh
 impulse new ./harbor --module example.com/harbor --auth staff --tenancy --outlet portal=portal/api --agent
 impulse new ./fleet --module example.com/fleet --auth crew --site console --site portal
 impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned-users-by-directory
+impulse new ./yard --module example.com/yard --auth staff --tenancy --tenant-directories=false
 ```
 
 The application ships its CI, and impulse owns it. Three workflows are rendered from the
@@ -419,9 +427,10 @@ so the gate covers every job:
   ended) is the one change that removes committed migrations, and the job accepts it by
   that shape alone, the fold being the concatenation it is. Then the whole directory, and the seed directory
   beside it, is read by the sequence rule the migrate command needs (`bedrock migration
-  check`, run with the bedrock the placement pins), so a gap already on the default branch
-  fails the next pull request; before the application is registered there is no placement,
-  and the step says so and passes.
+  check`, run with the bedrock the placement pins, which the job fetches with `go run` from
+  bedrock's own module, `github.com/impulseframework/bedrock`), so a gap already on the
+  default branch fails the next pull request; before the application is registered there
+  is no placement, and the step says so and passes.
 
 The security scan. The pull request checks run only when a pull request changes, and a
 vulnerability is published on its own day, so `security-scan.yml` runs every day at 14:00
@@ -560,6 +569,7 @@ the Go tool's rule about names is no rule of the browser's build.
 | `generator-program` | Every generator program uses options this release knows, with literal arguments: strings, booleans, lists and maps; a whole number or a constant expression of literals for `WithBodyLimit` (`2<<20`); and, for a request log word or a trace setting, the generation package's own constructor (`generation.LogOnEvent()`, `generation.TracesCapped(0.1)`, with `.MinSeverity(logging.Warning)` chained when wanted). A program the tool cannot read completely is one it cannot later edit or migrate. An option the framework has since removed (`WithDomainRoute`) is named with where its declaration went. A program that never reads `Warnings()` after it generates (in its own package, or in the main package that runs a declaring package) warns: the schema warnings a generation raises go unseen. The skeletons' runner prints them and pins the accepted set in a test. |
 | `options` | The generator programs declare one coherent option set, and the report states it: layout (flat or sites), sites, tenancy (the resource package's `@tenant` record, `WithConcealedDomains`), outlets, targets, and the request log words and trace settings a site declares (`WithRequestLog`, `OutletRequestLog`, `OutletTraces`, `WithMountedRoutes`). Handlers come with routes, `ForOutlet` names a declared session-serving outlet, the referenced directories exist, a `//go:generate` directive runs every program (its own directory, or a main package of the module that imports the package declaring it, the layout an application takes when its tests run the declaration in-process), the sites agree on tenancy, a second site lives under `apps/<site>/`, and each `GenerateIdentity` tree is one program's (a program removes from its tree the packages it does not write). |
 | `tenancy-wired` | A site whose resource package declares a tenant record (`@tenant`) has at least one struct annotated `@permissionScope(domain)` and a tenant roster built outside tests with the record's generated constructor (`New<Record>Roster`), handed the live service's tenants signal (`resource.WithTenantSignals`) and started (`Start`) in the package that binds it; a site declaring no record has no tenant-scoped structs. The generator refuses the rest (a tenant-scoped resource with no record, a record that is not a global, table-backed resource with one string key, a second record), the compiler holds the App to the generated contract's `TenantRoster()`, and the permission engine reaches every tenant with the roles held in every domain, so roles need no provisioning per tenant. |
+| `tenant-delete-rule` | Every table that carries a tenant's key on the row itself (a struct annotated `@resource` and `@permissionScope(domain)` whose `// @domain` field is its own column, `TenantId` in the skeletons) references the tenant table on that column with `ON DELETE CASCADE`, or is interleaved in the tenant table with it, so the one request that deletes a tenant takes the table's rows in the same transaction. The check reads the up migrations of the site's `file://` sources in order, statement by statement (`CREATE TABLE`, `ALTER TABLE ... ADD` and `DROP CONSTRAINT`, `DROP TABLE`), and fails on a table whose foreign key to the tenant table carries no delete rule (the delete of a tenant that still holds one of its rows would be refused) and on one that keeps the key with no foreign key at all (the rows of a deleted tenant would stay behind). It does not judge the directories record, whose row the generated delete of the tenant removes with its change event, nor a table that reaches its tenant through another row (`@domain(via: ...)`), which goes as its foreign key to that row says: a parent may refuse its own delete while it has children, and then holds its tenant's delete too. A table no migration it reads creates, and a migration source that is not a `file://` path, are a warning that names what was not read, never a pass. |
 | `outlet-wired` | Every outlet a program declares (the default from `GenerateRoutes` and each `WithRouterOutlet`) has its generated routes mounted: by the generated router (`GenerateRouter`) from the declaration itself, or, in an application that kept a hand-written router, by a hand-written file in the router package calling `generated<Outlet>Routes`. A session-serving outlet has a `GenerateTypescript` target naming it, and that browser project's development proxy forwards the outlet's prefix. An outlet with no `@outlet` members yet is noted, not failed. Each session outlet's line says `live` when the site's App wires the live service (its `LiveService` returns more than nil), since the generated router mounts the live routes on every session outlet; an App whose `LiveService` returns nil fails: every session outlet serves the live routes, and the live service is required in every application. |
 | `outlet-shape` | Every session outlet serving a browser application (`WebApp`) has its API prefix under the application's mount path: `<mount>/api`, `api` for an application at `/`. That is the one shape the skeletons carry, so each application's scope covers its own API, login, and callback routes; an outlet shaped otherwise works and the generator accepts it, so the check warns, naming the outlet, its prefix, and its mount path. The mount rule itself is the generator's: a browser application at `/` beside another is refused at generation, since an installed application's scope is every URL under its start. |
 | `sites-wired` | In the sites layout, every site has a main package under `apps/<site>/`, a process in the Procfile or process-compose file running it on its own `PORT`, and every site's router is imported by some package passing a collection to `access.WithDefaultRoles` (the data level, or the callers of an auth package that makes the call itself), so the collection the permission engine validates the roles against (the union, or one per auth) knows the site's resources. |
@@ -674,9 +684,9 @@ The shapes are the eight combinations of those choices that have a name:
 | 2 Directory members | No tenants. The application gives the roles, and a method that admits the organizations it names and nobody else (one or listed Microsoft tenants or Google Workspaces, an identity provider) is open, so everyone in the organization's directory gets an account. |
 | 3 Directory roles | No tenants. One directory method whose directory gives the roles, alone in its auth. |
 | 4 Open sign-up | No tenants. The application gives the roles, and a method anyone can use (the password method, any Microsoft tenant, personal accounts, any Google account) is open. |
-| 5 Tenant-owned users, invite only | Tenants. A person belongs to one tenant, and a tenant's people come by invitation alone. |
+| 5 Tenant-owned users, invite only | Tenants, with no tenant directories. A person belongs to one tenant, and a tenant's people come by invitation alone, whatever methods the auth has. |
 | 6 Tenant-owned users, by directory | Tenants. A person belongs to one tenant, and a tenant's people can come through its own directory. |
-| 7 Global users, invite only | Tenants. A person can be in several tenants, and a tenant's people come by invitation alone. |
+| 7 Global users, invite only | Tenants, with no tenant directories. A person can be in several tenants, and a tenant's people come by invitation alone, whatever methods the auth has. |
 | 8 Global users, each tenant chooses | Tenants. A person can be in several tenants, and each tenant chooses whether its people come through its own directory. |
 
 Shapes 1, 2 and 4 are one auth at different moments: it is written as 1, and the section
@@ -686,7 +696,13 @@ person belongs to one tenant where the auth's package hands its identity client
 directory where the tenant record declares directories (a record annotated
 `@tenantDirectory`) and the auth registers a directory method whose roles the
 application gives; what a tenant then does with its directory is the tenant's choice,
-made while the application runs. An auth outside the eight (a directory that gives the
+made while the application runs. Where the tenant record declares no directories, an
+auth whose roles the application gives is read as the invite-only shape with a
+directory method as without one, and the section says in one sentence that the tenants
+have no directories, naming a directory method as a way for an invited person to sign
+in. Where it declares them and no such method is
+registered yet, the auth is read as the invite-only shape too, and the section says
+which method makes it the shape beside it. An auth outside the eight (a directory that gives the
 roles in an application with tenants, or beside another method; a method whose authority
 is not read) reads `no named shape`. That is no error in itself: nothing in the framework
 acts on a shape's name, and no check of `impulse check` reads one. One of those auths is
@@ -1113,11 +1129,13 @@ screen names the tenant an invitation seats a person in and not its id; the app 
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
 `Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
-shape: the tenant pages are copied in (the tenant's sign-in page, the configuration of All
+shape: the tenant pages are copied in (the tenant's sign-in page where a tenant can have
+a directory, the configuration of All
 tenants, the library's list page over the record, and the dialog a person who signed up
 creates their own tenant through), the menu
 file gains the tenant menus ahead of its others (Tenants with All tenants,
-People with the tenant's side of the auth's people, and Tenant with Sign-in settings;
+People with the tenant's side of the auth's people, and, where a tenant can have a
+directory, Tenant with Sign-in settings;
 the Invited tenants page, where staff bring a tenant in, is among the auth's pages the
 System menu already places, and the menu file's test, where it lists that menu's pages as
 the skeleton's does, gains it after Mailed links), the
@@ -1129,7 +1147,7 @@ list shows. A record of another name gets everything in its own words: with
 `--tenant-table ServiceAreas` the pages, the menus and the routes say service area, and
 every name the generator derives from the record is the record's; the files are written
 without wrapping their lines again, so the brief says to run `impulse check --only prettier
---fix` once the web root's packages are installed. The declaration rides along: the tenant table carries `DirectoryOnly` and a
+--fix` once the web root's packages are installed. The declaration rides along, unless the command is given `--tenant-directories=false`: the tenant table carries `DirectoryOnly` and a
 `<Record>Directories` table beside it, with the two unique indexes that hold a tenant to
 one directory and a directory to one tenant, the directories record joins the resource
 package (`@tenantDirectory`, tenant-scoped, its directory set from a sign-in and never
@@ -1174,28 +1192,48 @@ refused however it would be given. Without it a person can be in several tenants
 auth whose client is built in a form the command does not follow is recorded in the brief
 as the agent's.
 
+`--tenant-directories` says whether a tenant can have a directory of its own, and is on
+unless told otherwise. With `--tenant-directories=false` the command writes an
+application whose tenants have no directories: no directories record or table, no
+`DirectoryOnly` on the tenant table or the record, no directory reader in an auth's
+`Settings` and no directory admission in its `New`, no tenant sign-in page, menu or
+route, and All tenants without its directory-only column. Everything else is written as
+above: each auth's `Settings` still carry the generated declaration reader, which
+answers nothing for every tenant, and its `New` still sets the library's sign-in rule
+over it, so a tenant admits everyone it seats, however they signed in. In such an
+application a directory method is a way for an invited person to sign in and nothing
+more, whichever methods it has or gets: no tenant takes a directory, none is opened to
+one or made directory only, and a person from an organization's directory who has no
+account and no invitation joins no tenant (they are refused while the method is invite
+only, and where it is open to sign-up they hold no tenant and may create their own).
+Laying the tenant directories in afterward is the author's act, which the brief
+describes; no `impulse add method` does it.
+
 `--shape <name>` starts from a sign-in shape by name (section impulse audit lists the
 eight) and fills in the tenants' choices. `add tenancy` takes the four an application
 with tenants has: `tenant-owned-users-invite-only` (5), `tenant-owned-users-by-directory`
 (6), `global-users-invite-only` (7) and `global-users-each-tenant-chooses` (8). The two
 tenant-owned shapes set `--one-tenant-per-person`, and the two global ones leave it off.
-In the two invite-only shapes a tenant's people come by invitation alone, which is so
-while no sign-in method goes through an organization's directory: the command refuses one
-of them where the application already registers such a method, naming the method. In the
-other two a tenant's people come through its own directory: the tenant record declares
-one either way, and where no sign-in method goes through an organization's directory yet
-the command says which `impulse add method` adds it. Whether a tenant takes a directory,
-and whether that directory's people get an account without an invitation, is each
-tenant's choice, made while the application runs, so the command writes nothing for it
-and says where it is chosen. A flag that contradicts the shape is refused, naming both
-(`--shape global-users-invite-only --one-tenant-per-person`), and a name the command does
-not know is refused with the names it knows. What the shape filled in is printed after
+The two invite-only shapes set `--tenant-directories=false`: a tenant's people come by
+invitation alone, whatever sign-in methods the application already registers, and the
+command names the ones that go through an organization's directory as ways for an
+invited person to sign in. The other two write the tenant directories: a tenant's people
+come through its own directory, and where no sign-in method goes through an
+organization's directory yet the command says which `impulse add method` adds it.
+Whether a tenant takes a directory, and whether that directory's people get an account
+without an invitation, is each tenant's choice, made while the application runs, so the
+command writes nothing for it and says where it is chosen. A flag that contradicts the
+shape is refused, naming both (`--shape global-users-invite-only
+--one-tenant-per-person`, `--shape global-users-each-tenant-chooses
+--tenant-directories=false`), and a name the command does not know is refused with the
+names it knows. What the shape filled in is printed after
 the change as `Starting point:`, and `impulse audit` reads it back from the code.
 
 ```sh
 impulse add tenancy --agent
 impulse add tenancy --tenant-table Organizations
 impulse add tenancy --one-tenant-per-person
+impulse add tenancy --tenant-directories=false
 impulse add tenancy --shape global-users-each-tenant-chooses
 ```
 

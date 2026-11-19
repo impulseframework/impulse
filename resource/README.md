@@ -93,7 +93,7 @@ type Ship struct { ... }
 | `@tenant` | `@resource` struct | none, or `label: "<word>"`: `@tenant(label: "Service district")` | The struct is the tenant record: the table whose rows are the tenants, one per package. Its route name is the segment tenant-scoped routes are served under and its key's route parameter is the domain parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/…`); the generator emits `New<Record>Roster(client, opts...)` into the handler package, which builds the `resource.TenantRoster` the generated `DomainGuard` and the consolidated dispatcher ask (section 16); what makes a tenant (the generated `New<Record>Maker`, at the first sign-in of a person staff invited, and the create-your-tenant route) and the record's generated delete path reread the roster after their commit and signal the tenants kind, so a tenant made at run time is served by every instance without a restart or a release. Nobody creates a tenant directly: the record's create op is refused with how one is made (section 16). The record must be global, table-backed, and keyed by one generated id (`ID impulse.UUID`, whose text is the domain in every tenant-scoped URL; what people call the tenant is its `@tenantName` column, changed like any field): `@tenant` on a `@permissionScope(domain)` struct, on a compound key, on a key that is not a generated id (a typed string, a foreign key, an interleaved table), on a `@virtual`, `@computed` or `@rpc` struct, or on a second struct is refused naming the rule, and a tenant-scoped resource, view, computed resource or method in a package with no `@tenant` record is refused (`a tenant-scoped resource needs a tenant record; annotate it @tenant`). A key cannot change on update. The record names what the screen calls a tenant: the generated browser descriptor carries the word, one and many (`domainRoute.word`), for the frame's place switcher and menus, from the record's name in words (`Sector` reads "Sector" and "Sectors", `ShipClass` "Ship class" and "Ship classes"), or from `label:` where an application in production changes the word without renaming its tables; the plural is the generator's, as it spells the table. A label is letters, digits, single spaces and hyphens, starting with a letter; any other is refused. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directory only: a tenant whose flag is true admits a sign-in through its own directory and nothing else, so a password, a personal account and a sign-in through another organization's directory do not reach it. Two people are not held to it: a super administrator, and an administrator of the tenant itself, who enters with a password and a second factor so that a tenant whose directory is broken can be mended from inside (section 16, "Directory only"). The flag restricts that tenant's own door alone: a tenant whose flag is false admits everyone it seats, however they signed in, and a person the flag keeps out of one tenant still enters every other tenant that seats them. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directory only needs a directory to enter through, and the directory of such a tenant is not removed until the flag is turned off. The switch is the tenant's own: the generator writes two methods in the tenant's scope, `Make<Record>DirectoryOnly` and `End<Record>DirectoryOnly`, which the tenant's administrator runs under an Execute grant on each; turning the flag on is held to three rules (the tenant has its directory, the caller is signed in through it, and the caller has a password where their auth has passwords; section 16, "Directory only"). The record's own write paths, which are global, show the flag and never write it: the field is output only on the wire, at create and at update, and the record's change events are the audit. The generated create-your-tenant route leaves it out of its body: a new tenant declares nothing beyond its creator's directory. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. The generated browser metadata names the column on the record (`nameField`), so a picker over the tenant record lists tenants by name and the people pages name the tenant a role or an invitation is in. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table that holds each tenant's directory, the organization its people sign in through, as the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). A tenant has one directory and a directory belongs to one tenant: the generator refuses a record whose table has no unique index on the tenant column alone, or none on the method and the connection together, naming the index to add, and the generated write paths refuse first, each with a sentence the person can act on (`resource.TenantDirectoryRules`, section 16). Nobody types a directory in: the method and the connection are output-only, the record's generated create sets both from the directory the caller is signed in through and refuses a session that came by password or with a personal account (any Google account, a Microsoft personal account), and its generated delete is refused while the tenant is directory only. The record's key is an id its create generates. Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator sets and removes its own directory under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy`, the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the generator emits `Set<Record>Directory`, the one step that sets a tenant's directory from a sign-in, which the create-your-tenant route calls with the directory its creator came through. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, without either column, with a key that is not a generated id, and without either unique index. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table that holds each tenant's directory, the organization its people sign in through, as the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). A tenant has one directory and a directory belongs to one tenant: the generator refuses a record whose table has no unique index on the tenant column alone, or none on the method and the connection together, naming the index to add, and the generated write paths refuse first, each with a sentence the person can act on (`resource.TenantDirectoryRules`, section 16). Nobody types a directory in: the method and the connection are output-only, the record's generated create sets both from the directory the caller is signed in through and refuses a session that came by password or with a personal account (any Google account, a Microsoft personal account), and its generated delete is refused while the tenant is directory only. The record's key is an id its create generates. Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator sets and removes its own directory under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy` (a package that declares no directories record and makes the tenant record's rows itself is given the reader too, one that answers nothing for every tenant: "No directories", section 16), the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the generator emits `Set<Record>Directory`, the one step that sets a tenant's directory from a sign-in, which the create-your-tenant route calls with the directory its creator came through. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, without either column, with a key that is not a generated id, and without either unique index. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure`, `workos` or `oidc` (an organization's own OpenID Connect provider, named by its registration's connection). The column is output-only: the generated create sets it from the caller's session, and no request writes it. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. The column is output-only, as the method is. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryDefaultSeat` | field of the `@tenantDirectory` record, a `string` or `*string` column | none | The column names the role a person is given in the tenant at their first sign-in through the tenant's directory, whether their account is created then or stood before, chosen by the tenant's administrator from the tenant's roles on its Sign-in page, with the generated method `Open<Record>ToDirectory` (section 16); NULL (or empty), which `Make<Record>InviteOnly` writes, says the tenant admits the directory's people by invitation only: a stranger is refused with the `invitation_only` refusal and no account is created, and an invitation link is the way in. A directories record without the column admits every stranger by invitation only. The role is given once for the link between the account and the directory: a person whose role an administrator removes is not given it back by signing in, and a link that is deleted and made again gives it again where the person holds no role in the tenant. With it the generated `New<Record>DirectoryReader` answers the tenant whose directory an identity came through with its seat, which the auth's directory admission reads (`session.Auth.SetDirectoryAdmission`) before the method's account rule, and the role is given by the Auth's generated identity client in the transaction that links the account to the directory (section 16). The column is output only on the wire: the two methods write it, and the record's create and update do not. Refused off the directories record, on a column that is neither a string nor a nullable string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
@@ -1052,8 +1052,16 @@ the session library wires them: `POST user/password/login`, `POST user/password/
 `POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
 the sign-in code to a sign-in that waits for the second factor), `POST
 user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
-none gives for the code); a browser reaches them with the XSRF cookie its first request
-was issued, echoed in the header. The password change
+none gives for the code); `POST user/email/confirm` (the link an administrator's change
+of a person's address mails to the new address, confirmed by a person who need not be
+signed in); and, for an Auth with a password method, `POST user/password-reset` (a
+person's own request for a reset link), `POST user/password-reset/open` and `POST
+user/password-reset/complete` (the mailed link opened, and completed with the new
+password). A browser reaches them with the XSRF cookie its first request
+was issued, echoed in the header. The methods route names the reset paths
+(`passwordReset`), the request's only while an administrator lets people ask for a link
+themselves (section 21, "Who may sign up"), so the login page offers "Forgot your
+password?" from the list it already reads. The password change
 (`PasswordChange`, the password method's `ChangeUserPassword`) validates the session
 itself, so it sits outside `ValidateSession`: a person whose operator-set password must
 change before anything else is served reaches it, and the methods route tells the login
@@ -2361,8 +2369,9 @@ the channel answers well inside the limit below. A `Signal` returns once its sig
 sent and leaves nothing to be sent behind it, so an instance that gets no CPU once its
 requests have answered (Cloud Run's default) owes no signal; a covering write that fails is the failure of every
 caller that waited for it. No caller's context ends another's signal: a caller whose
-context ends under the covering write it is making fails alone and another waiting
-caller makes the write, so no call makes more than one write or waits past its context.
+context ends, or whose deadline passes, under the covering write it is making fails
+alone and another waiting caller makes the write, so no call makes more than one write
+or waits past its context.
 The live service gives every `Signal` its own limit of two seconds
 (`live.SignalTimeout`), for its wait and its write together and on top of the caller's
 context: a caller that brings no deadline, as the tenant write paths do, is not held by
@@ -2746,6 +2755,19 @@ accepted through an organization's directory, and the record's create-your-tenan
 the new tenant in the row's transaction, beside the person's administrator membership;
 the route reloads the roster before it waits on that membership, so the wait's probe asks
 what the next request asks.
+
+**No directories.** An application whose resource package declares no `@tenantDirectory`
+record has tenants with no directories: no tenant takes one, none is opened to one and
+none is made directory only, so a tenant's people come by invitation alone. Where that
+package makes the tenant record's rows itself (the record's patch handler is not
+suppressed), the generator still emits `New<Record>DeclarationReader()`, over no
+columns: `resource.NewTenantDeclarationReader(table, key, nil)` answers nothing for
+every tenant, without a read. Each auth's `New` therefore sets `signin.TenantPolicy`
+over the generated reader in both kinds of application, and here every tenant admits
+everyone it seats, however they signed in. The roster reads no declarations, and
+`Declarations` answers nil for every tenant. A package that declares the tenant record
+another site serves, with its handlers suppressed, is given no reader: the site that
+makes the record's rows is where the directories record is declared or left out.
 
 **One directory, set from a sign-in.** A tenant has one directory, and a directory, its
 method and its connection together, belongs to one tenant. The schema holds both with
@@ -3476,7 +3498,8 @@ POST <prefix>/create-crew-user                {"username","name","email","passwo
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-email             {"userId","email"}               Execute on SetCrewUserEmail, targeting CrewSessionUsers
+POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewSessionUsers
+POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewSessionUsers
 POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
@@ -3505,6 +3528,7 @@ POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyD
 POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
 POST <prefix>/make-crew-invite-only           {"name"}                         Execute on MakeCrewInviteOnly
+POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
 POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
@@ -3520,8 +3544,9 @@ POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","u
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
-     set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
-     end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
+     set-crew-sector-temporary-password, send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
+     revoke-crew-sector-user-trusted-devices, end-crew-sector-user-sessions
+                                              the whole application's bodies and answers    Execute on each, targeting CrewSectorUsers
 ```
 
 The names are table-derived: the Auth's package name in PascalCase and the library's own
@@ -3535,7 +3560,9 @@ decides which methods exist: the two role methods, the two invitation methods, t
 create, and the list and the two methods of the sign-in methods ("Who may sign up",
 below) are left out for an Auth whose roles a directory writes (`SyncsRoles`), where the
 directory admits its own members and the first sign-in creates the row, the two password
-methods (and the create's `password`) for an Auth with no password method, as are the
+methods (and the create's `password`), the method that mails a reset link and the one
+that says whether a person may ask for one themselves for an Auth with no password
+method, as are the
 method that removes a person's password and the list of how a person signs in, which are
 also written only where the schema holds the identities table (the rule they keep reads a
 person's identity links), the rename and
@@ -4110,16 +4137,39 @@ every policy store's schema holds it).
 - A rename takes with it what is held under the old name: the person's sessions, the
   sessions they hold as someone else with their impersonation records, and every role
   membership. A name another user holds is refused (409).
-- An address set by hand is written bare and held unverified, whatever the one before it
-  was: it is trusted for nothing until the person verifies it themselves, and it
-  reserves the address, so one another user holds is refused at the commit. No address
-  (`email` null or left out) takes the one held off.
+- An address an administrator sets changes nothing until the person confirms it. The
+  method mails a link to the new address once the transaction has committed, and the
+  account keeps the address it has until the person follows that link from the new
+  mailbox (`POST user/email/confirm`, which the login page reaches with
+  `?address=<token>`). The old address is told once the change is made, and never asked
+  to allow it. One change stands at a time: a second request withdraws the first one's
+  link. An account always keeps an address, so the method replaces one and never takes
+  one off, and the answer says whether the link went (`sent`) and, where it did not,
+  why (`reason`), which the page shows the administrator.
+- A password reset link is mailed to the address the person confirmed, once the
+  transaction has committed, and changes nothing until it is used: the password the
+  account has signs the person in and their sessions stand. The message says who asked,
+  an administrator of the tenant the request was checked in or of the application. The
+  link works once; the new password ends every session of the person. The answer says
+  whether the link went and why not (the account has no password or no confirmed
+  address, or the address was sent too many reset links: five in fifteen minutes, the
+  person's own requests counted with the administrators' and apart from sign-in codes).
+  The role file decides who may send one, as for every method of the set.
 - Deleting a user removes their role memberships, ends their sessions, and removes
   their identity links and the account; whatever else the Auth keeps for the person
   goes with the row.
 - Resetting a person's second factor forgets every browser the Auth remembered for
   them, so their next sign-in from any of them is asked for the factor. The sessions
-  that stand are left.
+  that stand are left. The person is told at their confirmed address, once the
+  transaction has committed.
+- A person an administrator takes out of a tenant is told at their confirmed address,
+  once the transaction has committed: when the last role they held there is taken away,
+  when they are taken out of the group that gave them their last holding there, and
+  when that group's role is taken away, each of its people who held nothing else there
+  told. Where it was the last thing the person held anywhere and the account went with
+  it, the notice says so. Nothing is mailed when an administrator deletes the account
+  outright, when a tenant is cleared, for a role that ended by itself, or to a person
+  who still holds something in the tenant, of their own or through another group.
 - A lockout is cleared by removing the count of failed sign-ins kept under the name.
   Each instance of the application trusts what it remembers of a name for five seconds,
   a lock included, so the lock is gone from every instance within that time of the
@@ -4205,7 +4255,9 @@ assigns the page's two halves, with nothing written by the application:
   (`admits`: "Anyone with a Google account", "Anyone with an account at acme.example",
   from how wide the method's registration is), `openSignUp`, `defaultRole`,
   `directoryGivesRoles` and `ownRule` (the two kinds of method nothing is chosen for,
-  below), and `says`, what a person with no invitation meets, as a sentence. It is
+  below), `selfServiceReset` (on the password method's row alone: people may ask at the
+  sign-in page for a link that resets their own password), and `says`, what a person
+  with no invitation meets, as a sentence. It is
   computed from the Auth's registrations and the table's rows, so a method with no row is
   listed as invite only, and a row of a method the Auth no longer registers is not listed.
 - `OpenCrewSignUp` and `MakeCrewInviteOnly`, the two methods that write the row. Opening
@@ -4214,6 +4266,16 @@ assigns the page's two halves, with nothing written by the application:
   gets, with the words for the confirm button ("Open to anyone with a Google account"),
   and saves nothing. Making a method invite only says nothing first: the people who have
   accounts keep them, and new people need an invitation.
+- `SetCrewSelfServiceReset`, for an Auth with a password method: whether a person may
+  ask at the sign-in page for a link that resets their own password (`on`). It is off
+  until an administrator turns it on, and the choice holds in the running application
+  from the commit on, with no restart: the methods route names the request's path while
+  it is on, the login page offers "Forgot your password?" from it, and the request's
+  route answers 404 while it is off. A link asked for while it was on still works once
+  it is off, until it is used or runs out, and a link an administrator sends is never
+  held to the choice. An Auth with a password and no list of sign-in methods (one whose
+  application lets nobody sign up to it) has no such method: its people are sent a
+  reset link by an administrator.
 
 What a person who signs up gets depends on the application. Without tenants they get the
 method's default role, a role held for the whole application: opening a method without
@@ -4275,7 +4337,7 @@ nothing once it is closed. The table's rows are written through its generated pa
 with change tracking on, so the change record keeps who opened a method and who made it
 invite only, and when (`DataChangeEvents` under `CrewSessionSignInMethods`); the table
 itself has no route, and nothing but the two methods writes it. The role file grants
-List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the two methods to the
+List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the methods to the
 roles that may decide, and nobody else reads the list or the warning.
 
 **What the application supplies.** One client per Auth, built by the Auth's own package
@@ -4592,9 +4654,9 @@ the tenant record's name where the application has one, and a side for each scop
 each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
-`rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
+`rename`, `setEmail`, `setTemporaryPassword`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
-the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
+the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
 what the outlet serves, so a method the Auth's shape leaves out, or a list the schema has
 no table for, is absent, and a side without its list of people is not listed. The Angular

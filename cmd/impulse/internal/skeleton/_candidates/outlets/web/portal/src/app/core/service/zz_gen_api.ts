@@ -2,7 +2,7 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, ResourceHandle } from '@impulseframework/resource';
 import { Methods, Resources } from './zz_gen_constants';
 import { Announcements, MembersGroups, MembersGroupMembers, MembersGroupRoles, MembersGroupUsers, MembersHeldRoles, MembersListedGroups, MembersListedGroupRoles, MembersRoles, MembersRoleGrants, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTokens, MembersSessionTrustedDevices, MembersSessionUsers, MembersTakenRoles, MembersTenantGroups, MembersTenantGroupRoles, MembersTenantGroupUsers, MembersTenantHeldRoles, MembersTenantIdentities, MembersTenantInvitations, MembersTenantUsers, MembersTenantUserGroupRoles, MembersTenantUserRoles, MembersUserGroupRoles, MembersUserRoles, MembersTakeLengths, MembersTakeableRoles, MembersTenantRoles, FeatureFlags } from './zz_gen_resources';
-import { AddMembersGroupMember, AddMembersTenantGroupMember, AssignMembersRole, AssignMembersTenantRole, CreateMembersGroup, CreateMembersGroupResult, CreateMembersTenantGroup, CreateMembersTenantGroupResult, CreateMembersTenantUser, CreateMembersTenantUserResult, CreateMembersUser, CreateMembersUserResult, DeleteMembersGroup, DeleteMembersTenantGroup, DeleteMembersTenantUser, DeleteMembersUser, DescribeMembersGroup, DescribeMembersTenantGroup, DisableMembersTenantUser, DisableMembersUser, EnableMembersTenantUser, EnableMembersUser, EndMembersSession, EndMembersTenantUserSessions, EndMembersUserSessions, GiveMembersGroupRole, GiveMembersTenantGroupRole, InviteMembersTenantUser, InviteMembersTenantUserResult, InviteMembersUser, InviteMembersUserResult, RemoveMembersGroupMember, RemoveMembersRole, RemoveMembersTenantGroupMember, RemoveMembersTenantRole, RenameMembersTenantUser, RenameMembersUser, RevokeMembersSessionToken, RevokeMembersTenantUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersTenantUserEmail, SetMembersTenantUserName, SetMembersUserEmail, SetMembersUserName, TakeMembersGroupRole, TakeMembersRole, TakeMembersTenantGroupRole, UnlinkMembersSessionIdentity, UnlinkMembersTenantSessionIdentity, UnlockMembersSignIn, WithdrawMembersInvitation, WithdrawMembersTenantInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { AddMembersGroupMember, AddMembersTenantGroupMember, AssignMembersRole, AssignMembersTenantRole, CreateMembersGroup, CreateMembersGroupResult, CreateMembersTenantGroup, CreateMembersTenantGroupResult, CreateMembersTenantUser, CreateMembersTenantUserResult, CreateMembersUser, CreateMembersUserResult, DeleteMembersGroup, DeleteMembersTenantGroup, DeleteMembersTenantUser, DeleteMembersUser, DescribeMembersGroup, DescribeMembersTenantGroup, DisableMembersTenantUser, DisableMembersUser, EnableMembersTenantUser, EnableMembersUser, EndMembersSession, EndMembersTenantUserSessions, EndMembersUserSessions, GiveMembersGroupRole, GiveMembersTenantGroupRole, InviteMembersTenantUser, InviteMembersTenantUserResult, InviteMembersUser, InviteMembersUserResult, RemoveMembersGroupMember, RemoveMembersRole, RemoveMembersTenantGroupMember, RemoveMembersTenantRole, RenameMembersTenantUser, RenameMembersUser, RevokeMembersSessionToken, RevokeMembersTenantUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersTenantUserEmail, SetMembersTenantUserEmailResult, SetMembersTenantUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, TakeMembersGroupRole, TakeMembersRole, TakeMembersTenantGroupRole, UnlinkMembersSessionIdentity, UnlinkMembersTenantSessionIdentity, UnlockMembersSignIn, WithdrawMembersInvitation, WithdrawMembersTenantInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /**
  * The fields a client may set when creating Announcements. Server-owned fields are
@@ -549,9 +549,9 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.RevokeMembersSessionToken]: { method: Methods.RevokeMembersSessionToken, property: 'revokeMembersSessionToken', route: 'revoke-members-session-token', scope: 'global', statuses: [204] },
     [Methods.RevokeMembersTenantUserTrustedDevices]: { method: Methods.RevokeMembersTenantUserTrustedDevices, property: 'revokeMembersTenantUserTrustedDevices', route: 'revoke-members-tenant-user-trusted-devices', scope: 'domain', statuses: [204] },
     [Methods.RevokeMembersUserTrustedDevices]: { method: Methods.RevokeMembersUserTrustedDevices, property: 'revokeMembersUserTrustedDevices', route: 'revoke-members-user-trusted-devices', scope: 'global', statuses: [204] },
-    [Methods.SetMembersTenantUserEmail]: { method: Methods.SetMembersTenantUserEmail, property: 'setMembersTenantUserEmail', route: 'set-members-tenant-user-email', scope: 'domain', statuses: [204] },
+    [Methods.SetMembersTenantUserEmail]: { method: Methods.SetMembersTenantUserEmail, property: 'setMembersTenantUserEmail', route: 'set-members-tenant-user-email', scope: 'domain', answers: true },
     [Methods.SetMembersTenantUserName]: { method: Methods.SetMembersTenantUserName, property: 'setMembersTenantUserName', route: 'set-members-tenant-user-name', scope: 'domain', statuses: [204] },
-    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', statuses: [204] },
+    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', answers: true },
     [Methods.SetMembersUserName]: { method: Methods.SetMembersUserName, property: 'setMembersUserName', route: 'set-members-user-name', scope: 'global', statuses: [204] },
     [Methods.TakeMembersGroupRole]: { method: Methods.TakeMembersGroupRole, property: 'takeMembersGroupRole', route: 'take-members-group-role', scope: 'global', statuses: [204] },
     [Methods.TakeMembersRole]: { method: Methods.TakeMembersRole, property: 'takeMembersRole', route: 'take-members-role', scope: 'global', statuses: [204] },
@@ -627,7 +627,7 @@ export interface GlobalApi {
   renameMembersUser: MethodHandle<RenameMembersUser>;
   revokeMembersSessionToken: MethodHandle<RevokeMembersSessionToken>;
   revokeMembersUserTrustedDevices: MethodHandle<RevokeMembersUserTrustedDevices>;
-  setMembersUserEmail: MethodHandle<SetMembersUserEmail>;
+  setMembersUserEmail: MethodHandle<SetMembersUserEmail, SetMembersUserEmailResult>;
   setMembersUserName: MethodHandle<SetMembersUserName>;
   takeMembersGroupRole: MethodHandle<TakeMembersGroupRole>;
   takeMembersRole: MethodHandle<TakeMembersRole>;
@@ -666,7 +666,7 @@ export interface DomainApi {
   removeMembersTenantRole: MethodHandle<RemoveMembersTenantRole>;
   renameMembersTenantUser: MethodHandle<RenameMembersTenantUser>;
   revokeMembersTenantUserTrustedDevices: MethodHandle<RevokeMembersTenantUserTrustedDevices>;
-  setMembersTenantUserEmail: MethodHandle<SetMembersTenantUserEmail>;
+  setMembersTenantUserEmail: MethodHandle<SetMembersTenantUserEmail, SetMembersTenantUserEmailResult>;
   setMembersTenantUserName: MethodHandle<SetMembersTenantUserName>;
   takeMembersTenantGroupRole: MethodHandle<TakeMembersTenantGroupRole>;
   unlinkMembersTenantSessionIdentity: MethodHandle<UnlinkMembersTenantSessionIdentity>;

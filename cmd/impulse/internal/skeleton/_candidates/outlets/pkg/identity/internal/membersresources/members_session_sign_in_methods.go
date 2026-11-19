@@ -17,8 +17,11 @@ type (
 	// opened (the row opens the method for that audience alone, so a registration
 	// widened in code since is invite only until it is opened again), and DefaultRole
 	// names the role such a person is given with their account. A method with no row is
-	// invite only. The sign-in reads the row in its own transaction;
-	// OpenMembersSignUp and MakeMembersInviteOnly write it, and nothing else does.
+	// invite only. SelfServiceReset, read on the password method's row alone, says a
+	// person may ask at the sign-in page for a link that resets their own password. The
+	// sign-in reads the row in its own transaction; OpenMembersSignUp,
+	// MakeMembersInviteOnly and SetMembersSelfServiceReset write it, and nothing
+	// else does.
 	//
 	// @resource
 	// @suppress(listHandler)
@@ -26,11 +29,12 @@ type (
 	// @suppress(patchHandler)
 	// @outlet(portal)
 	MembersSessionSignInMethod struct {
-		Name        string    `spanner:"Name"`
-		OpenSignUp  bool      `spanner:"OpenSignUp"`
-		OpenedFor   *string   `spanner:"OpenedFor"`
-		DefaultRole *string   `spanner:"DefaultRole"`
-		UpdatedAt   time.Time `spanner:"UpdatedAt"`
+		Name             string    `spanner:"Name"`
+		OpenSignUp       bool      `spanner:"OpenSignUp"`
+		OpenedFor        *string   `spanner:"OpenedFor"`
+		DefaultRole      *string   `spanner:"DefaultRole"`
+		SelfServiceReset bool      `spanner:"SelfServiceReset"`
+		UpdatedAt        time.Time `spanner:"UpdatedAt"`
 	}
 )
 

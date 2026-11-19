@@ -95,9 +95,13 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
 		{url: "/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
+		{url: "/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
 		{url: "/api/user/sign-up", suffix: "/user/sign-up", method: http.MethodPost, handler: "SignUpStart", xsrf: true},
 		{url: "/api/user/sign-up/open", suffix: "/user/sign-up/open", method: http.MethodPost, handler: "SignUpOpen", xsrf: true},
 		{url: "/api/user/sign-up/complete", suffix: "/user/sign-up/complete", method: http.MethodPost, handler: "SignUpComplete", xsrf: true},
+		{url: "/api/user/password-reset", suffix: "/user/password-reset", method: http.MethodPost, handler: "PasswordResetRequest", xsrf: true},
+		{url: "/api/user/password-reset/open", suffix: "/user/password-reset/open", method: http.MethodPost, handler: "PasswordResetOpen", xsrf: true},
+		{url: "/api/user/password-reset/complete", suffix: "/user/password-reset/complete", method: http.MethodPost, handler: "PasswordResetComplete", xsrf: true},
 		{url: "/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
 		{url: "/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "EmailAdd", xsrf: true, validated: true},
 		{url: "/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "EmailVerify", xsrf: true, validated: true},
@@ -881,6 +885,10 @@ func (s *routerDefaultSessionStub) InvitationSignUp() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationSignUp")
 }
 
+func (s *routerDefaultSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
+}
+
 func (s *routerDefaultSessionStub) SignUpStart() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpStart")
 }
@@ -891,6 +899,18 @@ func (s *routerDefaultSessionStub) SignUpOpen() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) SignUpComplete() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpComplete")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetRequest() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetRequest")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetOpen() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetOpen")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetComplete() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetComplete")
 }
 
 func (s *routerDefaultSessionStub) InvitationAccept() http.HandlerFunc {

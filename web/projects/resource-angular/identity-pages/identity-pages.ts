@@ -706,6 +706,15 @@ class SideBuilder {
           // The role a new person gets is chosen where the application has no tenants.
           ...(lists.signUpRoles ? this.columns(resource, [['defaultRole', 'Role a new person gets']]) : []),
           ...this.columns(resource, [['says', 'A person with no invitation']]),
+          // Whether a person may ask for a reset link themselves, where the Auth has a
+          // password to reset: the password method's row says, and the other rows say nothing.
+          ...(methods.setSelfServiceReset
+            ? this.columns(resource, [['selfServiceReset', 'People can reset their own password']]).map((column) => ({
+                ...column,
+                valueGetter: ownReset,
+                filterable: false,
+              }))
+            : []),
           // Read with each row and not drawn: what the actions are offered by and filled from.
           ...this.columns(resource, [
             ['name', 'Name'],
@@ -737,6 +746,32 @@ class SideBuilder {
               fill: fromRow,
               confirm: 'People who already have accounts keep them. New people will need an invitation.',
               successMessage: 'The method is invite only.',
+            },
+          ],
+          // Whether people may reset their own password is the password method's alone, and
+          // one method says it either way: the page offers the change that is left to make.
+          [
+            methods.setSelfServiceReset,
+            {
+              label: 'Let people reset their own password',
+              icon: 'lock_reset',
+              when: (row) => row['name'] === 'password' && row['selfServiceReset'] !== true,
+              fill: () => ({ on: true }),
+              confirm:
+                'The sign-in page will offer "Forgot your password?". A person who asks is mailed a link to the email address on their account.',
+              successMessage: 'People can now ask for a reset link at the sign-in page.',
+            },
+          ],
+          [
+            methods.setSelfServiceReset,
+            {
+              label: 'Stop people resetting their own password',
+              icon: 'lock',
+              when: (row) => row['name'] === 'password' && row['selfServiceReset'] === true,
+              fill: () => ({ on: false }),
+              confirm:
+                'The sign-in page will no longer offer "Forgot your password?". A link already mailed still works, and an administrator can still send one.',
+              successMessage: 'People can no longer ask for a reset link at the sign-in page.',
             },
           ],
         ]),
@@ -1269,8 +1304,29 @@ class SideBuilder {
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
       [methods.rename, { label: 'Change the username', icon: 'edit' }],
-      [methods.setEmail, { label: 'Change the email address', icon: 'mail' }],
+      // An address changes when the person confirms it from the new mailbox, and a reset
+      // link changes nothing until it is used: each answers whether its message went.
+      [
+        methods.setEmail,
+        {
+          label: 'Change the email address',
+          icon: 'mail',
+          answered: mailed(
+            'A link to confirm the new address is on its way to it. The account keeps its address until the link is used.',
+          ),
+        },
+      ],
       [methods.setTemporaryPassword, { label: 'Set a temporary password', icon: 'password' }],
+      [
+        methods.sendPasswordResetLink,
+        {
+          label: 'Send a password reset link',
+          icon: 'lock_reset',
+          confirm:
+            'A link to choose a new password is mailed to the email address on the account. Nothing changes until the link is used.',
+          answered: mailed('The reset link is on its way.'),
+        },
+      ],
       [
         methods.requirePasswordChange,
         {
@@ -1522,6 +1578,14 @@ function signUpChoice(row: RecordData): string {
   return row['openSignUp'] === true ? 'Open' : 'Invite only';
 }
 
+/** Whether people may ask for a link that resets their own password, in the Sign-in page's words: the password method's row says, and no other. */
+function ownReset(row: RecordData): string {
+  if (row['name'] !== 'password') {
+    return '';
+  }
+  return row['selfServiceReset'] === true ? 'Yes' : 'No';
+}
+
 /** The words the server opens an open method's sentence with, which the notice says its own way. */
 const openPrefix = 'Open: ';
 
@@ -1599,6 +1663,22 @@ const periodColumns: Named[] = [
 ];
 
 /** The words for the two times of a method that gives something for a period. */
+/**
+ * Reads the answer of a method that mails a person (`{ sent, reason }`): `sent` once the
+ * message went, and where it did not, the server's sentence for why, drawn as a failure.
+ */
+function mailed(sent: string): (answer: unknown) => { message: string; failed?: boolean } | undefined {
+  return (answer) => {
+    const said = (answer ?? {}) as { sent?: unknown; reason?: unknown };
+    if (said.sent === true) {
+      return { message: sent };
+    }
+    const reason =
+      typeof said.reason === 'string' && said.reason !== '' ? said.reason : 'The message could not be sent.';
+    return { message: reason, failed: true };
+  };
+}
+
 const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' };
 
 /**

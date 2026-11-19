@@ -169,3 +169,88 @@ func TestDocumentNamesNoSourceLine(t *testing.T) {
 		}
 	}
 }
+
+// marksRowRE matches a row of the document's table of which sign-in methods each shape
+// can use: the shape's number and name, then one mark for each of the six columns.
+var marksRowRE = regexp.MustCompile(`(?m)^\| (\d) ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|$`)
+
+// TestDocumentMarksTheInviteOnlyShapes holds the document's marks for shapes 5 and 7 to
+// what the reading does. Those two shapes are an application whose tenants have no
+// directories, and the reading names such an application by its invite-only shape
+// whichever sign-in methods the auth registers with the application giving the roles,
+// so every method can be used in them: each cell of their rows in the table of the
+// methods, and each row of the table in their own sections, says so. A rule that made
+// the shape depend on a method again would fail here until the document said which
+// method.
+func TestDocumentMarksTheInviteOnlyShapes(t *testing.T) {
+	t.Parallel()
+
+	const canBeUsed = "Can be used"
+	document := readDocument(t)
+	// The methods of each column, the first cell after the shape's: a password, then a
+	// Google or Microsoft method at each of the four widths, then another provider's.
+	// The reading asks no width, so each directory column is every kind of such method.
+	password := []app.Method{{Kind: app.MethodPassword, Name: "password"}}
+	directory := []app.Method{
+		{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication},
+		{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityApplication},
+	}
+	provider := []app.Method{{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}}
+	columns := [][]app.Method{password, directory, directory, directory, directory, provider}
+
+	rows := map[string][]string{}
+	for _, row := range marksRowRE.FindAllStringSubmatch(document, -1) {
+		rows[row[1]+" "+row[2]] = row[3:]
+	}
+	for _, key := range []string{"tenant-owned-users-invite-only", "global-users-invite-only"} {
+		s, err := Find(key, All(), "the test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		marks, ok := rows[s.String()]
+		if !ok {
+			t.Errorf("%s: the table of the methods has no row for %s", documentFile, s)
+
+			continue
+		}
+		for i, methods := range columns {
+			for j := range methods {
+				reading := &Reading{Tenants: &app.TenantRecord{Name: "Tenant"}}
+				auth := &Auth{Name: "staff"}
+				if s.OneTenantPerPerson() {
+					auth.OneTenant = "pkg/auth/staff/staff.go:1"
+				}
+				reading.judgeTenants(auth, append(password[:1:1], methods[j]))
+				read := auth.Shape != nil && auth.Shape.Key == s.Key
+				if got := marks[i] == canBeUsed; got != read {
+					t.Errorf("%s: the row of %s marks column %d %q, and the reading names an application whose tenants have no directories and whose auth has the %s method %v", documentFile, s, i+1, marks[i], methods[j].Name, auth.Shape)
+				}
+			}
+		}
+
+		// The shape's own section lists the methods again.
+		heading := fmt.Sprintf("### %d. %s\n", s.Number, s.Name)
+		start := strings.Index(document, heading)
+		if start < 0 {
+			t.Fatalf("%s has no section %q", documentFile, strings.TrimSpace(heading))
+		}
+		section := document[start+len(heading):]
+		if end := strings.Index(section, "\n### "); end >= 0 {
+			section = section[:end]
+		}
+		listed := 0
+		for line := range strings.SplitSeq(section, "\n") {
+			cells := strings.Split(strings.Trim(line, "| "), " | ")
+			if !strings.HasPrefix(line, "| ") || len(cells) != 2 || cells[0] == "Sign-in method" || strings.HasPrefix(cells[0], "---") {
+				continue
+			}
+			listed++
+			if cells[1] != canBeUsed {
+				t.Errorf("%s: the section of %s marks %q %q, want %q: its tenants have no directories, so every method is a way for an invited person to sign in", documentFile, s, cells[0], cells[1], canBeUsed)
+			}
+		}
+		if listed == 0 {
+			t.Errorf("%s: the section of %s lists no sign-in method", documentFile, s)
+		}
+	}
+}

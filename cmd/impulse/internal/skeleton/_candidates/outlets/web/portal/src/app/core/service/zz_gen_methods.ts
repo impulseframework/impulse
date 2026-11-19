@@ -430,14 +430,17 @@ export type RevokeMembersUserTrustedDevicesStatus = 204;
 
 export interface SetMembersTenantUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersTenantUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersTenantUserEmail declares; the method chooses one per response. */
-export type SetMembersTenantUserEmailStatus = 204;
+/** The result SetMembersTenantUserEmail answers with. */
+export interface SetMembersTenantUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersTenantUserNameConfig {
   userId: string | FieldPointer;
@@ -452,14 +455,17 @@ export type SetMembersTenantUserNameStatus = 204;
 
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
-export type SetMembersUserEmailStatus = 204;
+/** The result SetMembersUserEmail answers with. */
+export interface SetMembersUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersUserNameConfig {
   userId: string | FieldPointer;
@@ -1002,11 +1008,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersTenantUserEmail]: {
     route: 'set-members-tenant-user-email',
     target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersTenantUserName]: {
@@ -1022,11 +1028,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
     target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersUserName]: {

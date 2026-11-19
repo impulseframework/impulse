@@ -32,6 +32,7 @@ func seamPasswordRemoval[Tx any](ctx context.Context, t *testing.T, a *authApp[T
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 	a.seed(ctx, t, "sam@lakeside.edu")
 
 	// No link: an administrator's removal is refused, and so is pat's own, in words that

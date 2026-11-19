@@ -17,6 +17,21 @@ func SignInAttemptName(username string) string {
 	return attempts.Normalize(username)
 }
 
+// SignInAttemptKey returns the key of the row of the sign-in attempts table a listed
+// name names. The table keeps the library's own counts beside the names people sign in
+// under: the mail an address is sent, its password reset links, and the guesses at the
+// code of an account's first password, each under a key no username normalizes to. Such
+// a key is the row's as it is listed; any other name is a username's
+// (SignInAttemptName). A caller that clears the row a list shows, as the generated user
+// management's unlock does, clears the row of this key.
+func SignInAttemptKey(listed string) string {
+	if attempts.IsOwnKey(listed) {
+		return listed
+	}
+
+	return attempts.Normalize(listed)
+}
+
 // clientOf identifies the request's client for the attempt limiter: its address and
 // the login's XSRF cookie token, the cookie the XSRF guard reads, which a POST that
 // reaches the handler carries. The token is a key, hashed by the limiter; nothing is

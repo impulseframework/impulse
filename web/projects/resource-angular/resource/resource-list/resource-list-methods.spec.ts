@@ -144,6 +144,26 @@ const rows = [
   { id: 'u-2', username: 'bo', disabled: true, zzCapabilities: { Execute: [] } },
 ];
 
+/**
+ * What the stylesheet of the component an element belongs to declares, in the rules whose
+ * selector names every one of `names` and none of `without`: the rules as the page was
+ * given them, for what a spec's page, which lays nothing out, cannot show by drawing.
+ */
+function declared(of: Element, names: string[], without: string[] = []): string {
+  const scope = Array.from(of.attributes).find((attribute) => attribute.name.startsWith('_ngcontent'))?.name ?? '';
+  const sheet = Array.from(document.querySelectorAll('style'))
+    .map((style) => style.textContent ?? '')
+    .join('\n');
+  return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+    .filter(([, selector]) => {
+      return (
+        [scope, ...names].every((name) => selector.includes(name)) && without.every((name) => !selector.includes(name))
+      );
+    })
+    .map(([, , declarations]) => declarations)
+    .join('\n');
+}
+
 describe('ResourceListComponent row methods', () => {
   /** The rows the list is served; a test of an empty list says so before it creates the list. */
   let served: typeof rows;
@@ -374,6 +394,58 @@ describe('ResourceListComponent row methods', () => {
     await settle();
 
     expect(opened).toEqual([{ method: 'CreatePerson', label: 'Add a person', preset: {}, confirm: undefined }]);
+  });
+
+  // The list's heading row: its title, then what it offers, in a row that wraps. On a
+  // screen too narrow for both the buttons go under the title, at the far end of their
+  // own line, and wrap again among themselves; nothing reaches past the page's edge.
+  it('draws its title and its buttons in one row that wraps, the buttons pushed to the far end of whichever line they are on', async () => {
+    await create(
+      {
+        primaryResource: people,
+        title: 'People',
+        listMethods: [
+          { method: 'CreatePerson' as Method, label: 'Add a person', icon: 'person_add' },
+          { method: 'InvitePerson' as Method, label: 'Invite' },
+        ],
+      },
+      { CreatePerson: { Execute: 'granted' }, InvitePerson: { Execute: 'granted' } },
+    );
+    const row = element().querySelector('.header-container') as HTMLElement;
+
+    expect(
+      Array.from(row.children).map((child) => child.tagName.toLowerCase() + '.' + (child.classList[0] ?? '')),
+    ).toEqual(['h1.title', 'action-access-control-wrapper.', 'div.list-methods']);
+    expect(declared(row, ['.header-container'], ['>'])).toContain('flex-wrap: wrap');
+    expect(declared(row, ['.header-container', '>', '+'])).toContain('margin-left: auto');
+    // Each button whole, its icon and its words: the buttons wrap, none is squeezed.
+    expect(declared(row, ['.list-methods'])).toContain('flex-wrap: wrap');
+    const buttons = Array.from(row.querySelectorAll('button.list-method'));
+    expect(buttons.map((b) => b.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'person_add Add a person',
+      'Invite',
+    ]);
+  });
+
+  it("draws its title as the page's where the list is the page and as a section's where it is one of the things under a row, and lets it break where its line ends", async () => {
+    await create({ primaryResource: people, title: 'People' });
+    const title = element().querySelector('h1.title') as HTMLElement;
+
+    // The title, with how many the list holds.
+    expect(title.textContent).toBe('People (2)');
+    expect(title.classList.contains('impulse-section')).toBe(false);
+    const any = declared(title, ['.title'], ['.impulse-section']);
+    expect(any).toContain('font-size: var(--impulse-page-title-size)');
+    expect(any).toContain('overflow-wrap: anywhere');
+    expect(any).toContain('min-width: 0');
+    expect(any).toContain('line-height: 1.2');
+    // It may give way: a title that could not shrink is what ran past the edge.
+    expect(any).not.toContain('flex-shrink');
+    expect(declared(title, ['.title', '.impulse-section'])).toContain('font-size: var(--impulse-section-title-size)');
+
+    fixture.componentRef.setInput('isRootList', false);
+    fixture.detectChanges();
+    expect(title.classList.contains('impulse-section')).toBe(true);
   });
 
   it('offers on every row a method that names no row and that the page fills from the row, while the digest grants it', async () => {

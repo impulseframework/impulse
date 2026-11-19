@@ -5,6 +5,13 @@ import { MatTooltip } from '@angular/material/tooltip';
 const CUT_SHORT_TOOLTIP_CLASS = 'impulse-grid-whole-text';
 
 /**
+ * How long after a tooltip is closed its anchor is taken back, in milliseconds: longer
+ * than the tooltip takes to fade, since a tooltip that is still fading follows its anchor
+ * when the list scrolls.
+ */
+const ANCHOR_KEPT_MS = 200;
+
+/**
  * Whether a one-line text is wider than the box that holds it, so its end is cut off.
  * The browser gives the two widths in whole pixels, and a text a fraction of a pixel too
  * wide is cut with an ellipsis all the same. So a text the whole pixels call a fit is
@@ -70,6 +77,10 @@ export class CutShortTooltipDirective implements OnInit {
   private readonly moved = (event: Event): void => {
     this.arrive(event.target);
   };
+  /** The frame in which what the focus arrived on is offered, while it has not come. */
+  private awaited: number | undefined;
+  /** The wait after which the anchor of a closed tooltip is taken back, while it runs. */
+  private kept: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     this.tooltip.position = 'above';
@@ -88,9 +99,10 @@ export class CutShortTooltipDirective implements OnInit {
         this.leave((event as MouseEvent).relatedTarget);
       });
       this.listen(table, 'focusin', (event) => {
-        this.arrive(event.target);
+        this.arriveOnceInView(event.target);
       });
       this.listen(table, 'focusout', () => {
+        this.forget();
         this.withdraw();
       });
       // A scroll does not bubble, so the box around the table hears the table's scroll
@@ -109,6 +121,8 @@ export class CutShortTooltipDirective implements OnInit {
     });
     this.destroyRef.onDestroy(() => {
       table.removeEventListener('mousemove', this.moved);
+      this.forget();
+      clearTimeout(this.kept);
     });
   }
 
@@ -118,6 +132,35 @@ export class CutShortTooltipDirective implements OnInit {
     this.destroyRef.onDestroy(() => {
       target.removeEventListener(type, handler, options);
     });
+  }
+
+  /**
+   * The focus arrived somewhere in the table. A control that is out of view, or under a
+   * column held at the table's edge, is scrolled into view as it takes the focus, and a
+   * scroll closes the tooltip; so its text is measured and offered in the next frame,
+   * where it has come to rest and the scroll has been heard. An environment with no
+   * frames (a spec) offers it at once.
+   */
+  private arriveOnceInView(target: EventTarget | null): void {
+    this.forget();
+    const view = this.anchor.ownerDocument.defaultView;
+    if (!view || typeof view.requestAnimationFrame !== 'function') {
+      this.arrive(target);
+      return;
+    }
+    this.awaited = view.requestAnimationFrame(() => {
+      this.awaited = undefined;
+      this.arrive(target);
+    });
+  }
+
+  /** Lets go of an offer that waits for its frame: the focus has left, or come somewhere else. */
+  private forget(): void {
+    if (this.awaited === undefined) {
+      return;
+    }
+    this.anchor.ownerDocument.defaultView?.cancelAnimationFrame(this.awaited);
+    this.awaited = undefined;
   }
 
   /** The pointer or the focus arrived somewhere in the table: a text cut short there is offered, and anything else closes the tooltip. */
@@ -157,6 +200,12 @@ export class CutShortTooltipDirective implements OnInit {
     this.withdraw();
   }
 
+  /**
+   * Closes the tooltip and, once it has faded, takes the anchor back to nothing. An
+   * anchor left where a text was would stay there while the list around it changed
+   * width, and could come to lie past the list's edge, where it would give the list
+   * something to scroll to.
+   */
   private withdraw(): void {
     if (!this.offered) {
       return;
@@ -165,35 +214,62 @@ export class CutShortTooltipDirective implements OnInit {
     this.zone.run(() => {
       this.tooltip.hide();
     });
+    clearTimeout(this.kept);
+    this.kept = setTimeout(() => {
+      const style = this.anchor.style;
+      style.left = '0';
+      style.top = '0';
+      style.width = '0';
+      style.height = '0';
+    }, ANCHOR_KEPT_MS);
   }
 
   /**
    * The text an element of the table stands for: a header's label, for the header's
    * button and anything in it, or the cell the element is, where the cell holds text
-   * alone. A cell that draws its value (an icon, a check, a button) has none, and a cell
-   * of a table inside this one belongs to that table's own tooltip.
+   * alone. A row that is one cell across the table holds its words in a box of their own
+   * (the empty list's message), and that box is the text. A cell that draws its value (an
+   * icon, a check, a button, an expanded row's detail) has none, and a cell of a table
+   * inside this one belongs to that table's own tooltip.
    */
   private textAt(target: Element): HTMLElement | null {
     const label = target.closest('.header-label')?.querySelector<HTMLElement>('.col-header') ?? null;
-    const text = label ?? target.closest('td');
-    if (text === null || text.closest('table') !== this.table()) {
+    const cell = label ?? target.closest('td');
+    if (cell === null || cell.closest('table') !== this.table()) {
       return null;
     }
+    const only = label === null && cell.childElementCount === 1 ? cell.firstElementChild : null;
+    const text = only instanceof HTMLElement && only.classList.contains('impulse-grid-across') ? only : cell;
     return label === null && text.childElementCount > 0 ? null : text;
   }
 
-  /** Lays the anchor over the text, in the coordinates of the box the anchor is positioned in. */
+  /**
+   * Lays the anchor over the text, in the coordinates of the box the anchor is positioned
+   * in, and over no more of the text than lies inside that box's line: a cell the list has
+   * partly scrolled out of view is offered over the part in view, and the anchor never
+   * reaches past the list's edge.
+   */
   private place(text: HTMLElement): void {
     const frame = this.anchor.offsetParent;
     if (frame === null) {
       return;
     }
+    clearTimeout(this.kept);
     const over = text.getBoundingClientRect();
-    const within = frame.getBoundingClientRect();
+    const box = frame.getBoundingClientRect();
+    // Inside the box's line, where what it holds lies.
+    const inside = {
+      left: box.left + frame.clientLeft,
+      top: box.top + frame.clientTop,
+      right: box.left + frame.clientLeft + frame.clientWidth,
+      bottom: box.top + frame.clientTop + frame.clientHeight,
+    };
+    const left = Math.max(over.left, inside.left);
+    const top = Math.max(over.top, inside.top);
     const style = this.anchor.style;
-    style.left = `${over.left - within.left - frame.clientLeft + frame.scrollLeft}px`;
-    style.top = `${over.top - within.top - frame.clientTop + frame.scrollTop}px`;
-    style.width = `${over.width}px`;
-    style.height = `${over.height}px`;
+    style.left = `${left - inside.left + frame.scrollLeft}px`;
+    style.top = `${top - inside.top + frame.scrollTop}px`;
+    style.width = `${Math.max(0, Math.min(over.right, inside.right) - left)}px`;
+    style.height = `${Math.max(0, Math.min(over.bottom, inside.bottom) - top)}px`;
   }
 }

@@ -853,6 +853,30 @@ export interface ScrapShip {
   refitId: string;
 }
 
+export interface SendCrewSectorUserPasswordResetLinkConfig {
+  userId: string | FieldPointer;
+}
+export interface SendCrewSectorUserPasswordResetLink {
+  userId: string;
+}
+/** The result SendCrewSectorUserPasswordResetLink answers with. */
+export interface SendCrewSectorUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
+
+export interface SendCrewUserPasswordResetLinkConfig {
+  userId: string | FieldPointer;
+}
+export interface SendCrewUserPasswordResetLink {
+  userId: string;
+}
+/** The result SendCrewUserPasswordResetLink answers with. */
+export interface SendCrewUserPasswordResetLinkResult {
+  sent: boolean;
+  reason: string;
+}
+
 export interface SetCrewSectorTemporaryPasswordConfig {
   userId: string | FieldPointer;
   password: string | FieldPointer;
@@ -866,14 +890,17 @@ export type SetCrewSectorTemporaryPasswordStatus = 204;
 
 export interface SetCrewSectorUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetCrewSectorUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetCrewSectorUserEmail declares; the method chooses one per response. */
-export type SetCrewSectorUserEmailStatus = 204;
+/** The result SetCrewSectorUserEmail answers with. */
+export interface SetCrewSectorUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetCrewSectorUserNameConfig {
   userId: string | FieldPointer;
@@ -885,6 +912,15 @@ export interface SetCrewSectorUserName {
 }
 /** The statuses SetCrewSectorUserName declares; the method chooses one per response. */
 export type SetCrewSectorUserNameStatus = 204;
+
+export interface SetCrewSelfServiceResetConfig {
+  on: boolean | FieldPointer;
+}
+export interface SetCrewSelfServiceReset {
+  on: boolean;
+}
+/** The statuses SetCrewSelfServiceReset declares; the method chooses one per response. */
+export type SetCrewSelfServiceResetStatus = 204;
 
 export interface SetCrewTemporaryPasswordConfig {
   userId: string | FieldPointer;
@@ -899,14 +935,17 @@ export type SetCrewTemporaryPasswordStatus = 204;
 
 export interface SetCrewUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetCrewUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetCrewUserEmail declares; the method chooses one per response. */
-export type SetCrewUserEmailStatus = 204;
+/** The result SetCrewUserEmail answers with. */
+export interface SetCrewUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetCrewUserNameConfig {
   userId: string | FieldPointer;
@@ -921,14 +960,17 @@ export type SetCrewUserNameStatus = 204;
 
 export interface SetMembersSectorUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersSectorUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersSectorUserEmail declares; the method chooses one per response. */
-export type SetMembersSectorUserEmailStatus = 204;
+/** The result SetMembersSectorUserEmail answers with. */
+export interface SetMembersSectorUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersSectorUserNameConfig {
   userId: string | FieldPointer;
@@ -943,14 +985,17 @@ export type SetMembersSectorUserNameStatus = 204;
 
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
-  email?: string | FieldPointer;
+  email: string | FieldPointer;
 }
 export interface SetMembersUserEmail {
   userId: string;
-  email?: string;
+  email: string;
 }
-/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
-export type SetMembersUserEmailStatus = 204;
+/** The result SetMembersUserEmail answers with. */
+export interface SetMembersUserEmailResult {
+  sent: boolean;
+  reason: string;
+}
 
 export interface SetMembersUserNameConfig {
   userId: string | FieldPointer;
@@ -1937,6 +1982,24 @@ const methodMap: MethodMap = {
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
   },
+  [Methods.SendCrewSectorUserPasswordResetLink]: {
+    route: 'send-crew-sector-user-password-reset-link',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SendCrewUserPasswordResetLink]: {
+    route: 'send-crew-user-password-reset-link',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
   [Methods.SetCrewSectorTemporaryPassword]: {
     route: 'set-crew-sector-temporary-password',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
@@ -1950,11 +2013,11 @@ const methodMap: MethodMap = {
   [Methods.SetCrewSectorUserEmail]: {
     route: 'set-crew-sector-user-email',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetCrewSectorUserName]: {
@@ -1965,6 +2028,14 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetCrewSelfServiceReset]: {
+    route: 'set-crew-self-service-reset',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'on', displayType: 'boolean' },
     ],
   },
   [Methods.SetCrewTemporaryPassword]: {
@@ -1980,11 +2051,11 @@ const methodMap: MethodMap = {
   [Methods.SetCrewUserEmail]: {
     route: 'set-crew-user-email',
     target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetCrewUserName]: {
@@ -2000,11 +2071,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersSectorUserEmail]: {
     route: 'set-members-sector-user-email',
     target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersSectorUserName]: {
@@ -2020,11 +2091,11 @@ const methodMap: MethodMap = {
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
     target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', required: true },
     ],
   },
   [Methods.SetMembersUserName]: {

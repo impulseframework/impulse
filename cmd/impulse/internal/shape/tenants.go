@@ -45,27 +45,39 @@ func (s Shape) OneTenantChoice(given, value bool) (bool, error) {
 		s.Flag(), flag, s.Name, shapeMeans, flag, means, s.counterpart().Flag(), OneTenantFlag)
 }
 
-// RefuseDirectoryMethods refuses a starting point without tenant directories (shapes 5
-// and 7) for an application that already has a sign-in method a tenant's people could
-// come through their organization's directory by: with tenants laid in, the application
-// would be the shape with tenant directories. methods are those methods as
-// DirectoryMethods lists them.
-func (s Shape) RefuseDirectoryMethods(methods []string) error {
-	if s.TenantDirectories() || len(methods) == 0 {
-		return nil
-	}
-	with := numbered(s.Number + 1)
+// DirectoriesFlag is the flag that says whether a tenant can have a directory of its
+// own, which a starting point of shapes 5 to 8 fills in.
+const DirectoriesFlag = "tenant-directories"
 
-	return errors.Newf("%s: in %s a tenant's people come by invitation alone, and the application registers %s, through which a tenant's people could come by their organization's directory, so with tenants it would be %s. Take %s, or run the command without --%s",
-		s.Flag(), s.Name, strings.Join(methods, " and "), with, with.Flag(), FlagName)
+// DirectoriesChoice settles whether a tenant can have a directory of its own under the
+// shape: the shape's own answer, which fills the choice in where the command line left
+// it open. given says the command line made the choice itself, with value; one that
+// says the opposite of the shape is refused, naming both. The choice is the
+// application's and no sign-in method's: an application whose tenants have no
+// directories is the invite-only shape with or without a method through an
+// organization's directory whose roles the application gives.
+func (s Shape) DirectoriesChoice(given, value bool) (bool, error) {
+	want := s.TenantDirectories()
+	if !given || value == want {
+		return want, nil
+	}
+	if want {
+		return false, errors.Newf("%s and --%s=false contradict each other: in %s a tenant's people come through the tenant's own directory, and --%s=false leaves the tenants without directories. Take %s, or leave --%s out",
+			s.Flag(), DirectoriesFlag, s.Name, DirectoriesFlag, numbered(s.Number-1).Flag(), DirectoriesFlag)
+	}
+
+	return false, errors.Newf("%s and --%s contradict each other: in %s a tenant's people come by invitation alone and no tenant has a directory, and --%s lets a tenant have one. Take %s, or leave --%s out",
+		s.Flag(), DirectoriesFlag, s.Name, DirectoriesFlag, numbered(s.Number+1).Flag(), DirectoriesFlag)
 }
 
 // TenantsSay is what a command given one of shapes 5 to 8 tells its author once the
 // tenants are laid in: whether a person belongs to one tenant, how a tenant's people get
 // in, and what is still to choose, by the author or while the application runs. auths
-// names the auths whose roles the application gives, and directoryMethods the methods a
-// tenant's people could come through their organization's directory by (none in a new
-// application, whose first auth signs in with a password).
+// names the auths whose roles the application gives, and directoryMethods the methods
+// that go through an organization's directory with the application giving the roles
+// (none in a new application, whose first auth signs in with a password): the methods a
+// tenant's people come through its directory by where the tenants have directories,
+// and a way for an invited person to sign in where they have none.
 func (s Shape) TenantsSay(auths, directoryMethods []string) []string {
 	auth := "<auth>"
 	if len(auths) > 0 {
@@ -79,7 +91,17 @@ func (s Shape) TenantsSay(auths, directoryMethods []string) []string {
 	var way string
 	switch {
 	case !s.TenantDirectories():
-		way = fmt.Sprintf("A tenant's people come by invitation alone: no sign-in method goes through an organization's directory, so no tenant takes one, though the tenant record declares a tenant's directory. A directory method added later with the application giving the roles (impulse add method) makes the application %s.", numbered(s.Number+1))
+		// The methods are named as a sentence's subject, and again as what the reading
+		// is the same with and without.
+		methods, with := "A Google, Microsoft or other provider's method added with impulse add method, the application giving its roles, is", "with it as without it"
+		if len(directoryMethods) > 0 {
+			named := strings.Join(directoryMethods, " and ")
+			methods = strings.ToUpper(named[:1]) + named[1:] + " is"
+			if len(directoryMethods) > 1 {
+				methods, with = strings.ToUpper(named[:1])+named[1:]+" are each", "with them as without them"
+			}
+		}
+		way = fmt.Sprintf("A tenant's people come by invitation alone: the application has no tenant directories (the tenant record declares none and carries no directory-only switch), so no tenant takes a directory, none is opened to one, and none is made directory only. %s a way for an invited person to sign in and nothing more, and impulse audit reads the application as %s %s. Going to %s is the author's act, laying the tenant directories in (the directories record and its table, the tenant record's directory-only column, each auth's directory admission), which no impulse add method does by itself.", methods, s, with, numbered(s.Number+1))
 	case len(directoryMethods) > 0:
 		way = fmt.Sprintf("A tenant's people can come through its organization's directory, by %s: %s.", strings.Join(directoryMethods, " and "), chosen)
 	default:

@@ -247,15 +247,28 @@ export class LoginMethodsComponent implements OnInit {
   accountPasswordAgain = '';
   /** The address a sign-up asks its link for. */
   signUpEmail = '';
+  /** The address a person asks a password reset link for. */
+  resetEmail = '';
+  /** The new password a reset link's reader chooses, typed twice. */
+  resetPassword = '';
+  resetPasswordAgain = '';
   /** A request of the component is in flight; its controls are disabled meanwhile. */
   busy = signal(false);
   /**
    * The server holds its mail to the address: a code or link asked for was refused with
-   * `too_many_emails`, and the wait it named has not passed. The buttons that ask for mail
-   * (Send code, Send a new code, Send me a link) stay disabled until it has.
+   * `too_many_emails`, and the wait it named has not passed. The buttons that ask for that
+   * mail (Send code, Send a new code, the sign-up's Send me a link) stay disabled until it
+   * has.
    */
   private mailHold = new MailHold();
   mailHeld = this.mailHold.held;
+  /**
+   * The server holds the reset links to the address, which it counts apart from the
+   * codes and the other links: a refused request for one holds the reset form's button
+   * and nothing else, so a person closed to reset links still asks for their sign-in code.
+   */
+  private resetHold = new MailHold();
+  resetHeld = this.resetHold.held;
 
   /** The methods list as the client last read it; undefined before the first read answers. */
   private list = storeSignal(this.client.auth.snapshot);
@@ -311,6 +324,24 @@ export class LoginMethodsComponent implements OnInit {
   usernameLabel = computed(() => (this.usernameIsEmail() ? 'Email address' : 'Username'));
   /** The server's password method lets a stranger create an account from a mailed link. */
   signUpOffered = computed(() => this.list()?.signUp !== undefined);
+  /**
+   * The application lets people reset their own password: the list names where a link is
+   * asked for. An administrator turns it on and off in the running application, so it is
+   * read from the list each time and "Forgot your password?" is drawn only while it is on.
+   */
+  resetOffered = computed(() => this.list()?.passwordReset?.request !== undefined);
+  /** "Forgot your password?" was chosen: the form that takes the address is shown. */
+  forgetting = signal(false);
+  /** The address a reset link was asked for: the note says what happens next, whatever the address's state. */
+  resetAsked = signal<string | undefined>(undefined);
+  /** A password reset link was opened: the form that takes the new password of this username is shown. */
+  resetting = signal<{ readonly token: string; readonly username: string } | undefined>(undefined);
+  /** The password was reset: the note says so, and the person goes back to sign in. */
+  resetDone = signal(false);
+  /** The token of a link that confirms an address an administrator set: the page asks before it confirms. */
+  confirming = signal<string | undefined>(undefined);
+  /** The address the account holds once that link confirmed it. */
+  addressConfirmed = signal<string | undefined>(undefined);
   /** The step the sign-in waits on, taking the list's place; undefined while the list is shown. */
   pending = signal<PendingSignIn | undefined>(undefined);
   /** The note for a step this page does not render (PAGE_OLDER_THAN_SERVER), for the template. */
@@ -733,6 +764,93 @@ export class LoginMethodsComponent implements OnInit {
     });
   }
 
+  /** Shows the form a person asks for a password reset link with. */
+  beginReset(): void {
+    if (this.busy() || !this.resetOffered()) {
+      return;
+    }
+    this.refusal.set(undefined);
+    this.resetEmail = this.usernameIsEmail() ? this.username : '';
+    this.forgetting.set(true);
+  }
+
+  /** Posts the address: the note says a link is on its way if the address has an account, whatever its state. */
+  sendResetLink(): Promise<void> {
+    if (this.busy() || this.resetHeld() || !this.forgetting()) {
+      return Promise.resolve();
+    }
+    return this.step(async () => {
+      const result = await this.client.auth.requestPasswordReset(this.resetEmail);
+      if (result.outcome === 'refused') {
+        this.resetHold.hold(result);
+        this.refusal.set(this.sentenceOf(result));
+        return;
+      }
+      this.resetAsked.set(this.resetEmail);
+      this.forgetting.set(false);
+      this.resetEmail = '';
+    });
+  }
+
+  /** Sets the new password a reset link's reader chose: every session of theirs ends, and they sign in with it. */
+  completeReset(): Promise<void> {
+    const link = this.resetting();
+    if (this.busy() || !link) {
+      return Promise.resolve();
+    }
+    if (this.resetPassword !== this.resetPasswordAgain) {
+      this.refusal.set(PASSWORDS_DIFFER);
+      return Promise.resolve();
+    }
+    return this.step(async () => {
+      const result = await this.client.auth.completePasswordReset(link.token, this.resetPassword);
+      if (result.outcome === 'refused') {
+        this.refusal.set(this.sentenceOf(result));
+        return;
+      }
+      this.username = result.username;
+      this.password = '';
+      this.resetPassword = '';
+      this.resetPasswordAgain = '';
+      this.resetting.set(undefined);
+      this.resetDone.set(true);
+    });
+  }
+
+  /** Confirms the address the link was mailed to as the account's: the page posts only when the reader says so. */
+  confirmAddress(): Promise<void> {
+    const token = this.confirming();
+    if (this.busy() || token === undefined) {
+      return Promise.resolve();
+    }
+    return this.step(async () => {
+      const result = await this.client.auth.confirmEmail(token);
+      if (result.outcome === 'refused') {
+        this.refusal.set(this.sentenceOf(result));
+        return;
+      }
+      this.confirming.set(undefined);
+      this.addressConfirmed.set(result.email);
+    });
+  }
+
+  /** Leaves a password reset or an address confirmation, at any step, and shows the list again; nothing is posted. */
+  leaveLink(): void {
+    if (this.busy()) {
+      return;
+    }
+    this.forgetting.set(false);
+    this.resetAsked.set(undefined);
+    this.resetting.set(undefined);
+    this.resetDone.set(false);
+    this.confirming.set(undefined);
+    this.addressConfirmed.set(undefined);
+    this.resetEmail = '';
+    this.resetPassword = '';
+    this.resetPasswordAgain = '';
+    this.refusal.set(undefined);
+  }
+
   /** Leaves the sign-up, before or after its link was sent, and shows the list again. */
   backToSignIn(): void {
     if (this.busy() || (!this.starting() && !this.started())) {
@@ -840,9 +958,17 @@ export class LoginMethodsComponent implements OnInit {
     const params = this.route.snapshot.queryParamMap;
     const invitation = params.get('invitation') ?? '';
     const signUp = params.get('signUp') ?? '';
+    const reset = params.get('reset') ?? '';
+    const address = params.get('address') ?? '';
     this.verifyToken = params.get('verify') ?? '';
     this.returnAddress = this.addressNamed(params.get('returnUrl'));
-    const linked = params.has('pending') || invitation !== '' || signUp !== '' || this.verifyToken !== '';
+    const linked =
+      params.has('pending') ||
+      invitation !== '' ||
+      signUp !== '' ||
+      this.verifyToken !== '' ||
+      reset !== '' ||
+      address !== '';
     const refused = (params.get('code') ?? '') !== '';
     let forwarded = false;
     this.arriving.set(true);
@@ -861,6 +987,14 @@ export class LoginMethodsComponent implements OnInit {
       }
       if (signUp !== '') {
         await this.openSignUp(signUp);
+      }
+      if (reset !== '') {
+        await this.openReset(reset);
+      }
+      if (address !== '') {
+        // Nothing is posted on arrival: a program that opens the links in a person's
+        // mail must not confirm an address for them.
+        this.confirming.set(address);
       }
       if (this.verifyToken !== '') {
         const session = await this.sessionStanding();
@@ -974,6 +1108,16 @@ export class LoginMethodsComponent implements OnInit {
     if (!session?.username && paths?.known && paths.create) {
       this.openAccountForm(true);
     }
+  }
+
+  /** Opens the password reset the URL's token names and renders the new password's form; a link the server refuses renders its words. */
+  private async openReset(token: string): Promise<void> {
+    const result = await this.client.auth.openPasswordReset(token);
+    if (result.outcome === 'refused') {
+      this.refusal.set(this.sentenceOf(result));
+      return;
+    }
+    this.resetting.set({ token, username: result.username });
   }
 
   /** Opens the sign-up the URL's token names and renders its account form; a link the server refuses renders its words. */

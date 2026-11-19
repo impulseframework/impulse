@@ -74,7 +74,7 @@ func (tn Tenancy) browserSource(a *app.App, g *app.Generator, ch *Change) (sourc
 	rel := strings.TrimPrefix(strings.TrimPrefix(target.Dir, w.Dir), "/")
 	project, found := app.ProjectFor(projects, rel)
 	if !found || project.SourceRoot == "" {
-		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant pages (the tenant's sign-in page, the All %s page's configuration and the dialog a person who signed up creates their own %s through), the tenant menus and the tenant segment in the routes", w.Dir, rel, tn.manyLower(), tn.oneLower())
+		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant pages (%sthe All %s page's configuration and the dialog a person who signed up creates their own %s through), the tenant menus and the tenant segment in the routes", w.Dir, rel, tn.signInPageNamed(), tn.manyLower(), tn.oneLower())
 
 		return "", false, nil
 	}
@@ -112,16 +112,86 @@ func forAuth(text, auth string) string {
 	return names.Rename(text, skeleton.PlaceholderAuth, auth)
 }
 
+// tenantSignInDir is where the reference keeps the tenant's sign-in page, relative to
+// the project's source root, and tenantsConfigPath the configuration of the All tenants
+// page, which every application the tenant pages were laid into has.
+const (
+	tenantSignInDir   = "app/components/ui/sign-in/"
+	tenantsConfigPath = "app/configs/tenants.config.ts"
+)
+
+// signInPageNamed names the tenant's sign-in page in a list of the tenant pages, with
+// the comma after it, or nothing where no tenant has a directory: the page is where a
+// tenant's directory is set and what it is the only way in of, so an application whose
+// tenants have none has no such page.
+func (tn Tenancy) signInPageNamed() string {
+	if tn.NoDirectories {
+		return ""
+	}
+
+	return "the tenant's sign-in page, "
+}
+
+// withoutDirectory is one stretch of a reference browser file that speaks of a tenant's
+// directory, and what stands in its place in an application whose tenants have none.
+type withoutDirectory struct {
+	rel, has, becomes string
+}
+
+// withoutDirectories are the stretches of the reference's browser files that an
+// application whose tenants have no directories is written without: the All tenants
+// page's directory-only column and field (the record carries no such field there), the
+// menu that places the tenant's sign-in page, and that page's route, each with its
+// import.
+var withoutDirectories = []withoutDirectory{
+	{tenantsConfigPath, "changes\n// its name and whether its people enter through its directories only. A tenant's key is an\n// id the server generates, which nobody types: the list leaves it out, and the row page\n// shows it read only, for whoever supports the application.", "changes\n// its name. A tenant's key is an id the server generates, which nobody types: the list\n// leaves it out, and the row page shows it read only, for whoever supports the\n// application."},
+	{tenantsConfigPath, "listColumns: [{ id: Tenants.fieldName.name }, { id: Tenants.fieldName.directoryOnly, header: 'Directory only' }],", "listColumns: [{ id: Tenants.fieldName.name }],"},
+	{tenantsConfigPath, "          field({ name: Tenants.fieldName.directoryOnly, label: 'Directory only', cols: 4 }),\n", ""},
+	{appMenusFile, "import { tenantSignInPage } from '@components/ui/sign-in/sign-in.routes';\n", ""},
+	{appMenusFile, "    {\n      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage] }],\n    },\n", ""},
+	{appRoutesFile, "import { tenantSignInRoute } from '@components/ui/sign-in/sign-in.routes';\n", ""},
+	{appRoutesFile, "          // Who may enter the tenant: its declared directories and its directory-only flag.\n          tenantSignInRoute(),\n", ""},
+}
+
+// forTenants is a reference browser file's text as the transition writes it: as it is
+// where a tenant can have a directory, and without what speaks of one where no tenant
+// has (withoutDirectories). A stretch the reference no longer carries is an error, so a
+// change to the reference is met here and not in an application's failing build.
+func (tn Tenancy) forTenants(rel, text string) (string, error) {
+	if !tn.NoDirectories {
+		return text, nil
+	}
+	for _, cut := range withoutDirectories {
+		if cut.rel != rel {
+			continue
+		}
+		if strings.Count(text, cut.has) != 1 {
+			return "", errors.Newf("the reference's %s no longer carries %q once, which an application whose tenants have no directories is written without", rel, cut.has)
+		}
+		text = strings.Replace(text, cut.has, cut.becomes, 1)
+	}
+
+	return text, nil
+}
+
 // copyTenantPages lays the tenant pages (tenantWebFiles) into the browser project, for
-// the auth and in the record's words.
+// the auth and in the record's words: all of them where a tenant can have a directory,
+// and all but the tenant's sign-in page where no tenant has one.
 func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) error {
-	dst := path.Join(source, tenantSignInRoutesPath)
+	marker := tenantSignInRoutesPath
+	if tn.NoDirectories {
+		marker = tenantsConfigPath
+	}
+	dst := path.Join(source, marker)
 	if _, err := os.Stat(a.Abs(dst)); err == nil {
 		ch.skipf("%s already exists and was left alone", dst)
 
 		return nil
 	}
 	for _, f := range tenantWebFiles {
+		if tn.NoDirectories && strings.HasPrefix(f.rel, tenantSignInDir) {
+			continue
+		}
 		reference, err := skeleton.FS(f.candidate)
 		if err != nil {
 			return err
@@ -130,13 +200,23 @@ func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) e
 		if err != nil {
 			return errors.Wrap(err, "fs.ReadFile()")
 		}
-		if err := writeNew(a, path.Join(source, f.rel), tn.inRecordWords(f.rel, forAuth(string(src), auth))); err != nil {
+		text, err := tn.forTenants(f.rel, string(src))
+		if err != nil {
+			return err
+		}
+		if err := writeNew(a, path.Join(source, f.rel), tn.inRecordWords(f.rel, forAuth(text, auth))); err != nil {
 			return err
 		}
 	}
 	renamed := ""
 	if tn.Table != referenceTable {
 		renamed = fmt.Sprintf(", with every name and word of the reference's Tenant record the %s record's", tn.Record())
+	}
+	if tn.NoDirectories {
+		ch.didf("%s and %s: the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s, without the directory-only column and field, which the record does not carry; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher. No %s sign-in page was written: that page is where a %s's directory is set and what it is made the only way in of, and no %s has one",
+			path.Join(source, "app/components/ui/new-tenant")+"/", path.Join(source, tenantsConfigPath), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower(), tn.oneLower(), tn.oneLower(), tn.oneLower())
+
+		return nil
 	}
 	ch.didf("%s, components/ui/new-tenant/ and configs/tenants.config.ts: the %s's sign-in page (who may enter the %s: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher",
 		path.Dir(dst)+"/", tn.oneLower(), tn.oneLower(), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower())
@@ -316,15 +396,16 @@ var (
 )
 
 // editMenus writes the tenant menus into the menu file, ahead of its other menus: the
-// record's menu (All), People (the tenant's side of the auth's people) and the record's
-// own menu (Sign-in settings), each showing in its place only, as the reference's menu
-// file has them, with the imports they need. The page staff bring a tenant in from is
-// among the auth's pages for the whole application, which the menu file places already.
+// record's menu (All), People (the tenant's side of the auth's people) and, where a
+// tenant can have a directory, the record's own menu (Sign-in settings), each showing in
+// its place only, as the reference's menu file has them, with the imports they need.
+// The page staff bring a tenant in from is among the auth's pages for the whole
+// application, which the menu file places already.
 func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	rel := path.Join(source, appMenusFile)
 	data, mode, err := readFile(a, rel)
 	if errors.Is(err, os.ErrNotExist) {
-		ch.skipf("%s does not exist, so the tenant menus were not written: the %s menu (All %s), People and %s (Sign-in settings)", rel, tn.many(), tn.manyLower(), tn.one())
+		ch.skipf("%s does not exist, so the tenant menus were not written: %s", rel, tn.tenantMenusNamed())
 
 		return nil
 	}
@@ -337,21 +418,29 @@ func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 
 		return nil
 	}
+	if tn.NoDirectories && strings.Contains(text, "tenantsConfig") {
+		ch.skipf("%s places the All %s page already, so the tenant menus were left as they are", rel, tn.manyLower())
+
+		return nil
+	}
 	opening := menuFunctionRE.FindStringIndex(text)
 	if opening == nil {
-		ch.skipf("%s does not declare the menus as the skeleton's menu file does (export function appMenus(): Menu[]), so the tenant menus were not written: put the %s menu (All %s), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.one())
+		ch.skipf("%s does not declare the menus as the skeleton's menu file does (export function appMenus(): Menu[]), so the tenant menus were not written: put %s ahead of the others, as the reference's menu file does", rel, tn.tenantMenusNamed())
 
 		return nil
 	}
 	body := text[opening[1]:]
 	ret := menuReturnRE.FindStringSubmatchIndex(body)
 	if ret == nil {
-		ch.skipf("%s: appMenus returns no array literal, so the tenant menus were not written: put the %s menu (All %s), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.one())
+		ch.skipf("%s: appMenus returns no array literal, so the tenant menus were not written: put %s ahead of the others, as the reference's menu file does", rel, tn.tenantMenusNamed())
 
 		return nil
 	}
 	reference, err := referenceText(tenancyAdminCandidate, appMenusFile)
 	if err != nil {
+		return err
+	}
+	if reference, err = tn.forTenants(appMenusFile, reference); err != nil {
 		return err
 	}
 	menus, err := tenantMenus(reference)
@@ -366,9 +455,25 @@ func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
+	if tn.NoDirectories {
+		ch.didf("%s: the tenant menus ahead of the others, as the reference's: %s (All %s, in the place outside every %s) and People (the %s's side of the auth's people), each showing in its place only, and no menu for Sign-in settings, since no %s has a directory to set there; Feature flags, whose address has no %s in it, is a page of the place outside every one", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.oneLower(), tn.oneLower(), tn.oneLower())
+
+		return nil
+	}
 	ch.didf("%s: the tenant menus ahead of the others, as the reference's: %s (All %s, in the place outside every %s), People (the %s's side of the auth's people) and %s (Sign-in settings), each showing in its place only; Feature flags, whose address has no %s in it, is a page of the place outside every one", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.oneLower(), tn.one(), tn.oneLower())
 
 	return nil
+}
+
+// tenantMenusNamed names the tenant menus the menu file takes, for a line that says
+// they were not written: the record's menu, People and, where a tenant can have a
+// directory, the record's own menu with its Sign-in settings.
+func (tn Tenancy) tenantMenusNamed() string {
+	if tn.NoDirectories {
+		return fmt.Sprintf("the %s menu (All %s) and People", tn.many(), tn.manyLower())
+	}
+
+	return fmt.Sprintf("the %s menu (All %s), People and %s (Sign-in settings)", tn.many(), tn.manyLower(), tn.one())
 }
 
 // appMenusSpecFile is the menu file's test, beside it under a project's source root.
@@ -544,11 +649,18 @@ func (tn Tenancy) editRoutes(a *app.App, source, auth string, ch *Change) error 
 	if !strings.Contains(reference, selfServiceSentence) {
 		return errors.Newf("the reference's routes no longer say %q", selfServiceSentence)
 	}
+	if reference, err = tn.forTenants(appRoutesFile, reference); err != nil {
+		return err
+	}
 	reference = forAuth(strings.Replace(reference, selfServiceSentence, outsideOnlySentence, 1), auth)
 	if err := os.WriteFile(a.Abs(rel), []byte(tn.inRecordWords(appRoutesFile, reference)), mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
-	ch.didf("%s: the routes in the tenant shape, as the reference's: the home guard at the root, the refusal page, the place outside every %s (the dashboard, All %s, the %s auth's people across the application and the library's pages) ahead of the %s segment (%s, the generated DomainRoutePath) with its guard (the dashboard, the %s's people, Sign-in settings and the library's pages)", rel, tn.oneLower(), tn.manyLower(), auth, tn.oneLower(), tn.Segment()+"/:"+lowerFirst(tn.Record())+"ID", tn.oneLower())
+	signInSettings := ", Sign-in settings"
+	if tn.NoDirectories {
+		signInSettings = ""
+	}
+	ch.didf("%s: the routes in the tenant shape, as the reference's: the home guard at the root, the refusal page, the place outside every %s (the dashboard, All %s, the %s auth's people across the application and the library's pages) ahead of the %s segment (%s, the generated DomainRoutePath) with its guard (the dashboard, the %s's people%s and the library's pages)", rel, tn.oneLower(), tn.manyLower(), auth, tn.oneLower(), tn.Segment()+"/:"+lowerFirst(tn.Record())+"ID", tn.oneLower(), signInSettings)
 
 	return nil
 }

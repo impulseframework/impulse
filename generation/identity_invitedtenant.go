@@ -167,6 +167,14 @@ func (d *identitySourceData) TenantSeats() bool {
 	return d.tenant.invitation.seats
 }
 
+// TenantDirectories reports whether the application declares a directories record, so
+// that a tenant made by an invitation can take the directory of the person who accepts
+// it. Where it declares none, no tenant has a directory, and what the invitation says
+// of itself leaves the directory out.
+func (d *identitySourceData) TenantDirectories() bool {
+	return len(d.tenant.directoryOutlets) > 0
+}
+
 // invitedTenantSources are the source files of the invitation that makes a tenant.
 func (r *resourceGenerator) invitedTenantSources(inst *identityInstance) []identitySourceFile {
 	if !inst.invitesTenants() {

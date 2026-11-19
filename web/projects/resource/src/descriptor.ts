@@ -328,6 +328,7 @@ export interface IdentityMethods {
   readonly setName?: string;
   readonly setEmail?: string;
   readonly setTemporaryPassword?: string;
+  readonly sendPasswordResetLink?: string;
   readonly requirePasswordChange?: string;
   readonly endUserSessions?: string;
   readonly revokeTrustedDevices?: string;
@@ -337,6 +338,7 @@ export interface IdentityMethods {
   readonly unlockSignIn?: string;
   readonly openSignUp?: string;
   readonly makeInviteOnly?: string;
+  readonly setSelfServiceReset?: string;
   readonly createGroup?: string;
   readonly describeGroup?: string;
   readonly deleteGroup?: string;

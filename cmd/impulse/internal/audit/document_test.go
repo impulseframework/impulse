@@ -97,11 +97,13 @@ func written(t *testing.T, files map[string]string) *app.App {
 // tenants the staff auth signs in with a password (shape 1), with one Google Workspace
 // beside it (2) or any Google account beside it (4), and the members auth through one
 // Google Workspace whose directory gives the roles (3). With tenants a person belongs to
-// one tenant (5 and 6) or can be in several (7 and 8), and the staff auth signs in with
-// a password alone (5 and 7) or has a Google method whose roles the application gives
-// beside it (6 and 8). Each is written here or rendered from a skeleton, not made by the
-// commands the document shows: what the commands write for those choices is the command
-// package's to test.
+// one tenant (5 and 6) or can be in several (7 and 8); the tenants have no directories
+// (5 and 7: a skeleton without its directories record) or can have them (6 and 8); and
+// the staff auth has a Google method whose roles the application gives beside its
+// password (5, 6 and 8) or a password alone (7), as each section's example leaves it.
+// Each is written here or rendered from a skeleton, not made by the commands the
+// document shows: what the commands write for those choices is the command package's to
+// test.
 func documented() map[string]func(t *testing.T) *app.App {
 	const (
 		password   = "\t_ = session.PasswordSignIn(authSession)\n"
@@ -118,6 +120,16 @@ func documented() map[string]func(t *testing.T) *app.App {
 		"pkg/auth/staff/staff.go": func(text string) string {
 			return strings.Replace(text, "identity.WithAdministratorRoles(tenantAdministrators))", "identity.WithAdministratorRoles(tenantAdministrators), identity.WithOneTenantPerPerson())", 1)
 		},
+	}
+	// without is the edits and the removal of the skeleton's directories record: an
+	// application whose tenants have no directories.
+	without := func(directories string, edits map[string]func(text string) string) map[string]func(text string) string {
+		all := map[string]func(text string) string{directories: nil}
+		for rel, edit := range edits {
+			all[rel] = edit
+		}
+
+		return all
 	}
 	candidate := func(name string, edits map[string]func(text string) string) func(t *testing.T) *app.App {
 		return func(t *testing.T) *app.App {
@@ -143,9 +155,9 @@ func documented() map[string]func(t *testing.T) *app.App {
 			return written(t, map[string]string{"pkg/auth/members/members.go": authFile("members", synced)})
 		},
 		"open-sign-up":                     staff(anyAccount+password, googleSlot),
-		"tenant-owned-users-invite-only":   candidate("sites", oneTenant),
+		"tenant-owned-users-invite-only":   candidate("tenanted", without("pkg/resources/tenant_directories.go", oneTenant)),
 		"tenant-owned-users-by-directory":  candidate("tenanted", oneTenant),
-		"global-users-invite-only":         candidate("sites", nil),
+		"global-users-invite-only":         candidate("sites", without("apps/console/pkg/resources/tenant_directories.go", nil)),
 		"global-users-each-tenant-chooses": candidate("tenanted", nil),
 	}
 }

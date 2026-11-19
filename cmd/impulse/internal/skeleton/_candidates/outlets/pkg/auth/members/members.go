@@ -18,6 +18,8 @@
 // The auth mails: an administrator invites a person by address, with the roles the
 // invitation seats, and the invitee follows the link to accept it; a signed-in person
 // adds an address and proves it by following the link sent to it.
+// An address an administrator sets for a person is theirs once its mailbox confirms it,
+// by the link the auth mails there.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -26,7 +28,11 @@
 // person's verified address (a person who holds none gives one first), unless the
 // browser is one the person asked to be remembered after a code (the members-trusted
 // cookie); a sign-in through a directory the deployment administers, or whose token says
-// a second factor was passed, carries the directory's and is asked for nothing. An
+// a second factor was passed, carries the directory's and is asked for nothing. Every
+// account a person signs in to has a confirmed address, so a person who comes through a
+// directory that does not vouch for theirs (Microsoft Entra ID vouches for none)
+// confirms one at their first sign-in with a code mailed to it, whatever the directory
+// attests. An
 // administrator makes the server forget the browsers a person asked to be remembered,
 // from the person's account page, so their next sign-in asks again.
 package members
@@ -252,6 +258,14 @@ func (h *Handlers) EmailAdd() http.HandlerFunc {
 // EmailVerify completes an address change from its link: the address is stored verified.
 func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
+}
+
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address: the account holds the address it had until then. The
+// reader of the link confirms it signed in or not, since they may have lost the mailbox
+// their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
 // DeviceAuthorize starts a command-line client's device authorization ({"client_id",
@@ -501,8 +515,13 @@ func (a *Auth) Identity() *membersidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine, which ends its subscription to the policy kind.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine, which ends its subscription to the policy kind. A reset link a person asked
+// for is mailed after their request is answered (session.AuthAPI.WaitForMail), so an
+// application that has stopped serving closes the auth before it closes the database,
+// and no link a person was promised is lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

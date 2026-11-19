@@ -423,27 +423,80 @@ func TestShape_StandsAlone(t *testing.T) {
 	}
 }
 
-// TestShape_tenants pins what a starting point of shapes 5 to 8 does with the sign-in
-// methods the application has: a shape without tenant directories is refused where a
-// method already goes through an organization's directory, and each shape says how a
-// tenant's people get in and what is still to choose.
+// TestShape_DirectoriesChoice settles whether a tenant can have a directory of its own
+// from the shape, and refuses the flag where it says the opposite, naming both and the
+// shape that agrees with the flag. The choice is the application's: nothing here asks
+// which sign-in methods it has.
+func TestShape_DirectoriesChoice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		shape   string
+		given   bool
+		value   bool
+		want    bool
+		wantErr string
+	}{
+		{name: "tenant-owned users, invite only, leave the tenants without directories", shape: "tenant-owned-users-invite-only"},
+		{name: "global users, invite only, said twice", shape: "global-users-invite-only", given: true},
+		{name: "tenant-owned users, by directory, fill it in", shape: "tenant-owned-users-by-directory", want: true},
+		{name: "global users, each tenant chooses, said twice", shape: "global-users-each-tenant-chooses", given: true, value: true, want: true},
+		{
+			name: "invite only beside tenant directories", shape: "tenant-owned-users-invite-only", given: true, value: true,
+			wantErr: "--shape tenant-owned-users-invite-only and --tenant-directories contradict each other: in Tenant-owned users, invite only a tenant's people come by invitation alone and no tenant has a directory, and --tenant-directories lets a tenant have one. Take --shape tenant-owned-users-by-directory, or leave --tenant-directories out",
+		},
+		{
+			name: "global users, invite only, beside tenant directories", shape: "global-users-invite-only", given: true, value: true,
+			wantErr: "--shape global-users-invite-only and --tenant-directories contradict each other: in Global users, invite only a tenant's people come by invitation alone and no tenant has a directory, and --tenant-directories lets a tenant have one. Take --shape global-users-each-tenant-chooses, or leave --tenant-directories out",
+		},
+		{
+			name: "by directory beside no tenant directories", shape: "tenant-owned-users-by-directory", given: true,
+			wantErr: "--shape tenant-owned-users-by-directory and --tenant-directories=false contradict each other: in Tenant-owned users, by directory a tenant's people come through the tenant's own directory, and --tenant-directories=false leaves the tenants without directories. Take --shape tenant-owned-users-invite-only, or leave --tenant-directories out",
+		},
+		{
+			name: "each tenant chooses beside no tenant directories", shape: "global-users-each-tenant-chooses", given: true,
+			wantErr: "--shape global-users-each-tenant-chooses and --tenant-directories=false contradict each other: in Global users, each tenant chooses a tenant's people come through the tenant's own directory, and --tenant-directories=false leaves the tenants without directories. Take --shape global-users-invite-only, or leave --tenant-directories out",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := shapeOf(t, tt.shape).DirectoriesChoice(tt.given, tt.value)
+			if tt.wantErr != "" {
+				if err == nil || errors.Cause(err).Error() != tt.wantErr {
+					t.Fatalf("DirectoriesChoice() error = %v, want %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("DirectoriesChoice() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("DirectoriesChoice() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestShape_tenants pins what a starting point of shapes 5 to 8 says once the tenants
+// are laid in: whether a person belongs to one tenant, how a tenant's people get in,
+// and what is still to choose. An invite-only shape takes any sign-in method: its
+// tenants have no directories, so a method through an organization's directory is a way
+// for an invited person to sign in, and the shape says so by the method's name.
 func TestShape_tenants(t *testing.T) {
 	t.Parallel()
 
 	google := []string{"the staff auth's google method (pkg/auth/staff/google.go:64)"}
-	for _, key := range []string{"tenant-owned-users-by-directory", "global-users-each-tenant-chooses"} {
-		if err := shapeOf(t, key).RefuseDirectoryMethods(google); err != nil {
-			t.Errorf("%s: RefuseDirectoryMethods() error = %v, want none: its tenants' people come through a directory", key, err)
-		}
-	}
-	if err := shapeOf(t, "global-users-invite-only").RefuseDirectoryMethods(nil); err != nil {
-		t.Errorf("RefuseDirectoryMethods() error = %v, want none without a directory method", err)
-	}
-	err := shapeOf(t, "tenant-owned-users-invite-only").RefuseDirectoryMethods(google)
-	if want := "--shape tenant-owned-users-invite-only: in Tenant-owned users, invite only a tenant's people come by invitation alone, and the application registers the staff auth's google method (pkg/auth/staff/google.go:64), through which a tenant's people could come by their organization's directory, so with tenants it would be 6 Tenant-owned users, by directory. Take --shape tenant-owned-users-by-directory, or run the command without --shape"; err == nil || errors.Cause(err).Error() != want {
-		t.Errorf("RefuseDirectoryMethods() error = %v, want %q", err, want)
-	}
-
+	both := []string{google[0], "the staff auth's entra method (pkg/auth/staff/entra.go:70)"}
+	const (
+		one      = "A person belongs to one tenant: the identity client of every auth whose roles the application gives is built with identity.WithOneTenantPerPerson(), so a role in a second tenant is refused however it would be given."
+		several  = "A person can be in several tenants: each tenant invites them and controls the role it gave, and no identity client is built with identity.WithOneTenantPerPerson()."
+		invited  = "A tenant's people come by invitation alone: the application has no tenant directories (the tenant record declares none and carries no directory-only switch), so no tenant takes a directory, none is opened to one, and none is made directory only. "
+		authored = "is the author's act, laying the tenant directories in (the directories record and its table, the tenant record's directory-only column, each auth's directory admission), which no impulse add method does by itself."
+	)
 	tests := []struct {
 		name    string
 		shape   string
@@ -453,8 +506,22 @@ func TestShape_tenants(t *testing.T) {
 		{
 			name: "tenant-owned users, invite only", shape: "tenant-owned-users-invite-only",
 			want: []string{
-				"A person belongs to one tenant: the identity client of every auth whose roles the application gives is built with identity.WithOneTenantPerPerson(), so a role in a second tenant is refused however it would be given.",
-				"A tenant's people come by invitation alone: no sign-in method goes through an organization's directory, so no tenant takes one, though the tenant record declares a tenant's directory. A directory method added later with the application giving the roles (impulse add method) makes the application 6 Tenant-owned users, by directory.",
+				one,
+				invited + "A Google, Microsoft or other provider's method added with impulse add method, the application giving its roles, is a way for an invited person to sign in and nothing more, and impulse audit reads the application as 5 Tenant-owned users, invite only with it as without it. Going to 6 Tenant-owned users, by directory " + authored,
+			},
+		},
+		{
+			name: "tenant-owned users, invite only, with a Google method there", shape: "tenant-owned-users-invite-only", methods: google,
+			want: []string{
+				one,
+				invited + "The staff auth's google method (pkg/auth/staff/google.go:64) is a way for an invited person to sign in and nothing more, and impulse audit reads the application as 5 Tenant-owned users, invite only with it as without it. Going to 6 Tenant-owned users, by directory " + authored,
+			},
+		},
+		{
+			name: "global users, invite only, with two directory methods there", shape: "global-users-invite-only", methods: both,
+			want: []string{
+				several,
+				invited + "The staff auth's google method (pkg/auth/staff/google.go:64) and the staff auth's entra method (pkg/auth/staff/entra.go:70) are each a way for an invited person to sign in and nothing more, and impulse audit reads the application as 7 Global users, invite only with them as without them. Going to 8 Global users, each tenant chooses " + authored,
 			},
 		},
 		{

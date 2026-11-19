@@ -361,6 +361,10 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	signUp := newMailLink(dbtype.MailLinkSignUp, "someone@example.com", tokenHash(3))
 	firstPassword := newMailLink(dbtype.MailLinkFirstPassword, "pat@lakeside.edu", tokenHash(5))
 	firstPassword.UserID = impulse.NullUUIDFromUUID(user.ID)
+	passwordReset := newMailLink(dbtype.MailLinkPasswordReset, "pat@lakeside.edu", tokenHash(6))
+	passwordReset.UserID = impulse.NullUUIDFromUUID(user.ID)
+	addressChange := newMailLink(dbtype.MailLinkAddressChange, "pat.new@lakeside.edu", tokenHash(7))
+	addressChange.UserID = impulse.NullUUIDFromUUID(user.ID)
 
 	for _, tt := range []struct {
 		name string
@@ -370,6 +374,8 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 		{name: "a verification of an address for a user", link: verification},
 		{name: "a sign-up", link: signUp},
 		{name: "the code of a first password for a user", link: firstPassword},
+		{name: "a password reset for a user, at the address it was mailed to", link: passwordReset},
+		{name: "an address an administrator asked to put on a user", link: addressChange},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := startWindow(h.ClockLead)

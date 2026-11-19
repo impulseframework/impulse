@@ -134,7 +134,7 @@ func firstPasswordCase1(t *testing.T) {
 	if strings.Contains(string(row.TokenHash), code) {
 		t.Error("the stored row holds the code itself, want its hash")
 	}
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record == nil || record.Failures != 1 {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record == nil || record.Failures != 1 {
 		t.Errorf("the address's mail count after SendCode() = %+v, want one", record)
 	}
 
@@ -157,7 +157,7 @@ func firstPasswordCase1(t *testing.T) {
 	if row := links.last(t); row.ConsumedAt == nil {
 		t.Error("the code still stands after it wrote the password, want it ended")
 	}
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the code was used = %+v, want none", record)
 	}
 }

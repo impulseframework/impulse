@@ -153,6 +153,10 @@ type AuthConfig struct {
 	AuthEvents bool
 	// Impersonation attaches the SessionImpersonations table.
 	Impersonation bool
+	// ConfirmAddress has the instance's SignIn hold a person who comes through a
+	// directory that does not vouch for their address until a code confirms one, as an
+	// Auth that sends mail does (signinflow.Rules.ConfirmAddress).
+	ConfirmAddress bool
 	// Accounts is what the library's standard rule finds chosen for the instance's
 	// sign-in method (MethodName), applied when Resolve is nil or answers
 	// signin.Standard; NoStandardRule for none.
@@ -460,6 +464,7 @@ func NewSignIn[Tx any](
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
 			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: oneProof(proven),
+			ConfirmAddress: cfg.ConfirmAddress,
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -512,6 +517,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
 		{name: "the standard account rule decides an unlinked identity by its sign-in name and by what was chosen for its method: no row is invite only, which refuses a stranger and writes nothing", run: testStandardAccountRules},
 		{name: "a sign-in method's row is written whole at the database's time, replaced by the next write, and listed by name", run: testSignInMethodRows},
+		{name: "a person who comes through a directory that does not vouch for their address is held for the code until the row holds a confirmed address, as the sign-in's transaction reads it", run: testAddressConfirmedFirst},
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
@@ -575,6 +581,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},
 		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
+		{name: "sign-in attempts are kept under a name exactly as it is spelled", run: testSignInAttemptsKeyedExactly},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
 		{name: "of failed attempts recorded at once on one name, as many as the limit are told they were counted and no more", run: testSignInAttemptsCountedAtOnce},
 		{name: "a failed attempt recorded while the name is cleared is the first after the clear, never an error", run: testSignInAttemptsRecordedBesideClears},

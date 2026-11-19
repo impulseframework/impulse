@@ -41,6 +41,9 @@ type CrewSignInMethod struct {
 	DirectoryGivesRoles bool   `spanner:"DirectoryGivesRoles"`
 	OwnRule             bool   `spanner:"OwnRule"`
 	Says                string `spanner:"Says"`
+	// SelfServiceReset says a person may ask at the sign-in page for a link that
+	// resets their own password: the password method's alone.
+	SelfServiceReset bool `spanner:"SelfServiceReset"`
 }
 
 // Resource implements resource.Resourcer.
@@ -63,6 +66,7 @@ func ListCrewSignInMethod(ctx context.Context, _ *resource.QuerySet[CrewSignInMe
 			method := &CrewSignInMethod{
 				Name: methods[i].Name, Label: methods[i].Label, Admits: methods[i].Admits, OpenSignUp: methods[i].OpenSignUp,
 				DefaultRole: methods[i].DefaultRole, DirectoryGivesRoles: methods[i].DirectoryGivesRoles, OwnRule: methods[i].OwnRule, Says: methods[i].Says,
+				SelfServiceReset: methods[i].SelfServiceReset,
 			}
 			if !yield(method, nil) {
 				return

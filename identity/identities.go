@@ -153,7 +153,7 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
 	}
 
-	return nil
+	return m.resetLinksEndAtCommit(txn, userID)
 }
 
 // linksSignIn reports whether one of the links can sign its person in: the session

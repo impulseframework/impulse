@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/go-playground/validator/v10"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/app"
@@ -158,6 +159,30 @@ func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
 // DirectoryName names no directory: the matrix registers no sign-in method.
 func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
 	return "", ""
+}
+
+// RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
+// here to mail through, and each says so.
+func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {
+	return errors.New("the authorization matrix serves no session manager")
+}
+
+func (noSessionAPI) SendPasswordReset(context.Context, impulse.UUID, session.AskedBy) error {
+	return errors.New("the authorization matrix serves no session manager")
+}
+
+// EndPasswordResetLinks withdraws nothing, and the two notices tell nobody: no link was
+// mailed here and no mail is sent.
+func (noSessionAPI) EndPasswordResetLinks(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
+	return nil
+}
+
+func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, bool) error {
+	return nil
 }
 
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix

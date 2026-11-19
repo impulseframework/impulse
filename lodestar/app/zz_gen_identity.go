@@ -428,6 +428,14 @@ func (a *App) RevokeCrewUserTrustedDevices() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RevokeCrewUserTrustedDevices()
 }
 
+func (a *App) SendCrewSectorUserPasswordResetLink() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SendCrewSectorUserPasswordResetLink()
+}
+
+func (a *App) SendCrewUserPasswordResetLink() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SendCrewUserPasswordResetLink()
+}
+
 func (a *App) SetCrewSectorTemporaryPassword() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewSectorTemporaryPassword()
 }
@@ -438,6 +446,10 @@ func (a *App) SetCrewSectorUserEmail() http.HandlerFunc {
 
 func (a *App) SetCrewSectorUserName() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewSectorUserName()
+}
+
+func (a *App) SetCrewSelfServiceReset() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SetCrewSelfServiceReset()
 }
 
 func (a *App) SetCrewTemporaryPassword() http.HandlerFunc {

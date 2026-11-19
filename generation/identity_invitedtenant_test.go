@@ -702,6 +702,85 @@ func Test_identityInstance_invitesTenants(t *testing.T) {
 	}
 }
 
+// Test_identityInviteTenantTemplate_directory pins what the method that invites a
+// tenant says of the person's directory: where the application declares a directories
+// record, that the tenant takes the directory of the person who accepts; where it
+// declares none, that no tenant takes one, whichever sign-in method the person came
+// through. The method itself is the same in both.
+func Test_identityInviteTenantTemplate_directory(t *testing.T) {
+	t.Parallel()
+
+	data := func(directoryOutlets []string) *identitySourceData {
+		return &identitySourceData{
+			Source: "Auth", Package: "crewidentity", Outlets: "default",
+			identityInstance: &identityInstance{
+				auth: "Crew", createsTenant: true,
+				tables: map[identityTable]bool{identityMailLinks: true, identityMemberships: true},
+				tenant: &identityTenant{
+					name: "Citadel", word: "citadel", directoryOutlets: directoryOutlets,
+					invitation: &identityTenantInvitation{fields: []identityTenantField{{Name: "Name", Type: "string", Required: true, Text: true}}, nameField: "Name"},
+				},
+			},
+		}
+	}
+	const (
+		takes   = "makes that the citadel's\n\t// directory. The invited person enters nothing"
+		takesNo = "whichever sign-in method they came through: the application\n\t// declares no directories record, so no citadel takes a directory. The\n\t// invited person enters nothing"
+	)
+	tests := []struct {
+		name            string
+		data            *identitySourceData
+		wantDirectories bool
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:            "an application that declares a directories record",
+			data:            data([]string{"default"}),
+			wantDirectories: true,
+			wantContains:    []string{takes},
+			wantNotContains: []string{"takes a directory", "whichever sign-in method"},
+		},
+		{
+			name:            "an application that declares none",
+			data:            data(nil),
+			wantContains:    []string{takesNo},
+			wantNotContains: []string{"makes that the citadel's", "Google Workspace", "Entra"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.data.TenantDirectories(); got != tt.wantDirectories {
+				t.Errorf("TenantDirectories() = %v, want %v", got, tt.wantDirectories)
+			}
+			c := &client{}
+			out, err := c.generateTemplateOutput("identityInviteTenantTemplate", identityInviteTenantTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(out); err != nil {
+				t.Fatalf("the rendered method does not parse: %v\n%s", err, out)
+			}
+			for _, want := range tt.wantContains {
+				if !strings.Contains(string(out), want) {
+					t.Errorf("the rendered method lacks %q:\n%s", want, out)
+				}
+			}
+			for _, not := range tt.wantNotContains {
+				if strings.Contains(string(out), not) {
+					t.Errorf("the rendered method says %q", not)
+				}
+			}
+			// Each comment line is a line of its own: the choice eats no line break.
+			if !strings.Contains(string(out), "makes the\n\t// citadel from the details given here") {
+				t.Errorf("the comment's lines ran together:\n%s", out)
+			}
+		})
+	}
+}
+
 // tenantFixtureDir is the tenant fixture's directory by its place beside this file: the
 // working directory is the process's, and other tests of the package move it (client
 // construction moves to the module's root), so a test that runs beside them reads the

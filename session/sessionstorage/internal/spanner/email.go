@@ -23,7 +23,10 @@ import (
 // username where it would write the address and never writes Email.
 
 // emailVerifiedAtColumn is the column that records when the address was verified.
-const emailVerifiedAtColumn = "EmailVerifiedAt"
+const (
+	emailColumn           = "Email"
+	emailVerifiedAtColumn = "EmailVerifiedAt"
+)
 
 // errUsernameIsEmail is the refusal of a rename, or of an address entered by hand, on a
 // store whose usernames are the addresses: both change through a verified link.
@@ -68,9 +71,9 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 	if s.usernameIsEmail {
 		return errUsernameIsEmail()
 	}
-	row := map[string]any{idColumn: userID, "Email": spanner.NullString{}, emailVerifiedAtColumn: spanner.NullTime{}}
+	row := map[string]any{idColumn: userID, emailColumn: spanner.NullString{}, emailVerifiedAtColumn: spanner.NullTime{}}
 	if email != nil {
-		row["Email"] = spanner.NullString{StringVal: *email, Valid: true}
+		row[emailColumn] = spanner.NullString{StringVal: *email, Valid: true}
 	}
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}); err != nil {
 		switch {
@@ -104,7 +107,7 @@ func (s *SessionStorageDriver) VerifyUserEmail(ctx context.Context, userID impul
 		return err
 	}
 
-	row := map[string]any{idColumn: userID, "Email": email, emailVerifiedAtColumn: spanner.CommitTimestamp}
+	row := map[string]any{idColumn: userID, emailColumn: email, emailVerifiedAtColumn: spanner.CommitTimestamp}
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}); err != nil {
 		switch {
 		case spanner.ErrCode(err) == codes.NotFound:
@@ -175,7 +178,7 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx *spa
 	}
 	update := map[string]any{idColumn: userID, emailVerifiedAtColumn: spanner.CommitTimestamp}
 	if !s.usernameIsEmail {
-		update["Email"] = email
+		update[emailColumn] = email
 	}
 	if err := tx.BufferWrite([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, update)}); err != nil {
 		return false, errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")

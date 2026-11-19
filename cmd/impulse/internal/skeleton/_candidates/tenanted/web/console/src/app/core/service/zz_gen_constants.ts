@@ -103,6 +103,9 @@ export const Methods = {
   RevokeStaffSessionToken: 'RevokeStaffSessionToken' as Method,
   RevokeStaffTenantUserTrustedDevices: 'RevokeStaffTenantUserTrustedDevices' as Method,
   RevokeStaffUserTrustedDevices: 'RevokeStaffUserTrustedDevices' as Method,
+  SendStaffTenantUserPasswordResetLink: 'SendStaffTenantUserPasswordResetLink' as Method,
+  SendStaffUserPasswordResetLink: 'SendStaffUserPasswordResetLink' as Method,
+  SetStaffSelfServiceReset: 'SetStaffSelfServiceReset' as Method,
   SetStaffTemporaryPassword: 'SetStaffTemporaryPassword' as Method,
   SetStaffTenantTemporaryPassword: 'SetStaffTenantTemporaryPassword' as Method,
   SetStaffTenantUserEmail: 'SetStaffTenantUserEmail' as Method,
@@ -587,6 +590,7 @@ export namespace StaffSignInMethods {
     openSignUp: 'openSignUp' as FieldName,
     ownRule: 'ownRule' as FieldName,
     says: 'says' as FieldName,
+    selfServiceReset: 'selfServiceReset' as FieldName,
   };
   export const resourceName = {
     admits: 'StaffSignInMethods.admits' as Resource,
@@ -597,6 +601,7 @@ export namespace StaffSignInMethods {
     openSignUp: 'StaffSignInMethods.openSignUp' as Resource,
     ownRule: 'StaffSignInMethods.ownRule' as Resource,
     says: 'StaffSignInMethods.says' as Resource,
+    selfServiceReset: 'StaffSignInMethods.selfServiceReset' as Resource,
   };
 }
 
@@ -1350,6 +1355,24 @@ export namespace RevokeStaffTenantUserTrustedDevices {
 export namespace RevokeStaffUserTrustedDevices {
   export const fieldName = {
     userId: 'userId' as FieldName,
+  };
+}
+
+export namespace SendStaffTenantUserPasswordResetLink {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
+export namespace SendStaffUserPasswordResetLink {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
+export namespace SetStaffSelfServiceReset {
+  export const fieldName = {
+    on: 'on' as FieldName,
   };
 }
 

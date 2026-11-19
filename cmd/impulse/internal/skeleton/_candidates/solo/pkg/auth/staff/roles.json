@@ -52,6 +52,9 @@
               "resource": "SetStaffTemporaryPassword"
             },
             {
+              "resource": "SendStaffUserPasswordResetLink"
+            },
+            {
               "resource": "RevokeStaffUserTrustedDevices"
             },
             {
@@ -62,6 +65,9 @@
             },
             {
               "resource": "MakeStaffInviteOnly"
+            },
+            {
+              "resource": "SetStaffSelfServiceReset"
             },
             {
               "resource": "InviteStaffUser"
@@ -202,7 +208,8 @@
                 "label",
                 "openSignUp",
                 "ownRule",
-                "says"
+                "says",
+                "selfServiceReset"
               ]
             },
             {

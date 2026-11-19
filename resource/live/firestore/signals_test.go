@@ -463,21 +463,29 @@ func unhurried() livefirestore.Option {
 }
 
 // writeWatch observes one service's signal writes: it counts the ones begun and the
-// ones ended, keeps the context each was sent under, and holds the ones a test names in
-// flight, before they are sent, until the test lets them go.
+// ones ended, keeps the context each was sent under and how it ended, and holds the
+// ones a test names in flight, before they are sent, until the test lets them go.
 type writeWatch struct {
 	mu       sync.Mutex
 	begun    int
 	ended    int
 	contexts []context.Context
+	outcomes map[int]writeOutcome
 	held     map[int]chan struct{}
 	// reached is told the number of each held write as it begins.
 	reached chan int
 }
 
+// writeOutcome is how one write ended: its error, and the error of the context it was
+// sent under at that moment, nil where the context had not ended.
+type writeOutcome struct {
+	err    error
+	ctxErr error
+}
+
 // watchWrites watches the service's signal writes.
 func watchWrites(svc *livefirestore.Service) *writeWatch {
-	w := &writeWatch{held: make(map[int]chan struct{}), reached: make(chan int, 16)}
+	w := &writeWatch{outcomes: make(map[int]writeOutcome), held: make(map[int]chan struct{}), reached: make(chan int, 16)}
 	livefirestore.ObserveWrites(svc, func(ctx context.Context, _ live.Kind) func(error) {
 		w.mu.Lock()
 		w.begun++
@@ -490,10 +498,12 @@ func watchWrites(svc *livefirestore.Service) *writeWatch {
 			<-hold
 		}
 
-		return func(error) {
+		return func(err error) {
+			ctxErr := ctx.Err()
 			w.mu.Lock()
 			defer w.mu.Unlock()
 			w.ended++
+			w.outcomes[n] = writeOutcome{err: err, ctxErr: ctxErr}
 		}
 	})
 
@@ -549,6 +559,19 @@ func (w *writeWatch) sentUnder(t *testing.T, n int) context.Context {
 	}
 
 	return w.contexts[n-1]
+}
+
+// outcome returns how the nth write ended.
+func (w *writeWatch) outcome(t *testing.T, n int) writeOutcome {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	outcome, ok := w.outcomes[n]
+	if !ok {
+		t.Fatalf("write %d has not ended", n)
+	}
+
+	return outcome
 }
 
 // signaling makes a signal of the features kind on a goroutine of its own, as a request
@@ -927,6 +950,107 @@ func TestService_Signal_callerWhoseContextEnds(t *testing.T) {
 	})
 }
 
+// TestService_Signal_makerWhoseDeadlinePassed pins what becomes of a covering write the
+// client refuses for its maker's deadline before the maker's context has ended. A
+// context ends when its timer runs, which on a busy machine is some time after its
+// deadline, and the client does not wait for it: it answers a call whose deadline has
+// passed DeadlineExceeded, the context still open. That is the maker's own time ending,
+// as a context that ended under the write is: the maker fails alone, with its deadline's
+// error, and a caller still waiting makes the write under its own context.
+func TestService_Signal_makerWhoseDeadlinePassed(t *testing.T) {
+	t.Parallel()
+
+	const (
+		// late is how many callers of one round wait under a deadline that has passed.
+		late = 3
+		// rounds bounds the rounds made until one of those callers took the turn. Which
+		// waiting caller takes it is the scheduler's choice: the late callers are made
+		// first, and in the round where the caller whose context lasts takes it all the
+		// same, no write is refused and the round shows nothing.
+		rounds = 40
+	)
+	type callerKey struct{}
+	writer := newServiceIn(t, databaseFor(t), unhurried())
+	writes := watchWrites(writer)
+
+	// With the slot free the caller writes itself, and the refusal is its own.
+	if err := writer.Signal(livefirestore.Overdue(t.Context()), live.KindFeatures); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, livefirestore.ErrSignalLimit) {
+		t.Errorf("Signal() with the slot free, under a deadline that had passed, error = %v, want its own deadline's and not the limit's", err)
+	}
+	if outcome := writes.outcome(t, 1); outcome.ctxErr != nil {
+		t.Errorf("the context of that write had ended (%v) when the client refused it, want it open", outcome.ctxErr)
+	}
+	nothingSending(t, writer, writes, 1)
+
+	for round := range rounds {
+		begun, _ := writes.counts()
+		firstWrite := begun + 1
+		release := writes.hold(t, firstWrite)
+		first := signaling(t.Context(), writer)
+		writes.awaitHeld(t, firstWrite)
+		lateAnswers := make([]<-chan error, 0, late)
+		for range late {
+			lateAnswers = append(lateAnswers, signaling(livefirestore.Overdue(context.WithValue(t.Context(), callerKey{}, "late")), writer))
+			awaitWaiting(t, writer, len(lateAnswers))
+		}
+		lasting := signaling(context.WithValue(t.Context(), callerKey{}, "lasting"), writer)
+		awaitWaiting(t, writer, late+1)
+
+		release()
+		if err := answered(t, "the first signal", first); err != nil {
+			t.Fatalf("round %d: the first Signal() error = %v", round, err)
+		}
+		if err := answered(t, "the caller whose context lasts", lasting); err != nil {
+			t.Fatalf("round %d: Signal() of the caller whose context lasts error = %v, want the covering write made for it: a write refused for its maker's deadline is that maker's failure alone", round, err)
+		}
+		var failed int
+		for _, answer := range lateAnswers {
+			err := answered(t, "a caller whose deadline had passed", answer)
+			if err == nil {
+				// Covered by the write the caller whose context lasts made.
+				continue
+			}
+			failed++
+			if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, livefirestore.ErrSignalLimit) {
+				t.Errorf("round %d: Signal() of a caller whose deadline had passed error = %v, want its own deadline's and not the limit's", round, err)
+			}
+		}
+
+		// The writes of the round after the first: the ones the late callers made, each
+		// refused, and last the one made under the context that lasts.
+		_, ended := writes.counts()
+		var refused int
+		for n := firstWrite + 1; n <= ended; n++ {
+			maker, _ := writes.sentUnder(t, n).Value(callerKey{}).(string)
+			outcome := writes.outcome(t, n)
+			switch {
+			case maker == "late":
+				refused++
+				if outcome.err == nil || !strings.Contains(outcome.err.Error(), "code = DeadlineExceeded") {
+					t.Errorf("round %d: write %d, sent under a deadline that had passed, error = %v, want the client's DeadlineExceeded", round, n, outcome.err)
+				}
+				if outcome.ctxErr != nil {
+					t.Errorf("round %d: the context of write %d had ended (%v) when the client refused it, want it open: the refusal for a context that ended is another test's", round, n, outcome.ctxErr)
+				}
+			case maker != "lasting" || n != ended:
+				t.Errorf("round %d: write %d of %d was sent under the context of %q, want the late callers' refused writes and then the lasting caller's", round, n, ended, maker)
+			case outcome.err != nil:
+				t.Errorf("round %d: the write made under the context that lasts error = %v", round, outcome.err)
+			}
+		}
+		if failed != refused {
+			t.Errorf("round %d: %d late callers failed and %d writes were refused, want every refused write its maker's failure and nobody else's", round, failed, refused)
+		}
+		nothingSending(t, writer, writes, ended)
+		if refused > 0 {
+			t.Logf("round %d: %d writes were refused for their makers' deadlines, each with its context open, and the caller whose context lasts made the write", round, refused)
+
+			return
+		}
+	}
+	t.Fatalf("in %d rounds no caller whose deadline had passed took the covering write's turn, so no write was refused for its maker's deadline", rounds)
+}
+
 // TestService_Signal_manyCallers runs many callers signaling one kind at once, some of
 // them under a context that ends within milliseconds, while they wait or under the
 // write they make, and pins what must hold whatever the interleaving: every caller
@@ -1033,8 +1157,8 @@ func TestService_Signal_manyCallers(t *testing.T) {
 		answered++
 		if made.err != nil {
 			// The emulator answers a call as already canceled when it rides a connection
-			// on which calls were canceled a moment before (see signal); every other
-			// failure of a call whose context lasted is the service's.
+			// on which calls were canceled a moment before (see signal); no other failure
+			// of a call whose context lasted is expected, the service's or the store's.
 			if made.lasting && !strings.Contains(made.err.Error(), "already cancel") {
 				t.Errorf("a Signal() whose context lasted error = %v, want it covered by a write", made.err)
 			}

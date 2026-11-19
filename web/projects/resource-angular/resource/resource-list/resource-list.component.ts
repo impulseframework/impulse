@@ -944,9 +944,10 @@ export class ResourceListComponent implements OnInit {
       if (!result) {
         return;
       }
+      const notice = methodDoneMessage(method, result.answer);
       this.store.notifications.addGlobalNotification({
-        message: methodDoneMessage(method),
-        type: AlertType.SUCCESS,
+        message: notice.message,
+        type: notice.failed ? AlertType.ERROR : AlertType.SUCCESS,
         duration: 5000,
         link: '',
       });

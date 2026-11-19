@@ -202,6 +202,7 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 			files = append(files,
 				method("Require"+subject+"PasswordChange", identityRequirePasswordChangeTemplate, identityUsers),
 				method("Set"+subject+"TemporaryPassword", identitySetTemporaryPasswordTemplate, identityUsers),
+				method("Send"+subject+"UserPasswordResetLink", identitySendPasswordResetLinkTemplate, identityUsers, identityMailLinks),
 			)
 		}
 		if !i.usernameIsEmail {

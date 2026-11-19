@@ -1,8 +1,9 @@
+import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { iconCellKey, RecordData } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, iconCellKey, RecordData } from '@impulseframework/resource-angular/types';
 
-import { AppGridComponent } from './grid.component';
+import { AppGridComponent, MIN_TEXT_COLUMN_WIDTH } from './grid.component';
 import { ColumnFilter, ColumnFilterInputs, RowKey } from './grid-types';
 
 // The grid identifies a row by `rowKey`, the caller's function from a row to its identity,
@@ -518,6 +519,15 @@ describe('a text cut short', () => {
   const tooltip = (): string | null => {
     return tooltipSurface()?.textContent?.trim() ?? null;
   };
+  /** The browser's next frame, in which a text the focus arrived on is offered. */
+  const nextFrame = async (): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        resolve();
+      });
+    });
+    await settle();
+  };
 
   it('a cell whose text is wider than its column offers the whole text while the pointer is on it', async () => {
     const cut = measured(cell(0, 1), 620, 180);
@@ -622,6 +632,100 @@ describe('a text cut short', () => {
     expect(tooltip()).toBeNull();
   });
 
+  describe('the anchor the tooltip is hung on', () => {
+    const box = (left: number, top: number, width: number, height: number): DOMRect => {
+      return { left, top, width, height, right: left + width, bottom: top + height } as DOMRect;
+    };
+    const anchor = (): HTMLElement => {
+      return element.querySelector('.cut-short-anchor') as HTMLElement;
+    };
+    /** The list's own box, which the anchor is placed in, and a cell's, as a browser's layout would give them. */
+    const laidOut = (cut: HTMLElement, list: DOMRect, cellBox: DOMRect): void => {
+      const host = element.querySelector('.impulse-grid-host') as HTMLElement;
+      // jsdom lays nothing out, so it knows no box an element is positioned in.
+      Object.defineProperty(anchor(), 'offsetParent', { configurable: true, value: host });
+      host.getBoundingClientRect = (): DOMRect => list;
+      // The list's box has a line of a pixel around it, and what it holds lies inside the line.
+      Object.defineProperty(host, 'clientLeft', { configurable: true, value: 1 });
+      Object.defineProperty(host, 'clientTop', { configurable: true, value: 1 });
+      Object.defineProperty(host, 'clientWidth', { configurable: true, value: list.width - 2 });
+      Object.defineProperty(host, 'clientHeight', { configurable: true, value: list.height - 2 });
+      cut.getBoundingClientRect = (): DOMRect => cellBox;
+    };
+    const placed = (): string[] => {
+      const style = anchor().style;
+      return [style.left, style.top, style.width, style.height];
+    };
+
+    it('is laid over the text, in the list', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
+    });
+
+    it("is laid over no more of a text than is inside the list: a cell the list has partly scrolled out of view is offered over the part in view, and the anchor never reaches past the list's edge", async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      // The cell starts 40 before the list's right edge, 39 before the inside of its line,
+      // and runs 140 past it.
+      laidOut(cut, box(20, 100, 336, 400), box(316, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['295px', '49px', '39px', '49px']);
+      const [left, , width] = placed().map((length) => parseFloat(length));
+      expect(left + width).toBeLessThanOrEqual(334);
+    });
+
+    it('is laid over the part in view of a text the list has scrolled out of view at its left edge', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      // The cell starts 30 before the inside of the list's line and runs 150 into it.
+      laidOut(cut, box(20, 100, 336, 400), box(-9, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['0px', '49px', '150px', '49px']);
+    });
+
+    it('lies in a box that clips what it holds and is never scrolled, by a script or by the browser bringing something into view', () => {
+      const sheet = Array.from(document.querySelectorAll('style'))
+        .map((style) => style.textContent ?? '')
+        .join('\n');
+      const host = Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter(([, selector]) => selector.trim().startsWith('.impulse-grid-host') && !selector.trim().includes(' '))
+        .map(([, , declarations]) => declarations)
+        .join('\n');
+      expect(host).toContain('overflow: clip');
+      expect(host).not.toContain('overflow: hidden');
+    });
+
+    it('is taken back to nothing once the tooltip has closed and faded, so it is not left where the list may no longer be', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+      await pointerOff(cut);
+
+      // While the tooltip fades it stays where it was hung.
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+      expect(placed()).toEqual(['0px', '0px', '0px', '0px']);
+    });
+
+    it('is kept where a text is offered again before the wait is over', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+      await pointerOff(cut);
+      await pointerOnto(cut);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
+    });
+  });
+
   describe('where the whole pixels call it a fit', () => {
     // jsdom has no measure of a text's own width; a browser's is put in its place.
     const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };
@@ -689,7 +793,7 @@ describe('a text cut short', () => {
     const button = header(1).closest('button');
     expect(button).not.toBeNull();
     button?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-    await settle();
+    await nextFrame();
     expect(tooltip()).toBe(notesHeader);
 
     button?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
@@ -701,7 +805,43 @@ describe('a text cut short', () => {
     header(0)
       .closest('button')
       ?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-    await settle();
+    await nextFrame();
+    expect(tooltip()).toBeNull();
+  });
+
+  it('offers what the focus arrived on once the scroll that brings it into view is over, so that scroll does not close it', async () => {
+    measured(header(1), 300, 96);
+    const button = header(1).closest('button');
+    // The focus lands on a header out of view: the list scrolls it into view at once.
+    button?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    element.querySelector('.impulse-grid-scroll')?.dispatchEvent(new Event('scroll'));
+    await nextFrame();
+    expect(tooltip()).toBe(notesHeader);
+  });
+
+  it('offers nothing for a focus that has left before its frame came', async () => {
+    measured(header(1), 300, 96);
+    const button = header(1).closest('button');
+    button?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    button?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await nextFrame();
+    expect(tooltip()).toBeNull();
+  });
+
+  it("offers an empty list's message whole where it is cut short, and nothing where it fits", async () => {
+    const refusal = 'This list is not available to you: the sector keeps its roster to its own marshal.';
+    fixture.componentRef.setInput('rowData', []);
+    fixture.componentRef.setInput('emptyMessage', refusal);
+    fixture.detectChanges();
+    const words = element.querySelector('tr.no-records-row td .impulse-grid-across') as HTMLElement;
+    expect(words.textContent?.trim()).toBe(refusal);
+
+    await pointerOnto(measured(words, 560, 296));
+    expect(tooltip()).toBe(refusal);
+    await pointerOff(words);
+    expect(tooltip()).toBeNull();
+
+    await pointerOnto(measured(words, 280, 296));
     expect(tooltip()).toBeNull();
   });
 
@@ -912,5 +1052,1180 @@ describe('what a row says of a list, a missing key and a method it does not offe
     entries[1].click();
     entries[0].click();
     expect(ran).toEqual(['describe']);
+  });
+});
+
+// A column keeps a readable width: the table is never narrower than its columns at the
+// narrowest each is drawn, so a frame too narrow for them scrolls sideways, the frame and
+// never the page, and the first column is then held at the left edge with the select and
+// expand columns. A list whose columns fit is drawn as it always was. jsdom lays nothing
+// out and has no ResizeObserver, so each case says how wide the frame is, as the browser
+// would report it.
+describe('a list and the width of its frame', () => {
+  const text = MIN_TEXT_COLUMN_WIDTH;
+  const rows: RecordData[] = [
+    { name: 'Commendations', description: 'Cites a pilot for a sortie flown well.', enabled: true, changedBy: 'ada' },
+    { name: 'Debriefs', description: 'Files a debrief after each sortie.', enabled: false, changedBy: 'mo' },
+    { name: 'Salvage', description: 'Lists what the salvage hold took in.', enabled: true, changedBy: 'ada' },
+  ];
+  // Three columns of text, one that declares its width, and a button column.
+  const columns = [
+    { id: 'name' },
+    { id: 'description' },
+    { id: 'enabled', width: 64 },
+    { id: 'changedBy' },
+    {
+      id: 'history',
+      hideHeader: true,
+      buttonConfig: { label: 'History', icon: 'history', actionType: 'function', action: (): void => undefined },
+    },
+  ] as unknown as ColumnConfig[];
+  const columnsAtTheirNarrowest = text + text + 64 + text + 66;
+  // What a wide window leaves the list, and a phone held upright.
+  const wide = 1226;
+  const phone = 336;
+
+  /** A list with a select column and rows that expand, as a page that offers both hands them to the grid. */
+  @Component({
+    standalone: true,
+    imports: [AppGridComponent],
+    template: `
+      <impulse-grid
+        [rowData]="rows"
+        [columnDefs]="columns"
+        [rowKey]="key"
+        selectionType="multiple"
+        [enableRowExpansion]="true"
+        [detailTemplate]="detail" />
+      <ng-template #detail let-row>
+        <p class="detail-words">More about {{ row.name }}</p>
+      </ng-template>
+    `,
+  })
+  class SelectAndExpandComponent {
+    rows = rows;
+    columns = columns;
+    key = (row: RecordData): unknown => {
+      return row['name'];
+    };
+  }
+
+  /** The frames a ResizeObserver was asked to watch, each with the call that reports a new size. */
+  let watched: { frame: Element; report: () => void }[];
+  let element: HTMLElement;
+  let detect: () => void;
+  /** Hands the plain list an input, as its page would. */
+  let give: (name: string, value: unknown) => void;
+  /** Takes the list off the page. */
+  let leave: () => void;
+  const ground = document.body.style.backgroundColor;
+
+  class FrameObserver {
+    constructor(private readonly report: () => void) {}
+
+    observe(frame: Element): void {
+      watched.push({ frame, report: this.report });
+    }
+
+    unobserve(): void {
+      // Nothing to let go of: the specs end by forgetting every frame.
+    }
+
+    disconnect(): void {
+      watched = watched.filter((entry) => entry.report !== this.report);
+    }
+  }
+
+  beforeEach(async () => {
+    watched = [];
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FrameObserver;
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent, SelectAndExpandComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+  });
+
+  afterEach(() => {
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    document.body.style.backgroundColor = ground;
+    document.documentElement.removeAttribute('data-palette');
+    document.body.removeAttribute('data-look');
+    vi.restoreAllMocks();
+  });
+
+  const settle = async (fixture: ComponentFixture<unknown>): Promise<void> => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+  };
+  const plain = async (data: RecordData[] = rows): Promise<AppGridComponent> => {
+    const fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', data);
+    fixture.componentRef.setInput('columnDefs', columns);
+    element = fixture.nativeElement as HTMLElement;
+    detect = (): void => fixture.detectChanges();
+    give = (name, value): void => fixture.componentRef.setInput(name, value);
+    leave = (): void => fixture.destroy();
+    await settle(fixture);
+    return fixture.componentInstance;
+  };
+  /**
+   * What the list's stylesheet, as the page is given it, declares in the rules whose
+   * selector names every one of `names` and none of `without`. For what jsdom cannot
+   * answer as a computed style: a value read from a variable, a mixed color, a property
+   * it does not know.
+   */
+  const declares = (names: string[], without: string[] = []): string => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      .filter(([, selector]) => {
+        return names.every((name) => selector.includes(name)) && without.every((name) => !selector.includes(name));
+      })
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  };
+  const withSelectAndExpand = async (): Promise<void> => {
+    const fixture = TestBed.createComponent(SelectAndExpandComponent);
+    element = fixture.nativeElement as HTMLElement;
+    detect = (): void => fixture.detectChanges();
+    await settle(fixture);
+  };
+  const frame = (): HTMLElement => {
+    return element.querySelector('.impulse-grid-scroll') as HTMLElement;
+  };
+  const table = (): HTMLElement => {
+    return element.querySelector('table.impulse-grid-table') as HTMLElement;
+  };
+  /** The browser lays the frame out this wide and says so. */
+  const frameIs = (width: number): void => {
+    Object.defineProperty(frame(), 'clientWidth', { configurable: true, value: width });
+    const reports = watched.filter((entry) => entry.frame === frame());
+    expect(reports.length).toBeGreaterThan(0);
+    reports.forEach((entry) => entry.report());
+    detect();
+  };
+  const headers = (): HTMLElement[] => {
+    return Array.from(element.querySelectorAll<HTMLElement>('thead th'));
+  };
+  const cells = (row: number): HTMLElement[] => {
+    return Array.from(element.querySelectorAll<HTMLElement>('tr.impulse-row')[row].querySelectorAll('td'));
+  };
+  const held = (): boolean => {
+    return frame().classList.contains('holds-first-column');
+  };
+  /** A person drags the column's edge from where it is to the right, by so many pixels. */
+  const drag = (column: number, by: number): void => {
+    const handle = element.querySelectorAll<HTMLElement>('thead th.data-col')[column].querySelector('.resize-handle');
+    handle?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 400 }));
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 400 + by }));
+    document.dispatchEvent(new MouseEvent('mouseup'));
+    detect();
+  };
+
+  describe('the narrowest a table is drawn', () => {
+    it("is every column at its narrowest: a column of text at the library's width, a declared width as declared, a button column its own", async () => {
+      await plain();
+      expect(text).toBe(160);
+      expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest}px`);
+    });
+
+    it('counts the select and expand columns, which keep their widths', async () => {
+      await withSelectAndExpand();
+      expect(table().style.minWidth).toBe(`${48 + 40 + columnsAtTheirNarrowest}px`);
+      expect(headers().map((th) => th.style.width)).toEqual(['48px', '40px', '', '', '64px', '', '66px']);
+    });
+
+    it("follows a column a person dragged: the width they gave it is kept, over the library's and through a new page of rows", async () => {
+      const grid = await plain();
+      // jsdom measures the header as nothing wide, so the drag starts from nothing.
+      drag(1, 220);
+      expect(grid.widthFor(columns[1])).toBe(220);
+      expect(headers()[1].style.width).toBe('220px');
+      expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest - text + 220}px`);
+
+      // Narrower than the library's width is the person's to choose too, down to the least a column goes.
+      drag(1, -500);
+      expect(headers()[1].style.width).toBe('48px');
+      expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest - text + 48}px`);
+
+      drag(1, 172);
+      give('rowData', [rows[2]]);
+      detect();
+      frameIs(phone);
+      frameIs(wide);
+      expect(headers()[1].style.width).toBe('220px');
+      expect(cells(0)[1].style.width).toBe('220px');
+    });
+  });
+
+  describe('a list whose columns fit', () => {
+    it('is drawn as it was: the table fills the frame, no column is given a width the page did not give it, nothing is held', async () => {
+      await plain();
+      const before = headers().map((th) => th.style.width);
+      frameIs(wide);
+
+      expect(headers().map((th) => th.style.width)).toEqual(before);
+      expect(before).toEqual(['', '', '64px', '', '66px']);
+      expect(held()).toBe(false);
+      expect(getComputedStyle(table()).width).toBe('100%');
+      expect(getComputedStyle(table()).borderCollapse).toBe('collapse');
+      expect(getComputedStyle(cells(0)[0]).position).not.toBe('sticky');
+    });
+
+    it('fits to the pixel: a frame exactly as wide as the columns at their narrowest holds nothing, and one pixel less does', async () => {
+      await plain();
+      frameIs(columnsAtTheirNarrowest);
+      expect(held()).toBe(false);
+      frameIs(columnsAtTheirNarrowest - 1);
+      expect(held()).toBe(true);
+      frameIs(columnsAtTheirNarrowest);
+      expect(held()).toBe(false);
+    });
+
+    it('holds nothing in a frame that is not laid out, which measures as nothing wide', async () => {
+      await plain([]);
+      frameIs(phone);
+      expect(held()).toBe(true);
+      // The list is inside something hidden: the browser reports no width at all.
+      frameIs(0);
+      expect(held()).toBe(false);
+      expect((element.querySelector('.impulse-grid-across') as HTMLElement).style.width).toBe('');
+    });
+
+    it('holds nothing where nothing is measured, as in a spec of an application', async () => {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      await plain();
+      expect(watched).toEqual([]);
+      expect(held()).toBe(false);
+      expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest}px`);
+    });
+  });
+
+  describe('a frame narrower than the columns', () => {
+    it('is what scrolls sideways: the table keeps its width inside the frame, which scrolls whatever does not fit', async () => {
+      await plain();
+      frameIs(phone);
+
+      // The table is the frame's own child, wider than it, and the frame scrolls its overflow.
+      expect(table().parentElement).toBe(frame());
+      expect(parseFloat(table().style.minWidth)).toBeGreaterThan(phone);
+      expect(getComputedStyle(frame()).overflow).toBe('auto');
+      expect(declares(['.impulse-grid-host'])).toContain('overflow: clip');
+    });
+
+    it('holds the first column at the left edge, in the header and in every row, and no other', async () => {
+      await plain();
+      frameIs(phone);
+
+      expect(held()).toBe(true);
+      expect(frame().style.getPropertyValue('--impulse-grid-first-left')).toBe('0px');
+      expect(headers().map((th) => th.classList.contains('first-col'))).toEqual([true, false, false, false, false]);
+      for (const row of [0, 1, 2]) {
+        expect(cells(row).map((td) => td.classList.contains('first-col'))).toEqual([true, false, false, false, false]);
+      }
+      expect(getComputedStyle(headers()[0]).position).toBe('sticky');
+      expect(getComputedStyle(cells(0)[0]).position).toBe('sticky');
+      expect(getComputedStyle(cells(0)[1]).position).not.toBe('sticky');
+      // The header's held cell lies over the header, which lies over the held cells of the rows.
+      const layer = (cell: HTMLElement): number => Number(getComputedStyle(cell).zIndex);
+      expect(layer(headers()[0])).toBeGreaterThan(layer(headers()[1]));
+      expect(layer(headers()[1])).toBeGreaterThan(layer(cells(0)[0]));
+      expect(layer(cells(0)[0])).toBeGreaterThan(3);
+      // Each cell carries its own lines while a column is held, so the held column keeps its edge.
+      expect(getComputedStyle(table()).borderCollapse).toBe('separate');
+      // Where it stays is the length the frame carries.
+      expect(declares(['holds-first-column', '.first-col'])).toMatch(/left:\s*var\(--impulse-grid-first-left/);
+    });
+
+    it('draws every held cell whole, on the color the list sits on, with the tints the rest of its row is drawn in', async () => {
+      await plain();
+      for (const column of ['.select-col', '.expand-col', '.first-col']) {
+        const cell = ['holds-first-column', 'impulse-row', column];
+        expect(declares(cell, [':hover', '.selected', 'nth-child'])).toMatch(
+          /background-color:\s*var\(--impulse-grid-ground,\s*var\(--mat-sys-surface,/,
+        );
+        expect(declares([...cell, ':nth-child(even)'])).toMatch(
+          /background-color:\s*var\(--mat-sys-surface-container-low,/,
+        );
+        expect(declares([...cell, ':hover'])).toMatch(
+          /background-color:\s*color-mix\(\s*in srgb,\s*var\(--mat-sys-on-surface,[^)]*\)\s*4%,\s*var\(--impulse-grid-ground,/,
+        );
+        expect(declares([...cell, '.selected'])).toMatch(
+          /background-color:\s*color-mix\(\s*in srgb,\s*var\(--mat-sys-primary,[^)]*\)\s*8%,\s*var\(--impulse-grid-ground,/,
+        );
+      }
+    });
+
+    it('stacks what is in the frame among itself, never over the page around the list', async () => {
+      await plain();
+      expect(declares(['.impulse-grid-scroll'], ['holds-first-column', 'ng-deep'])).toMatch(/isolation:\s*isolate/);
+    });
+
+    it('holds the select and expand columns with it, each after the one before', async () => {
+      await withSelectAndExpand();
+      frameIs(phone);
+
+      expect(held()).toBe(true);
+      expect(frame().style.getPropertyValue('--impulse-grid-expand-left')).toBe('48px');
+      expect(frame().style.getPropertyValue('--impulse-grid-first-left')).toBe('88px');
+      const classes = (cell: HTMLElement): string => {
+        return ['select-col', 'expand-col', 'first-col'].filter((name) => cell.classList.contains(name)).join();
+      };
+      expect(headers().map(classes)).toEqual(['select-col', 'expand-col', 'first-col', '', '', '', '']);
+      expect(cells(1).map(classes)).toEqual(['select-col', 'expand-col', 'first-col', '', '', '', '']);
+      for (const cell of cells(1).slice(0, 3)) {
+        expect(getComputedStyle(cell).position).toBe('sticky');
+      }
+      expect(getComputedStyle(cells(1)[3]).position).not.toBe('sticky');
+      expect(declares(['holds-first-column', '.select-col'], ['.expand-col'])).toMatch(/left:\s*0/);
+      expect(declares(['holds-first-column', '.expand-col'], ['.select-col'])).toMatch(
+        /left:\s*var\(--impulse-grid-expand-left/,
+      );
+    });
+
+    it('brings what the keyboard lands on into view beside the held columns, not under them', async () => {
+      await plain();
+      frameIs(phone);
+      expect(held()).toBe(true);
+      expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${text}px`);
+
+      await withSelectAndExpand();
+      frameIs(phone);
+      expect(held()).toBe(true);
+      expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${48 + 40 + text}px`);
+      expect(declares(['.holds-first-column'], ['impulse-grid-table'])).toMatch(
+        /scroll-padding-left:\s*var\(--impulse-grid-held-width/,
+      );
+    });
+
+    it('brings a control the keyboard lands on out from under the held column, and moves nothing for the pointer', async () => {
+      await plain();
+      frameIs(phone);
+      // The frame starts 20 from the window's edge and is scrolled 300; the second header's
+      // button lies 60 into the frame, under the held column, which is 160 wide.
+      const at = (target: Element, left: number): void => {
+        (target as HTMLElement).getBoundingClientRect = (): DOMRect => {
+          return { left } as DOMRect;
+        };
+      };
+      at(frame(), 20);
+      frame().scrollLeft = 300;
+      const second = headers()[1].querySelector('button') as HTMLButtonElement;
+      at(second, 80);
+
+      second.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      expect(frame().scrollLeft).toBe(200);
+
+      // Beside the held column already: nothing moves.
+      at(second, 190);
+      second.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      expect(frame().scrollLeft).toBe(200);
+
+      // A control of the held column itself is under nothing.
+      const first = headers()[0].querySelector('button') as HTMLButtonElement;
+      at(first, 28);
+      first.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      expect(frame().scrollLeft).toBe(200);
+
+      // A press gives the focus too, and the list stays under the pointer until the click lands.
+      at(second, 80);
+      second.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      second.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      expect(frame().scrollLeft).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      second.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      expect(frame().scrollLeft).toBe(100);
+    });
+
+    it('lets the first column go where holding it would leave less than the narrowest column beside it', async () => {
+      await plain();
+      frameIs(phone);
+      // Dragged to 288, the held column leaves 48 beside it, the least a column goes.
+      drag(0, 288);
+      expect(held()).toBe(true);
+      expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe('288px');
+      drag(0, 1);
+      expect(held()).toBe(false);
+      expect(parseFloat(table().style.minWidth)).toBeGreaterThan(phone);
+    });
+
+    it('draws a held cell on the color the list sits on, read off the page: a part-clear color nearer by is passed over', async () => {
+      document.body.style.backgroundColor = 'rgb(242, 243, 252)';
+      await plain();
+      element.style.backgroundColor = 'rgba(0, 0, 0, 0.04)';
+      frameIs(phone);
+      expect(frame().style.getPropertyValue('--impulse-grid-ground')).toBe('rgb(242, 243, 252)');
+    });
+
+    it('passes over a color that lets what is under it show, in each form a browser reports one', async () => {
+      await plain();
+      const reported = new Map<Element, string>([[document.body, 'rgb(1, 2, 3)']]);
+      const view = document.defaultView as Window & typeof globalThis;
+      const real = view.getComputedStyle.bind(view);
+      vi.spyOn(view, 'getComputedStyle').mockImplementation((asked: Element, pseudo?: string | null) => {
+        const color = reported.get(asked);
+        return color === undefined ? real(asked, pseudo) : ({ backgroundColor: color } as CSSStyleDeclaration);
+      });
+      const cases: [string, boolean][] = [
+        ['rgba(0, 0, 0, 0)', false],
+        ['transparent', false],
+        ['', false],
+        ['rgba(10, 20, 30, 0.5)', false],
+        ['color(srgb 0.1 0.1 0.1 / 0.04)', false],
+        ['rgb(10 20 30 / 50%)', false],
+        ['oklch(0.5 0.1 200 / 0.3)', false],
+        ['rgb(10, 20, 30)', true],
+        ['rgba(10, 20, 30, 1)', true],
+        ['color(srgb 0.9 0.9 0.9)', true],
+        ['color(srgb 0.9 0.9 0.9 / 1)', true],
+        ['rgb(10 20 30 / 100%)', true],
+      ];
+      for (const [color, covers] of cases) {
+        reported.set(element, color);
+        frameIs(phone);
+        expect([color, frame().style.getPropertyValue('--impulse-grid-ground')]).toEqual([
+          color,
+          covers ? color : 'rgb(1, 2, 3)',
+        ]);
+      }
+    });
+
+    it("reads the color again when the page's root or its body is given another attribute, so a held cell follows a change from light to dark", async () => {
+      document.body.style.backgroundColor = 'rgb(242, 243, 252)';
+      await plain();
+      frameIs(phone);
+      expect(frame().style.getPropertyValue('--impulse-grid-ground')).toBe('rgb(242, 243, 252)');
+
+      // The theme service sets the look on the page's root, and what the list sits on follows
+      // it. (The color is changed here on the list's own element, which nothing watches, so
+      // the root's attribute alone is what says to read again.)
+      element.style.backgroundColor = 'rgb(25, 28, 34)';
+      document.documentElement.setAttribute('data-palette', 'night');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      detect();
+      expect(frame().style.getPropertyValue('--impulse-grid-ground')).toBe('rgb(25, 28, 34)');
+
+      // An application that sets its look on the body is followed too.
+      element.style.backgroundColor = 'rgb(9, 9, 9)';
+      document.body.setAttribute('data-look', 'dusk');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      detect();
+      expect(frame().style.getPropertyValue('--impulse-grid-ground')).toBe('rgb(9, 9, 9)');
+    });
+
+    it('stops watching the frame and the page when the list leaves it', async () => {
+      document.body.style.backgroundColor = 'rgb(242, 243, 252)';
+      const grid = await plain();
+      frameIs(phone);
+      expect(watched).toHaveLength(1);
+      expect(grid.ground()).toBe('rgb(242, 243, 252)');
+
+      leave();
+      expect(watched).toEqual([]);
+      document.body.style.backgroundColor = 'rgb(25, 28, 34)';
+      document.documentElement.setAttribute('data-palette', 'night');
+      document.body.setAttribute('data-look', 'dusk');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(grid.ground()).toBe('rgb(242, 243, 252)');
+    });
+
+    it('reads nothing while the list is scrolled down and not sideways', async () => {
+      document.body.style.backgroundColor = 'rgb(242, 243, 252)';
+      await plain();
+      frameIs(phone);
+      element.style.backgroundColor = 'rgb(17, 19, 25)';
+      Object.defineProperty(frame(), 'scrollTop', { configurable: true, value: 240 });
+      frame().dispatchEvent(new Event('scroll'));
+      detect();
+      expect(frame().style.getPropertyValue('--impulse-grid-ground')).toBe('rgb(242, 243, 252)');
+    });
+
+    it('reads the color again as the list is scrolled sideways', async () => {
+      document.body.style.backgroundColor = 'rgb(242, 243, 252)';
+      await plain();
+      frameIs(phone);
+      // Changed with nothing said to the page's root: the next scroll sideways finds it.
+      element.style.backgroundColor = 'rgb(17, 19, 25)';
+      Object.defineProperty(frame(), 'scrollLeft', { configurable: true, value: 120 });
+      frame().dispatchEvent(new Event('scroll'));
+      detect();
+      expect(frame().style.getPropertyValue('--impulse-grid-ground')).toBe('rgb(17, 19, 25)');
+    });
+  });
+
+  describe('a row that is one cell across the table', () => {
+    it("says an empty list's message as wide as the frame, where a person sees it, while the table is wider", async () => {
+      await plain([]);
+      const words = (): HTMLElement => {
+        return element.querySelector('tr.no-records-row td .impulse-grid-across') as HTMLElement;
+      };
+      expect(words().textContent?.trim()).toBe('No records found');
+      expect(words().style.width).toBe('');
+
+      frameIs(phone);
+      expect(words().style.width).toBe(`${phone}px`);
+      expect(getComputedStyle(words()).position).toBe('sticky');
+      expect(parseFloat(getComputedStyle(words()).left)).toBe(0);
+      // A cell that clips would be what its words stay in place against.
+      expect(getComputedStyle(words().parentElement as HTMLElement).overflow).toBe('visible');
+
+      frameIs(wide);
+      expect(words().style.width).toBe('');
+    });
+
+    it("draws an expanded row's detail as wide as the frame while the table is wider", async () => {
+      await withSelectAndExpand();
+      element.querySelector<HTMLButtonElement>('tr.impulse-row button.expand-toggle')?.click();
+      detect();
+      const detail = (): HTMLElement => {
+        return element.querySelector('tr.detail-row td .impulse-grid-across') as HTMLElement;
+      };
+      expect(detail().querySelector('.detail-words')?.textContent).toBe('More about Commendations');
+      expect(detail().style.width).toBe('');
+
+      frameIs(phone);
+      expect(detail().style.width).toBe(`${phone}px`);
+      expect(getComputedStyle(detail()).position).toBe('sticky');
+      expect(getComputedStyle(detail().parentElement as HTMLElement).overflow).toBe('visible');
+    });
+  });
+
+  describe('the loading overlay', () => {
+    it('is laid over the frame, not inside what scrolls, so it covers what is in view however far the list is scrolled', async () => {
+      await plain();
+      give('loading', true);
+      detect();
+      const overlay = element.querySelector('.impulse-grid-loading-overlay') as HTMLElement;
+      const view = element.querySelector('.impulse-grid-view') as HTMLElement;
+
+      expect(overlay.parentElement).toBe(view);
+      expect(frame().parentElement).toBe(view);
+      expect(frame().contains(overlay)).toBe(false);
+      expect(getComputedStyle(view).position).toBe('relative');
+      expect(getComputedStyle(overlay).position).toBe('absolute');
+      expect(Number(getComputedStyle(overlay).zIndex)).toBeGreaterThan(0);
+      expect(declares(['.impulse-grid-view'])).toMatch(/isolation:\s*isolate/);
+    });
+  });
+
+  describe('a list inside an expanded row', () => {
+    /** A list whose rows expand to another list, as a row's own page drawn in place draws the lists under the row. */
+    @Component({
+      standalone: true,
+      imports: [AppGridComponent],
+      template: `
+        <impulse-grid
+          class="outer"
+          [rowData]="rows"
+          [columnDefs]="columns"
+          [rowKey]="key"
+          [enableRowExpansion]="true"
+          [detailTemplate]="detail" />
+        <ng-template #detail let-row>
+          <button type="button" class="detail-button">Rename {{ row.name }}</button>
+          <impulse-grid class="inner" [rowData]="[row]" [columnDefs]="inside" />
+        </ng-template>
+      `,
+    })
+    class ListInARowComponent {
+      rows = rows;
+      columns = columns;
+      inside = [{ id: 'name' }, { id: 'changedBy' }] as unknown as ColumnConfig[];
+      key = (row: RecordData): unknown => {
+        return row['name'];
+      };
+    }
+
+    const frames = (): HTMLElement[] => {
+      return Array.from(element.querySelectorAll<HTMLElement>('.impulse-grid-scroll'));
+    };
+    /** The browser lays the two frames out: the outer one a phone wide, the inner one wide enough for its two columns. */
+    const laidOut = (): void => {
+      const [outer, inner] = frames();
+      Object.defineProperty(outer, 'clientWidth', { configurable: true, value: phone });
+      Object.defineProperty(inner, 'clientWidth', { configurable: true, value: 2 * text + 4 });
+      watched.forEach((entry) => entry.report());
+      detect();
+    };
+
+    beforeEach(async () => {
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [ListInARowComponent],
+        providers: [provideResourceTesting()],
+      }).compileComponents();
+      const fixture = TestBed.createComponent(ListInARowComponent);
+      element = fixture.nativeElement as HTMLElement;
+      detect = (): void => fixture.detectChanges();
+      await settle(fixture);
+      element.querySelector<HTMLButtonElement>('tr.impulse-row button.expand-toggle')?.click();
+      await settle(fixture);
+      laidOut();
+    });
+
+    it('is held or not by its own frame: the list around it holding its first column changes nothing in it', () => {
+      const [outer, inner] = frames();
+      expect(outer.classList.contains('holds-first-column')).toBe(true);
+      expect(inner.classList.contains('holds-first-column')).toBe(false);
+
+      const innerTable = inner.querySelector('table') as HTMLElement;
+      const innerFirst = inner.querySelector('tr.impulse-row td.first-col') as HTMLElement;
+      expect(getComputedStyle(innerFirst).position).not.toBe('sticky');
+      expect(getComputedStyle(innerTable).borderCollapse).toBe('collapse');
+      // Its cells keep their own padding and clipping: the expanded row's cell gives up its own, and no other's.
+      expect(getComputedStyle(innerFirst).paddingLeft).toBe('12px');
+      expect(getComputedStyle(innerFirst).overflow).toBe('hidden');
+    });
+
+    it('moves nothing for a control of the inner list, or of the detail, that takes the focus: neither is under the held column', () => {
+      const [outer, inner] = frames();
+      const at = (target: Element, left: number): void => {
+        (target as HTMLElement).getBoundingClientRect = (): DOMRect => {
+          return { left } as DOMRect;
+        };
+      };
+      at(outer, 20);
+      outer.scrollLeft = 300;
+      // The inner list's second header: its first is in a column that could itself be held.
+      const innerSecond = inner.querySelectorAll('thead th')[1].querySelector('button');
+      for (const control of [innerSecond, element.querySelector('.detail-button')]) {
+        expect(control).not.toBeNull();
+        at(control as Element, 60);
+        control?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        expect(outer.scrollLeft).toBe(300);
+      }
+    });
+  });
+
+  // A column is no wider than what it holds needs. The narrowest a column of text goes
+  // is the widest of its heading, with the marks beside it, and the values the list is
+  // showing, with the cell's padding and line and two pixels to spare, and never more
+  // than the library's one width; it is read off what is drawn. A need only grows while
+  // the list keeps its columns. A dragged width and a declared one are kept as they are.
+  // jsdom draws nothing, so each case says how wide a text is drawn (eight pixels a
+  // character), how wide an icon, and what a cell's padding and lines are, as the list's
+  // stylesheet gives them to a browser: 25 around a cell's content, 13 around a heading's.
+  describe('what a column needs', () => {
+    const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };
+    const own = ranges.getBoundingClientRect;
+    const character = 8;
+    const aroundCell = 25;
+    const aroundHeading = 13;
+    const spare = 2;
+    /** What a text of so many characters needs in a cell, and in a heading. */
+    const cellOf = (characters: number): number => characters * character + aroundCell + spare;
+    const headingOf = (characters: number): number => characters * character + aroundHeading + spare;
+    // Name: "Commendations", thirteen characters. Description: longer than the library's
+    // width holds. Changed By: its heading, ten characters, over "ada".
+    const name = cellOf(13);
+    const changedBy = headingOf(10);
+    const narrowest = name + text + 64 + changedBy + 66;
+    /** How many times a drawn width was read. */
+    let reads: number;
+    /** Where an element is laid out, for the few a case places: every other is nowhere, as jsdom has it. */
+    let placed: Map<Element, { left: number; right: number }>;
+    /** What a font that has arrived tells the list, and whether the list still listens. */
+    let fonts: { arrived?: () => void; listening: boolean };
+    /** How much wider than the font's the letters are drawn: wider while a font has not arrived. */
+    let wider: number;
+
+    beforeEach(() => {
+      reads = 0;
+      wider = 1;
+      placed = new Map();
+      fonts = { listening: false };
+      ranges.getBoundingClientRect = function (this: Range): DOMRect {
+        reads++;
+        const drawn = this.startContainer as HTMLElement;
+        const icon = drawn.querySelector('mat-icon');
+        const width = icon
+          ? icon.classList.contains('cell-yes')
+            ? 30
+            : 24
+          : (drawn.textContent ?? '').trim().length * character * wider;
+        return { width } as DOMRect;
+      };
+      const view = document.defaultView as Window;
+      const real = view.getComputedStyle.bind(view);
+      vi.spyOn(view, 'getComputedStyle').mockImplementation((asked: Element, pseudo?: string | null) => {
+        const style = real(asked, pseudo);
+        const lengths: Record<string, string> | undefined =
+          asked.tagName === 'TD'
+            ? { paddingLeft: '12px', paddingRight: '12px', borderLeftWidth: '0px', borderRightWidth: '1px' }
+            : asked.tagName === 'TH'
+              ? { paddingLeft: '8px', paddingRight: '4px', borderLeftWidth: '0px', borderRightWidth: '1px' }
+              : undefined;
+        if (lengths === undefined) {
+          return style;
+        }
+        return new Proxy(style, {
+          get: (target, key): unknown => {
+            const value: unknown = typeof key === 'string' && key in lengths ? lengths[key] : Reflect.get(target, key);
+            return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+          },
+        });
+      });
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: HTMLElement,
+      ): DOMRect {
+        const at = placed.get(this) ?? { left: 0, right: 0 };
+        return { ...at, width: at.right - at.left, top: 0, bottom: 0, height: 0 } as DOMRect;
+      });
+      Object.defineProperty(document, 'fonts', {
+        configurable: true,
+        value: {
+          addEventListener: (_: string, listener: () => void): void => {
+            fonts.arrived = listener;
+            fonts.listening = true;
+          },
+          removeEventListener: (): void => {
+            fonts.listening = false;
+          },
+        },
+      });
+    });
+
+    afterEach(() => {
+      if (own) {
+        ranges.getBoundingClientRect = own;
+      } else {
+        delete ranges.getBoundingClientRect;
+      }
+      delete (document as { fonts?: unknown }).fonts;
+    });
+
+    /** New rows, columns or sorts, drawn and read. */
+    const hand = async (name: string, value: unknown): Promise<void> => {
+      give(name, value);
+      detect();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      detect();
+    };
+    const widths = (): string[] => {
+      return headers().map((th) => th.style.width);
+    };
+    const longer = { name: 'Commendations and citations', description: 'None.', enabled: false, changedBy: 'ada' };
+    const shorter = { name: 'Tugs', description: 'None.', enabled: false, changedBy: 'mo' };
+
+    describe('the narrowest a column of text goes', () => {
+      it("is what its heading and the longest value it shows need, with the cell's padding and line and two pixels to spare", async () => {
+        await plain();
+        frameIs(phone);
+
+        expect([name, changedBy]).toEqual([131, 95]);
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+      });
+
+      it("is never more than the library's one width: a column whose values need more stays at it and cuts them short, as before", async () => {
+        await plain();
+        frameIs(phone);
+
+        // "Cites a pilot for a sortie flown well." needs more than twice the width.
+        expect(cellOf(38)).toBeGreaterThan(2 * text);
+        expect(widths()[1]).toBe(`${text}px`);
+      });
+
+      it('is never less than the least a column goes, whatever little it holds', async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [{ mark: '' }]);
+        fixture.componentRef.setInput('columnDefs', [
+          { id: 'mark', hideHeader: true },
+          { id: 'more' },
+          { id: 'again' },
+        ]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        frameIs(100);
+
+        expect(widths()[0]).toBe('48px');
+      });
+
+      it("counts the marks beside a heading's words, the sort's arrow and the filter's button, so they stay whole", async () => {
+        await plain();
+        await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
+        await hand('filterability', { changedBy: 'always' });
+        const heading = headers()[3];
+        const words = heading.querySelector('.col-header') as HTMLElement;
+        const arrow = heading.querySelector('.sort-icon') as HTMLElement;
+        const label = heading.querySelector('.header-label') as HTMLElement;
+        const filter = heading.querySelector('.header-cell > .filter-trigger') as HTMLElement;
+        expect([arrow, filter].map((mark) => mark !== null)).toEqual([true, true]);
+        // The words end at 80; the arrow, after a gap of 2, ends at 96, where the label
+        // ends; the filter's button is 22 wide after it.
+        placed.set(words, { left: 0, right: 80 });
+        placed.set(arrow, { left: 82, right: 96 });
+        placed.set(label, { left: 0, right: 96 });
+        placed.set(filter, { left: 96, right: 118 });
+        frameIs(phone);
+
+        expect(widths()[3]).toBe(`${changedBy + 16 + 22}px`);
+      });
+
+      it("grows by a heading's mark that arrives later: the arrow of a sort a person asks for", async () => {
+        await plain();
+        frameIs(phone);
+        expect(widths()[3]).toBe(`${changedBy}px`);
+
+        await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
+        const heading = headers()[3];
+        placed.set(heading.querySelector('.col-header') as HTMLElement, { left: 0, right: 80 });
+        placed.set(heading.querySelector('.sort-icon') as HTMLElement, { left: 82, right: 96 });
+        // The arrow is drawn, and nothing has read it yet: the next sort does.
+        await hand('sorts', [{ field: 'changedBy', direction: 'desc' }]);
+        expect(widths()[3]).toBe(`${changedBy + 16}px`);
+
+        // The sort moves to another column: the arrow goes, and the column keeps its width.
+        await hand('sorts', [{ field: 'name', direction: 'asc' }]);
+        expect(widths()[3]).toBe(`${changedBy + 16}px`);
+      });
+
+      it('measures what a cell draws, not what it is written with: a check is as wide as its icon', async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [{ name: 'Commendations', enabled: true }]);
+        fixture.componentRef.setInput('columnDefs', [{ id: 'name' }, { id: 'enabled', header: 'On' }, { id: 'more' }]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        frameIs(100);
+
+        // The icon's 30 pixels, not the five letters it is written with, and more than the
+        // least a column goes.
+        expect(cells(0)[1].querySelector('mat-icon.cell-yes')?.textContent).toBe('check');
+        expect(widths()[1]).toBe(`${30 + aroundCell + spare}px`);
+        expect(30 + aroundCell + spare).toBeGreaterThan(48);
+        expect(5 * character + aroundCell + spare).toBeGreaterThan(30 + aroundCell + spare);
+      });
+
+      it('is the same for the first column, which is held at it: the held width and the room kept beside it follow', async () => {
+        await plain();
+        frameIs(phone);
+
+        expect(held()).toBe(true);
+        expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${name}px`);
+      });
+
+      it("stays at the library's width where nothing is laid out to be read", async () => {
+        await plain();
+        frameIs(0);
+        expect(reads).toBe(0);
+        expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest}px`);
+      });
+    });
+
+    describe('a need only grows while the list keeps its columns', () => {
+      it('grows when a longer value arrives', async () => {
+        await plain();
+        frameIs(phone);
+        await hand('rowData', [longer]);
+
+        // Twenty-seven characters need more than the library's width, which it stays at.
+        expect(widths()[0]).toBe(`${text}px`);
+        await hand('rowData', [shorter]);
+        expect(widths()[0]).toBe(`${text}px`);
+      });
+
+      it('does not shrink when a page of shorter values arrives, when the rows are sorted, or when a filter leaves none', async () => {
+        await plain();
+        frameIs(phone);
+        const before = widths();
+
+        await hand('rowData', [shorter]);
+        expect(widths()).toEqual(before);
+        await hand('sorts', [{ field: 'name', direction: 'desc' }]);
+        expect(widths()).toEqual(before);
+        await hand('rowData', []);
+        expect(widths()).toEqual(before);
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+
+      it('starts again when the columns change, a heading among them: the same rows are then measured anew', async () => {
+        await plain();
+        frameIs(phone);
+        await hand('rowData', [shorter]);
+        expect(widths()[0]).toBe(`${name}px`);
+
+        // The same columns, the first under another heading.
+        await hand(
+          'columnDefs',
+          columns.map((col) => (col.id === 'name' ? { ...col, header: 'Flag' } : col)),
+        );
+        // "Tugs" and "Flag", four characters each.
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+        expect(cellOf(4)).toBeLessThan(name);
+      });
+
+      it('starts again when the list is opened again', async () => {
+        await plain();
+        frameIs(phone);
+        leave();
+
+        await plain([shorter]);
+        frameIs(phone);
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+      });
+    });
+
+    describe("a width that is not the library's to choose", () => {
+      it('a width a person dragged wins over what the column needs, and stays through other rows', async () => {
+        await plain();
+        frameIs(phone);
+        // The drag starts from the width the column is drawn at.
+        placed.set(headers()[0], { left: 0, right: name });
+        drag(0, 60);
+        expect(headers()[0].style.width).toBe(`${name + 60}px`);
+
+        await hand('rowData', [shorter]);
+        expect(headers()[0].style.width).toBe(`${name + 60}px`);
+        await hand('rowData', [longer]);
+        expect(headers()[0].style.width).toBe(`${name + 60}px`);
+        expect(table().style.minWidth).toBe(`${narrowest + 60}px`);
+      });
+
+      it('a width a person dragged narrower than the column needs is theirs too', async () => {
+        await plain();
+        frameIs(phone);
+        drag(0, -500);
+
+        expect(headers()[0].style.width).toBe('48px');
+        await hand('rowData', [longer]);
+        expect(headers()[0].style.width).toBe('48px');
+      });
+
+      it('a width the page declared wins over what the column needs: more or less, it is drawn as declared and never read', async () => {
+        await plain();
+        frameIs(phone);
+
+        // "Enabled" needs more than the 64 its column declares.
+        expect(headingOf(7)).toBeGreaterThan(64);
+        expect(widths()[2]).toBe('64px');
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+    });
+
+    describe('when a list scrolls', () => {
+      it("a list that fits at the library's width is drawn as it always was: no column of text is given a width", async () => {
+        await plain();
+        frameIs(wide);
+
+        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+        expect(held()).toBe(false);
+        frameIs(columnsAtTheirNarrowest);
+        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+      });
+
+      it('a list that fits once its columns are as narrow as they need does not scroll: a column that needs more than an equal share of the frame keeps what it needs, and the rest share what is left', async () => {
+        await plain();
+        // Thirty more than the columns need. A third of what the declared and the button
+        // column leave is under what Description needs, and half of the rest under what
+        // Name needs: both keep theirs, and Changed By takes what is left.
+        frameIs(narrowest + 30);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', '', '66px']);
+
+        // Sixty more: Description still needs more than a third, and Name fits in half of the rest.
+        frameIs(narrowest + 60);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
+
+        // Ninety-four more: a third is the library's width to the pixel, which every column fits in.
+        frameIs(narrowest + 94);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+        frameIs(narrowest + 93);
+        expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
+      });
+
+      it('scrolls only in a frame narrower than its columns at their narrowest, to the pixel, and is in the same state at the same width from either side', async () => {
+        await plain();
+        const at = (width: number): [boolean, string[]] => {
+          frameIs(width);
+          return [held(), widths()];
+        };
+        const fits: [boolean, string[]] = [false, [`${name}px`, `${text}px`, '64px', '', '66px']];
+        const scrolls: [boolean, string[]] = [true, [`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']];
+
+        expect(at(narrowest)).toEqual(fits);
+        expect(at(narrowest - 1)).toEqual(scrolls);
+        expect(at(narrowest)).toEqual(fits);
+        expect(at(narrowest + 1)).toEqual(fits);
+        expect(at(narrowest)).toEqual(fits);
+        expect(at(narrowest - 1)).toEqual(scrolls);
+        // What it needs does not move with the frame.
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+    });
+
+    describe('reading what is drawn', () => {
+      it('reads once when the list is first laid out, and nothing more for a frame that only changes width', async () => {
+        await plain();
+        expect(reads).toBe(0);
+        frameIs(phone);
+        const first = reads;
+        expect(first).toBeGreaterThan(0);
+
+        frameIs(wide);
+        frameIs(phone);
+        detect();
+        expect(reads).toBe(first);
+      });
+
+      it('reads once where the frame has its width from the first, as in a browser: the report of its size that follows reads nothing more', async () => {
+        const laid = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+        Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+          configurable: true,
+          get(this: HTMLElement): number {
+            return this.classList.contains('impulse-grid-scroll') ? phone : 0;
+          },
+        });
+        try {
+          await plain();
+          const first = reads;
+          expect(first).toBeGreaterThan(0);
+
+          frameIs(phone);
+          expect(reads).toBe(first);
+        } finally {
+          if (laid) {
+            Object.defineProperty(HTMLElement.prototype, 'clientWidth', laid);
+          } else {
+            delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+          }
+        }
+      });
+
+      it("reads a value once for each column it is shown in, no value of a column already at the library's width, and no column with a width of its own", async () => {
+        await plain();
+        frameIs(phone);
+        // Three headings; Name's three values; Description's first, which takes it to the
+        // library's width; Changed By's two, "ada" twice being one. Nothing of the
+        // declared column and nothing of the button column.
+        expect(reads).toBe(3 + 3 + 1 + 2);
+
+        await hand('rowData', [rows[0], rows[0], shorter]);
+        // Name's heading and its two values; Changed By's heading and its two. Description is not read again.
+        expect(reads).toBe(9 + 3 + 3);
+      });
+
+      it('reads once for a change of the rows, and nothing for a turn in which nothing the list draws has changed', async () => {
+        await plain();
+        frameIs(phone);
+        const first = reads;
+
+        detect();
+        await hand('rowData', rows);
+        expect(reads).toBe(first);
+        await hand('rowData', [shorter]);
+        expect(reads).toBeGreaterThan(first);
+      });
+
+      it("reads nothing while the list is loading, and what it shows once it has loaded: a related record's key, drawn until the record is read, does not hold the column wide", async () => {
+        await plain([{ ...shorter, name: 'Sector 9f3c0e2a-5b7d' }]);
+        await hand('loading', true);
+        frameIs(phone);
+        expect(reads).toBe(0);
+        expect(widths()[0]).toBe(`${text}px`);
+
+        // The record is read: the row is drawn with its name, and the list has loaded.
+        give('rowData', [shorter]);
+        await hand('loading', false);
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+        expect(cellOf(20)).toBeGreaterThan(text);
+      });
+
+      it('reads once the list has loaded, though nothing it draws has changed', async () => {
+        await plain([shorter]);
+        await hand('loading', true);
+        frameIs(phone);
+        expect(widths()[0]).toBe(`${text}px`);
+
+        await hand('loading', false);
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+      });
+
+      it('reads again when a font arrives, since every text is then drawn another width, and listens no more once the list has left', async () => {
+        await plain();
+        frameIs(phone);
+        const first = reads;
+        expect(fonts.listening).toBe(true);
+
+        fonts.arrived?.();
+        expect(reads).toBeGreaterThan(first);
+        leave();
+        expect(fonts.listening).toBe(false);
+      });
+
+      it('measures afresh when a font arrives: a column read in the wider letters drawn before it comes down to what it needs in the font', async () => {
+        wider = 1.25;
+        await plain();
+        frameIs(phone);
+        // "Commendations" in letters a quarter wider.
+        expect(widths()[0]).toBe(`${Math.ceil(13 * character * 1.25) + aroundCell + spare}px`);
+
+        wider = 1;
+        fonts.arrived?.();
+        detect();
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+    });
+  });
+});
+
+// The pager under the list: the rows the page spans and the buttons that turn it. On one
+// line while they fit; in a frame too narrow for both, the buttons go under the words, at
+// the far end, and wrap among themselves, so nothing of the pager is cut off by the
+// list's edge, which clips whatever leaves it.
+describe("the list's pager", () => {
+  let element: HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'Commendations' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name' }]);
+    fixture.componentRef.setInput('page', { offset: 0, total: 34, hasPrev: false, hasNext: true });
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  /** What the list's stylesheet declares in the rules whose selector names `name`. */
+  const declares = (name: string): string => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      .filter(([, selector]) => selector.includes(name))
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  };
+
+  it('says the rows and offers the three buttons, each with its icon and its words', () => {
+    const pager = element.querySelector('.impulse-grid-pager') as HTMLElement;
+
+    expect(pager.querySelector('.pager-rows')?.textContent).toBe('1–1 of 34');
+    expect(
+      Array.from(pager.querySelectorAll('.pager-buttons button')).map((b) =>
+        b.textContent?.replace(/\s+/g, ' ').trim(),
+      ),
+    ).toEqual(['first_page First', 'chevron_left Previous', 'Next chevron_right']);
+  });
+
+  it('wraps in a frame too narrow for the words and the buttons on one line: the buttons go under the words, at the far end, and wrap among themselves', () => {
+    const pager = element.querySelector('.impulse-grid-pager') as HTMLElement;
+    const buttons = pager.querySelector('.pager-buttons') as HTMLElement;
+
+    expect(getComputedStyle(pager).flexWrap).toBe('wrap');
+    expect(getComputedStyle(buttons).flexWrap).toBe('wrap');
+    expect(declares('.pager-buttons')).toContain('margin-left: auto');
+    expect(declares('.pager-buttons')).toContain('justify-content: flex-end');
+    // What is past the list's edge is not drawn, so the pager must not reach past it.
+    expect(declares('.impulse-grid-host')).toContain('overflow: clip');
   });
 });

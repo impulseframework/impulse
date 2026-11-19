@@ -101,6 +101,10 @@ type Store interface {
 	// compared as the table's unique index compares addresses; found is false when no
 	// user holds it, and when the one who does has not confirmed it.
 	UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (userID impulse.UUID, found bool, err error)
+	// ConfirmedEmail answers the address the user has confirmed, and found false for a
+	// user who has confirmed none (an address nobody confirmed is not answered) and
+	// for no such user.
+	ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error)
 	// DeleteUser buffers the removal of a user row.
 	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 
@@ -176,10 +180,16 @@ type Store interface {
 	// transaction or the application's client. A schema that holds no such table
 	// answers none, which is every method invite only.
 	SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]SignInMethodRow, error)
-	// SetSignInMethod buffers the row of the method it names, written whole: created
-	// where the method has none, replaced where it has one. The write keeps who made
-	// it and when (the table's change events).
+	// SetSignInMethod buffers who may sign up through the method the row names
+	// (OpenSignUp, OpenedFor, DefaultRole), the three written together: the row is
+	// created where the method has none, and those three replaced where it has one.
+	// SelfServiceReset is not read from the row and stands as it is. The write keeps
+	// who made it and when (the table's change events).
 	SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *SignInMethodRow) error
+	// SetSelfServiceReset writes whether a person may ask for their own password reset
+	// link on the row of the sign-in method of the name, and nothing else of the row:
+	// a method with no row gets one that is invite only.
+	SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error
 
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.
@@ -225,6 +235,27 @@ type SessionAPI interface {
 	// (session.AuthAPI.DirectoryName). A sentence that names a directory to a person
 	// says it by them, never by the connection.
 	DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string)
+	// RequestAddressChange mails the link that confirms a new address for the user, to
+	// that address, and changes nothing: the account keeps the address it has until the
+	// link is followed (session.AuthAPI.RequestAddressChange). The message says who
+	// asked (by).
+	RequestAddressChange(ctx context.Context, userID impulse.UUID, email string, by session.AskedBy) error
+	// SendPasswordReset mails the user a link that resets their password, to the address
+	// they confirmed, and changes nothing until the link is used
+	// (session.AuthAPI.SendPasswordReset). The message says who asked (by).
+	SendPasswordReset(ctx context.Context, userID impulse.UUID, by session.AskedBy) error
+	// EndPasswordResetLinks withdraws the user's standing password reset links, once a
+	// write or a removal of their password here has committed: a link mailed for the
+	// password before does not reset the one after
+	// (session.AuthAPI.EndPasswordResetLinks).
+	EndPasswordResetLinks(ctx context.Context, userID impulse.UUID) error
+	// NoticeFactorReset tells the user, at the address they confirmed, that an
+	// administrator reset their second factor (session.AuthAPI.NoticeFactorReset).
+	NoticeFactorReset(ctx context.Context, userID impulse.UUID) error
+	// NoticeRemovedFromTenant tells a person, at the confirmed address read before the
+	// removal, that an administrator removed them from the tenant, and says so when
+	// their account went with it (session.AuthAPI.NoticeRemovedFromTenant).
+	NoticeRemovedFromTenant(ctx context.Context, to, tenant string, accountDeleted bool) error
 }
 
 // Link is one identity linked to a user, as the rules read it: its id, and the sign-in
@@ -267,15 +298,13 @@ type NewUser struct {
 	Email *string
 }
 
-// UserChange is a change to a user row: a nil field is left as it is.
+// UserChange is a change to a user row: a nil field is left as it is. The address is
+// not among them: an address reaches a row confirmed, through the session library, or
+// not at all (Manager.SetEmail).
 type UserChange struct {
 	Username               *string
 	Disabled               *bool
 	PasswordChangeRequired *bool
-	// Email, where set, replaces the address the row holds. An address written here was
-	// entered by hand, so the row is left unverified: the time the address it held was
-	// verified goes with it.
-	Email *EmailChange
 	// Name, where set, replaces the name the row holds.
 	Name *NameChange
 }
@@ -283,11 +312,6 @@ type UserChange struct {
 // NameChange is the name a change writes on a user row: Name, nil for none.
 type NameChange struct {
 	Name *string
-}
-
-// EmailChange is the address a change writes on a user row: Address, nil for none.
-type EmailChange struct {
-	Address *string
 }
 
 // Token is a bearer token as the rules read it.

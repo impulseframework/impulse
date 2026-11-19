@@ -7,7 +7,9 @@
 -- is invite only until it is opened again. DefaultRole names the role such a person is
 -- given with their account, and holds nothing in an application whose people get their
 -- roles in a tenant. A method with no row is invite
--- only, so the table starts empty and every method starts invite only.
+-- only, so the table starts empty and every method starts invite only. SelfServiceReset,
+-- read on the password method's row alone, says a person may ask at the sign-in page for
+-- a link that resets their own password; it starts false, and with no row nobody may.
 BEGIN;
 
 CREATE TABLE "SessionSignInMethods"
@@ -16,6 +18,7 @@ CREATE TABLE "SessionSignInMethods"
     "OpenSignUp" boolean NOT NULL,
     "OpenedFor" character varying,
     "DefaultRole" character varying,
+    "SelfServiceReset" boolean NOT NULL DEFAULT false,
     "UpdatedAt" timestamp with time zone NOT NULL,
     CONSTRAINT "SessionSignInMethods_pkey" PRIMARY KEY ("Name")
 );
