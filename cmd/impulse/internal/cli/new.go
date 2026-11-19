@@ -45,8 +45,8 @@ func (nf *newFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&nf.authName, "auth", "", "the first auth's name: "+names.Guidance+" (asked when not given; no default)")
 	cmd.Flags().StringVar(&nf.devRoot, "dev-root", "", "a checkout of the framework to build against instead of the pin (go.mod replaces the module with it; that line is not for committing)")
 	cmd.Flags().BoolVar(&nf.skipGit, "skip-git", false, "do not initialize a git repository and make the first commit")
-	cmd.Flags().BoolVar(&nf.opts.tenancy, "tenancy", false, "compose the tenancy option: tenant-scoped resources under a tenant segment, roles per tenant")
-	cmd.Flags().StringVar(&nf.opts.tenantTable, "tenant-table", "Tenants", "the tenant-record table when --tenancy is given, PascalCase and plural")
+	cmd.Flags().BoolVar(&nf.opts.tenancy, tenancyFlag, false, "compose the tenancy option: tenant-scoped resources under a tenant segment, roles per tenant")
+	cmd.Flags().StringVar(&nf.opts.tenantTable, tenantTableFlag, "Tenants", "the tenant-record table when --tenancy is given, PascalCase and plural")
 	cmd.Flags().BoolVar(&nf.opts.tenants.oneTenant, shape.OneTenantFlag, false, "with --tenancy, "+oneTenantUsage)
 	cmd.Flags().Bool(shape.DirectoriesFlag, true, "with --tenancy, "+directoriesUsage)
 	bindShape(cmd, &nf.opts.shapeKey, shape.OfNew(), "the first auth's sign-in methods where the shape has no password sign-in, and the tenants' choices, composing --tenancy, where it has tenants")
@@ -421,6 +421,9 @@ const (
 	organizationFlag = "organization"
 )
 
+// tenancyFlag is impulse new's flag for the tenancy option.
+const tenancyFlag = "tenancy"
+
 // directoryRolesKey is the name --shape takes for Directory roles, the one shape of an
 // application without tenants impulse new starts from.
 func directoryRolesKey() string {
@@ -459,7 +462,7 @@ func (o *composedOptions) settleShape(cmd *cobra.Command) (*shape.Shape, error) 
 		return nil, errors.Newf("--%s goes with --tenancy: it says whether a tenant can have a directory of its own, and the application is given no tenants", shape.DirectoriesFlag)
 	case start == nil:
 		return nil, nil
-	case cmd.Flags().Changed("tenancy") && !o.tenancy:
+	case cmd.Flags().Changed(tenancyFlag) && !o.tenancy:
 		return nil, errTenancyOff(start)
 	}
 	o.tenancy = true
@@ -471,11 +474,11 @@ func (o *composedOptions) settleShape(cmd *cobra.Command) (*shape.Shape, error) 
 // written: it is an application without tenants, so --tenancy and the tenants' choices
 // beside it are refused, naming both.
 func (o *composedOptions) settleDirectoryRoles(cmd *cobra.Command, start *shape.Shape) (*shape.Shape, error) {
-	for _, flag := range []string{"tenancy", shape.OneTenantFlag, shape.DirectoriesFlag, "tenant-table"} {
+	for _, flag := range []string{tenancyFlag, shape.OneTenantFlag, shape.DirectoriesFlag, tenantTableFlag} {
 		if !cmd.Flags().Changed(flag) {
 			continue
 		}
-		if flag == "tenancy" && !o.tenancy {
+		if flag == tenancyFlag && !o.tenancy {
 			continue
 		}
 
@@ -619,7 +622,7 @@ func (o *composedOptions) developmentSignIn(start *shape.Shape) *developmentSign
 func (o *composedOptions) transitions() ([]transition, error) {
 	var ts []transition
 	if o.directory != nil {
-		ts = append(ts, *o.directory)
+		ts = append(ts, o.directory)
 	}
 	if o.tenancy {
 		ts = append(ts, transition_.Tenancy{Table: o.tenantTable, OneTenantPerPerson: o.tenants.oneTenant, NoDirectories: o.tenants.noDirectories})

@@ -407,19 +407,18 @@ obligations.`,
 			if err != nil {
 				return err
 			}
-			steps := []transition{step}
-			if start != nil {
-				// A shape whose tenants' people come through a directory alone writes the
-				// methods they come through first, so the tenancy step lays its
-				// directories over them.
-				var methods []transition
-				if f.start, methods, err = tenancyStartingPoint(start, f.appDir); err != nil {
-					return err
-				}
-				steps = append(methods, steps...)
+			if start == nil {
+				return runSteps(cmd, &f, []transition{step}, transition_.TenancyReferenceCandidate)
 			}
+			// A shape whose tenants' people come through a directory alone writes the methods
+			// they come through first, so the tenancy step lays its directories over them.
+			starting, steps, err := tenancyStartingPoint(start, f.appDir)
+			if err != nil {
+				return err
+			}
+			f.start = starting
 
-			return runSteps(cmd, &f, steps, transition_.TenancyReferenceCandidate)
+			return runSteps(cmd, &f, append(steps, step), transition_.TenancyReferenceCandidate)
 		},
 	}
 	f.bind(cmd)
@@ -432,7 +431,8 @@ obligations.`,
 	return cmd
 }
 
-// tenantTableFlag is add tenancy's flag for the tenant record's table.
+// tenantTableFlag is the flag for the tenant record's table, on impulse add tenancy and
+// on impulse new.
 const tenantTableFlag = "tenant-table"
 
 // tenancyAsked is the tenancy step add tenancy was asked for, read from its flags: the

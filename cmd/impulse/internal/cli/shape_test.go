@@ -355,7 +355,7 @@ func Test_settleShape(t *testing.T) {
 			want := []transition{transition_.Tenancy{Table: "Tenants", OneTenantPerPerson: tt.wantOne, NoDirectories: tt.wantNone}}
 			if tt.wantStart {
 				// The first auth's methods come before the tenants, which build on the auth.
-				want = append([]transition{transition_.DirectoryStart{
+				want = append([]transition{&transition_.DirectoryStart{
 					Auth: "staff", ShapeKey: tt.shape, ShapeName: start.String(),
 					Methods: []authpkg.Method{
 						{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Slot: authpkg.SlotAnyWorkspace},
@@ -533,7 +533,7 @@ func Test_settleStart_directoryRoles(t *testing.T) {
 				t.Fatal(err)
 			}
 			// The directory's method stands alone, and the application has no tenants.
-			if diff := cmp.Diff([]transition{tt.want}, transitions); diff != "" {
+			if diff := cmp.Diff([]transition{&tt.want}, transitions); diff != "" {
 				t.Errorf("the composed transitions mismatch (-want +got):\n%s", diff)
 			}
 			if got := nf.opts.describe(); got != tt.wantDescribe {

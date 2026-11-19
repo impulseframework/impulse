@@ -6,10 +6,11 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/go-playground/errors/v5"
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
@@ -30,11 +31,11 @@ func byDirectoryStart(auth string) DirectoryStart {
 	}
 }
 
-// directoryRolesStart is the start of Directory roles, as impulse new composes it: one
-// method through one organization, whose directory gives the roles.
-func directoryRolesStart(auth, kind, organization string) DirectoryStart {
+// directoryRolesStart is the start of Directory roles, as impulse new composes it on
+// the staff auth: one method through one organization, whose directory gives the roles.
+func directoryRolesStart(kind, organization string) DirectoryStart {
 	return DirectoryStart{
-		Auth: auth, ShapeKey: "directory-roles", ShapeName: "3 Directory roles", Organization: organization,
+		Auth: "staff", ShapeKey: "directory-roles", ShapeName: "3 Directory roles", Organization: organization,
 		Methods: []authpkg.Method{{Kind: kind, Slot: authpkg.SlotOne, Authority: app.AuthorityDirectory}},
 	}
 }
@@ -69,7 +70,7 @@ func (r *regeneration) Run(ctx context.Context, dir string, env []string, name s
 	if name == "go" && len(args) > 0 && args[0] == "generate" {
 		for _, rel := range r.removes {
 			if err := os.Remove(r.a.Abs(rel)); err != nil {
-				return nil, err
+				return nil, errors.Wrap(err, "os.Remove()")
 			}
 		}
 	}
@@ -164,9 +165,9 @@ func TestDirectoryStart_Validate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "tenant-owned users, by directory", start: byDirectoryStart("staff")},
-		{name: "directory roles through one Workspace", start: directoryRolesStart("staff", app.MethodGoogle, "fleet.example")},
-		{name: "directory roles through one Entra tenant", start: directoryRolesStart("staff", app.MethodAzure, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")},
-		{name: "directory roles with no organization named keeps the placeholder", start: directoryRolesStart("staff", app.MethodGoogle, "")},
+		{name: "directory roles through one Workspace", start: directoryRolesStart(app.MethodGoogle, "fleet.example")},
+		{name: "directory roles through one Entra tenant", start: directoryRolesStart(app.MethodAzure, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")},
+		{name: "directory roles with no organization named keeps the placeholder", start: directoryRolesStart(app.MethodGoogle, "")},
 		{name: "no method", start: DirectoryStart{Auth: "staff", ShapeName: "6 Tenant-owned users, by directory"}, wantErr: "names no sign-in method to write in the password's place"},
 		{
 			name: "a password method",
@@ -177,12 +178,12 @@ func TestDirectoryStart_Validate(t *testing.T) {
 		},
 		{
 			name:    "a Workspace that is not a domain",
-			start:   directoryRolesStart("staff", app.MethodGoogle, "Fleet"),
+			start:   directoryRolesStart(app.MethodGoogle, "Fleet"),
 			wantErr: "--organization Fleet: a Google method's one organization is a Google Workspace, named by its domain in lowercase (fleet.example)",
 		},
 		{
 			name:    "an Entra tenant that is not a tenant id",
-			start:   directoryRolesStart("staff", app.MethodAzure, "fleet.example"),
+			start:   directoryRolesStart(app.MethodAzure, "fleet.example"),
 			wantErr: "--organization fleet.example: a Microsoft method's one organization is a Microsoft Entra tenant, named by its tenant id",
 		},
 		{name: "an auth the application does not have", start: byDirectoryStart("crew"), wantErr: "crew"},
@@ -232,10 +233,10 @@ func TestDirectoryStart_Command(t *testing.T) {
 	}{
 		{name: "tenant-owned users, by directory names no provider", start: byDirectoryStart("members"), want: "impulse new --shape tenant-owned-users-by-directory"},
 		{
-			name: "directory roles names its method and its organization", start: directoryRolesStart("staff", app.MethodGoogle, "fleet.example"),
+			name: "directory roles names its method and its organization", start: directoryRolesStart(app.MethodGoogle, "fleet.example"),
 			want: "impulse new --shape directory-roles --method google:google --organization fleet.example",
 		},
-		{name: "directory roles with no organization named", start: directoryRolesStart("staff", app.MethodAzure, ""), want: "impulse new --shape directory-roles --method azure:azure"},
+		{name: "directory roles with no organization named", start: directoryRolesStart(app.MethodAzure, ""), want: "impulse new --shape directory-roles --method azure:azure"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -439,7 +440,7 @@ func TestDirectoryStart_Apply_byDirectory(t *testing.T) {
 func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 	t.Parallel()
 
-	start := directoryRolesStart("staff", app.MethodGoogle, "fleet.example")
+	start := directoryRolesStart(app.MethodGoogle, "fleet.example")
 	a, ch := started(t, &start, "set_staff_temporary_password", "assign_staff_role", "remove_staff_role", "invite_staff_user", "withdraw_staff_invitation", "create_staff_user")
 
 	t.Run("the auth registers the one method, whose directory gives the roles", func(t *testing.T) {
@@ -540,7 +541,7 @@ func TestDirectoryStart_Apply_directoryRolesMicrosoft(t *testing.T) {
 	t.Parallel()
 
 	const tenant = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
-	start := directoryRolesStart("staff", app.MethodAzure, tenant)
+	start := directoryRolesStart(app.MethodAzure, tenant)
 	a, _ := started(t, &start)
 
 	if m := a.Auths[0].Methods[0]; len(a.Auths[0].Methods) != 1 || m.Kind != app.MethodAzure || m.Authority != app.AuthorityDirectory {
@@ -549,7 +550,7 @@ func TestDirectoryStart_Apply_directoryRolesMicrosoft(t *testing.T) {
 	if env, want := read(t, a, ".envrc.template"), "export APP_STAFF_AZURE_TENANT_ID="+tenant+"\n"; !strings.Contains(env, want) {
 		t.Errorf(".envrc.template does not contain %q", want)
 	}
-	if exists(a, "pkg/auth/staff/foothold.go") || !exists(a, filepath.Join("pkg/auth/staff", "azure.go")) {
+	if exists(a, "pkg/auth/staff/foothold.go") || !exists(a, "pkg/auth/staff/azure.go") {
 		t.Error("the staff auth keeps its foothold or has no azure.go")
 	}
 }

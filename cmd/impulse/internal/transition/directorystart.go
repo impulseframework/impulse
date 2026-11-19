@@ -55,7 +55,7 @@ type DirectoryStart struct {
 const DevelopmentPersona = "admin"
 
 // Command is the impulse command line the step is part of.
-func (d DirectoryStart) Command() string {
+func (d *DirectoryStart) Command() string {
 	cmd := "impulse new --shape " + d.ShapeKey
 	if d.syncsRoles() {
 		m := d.methods()[0]
@@ -71,7 +71,7 @@ func (d DirectoryStart) Command() string {
 // methods are the step's methods with each registration named: a Google or a Microsoft
 // method is registered under its kind where no name was given, as --method google
 // names it, and the persona method under its fixed name.
-func (d DirectoryStart) methods() []authpkg.Method {
+func (d *DirectoryStart) methods() []authpkg.Method {
 	methods := append([]authpkg.Method(nil), d.Methods...)
 	for i := range methods {
 		m := &methods[i]
@@ -85,12 +85,12 @@ func (d DirectoryStart) methods() []authpkg.Method {
 }
 
 // syncsRoles reports the start whose one directory gives the roles.
-func (d DirectoryStart) syncsRoles() bool {
+func (d *DirectoryStart) syncsRoles() bool {
 	return len(d.Methods) == 1 && d.Methods[0].SyncsRoles()
 }
 
 // persona reports whether the auth registers the persona method.
-func (d DirectoryStart) persona() bool {
+func (d *DirectoryStart) persona() bool {
 	for i := range d.Methods {
 		if d.Methods[i].Persona() {
 			return true
@@ -103,7 +103,7 @@ func (d DirectoryStart) persona() bool {
 // Validate checks the step against the application before anything is changed: what the
 // author chose is well formed (ValidateChoices), and the auth is the base's, registering
 // the password method and nothing else.
-func (d DirectoryStart) Validate(a *app.App) error {
+func (d *DirectoryStart) Validate(a *app.App) error {
 	if err := d.ValidateChoices(); err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (d DirectoryStart) Validate(a *app.App) error {
 // impulse new refuses it before it renders anything: the methods that take the
 // password's place are well formed and none of them a password, and the one organization
 // of a start whose directory gives the roles is what its provider knows one by.
-func (d DirectoryStart) ValidateChoices() error {
+func (d *DirectoryStart) ValidateChoices() error {
 	if len(d.Methods) == 0 {
 		return errors.Newf("%s names no sign-in method to write in the password's place", d.ShapeName)
 	}
@@ -172,7 +172,7 @@ func validOrganization(m *authpkg.Method, organization string) error {
 // the generator program's declarations, the data level's settings, the development
 // environment and its logins, the regeneration, and the role file brought down to what
 // the auth's generated management still serves.
-func (d DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Change, error) {
+func (d *DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Change, error) {
 	if err := d.Validate(a); err != nil {
 		return nil, err
 	}
@@ -231,7 +231,7 @@ func (d DirectoryStart) Apply(ctx context.Context, a *app.App, exec check.Execer
 
 // spec is the first auth as impulse new renders it, with the step's methods and what
 // the package comment says of its people in the password's place.
-func (d DirectoryStart) spec(a *app.App, pkg *app.AuthPackage) *authpkg.Spec {
+func (d *DirectoryStart) spec(a *app.App, pkg *app.AuthPackage) *authpkg.Spec {
 	spec := authpkg.FirstAuth(modulePath(a), d.Auth)
 	spec.AuthDir = path.Dir(pkg.Dir)
 	spec.Application = applicationName(a, &authSource{Name: d.Auth, Dir: pkg.Dir})
@@ -255,7 +255,7 @@ func (d DirectoryStart) spec(a *app.App, pkg *app.AuthPackage) *authpkg.Spec {
 // foothold where the application gives the roles, one file for each method, and the
 // cast of the persona method. The password method's file goes, and the foothold with it
 // where a directory gives the roles.
-func (d DirectoryStart) writePackage(a *app.App, pkg *app.AuthPackage, auth *app.Auth, spec *authpkg.Spec, ch *Change) error {
+func (d *DirectoryStart) writePackage(a *app.App, pkg *app.AuthPackage, auth *app.Auth, spec *authpkg.Spec, ch *Change) error {
 	files, err := authpkg.Files(spec)
 	if err != nil {
 		return err
@@ -316,8 +316,9 @@ var passwordDeclarationRE = regexp.MustCompile(`generation\.PasswordMethod\(\)(?
 // declare puts the methods' declarations in the password's place on every outlet bound
 // to the auth in the generator programs, so the generated router mounts their routes
 // and the auth's generated management serves nothing of a password.
-func (d DirectoryStart) declare(a *app.App, pkg *app.AuthPackage, spec *authpkg.Spec, ch *Change) error {
-	var files, declared []string
+func (d *DirectoryStart) declare(a *app.App, pkg *app.AuthPackage, spec *authpkg.Spec, ch *Change) error {
+	var files []string
+	declared := make([]string, 0, len(spec.Methods))
 	for i := range spec.Methods {
 		declared = append(declared, spec.Methods[i].Declaration())
 	}
@@ -380,7 +381,7 @@ const (
 // method the bootstrap seeds the cast, and the development administrator is its
 // persona; where a directory gives the roles nobody is seeded, and the simulated
 // directory asserts the roles the environment template names.
-func (d DirectoryStart) developmentLogins(a *app.App, pkg *app.AuthPackage, spec *authpkg.Spec, ch *Change) error {
+func (d *DirectoryStart) developmentLogins(a *app.App, pkg *app.AuthPackage, spec *authpkg.Spec, ch *Change) error {
 	if err := d.emptyIdentities(a, ch); err != nil {
 		return err
 	}
@@ -422,7 +423,7 @@ func (d DirectoryStart) developmentLogins(a *app.App, pkg *app.AuthPackage, spec
 
 // nameOrganization writes the one organization the author named as the development
 // value of the method's organization setting, in the placeholder's place.
-func (d DirectoryStart) nameOrganization(a *app.App, text string, m *authpkg.Method, ch *Change) string {
+func (d *DirectoryStart) nameOrganization(a *app.App, text string, m *authpkg.Method, ch *Change) string {
 	fields := m.Fields()
 	for i := range fields {
 		f := &fields[i]
@@ -445,7 +446,7 @@ func (d DirectoryStart) nameOrganization(a *app.App, text string, m *authpkg.Met
 
 // emptyIdentities leaves the bootstrap's identities file with no account: the base's
 // one development login is an account made ahead with a password.
-func (d DirectoryStart) emptyIdentities(a *app.App, ch *Change) error {
+func (d *DirectoryStart) emptyIdentities(a *app.App, ch *Change) error {
 	data, mode, err := readFile(a, bootstrapUsers)
 	if err != nil {
 		ch.skipf("%s: not read (%v); seed no account with a password, since the %s auth has no password method", bootstrapUsers, errors.Cause(err), d.Auth)
@@ -467,7 +468,7 @@ func (d DirectoryStart) emptyIdentities(a *app.App, ch *Change) error {
 
 // editBootstrap takes the password out of the bootstrap program, and has it seed the
 // cast where the auth registers the persona method.
-func (d DirectoryStart) editBootstrap(a *app.App, ch *Change) error {
+func (d *DirectoryStart) editBootstrap(a *app.App, ch *Change) error {
 	data, mode, err := readFile(a, bootstrapMain)
 	if err != nil {
 		ch.skipf("%s: not read (%v); give no development account a password%s", bootstrapMain, errors.Cause(err), d.seedCastByHand())
@@ -502,7 +503,7 @@ func (d DirectoryStart) editBootstrap(a *app.App, ch *Change) error {
 }
 
 // seedCastByHand names the cast's seeding for a bootstrap the step could not edit.
-func (d DirectoryStart) seedCastByHand() string {
+func (d *DirectoryStart) seedCastByHand() string {
 	if !d.persona() {
 		return ""
 	}
@@ -517,7 +518,7 @@ const deployFile = "pkg/deploy/deploy.go"
 // inviteNobody takes the auth out of the deployment's first administrators, where a
 // directory gives its roles: such an auth has no foothold, nobody is invited to it, and
 // the base's deployment package would not compile against it.
-func (d DirectoryStart) inviteNobody(a *app.App, pkg *app.AuthPackage, ch *Change) error {
+func (d *DirectoryStart) inviteNobody(a *app.App, pkg *app.AuthPackage, ch *Change) error {
 	byHand := fmt.Sprintf("the %s auth invites no first administrator, since its directory gives every role, the Super Administrator's included: take it out of AdministratorAuths and administratorOf", d.Auth)
 	data, mode, err := readFile(a, deployFile)
 	if err != nil {
@@ -580,7 +581,7 @@ var trailingCommaRE = regexp.MustCompile(`,(\s*\])`)
 // gave a role or invited a person. The permission engine refuses a file that grants a
 // resource the application does not serve, so the application would not start with
 // them. Every other grant is left as it is.
-func (d DirectoryStart) pruneRoles(a *app.App, pkg *app.AuthPackage, before, after map[string]bool, ch *Change) error {
+func (d *DirectoryStart) pruneRoles(a *app.App, pkg *app.AuthPackage, before, after map[string]bool, ch *Change) error {
 	gone := map[string]bool{}
 	for name := range before {
 		if !after[name] {
@@ -676,7 +677,7 @@ var passwordSuites = []struct{ file, fate, directory, application string }{
 // see whole: a test that signs in with a password still compiles where it posts one,
 // and fails when it runs, which the check does not do. So the change lists them as left
 // to the author, and is handed on even when the check is clean.
-func (d DirectoryStart) noteBaseSuites(a *app.App, ch *Change) {
+func (d *DirectoryStart) noteBaseSuites(a *app.App, ch *Change) {
 	for _, suite := range passwordSuites {
 		if _, err := os.Stat(a.Abs(suite.file)); err != nil {
 			continue
@@ -699,7 +700,7 @@ func (d DirectoryStart) noteBaseSuites(a *app.App, ch *Change) {
 }
 
 // Meaning explains the start and names the wiring left to do.
-func (d DirectoryStart) Meaning() string {
+func (d *DirectoryStart) Meaning() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "The application starts from %s, a shape with no password sign-in, so its first auth, %s, was written again with no password method: no password form on the login page, no forgotten-password link, no password section on a person's account page, and nothing in the generated management that sets, resets or removes a password. ", d.ShapeName, d.Auth)
 	if d.syncsRoles() {
