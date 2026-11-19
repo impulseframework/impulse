@@ -62,8 +62,9 @@ that start an application from one, and what `impulse audit` prints for it.
   Microsoft or another provider.
 - **Login page** and **Sign-in page**: the login page is where a person signs in. The
   Sign-in page is where an administrator sets who may sign in. There is one Sign-in page
-  for each auth (in the skeletons: Sign-in, in the System menu) and one for each tenant
-  (in the skeletons: Sign-in settings, in the Tenant menu).
+  for each auth (in the skeletons: Sign-in, in the System menu) and, where a tenant can
+  have a directory of its own, one for each tenant (in the skeletons: Sign-in settings,
+  in the Tenant menu).
 - **Outlet**: a URL space of the application. The kind this document uses has its own
   browser application and its own login page, and is bound to one auth. A new application
   has one, named `default`, and `impulse add outlet` adds another on the same host.
@@ -98,7 +99,7 @@ combination of the separate choices.
 | Whether a person belongs to one tenant or can be in several | In code: the option `identity.WithOneTenantPerPerson()`, described under [one tenant per person](#with-tenants-one-tenant-per-person). |
 | Whether a tenant can have a directory of its own | In code: described under [A tenant's directory](#a-tenants-directory). |
 | Open to sign-up or invite only, for each sign-in method | While the application runs, by an administrator, on the auth's Sign-in page. |
-| Whether a tenant takes a directory, the role its directory's people start with, and whether the tenant is entered through its directory only | While the application runs, by the tenant's administrator, on the tenant's Sign-in page. |
+| Where a tenant can have a directory: whether a tenant takes one, the role its directory's people start with, and whether the tenant is entered through its directory only | While the application runs, by the tenant's administrator, on the tenant's Sign-in page. |
 
 ## At a glance
 
@@ -230,10 +231,15 @@ each width.
 | 2 Directory members | Works, not typical | Can be used | Can be used | Cannot be used | Cannot be used | Can be used |
 | 3 Directory roles | Cannot be used | Can be used | Cannot be used | Cannot be used | Cannot be used | Can be used |
 | 4 Open sign-up | Can be used | Cannot be used | Cannot be used | Can be used | Can be used | Cannot be used |
-| 5 Tenant-owned users, invite only | Can be used | Cannot be used | Cannot be used | Cannot be used | Cannot be used | Cannot be used |
+| 5 Tenant-owned users, invite only | Can be used | Can be used | Can be used | Can be used | Can be used | Can be used |
 | 6 Tenant-owned users, by directory | Can be used | Works, not typical | Works, not typical | Can be used | Works, not typical | Works, not typical |
-| 7 Global users, invite only | Can be used | Cannot be used | Cannot be used | Cannot be used | Cannot be used | Cannot be used |
+| 7 Global users, invite only | Can be used | Can be used | Can be used | Can be used | Can be used | Can be used |
 | 8 Global users, each tenant chooses | Can be used | Can be used | Can be used | Can be used | Can be used | Can be used |
+
+In shapes 5 and 7 every method is a way for an invited person to sign in and nothing
+more: no tenant has a directory, so no method brings a tenant's people in without an
+invitation. In shapes 6 and 8 a tenant can take a directory, and the marks say how well
+each method serves that.
 
 Shapes 6 and 8 have one more method, single sign-on through a tenant's own identity
 provider. It is **not released yet**: the method is in the session library, the
@@ -309,7 +315,7 @@ Four commands take `--shape`, with the shape's word or its number.
 | Command | Shapes it takes | What the shape fills in |
 | --- | --- | --- |
 | `impulse add auth`, `impulse add method` | 1 to 4 | For each method: who gives the roles (the flag `--authority`), and how wide the method is (the flag `--slot` of `impulse add method`) |
-| `impulse new`, `impulse add tenancy` | 5 to 8 | Tenants (the flag `--tenancy` of `impulse new`), and whether a person belongs to one tenant (the flag `--one-tenant-per-person`) |
+| `impulse new`, `impulse add tenancy` | 5 to 8 | Tenants (the flag `--tenancy` of `impulse new`), whether a person belongs to one tenant (the flag `--one-tenant-per-person`), and whether a tenant can have a directory of its own (the flag `--tenant-directories`) |
 
 `--authority` takes `application` or `directory`. For a Google, Microsoft or other
 provider's method it has no default: the command asks when neither it nor a shape is
@@ -324,10 +330,30 @@ A shape only fills in the separate choices. Nothing remembers it afterward: the
 application keeps the choices, and `impulse audit` reads the shape back from them. No
 command opens a method to sign-up, since that is chosen while the application runs.
 
-Shapes 5 and 6 differ, as shapes 7 and 8 do, by a sign-in method that goes through an
-organization's directory. `impulse new` and `impulse add tenancy` write no such method.
-Given shape 6 or 8 they say which `impulse add method` adds it, and until it is added
-`impulse audit` reads the application as shape 5 or 7.
+Shapes 5 and 6 differ, as shapes 7 and 8 do, by whether a tenant can have a directory
+of its own, and so whether its people can come without an invitation. They do not differ
+by which sign-in methods the application has.
+
+Given shape 5 or 7, `impulse new` and `impulse add tenancy` write an application whose
+tenants have no directories (`--tenant-directories=false`), whatever sign-in methods it
+has or gets later. `impulse add tenancy` takes those shapes for an application that
+already has a Google, Microsoft or other provider's method, and names the method as a way
+for an invited person to sign in. `impulse audit` reads such an application as shape 5
+or 7 with such a method as without one, where the application gives the method's roles.
+A method whose directory gives the roles is outside the eight shapes in any application
+with tenants, as [Outside the eight shapes](#outside-the-eight-shapes) describes.
+
+Given shape 6 or 8 they write the tenant directories. They write no sign-in method that
+goes through an organization's directory: they say which `impulse add method` adds it,
+and until it is added `impulse audit` reads the application as shape 5 or 7, since no
+tenant's people can come through a directory yet.
+
+Without `--shape`, `impulse new --tenancy` and `impulse add tenancy` write the tenant
+directories, unless `--tenant-directories=false` is given.
+
+Going from shape 5 to 6, or from 7 to 8, is the author's act: laying the tenant
+directories into the application. No `impulse add method` does it by itself, and no
+command does it yet.
 
 In an application with tenants, `impulse add auth` and `impulse add method` still take
 shapes 1 to 4, for the choices of the method they write. `impulse audit` then names the
@@ -724,8 +750,11 @@ staff and every tenant's people have their accounts in that auth. What tells the
 where each holds a role. The examples below name that auth `staff`, as the first auth of
 a new application is often named.
 
-Two pages decide who gets in. The auth's Sign-in page decides who may create a tenant.
-Each tenant's Sign-in page decides who joins that tenant.
+The auth's Sign-in page decides who may create a tenant. Who joins a tenant is the
+tenant's to decide. In shapes 5 and 7 a tenant's people are the people it invites and
+nobody else, and the commands write no Sign-in page for a tenant, since no tenant has a
+directory to set there. In shapes 6 and 8 each tenant's Sign-in page decides who joins
+the tenant beside the people it invites.
 
 ### Staff
 
@@ -743,8 +772,9 @@ Nobody creates a tenant directly. A tenant comes to exist in one of two ways.
 first sign-in creates the tenant and makes them its first administrator. This is how to
 control who is added. In the skeletons the invitation is sent from the Invited tenants
 page, in the System menu, by a holder of the `Administrator` role. The invitation carries
-the tenant's name. It can also say that the tenant is entered through its directory only,
-and name the role the directory's people start with.
+the tenant's name. Where a tenant can have a directory, it can also say that the tenant
+is entered through its directory only, and name the role the directory's people start
+with.
 
 **By sign-up.** Anyone can sign up and create their own tenant, and becomes its first
 administrator. This works while an administrator has a sign-in method open to sign-up on
@@ -757,12 +787,16 @@ Whether its tenants are made by invitation, by sign-up or both does not change a
 application's shape. With tenants, a shape's name says how a tenant's people come to the
 tenant, not how the tenant came to exist.
 
-Where the person who makes the tenant is signed in through an organization's directory,
-that directory becomes the tenant's own, in the same step. A person whose organization's
-directory is already another tenant's makes no second tenant: they are refused, and told
-to ask that tenant's administrator for an invitation. A person who is signed in with a
-password makes a tenant with no directory, and an administrator of the tenant can set
-one later, as [A tenant's directory](#a-tenants-directory) describes.
+Where a tenant can have a directory, and the person who makes the tenant is signed in
+through an organization's directory, that directory becomes the tenant's own, in the same
+step. A person whose organization's directory is already another tenant's makes no second
+tenant: they are refused, and told to ask that tenant's administrator for an invitation.
+A person who is signed in with a password makes a tenant with no directory, and an
+administrator of the tenant can set one later, as
+[A tenant's directory](#a-tenants-directory) describes.
+
+In an application whose tenants have no directories, the person makes the tenant however
+they signed in, and nothing is taken from the sign-in.
 
 One auth of the application is the one a tenant is made through: the auth of the outlets
 that serve the tenant record. `impulse audit` names it. The Sign-in page of any other auth
@@ -776,9 +810,29 @@ A tenant has at most one directory, and a directory belongs to one tenant only.
 
 A tenant can have a directory where two things are in the code. The application has a
 directories record, the table that holds each tenant's directory, which
-`impulse add tenancy` and `impulse new --tenancy` always write. And the auth registers a
+`impulse add tenancy` and `impulse new --tenancy` write unless they are given
+`--tenant-directories=false`, or `--shape` with shape 5 or 7. And the auth registers a
 Google, Microsoft or other provider's method whose roles the application gives. Whether
 a tenant then has one is settled while the application runs.
+
+An application without the directories record has no tenant directories, and that is
+shapes 5 and 7. No tenant takes a directory, none is opened to one and none is made
+directory only. A Google, Microsoft or other provider's method is then a way for an
+invited person to sign in and nothing more: a person from an organization's directory
+who has no account and no invitation joins no tenant, whichever methods the auth has.
+They are refused while the method is invite only, as every method starts. Where an
+administrator has opened the method to sign-up, they get an account that holds no
+tenant, and can create a tenant of their own, as
+[Who can create a tenant](#who-can-create-a-tenant) describes.
+
+A person an administrator created an account for is not such a person. Their sign-in
+under the account's sign-in name is joined to the account, through any of the auth's
+methods. An account that has a password asks for it first. An account that has none, and
+has never signed in, is joined to the first sign-in under its name, as in an application
+without tenants.
+
+The rest of this section, and the next, describe an application whose tenants can have
+directories.
 
 Nobody types a directory in. It is set from a sign-in, in one of two ways:
 
@@ -797,7 +851,8 @@ A tenant's administrator is a person who holds, in that tenant, a role the appli
 names as an administrator's role of a tenant. In the skeletons that role is
 `TenantAdministrator`, and the person who makes a tenant is given it.
 
-The tenant's administrator makes three choices, on the tenant's Sign-in page.
+Where a tenant can have a directory, the tenant's administrator makes three choices, on
+the tenant's Sign-in page.
 
 | Choice | What it does |
 | --- | --- |
@@ -824,6 +879,10 @@ directory of a tenant that is directory only cannot be removed.
 
 A tenant's choices restrict who enters that tenant and no other. A tenant that is not
 directory only admits everyone it has given a role, however they signed in.
+
+Deleting a tenant takes its directory with it, whether the tenant is directory only or
+not, along with the roles held in the tenant, the invitations into it that still stand
+and its rows. The directory can then be made another tenant's.
 
 ### Who manages an account
 
@@ -926,36 +985,55 @@ the rule, and manage any account from the whole application's side.
 | Sign-in method | In this shape |
 | --- | --- |
 | Password | Can be used |
-| Google or Microsoft, at any of the four widths | Cannot be used |
-| Another identity provider | Cannot be used |
+| Google or Microsoft, at any of the four widths | Can be used |
+| Another identity provider | Can be used |
 
-An application made with this shape has a password method alone.
+Any method can be used, and the methods are the same for every tenant. No tenant has a
+directory: an application made with this shape has tenants and no tenant directories, so
+a Google, Microsoft or other provider's method is a way for an invited person to sign in
+and nothing more. An invited person accepts by signing in with any of the auth's methods,
+with the invited email address (with Microsoft, only where the sign-in carries the
+person's address, as
+[Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
+describes). A person from an organization's directory who has no account and no
+invitation joins no tenant, whichever methods the auth has, as
+[A tenant's directory](#a-tenants-directory) describes, and nothing can be opened to a
+directory or made directory only.
 
-A Google, Microsoft or other provider's method whose roles the application gives can be
-added, but the application is then [shape 6](#6-tenant-owned-users-by-directory): the
-commands always write the directories record, so a tenant could take a directory. In
-shape 6 a tenant that takes no directory is still invite only, and its invited people
-sign in with the new method. `impulse add tenancy` refuses this shape for an application
-that already registers such a method, and names the method.
+What separates this shape from [shape 6](#6-tenant-owned-users-by-directory) is not which
+methods the auth has. It is whether a tenant can take a directory, and so whether its
+people can come without an invitation. Going to shape 6 is the author's act: laying the
+tenant directories into the application. No `impulse add method` does it by itself.
 
 ```sh
 impulse new ./depot --module example.com/depot --auth staff --shape tenant-owned-users-invite-only
+cd depot
+git commit -m "Tenants, one for each person"
+impulse add method staff google --slot any --authority application
 ```
 
-- `./depot` is the directory the application is created in.
-- `--module example.com/depot` is the application's Go module path.
-- `--auth staff` names the application's first auth, the package `pkg/auth/staff`. It
-  signs in with a password.
-- `--shape tenant-owned-users-invite-only` gives the application tenants and holds a
-  person to one tenant. It is the same as `--tenancy --one-tenant-per-person`.
+- The first line creates the application in the directory `./depot`, with the Go module
+  path `example.com/depot` and a first auth named `staff` (the package `pkg/auth/staff`),
+  which signs in with a password. `--shape tenant-owned-users-invite-only` gives the
+  application tenants, holds a person to one tenant and leaves the tenants without
+  directories. It is the same as
+  `--tenancy --one-tenant-per-person --tenant-directories=false`.
+- The second and third lines move into the application's directory and commit what
+  `--shape` added, which `impulse new` leaves staged, once what the command handed off is
+  done: every `impulse add` starts from a clean working tree.
+- The last line adds a Google method to the `staff` auth, registered under the name
+  `google`, for any Google account, with the application giving the roles. The
+  application stays this shape with it, and without it.
 
 In the auth's block, `impulse audit` prints a line that starts
 `a person belongs to one tenant (identity.WithOneTenantPerPerson,` and ends with the file
 and the line where the option is passed. Then it prints:
 
 ```text
-    shape: 5 Tenant-owned users, invite only. The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone; a directory method whose roles the application gives (impulse add method) makes it 6 Tenant-owned users, by directory.
+    shape: 5 Tenant-owned users, invite only. The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone, and the google method is a way for an invited person to sign in and nothing more.
 ```
+
+Before the method is added, the line ends after `come by invitation alone`.
 
 ### 6. Tenant-owned users, by directory
 
@@ -1068,18 +1146,19 @@ remove them from the tenant.
 | Sign-in method | In this shape |
 | --- | --- |
 | Password | Can be used |
-| Google or Microsoft, at any of the four widths | Cannot be used |
-| Another identity provider | Cannot be used |
+| Google or Microsoft, at any of the four widths | Can be used |
+| Another identity provider | Can be used |
 
-The methods are the same for every tenant: an auth registers them in code.
+Any method can be used, and the methods are the same for every tenant: an auth registers
+them in code.
 
-An application made with this shape has a password method alone. A Google, Microsoft or
-other provider's method whose roles the application gives can be added, but the
-application is then [shape 8](#8-global-users-each-tenant-chooses): the commands always
-write the directories record, so a tenant could take a directory. In shape 8 a tenant
-that takes no directory is still invite only, and its invited people sign in with the new
-method. `impulse add tenancy` refuses this shape for an application that already
-registers such a method, and names the method.
+No tenant has a directory, as in [shape 5](#5-tenant-owned-users-invite-only): an
+application made with this shape has tenants and no tenant directories. A Google,
+Microsoft or other provider's method is a way for an invited person to sign in and
+nothing more, and a person from an organization's directory who has no account and no
+invitation joins no tenant. Going to [shape 8](#8-global-users-each-tenant-chooses) is
+the author's act, laying the tenant directories into the application, and no
+`impulse add method` does it by itself.
 
 ```sh
 impulse new ./depot --module example.com/depot --auth staff --shape global-users-invite-only
@@ -1089,15 +1168,19 @@ impulse new ./depot --module example.com/depot --auth staff --shape global-users
 - `--module example.com/depot` is the application's Go module path.
 - `--auth staff` names the application's first auth, the package `pkg/auth/staff`. It
   signs in with a password.
-- `--shape global-users-invite-only` gives the application tenants. It is the same as
-  `--tenancy`.
+- `--shape global-users-invite-only` gives the application tenants and leaves them
+  without directories. It is the same as `--tenancy --tenant-directories=false`.
 
 `impulse audit` prints, in the auth's block:
 
 ```text
     a person can be in several tenants (the auth's package hands its identity client no identity.WithOneTenantPerPerson)
-    shape: 7 Global users, invite only. The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone; a directory method whose roles the application gives (impulse add method) makes it 8 Global users, each tenant chooses.
+    shape: 7 Global users, invite only. The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone.
 ```
+
+A Google, Microsoft or other provider's method added afterward, as in shape 5, leaves
+the application this shape. The line then goes on to name the method as a way for an
+invited person to sign in.
 
 ### 8. Global users, each tenant chooses
 

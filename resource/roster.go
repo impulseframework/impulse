@@ -537,10 +537,13 @@ func readTenantSet(ctx context.Context, txn spxapi.Querier, statements rosterSta
 // Spanner, where the session's transaction is *spanner.ReadWriteTransaction. The
 // generated New<Record>DeclarationReader constructor supplies the table and the
 // columns; an application calls that one. A tenant the table does not hold declares
-// nothing (nil). The reader has no side effects, as a retried transaction needs.
+// nothing (nil), and so does every tenant of a record that declares no directories (nil
+// columns, or columns that name no directories record): the reader then answers without
+// a read, so the policy admits everyone a tenant seats, however they signed in. The
+// reader has no side effects, as a retried transaction needs.
 func NewTenantDeclarationReader(table, keyColumn string, columns *TenantDeclarationColumns) signin.DeclarationReader[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, txn *spanner.ReadWriteTransaction, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
-		if tenant == "" {
+		if tenant == "" || !columns.declared() {
 			return nil, nil
 		}
 		statements, err := tenantRosterStatements(SpannerDBType, table, keyColumn, columns, true)

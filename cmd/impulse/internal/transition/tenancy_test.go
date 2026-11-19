@@ -844,11 +844,11 @@ func Test_retellPermissions(t *testing.T) {
 		return src[start:end]
 	}
 	base, reference := comment("solo"), comment(TenancyReferenceCandidate)
-	if got := string(retellPermissions([]byte(base))); got != reference {
+	if got := string(Tenancy{}.retellPermissions([]byte(base))); got != reference {
 		t.Errorf("the base's comment retold (-want +got):\n%s", cmp.Diff(reference, got))
 	}
 	own := "// UserPermissions answers who may do what.\n"
-	if got := string(retellPermissions([]byte(own))); got != own {
+	if got := string(Tenancy{}.retellPermissions([]byte(own))); got != own {
 		t.Errorf("an author's own comment was rewritten to %q", got)
 	}
 }

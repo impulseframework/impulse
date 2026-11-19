@@ -107,6 +107,10 @@ type methodView struct {
 	// SignUpChoice reports an auth whose methods an administrator may open to sign-up
 	// (signUpChoice).
 	SignUpChoice bool
+	// TenantDirectories reports an application with tenant directories
+	// (TenantPolicy.Directories), where a tenant's directory that names a default role
+	// is a second way a stranger gets an account through the method.
+	TenantDirectories bool
 	// module is the application's module path.
 	module string
 }
@@ -258,6 +262,7 @@ func newMethodView(spec *Spec, m *Method) *methodView {
 	mv := &methodView{Method: m, Auth: spec.Name, AuthPascal: names.Pascal(spec.Name), Fields: m.Fields(), SlotKind: m.slot(), SlotWords: slotWords(m), module: spec.Module}
 	mv.Field = lowerFirst(m.Pascal())
 	mv.SignUpChoice = signUpChoice(spec)
+	mv.TenantDirectories = spec.TenantPolicy != nil && spec.TenantPolicy.Directories
 	for i := range mv.Fields {
 		mv.Variables = append(mv.Variables, m.Variable(spec.Name, &mv.Fields[i]))
 	}

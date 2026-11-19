@@ -672,15 +672,17 @@ jobs:
           # shellcheck disable=SC2086
           golangci-lint run --timeout 10m $aside --build-tags skipAuth ./...
       - name: The author's path leaves nothing the brief does not name
-        # An application made the way its author makes one, by the commands at this commit
-        # and nothing else: impulse new with a sign-in shape that composes tenancy, then
-        # two sign-in methods added. What the commands wrote is held to the application's
+        # Two applications made the way their author makes one, by the commands at this
+        # commit and nothing else: impulse new with a sign-in shape that composes tenancy,
+        # then sign-in methods added. One has tenants that can have directories, the other
+        # tenants with no directories, which must still read as its invite-only shape once
+        # a Google method is on it. What the commands wrote is held to each application's
         # own formatters and lint (in every package that compiles), and the tests that do
         # not compile yet to the brief, which must name each. The rendered skeleton above
         # proves a candidate; this proves what the transitions write over one, which
         # nothing else lints. The test is asked for (it starts the emulator for each
         # regeneration), so this job, which has the emulator and the lint, sets the
-        # variable; it adds about a minute and a half to the solo leg.
+        # variable; it adds about three minutes to the solo leg.
         if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.GO_PART == 'true' && matrix.candidate == 'solo' }}
         working-directory: impulse
         env:
