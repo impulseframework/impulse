@@ -28,8 +28,8 @@ import (
 // The exemption is the actor's: the rigger's session started by the
 // governor enters Bastion, where the rigger's own does not, and the governor's session
 // started by the marshal, who is no super administrator, stays outside it. The same
-// person answers for who makes a super administrator: the marshal, viewing as the
-// governor with Execute kept, is refused the role for herself.
+// person answers for who makes a super administrator: the marshal, acting as the
+// Headquarters role, which gives the crew's roles, is refused the role for the cadet.
 //
 // Demonstrates: auth.super-administrator.
 func TestSuperAdministrator_entersEverySector(t *testing.T) {
@@ -103,21 +103,26 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 	}
 	enters("a super administrator's session started by the marshal, who is none", asGovernor, []string{anvil, cinder}, false)
 
-	// Nor does acting as a super administrator make one: the marshal, given the grant
-	// to act as a person, starts a session that acts as the governor, whose entry check
-	// runs with the governor's grants, and is refused the role for herself, since the
-	// real person behind the session holds none. The governor's own session gives it.
-	giveStandIn(ctx, t, s, "marshal")
+	// Nor does acting as someone make one a super administrator: the marshal acts as
+	// the Headquarters role, which gives the crew's roles, and is refused the role for a
+	// third person, since the real person behind the session holds none. The console's
+	// session that acts as a person never comes so far: its mask refuses every action
+	// that changes who may do what, and a role for herself is refused whatever the
+	// session, since nobody is the subject of what they do while they act as someone
+	// else (impersonation_subject_skipauth_test). The identity package's tests hold the
+	// rule to the actor of a session that acts as a super administrator. The governor's
+	// own session gives the role.
 	acting := newBrowser(t, s, consoleAPI)
 	acting.signIn(ctx, "marshal")
-	if status, body := acting.impersonate(ctx, actAs(t, "governor", "walkthrough", `,"mask":["List","Read","Execute"]`)); status != http.StatusOK {
-		t.Fatalf("the marshal acting as the governor with List, Read and Execute kept: status %d: %s", status, body)
+	if status, body := acting.impersonate(ctx, `{"kind":"role","principal":"Headquarters","reason":"walkthrough"}`); status != http.StatusOK {
+		t.Fatalf("the marshal acting as the Headquarters role: status %d: %s", status, body)
+	}
+	toCadet := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "cadet"))
+	status, body := acting.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toCadet))
+	if status != http.StatusForbidden || !strings.Contains(string(body), "only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role") {
+		t.Errorf("the marshal, acting as the Headquarters role, giving the cadet the role: status %d, want 403 naming the rule: %s", status, body)
 	}
 	toMarshal := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "marshal"))
-	status, body := acting.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role") {
-		t.Errorf("the marshal, acting as the governor, giving herself the role: status %d, want 403 naming the rule: %s", status, body)
-	}
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
 		t.Errorf("the governor making the marshal a super administrator: status %d, want 204: %s", status, body)
 	}

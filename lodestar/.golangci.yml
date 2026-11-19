@@ -158,11 +158,11 @@ linters:
       - linters:
           - paralleltest
         path: test/integration/request_log_test\.go
-      # So does the suite that reads each mask denial in the log: it runs on its own.
+      # So do the suites that read each mask denial in the log: they run on their own.
       - linters:
           - paralleltest
-        path: test/integration/impersonation_mask_skipauth_test\.go
-        text: TestImpersonationMask_credentialMethods
+        path: test/integration/impersonation_(mask|access)_skipauth_test\.go
+        text: TestImpersonationMask_(credential|access)Methods
       # Lodestar is committed in the resource module's own repository, so it builds
       # against the local source rather than a published version that cannot exist yet.
       - linters:

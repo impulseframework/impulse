@@ -147,14 +147,20 @@ const personParameter = "userID"
 
 // Test_everyMethodThatNamesAPersonAsksTheGuard reads the package's own source and holds
 // every exported method of the Manager and of a Tenant to guardedMethods: each is
-// listed, the ones that change something of a person ask the guard about that person,
-// and no method that takes a person is let off by a line left out.
+// listed, the ones that change something of a person ask the guard about that person
+// before they change anything, and no method that takes a person is let off by a line
+// left out.
 //
-// What a method asks is read from the code. A method listed as naming a person asks
-// when its body calls one of the two guards with its userID, or hands its userID to a
-// method of the Manager or of the Tenant that asks. A method listed as reaching a
-// person by another key asks when its body calls the guard, or the method, its line
-// names.
+// What a method asks is read from the code, statement by statement of its body. A
+// method asks when one of its body's own statements, not one inside a branch, a loop or
+// a function literal, hands the person to the guard and returns what it answers:
+// `if err := <guard>(...); err != nil { return ... }`, or `return <call>(...)`. For a
+// method listed as naming a person, the guard is one of the two subject guards given
+// its userID, or a method of the Manager or the Tenant that asks, given its userID. For
+// one listed as reaching a person by another key, it is the guard or the method its
+// line names. Either way the statement comes before the first statement that changes
+// anything: a write of the store, a message sent after the commit, or one of the steps
+// that write (writesSomething).
 func Test_everyMethodThatNamesAPersonAsksTheGuard(t *testing.T) {
 	t.Parallel()
 
@@ -168,6 +174,9 @@ func Test_everyMethodThatNamesAPersonAsksTheGuard(t *testing.T) {
 	if asks["Manager.RequireUser"] {
 		t.Fatal("Manager.RequireUser was read as asking the guard, and it asks nothing")
 	}
+	if !writesSomething(methods["Manager.SetName"].Body, "m") || writesSomething(methods["Manager.RequireUser"].Body, "m") {
+		t.Fatal("the test no longer reads which statements write: Manager.SetName writes and Manager.RequireUser does not")
+	}
 
 	names := make([]string, 0, len(methods))
 	for name := range methods {
@@ -180,19 +189,21 @@ func Test_everyMethodThatNamesAPersonAsksTheGuard(t *testing.T) {
 		takesPerson := takesAPerson(fn)
 		switch {
 		case !listed && takesPerson:
-			t.Errorf("%s takes a person (%s) and is not listed in guardedMethods: begin it with\n\tif err := m.refuseImpersonatorAsSubject(ctx, %s, \"<what was asked, as the end of 'you cannot'>\"); err != nil {\n\t\treturn err\n\t}\nand list it as {subject: true}", name, personParameter, personParameter)
+			t.Errorf("%s takes a person and is not listed in guardedMethods: begin it with\n\tif err := m.refuseImpersonatorAsSubject(ctx, %s, \"<what was asked, as the end of 'you cannot'>\"); err != nil {\n\t\treturn err\n\t}\nand list it as {subject: true}", name, personParameter)
 		case !listed:
 			t.Errorf("%s is not listed in guardedMethods: say whether it changes something of a person, and how it reaches them", name)
 		case rule.subject && !asks[name]:
-			t.Errorf("%s names a person by %s and does not ask the guard about them: call m.refuseImpersonatorAsSubject(ctx, %s, ...) before it changes anything, or hand %s to a method that does", name, personParameter, personParameter, personParameter)
+			t.Errorf("%s names a person by %s and does not ask the guard about them before it changes anything: begin it with if err := m.refuseImpersonatorAsSubject(ctx, %s, ...); err != nil { return err }, or hand %s to a method that does in a return statement", name, personParameter, personParameter, personParameter)
 		case rule.subject && !takesPerson:
 			t.Errorf("%s is listed as naming a person by %s and has no such parameter beside a transaction it writes in", name, personParameter)
-		case rule.by != "" && !calls(fn, rule.by):
-			t.Errorf("%s reaches a person by another key and does not call %s", name, rule.by)
+		case rule.by != "" && !asksFirst(fn, func(c *ast.CallExpr) bool {
+			return callNamed(fn, c, rule.by)
+		}):
+			t.Errorf("%s reaches a person by another key and does not ask %s, in a statement of its own that returns what it answers, before it changes anything", name, rule.by)
 		case rule.by != "" && strings.Contains(rule.by, ".") && guardedMethods[rule.by].by == "" && !guardedMethods[rule.by].subject:
 			t.Errorf("%s hands its request to %s, which guardedMethods does not list as asking the guard", name, rule.by)
 		case rule.none != "" && takesPerson && !rule.person:
-			t.Errorf("%s takes a person (%s) and is listed as asking nothing: guard it, or say with person: true why this one needs no guard", name, personParameter)
+			t.Errorf("%s takes a person and is listed as asking nothing: guard it, or say with person: true why this one needs no guard", name)
 		case rule.none == "" && rule.by == "" && !rule.subject:
 			t.Errorf("guardedMethods lists %s with no decision", name)
 		}
@@ -266,13 +277,18 @@ func receiverName(fn *ast.FuncDecl) string {
 	return fn.Recv.List[0].Names[0].Name
 }
 
-// takesAPerson reports whether the method takes a person to act on: a parameter named
-// userID, beside a transaction it writes in.
+// takesAPerson reports whether the method takes a person to act on, beside a
+// transaction it writes in: a parameter named userID, or any parameter that names
+// people by their account, an id or ids whose name says user, or a user as the
+// permission store names one (accesstypes.User).
 func takesAPerson(fn *ast.FuncDecl) bool {
 	var person, writes bool
 	for _, param := range fn.Type.Params.List {
+		typ := typeText(param.Type)
 		for _, name := range param.Names {
-			if name.Name == personParameter {
+			lower := strings.ToLower(name.Name)
+			byID := strings.Contains(lower, "user") && strings.HasSuffix(typ, "impulse.UUID")
+			if name.Name == personParameter || byID || strings.HasSuffix(typ, "accesstypes.User") {
 				person = true
 			}
 		}
@@ -284,67 +300,174 @@ func takesAPerson(fn *ast.FuncDecl) bool {
 	return person && writes
 }
 
-// called is one call a method makes on its receiver or on its receiver's manager: the
-// method called, as Type.Method where the type is read from the receiver, and whether
-// the caller's person is among what it hands over.
-type called struct {
-	method     string
-	name       string
-	withPerson bool
+// typeText writes a parameter's type as the source spells it, for the parts the test
+// reads: a name, a qualified name, a pointer or a slice of either.
+func typeText(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.SelectorExpr:
+		return typeText(e.X) + "." + e.Sel.Name
+	case *ast.StarExpr:
+		return "*" + typeText(e.X)
+	case *ast.ArrayType:
+		return "[]" + typeText(e.Elt)
+	default:
+		return ""
+	}
 }
 
-// callsOf lists the calls a method makes on its receiver (m.name, t.name) and on its
-// receiver's manager (t.manager.name).
-func callsOf(fn *ast.FuncDecl) []called {
-	receiver, on := receiverName(fn), receiverType(fn)
-	var calls []called
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
+// managerOf is how a method names the Manager it calls: its receiver for a method of
+// the Manager, and the receiver's manager field for a method of a Tenant.
+func managerOf(fn *ast.FuncDecl) (receiver, manager string) {
+	receiver = receiverName(fn)
+	if receiverType(fn) == "Tenant" {
+		return receiver, receiver + ".manager"
+	}
+
+	return receiver, receiver
+}
+
+// callTarget names a call the method makes on its receiver or on the Manager it calls,
+// as Type.Method, with the bare name beside it. Any other call names nothing.
+func callTarget(fn *ast.FuncDecl, call *ast.CallExpr) (method, name string) {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "", ""
+	}
+	receiver, manager := managerOf(fn)
+	switch on := typeText(selector.X); on {
+	case receiver:
+		return receiverType(fn) + "." + selector.Sel.Name, selector.Sel.Name
+	case manager:
+		return "Manager." + selector.Sel.Name, selector.Sel.Name
+	default:
+		return "", ""
+	}
+}
+
+// callNamed reports whether the call is the one named: a guard by its bare name, or a
+// method as Type.Method.
+func callNamed(fn *ast.FuncDecl, call *ast.CallExpr, what string) bool {
+	method, name := callTarget(fn, call)
+
+	return method != "" && (name == what || method == what)
+}
+
+// handsThePerson reports whether the call hands over the method's person, its userID.
+func handsThePerson(call *ast.CallExpr) bool {
+	return slices.ContainsFunc(call.Args, func(arg ast.Expr) bool {
+		ident, ok := arg.(*ast.Ident)
+
+		return ok && ident.Name == personParameter
+	})
+}
+
+// askingCall is the call a statement of a method's body makes and answers with: the
+// call in `if err := <call>; err != nil { return ... }` and in `return <call>`, nil for
+// any other statement. The if's branch ends in a return that carries what the call
+// answered, the err the statement assigned, as it is or wrapped: a branch that returns
+// nil has asked and thrown the answer away, and is no asking.
+func askingCall(statement ast.Stmt) *ast.CallExpr {
+	switch st := statement.(type) {
+	case *ast.ReturnStmt:
+		if len(st.Results) == 1 {
+			call, _ := st.Results[0].(*ast.CallExpr)
+
+			return call
+		}
+	case *ast.IfStmt:
+		assign, ok := st.Init.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 || len(st.Body.List) == 0 {
+			return nil
+		}
+		answer, ok := assign.Lhs[0].(*ast.Ident)
 		if !ok {
+			return nil
+		}
+		last, returns := st.Body.List[len(st.Body.List)-1].(*ast.ReturnStmt)
+		if !returns || !names(last, answer.Name) {
+			return nil
+		}
+		call, _ := assign.Rhs[0].(*ast.CallExpr)
+
+		return call
+	}
+
+	return nil
+}
+
+// names reports whether the node names the identifier anywhere in it.
+func names(node ast.Node, identifier string) bool {
+	named := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok && ident.Name == identifier {
+			named = true
+		}
+
+		return !named
+	})
+
+	return named
+}
+
+// asksFirst reports whether one of the statements of the method's body asks a call the
+// test accepts, and answers with it, before any statement of the body changes
+// anything.
+func asksFirst(fn *ast.FuncDecl, accepted func(call *ast.CallExpr) bool) bool {
+	receiver, _ := managerOf(fn)
+	for _, statement := range fn.Body.List {
+		if call := askingCall(statement); call != nil && accepted(call) {
 			return true
+		}
+		if writesSomething(statement, receiver) {
+			return false
+		}
+	}
+
+	return false
+}
+
+// writeVerbs open the name of every method of the Store that writes, and writeSteps
+// are the Manager's own steps that write or send.
+var (
+	writeVerbs = []string{"Insert", "Update", "Delete", "Set", "Remove", "Revoke", "End", "Clear", "Consume", "Rename"}
+	writeSteps = []string{"mailAfterCommit", "noticeAfterCommit", "resetLinksEndAtCommit", "endUserSessions", "endSession", "endSessionAndRecord", "removeMembership", "deleteAccount", "deleteWithLastRole"}
+)
+
+// writesSomething reports whether the node calls a write: a method of the store whose
+// name opens with a write verb, or one of the Manager's steps that write or send.
+func writesSomething(node ast.Node, receiver string) bool {
+	writes := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return !writes
 		}
 		selector, ok := call.Fun.(*ast.SelectorExpr)
 		if !ok {
 			return true
 		}
-		typ := ""
-		switch x := selector.X.(type) {
-		case *ast.Ident:
-			if x.Name == receiver {
-				typ = on
-			}
-		case *ast.SelectorExpr:
-			if inner, ok := x.X.(*ast.Ident); ok && inner.Name == receiver && x.Sel.Name == "manager" {
-				typ = "Manager"
-			}
+		on, name := typeText(selector.X), selector.Sel.Name
+		if strings.HasSuffix(on, ".store") && slices.ContainsFunc(writeVerbs, func(verb string) bool {
+			return strings.HasPrefix(name, verb)
+		}) {
+			writes = true
 		}
-		if typ == "" {
-			return true
+		if (on == receiver || on == receiver+".manager") && slices.Contains(writeSteps, name) {
+			writes = true
 		}
-		withPerson := slices.ContainsFunc(call.Args, func(arg ast.Expr) bool {
-			ident, ok := arg.(*ast.Ident)
 
-			return ok && ident.Name == personParameter
-		})
-		calls = append(calls, called{method: typ + "." + selector.Sel.Name, name: selector.Sel.Name, withPerson: withPerson})
-
-		return true
+		return !writes
 	})
 
-	return calls
-}
-
-// calls reports whether the method's body calls what is named: a guard by its name, or
-// a method as Type.Method.
-func calls(fn *ast.FuncDecl, what string) bool {
-	return slices.ContainsFunc(callsOf(fn), func(c called) bool {
-		return c.name == what || c.method == what
-	})
+	return writes
 }
 
 // askingAboutThePerson returns the methods that ask the guard about the person they
-// name: the ones that call a guard with their userID, and the ones that hand their
-// userID to a method that asks, however far down.
+// name before they change anything: the ones that hand their userID to a subject
+// guard, and the ones that hand it to a method that asks, however far down, each in a
+// statement of their body's own that answers with what it asked (asksFirst).
 func askingAboutThePerson(methods map[string]*ast.FuncDecl) map[string]bool {
 	asks := make(map[string]bool)
 	for grew := true; grew; {
@@ -353,8 +476,10 @@ func askingAboutThePerson(methods map[string]*ast.FuncDecl) map[string]bool {
 			if asks[name] || !takesAPerson(fn) {
 				continue
 			}
-			if slices.ContainsFunc(callsOf(fn), func(c called) bool {
-				return c.withPerson && (slices.Contains(subjectGuards, c.name) || asks[c.method])
+			if asksFirst(fn, func(call *ast.CallExpr) bool {
+				method, called := callTarget(fn, call)
+
+				return handsThePerson(call) && (slices.Contains(subjectGuards, called) || asks[method])
 			}) {
 				asks[name] = true
 				grew = true

@@ -51,17 +51,19 @@ func actAs(t *testing.T, username accesstypes.User, reason, more string) string 
 	return fmt.Sprintf(`{"kind":"act","principal":%q,"reason":%q%s}`, account(t, username), reason, more)
 }
 
-// giveStandIn gives a persona the StandIn role as the governor signed in on a browser of
-// her own: the grant to act as a person (Execute on ActAsUser), which the role file
-// gives on purpose and the cast gives the governor alone.
-func giveStandIn(ctx context.Context, t *testing.T, s *served, username accesstypes.User) {
+// giveMarshalStandIn gives the marshal the StandIn role as the governor signed in on a
+// browser of his own: the grant to act as a person (Execute on ActAsUser), which the
+// role file gives on purpose and the cast gives the governor alone. The marshal is the
+// person the suites have act as someone: she holds the grant to view and to act as a
+// role already.
+func giveMarshalStandIn(ctx context.Context, t *testing.T, s *served) {
 	t.Helper()
 
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	body := fmt.Appendf(nil, `{"userId":%q,"role":"StandIn"}`, account(t, username))
+	body := fmt.Appendf(nil, `{"userId":%q,"role":"StandIn"}`, account(t, "marshal"))
 	if status, answer := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), body); status != http.StatusNoContent {
-		t.Fatalf("the governor giving %s the StandIn role: status %d, want 204: %s", username, status, answer)
+		t.Fatalf("the governor giving the marshal the StandIn role: status %d, want 204: %s", status, answer)
 	}
 }
 

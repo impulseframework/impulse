@@ -39,7 +39,7 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 	if status, body := readOnly.impersonate(ctx, viewAs(t, "rigger", "walkthrough")); status != http.StatusOK {
 		t.Fatalf("the marshal viewing as the rigger: status %d: %s", status, body)
 	}
-	giveStandIn(ctx, t, s, "marshal")
+	giveMarshalStandIn(ctx, t, s)
 	writing := newBrowser(t, s, consoleAPI)
 	writing.signIn(ctx, "marshal")
 	if status, body := writing.impersonate(ctx, actAs(t, "rigger", "walkthrough", `,"mask":["List","Read","Execute"]`)); status != http.StatusOK {

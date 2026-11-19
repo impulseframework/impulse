@@ -602,10 +602,55 @@ func TestManager_impersonatedSessionIsStillEnded(t *testing.T) {
 	}
 }
 
+// TestManager_EndSession_anImpersonatedSessionIsNobodysOwn pins the end of a session
+// that names the real person's account and was established by an impersonation: it is
+// none of the sessions they signed in to themselves, so they end it from a session that
+// acts as someone else, as they end any session somebody started as them. dana views as
+// erin and ends a session that views as dana herself.
+func TestManager_EndSession_anImpersonatedSessionIsNobodysOwn(t *testing.T) {
+	t.Parallel()
+
+	store := impersonatorStore()
+	asDana := mustUUID("d3d3d3d3-d3d3-4d3d-8d3d-d3d3d3d3d3d3")
+	store.sessions[userID] = append(store.sessions[userID], asDana)
+	store.records[asDana] = true
+	m, _ := impersonatorManager(t, store)
+	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return m.EndSession(viewedBy(asErin(ctx, managedAuth, false), userID), txn, asDana)
+	})
+	if err != nil {
+		t.Fatalf("EndSession() error = %v, want a session established as dana ended: it is no sign-in of hers", err)
+	}
+	if want := "end session " + asDana.String(); len(store.writes) == 0 || store.writes[0] != want {
+		t.Errorf("buffered writes = %v, want %q first", store.writes, want)
+	}
+}
+
+// TestManager_RevokeToken_aTokenWithNoOwner pins the refusal of a token the store
+// answers with no owner: the rule on the person who impersonates could not tell whose
+// it is, so nothing is revoked and the store is named.
+func TestManager_RevokeToken_aTokenWithNoOwner(t *testing.T) {
+	t.Parallel()
+
+	store := impersonatorStore()
+	store.tokens[tokenA].UserID = impulse.NilUUID
+	m, _ := impersonatorManager(t, store)
+	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return m.RevokeToken(asErin(ctx, managedAuth, false), txn, tokenA)
+	})
+	if err == nil || !strings.Contains(err.Error(), "with no owner: a Store's Token fills Token.UserID") {
+		t.Fatalf("RevokeToken() error = %v, want the refusal naming the store's Token", err)
+	}
+	if len(store.writes) != 0 {
+		t.Errorf("buffered writes = %v, want none", store.writes)
+	}
+}
+
 // TestRefuseImpersonatorAsSubject pins the call an application makes in an action of
 // its own that names a person: refused for the real person behind an impersonated
 // session, with the action's own words, and nil for anyone else and in any other
-// session.
+// session. The question a route asks before it offers the act (ImpersonatorIs) has the
+// same answer in every case.
 func TestRefuseImpersonatorAsSubject(t *testing.T) {
 	t.Parallel()
 
@@ -627,6 +672,9 @@ func TestRefuseImpersonatorAsSubject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			if got := ImpersonatorIs(tt.ctx, tt.subject); got != tt.refused {
+				t.Errorf("ImpersonatorIs() = %t, want %t", got, tt.refused)
+			}
 			err := RefuseImpersonatorAsSubject(tt.ctx, tt.subject, "assign yourself a mission")
 			if !tt.refused {
 				if err != nil {

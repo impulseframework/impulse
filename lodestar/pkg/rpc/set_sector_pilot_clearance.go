@@ -64,7 +64,7 @@ func (m *SetSectorPilotClearance) Execute(ctx context.Context, txn resource.Read
 	}
 	if account, ok := identity.UserID(accesstypes.User(pilot.Data.UserID)); ok {
 		if err := identity.RefuseImpersonatorAsSubject(ctx, account, "set your own clearance"); err != nil {
-			return err
+			return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
 		}
 	}
 	if err := resources.NewPilotUpdatePatch(m.PilotID).SetClearance(m.Clearance).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {

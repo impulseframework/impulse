@@ -4499,14 +4499,17 @@ own, outside any request, has no caller and is the application's act):
 
   ```go
   if err := identity.RefuseImpersonatorAsSubject(ctx, account, "set your own clearance"); err != nil {
-      return err
+      return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
   }
   ```
 
   What the rule cannot see is whatever reaches the person by another road: a role
   given to a group they are in, an account made for another address of theirs, an
   invitation to an address they hold and never confirmed on the account, a colleague
-  who returns the favor, and an action of the application's own that does not ask. A
+  who returns the favor, and an action of the application's own that does not ask. The
+  unlock knows the person's counts by their username, their account and the address
+  they confirmed; a count kept under an address the account holds unconfirmed (the mail
+  of a first password, or of an address change asked for) is cleared like anyone's. A
   mask that refuses the class `access` refuses the library's share of those. Every
   method of the identity library that takes a person is held to the rule by a test that
   lists them (`guardedMethods` in `identity/impersonator_listing_test.go`).

@@ -60,12 +60,40 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 		t.Fatalf("the marshal confirming her address: status %d: %s", status, body)
 	}
 
-	// A group for the place in a group, made by the governor.
+	// Two groups, made by the governor: one nobody is in, for a place given, and one
+	// the marshal and the cadet are in, for a place taken away (a place that is not
+	// there is not found before any rule is asked).
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	status, body := governor.do(ctx, http.MethodPost, crewMethod("create-crew-group"), []byte(`{"name":"Relief watch","description":"Stands in between watches"}`))
-	assertStatus(t, status, http.StatusOK, body)
-	group := cell[string](t, decodeRow(t, body), "id")
+	group := func(name string, members ...accesstypes.User) string {
+		t.Helper()
+		status, body := governor.do(ctx, http.MethodPost, crewMethod("create-crew-group"), fmt.Appendf(nil, `{"name":%q,"description":"Stands in between watches"}`, name))
+		assertStatus(t, status, http.StatusOK, body)
+		id := cell[string](t, decodeRow(t, body), "id")
+		for _, member := range members {
+			status, body := governor.do(ctx, http.MethodPost, crewMethod("add-crew-group-member"), fmt.Appendf(nil, `{"groupId":%q,"userId":%q}`, id, member))
+			assertStatus(t, status, http.StatusNoContent, body)
+		}
+
+		return id
+	}
+	empty, staffed := group("Relief watch"), group("Night watch", marshal, cadet)
+
+	// A wrong password, from a browser of nobody's, gives a name a row of failed sign-ins
+	// to unlock (a row that is not there is not found before any rule is asked). The
+	// person's next sign-in clears it, so the unlock of the marshal's own name is
+	// preceded by one each time.
+	stranger := newBrowser(t, s, consoleAPI)
+	if status, body := stranger.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("the session route before a login: status %d: %s", status, body)
+	}
+	failSignIn := func(name string) {
+		t.Helper()
+		if status, body := stranger.login(ctx, name, "not the password"); status != http.StatusUnauthorized {
+			t.Fatalf("a wrong password for %s: status %d, want 401: %s", name, status, body)
+		}
+	}
+	failSignIn("cadet")
 
 	// who is a person an act is done to: the id of their account, the name their failed
 	// sign-ins are counted under, and the address an invitation to them is mailed to.
@@ -74,7 +102,7 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 		username string
 		address  string
 	}
-	herself := who{id: marshal, username: "Marshal", address: ownAddress}
+	herself := who{id: marshal, username: "marshal", address: ownAddress}
 	another := who{id: cadet, username: "cadet", address: otherAddress}
 	acts := []struct {
 		name  string
@@ -85,42 +113,63 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 		// refuses.
 		says    string
 		classed bool
+		// prepare readies the person for the act, where the act needs something of
+		// theirs to be there.
+		prepare func(p who)
 	}{
 		{
 			name: "a role given", route: "assign-crew-role", says: "give yourself a role", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q,"role":"StandIn"}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q,"role":"StandIn"}`, p.id)
+			},
 		},
 		{
 			name: "a role taken away", route: "remove-crew-role", says: "take a role from yourself", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q,"role":"StandIn"}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q,"role":"StandIn"}`, p.id)
+			},
 		},
 		{
 			name: "a place in a group", route: "add-crew-group-member", says: "put yourself in a group", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"groupId":%q,"userId":%q}`, empty, p.id)
+			},
 		},
 		{
 			name: "a place in a group taken away", route: "remove-crew-group-member", says: "take yourself out of a group", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"groupId":%q,"userId":%q}`, staffed, p.id)
+			},
 		},
 		{
 			name: "an enable", route: "enable-crew-user", says: "enable your own account", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q}`, p.id)
+			},
 		},
 		{
 			name: "an invitation to the address of their own account", route: "invite-crew-user", says: "invite yourself", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"email":%q,"roles":["StandIn"]}`, p.address) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"email":%q,"roles":["StandIn"]}`, p.address)
+			},
 		},
 		{
 			name: "a password", route: "set-crew-temporary-password", says: "set your own password", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q,"password":"a temporary passphrase 7"}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q,"password":"a temporary passphrase 7"}`, p.id)
+			},
 		},
 		{
 			name: "a reset link", route: "send-crew-user-password-reset-link", says: "send yourself a password reset link", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q}`, p.id)
+			},
 		},
 		{
 			name: "an address", route: "set-crew-user-email", says: "change your own email address", classed: true,
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q,"email":"moved-by-hand@example.com"}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q,"email":"moved-by-hand@example.com"}`, p.id)
+			},
 		},
 		{
 			name: "a rename", route: "rename-crew-user", says: "rename your own account", classed: true,
@@ -130,19 +179,30 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 		},
 		{
 			name: "an unlock", route: "unlock-crew-sign-in", says: "unlock your own sign-in",
-			body: func(p who) string { return fmt.Sprintf(`{"name":%q}`, p.username) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"name":%q}`, p.username)
+			},
+			prepare: func(p who) {
+				failSignIn(p.username)
+			},
 		},
 		{
 			name: "a name", route: "set-crew-user-name", says: "change your own name",
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q,"name":"Somebody Else"}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q,"name":"Somebody Else"}`, p.id)
+			},
 		},
 		{
 			name: "the end of their sessions", route: "end-crew-user-sessions", says: "end your own sessions",
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q}`, p.id)
+			},
 		},
 		{
 			name: "their remembered browsers", route: "revoke-crew-user-trusted-devices", says: "revoke your own trusted devices",
-			body: func(p who) string { return fmt.Sprintf(`{"userId":%q}`, p.id) },
+			body: func(p who) string {
+				return fmt.Sprintf(`{"userId":%q}`, p.id)
+			},
 		},
 	}
 
@@ -164,6 +224,9 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 	for _, session := range sessions {
 		for _, act := range acts {
 			// On her own account: refused, with the sentence.
+			if act.prepare != nil {
+				act.prepare(herself)
+			}
 			status, answer := session.browser.do(ctx, http.MethodPost, crewMethod(act.route), []byte(act.body(herself)))
 			if want := actingAsSomeoneElse + act.says + ":"; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
 				t.Errorf("%s, %s on her own account: status %d, want 403 saying %q: %s", session.name, act.name, status, want, answer)
@@ -180,7 +243,9 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 		}
 		status, body := session.browser.do(ctx, http.MethodGet, crewMethod("crew-session-users?limit=200"), nil)
 		assertStatus(t, status, http.StatusOK, body)
-		if !slices.ContainsFunc(decodeRows(t, body), func(row map[string]any) bool { return row["id"] == string(marshal) }) {
+		if !slices.ContainsFunc(decodeRows(t, body), func(row map[string]any) bool {
+			return row["id"] == string(marshal)
+		}) {
 			t.Errorf("%s: the list of the crew does not carry her own row", session.name)
 		}
 	}
@@ -196,13 +261,16 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 	// the governor. A classed act on her own account is refused, by the mask; the unlock
 	// and the other acts no class marks reach the rule, which refuses them in its own
 	// words.
-	giveStandIn(ctx, t, s, "marshal")
+	giveMarshalStandIn(ctx, t, s)
 	acting := newBrowser(t, s, consoleAPI)
 	acting.signIn(ctx, "marshal")
 	if got, want := mint(ctx, t, acting, actAs(t, "governor", "support", "")).Mask, "everything except access actions and credential actions"; got != want {
 		t.Fatalf("the mask of a session that acts as a person = %q, want %q", got, want)
 	}
 	for _, act := range acts {
+		if act.prepare != nil {
+			act.prepare(herself)
+		}
 		status, answer := acting.do(ctx, http.MethodPost, crewMethod(act.route), []byte(act.body(herself)))
 		if status != http.StatusForbidden {
 			t.Errorf("acting as the governor, %s on her own account: status %d, want 403: %s", act.name, status, answer)
@@ -220,6 +288,9 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 	viewing.signIn(ctx, "marshal")
 	mint(ctx, t, viewing, viewAs(t, "governor", "support"))
 	for _, act := range acts {
+		if act.prepare != nil {
+			act.prepare(herself)
+		}
 		if status, answer := viewing.do(ctx, http.MethodPost, crewMethod(act.route), []byte(act.body(herself))); status != http.StatusForbidden {
 			t.Errorf("viewing as the governor, %s on her own account: status %d, want 403: %s", act.name, status, answer)
 		}
@@ -250,24 +321,38 @@ func TestImpersonation_applicationsOwnAction(t *testing.T) {
 	wingco := newBrowser(t, s, consoleAPI)
 	wingco.signIn(ctx, "wingco")
 	mint(ctx, t, wingco, `{"kind":"role","principal":"SectorMarshal","reason":"covering the marshal's desk"}`)
-	rate := func(pilot string) (int, string) {
-		status, answer := wingco.do(ctx, http.MethodPost, sectorPath(anvil, "set-sector-pilot-clearance"), fmt.Appendf(nil, `{"pilotId":%q,"clearance":5}`, pilot))
+	clearance := func(pilot string) int64 {
+		t.Helper()
 
-		return status, string(answer)
+		return readColumn[int64](ctx, t, s.db, "Pilots", spanner.Key{pilot}, "Clearance")
+	}
+	// rate asks for a clearance the pilot does not hold, so a call that went through
+	// shows in the registry.
+	rate := func(pilot string) (status int, answer string, asked int64) {
+		t.Helper()
+		asked = 1
+		if clearance(pilot) == asked {
+			asked = 2
+		}
+		code, body := wingco.do(ctx, http.MethodPost, sectorPath(anvil, "set-sector-pilot-clearance"), fmt.Appendf(nil, `{"pilotId":%q,"clearance":%d}`, pilot, asked))
+
+		return code, string(body), asked
 	}
 
-	status, answer := rate(pilotWildeID)
+	before := clearance(pilotWildeID)
+	status, answer, _ := rate(pilotWildeID)
 	if want := actingAsSomeoneElse + "set your own clearance:"; status != http.StatusForbidden || !strings.Contains(answer, want) {
 		t.Errorf("acting as the Sector Marshal, rating his own record: status %d, want 403 saying %q: %s", status, want, answer)
 	}
-	if got := readColumn[int64](ctx, t, s.db, "Pilots", spanner.Key{pilotWildeID}, "Clearance"); got == 5 {
-		t.Error("the Wing Commander's clearance was raised by the refused call")
+	if got := clearance(pilotWildeID); got != before {
+		t.Errorf("the Wing Commander's clearance = %d after the refused call, want %d as before", got, before)
 	}
-	if status, answer := rate(pilotVelaID); status != http.StatusNoContent {
+	status, answer, asked := rate(pilotVelaID)
+	if status != http.StatusNoContent {
 		t.Errorf("acting as the Sector Marshal, rating another pilot: status %d, want 204: %s", status, answer)
 	}
-	if got := readColumn[int64](ctx, t, s.db, "Pilots", spanner.Key{pilotVelaID}, "Clearance"); got != 5 {
-		t.Errorf("the other pilot's clearance = %d, want 5", got)
+	if got := clearance(pilotVelaID); got != asked {
+		t.Errorf("the other pilot's clearance = %d, want %d", got, asked)
 	}
 
 	// In a session of his own, his own record is his grant's to answer for.

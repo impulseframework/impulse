@@ -109,7 +109,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		}
 	}
 
-	giveStandIn(ctx, t, s, "marshal")
+	giveMarshalStandIn(ctx, t, s)
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
 	status, body := governor.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-user"), []byte(`{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}`))
@@ -165,7 +165,9 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 	var output requestLogOutput
 	previous := log.Writer()
 	log.SetOutput(&output)
-	t.Cleanup(func() { log.SetOutput(previous) })
+	t.Cleanup(func() {
+		log.SetOutput(previous)
+	})
 
 	// The actions the governor was not refused in a session of his own: each answered
 	// as the method answers, whatever it found to do.

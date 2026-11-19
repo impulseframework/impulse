@@ -34,8 +34,10 @@ import (
 // (refuseImpersonatorAsSubject, which an application's own action asks as
 // RefuseImpersonatorAsSubject). A person who acts as an administrator would otherwise
 // give themselves what the administrator may give and keep it after the session ends.
-// Every method of the Manager that changes something of a person carries one of the
-// two, which a test that lists the Manager's methods holds.
+// Every method of the Manager that changes something of a person asks the rule, of the
+// person's id or of the key the method reaches them by (a session, a name in the
+// sign-in attempts table, an invitation's address), which a test that lists the
+// Manager's methods holds.
 //
 // A caller is named as the permission store names a person, by the id of their account
 // (User), and no two accounts share an id, in one auth or across two. An outlet that
@@ -163,37 +165,56 @@ func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impuls
 // is the one acting:
 //
 //	if err := identity.RefuseImpersonatorAsSubject(ctx, m.PilotID, "assign yourself a mission"); err != nil {
-//		return err
+//		return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
 //	}
 //
 // What it cannot see is whatever reaches the person by another road: a role given to a
 // group they are in, an invitation to an address they hold and never confirmed on the
-// account, an act on a colleague who returns the favor. A mask that refuses the class
+// account, an act on a colleague who returns the favor. The unlock knows the account by
+// its username, its id and the address it confirmed, so a count the library keeps under
+// an address the account holds unconfirmed (the mail of a first password or of an
+// address change asked for) is cleared like anyone's. A mask that refuses the class
 // of the actions that change who may do what (accesstypes.ClassAccess) refuses those.
 func RefuseImpersonatorAsSubject(ctx context.Context, subject impulse.UUID, act string) error {
-	actor, acting := impersonatorOf(ctx)
-	if !acting || actor != subject {
+	if !ImpersonatorIs(ctx, subject) {
 		return nil
 	}
 
-	return impersonatorRefused(ctx, actor, act)
+	return impersonatorRefused(ctx, subject, act)
+}
+
+// ImpersonatorIs reports whether the account is the real person's behind the request's
+// session, where the session acts as someone else: the question
+// RefuseImpersonatorAsSubject refuses by, for a route that answers whether an act is
+// offered. A page offers a person only what they may do, so the route that says whether
+// to offer an act asks this, and the act itself asks RefuseImpersonatorAsSubject, which
+// says why and logs the refusal. It is false outside an impersonated session, and for
+// an actor who has no account here.
+func ImpersonatorIs(ctx context.Context, subject impulse.UUID) bool {
+	actor, acting := impersonatorOf(ctx)
+
+	return acting && actor == subject
 }
 
 // impersonatorRefused is the refusal of RefuseImpersonatorAsSubject and of the rules
 // that reach the person by another key, logged as what it is: the real person behind an
 // impersonated session asked for something whose subject is themselves.
 func impersonatorRefused(ctx context.Context, actor impulse.UUID, act string) error {
-	logger.FromCtx(ctx).Infof("identity: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else", actor, act)
+	logger.FromCtx(ctx).Infof(
+		"identity: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else", actor, act,
+	)
 
 	return httpio.NewForbiddenMessagef("you are acting as someone else, so you cannot %s: while you act as another person, nothing you do is done to your own account. Stop acting as them first", act)
 }
 
 // refuseImpersonatorsSession is refuseImpersonatorAsSubject for a session named by its
 // id: one of the real person's own sessions, the ones they signed in to themselves, is
-// not ended from a session that acts as someone else. The impersonated session is none
-// of them: it is the session of the person acted as, or of nobody's account where it
-// acts as a role, so the person who started it ends it like any other, here and by the
-// session library's own way out.
+// not ended from a session that acts as someone else. A session established as someone
+// or something else is none of them, whoever it acts as, the real person themselves
+// included: its row names the person acted as, or nobody's account where it acts as a
+// role, and its impersonation record says who started it. So the person who started
+// one ends it like any other, here and by the session library's own way out, and a
+// session somebody else started as them is theirs to end too.
 func (m *Manager) refuseImpersonatorsSession(ctx context.Context, txn resource.ReadWriteTransaction, sessionID impulse.UUID) error {
 	actor, acting := m.impersonator(ctx)
 	if !acting {
@@ -206,6 +227,11 @@ func (m *Manager) refuseImpersonatorsSession(ctx context.Context, txn resource.R
 	if !slices.Contains(own, sessionID) {
 		return nil
 	}
+	if _, impersonated, err := m.store.Impersonation(ctx, txn, sessionID); err != nil {
+		return errors.Wrap(err, "identity.Store.Impersonation()")
+	} else if impersonated {
+		return nil
+	}
 
 	return impersonatorRefused(ctx, actor, "end a session of your own")
 }
@@ -215,7 +241,8 @@ func (m *Manager) refuseImpersonatorsSession(ctx context.Context, txn resource.R
 // username, and the library's own counts for their account, the mail and the reset links
 // their confirmed address is sent and the guesses at the code of their first password
 // (session.AccountAttemptKeys), are not cleared from a session that acts as someone
-// else.
+// else. A count kept under an address the account holds and has not confirmed is not
+// known here: the store answers the confirmed address alone.
 func (m *Manager) refuseImpersonatorsName(ctx context.Context, txn resource.ReadWriteTransaction, name string) error {
 	actor, acting := m.impersonator(ctx)
 	if !acting {

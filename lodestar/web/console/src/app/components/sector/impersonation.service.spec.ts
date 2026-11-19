@@ -99,7 +99,9 @@ describe('ImpersonationService', () => {
         expiresAt: cap,
       },
     });
-    expect(service.banner()?.text).toBe('Acting as marshal: everything except access actions and credential actions. You are governor.');
+    expect(service.banner()?.text).toBe(
+      'Acting as marshal: everything except access actions and credential actions. You are governor.',
+    );
     // Every kind is kept: no column of the service card is struck.
     expect(service.masked('Update')).toBe(false);
     expect(service.masked('Execute')).toBe(false);

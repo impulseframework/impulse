@@ -162,7 +162,7 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 		t.Fatal("the generated collection classes no action credential: the generated identity methods that change how a person signs in carry the class")
 	}
 
-	giveStandIn(ctx, t, s, "marshal")
+	giveMarshalStandIn(ctx, t, s)
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
 
@@ -233,7 +233,9 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 	var output requestLogOutput
 	previous := log.Writer()
 	log.SetOutput(&output)
-	t.Cleanup(func() { log.SetOutput(previous) })
+	t.Cleanup(func() {
+		log.SetOutput(previous)
+	})
 
 	for _, action := range credential {
 		route, payload := methodRoute(action), credentialBody(t, action, target)
@@ -469,8 +471,8 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 	if status, body := acting.do(ctx, http.MethodPost, setAddress, address); status != http.StatusForbidden {
 		t.Errorf("setting a person's address acting as the marshal: status %d, want 403: the session's mask refuses the credential actions: %s", status, body)
 	}
-	if status, body := own.do(ctx, http.MethodPost, setAddress, address); status != http.StatusNoContent {
-		t.Errorf("the marshal setting the address herself: status %d, want 204: %s", status, body)
+	if status, body := own.do(ctx, http.MethodPost, setAddress, address); status != http.StatusOK {
+		t.Errorf("the marshal setting the address herself: status %d, want 200, the answer that says whether the confirmation went: %s", status, body)
 	}
 
 	// A third kind: the governor acts as a role, which the declaration leaves unmasked.

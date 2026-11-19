@@ -37,11 +37,12 @@ const (
 //     nothing.
 //   - act: Execute on ActAsUser. The session does what the person may do, except the
 //     actions classed credential (router.ClassCredential), so it cannot set, require or
-//     remove a password, unlink a sign-in identity, or change a username or an address,
-//     and the actions classed access (router.ClassAccess), so it cannot give or remove
-//     a role, change a group or what it holds, invite anyone, or make, disable, enable
-//     or delete an account. The constants are the generated collection's, so the mask
-//     names classes the application's actions carry, or this file does not compile.
+//     remove a password, send a reset link, unlink a sign-in identity, or change a
+//     username or an address, and the actions classed access (router.ClassAccess), so
+//     it cannot give or remove a role, change a group or what it holds, invite anyone,
+//     or make, disable, enable or delete an account. The constants are the generated
+//     collection's, so the mask names classes the application's actions carry, or this
+//     file does not compile.
 //   - role: Execute on AssumeRole. The session holds what the role holds; the kind says
 //     in so many words that it is unmasked.
 //

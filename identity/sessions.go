@@ -92,6 +92,7 @@ func (m *Manager) EndUserSessions(ctx context.Context, txn resource.ReadWriteTra
 	if err := m.refuseImpersonatorAsSubject(ctx, userID, "end your own sessions"); err != nil {
 		return err
 	}
+
 	return m.endUserSessions(ctx, txn, userID)
 }
 
