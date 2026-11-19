@@ -440,3 +440,124 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 		assertNoUser(ctx, t, silent.Driver, una.SignInName)
 	}
 }
+
+// assertWaitsForInvitedCode fails unless err is the wait of an acceptance that rests on
+// the code mailed to the invited address: held for the mailed code alone, naming no
+// user.
+func assertWaitsForInvitedCode(t *testing.T, what string, err error) {
+	t.Helper()
+
+	var wait *signin.PendingSignInError
+	if !errors.As(err, &wait) || wait.Reason != sessioninfo.PendingMFA || wait.UserID.Valid || wait.Username != "" {
+		t.Errorf("%s: sign-in error = %v, want the sign-in held for the code, naming no user", what, err)
+
+		return
+	}
+	if len(wait.Factors) != 1 || wait.Factors[0] != sessioninfo.MethodEmailCode {
+		t.Errorf("%s: the wait accepts %v, want the mailed code alone", what, wait.Factors)
+	}
+}
+
+// testInvitationUnverifiedAddress holds the acceptance of an invitation, through a
+// directory that asserts an address and does not verify it, to the code mailed to the
+// invited address. Microsoft Entra ID's email claim is such an address: whoever runs a
+// directory writes it, so a person who holds an invitation's link and a directory of
+// their own could claim the invited address. Were the claim taken at its word, that
+// person would take the invitation with its roles and an account under the invited
+// person's address, or spend it with an account of their own that holds another
+// address, or beside the account an administrator made for the invited person. So the
+// claim counts for nothing, as an address the directory did not assert: the sign-in
+// waits for the code, naming no user and writing nothing, whatever address it claims.
+// The person who reads the invited mailbox enters the code and accepts.
+func testInvitationUnverifiedAddress(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newAcceptances()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
+	// claims is a person a directory presents under signInName and claims address for.
+	claims := func(subject, signInName, address string) *sessioninfo.Identity {
+		identity := entra(subject, signInName)
+		identity.Email = address
+
+		return identity
+	}
+	withCode := func(identity *sessioninfo.Identity, link *dbtype.MailLink) *sessioninfo.NewSessionRequest {
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: identity, Invitation: invitationOf(link), AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, {Method: sessioninfo.MethodEmailCode}}}
+		req.Invitation.AddressProven = true
+
+		return req
+	}
+
+	// A person no account was made for, whose directory claims the invited address, is
+	// held with nothing written; so is one whose directory claims another address.
+	const invited = "nell@north.example"
+	link := insertInvitation(ctx, t, in.Driver, invited, "lakeside", []string{"Teacher"}, tokenHash(1))
+	for _, claimed := range []string{invited, "mallory@rogue.example"} {
+		mallory := claims("oid-mallory", "mallory@rogue.example", claimed)
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: mallory, Invitation: invitationOf(link)}
+		assertWaitsForInvitedCode(t, "a new person whose directory claims "+claimed, signInRequest(ctx, in, req))
+		assertInvitationKept(ctx, t, in, rec, link, req.Invitation)
+		assertNoUser(ctx, t, in.Driver, mallory.SignInName)
+		assertNoLink(ctx, t, in.Driver, mallory)
+	}
+
+	// The person who reads the invited mailbox enters the code, and the account is made
+	// with the invited address confirmed.
+	nell := claims("oid-nell", "nell@corp.example", invited)
+	req := withCode(nell, link)
+	err := signInRequest(ctx, in, req)
+	assertProvisioned(ctx, t, in.Driver, err, req, nell, "tenant-1")
+	if !req.Invitation.Accepted {
+		t.Error("Invitation.Accepted = false after the sign-in that carried the code, want accepted")
+	}
+	made := mustUser(ctx, t, in.Driver, req.UserID)
+	assertEmail(t, "the account the acceptance made", made, strPtr(invited), true)
+	assertAccepted(t, rec, "accepted:"+invited, made.ID.String()+" "+nell.SignInName+" lakeside Teacher")
+
+	// An account the identity is already linked to, which holds another confirmed
+	// address, is not the one invited because its directory now claims the invited
+	// address.
+	const second = "omar@north.example"
+	ruth, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "ruth", Email: strPtr("ruth@south.example"), EmailVerified: true}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser(%q) error = %v", "ruth", err)
+	}
+	ruthIdentity := claims("oid-ruth", "ruth@rogue.example", second)
+	mustLink(ctx, t, in.Driver, ruth.ID, ruthIdentity)
+	secondLink := insertInvitation(ctx, t, in.Driver, second, "", []string{"Admin"}, tokenHash(2))
+	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: ruthIdentity, Invitation: invitationOf(secondLink)}
+	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
+	assertInvitationKept(ctx, t, in, rec, secondLink, req.Invitation)
+	assertEmail(t, "the linked account that holds another address", mustUser(ctx, t, in.Driver, ruth.ID), strPtr("ruth@south.example"), true)
+
+	// A linked account that has confirmed no address waits for the code too: the claim
+	// does not write the invited address on it.
+	sam := createUser(ctx, t, in.Driver, "sam@rogue.example")
+	samIdentity := claims("oid-sam", "sam@rogue.example", second)
+	mustLink(ctx, t, in.Driver, sam.ID, samIdentity)
+	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: samIdentity, Invitation: invitationOf(secondLink)}
+	assertWaitsForInvitedCode(t, "a linked account with no confirmed address whose directory claims the invited one", signInRequest(ctx, in, req))
+	assertInvitationKept(ctx, t, in, rec, secondLink, req.Invitation)
+	assertEmail(t, "the linked account before the code", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
+
+	// The invitation mailed to an account an administrator made is that account's own:
+	// a stranger whose directory claims its address is given no account beside it, and
+	// does not spend the invitation.
+	const umaAddress = "uma@north.example"
+	uma, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "uma", Email: strPtr(umaAddress)}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser(%q) error = %v", "uma", err)
+	}
+	umaLink := insertInvitation(ctx, t, in.Driver, umaAddress, "lakeside", []string{"Coach"}, tokenHash(3))
+	stranger := claims("oid-stranger", "stranger@rogue.example", umaAddress)
+	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: stranger, Invitation: invitationOf(umaLink)}
+	assertWaitsForInvitedCode(t, "a stranger whose directory claims the address of an account an administrator made", signInRequest(ctx, in, req))
+	assertInvitationKept(ctx, t, in, rec, umaLink, req.Invitation)
+	assertNoUser(ctx, t, in.Driver, stranger.SignInName)
+	assertNoLink(ctx, t, in.Driver, stranger)
+	links, err := in.Driver.IdentitiesByUser(ctx, uma.ID)
+	if err != nil {
+		t.Fatalf("IdentitiesByUser() error = %v", err)
+	}
+	if len(links) != 0 {
+		t.Errorf("the account an administrator made holds %d links after a sign-in that only claimed its address, want none", len(links))
+	}
+}

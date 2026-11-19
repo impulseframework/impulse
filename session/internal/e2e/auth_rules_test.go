@@ -487,6 +487,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "the code mailed for an invitation accepts that invitation and proves nothing else: entered once the invitation was withdrawn, through a method open to sign-up, it signs nobody in and makes no account",
 			run:  seamRulesInvitationCodeWithoutItsInvitation[Tx],
 		},
+		{
+			name: "an invitation accepted through a directory that sends an address it did not verify waits for the code as one that sends none: a directory that says the invited address is its person's makes no account and spends no invitation, one that says another address is not refused for it, and the person who reads the invited mailbox accepts with the code",
+			run:  seamRulesInvitationUnverifiedAddress[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -669,6 +673,76 @@ func seamRulesInvitationCodeWithoutItsInvitation[Tx any](ctx context.Context, t 
 		t.Errorf("the code entered once its invitation was withdrawn = %d %s, want 401 with invitation_expired", status, body)
 	}
 	a.assertNoRow(ctx, t, b, signedAs)
+}
+
+// seamRulesInvitationUnverifiedAddress is the scenario "an invitation accepted through a
+// directory that sends an address it did not verify waits for the code". Where the
+// registration is set up to send one, Microsoft Entra ID sends the address the
+// directory's administrator wrote for the person and verifies none of it, and anybody
+// can run a directory. Somebody who holds an invitation's link and whose directory
+// says the invited address is theirs would otherwise be given what the invitation
+// carries: the account under the invited address, and its roles. So the address the
+// token carries is read as none, whichever it is, and the mailed code decides.
+func seamRulesInvitationUnverifiedAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
+	const (
+		invited  = "nell@north.example"
+		stranger = "mallory@lakeside.edu"
+		signedAs = "nell@lakeside.edu"
+	)
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited, Name: "Nell"}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	token := invitationToken(t, a.mail)
+	mailed := len(a.mail.Messages())
+
+	// Somebody else holds the link. Their directory says the invited address is theirs,
+	// and then, in another browser, that another one is. Either way the sign-in is held
+	// for the code, which goes to the invited mailbox: nobody is made, nothing is mailed
+	// before the page asks, and the invitation stands.
+	for _, claimed := range []string{invited, "mallory@elsewhere.example"} {
+		b := a.browser(t)
+		b.prime(ctx)
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+		claims := azureClaims(azureTenant, "oid-mallory", stranger)
+		claims["email"] = claimed
+		assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+		b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+		a.assertNoRow(ctx, t, b, stranger)
+		status := string(b.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil))
+		if !strings.Contains(status, `"factors":["email-code"]`) || !strings.Contains(status, `"codeEmail":"n•••@north.example"`) || strings.Contains(status, `"enrollEmail":true`) {
+			t.Errorf("pending status of a directory that says %s = %s, want the email code alone, going to the invited address, with no address asked for", claimed, status)
+		}
+		if standing := a.standingInvitations(ctx, t); len(standing) != 1 {
+			t.Fatalf("standing invitations after a directory said %s = %d, want the one invitation", claimed, len(standing))
+		}
+	}
+	if n := len(a.mail.Messages()) - mailed; n != 0 {
+		t.Errorf("%d message(s) mailed by the held sign-ins, want none before a page asks for the code", n)
+	}
+
+	// The person who reads the invited mailbox accepts with the code, though her
+	// directory says an address of its own for her: the account is made with the invited
+	// address confirmed, and the invitation is spent.
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+	claims := azureClaims(azureTenant, "oid-nell", signedAs)
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, invited)}); !strings.Contains(string(body), `"mfaIsRequired":false`) {
+		t.Fatalf("code verification = %s, want the sign-in completed", body)
+	}
+	signedInAs(ctx, t, b, signedAs)
+	if email, verified := b.authenticatedEmail(ctx); email != invited || !verified {
+		t.Errorf("the new account's address = %q (confirmed %v), want the invited address confirmed by the code", email, verified)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations after the acceptance = %+v, want none", standing)
+	}
+	if a.db.hasUser(ctx, t, stranger) {
+		t.Errorf("a user exists under %q, want none: the directory's word for the invited address made no account", stranger)
+	}
 }
 
 // seamRulesMembersProvision is the scenario "open to sign-up: a stranger is provisioned".

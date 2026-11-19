@@ -65,7 +65,8 @@ type signInAttempt struct {
 	fromPending bool
 	// codeEmail is the address the code this sign-in entered was mailed to, "" for a
 	// sign-in that entered none: what an invitation's acceptance rests on where the
-	// identity asserts no address (sessioninfo.Invitation.AddressProven).
+	// identity answers for no address, asserting none or one its method did not verify
+	// (sessioninfo.Invitation.AddressProven).
 	codeEmail string
 	// acceptsInvitation reports a completion of the wait of an invitation's acceptance
 	// (signinflow's invitedCodeWait): the code it entered was mailed for the invitation,

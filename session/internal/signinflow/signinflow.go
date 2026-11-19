@@ -224,11 +224,12 @@ type Rules[Tx any] struct {
 // (invitation_address), the invitation left standing for the invited account. A
 // password account that holds no address accepts by the link, since the link is what
 // the person proved, and takes the address. An external identity that asserts no
-// address has none to compare: where the Auth sends mail (rules.ConfirmAddress) its
-// acceptance rests on the code the library mails to the invited address, so the sign-in
-// waits, naming no user and writing nothing, until it carries that proof
-// (Invitation.AddressProven; see acceptsByCode, resolveIn), and where it sends none the
-// sign-in is refused as one for another address is. The invitation is told how the
+// address, or one its method did not verify, has none to compare: where the Auth sends
+// mail (rules.ConfirmAddress) its acceptance rests on the code the library mails to the
+// invited address, so the sign-in waits, naming no user and writing nothing, until it
+// carries that proof (Invitation.AddressProven; see acceptsByCode, resolveIn), and
+// where it sends none the address the identity asserts is compared, and a sign-in that
+// asserts none is refused as one for another address is. The invitation is told how the
 // person signed in (Invitation.SignInMethod, SignInConnection: the identity's), which
 // the acceptor reads, and an invitation that makes a tenant entered through its
 // directory only
@@ -334,10 +335,14 @@ func SignIn[Tx any](
 // page, which still carries it, names the invited address. Nil when the sign-in
 // carries no invitation or the acceptance may go on.
 //
-// A sign-in through a directory that asserts no address has none to compare. Where the
-// Auth sends mail (confirm), such an acceptance is not refused here: the resolution
-// holds it to the code mailed to the invited address (acceptsByCode), which is the
-// proof that the person reads that mailbox.
+// A sign-in through a directory that asserts no address, or asserts one its method did
+// not verify, has none to compare: whoever runs a directory writes the address it sends,
+// so the unverified one is nobody's proof, whether it is the invited address or another.
+// Where the Auth sends mail (confirm), such an acceptance is not refused here: the
+// resolution holds it to the code mailed to the invited address (acceptsByCode), which
+// is the proof that the person reads that mailbox. Where no code is mailed, a
+// registration whose accounts the deployment seeds, the address its own provider
+// asserts is compared.
 func invitedAddressRefusal(req *sessioninfo.NewSessionRequest, confirm bool) error {
 	if req.Invitation == nil || acceptsByCode(req, confirm) {
 		return nil
@@ -347,12 +352,18 @@ func invitedAddressRefusal(req *sessioninfo.NewSessionRequest, confirm bool) err
 }
 
 // acceptsByCode reports whether the sign-in carries an invitation its identity cannot
-// answer for by an address of its own: an external identity that asserts none
-// (Microsoft Entra ID sends none unless the registration is set up to), on an Auth that
-// sends mail (confirm). Such an acceptance rests on the code the library mails to the
-// invited address.
+// answer for by an address of its own, on an Auth that sends mail (confirm): an external
+// identity that asserts none (Microsoft Entra ID sends none unless the registration is
+// set up to), or asserts one its method did not verify (Identity.EmailVerified: the
+// address Microsoft Entra ID sends is whatever the directory's administrator wrote, and
+// anybody can run a directory). Such an acceptance rests on the code the library mails
+// to the invited address, and the address the identity asserts is not read.
 func acceptsByCode(req *sessioninfo.NewSessionRequest, confirm bool) bool {
-	return confirm && req.Invitation != nil && dbtype.IsExternal(req.Identity) && strings.TrimSpace(req.Identity.Email) == ""
+	if !confirm || req.Invitation == nil || !dbtype.IsExternal(req.Identity) {
+		return false
+	}
+
+	return strings.TrimSpace(req.Identity.Email) == "" || !req.Identity.EmailVerified
 }
 
 // invitedCodeWait is the wait of an acceptance that rests on the code mailed to the
@@ -451,8 +462,9 @@ func notTheInvited[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessio
 	return nil, nil
 }
 
-// linkedAcceptsByCode decides the acceptance, by an identity that asserts no address,
-// of the invitation req carries, for the user the identity is linked to. The account
+// linkedAcceptsByCode decides the acceptance, by an identity that answers for no address
+// (acceptsByCode: it asserts none, or one its method did not verify), of the invitation
+// req carries, for the user the identity is linked to. The account
 // that holds the invited address confirmed is the one invited, and accepts. An account
 // that holds another confirmed address is not, and neither is any account while
 // another one holds the invited address, confirmed or not (an address an administrator
@@ -1239,7 +1251,9 @@ func standardRule[Tx any](
 //     (Rules.Audience): a registration changed since is invite only.
 //   - Every other method is invite only, a method with no row among them. The
 //     invitation the browser carries is the account: the person was invited by
-//     address, and SignIn has already held the directory's address to the invited one.
+//     address, and SignIn has already held the sign-in to the invited one (the address
+//     the method verified, the code mailed to the invited address, or, where no code
+//     is mailed, the address the directory asserts).
 //     Without one the sign-in is refused (not_invited) and nothing is written.
 //
 // A person who carries an invitation through an open method is admitted by the method,
@@ -1578,8 +1592,7 @@ func firstLink[Tx any](
 // not (an account that has never signed in has proven no address; the one it holds is
 // the one it was created with). What ties the person signing in to the account is the
 // link itself, which was mailed to that address and to nobody else: the address the
-// directory asserts, which SignIn held to the invited one, is the directory's word and
-// proves nothing here.
+// directory asserts is the directory's word and proves nothing here.
 func ownInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, user *dbtype.User, inv *sessioninfo.Invitation) (bool, error) {
 	if inv == nil || inv.Email == "" {
 		return false, nil

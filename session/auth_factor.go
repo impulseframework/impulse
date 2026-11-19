@@ -43,13 +43,13 @@ import (
 // the account, confirmed. A person who comes through a directory that does not vouch for
 // their address is held for this step at their first sign-in whatever the policy asks
 // (signinflow.addressHold). One wait names no account: an invitation accepted through
-// an identity that asserts no address is held here before anybody is made or linked,
-// its code goes to the invited address and to no other (invitedCodeAddress), and the
-// code counts for that invitation's acceptance alone. An administrator's reset
-// (AuthAPI.ResetFactors) forgets the person's trusted devices and tells the person;
-// with the email code there is nothing else to reset, and a lost mailbox is answered by
-// an administrator asking for the address to be changed, which the new address
-// confirms (AuthAPI.RequestAddressChange).
+// an identity that asserts no address, or one its method did not verify, is held here
+// before anybody is made or linked, its code goes to the invited address and to no
+// other (invitedCodeAddress), and the code counts for that invitation's acceptance
+// alone. An administrator's reset (AuthAPI.ResetFactors) forgets the person's trusted
+// devices and tells the person; with the email code there is nothing else to reset, and
+// a lost mailbox is answered by an administrator asking for the address to be changed,
+// which the new address confirms (AuthAPI.RequestAddressChange).
 // See "The second factor" in the README.
 
 // factorSettings are the settings of the library's second factor.
@@ -177,11 +177,11 @@ func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (st
 
 // invitedCodeAddress is the address the code of a wait that names no user goes to: the
 // address of the invitation the browser carries. Such a wait is the acceptance of an
-// invitation through a directory that asserts no address, held before anybody is made
-// or linked (signinflow's invitedCodeWait): the code is mailed to the invited address
-// and nowhere else, and nobody types an address for it. A browser that no longer
-// carries a live invitation has nothing to wait for, and is answered as a wait that
-// ran out is.
+// invitation through a directory that asserts no address, or one it did not verify,
+// held before anybody is made or linked (signinflow's invitedCodeWait): the code is
+// mailed to the invited address and nowhere else, and nobody types an address for it.
+// A browser that no longer carries a live invitation has nothing to wait for, and is
+// answered as a wait that ran out is.
 func (a *Auth[S, U, Tx]) invitedCodeAddress(ctx context.Context) (string, error) {
 	inv, err := a.invitationOf(ctx)
 	if err != nil {

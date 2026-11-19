@@ -51,8 +51,9 @@ type Invitation struct {
 	SignInConnection string
 	// AddressProven is set by the library before the sign-in runs: the person entered,
 	// in this sign-in, the code the library mailed to Email. It is the proof an
-	// acceptance rests on when the sign-in's identity asserts no address to compare, as
-	// a sign-in through Microsoft Entra ID does.
+	// acceptance rests on when the sign-in's identity answers for no address to compare:
+	// it asserts none, or one its method did not verify (Identity.EmailVerified), as a
+	// sign-in through Microsoft Entra ID does.
 	AddressProven bool
 	// Accepted is set by the sign-in: whether this sign-in accepted the invitation.
 	Accepted bool

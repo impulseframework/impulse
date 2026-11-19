@@ -1803,14 +1803,18 @@ read the mailbox, and the account takes the address.
   refused external sign-in; see "What the login page is told".
 - **Accepting**: a sign-in that carries an invitation accepts it once the user is
   known, before the sign-in policy decides, so the policy sees the membership. The
-  sign-in is first held to the address: the one it asserts, the directory's for an
-  external identity and the account's own for a password one, must be the invited one,
+  sign-in is first held to the address: the one it answers for, the address the method
+  verified for an external identity (Google's) and the account's own for a password
+  one, must be the invited one,
   compared without regard to case, or the sign-in is refused before anything is read
   or written (`invitation_address`, the login page naming the invited address), the
   invitation standing for the account it was sent to; a password account with no
   address passes. An external identity that asserts no address (a Microsoft Entra
-  sign-in, unless the registration is set up to send one) has nothing to hold to the
-  invited one, so where the Auth sends mail the sign-in waits for a code instead
+  sign-in, unless the registration is set up to send one), or asserts one its method
+  did not verify (the one a Microsoft Entra sign-in then carries, which is whatever the
+  directory's administrator wrote, and anybody can run a directory), has nothing to
+  hold to the invited one, whether the address it asserts is the invited one or
+  another, so where the Auth sends mail the sign-in waits for a code instead
   (`pending=mfa`, the one factor `email-code`): the code is mailed to the invited
   address, masked on the page, with no address asked for (`Pending().EnrollEmail()`
   answers 409 there), and the invitation is accepted in the transaction of the sign-in
@@ -1829,9 +1833,10 @@ read the mailbox, and the account takes the address.
   not take the invited one. The code is the proof of that invitation's acceptance and of
   nothing else: entered once the invitation was used, withdrawn or ran out, it signs
   nobody in and writes nothing (`invitation_expired`), though the method would have
-  admitted the person without an invitation. Without mail the sign-in is refused as
-  before, and so is one through a registration whose accounts the deployment seeds
-  itself, which is given no code. The
+  admitted the person without an invitation. Without mail, and through a registration
+  whose accounts the deployment seeds itself, no code is given: the address the identity
+  asserts is compared with the invited one, verified or not, and a sign-in that asserts
+  none is refused. The
   acceptance by hand of a person signed in
   (`Invitation().Accept()`) is held the same way, answered 403 with the sentence. Then the
   invitation is consumed, the user takes its address when they hold no verified one,
@@ -1950,12 +1955,13 @@ owner could sign in with, and no secret exists that a person would have to read.
 the password method the person chooses a password from the link, their address proven by
 it; through a directory the invitation is what ties the sign-in to the roles, whoever
 else the directory admits and however many organizations the method is open to, and the
-address the directory gives is held to the invited one, as for every invitation.
+sign-in is held to the invited address, as for every invitation.
 
-An Auth whose only sign-in method asserts no address accepts the invitation by a mailed
-code. The Microsoft Entra method asks the directory for the `openid` and `profile` scopes
-alone, so its sign-ins carry no address unless the registration itself is set up to send
-one, and a sign-in with no address has nothing to hold to the invited one: the person
+An Auth whose only sign-in method answers for no address accepts the invitation by a
+mailed code. The Microsoft Entra method asks the directory for the `openid` and `profile`
+scopes alone, so its sign-ins carry no address unless the registration itself is set up
+to send one, and the one they then carry is the directory's word, which the method does
+not verify. Either way the sign-in has nothing to hold to the invited one: the person
 who opened the link and signed in is held at the code, which goes to the invited address
 and to no other, and entering it makes the account, with the address verified, and gives
 the role (see "Invitations", Accepting). Somebody who has the link and not the mailbox
@@ -2828,7 +2834,7 @@ table is the wire contract:
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
-| `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it asserts (the directory's, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that holds no address accepts by the link. The login page names the invited address and asks for a sign-in with that account. |
+| `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it answers for (the one the method verified, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, or one its method did not verify, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that holds no address accepts by the link. The login page names the invited address and asks for a sign-in with that account. |
 | `organization_account_required` | `RefusedOrganizationAccountRequired` | Auth: a sign-in, a sign-up with a password or an acceptance by hand carried an invitation that makes a tenant entered through its directory only, and came through no organization's directory (a password, a personal account, a session established any other way); refused before anything is read or written, no account made and the invitation left standing. The login page asks for a sign-in with the organization's account. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rule refuses. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |

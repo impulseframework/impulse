@@ -456,9 +456,9 @@ accepts the invitation. It opens by itself where it is the one way to accept, an
 admit the address too, so a new person chooses how they sign in. The server names in `methods` only
 the registrations whose sign-in it accepts for the invited address: for an account with no password
 that already signs in through a directory, those it signs in through and no other, so no button
-leads to a refusal. A person who accepts through a directory that asserts no address (Microsoft
-Entra ID, unless its registration is set up to send one) is asked for a sign-in code, which the
-server mails to the invited address; nobody types an address for it. The
+leads to a refusal. A person who accepts through a directory that does not vouch for an address (Microsoft
+Entra ID, whether or not its registration is set up to send one) is asked for a sign-in code, which
+the server mails to the invited address; nobody types an address for it. The
 "Use a different account" link is not offered while an invitation stands: the invitation names the
 account. A person the page finds already signed in may accept it as they are with one click, from a
 button under the heading, when their account holds the invited address or no address at all; signed

@@ -248,14 +248,19 @@ an application cannot import. It is not the `oidc` method of the last column: th
 names a single provider in a setting, so it serves one organization.
 
 One thing differs between Google and Microsoft: invitations. An invitation is accepted
-only with the invited email address: the address of the sign-in must be the invited one.
-A Google sign-in carries the person's address. A Microsoft sign-in carries none unless
-the application's registration at Microsoft is set up to send it. So a person who accepts
-an invitation with Microsoft, or with another provider that sends no address, is stopped
-before the application opens and mailed a code at the invited address. They type no
-address: the code goes to the one that was invited. Entering the code accepts the
-invitation, and a new person's account is made with the invited address, confirmed. The
-first administrator of an auth whose only method is Microsoft accepts the same way.
+only with the invited email address. Google vouches for the address a sign-in carries, so
+a Google sign-in with the invited address accepts at once, and one with another address
+is refused. Microsoft does not vouch for an address. A Microsoft sign-in carries none
+unless the application's registration at Microsoft is set up to send it, and the one it
+then carries is whatever the administrator of that Microsoft directory wrote: anybody can
+make a directory and write somebody else's address in it. So that address counts for
+nothing, whether it is the invited one or another. A person who accepts an invitation with
+Microsoft, or with another provider that sends no address or does not vouch for the one
+it sends, is stopped before the application opens and mailed a code at the invited
+address. They type no address: the code goes to the one that was invited. Entering the
+code accepts the invitation, and a new person's account is made with the invited address,
+confirmed. The first administrator of an auth whose only method is Microsoft accepts the
+same way.
 
 The code shows that the mailbox is the person's, and nothing more. It makes a new person's
 account, and it confirms the invited address on the account of a person who already signs
@@ -1125,8 +1130,8 @@ impulse add method staff google --slot any-workspace --authority application
   tenant's organization can sign in through it. `--authority application` has the
   application give the roles. For Microsoft the line is
   `impulse add method staff azure --slot any --authority application`, and an invited
-  person whose Microsoft sign-in carries no address then accepts with a code mailed to the
-  invited address, as
+  person then accepts with a code mailed to the invited address, since Microsoft does not
+  vouch for the address a sign-in carries, as
   [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
   describes.
 

@@ -455,9 +455,10 @@ var (
 // resolution and the hooks' own writes are committed. Use errors.As to read it.
 //
 // One wait resolves to no user: the acceptance of an invitation through an identity
-// that asserts no address, held for the code mailed to the invited address before
-// anybody is made or linked. Its Reason is sessioninfo.PendingMFA, its one factor the
-// email code, UserID is null and Username empty, and nothing was written.
+// that asserts no address, or one its method did not verify, held for the code mailed
+// to the invited address before anybody is made or linked. Its Reason is
+// sessioninfo.PendingMFA, its one factor the email code, UserID is null and Username
+// empty, and nothing was written.
 type PendingSignInError struct {
 	// Reason is why the sign-in waits.
 	Reason sessioninfo.PendingReason
