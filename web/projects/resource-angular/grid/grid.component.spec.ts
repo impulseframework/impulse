@@ -632,6 +632,100 @@ describe('a text cut short', () => {
     expect(tooltip()).toBeNull();
   });
 
+  describe('the anchor the tooltip is hung on', () => {
+    const box = (left: number, top: number, width: number, height: number): DOMRect => {
+      return { left, top, width, height, right: left + width, bottom: top + height } as DOMRect;
+    };
+    const anchor = (): HTMLElement => {
+      return element.querySelector('.cut-short-anchor') as HTMLElement;
+    };
+    /** The list's own box, which the anchor is placed in, and a cell's, as a browser's layout would give them. */
+    const laidOut = (cut: HTMLElement, list: DOMRect, cellBox: DOMRect): void => {
+      const host = element.querySelector('.impulse-grid-host') as HTMLElement;
+      // jsdom lays nothing out, so it knows no box an element is positioned in.
+      Object.defineProperty(anchor(), 'offsetParent', { configurable: true, value: host });
+      host.getBoundingClientRect = (): DOMRect => list;
+      // The list's box has a line of a pixel around it, and what it holds lies inside the line.
+      Object.defineProperty(host, 'clientLeft', { configurable: true, value: 1 });
+      Object.defineProperty(host, 'clientTop', { configurable: true, value: 1 });
+      Object.defineProperty(host, 'clientWidth', { configurable: true, value: list.width - 2 });
+      Object.defineProperty(host, 'clientHeight', { configurable: true, value: list.height - 2 });
+      cut.getBoundingClientRect = (): DOMRect => cellBox;
+    };
+    const placed = (): string[] => {
+      const style = anchor().style;
+      return [style.left, style.top, style.width, style.height];
+    };
+
+    it('is laid over the text, in the list', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
+    });
+
+    it("is laid over no more of a text than is inside the list: a cell the list has partly scrolled out of view is offered over the part in view, and the anchor never reaches past the list's edge", async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      // The cell starts 40 before the list's right edge, 39 before the inside of its line,
+      // and runs 140 past it.
+      laidOut(cut, box(20, 100, 336, 400), box(316, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['295px', '49px', '39px', '49px']);
+      const [left, , width] = placed().map((length) => parseFloat(length));
+      expect(left + width).toBeLessThanOrEqual(334);
+    });
+
+    it('is laid over the part in view of a text the list has scrolled out of view at its left edge', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      // The cell starts 30 before the inside of the list's line and runs 150 into it.
+      laidOut(cut, box(20, 100, 336, 400), box(-9, 150, 180, 49));
+      await pointerOnto(cut);
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['0px', '49px', '150px', '49px']);
+    });
+
+    it('lies in a box that clips what it holds and is never scrolled, by a script or by the browser bringing something into view', () => {
+      const sheet = Array.from(document.querySelectorAll('style'))
+        .map((style) => style.textContent ?? '')
+        .join('\n');
+      const host = Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+        .filter(([, selector]) => selector.trim().startsWith('.impulse-grid-host') && !selector.trim().includes(' '))
+        .map(([, , declarations]) => declarations)
+        .join('\n');
+      expect(host).toContain('overflow: clip');
+      expect(host).not.toContain('overflow: hidden');
+    });
+
+    it('is taken back to nothing once the tooltip has closed and faded, so it is not left where the list may no longer be', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+      await pointerOff(cut);
+
+      // While the tooltip fades it stays where it was hung.
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+      expect(placed()).toEqual(['0px', '0px', '0px', '0px']);
+    });
+
+    it('is kept where a text is offered again before the wait is over', async () => {
+      const cut = measured(cell(0, 1), 620, 180);
+      laidOut(cut, box(20, 100, 336, 400), box(120, 150, 180, 49));
+      await pointerOnto(cut);
+      await pointerOff(cut);
+      await pointerOnto(cut);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+
+      expect(tooltip()).toBe(notes);
+      expect(placed()).toEqual(['99px', '49px', '180px', '49px']);
+    });
+  });
+
   describe('where the whole pixels call it a fit', () => {
     // jsdom has no measure of a text's own width; a browser's is put in its place.
     const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };
@@ -1111,7 +1205,7 @@ describe('a list and the width of its frame', () => {
       expect(table().parentElement).toBe(frame());
       expect(parseFloat(table().style.minWidth)).toBeGreaterThan(phone);
       expect(getComputedStyle(frame()).overflow).toBe('auto');
-      expect(getComputedStyle(element.querySelector('.impulse-grid-host') as HTMLElement).overflow).toBe('hidden');
+      expect(declares(['.impulse-grid-host'])).toContain('overflow: clip');
     });
 
     it('holds the first column at the left edge, in the header and in every row, and no other', async () => {
@@ -1496,5 +1590,534 @@ describe('a list and the width of its frame', () => {
         expect(outer.scrollLeft).toBe(300);
       }
     });
+  });
+
+  // A column is no wider than what it holds needs. The narrowest a column of text goes
+  // is the widest of its heading, with the marks beside it, and the values the list is
+  // showing, with the cell's padding and line and two pixels to spare, and never more
+  // than the library's one width; it is read off what is drawn. A need only grows while
+  // the list keeps its columns. A dragged width and a declared one are kept as they are.
+  // jsdom draws nothing, so each case says how wide a text is drawn (eight pixels a
+  // character), how wide an icon, and what a cell's padding and lines are, as the list's
+  // stylesheet gives them to a browser: 25 around a cell's content, 13 around a heading's.
+  describe('what a column needs', () => {
+    const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };
+    const own = ranges.getBoundingClientRect;
+    const character = 8;
+    const aroundCell = 25;
+    const aroundHeading = 13;
+    const spare = 2;
+    /** What a text of so many characters needs in a cell, and in a heading. */
+    const cellOf = (characters: number): number => characters * character + aroundCell + spare;
+    const headingOf = (characters: number): number => characters * character + aroundHeading + spare;
+    // Name: "Commendations", thirteen characters. Description: longer than the library's
+    // width holds. Changed By: its heading, ten characters, over "ada".
+    const name = cellOf(13);
+    const changedBy = headingOf(10);
+    const narrowest = name + text + 64 + changedBy + 66;
+    /** How many times a drawn width was read. */
+    let reads: number;
+    /** Where an element is laid out, for the few a case places: every other is nowhere, as jsdom has it. */
+    let placed: Map<Element, { left: number; right: number }>;
+    /** What a font that has arrived tells the list, and whether the list still listens. */
+    let fonts: { arrived?: () => void; listening: boolean };
+    /** How much wider than the font's the letters are drawn: wider while a font has not arrived. */
+    let wider: number;
+
+    beforeEach(() => {
+      reads = 0;
+      wider = 1;
+      placed = new Map();
+      fonts = { listening: false };
+      ranges.getBoundingClientRect = function (this: Range): DOMRect {
+        reads++;
+        const drawn = this.startContainer as HTMLElement;
+        const icon = drawn.querySelector('mat-icon');
+        const width = icon
+          ? icon.classList.contains('cell-yes')
+            ? 30
+            : 24
+          : (drawn.textContent ?? '').trim().length * character * wider;
+        return { width } as DOMRect;
+      };
+      const view = document.defaultView as Window;
+      const real = view.getComputedStyle.bind(view);
+      vi.spyOn(view, 'getComputedStyle').mockImplementation((asked: Element, pseudo?: string | null) => {
+        const style = real(asked, pseudo);
+        const lengths: Record<string, string> | undefined =
+          asked.tagName === 'TD'
+            ? { paddingLeft: '12px', paddingRight: '12px', borderLeftWidth: '0px', borderRightWidth: '1px' }
+            : asked.tagName === 'TH'
+              ? { paddingLeft: '8px', paddingRight: '4px', borderLeftWidth: '0px', borderRightWidth: '1px' }
+              : undefined;
+        if (lengths === undefined) {
+          return style;
+        }
+        return new Proxy(style, {
+          get: (target, key): unknown => {
+            const value: unknown = typeof key === 'string' && key in lengths ? lengths[key] : Reflect.get(target, key);
+            return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+          },
+        });
+      });
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: HTMLElement,
+      ): DOMRect {
+        const at = placed.get(this) ?? { left: 0, right: 0 };
+        return { ...at, width: at.right - at.left, top: 0, bottom: 0, height: 0 } as DOMRect;
+      });
+      Object.defineProperty(document, 'fonts', {
+        configurable: true,
+        value: {
+          addEventListener: (_: string, listener: () => void): void => {
+            fonts.arrived = listener;
+            fonts.listening = true;
+          },
+          removeEventListener: (): void => {
+            fonts.listening = false;
+          },
+        },
+      });
+    });
+
+    afterEach(() => {
+      if (own) {
+        ranges.getBoundingClientRect = own;
+      } else {
+        delete ranges.getBoundingClientRect;
+      }
+      delete (document as { fonts?: unknown }).fonts;
+    });
+
+    /** New rows, columns or sorts, drawn and read. */
+    const hand = async (name: string, value: unknown): Promise<void> => {
+      give(name, value);
+      detect();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      detect();
+    };
+    const widths = (): string[] => {
+      return headers().map((th) => th.style.width);
+    };
+    const longer = { name: 'Commendations and citations', description: 'None.', enabled: false, changedBy: 'ada' };
+    const shorter = { name: 'Tugs', description: 'None.', enabled: false, changedBy: 'mo' };
+
+    describe('the narrowest a column of text goes', () => {
+      it("is what its heading and the longest value it shows need, with the cell's padding and line and two pixels to spare", async () => {
+        await plain();
+        frameIs(phone);
+
+        expect([name, changedBy]).toEqual([131, 95]);
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+      });
+
+      it("is never more than the library's one width: a column whose values need more stays at it and cuts them short, as before", async () => {
+        await plain();
+        frameIs(phone);
+
+        // "Cites a pilot for a sortie flown well." needs more than twice the width.
+        expect(cellOf(38)).toBeGreaterThan(2 * text);
+        expect(widths()[1]).toBe(`${text}px`);
+      });
+
+      it('is never less than the least a column goes, whatever little it holds', async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [{ mark: '' }]);
+        fixture.componentRef.setInput('columnDefs', [
+          { id: 'mark', hideHeader: true },
+          { id: 'more' },
+          { id: 'again' },
+        ]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        frameIs(100);
+
+        expect(widths()[0]).toBe('48px');
+      });
+
+      it("counts the marks beside a heading's words, the sort's arrow and the filter's button, so they stay whole", async () => {
+        await plain();
+        await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
+        await hand('filterability', { changedBy: 'always' });
+        const heading = headers()[3];
+        const words = heading.querySelector('.col-header') as HTMLElement;
+        const arrow = heading.querySelector('.sort-icon') as HTMLElement;
+        const label = heading.querySelector('.header-label') as HTMLElement;
+        const filter = heading.querySelector('.header-cell > .filter-trigger') as HTMLElement;
+        expect([arrow, filter].map((mark) => mark !== null)).toEqual([true, true]);
+        // The words end at 80; the arrow, after a gap of 2, ends at 96, where the label
+        // ends; the filter's button is 22 wide after it.
+        placed.set(words, { left: 0, right: 80 });
+        placed.set(arrow, { left: 82, right: 96 });
+        placed.set(label, { left: 0, right: 96 });
+        placed.set(filter, { left: 96, right: 118 });
+        frameIs(phone);
+
+        expect(widths()[3]).toBe(`${changedBy + 16 + 22}px`);
+      });
+
+      it("grows by a heading's mark that arrives later: the arrow of a sort a person asks for", async () => {
+        await plain();
+        frameIs(phone);
+        expect(widths()[3]).toBe(`${changedBy}px`);
+
+        await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
+        const heading = headers()[3];
+        placed.set(heading.querySelector('.col-header') as HTMLElement, { left: 0, right: 80 });
+        placed.set(heading.querySelector('.sort-icon') as HTMLElement, { left: 82, right: 96 });
+        // The arrow is drawn, and nothing has read it yet: the next sort does.
+        await hand('sorts', [{ field: 'changedBy', direction: 'desc' }]);
+        expect(widths()[3]).toBe(`${changedBy + 16}px`);
+
+        // The sort moves to another column: the arrow goes, and the column keeps its width.
+        await hand('sorts', [{ field: 'name', direction: 'asc' }]);
+        expect(widths()[3]).toBe(`${changedBy + 16}px`);
+      });
+
+      it('measures what a cell draws, not what it is written with: a check is as wide as its icon', async () => {
+        const fixture = TestBed.createComponent(AppGridComponent);
+        fixture.componentRef.setInput('rowData', [{ name: 'Commendations', enabled: true }]);
+        fixture.componentRef.setInput('columnDefs', [{ id: 'name' }, { id: 'enabled', header: 'On' }, { id: 'more' }]);
+        element = fixture.nativeElement as HTMLElement;
+        detect = (): void => fixture.detectChanges();
+        await settle(fixture);
+        frameIs(100);
+
+        // The icon's 30 pixels, not the five letters it is written with, and more than the
+        // least a column goes.
+        expect(cells(0)[1].querySelector('mat-icon.cell-yes')?.textContent).toBe('check');
+        expect(widths()[1]).toBe(`${30 + aroundCell + spare}px`);
+        expect(30 + aroundCell + spare).toBeGreaterThan(48);
+        expect(5 * character + aroundCell + spare).toBeGreaterThan(30 + aroundCell + spare);
+      });
+
+      it('is the same for the first column, which is held at it: the held width and the room kept beside it follow', async () => {
+        await plain();
+        frameIs(phone);
+
+        expect(held()).toBe(true);
+        expect(frame().style.getPropertyValue('--impulse-grid-held-width')).toBe(`${name}px`);
+      });
+
+      it("stays at the library's width where nothing is laid out to be read", async () => {
+        await plain();
+        frameIs(0);
+        expect(reads).toBe(0);
+        expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest}px`);
+      });
+    });
+
+    describe('a need only grows while the list keeps its columns', () => {
+      it('grows when a longer value arrives', async () => {
+        await plain();
+        frameIs(phone);
+        await hand('rowData', [longer]);
+
+        // Twenty-seven characters need more than the library's width, which it stays at.
+        expect(widths()[0]).toBe(`${text}px`);
+        await hand('rowData', [shorter]);
+        expect(widths()[0]).toBe(`${text}px`);
+      });
+
+      it('does not shrink when a page of shorter values arrives, when the rows are sorted, or when a filter leaves none', async () => {
+        await plain();
+        frameIs(phone);
+        const before = widths();
+
+        await hand('rowData', [shorter]);
+        expect(widths()).toEqual(before);
+        await hand('sorts', [{ field: 'name', direction: 'desc' }]);
+        expect(widths()).toEqual(before);
+        await hand('rowData', []);
+        expect(widths()).toEqual(before);
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+
+      it('starts again when the columns change, a heading among them: the same rows are then measured anew', async () => {
+        await plain();
+        frameIs(phone);
+        await hand('rowData', [shorter]);
+        expect(widths()[0]).toBe(`${name}px`);
+
+        // The same columns, the first under another heading.
+        await hand(
+          'columnDefs',
+          columns.map((col) => (col.id === 'name' ? { ...col, header: 'Flag' } : col)),
+        );
+        // "Tugs" and "Flag", four characters each.
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+        expect(cellOf(4)).toBeLessThan(name);
+      });
+
+      it('starts again when the list is opened again', async () => {
+        await plain();
+        frameIs(phone);
+        leave();
+
+        await plain([shorter]);
+        frameIs(phone);
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+      });
+    });
+
+    describe("a width that is not the library's to choose", () => {
+      it('a width a person dragged wins over what the column needs, and stays through other rows', async () => {
+        await plain();
+        frameIs(phone);
+        // The drag starts from the width the column is drawn at.
+        placed.set(headers()[0], { left: 0, right: name });
+        drag(0, 60);
+        expect(headers()[0].style.width).toBe(`${name + 60}px`);
+
+        await hand('rowData', [shorter]);
+        expect(headers()[0].style.width).toBe(`${name + 60}px`);
+        await hand('rowData', [longer]);
+        expect(headers()[0].style.width).toBe(`${name + 60}px`);
+        expect(table().style.minWidth).toBe(`${narrowest + 60}px`);
+      });
+
+      it('a width a person dragged narrower than the column needs is theirs too', async () => {
+        await plain();
+        frameIs(phone);
+        drag(0, -500);
+
+        expect(headers()[0].style.width).toBe('48px');
+        await hand('rowData', [longer]);
+        expect(headers()[0].style.width).toBe('48px');
+      });
+
+      it('a width the page declared wins over what the column needs: more or less, it is drawn as declared and never read', async () => {
+        await plain();
+        frameIs(phone);
+
+        // "Enabled" needs more than the 64 its column declares.
+        expect(headingOf(7)).toBeGreaterThan(64);
+        expect(widths()[2]).toBe('64px');
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+    });
+
+    describe('when a list scrolls', () => {
+      it("a list that fits at the library's width is drawn as it always was: no column of text is given a width", async () => {
+        await plain();
+        frameIs(wide);
+
+        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+        expect(held()).toBe(false);
+        frameIs(columnsAtTheirNarrowest);
+        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+      });
+
+      it('a list that fits once its columns are as narrow as they need does not scroll: a column that needs more than an equal share of the frame keeps what it needs, and the rest share what is left', async () => {
+        await plain();
+        // Thirty more than the columns need. A third of what the declared and the button
+        // column leave is under what Description needs, and half of the rest under what
+        // Name needs: both keep theirs, and Changed By takes what is left.
+        frameIs(narrowest + 30);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', '', '66px']);
+
+        // Sixty more: Description still needs more than a third, and Name fits in half of the rest.
+        frameIs(narrowest + 60);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
+
+        // Ninety-four more: a third is the library's width to the pixel, which every column fits in.
+        frameIs(narrowest + 94);
+        expect(held()).toBe(false);
+        expect(widths()).toEqual(['', '', '64px', '', '66px']);
+        frameIs(narrowest + 93);
+        expect(widths()).toEqual(['', `${text}px`, '64px', '', '66px']);
+      });
+
+      it('scrolls only in a frame narrower than its columns at their narrowest, to the pixel, and is in the same state at the same width from either side', async () => {
+        await plain();
+        const at = (width: number): [boolean, string[]] => {
+          frameIs(width);
+          return [held(), widths()];
+        };
+        const fits: [boolean, string[]] = [false, [`${name}px`, `${text}px`, '64px', '', '66px']];
+        const scrolls: [boolean, string[]] = [true, [`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']];
+
+        expect(at(narrowest)).toEqual(fits);
+        expect(at(narrowest - 1)).toEqual(scrolls);
+        expect(at(narrowest)).toEqual(fits);
+        expect(at(narrowest + 1)).toEqual(fits);
+        expect(at(narrowest)).toEqual(fits);
+        expect(at(narrowest - 1)).toEqual(scrolls);
+        // What it needs does not move with the frame.
+        expect(table().style.minWidth).toBe(`${narrowest}px`);
+      });
+    });
+
+    describe('reading what is drawn', () => {
+      it('reads once when the list is first laid out, and nothing more for a frame that only changes width', async () => {
+        await plain();
+        expect(reads).toBe(0);
+        frameIs(phone);
+        const first = reads;
+        expect(first).toBeGreaterThan(0);
+
+        frameIs(wide);
+        frameIs(phone);
+        detect();
+        expect(reads).toBe(first);
+      });
+
+      it('reads once where the frame has its width from the first, as in a browser: the report of its size that follows reads nothing more', async () => {
+        const laid = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+        Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+          configurable: true,
+          get(this: HTMLElement): number {
+            return this.classList.contains('impulse-grid-scroll') ? phone : 0;
+          },
+        });
+        try {
+          await plain();
+          const first = reads;
+          expect(first).toBeGreaterThan(0);
+
+          frameIs(phone);
+          expect(reads).toBe(first);
+        } finally {
+          if (laid) {
+            Object.defineProperty(HTMLElement.prototype, 'clientWidth', laid);
+          } else {
+            delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+          }
+        }
+      });
+
+      it("reads a value once for each column it is shown in, no value of a column already at the library's width, and no column with a width of its own", async () => {
+        await plain();
+        frameIs(phone);
+        // Three headings; Name's three values; Description's first, which takes it to the
+        // library's width; Changed By's two, "ada" twice being one. Nothing of the
+        // declared column and nothing of the button column.
+        expect(reads).toBe(3 + 3 + 1 + 2);
+
+        await hand('rowData', [rows[0], rows[0], shorter]);
+        // Name's heading and its two values; Changed By's heading and its two. Description is not read again.
+        expect(reads).toBe(9 + 3 + 3);
+      });
+
+      it('reads once for a change of the rows, and nothing for a turn in which nothing the list draws has changed', async () => {
+        await plain();
+        frameIs(phone);
+        const first = reads;
+
+        detect();
+        await hand('rowData', rows);
+        expect(reads).toBe(first);
+        await hand('rowData', [shorter]);
+        expect(reads).toBeGreaterThan(first);
+      });
+
+      it("reads nothing while the list is loading, and what it shows once it has loaded: a related record's key, drawn until the record is read, does not hold the column wide", async () => {
+        await plain([{ ...shorter, name: 'Sector 9f3c0e2a-5b7d' }]);
+        await hand('loading', true);
+        frameIs(phone);
+        expect(reads).toBe(0);
+        expect(widths()[0]).toBe(`${text}px`);
+
+        // The record is read: the row is drawn with its name, and the list has loaded.
+        give('rowData', [shorter]);
+        await hand('loading', false);
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+        expect(cellOf(20)).toBeGreaterThan(text);
+      });
+
+      it('reads once the list has loaded, though nothing it draws has changed', async () => {
+        await plain([shorter]);
+        await hand('loading', true);
+        frameIs(phone);
+        expect(widths()[0]).toBe(`${text}px`);
+
+        await hand('loading', false);
+        expect(widths()[0]).toBe(`${cellOf(4)}px`);
+      });
+
+      it('reads again when a font arrives, since every text is then drawn another width, and listens no more once the list has left', async () => {
+        await plain();
+        frameIs(phone);
+        const first = reads;
+        expect(fonts.listening).toBe(true);
+
+        fonts.arrived?.();
+        expect(reads).toBeGreaterThan(first);
+        leave();
+        expect(fonts.listening).toBe(false);
+      });
+
+      it('measures afresh when a font arrives: a column read in the wider letters drawn before it comes down to what it needs in the font', async () => {
+        wider = 1.25;
+        await plain();
+        frameIs(phone);
+        // "Commendations" in letters a quarter wider.
+        expect(widths()[0]).toBe(`${Math.ceil(13 * character * 1.25) + aroundCell + spare}px`);
+
+        wider = 1;
+        fonts.arrived?.();
+        detect();
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+    });
+  });
+});
+
+// The pager under the list: the rows the page spans and the buttons that turn it. On one
+// line while they fit; in a frame too narrow for both, the buttons go under the words, at
+// the far end, and wrap among themselves, so nothing of the pager is cut off by the
+// list's edge, which clips whatever leaves it.
+describe("the list's pager", () => {
+  let element: HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'Commendations' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'name' }]);
+    fixture.componentRef.setInput('page', { offset: 0, total: 34, hasPrev: false, hasNext: true });
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  /** What the list's stylesheet declares in the rules whose selector names `name`. */
+  const declares = (name: string): string => {
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      .filter(([, selector]) => selector.includes(name))
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  };
+
+  it('says the rows and offers the three buttons, each with its icon and its words', () => {
+    const pager = element.querySelector('.impulse-grid-pager') as HTMLElement;
+
+    expect(pager.querySelector('.pager-rows')?.textContent).toBe('1–1 of 34');
+    expect(
+      Array.from(pager.querySelectorAll('.pager-buttons button')).map((b) =>
+        b.textContent?.replace(/\s+/g, ' ').trim(),
+      ),
+    ).toEqual(['first_page First', 'chevron_left Previous', 'Next chevron_right']);
+  });
+
+  it('wraps in a frame too narrow for the words and the buttons on one line: the buttons go under the words, at the far end, and wrap among themselves', () => {
+    const pager = element.querySelector('.impulse-grid-pager') as HTMLElement;
+    const buttons = pager.querySelector('.pager-buttons') as HTMLElement;
+
+    expect(getComputedStyle(pager).flexWrap).toBe('wrap');
+    expect(getComputedStyle(buttons).flexWrap).toBe('wrap');
+    expect(declares('.pager-buttons')).toContain('margin-left: auto');
+    expect(declares('.pager-buttons')).toContain('justify-content: flex-end');
+    // What is past the list's edge is not drawn, so the pager must not reach past it.
+    expect(declares('.impulse-grid-host')).toContain('overflow: clip');
   });
 });

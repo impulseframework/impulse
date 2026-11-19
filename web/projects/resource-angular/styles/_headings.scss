@@ -1,0 +1,70 @@
+// The headings of the pages the library draws, written once: how large a page's title and
+// a section's title are, how a title longer than its line wraps, and how the row a title
+// shares with the page's buttons gives way where the two do not fit one line. The
+// stylesheet of every component that draws a title includes these, so a list page, a
+// row's own page and a create form follow one rule.
+//
+// The sizes themselves are the tokens the `styles` sheet declares, for a wide screen and
+// for a phone (--impulse-page-title-size, --impulse-section-title-size): a size is changed
+// there, in one line.
+
+/// A title of any kind: on lines of a height that reads well when the title takes two,
+/// and broken where it has to be, inside a word if need be, so it never runs past the
+/// edge of what holds it.
+@mixin title {
+  line-height: 1.2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/// The title of the page.
+@mixin page-title {
+  @include title;
+  font-size: var(--impulse-page-title-size);
+}
+
+/// The title of a section of the page: a list under a row, a form, a panel.
+@mixin section-title {
+  @include title;
+  font-size: var(--impulse-section-title-size);
+}
+
+/// The title of a section that folds away, in the header of its panel: a section's title
+/// with no margin of its own, since the header centers it, and a little air above and
+/// below it that a title of one line keeps inside the header's own height.
+@mixin panel-title {
+  @include section-title;
+  margin: 0;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+/// The header of a panel whose title is a section's: as tall as Material makes it for a
+/// title of one line, and as tall as the title where that takes two. Material gives a
+/// header one height and a title of two lines would be cut off by it. The header keeps
+/// Material's padding, none above or below, so the height of one line is Material's.
+@mixin panel-header {
+  height: auto;
+  min-height: var(--mat-expansion-header-collapsed-state-height, 48px);
+
+  &.mat-expanded {
+    height: auto;
+    min-height: var(--mat-expansion-header-expanded-state-height, 64px);
+  }
+}
+
+/// The row a title shares with what the page offers beside it. The title comes first, and
+/// the parts after it share the rest of its line as they always have, the last of them at
+/// the far end: beside the title while they fit one line, which is the row as it always
+/// was, and on the next line, again with the last at the far end, where they do not. So
+/// the buttons are beside the title or under it, never over it and never past the edge.
+@mixin row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  row-gap: 8px;
+
+  > * + * {
+    margin-left: auto;
+  }
+}

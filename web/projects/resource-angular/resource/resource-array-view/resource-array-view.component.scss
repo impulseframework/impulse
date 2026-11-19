@@ -1,3 +1,5 @@
+@use '../../styles/headings';
+
 .resource-array-view {
   display: flex;
   flex-direction: column;
@@ -5,10 +7,16 @@
   padding: 10px 0 0 0;
 }
 
+// The title of the panel, a section of the page, and the header it is in, which grows
+// with a title of two lines.
 .title {
+  @include headings.panel-title;
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+}
+
+mat-expansion-panel-header {
+  @include headings.panel-header;
 }
 
 .exp-panel-add-element-btn {
@@ -20,12 +28,14 @@
   padding: 10px;
 }
 
-// The pager under a paged array view: one server page at a time, Previous and Next.
+// The pager under a paged array view: one server page at a time, Previous and Next. It
+// wraps as the list's pager does, the buttons under the words in a frame too narrow for both.
 .array-pager {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0 12px;
   border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   padding: 4px 12px;
 }
@@ -38,6 +48,9 @@
 
 .pager-buttons {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 4px;
+  gap: 0 4px;
+  margin-left: auto;
 }
