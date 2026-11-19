@@ -419,4 +419,128 @@ func TestService_writeSlot(t *testing.T) {
 			t.Error("the turn is not offered to the caller still waiting")
 		}
 	})
+
+	t.Run("a signal's context carries the time its limit ends it, its deadline unless the caller's own is sooner", func(t *testing.T) {
+		t.Parallel()
+
+		// sentUnder returns the context a signal's write is sent under. The service has
+		// no client, so the write is stopped where it is told of.
+		sentUnder := func(t *testing.T, ctx context.Context) context.Context {
+			t.Helper()
+
+			s := slotService()
+			var sent context.Context
+			s.observeWrites(func(ctx context.Context, _ live.Kind) func(error) {
+				sent = ctx
+				panic("the write is stopped here")
+			})
+			if !panics(func() {
+				_ = s.Signal(ctx, kind)
+			}) {
+				t.Fatal("Signal() sent a write on a service with no client")
+			}
+
+			return sent
+		}
+
+		before := time.Now()
+		sent := sentUnder(t, t.Context())
+		limitAt, ok := sent.Value(limitKey{}).(time.Time)
+		if !ok {
+			t.Fatal("the context of a signal's write does not carry the time the limit ends it")
+		}
+		if limitAt.Before(before.Add(live.SignalTimeout)) || limitAt.After(time.Now().Add(live.SignalTimeout)) {
+			t.Errorf("the limit ends the signal at %s, want %s after it was made (between %s and %s)", limitAt, live.SignalTimeout, before.Add(live.SignalTimeout), time.Now().Add(live.SignalTimeout))
+		}
+		if deadline, ok := sent.Deadline(); !ok || !deadline.Equal(limitAt) {
+			t.Errorf("the deadline of a signal whose caller brings none = %s (%t), want the limit's (%s)", deadline, ok, limitAt)
+		}
+
+		later, cancelLater := context.WithTimeout(t.Context(), 2*live.SignalTimeout)
+		defer cancelLater()
+		sent = sentUnder(t, later)
+		limitAt, _ = sent.Value(limitKey{}).(time.Time)
+		if deadline, ok := sent.Deadline(); !ok || !deadline.Equal(limitAt) {
+			t.Errorf("the deadline of a signal whose caller's own is later than the limit = %s (%t), want the limit's (%s)", deadline, ok, limitAt)
+		}
+
+		sooner, cancelSooner := context.WithTimeout(t.Context(), live.SignalTimeout/2)
+		defer cancelSooner()
+		own, _ := sooner.Deadline()
+		sent = sentUnder(t, sooner)
+		limitAt, _ = sent.Value(limitKey{}).(time.Time)
+		if deadline, ok := sent.Deadline(); !ok || !deadline.Equal(own) || !limitAt.After(own) {
+			t.Errorf("the deadline of a signal whose caller's own is sooner = %s (%t) with the limit at %s, want the caller's (%s) and the limit after it", deadline, ok, limitAt, own)
+		}
+	})
+}
+
+// Test_whatEnded pins what ends a signal's time and when: its context's end, with the
+// context's cause, and before that its deadline passing by the clock, which the client
+// acts on without waiting for the context. A deadline that has passed is told for the
+// service's limit or the caller's own by the time the limit ends the signal, which the
+// signal's context carries.
+func Test_whatEnded(t *testing.T) {
+	t.Parallel()
+
+	errGone := errors.New("the request is gone")
+	passed := time.Now().Add(-time.Second)
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	withCause, cancelCause := context.WithCancelCause(t.Context())
+	cancelCause(errGone)
+	// The parallel cases run once this function has returned: the contexts are released
+	// when they have.
+	ahead, cancelAhead := context.WithTimeout(t.Context(), time.Hour)
+	t.Cleanup(cancelAhead)
+	limited, cancelLimited := context.WithDeadlineCause(context.WithValue(t.Context(), limitKey{}, passed), passed, errSignalLimit)
+	t.Cleanup(cancelLimited)
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{name: "a context with no deadline, not ended", ctx: t.Context()},
+		{name: "a deadline still ahead", ctx: ahead},
+		{name: "a context that was canceled", ctx: canceled, want: context.Canceled},
+		{name: "a context that ended with a cause", ctx: withCause, want: errGone},
+		{name: "a context the limit ended", ctx: limited, want: errSignalLimit},
+		{name: "a deadline that has passed, the context not ended and no limit known", ctx: overdue{Context: t.Context(), deadline: passed}, want: context.DeadlineExceeded},
+		{
+			name: "a deadline that has passed and is the limit's, the context not ended",
+			ctx:  overdue{Context: context.WithValue(t.Context(), limitKey{}, passed), deadline: passed},
+			want: errSignalLimit,
+		},
+		{
+			name: "a deadline that has passed and is sooner than the limit, the context not ended",
+			ctx:  overdue{Context: context.WithValue(t.Context(), limitKey{}, passed.Add(time.Minute)), deadline: passed},
+			want: context.DeadlineExceeded,
+		},
+		{
+			name: "a deadline that has passed under a context that was canceled: the context says what ended it",
+			ctx:  overdue{Context: canceled, deadline: passed},
+			want: context.Canceled,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := whatEnded(tt.ctx)
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("whatEnded() = %v, want nil: the time lasts", got)
+				}
+
+				return
+			}
+			if !errors.Is(got, tt.want) {
+				t.Errorf("whatEnded() = %v, want %v", got, tt.want)
+			}
+			if !errors.Is(tt.want, errSignalLimit) && errors.Is(got, errSignalLimit) {
+				t.Errorf("whatEnded() = %v, want it not to name the limit", got)
+			}
+		})
+	}
 }

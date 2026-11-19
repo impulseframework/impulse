@@ -2361,8 +2361,9 @@ the channel answers well inside the limit below. A `Signal` returns once its sig
 sent and leaves nothing to be sent behind it, so an instance that gets no CPU once its
 requests have answered (Cloud Run's default) owes no signal; a covering write that fails is the failure of every
 caller that waited for it. No caller's context ends another's signal: a caller whose
-context ends under the covering write it is making fails alone and another waiting
-caller makes the write, so no call makes more than one write or waits past its context.
+context ends, or whose deadline passes, under the covering write it is making fails
+alone and another waiting caller makes the write, so no call makes more than one write
+or waits past its context.
 The live service gives every `Signal` its own limit of two seconds
 (`live.SignalTimeout`), for its wait and its write together and on top of the caller's
 context: a caller that brings no deadline, as the tenant write paths do, is not held by

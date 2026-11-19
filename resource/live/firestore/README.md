@@ -168,9 +168,12 @@ not a signal, a listener ended from the test is reopened and every kind that adv
 meanwhile wakes once, a burst of signals of one kind is one covering write that every
 one of them waits for and that leaves nothing sending once they have returned, a
 covering write that fails is every waiting caller's failure, a caller that loses its
-context under the covering write fails alone and another makes it, a caller with no
-deadline on a channel that does not answer returns at the service's own limit of two
-seconds with the limit's error while a caller's shorter deadline still wins, and a
+context under the covering write fails alone and another makes it, as does a caller
+whose write the client refuses for its deadline before its context has ended (a context
+whose deadline has passed and which has not ended stands for a timer that runs late on
+a busy machine), a caller with no deadline on a channel that does not answer returns at
+the service's own limit of two seconds with the limit's error while a caller's shorter
+deadline still wins, and a
 closed client's failure is returned while a fresh client signals again. An unsubscribe
 whose connection ended right after the request arrived deletes its subscriptions all
 the same and logs nothing.

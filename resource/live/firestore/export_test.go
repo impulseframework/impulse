@@ -84,6 +84,26 @@ func WithSignalLimit(limit time.Duration) Option {
 	return withSignalLimit(limit)
 }
 
+// overdue is a context whose deadline has passed and which has not ended: what a caller's
+// context is, for a moment, on a machine too busy to run its timer on time. It is its
+// parent with a deadline, and ends only when the parent does.
+type overdue struct {
+	context.Context
+
+	deadline time.Time
+}
+
+// Deadline returns the deadline, which has passed.
+func (o overdue) Deadline() (time.Time, bool) {
+	return o.deadline, true
+}
+
+// Overdue returns the parent under a deadline that has passed, not ended: a test's caller
+// whose timer runs late.
+func Overdue(parent context.Context) context.Context {
+	return overdue{Context: parent, deadline: time.Now().Add(-time.Second)}
+}
+
 // WithDialOptions adds gRPC dial options to the connection the service opens to the
 // emulator, so a test can count the store's operations through an interceptor.
 func WithDialOptions(opts ...grpc.DialOption) Option {
