@@ -128,6 +128,36 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 	return rr
 }
 
+// TestGeneratedRouterEnvironment proves every answer names the environment the server
+// reports, the answer for an address no route serves included, and that a server which
+// reports none, as production does, names none.
+func TestGeneratedRouterEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		environment string
+		want        []string
+	}{
+		{name: "a server told its environment names it", environment: "tst", want: []string{"tst"}},
+		{name: "a server told none names none", environment: "", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newRouterHandlersStub(newRouterCallRecorder())
+			stub.serverEnvironment = tt.environment
+			rr := httptest.NewRecorder()
+			New(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/no-such-route", http.NoBody))
+
+			if got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {
+				t.Errorf("%s = %q, want %q", resource.ServerEnvironmentHeader, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestGeneratedRouter drives every generated route through New: each request answers
 // 200 from exactly its own handler with its route parameters resolved, having passed the
 // every-request chain, its outlet's group, its outlet's guards and, on a session outlet,
@@ -914,6 +944,8 @@ type routerHandlersStub struct {
 	// serverVersion is the release the stub reports; empty, no release, so a case that
 	// sets none is never refused.
 	serverVersion string
+	// serverEnvironment is the environment's name the stub reports; empty, production's.
+	serverEnvironment string
 	// exporter is where the request log goes when a test sets one, the console for the
 	// request log test; nil hands the router the recording stub.
 	exporter logger.Exporter
@@ -921,6 +953,10 @@ type routerHandlersStub struct {
 
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
+}
+
+func (s *routerHandlersStub) ServerEnvironment() string {
+	return s.serverEnvironment
 }
 
 func newRouterHandlersStub(rec *routerCallRecorder) *routerHandlersStub {

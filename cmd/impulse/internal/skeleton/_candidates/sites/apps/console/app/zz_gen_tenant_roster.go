@@ -81,9 +81,11 @@ func NewTenantDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransac
 // (resource.TenantDirectoryRules) over the Tenant record's table and its declaration's
 // columns: a tenant has one directory, a directory is one tenant's, a personal account
 // is no directory, and the directory of a tenant that is directory only is not removed.
-// Every write of the TenantDirectory record is held to them. The generated TenantDirectory
-// write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes.
+// Every write of the TenantDirectory record a request asks for is held to them. The generated
+// TenantDirectory write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes. The one
+// removal they are not asked is the delete of the tenant itself, which takes its
+// directory with it (ClearTenantDirectory).
 func NewTenantDirectoryRules() *resource.TenantDirectoryRules {
 	return resource.NewTenantDirectoryRules("Tenants", "Id", &tenantDeclaration, "tenant")
 }
@@ -110,6 +112,37 @@ func SetTenantDirectory(ctx context.Context, txn resource.ReadWriteTransaction, 
 	patch.SetTenantID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)
 	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
 		return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// ClearTenantDirectory buffers the removal of the tenant's directory, in the transaction
+// that deletes the tenant's row: a tenant that goes takes its directory with it, as it
+// takes the roles people hold in it. The rule that keeps the directory of a tenant that is
+// directory only (NewTenantDirectoryRules, Remove) is not asked here: it keeps a tenant
+// that stays from being left with no way in, and this tenant does not stay. The row is
+// removed through the record's delete patch, so its change event is written with it, and
+// the directory is free for another tenant once the transaction has committed. The
+// generated delete of the Tenant record calls it once the caller's grant on that record
+// has answered; code that deletes a tenant's row any other way calls it in the same
+// transaction. A tenant that has no directory is no error.
+func ClearTenantDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, eventSource ...string) error {
+	query := resources.NewTenantDirectoryQuery().
+		AddColumns(resources.NewTenantDirectoryColumns().ID()).
+		Where(resources.NewTenantDirectoryQueryClause().TenantID().Equal(tenant))
+	// The rows are read before any removal is buffered. The schema keeps a tenant to one.
+	var removals []*resources.TenantDirectoryDeletePatch
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return errors.Wrap(err, "resources.TenantDirectoryQuery.List()")
+		}
+		removals = append(removals, resources.NewTenantDirectoryDeletePatch(row.Data.ID))
+	}
+	for _, removal := range removals {
+		if err := removal.Buffer(ctx, txn, eventSource...); err != nil {
+			return errors.Wrap(err, "resources.TenantDirectoryDeletePatch.Buffer()")
+		}
 	}
 
 	return nil

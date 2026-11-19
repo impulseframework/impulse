@@ -271,23 +271,11 @@ DML what a later rule must read.
   a disabled account accepts no invitation, so its own vouches for nothing. A person
   created ahead in two tenants, or holding a role in every tenant or outside them, is
   therefore linked at a first sign-in only with their invitation, or once they have a
-  password to confirm with. One such account is the deployment's own: the first
-  administrator of an Auth whose people sign in through a directory, which the seed
-  creates with no password, holding roles for the whole application and belonging to
-  no tenant. The deployment vouches for it. The seed creates it under
-  `session.SeedUserIDThrough(auth, registration, username)`, an id that names the
-  sign-in registration the person comes through and that no request can give an
-  account, the hook's `Seeded` recognizes the id, and the account is linked at its
-  person's first sign-in through that registration while the registration admits one
-  organization and nobody else. The same name through another registration of the
-  Auth, a customer's own provider among them, or through a registration that names
-  several organizations or is open to any or to personal accounts, is not the
-  deployment's word and links nothing, and neither does a seed that was disabled; so
-  the first administrator of an Auth whose only directory methods are that wide is
-  given another way in (a directory method of one organization, or a password). Naming
-  a registration in the seed says that whoever its directory presents under the name
-  is that person: it is for the deployment's own directory, whose sign-in names only
-  its administrators give, and never for a provider that lets a person choose a name.
+  password to confirm with. The deployment's own first administrator, who holds roles
+  for the whole application and belongs to no tenant, is no such account: the
+  deployment creates none ahead of the person and invites them, and the invitation is
+  what ties their first sign-in through a directory to the roles, however many
+  organizations the method admits (see "The first administrator's invitation").
   Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
   say nothing of the account (`invitation_only` through a directory some tenant has,
@@ -302,8 +290,7 @@ DML what a later rule must read.
   organization's to assert. An account an application's seed creates with no password
   and with roles in every tenant or in none, as the cast of the persona sign-in is,
   signs in through such a registration; through any other it has no tenant whose
-  directory could vouch for it and is linked only with its own invitation, or as the
-  seed of that registration (the first administrator, above). An
+  directory could vouch for it and is linked only with its own invitation. An
   application whose
   tenants have no directories (no `SetDirectoryAdmission`) has only the directories its
   deployment registered for itself, and links such an account under its name as
@@ -536,6 +523,10 @@ the row with `sessionstorage.AuthStore.SetSignInMethod`, with `OpenedFor` the ke
 registration's audience (`auth.API().SignInMethods()` answers each registration's), and
 lists them with `SignInMethods`. `session.WithSignInMethodsTableName` renames the table.
 
+Open to sign-up or invite only is one of the choices that add up to an auth's sign-in
+shape. The eight shapes that have a name, and every choice they are made of, are
+described in [docs/sign-in-shapes.md](../docs/sign-in-shapes.md).
+
 ### The tenant policy
 
 The tenant policy is the library's sign-in rule for an application whose users belong
@@ -580,10 +571,7 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
   that transaction, which the library asks before it links an identity on its name
   alone to an account that has never signed in (see "A first link on a name alone"
-  above). Its `Seeded`, which a hook may leave out, answers whether an account is the
-  one the deployment's seed created for the registration a sign-in came through
-  (`session.SeedUserIDThrough`), which the library asks at the same point; the
-  generated identity client answers all three.
+  above). The generated identity client answers both.
   `Seat` is called at a person's first sign-in through the directory, the one that
   makes the link, whether the account is created in it or stood before: a person
   given a role ahead of their first sign-in, or invited by another tenant, has an
@@ -1315,27 +1303,11 @@ under it last (`CreateUserRequest.ID`). The user's row then says the seed is don
 that stopped before it is repeated whole by the next one, which writes the same
 memberships again and creates the user. A seed that created the user first would have to
 give the roles, after a stopped run, to a user it found under a name, and a name is
-something anyone may come to hold. The generated seed of an auth's first administrator
-and the persona cast's seed work this way, and seed nothing for a user that exists,
-whatever it holds. The first administrator is the deployment's first super administrator:
-the seed writes the Super Administrator role under the id beside the application's own
-administrator roles, since only a holder of that role makes another. An auth whose
-roles come from its directory seeds nobody: the directory names its super
-administrators, as it names every role.
-
-A first administrator who signs in through a directory holds no password, and the seed
-creates the account under `session.SeedUserIDThrough(auth, registration, username)`:
-the same id on every run, which also names the sign-in registration the person comes
-through. In an application whose tenants have directories that id is what links the
-account at the person's first sign-in (see "A first link on a name alone"): it is the
-deployment's word on which registration the name is believed from, and it holds while
-that registration admits one organization alone. The id names the registration and not
-the organization behind it: a registration pointed at another organization before the
-person has signed in believes that organization's word instead. The generated foothold
-seeds its administrator this way where it can name the registration without guessing,
-for an auth whose one directory method is of one Microsoft Entra tenant or one Google
-Workspace; for any other auth it seeds for no registration and says how its author
-names the deployment's own directory.
+something anyone may come to hold. The persona cast's generated seed works this way:
+at every run it gives the account under that id the roles its entry names that it does
+not hold, and gives nothing to a user of another id who holds the persona's login. A deployed Auth's first
+administrator is not seeded: no account is made ahead of the person, who is invited (see
+"The first administrator's invitation").
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -1348,10 +1320,9 @@ wiring above. A login page that reads the mark from the session read posts the c
 to the methods list's `changePassword` path before it opens the application. The change
 clears the mark and goes on in a new session that carries the auth events of the one
 that made it (`ChangeSessionUserPassword`, below); an
-impersonated session is the actor's and is not held to the user's mark. The seed user
-of a new application and every user an operator creates with a password carry the
-mark; the password a user chose through `ChangeSessionUserPassword` or
-`SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
+impersonated session is the actor's and is not held to the user's mark. Every user an
+operator creates with a password carries the mark; the password a user chose through
+`ChangeSessionUserPassword` or `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
 
 **Removing a password.** A person who signs in through a directory does not need the
@@ -1843,6 +1814,101 @@ sets no `signin.Method.AdmitsAddress` cannot tell, which admits. Google puts the
 Workspace's primary domain in the `hd` claim, so an invitation to an address at a
 secondary domain of a Workspace whose primary domain alone is named is refused here
 although Google would admit the sign-in: name the secondary domain on the Workspace too.
+
+### The first administrator's invitation
+
+The first administrator of a deployed application comes in as everyone after them does:
+by an invitation mailed to their own address, which they accept by signing in through a
+method of the Auth. The deployment names the address, and its release asks for the
+invitation while nobody of the Auth holds the Super Administrator role
+(`accesstypes.SuperAdministrator`). No account is created ahead of the person and no
+password is generated for them, so nothing stands that somebody other than the mailbox's
+owner could sign in with, and no secret exists that a person would have to read. With
+the password method the person chooses a password from the link, their address proven by
+it; through a directory the invitation is what ties the sign-in to the roles, whoever
+else the directory admits and however many organizations the method is open to, and the
+address the directory gives is held to the invited one, as for every invitation.
+
+As the library stands, an Auth whose only sign-in method asserts no address cannot
+accept the invitation yet. The Microsoft Entra method asks the directory for the
+`openid` and `profile` scopes alone, so its sign-ins carry no address unless the
+registration itself is set up to send one, and a sign-in with no address has nothing to
+hold to the invited one: the invited person is refused there (`invitation_address`),
+nobody becomes that Auth's first administrator, and every release goes on asking for the
+address and the mailbox. An Auth that also has the password method, or a method that
+sends the address (Google), is not affected.
+
+The role is what the release asks about, and not whether the Auth has an account. The
+invitation exists so that somebody administers the Auth, and an account that holds
+nothing (a person who signed up, one a directory seated, a persona a test environment
+seeds) administers nothing and stops no invitation. A holder counts when the id the
+role store lists is an account of this Auth; the account may be disabled, since the
+last holder who can sign in keeps the role and the account whoever asks, so the
+question is who holds the role, not who can sign in. A persona a test environment
+seeds holding the role is a holder: such an environment seeds its cast before this
+step, invites nobody and needs no mailbox.
+
+`AuthAPI.InviteFirstAdministrator(ctx, roles, &session.FirstAdministratorRequest{Email, RoleNames})`
+is the step a release runs. `roles` is the role store it asks who holds the Super
+Administrator role (`session.RoleHolders`, which the access library's user manager is:
+pass the manager of the Auth's own permission engine, the one the acceptance hook gives
+the roles through); a call handed none is refused. It answers what it did
+(`session.FirstAdministrator`: the outcome, the address, when the invitation runs out
+and the addresses of the invitations it withdrew), and never the link or its token,
+which are in the mailed message alone:
+
+- Somebody holds the Super Administrator role: nobody is invited
+  (`FirstAdministratorRoleHeld`), nothing is mailed, and neither an address nor a
+  mailbox is asked for; every person after the first is invited from the application.
+  One thing is still done: an invitation of the deployment's that still stands for an
+  address the deployment no longer names is withdrawn, so no link stays open for an
+  address it took back. One to the address still named is left to be accepted, with the
+  roles it was sent with.
+- An invitation to the address with those roles stands: nothing is mailed
+  (`FirstAdministratorStanding`), so a release while the person has not yet accepted
+  sends no second message.
+- None stands, because none was sent or the one sent has run out
+  (`MailSettings.InvitationTimeout`, seven days unless set): one is mailed
+  (`FirstAdministratorInvited`).
+- One stands that the deployment no longer names: it is withdrawn, so its link no longer
+  opens, and the address named now is mailed. That is so for another address, and for
+  other roles: an invitation carries the roles it was sent with, so a release that
+  names a changed set of roles replaces the standing invitation with one that gives
+  the set named now, and the person is mailed again.
+
+`AuthAPI.ReinviteFirstAdministrator` is the same on demand, for a message that was lost:
+it withdraws the standing invitation and mails a fresh one. It is refused once somebody
+holds the Super Administrator role (`ErrFirstAdministratorRoleHeld`), and a refusal
+changes nothing; an account that holds no such role does not refuse it.
+
+While nobody holds the role, both refuse, with nothing mailed, an empty address
+(`ErrFirstAdministratorUnnamed`) and an Auth whose sender delivers nothing
+(`ErrFirstAdministratorNoMailbox`). The second is
+the rule that the release never writes an invitation's link to a log: a sender says
+itself whether it hands its messages to a mail system (`mail.Deliverer`, which the
+Workspace relay declares), `mail.Delivers` takes a sender that says nothing, as
+`mail.Log` and anything that wraps it, for one that does not, and whoever reads the link
+of the first administrator's invitation becomes the administrator. An application's own
+driver declares `Delivers() bool` before it can carry this invitation. An
+invitation the deployment no longer names is withdrawn before either refusal, and the
+error says so. The checks every invitation is held to apply too: an address no sign-in
+method of the Auth could admit is refused, and a message that could not be sent leaves no
+invitation standing.
+
+The first administrator is the deployment's first super administrator, the one person
+who can make another, so the roles name the Super Administrator role
+(`accesstypes.SuperAdministrator`), and a request without it is refused. That role is
+also how the deployment's own invitation is told from every other: it is an invitation
+into the application that gives the Super Administrator role and that no user of the
+Auth sent, which only the application acting for itself writes. Those are the
+invitations the two calls read and withdraw, and they touch no invitation a user sent,
+none into a tenant, none that makes a tenant and none that gives other roles alone. The
+roles are given by the application's acceptance hook
+(`SetInvitationAccepted`), as any invitation's are. An Auth with no such hook gives an
+accepted invitation nothing: nobody would come to hold the role and every release would
+mail the address again, so both calls refuse such an Auth, whoever holds the role, as
+they refuse a call handed no role store.
+Nothing here locks: a deployment runs one release at a time, and the step is its.
 
 ### Sign-up
 

@@ -207,7 +207,7 @@ func (fileStore) fileRecorders(a *app.App) ([]fileRecorder, error) {
 		}
 		for _, f := range files {
 			name := filepath.Base(f)
-			if strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
+			if !app.GoToolReads(name) || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_gen_") {
 				continue
 			}
 			data, err := os.ReadFile(f)

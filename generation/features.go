@@ -364,10 +364,11 @@ func (r *resourceGenerator) generateFeatures() error {
 // The feature flag routes' handler names, as the generated handlers interface and the
 // library's handlers spell them.
 const (
-	featuresHandlerFunc     = "Features"
-	featureFlagsHandlerFunc = "FeatureFlags"
-	featureFlagHandlerFunc  = "FeatureFlag"
-	setFeatureHandlerFunc   = "SetFeature"
+	featuresHandlerFunc           = "Features"
+	featureFlagsHandlerFunc       = "FeatureFlags"
+	featureFlagHandlerFunc        = "FeatureFlag"
+	featureFlagChangesHandlerFunc = "FeatureFlagChanges"
+	setFeatureHandlerFunc         = "SetFeature"
 	// featureFlagRoutesKey groups the FeatureFlags routes in an outlet's route map.
 	featureFlagRoutesKey = "FeatureFlag"
 )
@@ -383,7 +384,7 @@ func featuresRoute(routePrefix string) *generatedRoute {
 }
 
 // featureFlagRoutes are the FeatureFlags resource's routes under the outlet prefix: the
-// list and the read, on a session-serving outlet.
+// list, the read and one flag's history, in that order, on a session-serving outlet.
 func featureFlagRoutes(routePrefix string) []*generatedRoute {
 	base := fmt.Sprintf("/%s/%s", routePrefix, resource.FeatureFlagsRoute)
 	list := &generatedRoute{Method: http.MethodGet, Path: base, HandlerFunc: featureFlagsHandlerFunc, HandlerType: ListHandler, TestURL: base}
@@ -396,8 +397,17 @@ func featureFlagRoutes(routePrefix string) []*generatedRoute {
 		TestParams:  []routeTestParam{{Key: string(resource.FeatureFlagNameParam), Value: featureFlagNameTestValue}},
 	}
 	read.appendParamsToPaths()
+	// The history hangs under the flag's own route and takes its request in the address
+	// alone, so it answers GET and nothing beside it.
+	changes := &generatedRoute{
+		Method:      http.MethodGet,
+		Path:        read.Path + "/" + resource.FeatureFlagChangesRoute,
+		HandlerFunc: featureFlagChangesHandlerFunc,
+		TestURL:     read.TestURL + "/" + resource.FeatureFlagChangesRoute,
+		TestParams:  slices.Clone(read.TestParams),
+	}
 
-	return []*generatedRoute{list, read}
+	return []*generatedRoute{list, read, changes}
 }
 
 // setFeatureRoute is the SetFeature method's route under the outlet prefix, on a
@@ -411,7 +421,8 @@ func setFeatureRoute(routePrefix string) *generatedRoute {
 }
 
 // accumulateFeatureRoutes adds the feature flag routes to every outlet: the features
-// route on each, the FeatureFlags routes and SetFeature on the session-serving ones.
+// route on each, the FeatureFlags routes (a flag's history among them) and SetFeature on
+// the session-serving ones.
 // Every route joins the dispatch test.
 func accumulateFeatureRoutes(outlets []*routerOutlet, outletRoutes []*outletRouteData) (routerTestRoutes []*generatedRoute) {
 	for i, outlet := range outlets {
@@ -451,8 +462,8 @@ func featureNegativeTests(outlet *routerOutlet) []negativeRouterTest {
 
 // featureAuthzCases are the matrix's cases for the feature flag routes: on every
 // outlet the features route open to anyone signed in; on a session-serving outlet the
-// FeatureFlags list and read as query pairs and SetFeature denied-only, with its dry
-// run.
+// FeatureFlags list and read as query pairs, a flag's history as a pair under the grant
+// that lists the flags, and SetFeature denied-only, with its dry run.
 func (r *resourceGenerator) featureAuthzCases() []authzCase {
 	var cases []authzCase
 	for _, outlet := range r.allOutlets() {
@@ -469,7 +480,8 @@ func (r *resourceGenerator) featureAuthzCases() []authzCase {
 		flags := featureFlagRoutes(outlet.prefix)
 		cases = append(cases,
 			authzCase{Name: authzCaseName(flags[0].HandlerFunc, outlet), Method: httpMethodConst(flags[0].Method), URL: flags[0].TestURL, Permission: string(accesstypes.List)},
-			authzCase{Name: authzCaseName(flags[1].HandlerFunc, outlet), Method: httpMethodConst(flags[1].Method), URL: strings.Replace(flags[1].Path, "{"+string(resource.FeatureFlagNameParam)+"}", "authz-test-key", 1), Permission: string(accesstypes.Read)},
+			authzCase{Name: authzCaseName(flags[1].HandlerFunc, outlet), Method: httpMethodConst(flags[1].Method), URL: featureFlagAuthzURL(flags[1]), Permission: string(accesstypes.Read)},
+			authzCase{Name: authzCaseName(flags[2].HandlerFunc, outlet), Method: httpMethodConst(flags[2].Method), URL: featureFlagAuthzURL(flags[2]), Permission: string(accesstypes.List)},
 		)
 		setFeature := setFeatureRoute(outlet.prefix)
 		cases = append(cases,
@@ -479,6 +491,16 @@ func (r *resourceGenerator) featureAuthzCases() []authzCase {
 	}
 
 	return cases
+}
+
+// featureFlagAuthzName is the flag the matrix asks for by name: the placeholder a text
+// key takes in it (authzParamValue), which names no flag.
+const featureFlagAuthzName = "authz-test-key"
+
+// featureFlagAuthzURL is a route of one flag as the matrix calls it, the flag's name
+// replaced by the placeholder.
+func featureFlagAuthzURL(route *generatedRoute) string {
+	return strings.Replace(route.Path, "{"+string(resource.FeatureFlagNameParam)+"}", featureFlagAuthzName, 1)
 }
 
 // collectFeatureRegistrations registers the feature flags' resource and method into

@@ -83,6 +83,32 @@ application the tool is the `tool github.com/impulseframework/impulse/cmd/impuls
 directive in `go.mod`, and `go tool impulse <command>` runs it at the pinned version.
 Every command, flag and check is described in [cmd/impulse/README.md](cmd/impulse/README.md).
 
+## Sign-in shapes
+
+There are eight shapes an application's sign-in can take. A shape is the answers to four
+questions: are there tenants, who gets an account and with what role, where can one
+person hold roles, and who manages that person's account. No application declares its
+shape: it makes separate choices, some in code and some while it runs, and the shape is
+the name of what they add up to. `impulse new`, `impulse add tenancy`, `impulse add auth`
+and `impulse add method` start from a shape by name (`--shape`), and `impulse audit`
+reads the choices back from the code and names the shape.
+
+| # | Shape | Tenants | Who gets an account |
+| --- | --- | --- | --- |
+| 1 | [Invite only](docs/sign-in-shapes.md#1-invite-only) | None | People an administrator invites |
+| 2 | [Directory members](docs/sign-in-shapes.md#2-directory-members) | None | Everyone in the organization's directory |
+| 3 | [Directory roles](docs/sign-in-shapes.md#3-directory-roles) | None | Everyone the organization's directory gives a role |
+| 4 | [Open sign-up](docs/sign-in-shapes.md#4-open-sign-up) | None | Anyone |
+| 5 | [Tenant-owned users, invite only](docs/sign-in-shapes.md#5-tenant-owned-users-invite-only) | One per person | People the tenant's administrator invites |
+| 6 | [Tenant-owned users, by directory](docs/sign-in-shapes.md#6-tenant-owned-users-by-directory) | One per person | Everyone in the tenant's own directory, and people the tenant invites |
+| 7 | [Global users, invite only](docs/sign-in-shapes.md#7-global-users-invite-only) | Several per person | People any tenant invites |
+| 8 | [Global users, each tenant chooses](docs/sign-in-shapes.md#8-global-users-each-tenant-chooses) | Several per person | Everyone in a directory a tenant has taken, and people it invites |
+
+Each shape is described in full in [docs/sign-in-shapes.md](docs/sign-in-shapes.md): who
+gets an account, what role they start with, who manages the account, which sign-in
+methods it can use and how wide each can be opened, the command that starts an
+application from it, and what `impulse audit` prints for it.
+
 ## Developing the repository
 
 The module is Go 1.27 (`go.mod`), and the web workspace is built with bun 1.4.4, the bun

@@ -48,6 +48,8 @@ func newUserManager(store managementStore, defaults *defaultRoles, evaluator eva
 func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
 		return err
@@ -80,6 +82,8 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, "", roles...)
 }
@@ -126,6 +130,8 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	roleFound, err := u.roleExists(ctx, scope, role)
 	if err != nil {
@@ -149,6 +155,8 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Pol
 func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
 		return err
@@ -181,6 +189,8 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope access
 func (u *userManager) DeleteUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	for _, role := range roles {
 		if err := u.store.deleteUserRole(ctx, scope, user, role); err != nil {
@@ -258,6 +268,8 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if role == "" {
 		return httpio.NewBadRequestMessage("role cannot be empty string")
@@ -349,6 +361,8 @@ func listedOnce(roles []RoleInfo) []RoleInfo {
 func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if u.defaults.exists(scope, role) {
 		return false, httpio.NewBadRequestMessagef("role %q is one of the release's default roles; it cannot be deleted", string(role))
@@ -381,6 +395,8 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
 		return err
@@ -397,6 +413,8 @@ func (u *userManager) AddRolePermission(ctx context.Context, scope accesstypes.P
 func (u *userManager) DeleteRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
 		return err
@@ -413,6 +431,8 @@ func (u *userManager) DeleteRolePermission(ctx context.Context, scope accesstype
 func (u *userManager) AddRolePermissionResources(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
 		return err
@@ -430,6 +450,8 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, scope acce
 func (u *userManager) AddRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants ...GrantRow) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
 		return err
@@ -456,6 +478,8 @@ func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Policy
 func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be changed on a role that doesn't exist"); err != nil {
 		return err
@@ -490,6 +514,8 @@ func requireResources(rows []GrantRow) error {
 func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
 		return err
@@ -511,6 +537,8 @@ func (u *userManager) DeleteRolePermissionResources(
 ) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
 		return err
@@ -530,6 +558,8 @@ func (u *userManager) DeleteRolePermissionResources(
 func (u *userManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+	u, announce := u.holdAnnouncement()
+	defer announce()
 
 	if err := u.requireCustomRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
 		return err

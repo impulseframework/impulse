@@ -162,6 +162,67 @@ describe('AppGridComponent', () => {
     ]);
   });
 
+  it('draws a header as a button that asks for a sort, and as words alone on a table whose rows have one order', async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ changedAt: 'Nov 17, 2026, 3:42 PM', changedBy: 'morgan' }]);
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'changedAt', header: 'When' },
+      { id: 'changedBy', header: 'By' },
+    ]);
+    const asked: unknown[] = [];
+    fixture.componentInstance.sortChange.subscribe((sorts) => asked.push(sorts));
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const headers = (): string[] =>
+      Array.from(element.querySelectorAll('th .col-header')).map((h) => h.textContent?.trim() ?? '');
+
+    // Sortable unless told otherwise: each header is a button, and a click asks for the sort.
+    expect(headers()).toEqual(['When', 'By']);
+    expect(element.querySelectorAll('th button.header-label')).toHaveLength(2);
+    element.querySelector<HTMLButtonElement>('th button.header-label')?.click();
+    expect(asked).toEqual([[{ field: 'changedAt', direction: 'asc' }]]);
+
+    fixture.componentRef.setInput('sortable', false);
+    fixture.detectChanges();
+
+    // The same words, and nothing to press.
+    expect(headers()).toEqual(['When', 'By']);
+    expect(element.querySelectorAll('th button')).toHaveLength(0);
+    expect(element.querySelectorAll('th span.header-words')).toHaveLength(2);
+    element.querySelector<HTMLElement>('th span.header-words')?.click();
+    expect(asked).toHaveLength(1);
+  });
+
+  it('draws the header of a column that opts out of sorting as words, and leaves the other headers buttons', async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ name: 'debriefs', updatedAt: 'Nov 17, 2026, 3:42 PM' }]);
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'name', header: 'Flag' },
+      { id: 'updatedAt', header: 'Last changed', sortable: false },
+    ]);
+    const asked: unknown[] = [];
+    fixture.componentInstance.sortChange.subscribe((sorts) => asked.push(sorts));
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const words = (selector: string): string[] =>
+      Array.from(element.querySelectorAll(selector)).map((h) => h.textContent?.trim() ?? '');
+
+    expect(words('th button.header-label .col-header')).toEqual(['Flag']);
+    expect(words('th span.header-words .col-header')).toEqual(['Last changed']);
+    element.querySelector<HTMLElement>('th span.header-words')?.click();
+    expect(asked).toHaveLength(0);
+    element.querySelector<HTMLButtonElement>('th button.header-label')?.click();
+    expect(asked).toEqual([[{ field: 'name', direction: 'asc' }]]);
+  });
+
   it('draws a yes-or-no value as a check or a dash, each named for a screen reader, and every other value as its text', async () => {
     const rows: RecordData[] = [
       { username: 'ada', disabled: true, count: 0, note: 'false' },

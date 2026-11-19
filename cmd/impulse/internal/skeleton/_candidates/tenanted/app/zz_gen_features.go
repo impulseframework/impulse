@@ -32,6 +32,15 @@ func (a *App) FeatureFlag() http.HandlerFunc {
 	return resource.FeatureFlagHandler(a, router.Collection())
 }
 
+// FeatureFlagChanges serves one flag's history, each time it was turned on or off with
+// who did it, newest first, to a caller holding List on FeatureFlags in the global
+// scope: the grant that lists the flags reads their history. A flag the package does
+// not declare is 404. The generated router registers it at
+// GET /api/feature-flags/{featureFlagName}/changes.
+func (a *App) FeatureFlagChanges() http.HandlerFunc {
+	return resource.FeatureFlagChangesHandler(a, router.Collection())
+}
+
 // SetFeature flips a flag for a caller holding Execute on SetFeature in the global
 // scope: the row and its change record are written in one transaction, the other
 // instances are signaled through the live service (the features kind of the signals

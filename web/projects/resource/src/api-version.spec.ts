@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { createClient, olderServerRetryDelays } from './client';
+import { createClient, environmentName, olderServerRetryDelays } from './client';
 import { ApiDescriptor } from './descriptor';
-import { ApiError, ApiVersionError, apiVersionHeader, timeZoneHeader } from './transport';
+import { ApiError, ApiVersionError, apiVersionHeader, environmentHeader, timeZoneHeader } from './transport';
 import { compareReleases, releaseVersion } from './versions';
 import { scriptedTransport } from '@impulseframework/resource/testing';
 
@@ -9,7 +9,8 @@ import { scriptedTransport } from '@impulseframework/resource/testing';
 // on every request, a build that names none or `dev` sends nothing, a 412 carrying the
 // server's release is the refusal and is recognized before a caller's declared answers,
 // a server older than the build is retried after each configured pause before the refusal
-// is thrown, and a build older than the server is refused at once.
+// is thrown, and a build older than the server is refused at once. Beside the release an
+// answer may name the environment the server runs in, which is kept the same way.
 
 const descriptor: ApiDescriptor = {
   permissionDigestRoute: 'permission-digest',
@@ -222,4 +223,51 @@ describe("the server's release", () => {
     await client.request('GET', 'missions');
     expect(client.serverRelease.get()).toBe('dev');
   });
+});
+
+describe("the server's environment", () => {
+  const named = environmentHeader.toLowerCase();
+
+  it('is kept from every answer that names one, and told once per change', async () => {
+    const transport = scriptedTransport({ status: 200, body: [], headers: { [named]: 'tst' } });
+    const client = createClient(descriptor, { baseUrl: '/api', transport });
+    expect(client.serverEnvironment.get()).toBeUndefined();
+    const seen: (string | undefined)[] = [];
+    client.serverEnvironment.subscribe((environment) => seen.push(environment));
+    await client.request('GET', 'user/methods');
+    await client.request('GET', 'user/methods');
+    expect(client.serverEnvironment.get()).toBe('tst');
+    expect(seen).toEqual(['tst']);
+  });
+
+  it('is kept from a refusal too', async () => {
+    const transport = scriptedTransport({ ...refusal('2.0.0'), headers: { [header]: '2.0.0', [named]: 'tst' } });
+    const client = createClient(descriptor, { baseUrl: '/api', transport, apiVersion: '1.0.0' });
+    await expect(client.request('GET', 'missions')).rejects.toBeInstanceOf(ApiVersionError);
+    expect(client.serverEnvironment.get()).toBe('tst');
+  });
+
+  it('stays unnamed on a server that names none, as production does', async () => {
+    const transport = scriptedTransport({ status: 200, body: {}, headers: { [header]: '2.0.0' } });
+    const client = createClient(descriptor, { baseUrl: '/api', transport });
+    await client.request('GET', 'user/methods');
+    expect(client.serverRelease.get()).toBe('2.0.0');
+    expect(client.serverEnvironment.get()).toBeUndefined();
+  });
+
+  const names: { header: string | undefined; want: string | undefined }[] = [
+    { header: undefined, want: undefined },
+    { header: '', want: undefined },
+    { header: 'tst', want: 'tst' },
+    { header: 'Morgan%20Wells%20demo', want: 'Morgan Wells demo' },
+    { header: 'pr%C3%BCfung%2F2', want: 'prüfung/2' },
+    // No server of the framework writes a value that does not decode; it is shown as it came.
+    { header: '100%', want: '100%' },
+  ];
+
+  for (const tt of names) {
+    it(`environmentName(${JSON.stringify(tt.header)}) is ${JSON.stringify(tt.want)}`, () => {
+      expect(environmentName(tt.header)).toBe(tt.want);
+    });
+  }
 });

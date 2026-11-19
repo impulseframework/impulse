@@ -1,4 +1,4 @@
-import { ApplicationRef, signal } from '@angular/core';
+import { ApplicationRef, Injector, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef } from '@angular/material/dialog';
 import { ActivatedRoute } from '@angular/router';
@@ -31,6 +31,7 @@ import {
   rootConfig,
   RowAction,
   rowActionsKey,
+  rowButtonKey,
 } from '@impulseframework/resource-angular/types';
 import { of } from 'rxjs';
 
@@ -399,6 +400,109 @@ describe('ResourceListComponent row methods', () => {
     expect(opened).toEqual([
       { method: 'NoteOnPerson', label: 'Add a note', preset: { username: 'bo' }, confirm: 'Note on bo?' },
     ]);
+  });
+
+  it("offers a method the page names twice under each one's own words, where its own predicate holds, filled as that one fills it", async () => {
+    // One method, two things a row may want of it: the page names it once for each.
+    const flag = (words: string, standing: boolean): MethodPresentation => ({
+      method: 'NoteOnPerson' as Method,
+      label: words,
+      when: (row) => row['disabled'] === standing,
+      fill: (row) => ({ username: row['username'], words }),
+      confirm: (row) => `${words} for ${String(row['username'])}?`,
+    });
+    await create(
+      { primaryResource: people, rowMethods: [flag('Commend', false), flag('Reinstate', true)] },
+      { NoteOnPerson: { Execute: 'granted' } },
+    );
+
+    expect(actionsOf(0).map((a) => a.label)).toEqual(['Disable person', 'Enable person', 'Rename person', 'Commend']);
+    expect(actionsOf(1).map((a) => a.label)).toEqual(['Reinstate']);
+
+    actionsOf(0)[3].run();
+    actionsOf(1)[0].run();
+    await settle();
+
+    expect(opened).toEqual([
+      {
+        method: 'NoteOnPerson',
+        label: 'Commend',
+        preset: { username: 'ada', words: 'Commend' },
+        confirm: 'Commend for ada?',
+      },
+      {
+        method: 'NoteOnPerson',
+        label: 'Reinstate',
+        preset: { username: 'bo', words: 'Reinstate' },
+        confirm: 'Reinstate for bo?',
+      },
+    ]);
+  });
+
+  it('tells apart two entries of one method that a row offers together', async () => {
+    const note = (words: string): MethodPresentation => ({
+      method: 'NoteOnPerson' as Method,
+      label: words,
+      fill: (row) => ({ username: row['username'], words }),
+    });
+    await create(
+      { primaryResource: people, rowMethods: [note('Commend'), note('Caution')] },
+      { NoteOnPerson: { Execute: 'granted' } },
+    );
+
+    expect(actionsOf(1).map((a) => [a.id, a.label])).toEqual([
+      ['NoteOnPerson', 'Commend'],
+      ['NoteOnPerson:1', 'Caution'],
+    ]);
+  });
+
+  it("draws a button of the page's own on every row, named by its label, and hands it the row as the server answered it", async () => {
+    const handed: RecordData[] = [];
+    await create({
+      primaryResource: people,
+      rowMethods: false,
+      // The column writes the cell in words; the button is handed what the row holds.
+      listColumns: [
+        { id: 'username' as FieldName, valueGetter: (row: RecordData): string => `Crew ${String(row['username'])}` },
+      ],
+      rowButtons: [
+        {
+          label: 'History',
+          icon: 'history',
+          run: (row: RecordData, injector: Injector): void => {
+            handed.push({ ...row, injected: injector !== undefined });
+          },
+        },
+      ],
+    } as never);
+
+    expect(fixture.componentInstance.columns().map((col) => col.id)).toContain(rowButtonKey(0));
+    const cells = (fixture.componentInstance.processedRowData() as Record<string, unknown>[]).map(
+      (row) => row['username'],
+    );
+    expect(cells).toEqual(['Crew ada', 'Crew bo']);
+    const buttons = Array.from(
+      element().querySelectorAll<HTMLButtonElement>('tr.impulse-row impulse-table-button button'),
+    );
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['History', 'History']);
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['history', 'history']);
+
+    buttons[1].click();
+
+    expect(handed.map((row) => [row['id'], row['username'], row['injected']])).toEqual([['u-2', 'bo', true]]);
+    // A button of the page's own asks the server nothing more of the list.
+    expect(listRequests()).toEqual(['GET /api/sectors/anvil/sector-people?columns=username%2Cid&count=true']);
+  });
+
+  it("says the page's own sentence in a list that holds nothing, and the plain one once the search box narrows it", async () => {
+    served = [];
+    await create({ primaryResource: people, emptyMessage: 'Nobody serves in this sector yet.' });
+
+    expect(fixture.componentInstance.emptyMessage()).toBe('Nobody serves in this sector yet.');
+    expect(element().textContent).toContain('Nobody serves in this sector yet.');
+
+    fixture.componentInstance.store.searchText.set('ada');
+    expect(fixture.componentInstance.emptyMessage()).toBe('No records found');
   });
 
   it('does not offer a filled method the digest does not grant', async () => {

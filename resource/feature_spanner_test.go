@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -337,6 +339,122 @@ func featureRouter(a *featureTestApp, signals Signaler) http.Handler {
 	r.Post("/api/"+SetFeatureRoute, SetFeatureHandler(a, nil, signals))
 
 	return r
+}
+
+// observingSignaler is a signaler that tells a test of each signal as it is sent, before
+// the signal answers, with the context it is sent under.
+type observingSignaler func(ctx context.Context, kind SignalKind)
+
+func (o observingSignaler) Signal(ctx context.Context, kind SignalKind) error {
+	o(ctx, kind)
+
+	return nil
+}
+
+// endingClient is a client whose reads end the request once a test has armed it: the
+// request's context is canceled as a read begins, as it is when the page that asked
+// closes while the server reads.
+type endingClient struct {
+	Client
+	end atomic.Pointer[context.CancelFunc]
+}
+
+func (c *endingClient) ReadOnlyTransaction() ReadOnlyTransactionCloser {
+	if end := c.end.Load(); end != nil {
+		(*end)()
+	}
+
+	return c.Client.ReadOnlyTransaction()
+}
+
+// TestSetFeatureHandler_reloadsBeforeItSignals pins the order of a flip's last two
+// steps, on the Spanner emulator: this instance's copy holds the flip before the other
+// instances are told, so a request that comes while the signal is being sent, which
+// waits for the channel, is answered from the flip; and the signal is sent whatever
+// became of the reload and of the request. A request that ends while this instance
+// reloads, the flip committed, still signals, under a context the request's end did not
+// reach and with the signal's own timeout on it.
+func TestSetFeatureHandler_reloadsBeforeItSignals(t *testing.T) {
+	t.Parallel()
+
+	// clientClosedRequest is the status of a request whose client went away.
+	const clientClosedRequest = 499
+	tests := []struct {
+		name string
+		// reloadFails says the database fails the reads of the copy once it is loaded.
+		reloadFails bool
+		// requestEnds says the request's context is canceled as the reload's read begins.
+		requestEnds bool
+		wantStatus  int
+		// wantOnAtSignal is what this instance's copy says of the flag as the signal is sent.
+		wantOnAtSignal bool
+	}{
+		{name: "the copy holds the flip as the signal is sent", wantStatus: http.StatusOK, wantOnAtSignal: true},
+		{name: "a reload that fails still signals the other instances", reloadFails: true, wantStatus: http.StatusInternalServerError, wantOnAtSignal: false},
+		{name: "a request that ends during the reload still signals the other instances", requestEnds: true, wantStatus: clientClosedRequest, wantOnAtSignal: false},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, client := featureDatabase(t, "set-feature-order-"+strconv.Itoa(i))
+			ctx := sessionCtx("harbormaster", nil)
+			if err := MigrateFeatures(ctx, client, []FeatureDeclaration{{Name: "debriefs", Description: "Debriefs.", Constant: "Debriefs"}}); err != nil {
+				t.Fatalf("MigrateFeatures() error = %v", err)
+			}
+			failing := &failingClient{Client: client}
+			ending := &endingClient{Client: failing}
+			features, err := LoadFeatures(ctx, ending)
+			if err != nil {
+				t.Fatalf("LoadFeatures() error = %v", err)
+			}
+			failing.fail.Store(tt.reloadFails)
+			request, endRequest := context.WithCancel(ctx)
+			defer endRequest()
+			if tt.requestEnds {
+				ending.end.Store(&endRequest)
+			}
+			var (
+				signaled     []SignalKind
+				onAtSignal   bool
+				signalEnded  error
+				signalWithin time.Duration
+				signalBound  bool
+			)
+			signals := observingSignaler(func(ctx context.Context, kind SignalKind) {
+				signaled = append(signaled, kind)
+				onAtSignal = features.Enabled("debriefs")
+				signalEnded = ctx.Err()
+				var deadline time.Time
+				deadline, signalBound = ctx.Deadline()
+				signalWithin = time.Until(deadline)
+			})
+			handler := featureRouter(&featureTestApp{client: client, perms: featureGrants(accesstypes.Execute), features: features}, signals)
+
+			req := httptest.NewRequestWithContext(request, http.MethodPost, "/api/"+SetFeatureRoute, strings.NewReader(`{"name":"debriefs","enabled":true}`))
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if got := request.Err() != nil; got != tt.requestEnds {
+				t.Fatalf("the request ended under the handler = %v, want %v", got, tt.requestEnds)
+			}
+			if !slices.Equal(signaled, []SignalKind{KindFeatures}) {
+				t.Fatalf("signals sent = %v, want the features kind once", signaled)
+			}
+			if onAtSignal != tt.wantOnAtSignal {
+				t.Errorf("as the flip's signal was sent, this instance's copy said the flag on = %v, want %v", onAtSignal, tt.wantOnAtSignal)
+			}
+			if signalEnded != nil {
+				t.Errorf("the flip's signal was sent under a context that had ended (%v): the other instances are not told of a flip that is committed", signalEnded)
+			}
+			if !signalBound || signalWithin <= 0 || signalWithin > FeatureSignalTimeout {
+				t.Errorf("the flip's signal was sent with %s left (deadline set: %v), want the signal's own timeout of %s", signalWithin, signalBound, FeatureSignalTimeout)
+			}
+		})
+	}
 }
 
 // TestSetFeatureHandler pins the flip over the emulator: the row and the audit row

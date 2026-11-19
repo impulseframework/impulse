@@ -14,6 +14,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/freshness"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/tracer"
@@ -30,8 +31,9 @@ import (
 // underscores, opening with a letter, at most 64 characters.
 type Feature string
 
-// FeatureDeclaration is one declared flag: its name, the description the dialog
-// shows, and the constant that declared it.
+// FeatureDeclaration is one declared flag: its name, its description, the comment above
+// the constant, which the Feature flags page shows in a person's words (Words), and the
+// constant that declared it.
 type FeatureDeclaration struct {
 	Name        Feature
 	Description string
@@ -64,9 +66,24 @@ const (
 
 // The numbers.
 const (
-	// FeatureBackstop is how often a FeatureSet rereads the table whether or not a
-	// signal arrived, so an instance that missed a signal is at most this far behind.
+	// FeatureBackstop is how old a followed FeatureSet's copy may be when a request is
+	// answered from it, and how often its loop rereads the table whether or not a signal
+	// arrived, so an instance that missed a signal, or got no CPU to hear one, is at
+	// most this far behind.
 	FeatureBackstop = 5 * time.Minute
+	// featureReadTimeout bounds one read of the table. A lookup that finds the copy due
+	// waits for the read in flight when it came, if there is one, and for at most one
+	// read after it, so a database that does not answer holds a lookup for less than
+	// twice this before it is answered from the copy as it was.
+	featureReadTimeout = 10 * time.Second
+	// featureReadPause is how long the set leaves the table alone after a reread of its
+	// own failed: the lookups that come inside it are answered from the copy as it was
+	// and none of them reads, so a database that refuses at once is read once a pause
+	// and not once a lookup, and the failure is logged at that rate. A signal that
+	// arrives meanwhile stays recorded, and the first lookup after the pause rereads. A
+	// flip of this instance (Reload) ends the pause: a database that has just taken a
+	// write is not down, so the next lookup rereads.
+	featureReadPause = time.Second
 	// FeatureSignalTimeout bounds a flip's signal: past it the failure is logged and
 	// the request answers, since the other instances reload at their backstop.
 	FeatureSignalTimeout = 2 * time.Second
@@ -116,7 +133,8 @@ func ValidateFeatureDeclarations(declared []FeatureDeclaration) error {
 // UpdatedAt (the commit timestamp of the last write) and UpdatedBy (who wrote it: the
 // migration process, or the principal that flipped it). FeatureFlagChanges holds one row
 // per flip: Name, ChangedAt (the commit timestamp), Enabled (the value written) and
-// ChangedBy. The audit rows are never deleted, so a flag's history outlives the flag.
+// ChangedBy. The audit rows are never deleted, so a flag's history outlives the flag;
+// FeatureFlagChangesHandler serves a declared flag's.
 func FeatureFlagsDDL(dbType DBType) []string {
 	switch dbType {
 	case SpannerDBType:
@@ -232,8 +250,10 @@ func readFeatureFlags(ctx context.Context, txn ReadOnlyTransaction, dbType DBTyp
 // MigrateFeatures brings the FeatureFlags table to the declared flags, in one
 // transaction: a declared flag the table lacks is inserted disabled, a flag the table
 // holds keeps its Enabled and takes the declared description, and a flag no longer
-// declared is deleted. The audit rows are untouched. It runs in the deploy step beside
-// the role check, before the release takes traffic.
+// declared is deleted. The description is written as a person reads it
+// (FeatureDeclaration.Words): where it opens with the declaring constant, the flag's
+// name in words stands in its place. The audit rows are untouched. It runs in the deploy
+// step beside the role check, before the release takes traffic.
 func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclaration) error {
 	if err := ValidateFeatureDeclarations(declared); err != nil {
 		return err
@@ -255,21 +275,22 @@ func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclarati
 
 		for _, d := range declared {
 			row, ok := byName[d.Name]
+			description := d.Words()
 			switch {
 			case !ok:
 				if err := bufferFeatureFlag(txn, CreatePatchType, d.Name, map[string]any{
 					flagNameColumn:        string(d.Name),
-					flagDescriptionColumn: d.Description,
+					flagDescriptionColumn: description,
 					flagEnabledColumn:     false,
 					flagUpdatedAtColumn:   spanner.CommitTimestamp,
 					flagUpdatedByColumn:   eventSource,
 				}); err != nil {
 					return err
 				}
-			case row.Description != d.Description:
+			case row.Description != description:
 				if err := bufferFeatureFlag(txn, UpdatePatchType, d.Name, map[string]any{
 					flagNameColumn:        string(d.Name),
-					flagDescriptionColumn: d.Description,
+					flagDescriptionColumn: description,
 				}); err != nil {
 					return err
 				}
@@ -375,12 +396,34 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 
 // FeatureSet is one instance's copy of the FeatureFlags table: what the gated routes,
 // the decoders and the permission digest consult. LoadFeatures reads it once at start;
-// Follow keeps it current on the features signals and the backstop; Reload rereads it
-// now. A nil FeatureSet answers every flag off, so an application that wires none fails
-// closed on every gate. It is safe for concurrent use.
+// Follow keeps it current until its context ends; Reload rereads it now. A nil
+// FeatureSet answers every flag off, so an application that wires none fails closed on
+// every gate. It is safe for concurrent use.
+//
+// Once followed, the freshness is the request's own. A lookup that finds the copy older
+// than the backstop, or behind a features signal this instance received, rereads the
+// table before it answers, and one reread serves every request waiting at that moment; a
+// reread that fails is logged and the copy answers as it was. Follow's loop rereads on
+// every signal and at the backstop interval too, ahead of the requests, so on an
+// instance that is serving a lookup finds the copy fresh and reads nothing. Nothing
+// depends on the loop: an instance that got no CPU between requests answers its next
+// one from a read no older than the backstop.
 type FeatureSet struct {
 	db       Client
 	backstop time.Duration
+
+	// fresh decides, for every lookup, whether the table is reread before the lookup
+	// answers: from Follow until its context ends, when the copy is past the backstop
+	// or behind a signal. Nil in a set LoadFeatures did not build, which answers from
+	// what it holds.
+	fresh *freshness.Gate
+	// clock is the set's present: the wall clock outside a test.
+	clock func() time.Time
+	// logf logs a reread that failed: through the context's logger outside a test.
+	logf func(ctx context.Context, format string, v ...any)
+	// noLoop is a test's stand-in for an instance that gets no CPU between requests:
+	// Follow starts no loop, so nothing but a lookup rereads the table.
+	noLoop bool
 
 	mu    sync.RWMutex
 	flags map[Feature]FeatureFlag
@@ -389,7 +432,8 @@ type FeatureSet struct {
 // FeatureOption configures a FeatureSet at load.
 type FeatureOption func(*FeatureSet)
 
-// WithFeatureBackstop sets how often Follow rereads the table without a signal;
+// WithFeatureBackstop sets how old a followed copy may be when a request is answered
+// from it, which is also how often Follow's loop rereads the table without a signal;
 // FeatureBackstop by default. Tests shorten it.
 func WithFeatureBackstop(d time.Duration) FeatureOption {
 	return func(s *FeatureSet) {
@@ -397,15 +441,13 @@ func WithFeatureBackstop(d time.Duration) FeatureOption {
 	}
 }
 
-// LoadFeatures reads the FeatureFlags table into a FeatureSet.
+// LoadFeatures reads the FeatureFlags table into a FeatureSet. The copy stays as read
+// until Reload, and is kept current from Follow.
 func LoadFeatures(ctx context.Context, db Client, opts ...FeatureOption) (*FeatureSet, error) {
 	if db.DBType() != SpannerDBType {
 		return nil, errFeaturesUnsupportedDatabase
 	}
-	s := &FeatureSet{db: db, backstop: FeatureBackstop, flags: make(map[Feature]FeatureFlag)}
-	for _, opt := range opts {
-		opt(s)
-	}
+	s := newFeatureSet(db, opts...)
 	if err := s.Reload(ctx); err != nil {
 		return nil, err
 	}
@@ -413,12 +455,53 @@ func LoadFeatures(ctx context.Context, db Client, opts ...FeatureOption) (*Featu
 	return s, nil
 }
 
-// Reload rereads the table. A failed read leaves the copy as it was; a nil FeatureSet
+// newFeatureSet builds a FeatureSet over the database that holds no flag and has read
+// nothing.
+func newFeatureSet(db Client, opts ...FeatureOption) *FeatureSet {
+	s := &FeatureSet{db: db, backstop: FeatureBackstop, clock: time.Now, logf: logErrorf, flags: make(map[Feature]FeatureFlag)}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.fresh = freshness.New(s.load, s.backstop, featureReadTimeout, featureReadPause, s.now, s.rereadFailed)
+
+	return s
+}
+
+// now is the set's present, read through clock at every call: a test sets the clock
+// after the set is loaded.
+func (s *FeatureSet) now() time.Time {
+	return s.clock()
+}
+
+// rereadFailed logs a reread the set made itself that failed: a lookup's or the loop's.
+// ctx is the one Follow was given.
+func (s *FeatureSet) rereadFailed(ctx context.Context, err error) {
+	s.logf(ctx, "feature flags: rereading the table failed; the copy stays as it was, and the first request after %s rereads it: %v", featureReadPause, err)
+}
+
+// Reload rereads the table now: what a flip's handler calls after its commit, so the
+// instance that flipped answers from the flip at once. It reads under ctx, the
+// caller's, so it is called after a commit and never inside a transaction. A failed
+// read leaves the copy as it was and the change recorded: on a set that is followed,
+// the next lookup rereads the table under the set's own context, in the pause after a
+// reread of the set's own failed too, since the database has taken a write since. So a
+// caller whose context had ended does not leave the instance that flipped behind its
+// own flip until the backstop. A nil FeatureSet, and one LoadFeatures did not build,
 // has nothing to reread and says so.
 func (s *FeatureSet) Reload(ctx context.Context) error {
-	if s == nil {
+	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")
 	}
+	if err := s.fresh.Read(ctx); err != nil {
+		return errors.Wrap(err, "freshness.Gate.Read()")
+	}
+
+	return nil
+}
+
+// load is the set's one read of its table, made by fresh, one at a time: it reads the
+// flags and replaces the copy whole.
+func (s *FeatureSet) load(ctx context.Context) error {
 	txn := s.db.ReadOnlyTransaction()
 	defer txn.Close()
 
@@ -438,12 +521,22 @@ func (s *FeatureSet) Reload(ctx context.Context) error {
 	return nil
 }
 
+// freshen is what every lookup does first: it rereads the table when the copy is past
+// the backstop or behind a signal, in a set that is followed. A reread that failed was
+// logged, and the copy as it was answers.
+func (s *FeatureSet) freshen() {
+	if s.fresh != nil {
+		_ = s.fresh.Freshen()
+	}
+}
+
 // Enabled reports whether the flag is on. A flag the table does not hold, and every
 // flag of a nil FeatureSet, is off.
 func (s *FeatureSet) Enabled(name Feature) bool {
 	if s == nil {
 		return false
 	}
+	s.freshen()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -455,6 +548,7 @@ func (s *FeatureSet) Flag(name Feature) (FeatureFlag, bool) {
 	if s == nil {
 		return FeatureFlag{}, false
 	}
+	s.freshen()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	flag, ok := s.flags[name]
@@ -468,6 +562,7 @@ func (s *FeatureSet) EnabledNames() []string {
 	if s == nil {
 		return names
 	}
+	s.freshen()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for name, flag := range s.flags {
@@ -480,13 +575,19 @@ func (s *FeatureSet) EnabledNames() []string {
 	return names
 }
 
-// Follow keeps the copy current until ctx ends: it rereads the table on every signal
-// of KindFeatures the subscriber delivers, and at the backstop interval regardless, the
-// backstop being the correctness guard should a signal be missed. The subscriber is the
-// application's live service, which every application wires; nil is refused. A failed
-// reread is logged and the copy stays as it was until the next.
+// Follow keeps the copy current until ctx ends. From here a lookup that finds the copy
+// past the backstop, or behind a signal of KindFeatures, rereads the table before it
+// answers, under ctx and never under a request's context; and a goroutine does the same
+// ahead of the requests, on every signal the subscriber delivers and at the backstop
+// interval regardless. A signal is recorded the moment it arrives, before any reread is
+// tried, so a flip that was announced to this instance waits for no goroutine: the old
+// copy answers only while the table cannot be read. The subscriber is the application's
+// live service, which every application wires; nil is refused. A failed reread is
+// logged and the copy stays as it was; the table is left alone for a moment
+// (featureReadPause), and the first request after that tries again, or the next one
+// after a flip of this instance.
 func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error {
-	if s == nil {
+	if s == nil || s.fresh == nil {
 		return errors.New("no feature set is loaded")
 	}
 	if signals == nil {
@@ -494,6 +595,7 @@ func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error
 	}
 	wake := make(chan struct{}, 1)
 	stop, err := signals.Subscribe(KindFeatures, func() {
+		s.fresh.Nudge()
 		select {
 		case wake <- struct{}{}:
 		default:
@@ -502,12 +604,19 @@ func (s *FeatureSet) Follow(ctx context.Context, signals SignalSubscriber) error
 	if err != nil {
 		return errors.Wrap(err, "SignalSubscriber.Subscribe()")
 	}
+	s.fresh.Keep(ctx)
+	if s.noLoop {
+		context.AfterFunc(ctx, stop)
+
+		return nil
+	}
 	go s.follow(ctx, wake, stop)
 
 	return nil
 }
 
-// follow is Follow's loop.
+// follow is Follow's loop, an accelerator and nothing more: on every signal and every
+// backstop tick it asks for the reread a lookup would make, sooner, until ctx ends.
 func (s *FeatureSet) follow(ctx context.Context, signals <-chan struct{}, stop func()) {
 	defer stop()
 	ticker := time.NewTicker(s.backstop)
@@ -517,12 +626,23 @@ func (s *FeatureSet) follow(ctx context.Context, signals <-chan struct{}, stop f
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.tick()
 		case <-signals:
-		}
-		if err := s.Reload(ctx); err != nil && ctx.Err() == nil {
-			logger.FromCtx(ctx).Errorf("feature flags: rereading the table failed; the copy stays as it was until the next signal or the backstop: %v", err)
+			// The subscription recorded the signal as it arrived. A failure of the
+			// reread is logged where it happens (rereadFailed).
+			s.freshen()
 		}
 	}
+}
+
+// tick is the loop's backstop tick: it rereads the table whatever the copy's age. The
+// tick asks for the reread as a signal does, since the copy the loop read one backstop
+// ago is not yet past the backstop when the tick fires: left to the bound alone the
+// loop would reread on every other tick, and the request that found the backstop ended
+// would reread on the rest.
+func (s *FeatureSet) tick() {
+	s.fresh.Nudge()
+	s.freshen()
 }
 
 // FeatureGates is what the generated code declares gated, keyed the way the permission
@@ -638,7 +758,10 @@ func FeatureFlagsQueryKeys() (order, keys []accesstypes.Tag) {
 var featureFlagsOrder = Paging{Order: []SortField{{Field: flagNameColumn, Direction: SortAscending}}}
 
 // FeatureFlagsHandler serves the flags as a list, to a List grant on FeatureFlags: the
-// FeatureAdministrator's dialog reads it. The generated router registers it at
+// Feature flags page reads it. A request that asks for a sort on when a flag was last
+// flipped or by whom (updatedAt, updatedBy) is refused, Bad Request, since the list
+// works the two out of the flag's history and is ordered by neither
+// (refuseSortByLastFlip). The generated router registers it at
 // GET <prefix>/feature-flags on every session-serving outlet.
 func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.HandlerFunc {
 	decoder := MustNewQueryDecoder[FeatureFlag, featureFlagRequest](collection, accesstypes.List).
@@ -653,13 +776,16 @@ func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.Han
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		if err := refuseSortByLastFlip(querySet.Order()); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		page := querySet.Page()
 		if err := page.Count(ctx, a.ResourceClient()); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		resp := make([]map[string]any, 0)
+		rows := make([]*Row[FeatureFlag], 0)
 		for row, err := range querySet.List(ctx, a.ResourceClient()) {
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -667,7 +793,21 @@ func FeatureFlagsHandler(a FeatureApp, collection *GeneratedCollection) http.Han
 			if !page.Add(row) {
 				break
 			}
-			resp = append(resp, featureFlagMap(querySet.Fields(), row))
+			rows = append(rows, row)
+		}
+		// The last flips are read once the list has run: a request that names no columns
+		// learns the fields the caller may list as the list is read.
+		names := make([]string, 0, len(rows))
+		for _, row := range rows {
+			names = append(names, row.Data.Name)
+		}
+		flips, err := lastFlips(ctx, a.ResourceClient(), querySet.Fields(), names)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		resp := make([]map[string]any, 0, len(rows))
+		for _, row := range rows {
+			resp = append(resp, featureFlagMap(querySet.Fields(), row, flips))
 		}
 		if page.Reversed() {
 			slices.Reverse(resp)
@@ -701,15 +841,117 @@ func FeatureFlagHandler(a FeatureApp, collection *GeneratedCollection) http.Hand
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		flips, err := lastFlips(ctx, a.ResourceClient(), querySet.Fields(), []string{row.Data.Name})
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
-		return httpio.NewEncoder(w).Ok(featureFlagMap(querySet.Fields(), row))
+		return httpio.NewEncoder(w).Ok(featureFlagMap(querySet.Fields(), row, flips))
 	})
+}
+
+// refuseSortByLastFlip refuses a list ordered by when a flag was last flipped or by whom.
+// The list serves the two from the flag's newest change record (lastFlips), and the
+// statement that orders the list reads the flags' own table, whose columns of those
+// names the deploy step writes too: an order by either would be an order by something
+// the answer does not show. It is refused as a bad request that says what the list can
+// be sorted on.
+func refuseSortByLastFlip(order []SortField) error {
+	for _, by := range order {
+		var name string
+		switch by.Field {
+		case flagUpdatedAtColumn:
+			name = "updatedAt"
+		case flagUpdatedByColumn:
+			name = "updatedBy"
+		default:
+			continue
+		}
+
+		return httpio.NewBadRequestMessagef(
+			"the flags cannot be sorted on %s: when a flag was last turned on or off, and by whom (updatedAt and updatedBy), are worked out from the flag's history, which the list is not ordered by; sort on name, description or enabled",
+			name)
+	}
+
+	return nil
+}
+
+// lastFlip is the newest change record of one flag: when it was last flipped, and the
+// event source of who flipped it.
+type lastFlip struct {
+	Name      string    `spanner:"Name"`
+	ChangedAt time.Time `spanner:"ChangedAt"`
+	ChangedBy string    `spanner:"ChangedBy"`
+}
+
+// lastFlips reads the newest change record of each named flag from the audit table,
+// FeatureFlagChanges, keyed by the flag's name; a flag nobody has flipped has none. It is
+// what the list and the read serve as a flag's updatedAt and updatedBy, so they say what
+// the flag's history says. The flag's own row cannot: the deploy step that declares a
+// flag writes the row too, under a process's name and at the time of the deploy. Only the
+// named flags' records are read, and nothing for a request that asks neither when a flag
+// was last flipped nor by whom. The read follows the read of the rows, so a flip made
+// between the two is served as the last flip beside the state the rows held a moment
+// earlier; the next read agrees with itself.
+func lastFlips(ctx context.Context, client Client, fields []accesstypes.Field, names []string) (map[string]lastFlip, error) {
+	if len(names) == 0 || (!slices.Contains(fields, flagUpdatedAtColumn) && !slices.Contains(fields, flagUpdatedByColumn)) {
+		return nil, nil
+	}
+	if client.DBType() != SpannerDBType {
+		return nil, errFeaturesUnsupportedDatabase
+	}
+	txn := client.ReadOnlyTransaction()
+	defer txn.Close()
+
+	var rows []lastFlip
+	stmt := spanner.Statement{
+		SQL: "SELECT c.Name, c.ChangedAt, c.ChangedBy FROM FeatureFlagChanges AS c WHERE c.Name IN UNNEST(@names)" +
+			" AND c.ChangedAt = (SELECT MAX(d.ChangedAt) FROM FeatureFlagChanges AS d WHERE d.Name = c.Name)",
+		Params: map[string]any{"names": names},
+	}
+	if err := spxscan.Select(ctx, txn.SpannerReadOnlyTransaction(), &rows, stmt); err != nil {
+		return nil, errors.Wrap(err, "spxscan.Select()")
+	}
+	flips := make(map[string]lastFlip, len(rows))
+	for _, row := range rows {
+		flips[row.Name] = row
+	}
+
+	return flips, nil
+}
+
+// flippedAt is when a flag was last flipped, as the routes serve updatedAt: the time of
+// its newest change record, and nothing (null on the wire) for a flag nobody has flipped,
+// whose row holds only when the deploy step declared it.
+func flippedAt(flip lastFlip, flipped bool) *time.Time {
+	if !flipped {
+		return nil
+	}
+
+	return &flip.ChangedAt
+}
+
+// flippedBy is who last flipped a flag, as the routes serve updatedBy: the name the
+// person signs in under (EventActor), read out of the event source the flip recorded, or
+// the source as it was recorded where a process flipped it; and nothing for a flag nobody
+// has flipped. The session and the account's id the audit table keeps as evidence stay
+// there.
+func flippedBy(flip lastFlip, flipped bool) string {
+	if !flipped {
+		return ""
+	}
+	name, _ := EventActor(flip.ChangedBy)
+
+	return name
 }
 
 // featureFlagMap renders a flag's row the way the generated handlers render theirs: the
 // requested fields by wire name, a masked cell left out, the capability envelope when
-// the request asked for one.
-func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag]) map[string]any {
+// the request asked for one. updatedAt and updatedBy are served as when the flag was last
+// flipped and by whom (flippedAt, flippedBy), read from the flag's newest change record
+// in flips (lastFlips), not from the row's columns of those names.
+func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag], flips map[string]lastFlip) map[string]any {
+	flip, flipped := flips[row.Data.Name]
 	rmap := make(map[string]any, len(fields))
 	for _, field := range fields {
 		switch field {
@@ -727,11 +969,11 @@ func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag]) map[strin
 			}
 		case flagUpdatedAtColumn:
 			if !row.Masked("updatedAt") {
-				rmap["updatedAt"] = row.Data.UpdatedAt
+				rmap["updatedAt"] = flippedAt(flip, flipped)
 			}
 		case flagUpdatedByColumn:
 			if !row.Masked("updatedBy") {
-				rmap["updatedBy"] = row.Data.UpdatedBy
+				rmap["updatedBy"] = flippedBy(flip, flipped)
 			}
 		}
 	}
@@ -758,10 +1000,14 @@ type SetFeatureResult struct {
 
 // SetFeatureHandler flips a flag, to an Execute grant on SetFeature: the row takes the
 // value with the commit timestamp and the principal, the audit table gains the flip's
-// row in the same transaction, KindFeatures is signaled after the commit and before the
-// answer (bounded by FeatureSignalTimeout; a failure is logged, since the other
-// instances reload at their backstop), this instance's copy reloads, and the answer is
-// the flag from the reloaded copy. An unknown name is 404. A dry run (X-Dry-Run: true)
+// row in the same transaction, this instance's copy reloads after the commit, then
+// KindFeatures is signaled, before the answer (bounded by FeatureSignalTimeout; a
+// failure is logged, since the other instances reload at their backstop), and the
+// answer is the flag from the reloaded copy. The reload comes first so that this
+// instance answers from the flip while the signal is being sent, which waits for the
+// channel; the signal does not run under the request's context, so a request that ends
+// once the flip is committed still tells the other instances. An unknown name is 404. A
+// dry run (X-Dry-Run: true)
 // runs the frame and rolls back, as every transaction-form method does. The signaler is
 // the application's live service, which every application wires; the handler refuses
 // to be built without one. The generated router registers it at
@@ -817,9 +1063,14 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
 		}
 
+		// This instance first: the flip is on its copy, or recorded for its next lookup
+		// to read, before the other instances are told, so a request that comes while the
+		// signal is being sent is answered from the flip. The signal is sent whatever
+		// became of the reload, and of the request while it reloaded.
+		reloadErr := features.Reload(ctx)
 		signalFeatures(ctx, signals)
-		if err := features.Reload(ctx); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.FeatureSet.Reload()"))
+		if reloadErr != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(reloadErr, "resource.FeatureSet.Reload()"))
 		}
 		flag, ok := features.Flag(name)
 		if !ok {
@@ -831,9 +1082,14 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 }
 
 // signalFeatures signals the other instances that the flags changed, within the
-// timeout; a failure is logged and never fails the request.
+// timeout; a failure is logged and never fails the request. The flip is committed by
+// now, so the signal is sent whatever has become of the request: it keeps the request's
+// values and runs under the timeout alone, not under the request's context. A request
+// that ended while this instance reloaded (the page that flipped is gone) would
+// otherwise leave every other instance on the old flag until its backstop. The signal
+// is sent inside the handler's call, and nothing is left running when it returns.
 func signalFeatures(ctx context.Context, signals Signaler) {
-	ctx, cancel := context.WithTimeout(ctx, FeatureSignalTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), FeatureSignalTimeout)
 	defer cancel()
 	if err := signals.Signal(ctx, KindFeatures); err != nil {
 		logger.FromCtx(ctx).Errorf("feature flags: signaling the change failed; the other instances reload at their backstop: %v", err)

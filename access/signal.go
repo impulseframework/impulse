@@ -3,18 +3,31 @@ package access
 import "context"
 
 // ChangeSignal is the engine's seam for propagating policy-change hints
-// between instances. The Client announces after every successful policy write
-// and watches for the hints other instances announce; a hint only nudges the
-// background loop to re-read the policy store. Correctness never depends on
-// it: the heartbeat re-reads the policy store on a fixed interval regardless,
-// so a broken signal only costs propagation latency, never accuracy.
+// between instances. The Client announces once for every call that writes
+// policy and watches for the hints other instances announce; a hint is
+// recorded as it arrives, so the next check reads the policy store before it
+// answers (the first check after the pause, where a reload has just failed),
+// and wakes the background loop to read ahead of it. Correctness never
+// depends on it: no check is answered from a snapshot older than the
+// heartbeat interval regardless, so a broken signal only costs propagation
+// latency, never accuracy.
 //
 // The application supplies the implementation as an adapter over its one
 // signal channel, through ChangeSignalFunc.
 type ChangeSignal interface {
 	// Announce broadcasts that policy may have changed. The Client calls it
-	// after successful policy writes; failures are reported through the
-	// reload error handler and never fail the write.
+	// once for each call that wrote policy (a call of the UserManager,
+	// Client.PolicyChanged), as the call's last step and however many rows the
+	// call wrote: a call that failed part-way announces what it wrote. The
+	// call returns once Announce has, and the Client publishes nothing after
+	// it, so an instance that gets no CPU once it has answered holds no
+	// announcement of the Client's back. Announce is to return once the
+	// announcement is sent, and to leave nothing sending behind it: an
+	// implementation that took the signal and sent it later would depend on
+	// that same CPU. ctx carries the Client's own timeout for the
+	// announcement (two seconds), and Announce must return when it ends: the
+	// call waits for it. Failures are reported through the reload error
+	// handler, once for the call, and never fail the write.
 	Announce(ctx context.Context) error
 
 	// Watch delivers received hints by invoking onChange, blocking until ctx

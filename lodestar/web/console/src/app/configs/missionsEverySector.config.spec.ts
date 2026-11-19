@@ -241,7 +241,7 @@ describe('the Missions in every sector page', () => {
         inTenant: () => false,
         link: (route) => route,
       };
-      const menus = TestBed.runInInjectionContext(() => appMenus({ featureFlags: () => undefined }));
+      const menus = TestBed.runInInjectionContext(() => appMenus());
       return JSON.stringify(shownMenus(menus, context)).includes('"Missions in every sector"');
     };
     /** What the page's route answers a navigation: true, or where it sends the person instead. */

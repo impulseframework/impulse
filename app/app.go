@@ -112,6 +112,15 @@ type App struct {
 
 	// goFiles are the non-test Go files scanned, for the passes that follow the walk.
 	goFiles []string
+	// goRead are the Go files scanned, tests among them: what a pass that follows every
+	// Go file the application's builds compile reads (the imports, a flag's uses).
+	goRead []string
+	// walked are the directories whose Go files were read, root-relative, and leftAlone
+	// says the walk left at least one directory alone, so an import may lead into one.
+	walked    map[string]bool
+	leftAlone bool
+	// nestedModules are the directories under the root that hold a go.mod of their own.
+	nestedModules []string
 	// unattached are the methods the per-file scan could not attach, resolved per package
 	// after the walk.
 	unattached []Method
@@ -278,14 +287,6 @@ type Method struct {
 	// (google.AnyGoogleAccount), alone (WorkspacesAccounts) or beside the Workspaces
 	// Workspaces describes.
 	GoogleAccounts bool
-	// SeveralDomains reports a Google registration that names a Workspace with more
-	// than one domain, or with a spread of them (google.Workspace(name, domains...)).
-	// It changes nothing of Workspaces, which counts Workspaces: such a registration
-	// may still read WorkspacesOne. It is for a rule that counts organizations as the
-	// sign-in does, which lists a Workspace by each of its domains
-	// (signin.Audience.OneOrganization), so one Workspace of two domains is not one
-	// organization to it.
-	SeveralDomains bool
 	// AuthVar is the identifier the registration's first argument names: the Auth it is
 	// registered on. The scan attaches the method to that construction, or to the only
 	// Auth of its package when the identifier does not resolve.

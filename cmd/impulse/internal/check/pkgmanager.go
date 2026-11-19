@@ -20,6 +20,14 @@ import (
 // application: every browser app carries the same kind of lockfile, and the process files
 // and package scripts invoke that tool and no other. Two tools in one repository means
 // two lockfiles drifting apart and install steps that disagree with the pipeline.
+//
+// A browser app with no lockfile fails: the workflows install from the lockfile exactly
+// (bun ci), so an application without one cannot pass its own pipeline, and no rendering
+// carries one, since the versions it would lock are the release's own. The install that
+// writes it is the author's, once, and the check names it. The one exception is an
+// application built against a framework checkout (go.mod replaces the framework module
+// with a directory): its browser packages are linked from the checkout, by an install
+// whose lockfile names that machine's paths.
 type packageManager struct{}
 
 func (packageManager) Name() string { return "package-manager" }
@@ -77,7 +85,7 @@ func (c packageManager) Run(_ context.Context, env *Env) Result {
 		}
 	}
 	if len(byTool) == 0 {
-		return skip(c.Name(), "no browser app has a lockfile")
+		return c.unlocked(a, details)
 	}
 
 	tools := make([]string, 0, len(byTool))
@@ -107,6 +115,70 @@ func (c packageManager) Run(_ context.Context, env *Env) Result {
 	}
 
 	return pass(c.Name(), fmt.Sprintf("%d browser app(s) on %s", len(a.WebApps), tool))
+}
+
+// unlocked is the result for an application none of whose browser apps has a lockfile:
+// a failure that names the install to run and the file it writes, in the words of the
+// package manager the application's process files and scripts invoke when they invoke
+// one alone. An application built against a framework checkout is skipped, as its
+// browser packages are linked from the checkout.
+func (c packageManager) unlocked(a *app.App, details []string) Result {
+	if checkout := frameworkCheckout(a); checkout != "" {
+		return skip(c.Name(), fmt.Sprintf("no browser app has a lockfile; go.mod replaces the framework module with the checkout at %s, whose browser packages the web roots link (weblib.sh local)", checkout))
+	}
+	// The sentence says where the lockfile belongs and leaves the committing to whoever
+	// reads it: a brief quotes the failing checks to an agent that is told not to commit.
+	install := "install each web root's packages with the application's package manager, which writes the lockfile the repository keeps"
+	tool, err := c.invoked(a.Root, a.WebApps)
+	if err != nil {
+		return fail(c.Name(), err.Error())
+	}
+	if tool == bun {
+		install = "run bun install in each web root, which writes the bun.lock the repository keeps"
+	}
+
+	return fail(c.Name(), fmt.Sprintf("%d browser app(s) have no lockfile, and the workflows install from one: %s", len(details), install), details...)
+}
+
+// frameworkCheckout is the directory go.mod replaces the framework module with, or ""
+// when it replaces it with none: the mark of an application rendered against a
+// framework checkout (--dev-root).
+func frameworkCheckout(a *app.App) string {
+	if a.GoMod == nil {
+		return ""
+	}
+	for _, r := range a.GoMod.Replace {
+		if r.Old.Path == FrameworkModule && r.New.Version == "" {
+			return r.New.Path
+		}
+	}
+
+	return ""
+}
+
+// invoked is the one package manager the process files and the browser apps' package
+// scripts invoke, or "" when they invoke none or more than one.
+func (c packageManager) invoked(root string, webApps []app.WebApp) (string, error) {
+	// No tool is named "", so every invocation is foreign to it: the count of them all.
+	all, err := c.foreignInvocations(root, webApps, "")
+	if err != nil {
+		return "", err
+	}
+	if len(all) == 0 {
+		return "", nil
+	}
+	for _, tool := range []string{bun, npm, yarn, pnpm} {
+		others, err := c.foreignInvocations(root, webApps, tool)
+		if err != nil {
+			return "", err
+		}
+		// Every invocation is the tool's when none is foreign to it.
+		if len(others) == 0 {
+			return tool, nil
+		}
+	}
+
+	return "", nil
 }
 
 // foreignInvocations lists the process-file lines and package scripts that invoke a

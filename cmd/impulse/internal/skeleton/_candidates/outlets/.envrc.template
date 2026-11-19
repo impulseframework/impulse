@@ -7,6 +7,11 @@
 # --- core: every process ---
 export APP_SERVICE_NAME=outlets
 export APP_VERSION=dev
+# APP_ENVIRONMENT names the environment wherever it is not production: every answer of the
+# server carries the name and the About pop-up shows it, so a problem report says where it
+# happened. A deployment sets it to the environment's name everywhere but production, which
+# leaves it unset and names none.
+export APP_ENVIRONMENT=development
 # GOOGLE_CLOUD_LOGGING_PROJECT ships request logs to Cloud Logging; unset logs to the console.
 # export GOOGLE_CLOUD_LOGGING_PROJECT=
 # APP_TRACE_SAMPLING exports every request's spans (all) or the ones the caller sampled (edge,
@@ -48,11 +53,13 @@ export APP_PUBLIC_URL=http://127.0.0.1:4301
 # export APP_MAIL_MAILBOX=no-reply@example.com
 # export APP_MAIL_FROM=
 # export APP_MAIL_APP_PASSWORD=
-# APP_STAFF_ADMINISTRATOR_PASSWORD is the password of the staff auth's first administrator
-# (pkg/auth/staff, Administrator), which the migrate command seeds while the auth's users
-# table holds no rows; a deployment generates it as a secret, and the bootstrap creates the
-# development logins instead, so it stays unset here.
-# export APP_STAFF_ADMINISTRATOR_PASSWORD=
+# APP_STAFF_ADMINISTRATOR is the email address of the staff auth's first administrator
+# (pkg/auth/staff, InviteAdministrator): while nobody of the auth holds the Super
+# Administrator role the migrate command has an invitation mailed there, and the person
+# signs in from its link. A deployment names it per environment, with the mailbox above,
+# since the link is never written to a log; the bootstrap creates the development logins
+# instead, one of them holding the role, so it stays unset here.
+# export APP_STAFF_ADMINISTRATOR=
 # The Firestore database the live service runs on, beside the Spanner database (the live
 # driver's settings, embedded in pkg/config): the subscriptions the server registers, the change sets the browser
 # listens to, and the signals document the application's instances tell each other through.
@@ -89,11 +96,12 @@ export APP_MEMBERS_DIRECTORY_ADMINISTERED_TENANTS=
 # export APP_MEMBERS_DIRECTORY_CLIENT_ID=
 # export APP_MEMBERS_DIRECTORY_CLIENT_SECRET=
 export APP_MEMBERS_DIRECTORY_REDIRECT_URL=http://127.0.0.1:4303/portal/api/user/directory/callback
-# APP_MEMBERS_ADMINISTRATOR is the sign-in name of the members auth's first administrator:
-# while the auth has no users the migrate command creates a user without a password under
-# it, holding the administrator roles, which that person's first sign-in links to. A
-# deployment names it per environment, and the bootstrap seeds the development members
-# instead, so it stays unset here.
+# APP_MEMBERS_ADMINISTRATOR is the email address of the members auth's first administrator
+# (pkg/auth/members, InviteAdministrator): while nobody of the auth holds the Super
+# Administrator role the migrate command has an invitation mailed there, and the person's
+# first sign-in through the directory, from its link, is tied to the roles by the
+# invitation. A deployment names it per environment, and the bootstrap seeds the
+# development members instead, so it stays unset here.
 # export APP_MEMBERS_ADMINISTRATOR=
 
 # --- site: the served site ---

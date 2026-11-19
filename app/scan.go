@@ -31,6 +31,53 @@ var skippedDirs = map[string]bool{
 	".angular":     true,
 }
 
+// The names the Go tool goes by: the directory it keeps for a package's test fixtures,
+// and the file that makes a directory the root of a module.
+const (
+	testdataDir = "testdata"
+	goModFile   = "go.mod"
+)
+
+// passedOverByGo reports whether the Go tool passes over a directory or a file of this
+// name: one whose name begins with "_" or ".", and a directory named testdata (go help
+// packages). No build reads such a file. The pattern ./... matches no package under such
+// a directory, so what is there is no part of the application (a scratch program, a
+// test's fixture, a tool's own directory) unless a package the pattern does match imports
+// it by its path, which followImports reads.
+func passedOverByGo(name string, isDir bool) bool {
+	return strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") || (isDir && name == testdataDir)
+}
+
+// GoToolReads reports whether a file of this name is a Go file the Go tool reads: its
+// name ends in ".go" and does not begin with "_" or "." (go help packages). It is the one
+// place the scan, the checks and impulse brand decide a Go file by its name, so that a
+// scratch file kept beside a package's real ones (_scratch.go, .draft.go), which no build
+// compiles, is read by none of them. It is asked by the scan of every file it walks
+// (scanFile, scanPackageDir) and of a generator program's directory (generate.go); by
+// each check that reads one directory's Go files for itself (the check package); and by
+// impulse brand of the file it writes an auth's mail name into and of the files it looks
+// for a main in (the brand package). The commands that change an application (impulse
+// add, impulse remove) and the reading of an application's shape list Go files by
+// themselves still. A test file and a generated file are Go files the Go tool reads; a
+// reader that leaves them out says so itself.
+func GoToolReads(name string) bool {
+	return strings.HasSuffix(name, ".go") && !passedOverByGo(name, false)
+}
+
+// skipsDir reports whether a walk of the application leaves a directory of this name
+// alone: one that holds dependencies or build output, and one the Go tool passes over. The
+// application's root is the caller's to exempt, whatever it is called.
+func skipsDir(name string) bool {
+	return skippedDirs[name] || passedOverByGo(name, true)
+}
+
+// holdsModule reports whether a directory holds a go.mod of its own.
+func holdsModule(abs string) bool {
+	info, err := os.Stat(filepath.Join(abs, goModFile))
+
+	return err == nil && !info.IsDir()
+}
+
 var (
 	emulatorImageRE   = regexp.MustCompile(`cloud-spanner-emulator/emulator:(\d[A-Za-z0-9.\-]*)`)
 	emulatorHarnessRE = regexp.MustCompile(`NewSpannerContainer\(\s*[^,()]+,\s*"([^"]+)"`)
@@ -43,24 +90,54 @@ var (
 	processFileRE      = regexp.MustCompile(`^(Procfile.*|process-compose.*\.ya?ml)$`)
 )
 
-// scan walks the tree once and records every declaration the checks read.
+// scan walks the tree once and records every declaration the checks read. Its Go files
+// are the ones go build ./... and go test ./... compile from the application's module:
+//
+//   - A directory ./... matches nothing under (its name begins with "_" or ".", or it is
+//     testdata) is not descended into, so a scratch program kept beside the application
+//     fails no check; a package under one that the application imports by its path is
+//     compiled all the same, and is read (followImports).
+//   - A Go file whose own name begins with "_" or "." is not read.
+//   - A directory under the root that holds a go.mod is another module, where ./... stops:
+//     its Go files are not read, while what the scan reads besides Go (a browser
+//     application's angular.json, a process file) still is, since the skeleton's web
+//     directory is such a module.
+//   - A file placed directly in a directory the Go tool does read, tmp among them, is
+//     read, as go build ./... compiles it.
+//
+// A file a build constraint leaves out (a //go:build line, a _windows.go name) is read:
+// some build compiles it. A directory named vendor or dist is left alone as dependencies
+// and build output, as it was before the Go tool's rule was followed.
 func (a *App) scan() error {
+	a.walked = map[string]bool{".": true}
 	err := filepath.WalkDir(a.Root, func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.Wrap(err, "filepath.WalkDir()")
 		}
-		if d.IsDir() {
-			if abs != a.Root && skippedDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-
+		if !d.IsDir() {
+			return a.scanFile(abs, d.Name())
+		}
+		if abs == a.Root {
 			return nil
 		}
+		if skipsDir(d.Name()) {
+			a.leftAlone = true
 
-		return a.scanFile(abs, d.Name())
+			return filepath.SkipDir
+		}
+		rel := a.Rel(abs)
+		a.walked[rel] = true
+		if holdsModule(abs) {
+			a.nestedModules = append(a.nestedModules, rel)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return errors.Wrap(err, "filepath.WalkDir()")
+	}
+	if err := a.followImports(); err != nil {
+		return err
 	}
 	if err := versionedSecretClash(a.EnvTags); err != nil {
 		return err
@@ -87,7 +164,11 @@ func (a *App) scanFile(abs, name string) error {
 		}
 		a.EmulatorImages = append(a.EmulatorImages, findRefs(rel, data, emulatorImageRE)...)
 		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreImageRE)...)
+	case strings.HasSuffix(name, ".go") && (!GoToolReads(name) || a.inNestedModule(rel)):
+		// A Go file no build of the application reads, test file or not: one the Go tool
+		// passes over by its name, and one in a module of its own under the root.
 	case strings.HasSuffix(name, "_test.go"):
+		a.goRead = append(a.goRead, rel)
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			return errors.Wrap(err, "os.ReadFile()")
@@ -110,7 +191,107 @@ func (a *App) scanFile(abs, name string) error {
 			a.GrantProofs = append(a.GrantProofs, proofs...)
 		}
 	case strings.HasSuffix(name, ".go"):
+		a.goRead = append(a.goRead, rel)
+
 		return a.scanGoFile(abs, rel)
+	}
+
+	return nil
+}
+
+// inNestedModule reports whether a root-relative path lies in a module of its own under
+// the root: in or under a directory the walk found a go.mod in.
+func (a *App) inNestedModule(rel string) bool {
+	for _, dir := range a.nestedModules {
+		if within(dir, rel) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// underOwnModule reports whether a root-relative directory the walk did not read lies in
+// a module of its own: the directory, or one above it short of the root, holds a go.mod.
+func (a *App) underOwnModule(dir string) bool {
+	for dir != "." && dir != "/" {
+		if holdsModule(a.Abs(dir)) {
+			return true
+		}
+		dir = path.Dir(dir)
+	}
+
+	return false
+}
+
+// followImports reads the packages the walk left alone that the application imports. The
+// walk leaves alone what ./... matches nothing under, yet go build ./... compiles every
+// package the matched ones import, wherever it lives, and go test ./... every package
+// their tests import: a package under internal/_cfg or under a testdata directory that
+// another package names by its import path is the application's, and so is what it
+// imports in turn. Each such package's own directory is read, never what lies under it.
+// A tree in which the walk left nothing alone has nothing to follow and is not read
+// again.
+func (a *App) followImports() error {
+	if !a.leftAlone {
+		return nil
+	}
+	// The list grows as packages are read, so what they import is followed too.
+	for i := 0; i < len(a.goRead); i++ {
+		for _, importPath := range importPaths(a.Abs(a.goRead[i])) {
+			dir, inModule := a.ModuleDir(importPath)
+			if !inModule || a.walked[dir] {
+				continue
+			}
+			a.walked[dir] = true
+			if a.underOwnModule(dir) {
+				continue
+			}
+			if err := a.scanPackageDir(dir); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// importPaths reads the import paths a Go file names. A file that does not parse names
+// none here: what is wrong with it is the compiler's to say.
+func importPaths(abs string) []string {
+	f, err := parser.ParseFile(token.NewFileSet(), abs, nil, parser.ImportsOnly)
+	if f == nil || err != nil && len(f.Imports) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(f.Imports))
+	for _, spec := range f.Imports {
+		if importPath, err := strconv.Unquote(spec.Path.Value); err == nil {
+			paths = append(paths, importPath)
+		}
+	}
+
+	return paths
+}
+
+// scanPackageDir reads the Go files of one package directory the walk left alone, as the
+// walk reads a Go file; a directory the tree does not hold is an import the compiler
+// reports, and reads as nothing.
+func (a *App) scanPackageDir(dir string) error {
+	entries, err := os.ReadDir(a.Abs(dir))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
+		return errors.Wrap(err, "os.ReadDir()")
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !GoToolReads(entry.Name()) {
+			continue
+		}
+		if err := a.scanFile(filepath.Join(a.Abs(dir), entry.Name()), entry.Name()); err != nil {
+			return err
+		}
 	}
 
 	return nil

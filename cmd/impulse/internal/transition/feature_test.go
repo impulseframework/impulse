@@ -74,13 +74,13 @@ func TestAddFeatureApply(t *testing.T) {
 			name:    "the first flag of an application without a seed",
 			feature: AddFeature{Name: "cargo_manifest"},
 			wantDid: []string{
-				`pkg/resources/features.go: declared CargoManifest ("cargo_manifest") with a doc stub; the comment is the description the flags dialog shows, so replace it`,
+				`pkg/resources/features.go: declared CargoManifest ("cargo_manifest") with a doc stub; the comment is the description the Feature flags page shows, so replace it`,
 				`schema/devseed/000001_dev_feature_flags.up.sql and .down.sql: the development seed's feature flags file, with the "cargo_manifest" row off; set Enabled to TRUE there to start development and the test environments with the feature on`,
 				`ran go generate ./..., which listed CargoManifest in Features() and added "cargo_manifest" to the browser's Feature union`,
 			},
 			wantFiles: map[string]string{
 				"pkg/resources/features.go": "package resources\n\nimport \"github.com/impulseframework/impulse/resource\"\n\n" + featuresLeadText() + "\n" +
-					"// CargoManifest is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the feature flags dialog shows beside its switch.\nconst CargoManifest resource.Feature = \"cargo_manifest\"\n",
+					"// CargoManifest is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the Feature flags page shows beside the flag.\nconst CargoManifest resource.Feature = \"cargo_manifest\"\n",
 				"schema/devseed/000001_dev_feature_flags.up.sql":   featureSeedLead + "\nINSERT INTO FeatureFlags (Name, Description, Enabled, UpdatedAt, UpdatedBy)\n  VALUES ('cargo_manifest', '', FALSE, PENDING_COMMIT_TIMESTAMP(), 'Process devseed');\n",
 				"schema/devseed/000001_dev_feature_flags.down.sql": featureSeedDownLead + "\nDELETE FROM FeatureFlags WHERE Name = 'cargo_manifest';\n",
 			},
@@ -90,12 +90,12 @@ func TestAddFeatureApply(t *testing.T) {
 			feature: AddFeature{Name: "cargo_manifest"},
 			extra:   featureFiles,
 			wantDid: []string{
-				`pkg/resources/features.go: declared CargoManifest ("cargo_manifest") with a doc stub; the comment is the description the flags dialog shows, so replace it`,
+				`pkg/resources/features.go: declared CargoManifest ("cargo_manifest") with a doc stub; the comment is the description the Feature flags page shows, so replace it`,
 				`schema/devseed/000002_dev_feature_flags.up.sql and .down.sql: the "cargo_manifest" row, off; set Enabled to TRUE there to start development and the test environments with the feature on`,
 				`ran go generate ./..., which listed CargoManifest in Features() and added "cargo_manifest" to the browser's Feature union`,
 			},
 			wantFiles: map[string]string{
-				"pkg/resources/features.go":                        featureFiles["pkg/resources/features.go"] + "\n// CargoManifest is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the feature flags dialog shows beside its switch.\nconst CargoManifest resource.Feature = \"cargo_manifest\"\n",
+				"pkg/resources/features.go":                        featureFiles["pkg/resources/features.go"] + "\n// CargoManifest is a feature flag. Replace this sentence with what the feature turns on:\n// the comment is the description the Feature flags page shows beside the flag.\nconst CargoManifest resource.Feature = \"cargo_manifest\"\n",
 				"schema/devseed/000002_dev_feature_flags.up.sql":   featureSeedUp + "\nINSERT INTO FeatureFlags (Name, Description, Enabled, UpdatedAt, UpdatedBy)\n  VALUES ('cargo_manifest', '', FALSE, PENDING_COMMIT_TIMESTAMP(), 'Process devseed');\n",
 				"schema/devseed/000002_dev_feature_flags.down.sql": featureSeedDn + "\nDELETE FROM FeatureFlags WHERE Name = 'cargo_manifest';\n",
 			},
@@ -105,7 +105,7 @@ func TestAddFeatureApply(t *testing.T) {
 			feature: AddFeature{Name: "cargo_manifest"},
 			extra:   map[string]string{"schema/devseed/000001_dev_tenants.up.sql": "INSERT INTO Tenants (Id, Name) VALUES ('north', 'North');\n"},
 			wantDid: []string{
-				`pkg/resources/features.go: declared CargoManifest ("cargo_manifest") with a doc stub; the comment is the description the flags dialog shows, so replace it`,
+				`pkg/resources/features.go: declared CargoManifest ("cargo_manifest") with a doc stub; the comment is the description the Feature flags page shows, so replace it`,
 				`schema/devseed/000002_dev_feature_flags.up.sql and .down.sql: the development seed's feature flags file, with the "cargo_manifest" row off; set Enabled to TRUE there to start development and the test environments with the feature on`,
 				`ran go generate ./..., which listed CargoManifest in Features() and added "cargo_manifest" to the browser's Feature union`,
 			},
@@ -286,7 +286,7 @@ func TestFeatureMeanings(t *testing.T) {
 		meaning string
 		wants   []string
 	}{
-		{name: "add", meaning: AddFeature{Name: "cargo_manifest"}.Meaning(), wants: []string{"@feature(CargoManifest)", "Feature.CargoManifest", "SetFeature", "FeatureAdministrator", "openFeatureFlagsDialog", "impulse remove feature cargo_manifest"}},
+		{name: "add", meaning: AddFeature{Name: "cargo_manifest"}.Meaning(), wants: []string{"@feature(CargoManifest)", "Feature.CargoManifest", "SetFeature", "FeatureAdministrator", "featureFlagsPage(resourceMeta)", "featureFlagsRoute(resourceMeta)", "feature-flags/<name>/changes", "impulse remove feature cargo_manifest"}},
 		{name: "remove", meaning: RemoveFeature{Name: "debriefs"}.Meaning(), wants: []string{"inline the on branch", "MigrateFeatures", "FeatureFlagChanges"}},
 	}
 	for _, tt := range tests {

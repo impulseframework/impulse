@@ -97,9 +97,9 @@ func TestStore_isolation(t *testing.T) {
 // transaction of the application's is open on the same pool, under the same context:
 // they succeed. The store reads on a connection of its own, and the PostgreSQL client
 // marks no context, so nothing refuses the read as the Spanner client refuses one
-// under a transaction's context. The permission engine's reload on the check path
-// therefore works inside a transaction here, and a check made right after a local
-// policy write sees the write.
+// under a transaction's context. The permission engine reads on its own context either
+// way, and a check made inside a transaction right after a policy write sees the write
+// (TestEngine_checksInsideAnOpenTransaction).
 func TestStore_readsWhileATransactionIsOpen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -133,6 +133,19 @@ func TestStore_readsWhileATransactionIsOpen(t *testing.T) {
 	if roles, err := store.ListRoles(ctx, scope); err != nil || len(roles) != 1 {
 		t.Errorf("ListRoles() while a transaction is open = (%v, %v), want the one role", roles, err)
 	}
+}
+
+// TestEngine_checksInsideAnOpenTransaction runs the engine's suite on PostgreSQL: a
+// role is taken away, and the first check after the engine learns of it is made inside
+// an open transaction of another request. The check sees the role gone: the engine
+// reloads on its own context, on a connection of the store's own, beside the
+// transaction.
+func TestEngine_checksInsideAnOpenTransaction(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	store, database := prepareStore(ctx, t)
+	storetest.RunEngine(t, store, openTransaction(database))
 }
 
 // TestDDL_keys pins the shape of the tables: Kind leads every key and is

@@ -403,6 +403,13 @@ func TestAuthApply(t *testing.T) {
 		"\treturn &DataConfiguration{\n\t\tspannerClient: spannerClient,\n\t\tstaff:         staffAuth,\n\t}, nil\n",
 		"\treturn assemble(spannerClient, staffAuth), nil\n", 1)
 
+	// What the foothold file leaves its author: the first administrator's invitation
+	// where the application generates the auth's management, whose acceptance hook gives
+	// the invitation's roles, and no first administrator where it generates none.
+	const (
+		invited    = "pkg/auth/partners/foothold.go: the first administrator the migrate command invites while nobody of the auth holds the Super Administrator role, by an invitation mailed to the address the placement names (APP_PARTNERS_ADMINISTRATOR) that gives the Super Administrator role and the first administrator's roles; no account and no password are made ahead of the person, who signs in from the link by a method of the auth. Author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the invitation gives) with the role file, declare the address in the data level (APP_PARTNERS_ADMINISTRATOR, a setting with no secret tag), invite from pkg/deploy InviteAdministrators and send the invitation again from ReinviteAdministrator (the migrate command's -reinvite-administrator), as they are written for the auth the application has"
+		notInvited = "pkg/auth/partners/foothold.go: AdministratorRoles, the roles whose holder can give a role back, to author with the role file. The deployment invites no first administrator for the partners auth: the application generates no management of the auth's people, so nothing would give an accepted invitation its roles. impulse check refuses the auth as it stands (first-administrator), since nobody can be invited as its first administrator and an account seeded by hand is refused too: have the program generate the management (generation.GenerateIdentity), build the auth's identity client from it in New, and invite the first administrator as the tool writes foothold.go for such an auth"
+	)
 	const packageDid = "pkg/auth/partners: the partners auth package (foothold.go, partners.go, password.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods password, each in its own file"
 	const migrationsDid = "schema/migrations: 000005_PartnersAccess, 000006_PartnersSessionUsers, 000007_PartnersSessions, the partners auth's tables: the access tables copied from the staff auth's under the Partners prefix, and the Auth session tables (sessions, users with their addresses, identities, auth events, pending sign-ins, sign-in attempts, sign-in methods, mail links)"
 	const rolesDid = "pkg/auth/partners/roles.json: the partners auth's role file, empty: author its roles when its surfaces are bound"
@@ -444,7 +451,7 @@ func TestAuthApply(t *testing.T) {
 			auth:    Auth{Name: "partners", Outlet: "default"},
 			wantDid: []string{packageDid, migrationsDid, rolesDid, configDid, "ran go generate ./..."},
 			wantSkipped: []string{
-				`pkg/auth/partners/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a user named administrator with a generated password; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the password in the data level (APP_PARTNERS_ADMINISTRATOR_PASSWORD, secret:"generated") and seed it from pkg/deploy SeedAdministrators`,
+				notInvited,
 				"pkg/config/data.go: Close releases the staff auth only; release the partners auth too",
 				programFile + ": the default outlet is served by a hand-written router, so its declaration carries no Auth to point at the partners auth; mount the auth's session group under /api in the router",
 			},
@@ -590,7 +597,7 @@ func TestAuthApply(t *testing.T) {
 					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
 					// The hook that gives a person who signs up their place: here they create a
 					// tenant of their own, so the comment says an open method names no role.
-					"\t// Here a person who signs up holds no role of the whole application: they create a\n\t// Tenant of their own, and an open method names no default role.\n\tauthSession.SetSignUpSeated(identityClient.SignedUp())\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
+					"\t// Here a person who signs up holds no role of the whole application: they create a\n\t// Tenant of their own, and an open method names no default role.\n\tauthSession.SetSignUpSeated(identityClient.SignedUp())\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 					"func (a *Auth) Identity() *partnersidentity.Client {\n\treturn a.identity\n}\n",
 					"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				} {
@@ -633,7 +640,7 @@ func TestAuthApply(t *testing.T) {
 				"ran go generate ./...",
 			},
 			wantSkipped: []string{
-				"pkg/auth/partners/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, seeded for the directory registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (APP_PARTNERS_ADMINISTRATOR) and seed it from pkg/deploy SeedAdministrators",
+				notInvited,
 				"pkg/config/data.go: Close releases the staff auth only; release the partners auth too",
 				"no environment template (.envrc.template, .env.template, .env.example) to add the directory method's variables to (APP_PARTNERS_DIRECTORY_TENANT_ID, APP_PARTNERS_DIRECTORY_ADMINISTERED_TENANTS, APP_PARTNERS_DIRECTORY_CLIENT_ID, APP_PARTNERS_DIRECTORY_CLIENT_SECRET, APP_PARTNERS_DIRECTORY_REDIRECT_URL)",
 			},
@@ -723,6 +730,7 @@ func TestAuthApply(t *testing.T) {
 			auth:  Auth{Name: "partners", Outlet: "portal"},
 			extra: map[string]string{programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
 			wantSkipped: []string{
+				invited,
 				programFile + `: the program generates each auth's management (GenerateIdentity("pkg/identity")), so the regeneration writes the partners auth's packages under pkg/identity and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client, which the tool does not write. The auth builds its client when it opens (partners.Auth.Identity(), with the hooks a sign-in gives roles through set in New): hand it to the App through the Configurer, and add the accessor where the App is declared and on every test configurer; the application does not compile until it holds`,
 			},
 			// The default outlet still declares the staff auth, so its management stays.
@@ -772,6 +780,11 @@ func TestAuthApply(t *testing.T) {
 			extra: map[string]string{
 				programFile:                           authRouterProgram,
 				"pkg/resources/tenant_directories.go": "package resources\n\ntype (\n\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\tTenantDirectory struct {\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t}\n)\n",
+			},
+			wantDid: []string{
+				// The auth's identity provider was given no words: the brief says what people
+				// read for it and names the file where its own name goes.
+				programFile + `: people read the company-sso method as "Company Sso", words made from its registration name, on the login page's button (Sign in with Company Sso) and in the lists of a person's ways to sign in; to show the provider's own name, chain .Labeled("<words>") on the declaration (generation.OIDCMethod("company-sso").Labeled("Lakeside ID")) and run go generate ./...`,
 			},
 			wantSkipped: []string{
 				`test/integration/harness_test.go and cmd/deployment/migrate/main_test.go: the company-sso registration validates its issuer at registration whether or not the directory is simulated, so give the employees auth's construction in the harness CompanySso: employees.CompanySsoSettings{Issuer: "https://provider.example.com", RedirectURL: <the served callback>} and set APP_EMPLOYEES_COMPANY_SSO_ISSUER=https://provider.example.com where the migrate run's environment is`,
@@ -1129,11 +1142,17 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 				portalMenus + ": without the pages of the staff auth's management (the identityMenuPages spreads and what they alone used): the outlet's program generates no management of the members auth, so its API description names no such page, and the library refuses a request for one when the application loads",
 				renderedConfig,
 			},
-			wantSkipped: []string{portalProgram + ": the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the members auth, so the tool adds none: the members auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does. To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does"},
+			wantSkipped: []string{portalProgram + ": the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the members auth, so the tool adds none: the members auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does; impulse check refuses an auth whose roles the application gives while it builds no identity client (first-administrator). To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does"},
+			// The generated metadata stays imported: the Feature flags page, which is no page
+			// of the management, reads it in both files.
+			wantText: map[string][]string{
+				portalRoutes: {"import { resourceMeta } from '@app/service/zz_gen_resources';\n", "      featureFlagsRoute(resourceMeta),\n"},
+				portalMenus:  {"import { resourceMeta } from '@app/service/zz_gen_resources';\n", "            featureFlagsPage(resourceMeta),\n"},
+			},
 			neverText: map[string][]string{
 				portalProgram:                 {"GenerateIdentity"},
-				portalRoutes:                  {"identityRoutes", "apiDescriptor", "resourceMeta"},
-				portalMenus:                   {"identityMenuPages", "apiDescriptor", "resourceMeta"},
+				portalRoutes:                  {"identityRoutes", "apiDescriptor"},
+				portalMenus:                   {"identityMenuPages", "apiDescriptor"},
 				"pkg/auth/members/members.go": {"identityClient", "membersidentity"},
 			},
 		},
@@ -1301,54 +1320,5 @@ func TestWithoutMaker(t *testing.T) {
 	inline := "\tpartnersAuth, err := partners.New(ctx, spannerClient, &partners.Settings{CookieKey: cookieKey, TenantDeclarations: app.NewTenantDeclarationReader(), TenantMaker: app.NewTenantMaker(tenants, liveService)})\n"
 	if got, want := withoutMaker(inline), "\tpartnersAuth, err := partners.New(ctx, spannerClient, &partners.Settings{CookieKey: cookieKey, TenantDeclarations: app.NewTenantDeclarationReader()})\n"; got != want {
 		t.Errorf("withoutMaker() of an inline literal = %q, want %q", got, want)
-	}
-}
-
-// Test_footholdLink pins what the note a membership foothold leaves says of the seeded
-// user's first sign-in: linked through the registration the foothold names; linked by
-// nothing where the tenants have directories and the foothold names none, with what the
-// author does about it; and linked on the name, as ever, where the auth sets no
-// directory admission.
-func Test_footholdLink(t *testing.T) {
-	t.Parallel()
-
-	application := func(kind, name string) authpkg.Method {
-		return authpkg.Method{Kind: kind, Name: name, Authority: AuthorityApplication}
-	}
-	tenanted := &authpkg.TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader"}
-	tests := []struct {
-		name string
-		spec *authpkg.Spec
-		want string
-	}{
-		{
-			name: "one Microsoft Entra tenant, where the tenants have directories",
-			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodAzure, "directory")}, TenantPolicy: tenanted},
-			want: "seeded for the directory registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration",
-		},
-		{
-			name: "an organization's identity provider, where the tenants have directories",
-			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodOIDC, "company-sso")}, TenantPolicy: tenanted},
-			want: "seeded for no registration and linked to by no sign-in while the application's tenants have directories",
-		},
-		{
-			name: "two directory methods, where the tenants have directories",
-			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodAzure, "directory"), application(app.MethodGoogle, "workspace")}, TenantPolicy: tenanted},
-			want: "name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method and seed the administrator with a password, which impulse check holds the application to (first-administrator)",
-		},
-		{
-			name: "an organization's identity provider in an application with no tenant record",
-			spec: &authpkg.Spec{Methods: []authpkg.Method{application(app.MethodOIDC, "company-sso")}},
-			want: "which the person's first sign-in links to",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := footholdLink(tt.spec); !strings.Contains(got, tt.want) {
-				t.Errorf("footholdLink() = %q, want it to say %q", got, tt.want)
-			}
-		})
 	}
 }

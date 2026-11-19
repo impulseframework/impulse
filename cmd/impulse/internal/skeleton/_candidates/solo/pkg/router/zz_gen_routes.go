@@ -83,6 +83,7 @@ type GeneratedHandlers interface {
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
+	FeatureFlagChanges() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
@@ -241,6 +242,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	featureFlagHandler := h.FeatureFlag()
 	bounded.Get("/api/feature-flags/{featureFlagName}", featureFlagHandler)
 	bounded.Post("/api/feature-flags/{featureFlagName}", featureFlagHandler)
+
+	bounded.Get("/api/feature-flags/{featureFlagName}/changes", h.FeatureFlagChanges())
 
 	bounded.Get("/api/features", h.Features())
 

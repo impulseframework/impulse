@@ -4,7 +4,7 @@ import { scriptedTransport } from '@impulseframework/resource/testing';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { API_VERSION } from '@impulseframework/resource-angular/types';
-import { ReleaseComponent } from './release.component';
+import { ReleaseComponent, releaseWords, sameRelease } from './release.component';
 
 // The line shows the release the server named on its last answer and nothing before one,
 // and when this build names another release it says which build the tab runs.
@@ -61,5 +61,29 @@ describe('ReleaseComponent', () => {
     const later = TestBed.createComponent(ReleaseComponent);
     later.detectChanges();
     expect((later.nativeElement.textContent as string).trim()).toBe('v0.3.1');
+  });
+});
+
+describe('releaseWords', () => {
+  const cases: { name: string; server: string; build: string | undefined; want: string }[] = [
+    { name: "the server's release alone where the tab runs it", server: 'v0.3.1', build: 'v0.3.1', want: 'v0.3.1' },
+    { name: 'one release with and without a leading v', server: 'v0.3.1', build: '0.3.1', want: 'v0.3.1' },
+    {
+      name: 'which build the tab runs where it is another',
+      server: 'v0.3.1',
+      build: 'v0.3.0',
+      want: 'v0.3.1 (this tab runs v0.3.0)',
+    },
+    { name: "the server's release alone for a local build", server: 'v0.3.1', build: undefined, want: 'v0.3.1' },
+  ];
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(releaseWords(tt.server, tt.build)).toBe(tt.want);
+    });
+  }
+
+  it('sameRelease sets a leading v aside and nothing else', () => {
+    expect(sameRelease('v0.3.1', '0.3.1')).toBe(true);
+    expect(sameRelease('0.3.1', '0.3.10')).toBe(false);
   });
 });

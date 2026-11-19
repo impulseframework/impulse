@@ -5017,6 +5017,19 @@ Content-Type: application/json
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "FeatureFlagChanges denied",
+			method:       http.MethodGet,
+			target:       "/console/api/feature-flags/authz-test-key/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "FeatureFlagChanges granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/feature-flags/authz-test-key/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "SetFeature denied",
 			method:       http.MethodPost,
 			target:       "/console/api/set-feature",
@@ -5067,6 +5080,19 @@ Content-Type: application/json
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/feature-flags/authz-test-key",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "FeatureFlagChanges (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/feature-flags/authz-test-key/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "FeatureFlagChanges (portal) granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/feature-flags/authz-test-key/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

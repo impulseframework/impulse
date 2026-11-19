@@ -204,6 +204,13 @@ Reload (the library's `AppUpdateService`, provided by `provideAppUpdate()` above
 development stack runs `dev` on both sides, so the walkthrough cannot show the refusal;
 `test/integration/apiversion_test.go` proves it over a served router built from a release.
 
+The server names the environment it runs in the same way. `APP_ENVIRONMENT` in the
+configuration (`development` in `.envrc`) is what `App.ServerEnvironment()` hands the
+generated router, which puts it on every answer as `X-Environment`; the client keeps it
+(`client.serverEnvironment`) and the About pop-up, the last entry of the Help menu, shows it
+under the release and copies both for a problem report. Production leaves the variable
+unset: no header, and no environment line in the pop-up.
+
 The console outlet's oldest answered release is declared in `cmd/generate/generator.go`,
 `generation.OldestAnswered("0.1.0")`: the first release, which is what an outlet without
 the option answers from, written out so the place to raise it is on record. The portal
@@ -368,8 +375,10 @@ The commendations desk is behind a feature flag, and the flag is seeded off. Sig
 the permission digest carries no `Commendations` and no `PilotCards.commendations`, so the
 console shows no page and no card field for it, and a request naming the card's field is
 refused as an unknown field. Turn the flag on (Feature flags, under System in
-Headquarters, opens the library's dialog for anyone holding List on `FeatureFlags`; its toggles are live for a
-login holding Execute on `SetFeature`, read-only otherwise; the walkthrough does the same
+Headquarters, is the library's page for anyone holding List on `FeatureFlags`: the flags by
+name with who last turned each on or off and when, a History button on each row, and, for a
+login holding Execute on `SetFeature`, Turn on and Turn off in the row's menu, each asking
+first; the walkthrough does the same
 through `POST /console/api/set-feature` with `{"name":"commendations","enabled":true}`)
 and the desk exists: its routes answer, the digest carries it, the Commendations item
 appears in the console's navigation without a reload, and Pilot Pax's card reads
@@ -377,13 +386,16 @@ appears in the console's navigation without a reload, and Pilot Pax's card reads
 instance of the application follows the flip within a moment, with no restart and no
 release; turn it off again and the desk is gone everywhere. The flag's value lives in the
 application's database, so it is per environment by construction, and every flip is
-recorded in `FeatureFlagChanges`.
+recorded in `FeatureFlagChanges`, which the flag's History reads
+(`GET /console/api/feature-flags/commendations/changes`, under List on `FeatureFlags`:
+when, what the flag was turned to, and the sign-in name of whoever turned it).
 
 How it is wired:
 
 - The declaration. [`pkg/resources/features.go`](pkg/resources/features.go) declares
   `Commendations resource.Feature = "commendations"`, its doc comment the description an
-  administrator reads. `@feature(Commendations)` on the `Commendation` struct
+  administrator reads (the page lists the flag as "Commendations", its name in words, and
+  the description opens with the same words in place of the constant's name). `@feature(Commendations)` on the `Commendation` struct
   ([`@feature`](pkg/resources/commendations.go)) gates the desk whole; on
   `PilotCard.Commendations` ([`@feature.field`](pkg/computedresources/pilot_cards.go)) it
   gates the one field. The generator writes `Features()` and `FeatureGates()` into
@@ -420,7 +432,9 @@ How it is wired:
   console, `resourceRoutes` reads `feature` from the generated metadata and guards the
   desk's route with `featureMatch`, `resourcePage` carries the flag onto the desk's menu
   entry, the pilot card's "Cited" line on the dashboard sits under `*impulseFeature`, and
-  Feature flags, under System, opens the library's dialog; `pilot-card.component.spec.ts`
+  Feature flags, under System, is the library's page (`featureFlagsPage(resourceMeta)` in
+  the menu file, `featureFlagsRoute(resourceMeta)` among Headquarters' routes,
+  [`feature.history`](web/console/src/app/app.routes.ts)); `pilot-card.component.spec.ts`
   covers the card in both states, and the walkthrough's feature-flags section drives the
   flip through `SetFeature`.
 
@@ -532,10 +546,14 @@ A sector that is deleted leaves nothing behind
 ([`tenancy.deleted-tenant`](pkg/resources/sectors.go)): the generated delete path removes,
 in the transaction that deletes the row, the roles people held in the sector, the custom
 roles made in it and the invitations into it that still stood, in the crew's tables and
-the members' alike, and a person who held roles in that sector alone goes with it, while
-one who holds a role elsewhere stays. No role Lodestar ships holds Delete on `Sectors`;
-the suite gives the governor one to prove it
-(`test/integration/tenant_delete_skipauth_test.go`).
+the members' alike, and the sector's directory, whether the sector is directory only or
+not, so the directory is free for another sector; a person who held roles in that sector
+alone goes with it, while one who holds a role elsewhere stays and signs in as before.
+No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor one to
+prove it (`test/integration/tenant_delete_skipauth_test.go`). Lodestar's own tables keyed
+to a sector carry no delete rule, so a sector that still holds one of their rows is
+refused until they are removed; the skeletons' sample tenant table shows the rule that
+takes a tenant's rows with it (`ON DELETE CASCADE` on its key to the tenant table).
 
 How it is wired:
 

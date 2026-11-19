@@ -462,6 +462,11 @@ func (c *testConfigurer) AppVersion() string {
 	return c.version
 }
 
+// Environment is none: the suites run as production does, which names no environment.
+func (c *testConfigurer) Environment() string {
+	return ""
+}
+
 func (c *testConfigurer) ConsoleDist() string { return "" }
 
 func (c *testConfigurer) PortalDist() string { return "" }

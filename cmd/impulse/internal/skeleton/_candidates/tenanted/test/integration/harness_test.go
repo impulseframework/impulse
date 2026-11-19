@@ -108,6 +108,11 @@ func (c *servedConfigurer) AppVersion() string {
 	return "dev"
 }
 
+// Environment is none: the suites run as production does, which names no environment.
+func (c *servedConfigurer) Environment() string {
+	return ""
+}
+
 func (c *servedConfigurer) ConsoleDist() string { return "" }
 
 // Live is the in-memory live service the auths' permission engines signal policy

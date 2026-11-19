@@ -442,11 +442,22 @@ route guard. `flags()` reads every declared flag with its description and state 
 framework's `FeatureFlags` resource through the client's own handle, and `setFeature(name,
 enabled)` flips one through the generated `SetFeature` method, then reloads the set, the domains,
 and every cached digest; a refused flip rejects with the server's `ApiError` and refreshes
-nothing. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
+nothing. The generated method's own handle (`api.methods.SetFeature.execute(body)`, which a page
+that runs methods by name uses) is followed by the same reload, so a flip made from a list's row
+leaves the set and the digest current too. `changes(name)` reads one flag's history from the
+flag's own route (`<feature flags route>/<name>/changes`): `{ changes, more }`, each change with
+`changedAt`, `enabled` (what the flag was turned to) and `changedBy` (the name the person signs in
+under, or what the server recorded of a flip no person made), newest first, with `more` true where
+the flag was flipped more often than one answer lists. A fact the caller's grant leaves out of
+the flag (who last flipped it, under `updatedBy`) is absent from every flip, so the three are
+optional. Whoever may list the flags and see any of the three of a flag may read it; the
+server refuses anyone else (403) and a flag the application does not declare (404) with its
+`ApiError`. In what `flags()` answers, `updatedAt` and `updatedBy` are when the flag was last
+flipped and by whom: `updatedAt` is `null` and `updatedBy` empty for a flag nobody has flipped. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
 logout, and `subscribe` notifies a UI framework. `descriptor.features` is optional: a descriptor
 from a generator that predates feature flags carries none, and the API then serves no flags.
 `served` is false, the set stays empty and unloaded, `refresh()` resolves to nothing without a
-request, every flag answers off, and `flags()` and `setFeature()` refuse before any request,
+request, every flag answers off, and `flags()`, `changes()` and `setFeature()` refuse before any request,
 saying the API serves no feature flags. The absence is announced rather than silent: `enabled(name)`
 and `ensure(name)` reach `ClientOptions.warn` once per flag (the console by default) saying the
 flag was asked of an API that serves no feature flags and answers off, `refresh()` says it once
@@ -461,6 +472,7 @@ if (api.features.enabled('debriefs')) {
 
 const flags = await api.features.flags(); // every declared flag: name, description, enabled, updatedAt, updatedBy
 await api.features.setFeature('debriefs', true); // the set and the digest are current when this resolves
+const history = await api.features.changes('debriefs'); // each flip, newest first: changedAt, enabled, changedBy
 ```
 
 ## Sign-in
@@ -791,7 +803,7 @@ by lower-cased name; paged lists read `Link` and `Total-Count` from them.
 
 ## Release header
 
-Every request can carry the release the application was built from, so the server can refuse a build it no longer answers. `ClientOptions.apiVersion` names that release (for example `1.5.0`), and the client sends it in the `X-Api-Version` header (the exported constant `apiVersionHeader`) on every request. A build that names no release, or names an empty value or `dev` (the name of a local build), sends nothing and is never refused. The server answers a build from the oldest release it still answers up to its own release, and refuses the rest with status 412 carrying its own release in `X-Api-Version`, before it reads the request; a request with no header is answered. The client recognizes that 412 before it consults a method's declared answers (`accept`), so a method that declares 412 never takes the refusal for its own answer. The refusal is thrown as `ApiVersionError`, a subclass of `ApiError` that carries `serverVersion` (the server's release), `appVersion` (the release this build sent), and `serverOlder` (true when the server's release is older than this build's), and `ClientOptions.onError` observes it before it is thrown, as it does every `ApiError`. Every answer of an outlet names the server's release in the same header, refusals included, and the client keeps the last one named in `client.serverRelease`, a `Store` read with `get()` and watched with `subscribe()`, undefined until an answer named one: what a release line on the login page and in a footer shows (`dev` is a server built locally).
+Every request can carry the release the application was built from, so the server can refuse a build it no longer answers. `ClientOptions.apiVersion` names that release (for example `1.5.0`), and the client sends it in the `X-Api-Version` header (the exported constant `apiVersionHeader`) on every request. A build that names no release, or names an empty value or `dev` (the name of a local build), sends nothing and is never refused. The server answers a build from the oldest release it still answers up to its own release, and refuses the rest with status 412 carrying its own release in `X-Api-Version`, before it reads the request; a request with no header is answered. The client recognizes that 412 before it consults a method's declared answers (`accept`), so a method that declares 412 never takes the refusal for its own answer. The refusal is thrown as `ApiVersionError`, a subclass of `ApiError` that carries `serverVersion` (the server's release), `appVersion` (the release this build sent), and `serverOlder` (true when the server's release is older than this build's), and `ClientOptions.onError` observes it before it is thrown, as it does every `ApiError`. Every answer of an outlet names the server's release in the same header, refusals included, and the client keeps the last one named in `client.serverRelease`, a `Store` read with `get()` and watched with `subscribe()`, undefined until an answer named one: what a release line on the login page and in a footer shows (`dev` is a server built locally). A server told the environment it runs in names it on every answer too, in the `X-Environment` header (the exported constant `environmentHeader`), percent-encoded so any name travels; the client keeps the last one named in `client.serverEnvironment`, a `Store` like the release's, undefined where the server names none. Production names none, so a page that shows the environment (the Angular binding's About pop-up) shows no such line there.
 
 When the server's release is older than the build's, as it is after a rollback (an earlier release put back in service) or while a deploy is still shifting traffic from instance to instance, the client retries the request after each pause in `ClientOptions.olderServerRetryDelays`, whose default is the exported `olderServerRetryDelays`: 1 s, 3 s, and 6 s, three retries over ten seconds. When every retry is refused, the `ApiVersionError` is thrown with `serverOlder` true. A build older than the server is not retried. Releases compare as semantic versions (major, minor, and patch numbers, as in `1.5.0`) through the exported `compareReleases(a, b)`: a leading `v` is ignored, the numeric parts compare as numbers, a prerelease such as `1.5.0-rc.1` is older than its release, and a value that is not a version compares as `0.0.0`. The exported `releaseVersion(value)` answers the release a build names, or undefined for none, an empty value, or `dev`. The client only recognizes the refusal; what the application does about it is the framework's decision. The Angular binding, `@impulseframework/resource-angular`, hands it to its update service, which reloads onto the server's build or raises a notice; its README says how.
 

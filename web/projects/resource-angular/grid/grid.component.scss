@@ -180,6 +180,11 @@
     cursor: pointer;
   }
 
+  // The header of a table whose rows come in one fixed order: words, nothing to press.
+  .header-words {
+    cursor: default;
+  }
+
   .col-header {
     flex: 1 1 auto;
     overflow: hidden;

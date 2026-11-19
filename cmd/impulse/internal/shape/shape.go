@@ -130,15 +130,22 @@ func Keys(shapes []Shape) string {
 	return strings.Join(keys, ", ")
 }
 
-// Usage is the description of a command's --shape flag: what a starting point is, and
-// the names the command knows, each with the shape's number and name.
+// Document is the framework's document of the sign-in shapes, by its path from the root
+// of the framework's repository: what each shape is, the choices it is made of and what
+// impulse audit prints for it.
+const Document = "docs/sign-in-shapes.md"
+
+// Usage is the description of a command's --shape flag: what a starting point is, the
+// names the command knows, each with the shape's number and name, and where the shapes
+// are described.
 func Usage(offered []Shape, fills string) string {
 	named := make([]string, 0, len(offered))
 	for _, s := range offered {
 		named = append(named, fmt.Sprintf("%s (%s)", s.Key, s))
 	}
 
-	return "a sign-in shape to start from, by its name or its number, which fills in " + fills + ": " + strings.Join(named, ", ") + "; a flag given beside it that contradicts it is refused"
+	return "a sign-in shape to start from, by its name or its number, which fills in " + fills + ": " + strings.Join(named, ", ") +
+		"; a flag given beside it that contradicts it is refused; the shapes are described in " + Document + " of the framework's repository"
 }
 
 // Find returns the shape a command's --shape flag names, by its name or by its number,

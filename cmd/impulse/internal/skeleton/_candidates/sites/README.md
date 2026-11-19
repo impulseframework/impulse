@@ -40,10 +40,10 @@ draws them from the API description (`identityRoutes` in the console's `app.rout
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
 shows Tenants (All tenants) and System (the staff's accounts, the Invited tenants page and
-Feature flags…) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
+Feature flags) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
 portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
-menu holds Your account, Appearance and Sign out, and Help ends with About, which carries
-the release.
+menu holds Your account, Appearance and Sign out, and Help ends with About, a pop-up that carries
+the release and, outside production, the environment's name (the server's `APP_ENVIRONMENT`, which a deployment sets everywhere but production).
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
@@ -160,17 +160,27 @@ turned on, since that takes a person who is signed in through the tenant's direc
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
-  flags the release declares (section Feature flags). Between the two, `SeedAdministrators` gives each auth its first
-  administrator while its users table holds no rows, the foothold a deployed environment
-  starts from: the staff auth's `administrator`, with the password the stack generates
-  (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. The generated password is for the first sign-in alone: sign in
-  as `administrator` with it, give an email address and confirm it with the sign-in code
-  mailed there (the account starts with no address), then choose a new password, which
-  the login page asks for before it opens anything else; the generated password signs
-  nobody in after that. A user that exists stops the seed; the auth's management
-  creates every user after the first, and the bootstrap creates the development logins
-  instead. The staff auth's role file validates against the union
+  flags the release declares (section Feature flags). Between the two, `InviteAdministrators` invites each
+  auth's first administrator while nobody of the auth holds the Super Administrator
+  role, the foothold a deployed environment starts from: an invitation mailed to the address the placement names for
+  the environment (`APP_STAFF_ADMINISTRATOR`), which gives the Super Administrator role
+  and the development administrator's roles. The person opens the link and chooses a
+  password there, their address proven by the link. No account is made ahead of them and
+  no password is generated. A release leaves an invitation that stands as it is, mails a new one once
+  it has run out (seven days), and withdraws one for an address the placement no longer
+  names; the migrate command's `-reinvite-administrator staff` withdraws the
+  standing one and mails a fresh one on demand, for mail that was lost, while nobody
+  holds the role. Both refuse while nobody holds it and the environment has no mailbox
+  (`APP_MAIL_MAILBOX` with `APP_MAIL_APP_PASSWORD`): an invitation's link is never
+  written to a log, so the mailbox comes before the first release. Once somebody holds
+  the Super Administrator role nobody is invited, and neither an address nor a mailbox
+  is asked for; an account that holds no such role (a person who signed up, a persona)
+  stops no invitation, and a holder whose account is disabled is a holder still. The
+  auth's management invites every person after the first. The bootstrap creates the
+  development logins instead, and its `admin` login holds the role, so a migrate run
+  against a bootstrapped database invites nobody. An application that adds a cast of
+  personas seeds it before `InviteAdministrators`, so an environment whose cast holds
+  the role invites nobody. The staff auth's role file validates against the union
   of the sites' generated collections (`config.Collection`) when its engine opens: one
   policy store, one role file, one identity across sites.
   `cmd/deployment/migrate` is the deploy step; `cmd/bootstrap` reuses it for the emulator
@@ -254,7 +264,7 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. Each site serves `features` under its `/api`. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+login holds; the library's Feature flags page runs it: the list of the flags, each in words with who last turned it on or off, a row's menu that turns the flag on or off after asking, and a History button that opens the flag's flips in a pop-up. The menu file places the page (`featureFlagsPage`) in
 the console's System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
@@ -334,7 +344,10 @@ link opens the login page under `APP_PUBLIC_URL`.
 
 Each site has its own Angular workspace, `apps/console/web` and `apps/portal/web`, that
 installs the published `@impulseframework/resource`, `@impulseframework/resource-angular` and
-`@impulseframework/resource-firestore` (pinned in `package.json`). To develop
+`@impulseframework/resource-firestore` (pinned in `package.json`). Install them
+once with `bun install` in each: it writes the workspace's `bun.lock`, which the
+workflows install from (`bun ci`) and the repository keeps, and `impulse check` fails
+while a web root has none (`package-manager`). To develop
 against a local checkout of the framework, attach its web packages to each through yalc, a local
 state that is never committed (the script builds the three packages, publishes them to the
 local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts the pins back):

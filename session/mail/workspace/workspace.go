@@ -221,6 +221,13 @@ func (s *Sender) write(w io.Writer, to *netmail.Address, msg *mail.Message) erro
 	return nil
 }
 
+// Delivers says the driver hands its messages to a mail system, the relay
+// (mail.Deliverer): what it sends reaches the recipient's mailbox and is written nowhere
+// else.
+func (s *Sender) Delivers() bool {
+	return true
+}
+
 // Describe says where the driver sends and as whom, with the From address when it is
 // not the mailbox, for a startup log; the app password is never part of it.
 func (s *Sender) Describe() string {

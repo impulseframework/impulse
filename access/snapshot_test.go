@@ -1175,48 +1175,14 @@ func testEngine(t *testing.T, store Store, opts *clientOptions) *snapshotEngine 
 	return e
 }
 
-// settle waits until the background loop's in-flight reload (if any) has
-// finished, so subsequent fixture mutations cannot race it.
+// settle reads the policy store now and returns when the read has landed: a
+// reload in flight has finished first, so subsequent fixture mutations cannot
+// race it, and what the store held when settle was called is in the snapshot.
+// It is the reload a test asks the engine for outright.
 func settle(e *snapshotEngine) {
-	e.tryReload(context.Background())
-}
-
-// ownCheck marks the context of a check a test makes itself, so a store that counts
-// its reads tells the ones of the engine's own loop from the ones a check set off.
-type ownCheck struct{}
-
-// loopCountingStore counts the reads a policy store makes under a context that is not
-// one of the test's own checks (ownCheck): the engine's loop's, and the ones a test
-// asks the engine for outright (settle).
-type loopCountingStore struct {
-	*fakeStore
-	loop atomic.Int64
-}
-
-func (s *loopCountingStore) ReadPolicy(ctx context.Context) (*policy.Records, error) {
-	if ctx.Value(ownCheck{}) == nil {
-		s.loop.Add(1)
+	if err := e.fresh.Read(context.Background()); err != nil {
+		e.onError(err)
 	}
-
-	return s.fakeStore.ReadPolicy(ctx)
-}
-
-// settleFirstLoad waits until the engine's loop has made its first load and is idle.
-// The loop loads once as it starts, on a goroutine of its own that may not have run
-// when a test's first check returns, and settle alone waits only for a reload already
-// in flight. A test that then changes the store and expects the engine not to have seen
-// the change yet would have that first load land after it and show it. The load's read
-// is waited for, and then its end, since settle takes the lock the read is made under.
-// loop counts the store's reads made under no context of the test's own.
-func settleFirstLoad(t *testing.T, e *snapshotEngine, loop *atomic.Int64) {
-	t.Helper()
-
-	for deadline := time.Now().Add(10 * time.Second); loop.Load() == 0; time.Sleep(time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the engine's loop made no first load")
-		}
-	}
-	settle(e)
 }
 
 func Test_snapshotEngine_checkUserResources(t *testing.T) {
@@ -1303,17 +1269,19 @@ func Test_snapshotEngine_waitReady(t *testing.T) {
 func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.WithValue(context.Background(), ownCheck{}, true)
-	store := &loopCountingStore{fakeStore: engineFakeStore(t)}
+	ctx := context.Background()
+	store := engineFakeStore(t)
 	e := testEngine(t, store, nil)
 
+	// The check returns once the first load has landed, its own or the loop's, and
+	// nothing reads the store again inside the bound until the engine is told of a
+	// change (invalidate). Whichever then reloads, the loop on its first pass or the
+	// check, the check after it is answered from that reload.
 	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the write", got, err)
 	}
-	// The stale answer below holds only once the loop's first load is over.
-	settleFirstLoad(t, e, &store.loop)
 
-	grantWidgets(t, store.fakeStore)
+	grantWidgets(t, store)
 
 	if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", got, err)
@@ -1362,13 +1330,12 @@ type transactionMark struct{}
 // transaction's context, as the Spanner client refuses a read of its own there
 // ("Cloud Spanner does not support nested transactions"; the Spanner store's own test
 // shows it against the emulator). It counts the reads it refused and the ones it made,
-// and among those the ones made under no context of the test's own: the engine's
-// loop's, and the ones the test asks the engine for outright (settle).
+// and among those the ones whose context carried a deadline.
 type transactionRefusingStore struct {
 	*fakeStore
-	refused atomic.Int64
-	read    atomic.Int64
-	loop    atomic.Int64
+	refused   atomic.Int64
+	read      atomic.Int64
+	deadlined atomic.Int64
 }
 
 func (s *transactionRefusingStore) ReadPolicy(ctx context.Context) (*policy.Records, error) {
@@ -1378,8 +1345,8 @@ func (s *transactionRefusingStore) ReadPolicy(ctx context.Context) (*policy.Reco
 		return nil, errors.New("Cloud Spanner does not support nested transactions")
 	}
 	s.read.Add(1)
-	if ctx.Value(ownCheck{}) == nil {
-		s.loop.Add(1)
+	if _, ok := ctx.Deadline(); ok {
+		s.deadlined.Add(1)
 	}
 
 	return s.fakeStore.ReadPolicy(ctx)
@@ -1387,28 +1354,154 @@ func (s *transactionRefusingStore) ReadPolicy(ctx context.Context) (*policy.Reco
 
 // Test_snapshotEngine_checkUnderATransactionAfterALocalWrite pins what a check made
 // under a transaction's context does when it is the first check after a local policy
-// write, on a store whose client refuses a read there. The engine reloads on the check
-// path with the caller's context, so the read is refused: the check is answered from
-// the snapshot that predates the write, with no error returned and none reported, and
-// the engine remembers the failed generation, so the checks that follow, another
-// request's among them, are answered from the same snapshot without reading the store
-// again. The write shows once the engine's own loop has reloaded, which every local
-// write nudges; where that read fails too, at the next heartbeat or the next write.
+// write, on a store whose client refuses a read there: it sees the write. The engine
+// reloads inside the check on its own context, which carries the engine's timeout and
+// nothing of the caller's, so the caller's transaction refuses nothing: the store is
+// read once, nothing is reported, and the checks that follow, another request's among
+// them, are answered from that reload without reading the store again. It holds for
+// every question the engine answers, since none of them hands the caller's context to
+// the store.
 //
-// A check whose context is no transaction's reloads and sees the write
-// (Test_snapshotEngine_invalidateReloadsOnNextCheck), and so does every check on a
-// store whose client reads under a transaction's context, as the PostgreSQL store's
-// does.
+// Before, the engine reloaded on the caller's context: the read was refused, the error
+// was dropped, and every check answered from the snapshot before the write until the
+// engine's own loop reloaded.
 func Test_snapshotEngine_checkUnderATransactionAfterALocalWrite(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.WithValue(context.Background(), ownCheck{}, true)
-	store := &transactionRefusingStore{fakeStore: engineFakeStore(t)}
-	var reported atomic.Int64
+	// Each question is asked of erin, an Editor of tenant1, and of the Editor role,
+	// about widgets, which the write grants the Editor role to list.
+	tests := []struct {
+		name string
+		ask  func(ctx context.Context, e *snapshotEngine) (bool, error)
+	}{
+		{
+			name: "a person's permission on a resource",
+			ask: func(ctx context.Context, e *snapshotEngine) (bool, error) {
+				got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
+				if err != nil {
+					return false, err
+				}
+
+				return got[0].granted, nil
+			},
+		},
+		{
+			name: "a role's permission on a resource",
+			ask: func(ctx context.Context, e *snapshotEngine) (bool, error) {
+				got, err := e.checkRoleResources(ctx, "Editor", tenant1Scope, "List", "widgets")
+				if err != nil {
+					return false, err
+				}
+
+				return got[0].granted, nil
+			},
+		},
+		{
+			name: "a person's digest",
+			ask: func(ctx context.Context, e *snapshotEngine) (bool, error) {
+				digest, err := e.userDigest(ctx, "erin", tenant1Scope)
+
+				return len(digest["widgets"]) > 0, err
+			},
+		},
+		{
+			name: "a role's permissions by name",
+			ask: func(ctx context.Context, e *snapshotEngine) (bool, error) {
+				perms, err := e.rolePermissions(ctx, "Editor", tenant1Scope)
+
+				return slices.Contains(perms["List"].Resources, "widgets"), err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			inTransaction := context.WithValue(ctx, transactionMark{}, true)
+			store := &transactionRefusingStore{fakeStore: engineFakeStore(t)}
+			var reported atomic.Int64
+			opts := defaultClientOptions()
+			opts.onReloadError = func(error) { reported.Add(1) }
+			e := testEngine(t, store, opts)
+			// No loop runs, so every read counted below is a check's: a loop whose
+			// first pass came after the write was recorded would make the reload the
+			// test is about.
+			e.noLoops = true
+			widgets := func(ctx context.Context) bool {
+				t.Helper()
+				granted, err := tt.ask(ctx, e)
+				if err != nil {
+					t.Fatalf("the check error = %v, want an answer from a snapshot", err)
+				}
+
+				return granted
+			}
+
+			if widgets(ctx) {
+				t.Fatal("widgets granted before the write")
+			}
+
+			// A request commits a policy write and the engine is told (policyChanged).
+			// The first check after it is another request's, already inside its
+			// transaction.
+			grantWidgets(t, store.fakeStore)
+			e.invalidate()
+			read := store.read.Load()
+
+			if !widgets(inTransaction) {
+				t.Error("the first check after the write, made under a transaction's context, did not see the write")
+			}
+			if got := store.refused.Load(); got != 0 {
+				t.Errorf("reads refused under the transaction's context = %d, want 0: the engine reads on its own context", got)
+			}
+			if got := store.read.Load() - read; got != 1 {
+				t.Errorf("store reads for the check after the write = %d, want 1", got)
+			}
+			if got := reported.Load(); got != 0 {
+				t.Errorf("reload errors reported = %d, want 0", got)
+			}
+
+			// The next request's check, outside any transaction, and one more inside
+			// one are answered from the same reload.
+			if !widgets(ctx) || !widgets(inTransaction) {
+				t.Error("a check after the reload did not see the write")
+			}
+			if got := store.read.Load() - read; got != 1 {
+				t.Errorf("store reads after the reload = %d, want still 1: the checks that follow read nothing", got)
+			}
+			if made, deadlined := store.read.Load(), store.deadlined.Load(); deadlined != made {
+				t.Errorf("%d of the engine's %d reads carried a deadline, want every one: each runs under the engine's own timeout", deadlined, made)
+			}
+		})
+	}
+}
+
+// Test_snapshotEngine_refusedReloadIsReported pins that a reload the store refuses is
+// never dropped: the check is answered from the last good snapshot, the refusal reaches
+// the reload-error hook, and the first check after the pause tries the store again.
+func Test_snapshotEngine_refusedReloadIsReported(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := engineFakeStore(t)
+	var (
+		mu       sync.Mutex
+		reported []error
+	)
 	opts := defaultClientOptions()
-	opts.onReloadError = func(error) { reported.Add(1) }
+	opts.onReloadError = func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, err)
+	}
 	e := testEngine(t, store, opts)
-	widgets := func(ctx context.Context) bool {
+	// No loop runs, so every refusal counted below is one a check met: a loop whose
+	// first pass came while the store refused would be refused too.
+	e.noLoops = true
+	clock := newMovedClock(noon)
+	e.clock = clock.now
+	widgets := func() bool {
 		t.Helper()
 		got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
 		if err != nil {
@@ -1417,44 +1510,41 @@ func Test_snapshotEngine_checkUnderATransactionAfterALocalWrite(t *testing.T) {
 
 		return got[0].granted
 	}
+	reports := func() []error {
+		mu.Lock()
+		defer mu.Unlock()
 
-	if widgets(ctx) {
+		return slices.Clone(reported)
+	}
+
+	if widgets() {
 		t.Fatal("widgets granted before the write")
 	}
-	// No load of the loop's is left to land after the write below and show it ahead of
-	// the check this test is about.
-	settleFirstLoad(t, e, &store.loop)
 
-	// A request commits a policy write and the engine is told (policyChanged). The
-	// first check after it is another request's, already inside its transaction.
-	grantWidgets(t, store.fakeStore)
+	refusal := errors.New("the store refused the read")
+	grantWidgets(t, store)
+	store.setFail(refusal)
 	e.invalidate()
-	read := store.read.Load()
-
-	if widgets(context.WithValue(ctx, transactionMark{}, true)) {
-		t.Error("the check under a transaction's context was granted widgets, want the answer of the snapshot before the write: the store's client refuses the reload there")
+	if widgets() {
+		t.Error("the check was granted widgets while the store refused the reload, want the last good snapshot's answer")
 	}
-	if got := store.refused.Load(); got != 1 {
-		t.Errorf("reads refused under the transaction's context = %d, want 1", got)
-	}
-	if got := reported.Load(); got != 0 {
-		t.Errorf("reload errors reported = %d, want 0: the check path reports none", got)
+	if got := reports(); len(got) != 1 || !errors.Is(got[0], refusal) {
+		t.Errorf("reload errors reported = %v, want the one refusal", got)
 	}
 
-	// The next request's check is outside any transaction, and is answered from the
-	// same snapshot without a read: the engine remembers the generation that failed.
-	if widgets(ctx) {
-		t.Error("the next request's check was granted widgets before the engine's own loop reloaded")
+	// The store answers again. The refusal met a read that began after the write, so
+	// the pause it began stands: inside it the engine does not try the store; the first
+	// check after the pause does, and sees the write.
+	store.setFail(nil)
+	if widgets() {
+		t.Error("a check inside the pause after the refusal saw the write, want the last good snapshot's answer and no read")
 	}
-	if got := store.read.Load(); got != read {
-		t.Errorf("store reads after the refused reload = %d, want %d: no check retries the generation that failed", got, read)
+	clock.advance(reloadPause)
+	if !widgets() {
+		t.Error("the first check after the pause did not see the write")
 	}
-
-	// The engine's own loop reloads, as every local write nudges it to, and the write
-	// shows.
-	settle(e)
-	if !widgets(ctx) {
-		t.Error("widgets denied after the engine's own loop reloaded")
+	if got := reports(); len(got) != 1 {
+		t.Errorf("reload errors reported = %v, want still the one refusal", got)
 	}
 }
 
@@ -1537,7 +1627,8 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 		t.Fatal("ChangeSignal.Watch was never started")
 	}
 
-	// A hint (not a local invalidate) must reload through the background loop.
+	// A hint (not a local invalidate) reloads: the loop it wakes, or the check that
+	// comes first.
 	grantWidgets(t, store)
 	sig.trigger()
 
@@ -1556,14 +1647,10 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// A local policy write announces to other instances.
+	// A local policy write announces to other instances before it returns.
 	e.policyChanged()
-	deadline = time.Now().Add(5 * time.Second)
-	for sig.announces.Load() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("policyChanged did not announce within the deadline")
-		}
-		time.Sleep(10 * time.Millisecond)
+	if got := sig.announces.Load(); got != 1 {
+		t.Fatalf("announcements made by the time policyChanged returned = %d, want 1", got)
 	}
 }
 
@@ -2030,12 +2117,36 @@ func Test_snapshotEngine_reportsSkippedGrants(t *testing.T) {
 	}
 }
 
+// lockedBuffer is where Test_logReloadError has the standard log write. The log is the
+// process's own, so the tests that run beside that one write there too while it reads:
+// every write and every read takes the lock.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// A bytes.Buffer's Write returns no error.
+	n, _ := b.buf.Write(p)
+
+	return n, nil
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
 // Test_logReloadError pins the default hook: a skipped grant reaches the
 // standard log, prefixed so the line is found by its package.
 func Test_logReloadError(t *testing.T) {
 	t.Parallel()
 
-	var buf bytes.Buffer
+	var buf lockedBuffer
 	previous := log.Writer()
 	log.SetOutput(&buf)
 	t.Cleanup(func() {

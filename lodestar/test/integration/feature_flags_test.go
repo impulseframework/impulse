@@ -1,4 +1,4 @@
-// Demonstrates: @feature, @feature.field.
+// Demonstrates: @feature, @feature.field, feature.history.
 package integration
 
 // This suite pins the commendations flag over the seeded world through two instances
@@ -11,9 +11,14 @@ package integration
 // SetFeature on the first instance, which writes the row and its change record,
 // signals the features kind and answers the flag as written, and the second
 // instance serves the desk at its next request with no restart; off again, both refuse
-// again, and the change table holds both flips. The steps run in order, each named in
-// its failure, since every one reads what the ones before it wrote. The walkthrough
-// plays the same scenario against the Firestore emulator with a second server process.
+// again, and the change table holds both flips. Beside the flag the suite pins what the
+// Feature flags page reads: the list names nobody as the last to flip a flag only the
+// deploy step has written and the adjutant once she has flipped it, and the flag's
+// history answers its flips newest first, each by the name the person signs in under, to
+// the grant that lists the flags and to nobody without it. The steps run in order, each
+// named in its failure, since every one reads what the ones before it wrote. The
+// walkthrough plays the same scenario against the Firestore emulator with a second
+// server process.
 
 import (
 	"context"
@@ -51,6 +56,7 @@ const (
 	commendationsRoute = consoleAPI + "/commendations"
 	featuresRoute      = consoleAPI + "/" + resource.FeaturesRoute
 	featureFlagsRoute  = consoleAPI + "/" + resource.FeatureFlagsRoute
+	flagHistoryRoute   = featureFlagsRoute + "/" + string(resources.Commendations) + "/" + resource.FeatureFlagChangesRoute
 	setFeatureRoute    = consoleAPI + "/" + resource.SetFeatureRoute
 	pilotCardsRoute    = consoleAPI + "/pilot-cards"
 	cardFieldRoute     = pilotCardsRoute + "?columns=userId,commendations"
@@ -153,19 +159,31 @@ func TestFeatureFlags_commendationsDesk(t *testing.T) {
 			},
 		},
 		{
-			name: "off: the flags list carries the desk's flag, off, with its description and the migration's stamp", on: first, user: featureAdjutant, method: http.MethodGet, target: featureFlagsRoute, wantStatus: http.StatusOK,
+			name: "off: the flags list carries the desk's flag, off, with its description in a person's words, and nobody as the last to flip it", on: first, user: featureAdjutant, method: http.MethodGet, target: featureFlagsRoute, wantStatus: http.StatusOK,
 			check: func(t *testing.T, step string, body []byte) {
 				t.Helper()
 				rows := decodeRows(t, body)
 				if len(rows) != 1 {
 					t.Fatalf("%s: flags = %d, want 1: %s", step, len(rows), body)
 				}
-				assertFlag(t, step, rows[0], string(resources.Commendations), false, declared[0].Description)
-				if by := cell[string](t, rows[0], "updatedBy"); !strings.Contains(by, "MigrateFeatures") {
-					t.Errorf("%s: updatedBy = %q, want the migration's process event", step, by)
+				assertFlag(t, step, rows[0], string(resources.Commendations), false, false, declared[0].Words())
+				if by := cell[string](t, rows[0], "updatedBy"); by != "" {
+					t.Errorf("%s: updatedBy = %q, want nobody: the deploy step that declared the flag flipped nothing", step, by)
 				}
 			},
 		},
+		{
+			name: "off: the flag's history is empty, a list and not null", on: first, user: featureAdjutant, method: http.MethodGet, target: flagHistoryRoute, wantStatus: http.StatusOK,
+			check: func(t *testing.T, step string, body []byte) {
+				t.Helper()
+				assertHistory(t, step, body, nil)
+				if !strings.Contains(string(body), `"changes":[]`) {
+					t.Errorf("%s: body = %s, want an empty list of changes", step, body)
+				}
+			},
+		},
+		{name: "the cadet holds no List on the flags: a flag's history is refused as the list is", on: first, user: featureCadet, method: http.MethodGet, target: flagHistoryRoute, wantStatus: http.StatusForbidden},
+		{name: "the history of a flag the package does not declare is not found", on: first, user: featureAdjutant, method: http.MethodGet, target: featureFlagsRoute + "/nonesuch/" + resource.FeatureFlagChangesRoute, wantStatus: http.StatusNotFound},
 		{name: "off: the desk's list answers the router's own not found on the first instance", on: first, user: featureAdjutant, method: http.MethodGet, target: commendationsRoute, wantStatus: http.StatusNotFound, check: assertRouterNotFound},
 		{name: "off: and on the second", on: second, user: featureAdjutant, method: http.MethodGet, target: commendationsRoute, wantStatus: http.StatusNotFound, check: assertRouterNotFound},
 		{name: "off: a seeded citation's read is not found either", on: first, user: featureAdjutant, method: http.MethodGet, target: commendationsRoute + "/" + commendationKingfisher, wantStatus: http.StatusNotFound, check: assertRouterNotFound},
@@ -244,10 +262,17 @@ func TestFeatureFlags_commendationsDesk(t *testing.T) {
 			check: func(t *testing.T, step string, body []byte) {
 				t.Helper()
 				row := decodeRow(t, body)
-				assertFlag(t, step, row, string(resources.Commendations), true, declared[0].Description)
-				if by := cell[string](t, row, "updatedBy"); !strings.Contains(by, string(featureAdjutant)) {
-					t.Errorf("%s: updatedBy = %q, want the adjutant's session", step, by)
+				assertFlag(t, step, row, string(resources.Commendations), true, true, declared[0].Words())
+				if by := cell[string](t, row, "updatedBy"); by != string(featureAdjutant) {
+					t.Errorf("%s: updatedBy = %q, want the adjutant by the name she signs in under", step, by)
 				}
+			},
+		},
+		{
+			name: "on: the flag's history holds the one flip, by the adjutant", on: first, user: featureAdjutant, method: http.MethodGet, target: flagHistoryRoute, wantStatus: http.StatusOK,
+			check: func(t *testing.T, step string, body []byte) {
+				t.Helper()
+				assertHistory(t, step, body, []resource.FeatureFlagChange{{Enabled: true, ChangedBy: string(featureAdjutant)}})
 			},
 		},
 		{
@@ -304,6 +329,16 @@ func TestFeatureFlags_commendationsDesk(t *testing.T) {
 			check: func(t *testing.T, step string, body []byte) {
 				t.Helper()
 				assertSetFeature(t, step, body, false)
+			},
+		},
+		{
+			name: "off again: the flag's history holds both flips, the newest first, and the second instance serves the same", on: second, user: featureAdjutant, method: http.MethodGet, target: flagHistoryRoute, wantStatus: http.StatusOK,
+			check: func(t *testing.T, step string, body []byte) {
+				t.Helper()
+				assertHistory(t, step, body, []resource.FeatureFlagChange{
+					{Enabled: false, ChangedBy: string(featureAdjutant)},
+					{Enabled: true, ChangedBy: string(featureAdjutant)},
+				})
 			},
 		},
 		{name: "off again: the first instance refuses", on: first, user: featureAdjutant, method: http.MethodGet, target: commendationsRoute, wantStatus: http.StatusNotFound, check: assertRouterNotFound},
@@ -383,9 +418,10 @@ func assertEnabled(t *testing.T, step string, body []byte, want []string) {
 	}
 }
 
-// assertFlag pins one row of the FeatureFlags resource, the dialog's inputs: the name,
-// the state, the description, and a stamp within the last day.
-func assertFlag(t *testing.T, step string, row map[string]any, name string, enabled bool, description string) {
+// assertFlag pins one row of the FeatureFlags resource, what the Feature flags page
+// lists: the name, the state, the description, and when it was last flipped, within the
+// last day for a flag somebody has flipped and nothing (null) for one nobody has.
+func assertFlag(t *testing.T, step string, row map[string]any, name string, enabled, flipped bool, description string) {
 	t.Helper()
 
 	if got := cell[string](t, row, "name"); got != name {
@@ -397,7 +433,47 @@ func assertFlag(t *testing.T, step string, row map[string]any, name string, enab
 	if got := cell[string](t, row, "description"); got != description {
 		t.Errorf("%s: description = %q, want %q", step, got, description)
 	}
+	if !flipped {
+		if at, served := row["updatedAt"]; !served || at != nil {
+			t.Errorf("%s: updatedAt = %v (served %t), want null: nobody has flipped the flag", step, at, served)
+		}
+
+		return
+	}
 	assertRecent(t, step, cell[string](t, row, "updatedAt"))
+}
+
+// assertHistory pins a flag's history: its flips in the order given, each by who made it
+// and stamped within the last day, no flip newer than the one listed before it, and no
+// more flips than the answer lists.
+func assertHistory(t *testing.T, step string, body []byte, want []resource.FeatureFlagChange) {
+	t.Helper()
+
+	var got resource.FeatureFlagChangesResponse
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("%s: decoding the flag's history: %v: %s", step, err, body)
+	}
+	if got.More {
+		t.Errorf("%s: the history says older flips are left out, want every flip: %s", step, body)
+	}
+	// What each flip turned the flag to and who made it, the commit times set aside.
+	made := func(changes []resource.FeatureFlagChange) []string {
+		flips := make([]string, 0, len(changes))
+		for _, change := range changes {
+			flips = append(flips, fmt.Sprintf("%t by %s", change.Enabled, change.ChangedBy))
+		}
+
+		return flips
+	}
+	if !slices.Equal(made(got.Changes), made(want)) {
+		t.Fatalf("%s: flips = %q, want %q: %s", step, made(got.Changes), made(want), body)
+	}
+	for i, change := range got.Changes {
+		assertRecent(t, step, change.ChangedAt.Format(time.RFC3339Nano))
+		if i > 0 && change.ChangedAt.After(got.Changes[i-1].ChangedAt) {
+			t.Errorf("%s: flip %d is newer than the one before it: the history is newest first", step, i)
+		}
+	}
 }
 
 // assertSetFeature pins SetFeature's answer: the flag as written, stamped now.

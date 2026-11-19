@@ -69,7 +69,8 @@ export const COMPANION_FILTER_HINT =
  * source holds; a header click emits the next sorts, a filter menu emits the next column
  * filters, and the pager emits a turn — the source asks the server and hands back the
  * page. Nothing here filters, sorts, or slices rows in the browser: one paging model, the
- * server's. A filter control is drawn only on a column the generated metadata says the
+ * server's; a table told its rows have one order (`sortable` false) draws its headers as
+ * words, and so does one column that opts out (`sortable: false` on the column). A filter control is drawn only on a column the generated metadata says the
  * server filters (`filterability`), with a companion-only column waiting until an indexed
  * filter is in the request, and its menu offers the text matches the column's field
  * answers (`searches`), which stand alone; the page's search box (`boxActive`) counts as
@@ -118,6 +119,12 @@ export class AppGridComponent {
   virtualScrollConfig = input<VirtualScrollConfig>({});
   /** The sorts the rows were requested in, the first primary. Drawn on the headers; a click emits the next set. */
   sorts = input<SortRule[]>([]);
+  /**
+   * Whether a header is a button that asks for the next sort. False for rows that come in
+   * the one order they have, a history newest first: the headers are then words, with
+   * nothing to press that would do nothing.
+   */
+  sortable = input<boolean>(true);
   /** The column filters the rows were requested with. Drawn on the headers; a menu commit emits the next set. */
   filters = input<ColumnFilter[]>([]);
   /** Which columns the server filters, by column id, from the generated field metadata. A column absent here draws no filter control. */

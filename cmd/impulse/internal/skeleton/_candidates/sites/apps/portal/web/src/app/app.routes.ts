@@ -49,7 +49,7 @@ export const routes: Routes = [
         canActivate: [outsideGuard],
         children: [
           dashboardRoute(),
-          // The person's account and About pages: the library's, in every place.
+          // The person's account page: the library's, in every place.
           ...frameRoutes(),
         ],
       },

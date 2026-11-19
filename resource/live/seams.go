@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
@@ -83,6 +84,13 @@ const (
 	KindPolicy = resource.KindPolicy
 )
 
+// SignalTimeout is the live service's own limit on a signal: a Signal returns within it
+// whatever the caller's context allows, so a caller that brings no deadline of its own
+// (a write path that signals under its request's context) is not held by a channel that
+// does not answer, and no caller has to remember a limit. A caller whose own deadline is
+// shorter keeps it.
+const SignalTimeout = 2 * time.Second
+
 // Signaler is the application's own channel between its instances: a signal of a
 // kind, delivered to every instance subscribed to the kind, carrying nothing but the
 // fact that something of the kind changed. The Firestore implementation keeps one
@@ -92,12 +100,22 @@ const (
 // subscriber served one snapshot after two quick signals of different kinds sees both.
 type Signaler interface {
 	// Signal signals the kind: every subscription to it, on every instance, runs its
-	// onSignal once. While a write of the kind is in flight, a later Signal of the kind
-	// is absorbed into one following write the implementation makes on its own and
-	// answers nil at once: one write after the last call covers every call before it.
-	// The error of the caller's own write is returned for the caller to log; the
-	// caller's contract stays log and never fail the request, since every subscriber
-	// also rereads at its own backstop.
+	// onSignal once. It returns once the signal is sent, or has failed, and leaves nothing
+	// to be sent behind it: an instance that gets no CPU once its requests have answered
+	// would never send what a goroutine was left to. It returns within SignalTimeout, the
+	// service's own limit, or sooner where ctx ends sooner: the limit covers the wait and
+	// the write together, and a Signal it ends fails with an error that says so. While a
+	// write of the kind is in flight, a later Signal of the kind waits for the one write
+	// that covers every Signal made meanwhile, which one of their callers makes when the
+	// write in flight ends: one write that begins after the last of those calls covers them
+	// all, so a burst costs two writes where the channel answers well inside the limit. A
+	// covering write that fails is the failure of every caller that waited for it. No
+	// caller's context ends another's signal: a caller whose context ends returns, and the
+	// write stays with the callers still waiting, each of which makes it in turn where the
+	// one before it lost its context, or reached the limit, under the write; so no call
+	// makes more than one write or waits past its own context or the limit. The error is
+	// returned for the caller to log; the caller's contract stays log and never fail the
+	// request, since every subscriber also rereads at its own backstop.
 	Signal(ctx context.Context, kind Kind) error
 }
 
