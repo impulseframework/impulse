@@ -4,14 +4,16 @@
 }
 
 .impulse-grid-host {
-  // The box the cut-short tooltip's anchor is positioned in.
+  // The box the cut-short tooltip's anchor is positioned in. It clips what it holds and is
+  // never scrolled, by a script or by the browser bringing something into view: the frame
+  // inside it is what scrolls.
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   border-radius: 4px;
-  overflow: hidden;
+  overflow: clip;
 }
 
 // What the frame fills and the loading overlay is laid over: the overlay covers what is in
@@ -463,12 +465,16 @@ $held-header-layer: 6;
   z-index: 1;
 }
 
+// The rows the page spans and, at the far end, the buttons that turn it: on one line
+// while they fit, and the buttons under the words, still at the far end, in a frame too
+// narrow for both. Nothing of the pager is ever cut off by the list's edge.
 .impulse-grid-pager {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0 12px;
   border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   padding: 4px 12px;
 }
@@ -479,10 +485,14 @@ $held-header-layer: 6;
   white-space: nowrap;
 }
 
+// The buttons wrap among themselves in a frame narrower than the three of them.
 .pager-buttons {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 4px;
+  gap: 0 4px;
+  margin-left: auto;
 }
 
 .filter-trigger-wrap {

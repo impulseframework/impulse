@@ -61,6 +61,21 @@ import { ResourceStore } from '../resource-store.service';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
 import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from '../resources-helpers';
 
+/**
+ * Whether a row view is drawn inside an expansion panel, under the panel's own title: a
+ * view that folds away, or one that is not the row of a page. A view that is not drawn so
+ * draws the page's title itself, in its heading row, and the page reads this to leave the
+ * title to it.
+ */
+export function viewUsesExpansionPanel(config: ViewConfig | ListViewConfig, rowOfPage: boolean): boolean {
+  // TODO: Investigate why we're doing this check, it's weird because viewType is not part of the input configs
+  if ('viewType' in config && config.viewType !== 'View') {
+    return false;
+  }
+
+  return config.collapsible || !rowOfPage;
+}
+
 @Component({
   selector: 'impulse-resource-view',
   imports: [
@@ -112,6 +127,16 @@ export class ResourceViewComponent implements OnInit {
   config = input.required<ViewConfig | ListViewConfig>();
   relatedData = input<RecordData>({});
   compoundResourceView = input<boolean>(false);
+  /**
+   * The title of the page this view is the row of, for the view to draw in the row it
+   * shares with the view's buttons (Edit, Actions, the close button): one row, so the
+   * buttons sit beside the title or under it and never over it. Empty where the view is
+   * not the page's own, and where the view is drawn inside a panel, which has a title of
+   * its own: the page then draws its title itself (`viewUsesExpansionPanel`).
+   */
+  pageTitle = input<string>('');
+  /** Whether `pageTitle` is the title of a section of a larger page, not of the page itself. */
+  pageTitleIsSection = input<boolean>(false);
   isDirty = signal(false);
 
   displayFormInvalidMessage = signal<boolean>(false);
@@ -307,13 +332,7 @@ export class ResourceViewComponent implements OnInit {
   });
 
   useExpansionPanel = computed(() => {
-    const config = this.config();
-    // TODO: Investigate why we're doing this check, it's weird because viewType is not part of the input configs
-    if (config && 'viewType' in config && config.viewType !== 'View') {
-      return false;
-    }
-
-    return config.collapsible || !this.compoundResourceView();
+    return viewUsesExpansionPanel(this.config(), this.compoundResourceView());
   });
 
   resourceConfigRouteSnapshot = computed(() => {
