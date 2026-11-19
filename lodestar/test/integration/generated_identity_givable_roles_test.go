@@ -32,7 +32,11 @@ import (
 // sector's when no sector is named, one sector's when one is, each row with its place;
 // a filter on everyDomain narrows it as the dialog does. A super administrator is
 // offered the Super Administrator role, a person with no grant on the list is refused,
-// and a role the list left out is refused by the method when it is given anyway.
+// and the methods hold what the list said: the invitation's check passes Surveyor and
+// refuses Adjutant, and Assign, which gives a role the limits leave alone, refuses
+// both. This suite serves no session manager, so the invitation the check let through
+// fails where its link would be made (500): the status that tells the check was passed,
+// since a refused check answers 403 and never reaches that step.
 func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -161,11 +165,56 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 		assertStatus(t, status, http.StatusBadRequest, body)
 	})
 
-	t.Run("a role the list offers by the invitation alone is taken by it, and the one it left out is refused", func(t *testing.T) {
-		status, body := doRequestAs(t, w.h, desk, http.MethodPost, consoleAPI+"/invite-crew-user", fmt.Sprintf(`{"email":"surveyor-%s@lakeside.example","roles":[%q]}`, identitySuffix(), invitedOnly))
-		assertStatus(t, status, http.StatusOK, body)
-		status, body = doRequestAs(t, w.h, desk, http.MethodPost, consoleAPI+"/assign-crew-role", fmt.Sprintf(`{"userId":%q,"role":%q}`, deskID.String(), notGiven))
-		assertStatus(t, status, http.StatusForbidden, body)
+	t.Run("a role the list offers by the invitation alone passes the invitation's check and no other method's, and the one it left out passes none", func(t *testing.T) {
+		invitation := func(role string) string {
+			return fmt.Sprintf(`{"email":"surveyor-%s@lakeside.example","roles":[%q]}`, identitySuffix(), role)
+		}
+		assignment := func(role string) string {
+			return fmt.Sprintf(`{"userId":%q,"role":%q}`, deskID.String(), role)
+		}
+		tests := []struct {
+			name string
+			path string
+			body string
+			want int
+		}{
+			{
+				name: "the invitation's check passes the role only it gives, and the suite has no session manager to make the link",
+				path: "/invite-crew-user",
+				body: invitation(invitedOnly),
+				want: http.StatusInternalServerError,
+			},
+			{
+				name: "the invitation's check refuses the role no method gives",
+				path: "/invite-crew-user",
+				body: invitation(notGiven),
+				want: http.StatusForbidden,
+			},
+			{
+				name: "Assign gives a role the limits leave alone",
+				path: "/assign-crew-role",
+				body: assignment("BulletinOfficer"),
+				want: http.StatusNoContent,
+			},
+			{
+				name: "Assign refuses the role only the invitation gives",
+				path: "/assign-crew-role",
+				body: assignment(invitedOnly),
+				want: http.StatusForbidden,
+			},
+			{
+				name: "Assign refuses the role no method gives",
+				path: "/assign-crew-role",
+				body: assignment(notGiven),
+				want: http.StatusForbidden,
+			},
+		}
+		for _, tt := range tests {
+			status, body := doRequestAs(t, w.h, desk, http.MethodPost, consoleAPI+tt.path, tt.body)
+			if status != tt.want {
+				t.Errorf("%s: status %d, want %d: %s", tt.name, status, tt.want, body)
+			}
+		}
 	})
 }
 
