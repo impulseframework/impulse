@@ -67,32 +67,36 @@ func TestSignIn_anAddressTheMethodDidNotVerifyAcceptsNoInvitation(t *testing.T) 
 		})
 	}
 
-	t.Run("the sign-in that carries the code is accepted, and the account holds the invited address", func(t *testing.T) {
-		t.Parallel()
+	// The code is what accepts, so the account holds the address the code was mailed to,
+	// whichever address the directory claims.
+	for _, claimed := range []string{invited, elsewhere} {
+		t.Run("the sign-in that carries the code is accepted though its directory claims "+claimed+", and the account holds the invited address", func(t *testing.T) {
+			t.Parallel()
 
-		store := newMemStore()
-		hooks := &roleHooks{store: store}
-		inv := store.invite(invited, "lakeside", "Teacher")
-		inv.AddressProven = true
-		req := &sessioninfo.NewSessionRequest{
-			Reason: sessioninfo.ReasonStepUp, Identity: claims(invited), Invitation: inv,
-			AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-rogue"}, {Method: sessioninfo.MethodEmailCode}},
-		}
+			store := newMemStore()
+			hooks := &roleHooks{store: store}
+			inv := store.invite(invited, "lakeside", "Teacher")
+			inv.AddressProven = true
+			req := &sessioninfo.NewSessionRequest{
+				Reason: sessioninfo.ReasonStepUp, Identity: claims(claimed), Invitation: inv,
+				AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-rogue"}, {Method: sessioninfo.MethodEmailCode}},
+			}
 
-		if err := signInWith(t, &memDriver{store: store}, req, rulesOf(hooks)); err != nil {
-			t.Fatalf("SignIn() error = %v, want the invitation accepted", err)
-		}
-		if !inv.Accepted || store.invitations[inv.ID] {
-			t.Errorf("Invitation.Accepted = %v, still live = %v, want it accepted and consumed", inv.Accepted, store.invitations[inv.ID])
-		}
-		_, made := store.userNamed(elsewhere)
-		if made == nil || made.email != invited {
-			t.Fatalf("the account the acceptance made = %+v, want one that holds %s", made, invited)
-		}
-		if diff := cmp.Diff([]string{"Teacher"}, store.granted[elsewhere]); diff != "" {
-			t.Errorf("the roles given (-want +got):\n%s", diff)
-		}
-	})
+			if err := signInWith(t, &memDriver{store: store}, req, rulesOf(hooks)); err != nil {
+				t.Fatalf("SignIn() error = %v, want the invitation accepted", err)
+			}
+			if !inv.Accepted || store.invitations[inv.ID] {
+				t.Errorf("Invitation.Accepted = %v, still live = %v, want it accepted and consumed", inv.Accepted, store.invitations[inv.ID])
+			}
+			_, made := store.userNamed(elsewhere)
+			if made == nil || made.email != invited {
+				t.Fatalf("the account the acceptance made = %+v, want one that holds %s", made, invited)
+			}
+			if diff := cmp.Diff([]string{"Teacher"}, store.granted[elsewhere]); diff != "" {
+				t.Errorf("the roles given (-want +got):\n%s", diff)
+			}
+		})
+	}
 
 	linked := []struct {
 		name string
