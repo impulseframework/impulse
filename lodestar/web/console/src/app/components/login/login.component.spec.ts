@@ -91,6 +91,23 @@ describe('LoginComponent', () => {
     expect(element.querySelector('.impulse-login-message')).toBeNull();
   });
 
+  // On a narrow screen the manifest gives way: it may be as narrow as the screen, so its
+  // cards go down to one column, and a note's words are one text that wraps beside its
+  // icon. A manifest that could not shrink was cut off at both edges of a phone's screen.
+  it('lets the manifest give way to a narrow screen, each note an icon and one text that wraps', () => {
+    const element: HTMLElement = fixture.nativeElement;
+    expect(getComputedStyle(element.querySelector('.manifest') as HTMLElement).minWidth).toBe('0px');
+    const notes = Array.from(element.querySelectorAll('.droid'));
+    expect(notes).toHaveLength(2);
+    for (const note of notes) {
+      expect(Array.from(note.children).map((child) => child.tagName.toLowerCase())).toEqual(['mat-icon', 'span']);
+      const loose = Array.from(note.childNodes).filter(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+      );
+      expect(loose).toEqual([]);
+    }
+  });
+
   it("prefills the component's form from the crew manifest, signing in staying an explicit click", async () => {
     const component = fixture.componentInstance;
     expect(component.decks.length).toBeGreaterThan(1);
