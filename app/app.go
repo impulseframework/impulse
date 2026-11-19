@@ -351,6 +351,18 @@ type DomainResource struct {
 	File string
 	Line int
 	Name string
+	// Table reports a struct annotated @resource: its rows are a table's. A virtual or
+	// computed resource and a method are tenant-scoped with no table of their own.
+	Table bool
+	// DomainColumn is the column that holds the tenant's key on the row itself: the
+	// spanner tag of the field annotated with the bare @domain. Empty where the struct
+	// reaches its tenant through another row (DomainVia), and where it declares no
+	// binding of its own, as a computed resource or a method does.
+	DomainColumn string
+	// DomainVia is the join path of a field annotated @domain(via: ...), by which a
+	// table that carries no tenant key reaches its tenant through the row the field
+	// names; empty for any other struct.
+	DomainVia string
 }
 
 // TenantRecord is one struct annotated @tenant: the tenant record, the global resource

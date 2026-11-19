@@ -550,10 +550,15 @@ the members' alike, and the sector's directory, whether the sector is directory 
 not, so the directory is free for another sector; a person who held roles in that sector
 alone goes with it, while one who holds a role elsewhere stays and signs in as before.
 No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor one to
-prove it (`test/integration/tenant_delete_skipauth_test.go`). Lodestar's own tables keyed
-to a sector carry no delete rule, so a sector that still holds one of their rows is
-refused until they are removed; the skeletons' sample tenant table shows the rule that
-takes a tenant's rows with it (`ON DELETE CASCADE` on its key to the tenant table).
+prove it (`test/integration/tenant_delete_skipauth_test.go`). The sector's rows go with
+it by the schema: each of the seven tables that carry a sector's key (Wings, Hangars,
+HangarPasses, Missions, Consignments, DroidReports, DistressCalls) references `Sectors`
+with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
+holds every such table to the rule (`tenant-delete-rule`). A table that reaches its
+sector through another row (a squadron through its wing, a ship through its hangar, a
+sortie through its mission) goes as its own foreign key says, and Lodestar's say nothing
+there: a hangar that still holds a ship is not deleted (`commit.referential-refusal`),
+and neither is the sector that hangar is in, until the ship is gone.
 
 How it is wired:
 

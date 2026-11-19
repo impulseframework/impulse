@@ -149,6 +149,7 @@ checks:
   generator-program
   options
   tenancy-wired
+  tenant-delete-rule
   outlet-wired
   outlet-shape
   sites-wired
