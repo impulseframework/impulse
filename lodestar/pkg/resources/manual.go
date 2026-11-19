@@ -45,11 +45,12 @@ const ClientStatements accesstypes.Resource = "ClientStatements"
 const ViewAsUser accesstypes.Resource = "ViewAsUser"
 
 // ActAsUser is the grant to act as another person: Execute on it lets its holder start a
-// session of the kind "act", which does what that person may do, except the credential
-// actions (the kind's widest mask refuses the class credential, so the session cannot
-// change how the person signs in). To let someone act as a person is to give them what
-// that person holds, less what the mask refuses, so the role file gives this grant on
-// purpose and to few.
+// session of the kind "act", which does what that person may do, except change how
+// anyone signs in or who may do what: the kind's widest mask refuses the classes
+// credential and access, and the writes of the records that decide what a person may do
+// (app/impersonate.go). To let someone act as a person is to give them what that person
+// holds, less what the mask refuses, so the role file gives this grant on purpose and
+// to few.
 //
 // Demonstrates: @manualAddResource.execute, impersonation.act-as-user, impersonation.grant-mask.
 //

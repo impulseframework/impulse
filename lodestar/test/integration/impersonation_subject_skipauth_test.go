@@ -265,7 +265,7 @@ func TestImpersonation_nobodyIsTheSubject(t *testing.T) {
 	giveMarshalStandIn(ctx, t, s)
 	acting := newBrowser(t, s, consoleAPI)
 	acting.signIn(ctx, "marshal")
-	if got, want := mint(ctx, t, acting, actAs(t, "governor", "support", "")).Mask, "everything except access actions and credential actions"; got != want {
+	if got, want := mint(ctx, t, acting, actAs(t, "governor", "support", "")).Mask, actMaskWords; got != want {
 		t.Fatalf("the mask of a session that acts as a person = %q, want %q", got, want)
 	}
 	for _, act := range acts {

@@ -4,9 +4,10 @@ package integration
 
 // impersonation_access_skipauth_test: the class access, proven on the served stack over
 // Spanner. The generated identity methods that give or take away what someone may do
-// carry the class, the console's "act as a person" refuses it beside the class
-// credential (app/impersonate.go), and a session whose mask refuses the class is refused
-// every one of them.
+// carry the class, and so does the application's own action that rates a pilot, which
+// writes the clearance a person's permissions are read against. The console's "act as a
+// person" refuses the class beside the class credential (app/impersonate.go), and a
+// session whose mask refuses the class is refused every one of them.
 
 import (
 	"fmt"
@@ -20,17 +21,22 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 )
 
-// accessBody is the body a generated method classed access takes, by its act: the
-// method's name without the auth's and without the tenant's ("AssignCrewSectorRole" is
-// the act AssignRole). A method whose act is not here fails the suite: when the
-// generated set gains one, add its body, so the new method is proven refused with the
-// others. The group and the invitation named exist nowhere: a body is decoded before a
-// permission is asked, so each is a body the method takes, and a refusal by the mask
-// never comes to reading it.
+// accessBody is the body an action classed access takes. A generated method's is found
+// by its act: the method's name without the auth's and without the tenant's
+// ("AssignCrewSectorRole" is the act AssignRole). An action whose act is not here fails
+// the suite: when the collection gains one, add its body, so the new action is proven
+// refused with the others. The group and the invitation named exist nowhere: a body is
+// decoded before a permission is asked, so each is a body the action takes, and a
+// refusal by the mask never comes to reading it. The pilot is one who flies for the
+// sector, since the action's target is located in the sector's own view.
 func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.User) []byte {
 	t.Helper()
 
 	const group, invitation = "0190b000-0000-7000-8000-00000000a001", "0190b000-0000-7000-8000-00000000a002"
+	// The application's own action that carries the class: rating a pilot.
+	if action == "SetSectorPilotClearance" {
+		return fmt.Appendf(nil, `{"pilotId":%q,"clearance":3}`, pilotVelaID)
+	}
 	// The methods whose object is the tenant itself, which the act's name does not tell
 	// apart from a method of the same words for a person or a sign-in method.
 	switch action {
@@ -77,13 +83,13 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 }
 
 // TestImpersonationMask_accessMethods proves on the served stack, over Spanner, that
-// every action the library marks with the class access is refused a session whose mask
-// refuses it, with the denial logged as the mask's, and is not refused by a mask to the
-// same person in a session of his own. The actions are the generated collection's own
-// list of the class, so one added to the generated set is asked here without this suite
-// naming it; the ones the item names are looked for by name, an invitation that carries
-// roles, a role given to a group and a tenant's starting role for its directory among
-// them. The marshal, given the grant to act as a person, starts three sessions as the
+// every action that carries the class access is refused a session whose mask refuses
+// it, with the denial logged as the mask's, and is not refused by a mask to the same
+// person in a session of his own. The actions are the generated collection's own list
+// of the class, so one added to it is asked here without this suite naming it; the ones
+// the library marks are looked for by name, an invitation that carries roles, a role
+// given to a group and a tenant's starting role for its directory among them, and so
+// is the application's own, which rates a pilot. The marshal, given the grant to act as a person, starts three sessions as the
 // governor, and each is refused every one: a session whose mask keeps no Execute, a
 // read-only view, and a session that acts as the governor, whose mask keeps every kind
 // and refuses the class, which the log names.
@@ -103,6 +109,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		"CreateCrewGroup", "DeleteCrewGroup", "InviteCrewUser", "InviteCrewSectorUser", "InviteCrewSector",
 		"CreateCrewUser", "DisableCrewUser", "EnableCrewUser", "DeleteCrewUser",
 		"OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
+		"SetSectorPilotClearance",
 	} {
 		if !slices.Contains(access, want) {
 			t.Errorf("the generated collection does not class %s access: it gives or takes away what someone may do", want)
@@ -138,9 +145,9 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		{
 			name: "a session whose mask keeps no Execute",
 			browser: start("no Execute", actAs(t, "governor", "no Execute", `,"mask":["List","Read","Create","Update","Delete"]`),
-				"Create, Delete, List, Read and Update only, except access actions and credential actions"),
+				"Create, Delete, List, Read and Update only, except "+actMaskRefusalWords),
 			logged: func(action accesstypes.Resource) []string {
-				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;-class:access;-class:credential) for " + string(account(t, "governor")), string(action)}
+				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;" + actMaskRefusalText + ") for " + string(account(t, "governor")), string(action)}
 			},
 		},
 		{
@@ -153,10 +160,10 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		},
 		{
 			name:    "a session whose mask refuses the class access",
-			browser: start("no access", actAs(t, "governor", "no access", ""), "everything except access actions and credential actions"),
+			browser: start("no access", actAs(t, "governor", "no access", ""), actMaskWords),
 			logged: func(action accesstypes.Resource) []string {
 				return []string{
-					"impersonation: Execute denied by mask (*;-class:access;-class:credential) for " + string(account(t, "governor")) + " on " + string(action) + ": the mask refuses the class access",
+					"impersonation: Execute denied by mask (" + actMaskText + ") for " + string(account(t, "governor")) + " on " + string(action) + ": the mask refuses the class access",
 				}
 			},
 		},

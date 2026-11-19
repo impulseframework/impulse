@@ -344,13 +344,13 @@ var Demonstrations = []Demonstration{
 
 	// Impersonation.
 	{"impersonation.view-as", "A session minted as another user under a List, Read mask."},
-	{"impersonation.act-as-user", "A session minted as another user that does what the person may do, except the actions classed credential and the actions classed access: it cannot change how the person signs in, or who may do what."},
+	{"impersonation.act-as-user", "A session minted as another user that does what the person may do, except the actions classed credential, the actions classed access and the writes of the records that decide what a person may do: it cannot change how the person signs in, or who may do what."},
 	{"impersonation.act-as-role", "A session minted as a role: the role's grants, the actor's identity."},
 	{"impersonation.mask", "MaskPermissions(fallback, perms...): the permission kinds a session keeps; Refusing(RefuseClass(class), RefuseAction(action), RefusePermission(perm, resource)): what it is refused inside the kinds it keeps, denied before any policy is read and left out of the permission digest."},
 	{"impersonation.grant-mask", "session.NewImpersonations(collection, kinds...): each kind of impersonation declared with the grant that allows it and the widest mask that grant gives; Request refuses a caller who does not hold the grant and a request for more than the grant gives, with nothing started, and joins what the caller asks to refuse to what the kind refuses."},
 	{"impersonation.identity-proof", "Under an assumed role, subject binds to the actor: a grant over subject.set is judged against the actor's own attributes."},
 	{"impersonation.end", "EndImpersonation: the minted session ends and the actor's own session is restored."},
-	{"impersonation.never-the-subject", "identity.RefuseImpersonatorAsSubject in an action of the application's own that names a person: in a session that acts as someone else, the action is refused when the person it names is the one who started the session, whatever the session's mask keeps; the generated identity management asks the same rule of every change to a person."},
+	{"impersonation.never-the-subject", "identity.RefuseImpersonatorAsSubject in an action of the application's own that names a person: in a session that acts as someone else, the action is refused when the person it names is the one who started the session, whatever the session's mask keeps; the generated identity management asks the same rule of every change to a person, and the generated write of a record that carries a subject value or a subject set asks it of the person the row names, before the write and after it (identity.RefuseImpersonatorAsRowSubject)."},
 	{"impersonation.active-list", "ActiveImpersonations: every live impersonated session listed for an operator."},
 	{"impersonation.revoke", "DestroyImpersonatedSession: a live impersonated session ended by an operator."},
 	{"impersonation.max-duration", "MaxDuration: a hard cap on a minted session's lifetime."},

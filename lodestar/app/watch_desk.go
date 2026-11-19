@@ -30,8 +30,9 @@ const (
 // username of the person the session acts as, never the id of the account the record
 // names them by. Mask is the session's mask in words, as the library says it
 // (accesstypes.PermissionMask.Words): "reading only" for a session that views,
-// "everything except access actions and credential actions" for one that acts as a
-// person, "everything" for one with no mask, which holds all its principal holds.
+// "everything except access actions, credential actions, ..." and each write the act
+// kind refuses by name for one that acts as a person (impersonationKinds), "everything"
+// for one with no mask, which holds all its principal holds.
 type activeImpersonation struct {
 	SessionID impulse.UUID `json:"sessionId"`
 	Actor     string       `json:"actor"`

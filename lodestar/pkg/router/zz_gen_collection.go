@@ -1070,6 +1070,7 @@ func Collection() *resource.GeneratedCollection {
 				Name:        "SetSectorPilotClearance",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
 				Attributes: []resource.AttributeData{
 					{Name: "clearance", Column: "Clearance", Type: "number"},
 				},

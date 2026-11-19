@@ -29,14 +29,22 @@ import (
 // person may do, and it names that person. It is an action of the application's own,
 // which the identity library never sees, so it asks the library's rule itself: in a
 // session that acts as someone else, nobody is the subject of what they do
-// (identity.RefuseImpersonatorAsSubject). A marshal who acts as another marshal, or as
-// a role that rates pilots, does not rate their own record; they rate anyone else's.
+// (identity.RefuseImpersonatorAsSubject). A marshal who acts as a role that rates
+// pilots does not rate their own record; they rate anyone else's. The generated write
+// of the registry's record asks the same rule about the person the row names; this
+// method writes the record by hand, where no generated handler stands, so it asks here.
+//
+// Because it changes what a person may do, it carries the class access, as the
+// library's own actions that give and take a role do. A mask that refuses the class
+// refuses it: a session that acts as a person, whose kind refuses access, rates
+// nobody, as it writes no row of the registry.
 //
 // Demonstrates: @target, @target.view, @attribute.view, execute-condition, execute-condition.request-field, @answers.no-content, impersonation.never-the-subject.
 //
 // @rpc
 // @permissionScope(domain)
 // @answers(204)
+// @class(access)
 type SetSectorPilotClearance struct {
 	// @target(SectorPilot)
 	PilotID impulse.UUID

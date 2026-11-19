@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -208,9 +209,9 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 	sessions := []masked{
 		{
 			name:    "a session whose mask keeps no Execute",
-			browser: start("no Execute", actAs(t, "governor", "no Execute", `,"mask":["List","Read","Create","Update","Delete"]`), "Create, Delete, List, Read and Update only, except access actions and credential actions"),
+			browser: start("no Execute", actAs(t, "governor", "no Execute", `,"mask":["List","Read","Create","Update","Delete"]`), "Create, Delete, List, Read and Update only, except "+actMaskRefusalWords),
 			logged: func(action accesstypes.Resource) []string {
-				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;-class:access;-class:credential) for " + string(account(t, "governor")), string(action)}
+				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;" + actMaskRefusalText + ") for " + string(account(t, "governor")), string(action)}
 			},
 		},
 		{
@@ -223,9 +224,9 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 		},
 		{
 			name:    "a session whose mask refuses the class credential",
-			browser: start("no credential", actAs(t, "governor", "no credential", ""), "everything except access actions and credential actions"),
+			browser: start("no credential", actAs(t, "governor", "no credential", ""), actMaskWords),
 			logged: func(action accesstypes.Resource) []string {
-				return []string{"impersonation: Execute denied by mask (*;-class:access;-class:credential) for " + string(account(t, "governor")) + " on " + string(action) + ": the mask refuses the class credential"}
+				return []string{"impersonation: Execute denied by mask (" + actMaskText + ") for " + string(account(t, "governor")) + " on " + string(action) + ": the mask refuses the class credential"}
 			},
 		},
 	}
@@ -450,20 +451,29 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 	}
 
 	// The governor holds the grant to act and acts as the marshal: the session does
-	// what she may do, except the credential actions and the actions that change who
-	// may do what.
+	// what she may do, except the credential actions, the actions that change who may
+	// do what, and the writes of the records that decide what a person may do.
 	acting := newBrowser(t, s, consoleAPI)
 	acting.signIn(ctx, "governor")
 	act := mint(ctx, t, acting, actAs(t, "marshal", "stand in", ""))
-	if act.Mask != "everything except access actions and credential actions" {
-		t.Errorf("a session that acts as a person = %q, want the grant's mask: everything except access actions and credential actions", act.Mask)
+	if act.Mask != actMaskWords {
+		t.Errorf("a session that acts as a person = %q, want the grant's mask: %s", act.Mask, actMaskWords)
 	}
 	if info := acting.session(ctx); info["username"] != "marshal" {
 		t.Fatalf("the session after the governor acts as the marshal = %v, want the marshal's", info)
 	}
 	record = impersonation(acting)
-	if classes, _ := record["refusedClasses"].([]any); record["actor"] != "governor" || record["mask"] != nil || !slices.Equal(classes, []any{"access", "credential"}) || record["maskWords"] != "everything except access actions and credential actions" {
+	if classes, _ := record["refusedClasses"].([]any); record["actor"] != "governor" || record["mask"] != nil || !slices.Equal(classes, []any{"access", "credential"}) || record["maskWords"] != actMaskWords {
 		t.Errorf("the acting session's record = %v, want the actor governor, every kind kept, the classes access and credential refused, and the mask in words", record)
+	}
+	// The record names each write the kind refuses: the three writes of five records,
+	// and a squadron's change.
+	if named, _ := record["refused"].([]any); len(named) != 16 || !slices.ContainsFunc(named, func(refusal any) bool {
+		one, _ := refusal.(map[string]any)
+
+		return one["permission"] == "Update" && one["resource"] == "Squadrons"
+	}) {
+		t.Errorf("the acting session's record names the refused writes %v, want the sixteen the act kind refuses, Update on Squadrons among them", record["refused"])
 	}
 	if status, body := acting.do(ctx, http.MethodPost, consoleAPI+"/issue-bulletin", []byte(`{"announcement":"Relief watch: drill moved to 0700"}`)); status != http.StatusOK {
 		t.Errorf("issuing a bulletin acting as the marshal: status %d, want 200: the session acts: %s", status, body)
@@ -485,7 +495,7 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 
 	// The watch desk says each live session's mask in words, and so does the generated
 	// list of the impersonation records, which reads the stored text as words.
-	words := map[string]string{view.SessionID: "reading only", listing.SessionID: "List only", act.SessionID: "everything except access actions and credential actions", role.SessionID: "everything"}
+	words := map[string]string{view.SessionID: "reading only", listing.SessionID: "List only", act.SessionID: actMaskWords, role.SessionID: "everything"}
 	entries := listed()
 	for id, want := range words {
 		if got, ok := entries[id]; !ok || got.Mask != want {
@@ -546,6 +556,11 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 			t.Fatalf("the marshal's digest carries no Execute on %s: the suite reads ScrapShip, a neighbor of it and a credential method off it", action)
 		}
 	}
+	for record, perm := range map[accesstypes.Resource]accesstypes.Permission{"SquadronMemberships": accesstypes.Create, "HangarPasses": accesstypes.Delete, "Squadrons": accesstypes.Update, "Squadrons.wingId": accesstypes.Update} {
+		if _, ok := hers[record][perm]; !ok {
+			t.Fatalf("the marshal's digest carries no %s on %s: the suite reads off it the writes the act kind refuses", perm, record)
+		}
+	}
 
 	acting := func(name, more, wantMask string) *browser {
 		t.Helper()
@@ -557,13 +572,30 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 
 		return b
 	}
-	// wantDigest is the marshal's own digest without the actions a mask refuses, every
-	// other entry as she holds it.
+	// What the kind refuses of its own on a record: the three writes of the records that
+	// decide what a person may do, and a squadron's change, each on the record and on
+	// every field of it.
+	writes := []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete}
+	kindRefusesWrites := map[accesstypes.Resource][]accesstypes.Permission{
+		"ClientContacts": writes, "HangarPasses": writes, "PilotCertifications": writes, "Pilots": writes, "SquadronMemberships": writes,
+		"Squadrons": {accesstypes.Update},
+	}
+	// wantDigest is the marshal's own digest without the actions a mask refuses and
+	// without the writes the kind refuses on a record, every other entry as she holds
+	// it. An entry left with no permission is not carried.
 	wantDigest := func(refused ...accesstypes.Resource) accesstypes.PermissionDigest {
 		want := make(accesstypes.PermissionDigest, len(hers))
 		for res, perms := range hers {
-			if !slices.Contains(refused, res) {
-				want[res] = perms
+			if slices.Contains(refused, res) {
+				continue
+			}
+			record, _, _ := strings.Cut(string(res), ".")
+			kept := maps.Clone(perms)
+			for _, perm := range kindRefusesWrites[accesstypes.Resource(record)] {
+				delete(kept, perm)
+			}
+			if len(kept) > 0 {
+				want[res] = kept
 			}
 		}
 
@@ -586,14 +618,16 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 	kindRefuses := slices.Concat(collection.ActionsOfClass(accesstypes.ClassCredential), collection.ActionsOfClass(accesstypes.ClassAccess))
 
 	// One named action.
-	named := acting("one named action", `,"refuseActions":["ScrapShip"]`, "everything except access actions, credential actions and the action ScrapShip")
+	named := acting("one named action", `,"refuseActions":["ScrapShip"]`,
+		"everything except access actions, credential actions, writing ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots, the action ScrapShip, writing SquadronMemberships and changing Squadrons")
 	if status, body := named.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the action ScrapShip: status %d, want 403: %s", status, body)
 	}
 	assertDigest("one named action", digestOf(ctx, t, named, anvil), wantDigest(append([]accesstypes.Resource{"ScrapShip"}, kindRefuses...)...))
 
 	// A class of the application's own.
-	classed := acting("a class of the application's own", `,"refuseClasses":["irreversible"]`, "everything except access actions, credential actions and irreversible actions")
+	classed := acting("a class of the application's own", `,"refuseClasses":["irreversible"]`,
+		"everything except access actions, credential actions, irreversible actions, writing ClientContacts, writing HangarPasses, writing PilotCertifications, writing Pilots, writing SquadronMemberships and changing Squadrons")
 	if status, body := classed.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the class irreversible: status %d, want 403: %s", status, body)
 	}
@@ -601,7 +635,7 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 
 	// The same kind without either refusal is let through: what refused the two
 	// sessions above is what their requests named.
-	plain := acting("neither", "", "everything except access actions and credential actions")
+	plain := acting("neither", "", actMaskWords)
 	if status, answer := dryRun(ctx, plain, scrap, mule); status != http.StatusOK {
 		t.Errorf("scrap-ship acting as the marshal with neither refusal, as a dry run: status %d, want 200: %s", status, answer)
 	}
