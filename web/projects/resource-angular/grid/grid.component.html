@@ -31,7 +31,7 @@
               <th class="expand-col" [style.width.px]="expandColumnWidth"></th>
             }
             @for (col of columnDefs(); track col.id + col.header) {
-              <th class="data-col" [class.first-col]="$first" [style.width.px]="widthFor(col)">
+              <th class="data-col" [class.first-col]="$first" [style.width.px]="drawnWidthFor(col)">
                 <div class="header-cell">
                   @if (!col.buttonConfig) {
                     @if (sortable() && col.sortable !== false) {

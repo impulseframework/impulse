@@ -140,13 +140,23 @@ CREATE TABLE SectorDirectories (
 CREATE UNIQUE INDEX SectorDirectoriesBySectorId ON SectorDirectories(SectorId);
 CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Method, Connection);
 
+-- The rows of a table that carries a sector's key are the sector's own, so they go with
+-- it: the delete rule on the foreign key to Sectors (ON DELETE CASCADE) removes them in
+-- the transaction that deletes the sector, and impulse check holds every such table to
+-- it (tenant-delete-rule). Wings, Hangars, HangarPasses, Missions, Consignments,
+-- DroidReports and DistressCalls carry it. A sector's directory carries none: the
+-- generated delete of a sector removes that row itself, so its change event is written.
+-- A table that reaches its sector through another row (a squadron through its wing, a
+-- ship through its hangar, a sortie through its mission) goes as its own foreign key
+-- says, and those say nothing: a hangar that still holds a ship is not deleted, and
+-- neither is the sector the hangar is in.
 CREATE TABLE Wings (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
 
   CONSTRAINT CK_Wings_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Wings_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Wings_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX WingsByName ON Wings(Name);
@@ -374,7 +384,7 @@ CREATE TABLE Hangars (
   Zone STRING(MAX) NOT NULL,
 
   CONSTRAINT CK_Hangars_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Hangars_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Hangars_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   -- Hangars: the prefix fact alone. The lowercased name sits after the sector in an
   -- index, so a startswith on Name seeks that index with the sector bound; a hangar's name
   -- joins no box, since the table has no search index.
@@ -398,7 +408,7 @@ CREATE TABLE HangarPasses (
 
   CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_HangarPasses_Holder CHECK ((UserId IS NULL) != (SquadronId IS NULL)),
-  CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
   CONSTRAINT FK_HangarPasses_LevelId FOREIGN KEY (LevelId) REFERENCES PassLevels(Id),
@@ -469,7 +479,7 @@ CREATE TABLE Missions (
   Settlement NUMERIC,
 
   CONSTRAINT CK_Missions_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Missions_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Missions_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Missions_ClientId FOREIGN KEY (ClientId) REFERENCES Clients(Id),
   CONSTRAINT FK_Missions_KindId FOREIGN KEY (KindId) REFERENCES MissionKinds(Id),
   CONSTRAINT FK_Missions_RequiredCertId FOREIGN KEY (RequiredCertId) REFERENCES Certifications(Id),
@@ -554,7 +564,7 @@ CREATE TABLE Consignments (
   ReleasedAt TIMESTAMP,
 
   CONSTRAINT CK_Consignments_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_Consignments_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_Consignments_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_Consignments_ClientId FOREIGN KEY (ClientId) REFERENCES Clients(Id),
 ) PRIMARY KEY (Id);
 
@@ -569,7 +579,7 @@ CREATE TABLE DroidReports (
   RecordedAt TIMESTAMP NOT NULL,
 
   CONSTRAINT CK_DroidReports_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_DroidReports_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_DroidReports_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   CONSTRAINT FK_DroidReports_ShipId FOREIGN KEY (ShipId) REFERENCES Ships(Id),
   -- Frame is the telemetry frame as the droid's firmware sent it, a JSON document the
   -- service does not model, stored verbatim: typed in Go by telemetry.Frame, a type declared
@@ -593,7 +603,7 @@ CREATE TABLE DistressCalls (
   FiledByName STRING(320) NOT NULL,
 
   CONSTRAINT CK_DistressCalls_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT FK_DistressCalls_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_DistressCalls_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id) ON DELETE CASCADE,
   Position JSON,
 ) PRIMARY KEY (Id);
 

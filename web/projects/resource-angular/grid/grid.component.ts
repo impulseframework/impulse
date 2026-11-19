@@ -9,6 +9,7 @@ import {
   output,
   signal,
   TemplateRef,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
@@ -64,14 +65,39 @@ const SELECT_COLUMN_WIDTH = 48;
 const EXPAND_COLUMN_WIDTH = 40;
 
 /**
- * The narrowest a column of text is drawn in any list, in pixels, where the column
- * declares no width of its own and nobody has dragged it: 135 pixels of text between the
- * cell's padding and its line, nineteen characters of the list's 14 pixel type, which is
- * a person's first and last name. It is also the widest that still shows one more column
- * whole beside the held first one on a phone 390 pixels wide, on a page and in a pop-up,
- * in a list with no select or expand column.
+ * The most the narrowest of a column of text can be, in pixels, where the column declares
+ * no width of its own and nobody has dragged it: a column whose heading and values need
+ * less goes as narrow as they need, and one whose values need more stays at this and cuts
+ * them short. It is 135 pixels of text between the cell's padding and its line, nineteen
+ * characters of the list's 14 pixel type, which is a person's first and last name. It is
+ * also the widest that still shows one more column whole beside the held first one on a
+ * phone 390 pixels wide, on a page and in a pop-up, in a list with no select or expand
+ * column.
  */
 export const MIN_TEXT_COLUMN_WIDTH = 160;
+
+/**
+ * The room a column keeps beyond what its widest content measures, in pixels. A text that
+ * comes within a pixel of its box counts as cut short (CutShortTooltipDirective), and a
+ * table whose cells share their lines keeps half a pixel of its width for its own edge, so
+ * a column drawn at exactly what its content measures would cut what it was measured for.
+ */
+const SPARE_WIDTH = 2;
+
+/** How wide what an element holds is drawn, cut short or not: its text's own line, the box of an icon. */
+function drawnWidth(element: Element, range: Range): number {
+  range.selectNodeContents(element);
+  return range.getBoundingClientRect().width;
+}
+
+/** What a cell takes of its column beside its content: its padding and its lines. */
+function aroundContent(cell: Element, view: Window): number {
+  const style = view.getComputedStyle(cell);
+  return [style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth].reduce(
+    (sum, length) => sum + (parseFloat(length) || 0),
+    0,
+  );
+}
 
 /**
  * Whether a color, as the browser reports the one an element is drawn with, covers what is
@@ -110,10 +136,13 @@ export const COMPANION_FILTER_HINT =
  * expansion is as before. A cell is one line, and a text or a header wider than its column
  * is cut with an ellipsis and offered whole in a tooltip (CutShortTooltipDirective).
  *
- * A column is never squeezed under the narrowest it is drawn (`narrowestFor`): the table
- * fills its frame while every column fits, and where they do not it stays as wide as they
- * need and the frame scrolls sideways, the page never. The first column is then held at
- * the left edge, with the select and expand columns, while the others scroll under it.
+ * A column is never squeezed under the narrowest it is drawn (`narrowestFor`): what its
+ * heading and the values it has shown need, measured off what is drawn, and never more
+ * than MIN_TEXT_COLUMN_WIDTH. The table fills its frame while every column fits, the
+ * columns sharing it equally but for one that needs more than its share; where they do not
+ * fit, each is as narrow as it goes, the table stays as wide as that and the frame scrolls
+ * sideways, the page never. The first column is then held at the left edge, with the
+ * select and expand columns, while the others scroll under it.
  */
 @Component({
   selector: 'impulse-grid',
@@ -200,6 +229,20 @@ export class AppGridComponent {
     return new Map(this.rowData().map((row: RecordData, index: number) => [row, key ? key(row, index) : index]));
   });
   private readonly columnWidths = signal<Record<string, number>>({});
+  /**
+   * What each column's heading and the values it has shown need, in pixels, by column id:
+   * the narrowest a column goes where nobody dragged it and the page gave it no width. A
+   * column is here once it has been measured, between the least a column goes and
+   * MIN_TEXT_COLUMN_WIDTH, and its entry only grows while the list keeps its columns, so
+   * a page of shorter values, a sort or a filter narrows nothing under a person's eyes. A
+   * font that arrives changes how wide every text is drawn, and the list then reads what
+   * it shows afresh.
+   */
+  private readonly needs = signal<ReadonlyMap<string, number>>(new Map());
+  /** The columns `needs` was measured for, by id and heading, in order: other columns start again. */
+  private measuredColumns = '';
+  /** Whether the frame was not laid out when the columns were last to be read, so its first width reads them. */
+  private unlaid = true;
   /** How far the frame was scrolled sideways when it last scrolled. */
   private lastScrollLeft = 0;
   /** Whether the pointer was just pressed on the list: the focus that follows a press is the pointer's, not the keyboard's. */
@@ -223,6 +266,7 @@ export class AppGridComponent {
   );
 
   private readonly scrollContainer = viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
+  private readonly table = viewChild<ElementRef<HTMLTableElement>>('table');
   private readonly tableBody = viewChild<ElementRef<HTMLTableSectionElement>>('tableBody');
 
   /**
@@ -266,6 +310,39 @@ export class AppGridComponent {
   scrollsSideways = computed(() => {
     const frame = this.frameWidth();
     return frame !== undefined && this.tableMinWidth() > frame;
+  });
+
+  /**
+   * The columns drawn at the narrowest they go, by id, of those that have no width of
+   * their own. The table gives its columns of no width an equal share of what the others
+   * leave, which is what a list that fits has always done; a column that needs more than
+   * that share is given what it needs, and the rest share what is left. So in a frame
+   * with room to spare none is here and the list is drawn as it always was, in a frame too
+   * narrow for the columns every one is, and in between only those that would otherwise
+   * cut a value the list can show whole. None is here where the frame is not measured.
+   */
+  private readonly atNarrowest = computed<ReadonlyMap<string, number>>(() => {
+    const narrowest = new Map<string, number>();
+    const frame = this.frameWidth();
+    if (frame === undefined) {
+      return narrowest;
+    }
+    const sharing = this.columnDefs()
+      .filter((col) => this.widthFor(col) === null)
+      .map((col) => ({ id: col.id, narrowest: this.narrowestFor(col) }))
+      .sort((a, b) => b.narrowest - a.narrowest);
+    let room = frame - this.tableMinWidth() + sharing.reduce((sum, col) => sum + col.narrowest, 0);
+    let left = sharing.length;
+    for (const col of sharing) {
+      // An equal share is enough for this column, and so for every narrower one after it.
+      if (col.narrowest * left <= room) {
+        break;
+      }
+      narrowest.set(col.id, col.narrowest);
+      room -= col.narrowest;
+      left--;
+    }
+    return narrowest;
   });
 
   /** How much of the frame's left edge the held columns take: the select and expand columns and the first column. */
@@ -378,6 +455,12 @@ export class AppGridComponent {
         const width = container.clientWidth;
         this.frameWidth.set(width > 0 ? width : undefined);
         this.readGround(container);
+        // A list drawn inside something hidden had nothing to measure until now. One that was
+        // laid out when it was drawn was read then, and a frame that only changes width
+        // changes nothing a column needs.
+        if (this.unlaid && width > 0) {
+          this.measureColumns();
+        }
       });
       observer.observe(container);
       // A change from light to dark made while the list is on the screen is set on the
@@ -386,10 +469,37 @@ export class AppGridComponent {
       const page = container.ownerDocument;
       look.observe(page.documentElement, { attributes: true });
       look.observe(page.body, { attributes: true });
+      // A font that arrives after the list was drawn changes how wide every text is: what
+      // was read in the letters drawn before it is read again, afresh.
+      const lettered = (): void => {
+        this.measuredColumns = '';
+        this.measureColumns();
+      };
+      const fonts = page.fonts as FontFaceSet | undefined;
+      fonts?.addEventListener('loadingdone', lettered);
       onCleanup(() => {
         observer.disconnect();
         look.disconnect();
+        fonts?.removeEventListener('loadingdone', lettered);
       });
+    });
+
+    // What each column needs, read off what is drawn once the rows, the columns or a
+    // heading's marks (its sort arrow, its filter button) have changed and been drawn, or
+    // the list has finished loading: one pass of reads, and the widths it finds are drawn
+    // in the same turn.
+    afterRenderEffect({
+      read: () => {
+        this.loading();
+        this.visibleRows();
+        this.columnDefs();
+        this.sorts();
+        this.sortable();
+        this.filterability();
+        this.searches();
+        this.indexedFilterActive();
+        untracked(() => this.measureColumns());
+      },
     });
 
     effect(() => {
@@ -441,6 +551,105 @@ export class AppGridComponent {
     if (under > 0) {
       frame.scrollLeft -= under;
     }
+  }
+
+  /**
+   * Reads what each column of no width of its own needs: the widest of its heading, with
+   * the marks beside it, and the values the list is showing, with the cell's padding and
+   * lines. It is read off what is drawn (the text's own line, an icon's box), not worked
+   * out from the type, so it holds for whatever a cell draws and however the page styles
+   * it. Every read comes before the one write, so the browser lays the list out once; a
+   * column already at the widest its narrowest goes is not read at all, and a value the
+   * column has shown in this pass is not read twice. A need only grows: see `needs`. A
+   * list that is not laid out (inside something hidden, a spec that lays nothing out) has
+   * nothing to read. Nor has a list that is loading: what it draws under the loading cover
+   * is not yet what it shows (a related record not yet read is drawn as its key, longer
+   * than the name that replaces it), and a need read from it would never come down. It is
+   * read once the list has loaded.
+   */
+  private measureColumns(): void {
+    const frame = this.scrollContainer()?.nativeElement;
+    const table = this.table()?.nativeElement;
+    const view = frame?.ownerDocument.defaultView;
+    if (!frame || !table || !view) {
+      return;
+    }
+    this.unlaid = frame.clientWidth === 0;
+    if (this.unlaid || this.loading()) {
+      return;
+    }
+    const range = frame.ownerDocument.createRange();
+    if (typeof range.getBoundingClientRect !== 'function') {
+      return;
+    }
+    const columns = this.columnDefs();
+    const these = columns.map((col) => `${col.id}\n${col.header ?? ''}`).join('\n\n');
+    const known = these === this.measuredColumns ? this.needs() : new Map<string, number>();
+    const next = new Map(known);
+    // The select and expand columns come before the first of `columns`.
+    const before =
+      (this.selectionType() !== 'none' ? 1 : 0) + (this.enableRowExpansion() && this.detailTemplate() ? 1 : 0);
+    const headings = table.tHead?.rows[0]?.cells;
+    const rows = Array.from(table.tBodies[0]?.rows ?? []).filter((row) => row.classList.contains('impulse-row'));
+    columns.forEach((col, index) => {
+      let need = next.get(col.id) ?? 0;
+      if (this.widthFor(col) !== null || need >= MIN_TEXT_COLUMN_WIDTH) {
+        return;
+      }
+      const heading = headings?.[before + index];
+      if (heading) {
+        need = Math.max(need, this.headingNeeds(heading, range, view));
+      }
+      let around: number | undefined;
+      const read = new Set<string>();
+      for (const row of rows) {
+        const cell = row.cells[before + index] as HTMLTableCellElement | undefined;
+        const words = cell?.textContent ?? '';
+        if (need >= MIN_TEXT_COLUMN_WIDTH) {
+          break;
+        }
+        if (!cell || read.has(words)) {
+          continue;
+        }
+        read.add(words);
+        around ??= aroundContent(cell, view);
+        need = Math.max(need, Math.ceil(drawnWidth(cell, range) + around) + SPARE_WIDTH);
+      }
+      next.set(col.id, Math.min(MIN_TEXT_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, need)));
+    });
+    const same =
+      next.size === this.needs().size && Array.from(next).every(([id, need]) => this.needs().get(id) === need);
+    this.measuredColumns = these;
+    if (!same) {
+      this.needs.set(next);
+    }
+  }
+
+  /**
+   * What a column's heading needs: its words whole, the marks after them (the sort's
+   * arrow and its number, the filter's button) with the gaps between, and the cell's
+   * padding and line. The words are measured as they would be drawn whole, and the marks
+   * from where the words end to where the last mark ends, which is the same however much
+   * room the heading has now.
+   */
+  private headingNeeds(heading: HTMLElement, range: Range, view: Window): number {
+    const cell = heading.querySelector(':scope > .header-cell');
+    const label = cell?.querySelector(':scope > .header-label');
+    if (!cell || !label) {
+      return 0;
+    }
+    const words = label.querySelector(':scope > .col-header');
+    const lastOfLabel = label.lastElementChild;
+    const lastOfCell = cell.lastElementChild;
+    let need = words ? drawnWidth(words, range) : 0;
+    if (lastOfLabel && lastOfLabel !== words) {
+      const from = words ? words.getBoundingClientRect().right : label.getBoundingClientRect().left;
+      need += lastOfLabel.getBoundingClientRect().right - from;
+    }
+    if (lastOfCell && lastOfCell !== label) {
+      need += lastOfCell.getBoundingClientRect().right - label.getBoundingClientRect().right;
+    }
+    return Math.ceil(need + aroundContent(heading, view)) + SPARE_WIDTH;
   }
 
   /** Reads the color the list sits on off the page: the frame's own, else the nearest of the elements it is inside. */
@@ -735,12 +944,23 @@ export class AppGridComponent {
 
   /**
    * The narrowest the column is drawn: the width a person dragged it to, else the width
-   * it declares, else the action column's own, else the width the library gives every
-   * column of text. A column with none of the first three shares the room the table has
-   * left over, and this is the least that share can be.
+   * it declares, else the action column's own, else what its heading and the values it
+   * has shown need (`needs`), which is MIN_TEXT_COLUMN_WIDTH at the most and is that
+   * until the column has been measured. A column with none of the first three shares the
+   * room the table has left over, and this is the least that share can be.
    */
   narrowestFor(col: ColumnConfig): number {
-    return this.widthFor(col) ?? MIN_TEXT_COLUMN_WIDTH;
+    return this.widthFor(col) ?? this.needs().get(col.id) ?? MIN_TEXT_COLUMN_WIDTH;
+  }
+
+  /**
+   * The width the column's heading cell carries, which is the column's in a table of
+   * fixed layout: its own (dragged, declared, a button column's), else the narrowest it
+   * goes where the frame leaves it no more (`atNarrowest`), else none, and it shares
+   * what is left over.
+   */
+  drawnWidthFor(col: ColumnConfig): number | null {
+    return this.widthFor(col) ?? this.atNarrowest().get(col.id) ?? null;
   }
 
   startResize(event: MouseEvent, col: ColumnConfig): void {

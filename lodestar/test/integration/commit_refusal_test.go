@@ -3,17 +3,18 @@ package integration
 
 // This suite pins what a commit Spanner refuses answers: a 4xx with a message the resource
 // library composes from the resources the transaction buffered, decided on the gRPC code
-// alone. Lodestar's foreign keys are NO ACTION apart from three cascades, so any referenced
-// parent reproduces the referential refusal (409), and the combined deletes prove that
-// detecting at commit keeps a child-and-parent delete legal in either order. A refit task
-// created under a task number the refit already holds (a client-supplied compound key) and
-// a ship created under a seeded registry (ShipsByRegistry) are the duplicate-key and
-// duplicate-unique-value refusals on a create (409); a client renamed to another client's
-// name is the duplicate unique value on an update (409); a client updated under an id that
-// does not exist is the missing row on an update (404), which reaches the commit because
-// Client is global, untracked, and updated under unconditional grants; and a mission's
-// hazard updated to 9 is the CHECK refusal (400), beside the create validator's own 400 for
-// the same value, the two enforcement points of one rule.
+// alone. Below a sector Lodestar's foreign keys are NO ACTION apart from three cascades (the
+// tables that carry a sector's key go with the sector, by a rule of their own on that key), so
+// any referenced parent reproduces the referential refusal (409), and the combined deletes
+// prove that detecting at commit keeps a child-and-parent delete legal in either order. A
+// refit task created under a task number the refit already holds (a client-supplied compound
+// key) and a ship created under a seeded registry (ShipsByRegistry) are the duplicate-key and
+// duplicate-unique-value refusals on a create (409); a client renamed to another client's name
+// is the duplicate unique value on an update (409); a client updated under an id that does not
+// exist is the missing row on an update (404), which reaches the commit because Client is
+// global, untracked, and updated under unconditional grants; and a mission's hazard updated to
+// 9 is the CHECK refusal (400), beside the create validator's own 400 for the same value, the
+// two enforcement points of one rule.
 
 import (
 	"encoding/json"

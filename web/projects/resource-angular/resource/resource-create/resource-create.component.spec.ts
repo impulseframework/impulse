@@ -42,7 +42,49 @@ describe('ResourceCreateComponent', () => {
   it('should create', () => {
     expect(component).toBeTruthy();
   });
+
+  // The form's heading row is the row of every page: it wraps, so on a screen too narrow
+  // for the title and the buttons, Cancel and Create go under the title and stay in reach.
+  it("draws its title and its buttons in one row that wraps, the title a section's", () => {
+    fixture.componentRef.setInput(
+      'resourceConfig',
+      viewConfig({ title: 'Squadron', primaryResource: 'Squadrons' as Resource, elements: [] }),
+    );
+    fixture.detectChanges();
+    const row = (fixture.nativeElement as HTMLElement).querySelector('.header-container') as HTMLElement;
+    const title = row.querySelector('h1') as HTMLElement;
+
+    expect(Array.from(row.children).map((child) => child.classList[0])).toEqual(['title', 'state-buttons']);
+    expect(title.textContent).toBe('Create Squadron');
+    expect(Array.from(row.querySelectorAll('.state-buttons button')).map((b) => b.textContent?.trim())).toEqual([
+      'Cancel',
+      'Create',
+    ]);
+    expect(declared(row, ['.header-container'], ['>'])).toContain('flex-wrap: wrap');
+    expect(declared(row, ['.header-container', '>', '+'])).toContain('margin-left: auto');
+    expect(declared(row, ['.state-buttons'])).toContain('flex-wrap: wrap');
+    expect(declared(title, ['.title', 'h1'])).toContain('font-size: var(--impulse-section-title-size)');
+    expect(declared(title, ['.title', 'h1'])).toContain('overflow-wrap: anywhere');
+  });
 });
+
+/**
+ * What the stylesheet of the component an element belongs to declares, in the rules whose
+ * selector names every one of `names` and none of `without`: the rules as the page was
+ * given them, for what a spec's page, which lays nothing out, cannot show by drawing.
+ */
+function declared(of: Element, names: string[], without: string[] = []): string {
+  const scope = Array.from(of.attributes).find((attribute) => attribute.name.startsWith('_ngcontent'))?.name ?? '';
+  const sheet = Array.from(document.querySelectorAll('style'))
+    .map((style) => style.textContent ?? '')
+    .join('\n');
+  return Array.from(sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+    .filter(([, selector]) => {
+      return [scope, ...names].every((name) => selector.includes(name)) && without.every((name) => !selector.includes(name));
+    })
+    .map(([, , declarations]) => declarations)
+    .join('\n');
+}
 
 // A create form over a resource with the three read-only shapes and a write-only field:
 // the shapes' controls start null and show the placeholder, never an input, and a null

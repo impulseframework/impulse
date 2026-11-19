@@ -43,10 +43,14 @@ func smokeSpecs() []*Spec {
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "tenants", Doc: "the people of the tenants", Methods: []Method{
 			{Kind: app.MethodPassword},
 			{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
+		}, TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true, AdmitWithoutTenant: true}},
+		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "invited", IdentityDir: "pkg/identity", Doc: "the people of tenants that have no directories", Methods: []Method{
+			{Kind: app.MethodPassword},
+			{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
 		}, TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "closed", Methods: []Method{
 			{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
-		}, TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader"}},
+		}, TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "crew", Doc: "the people who sign in to the console, and the personas of the test environments", Methods: []Method{
 			{Kind: app.MethodPassword},
 			{Kind: app.MethodPersona},
@@ -541,7 +545,7 @@ func TestFiles_tenantMaker(t *testing.T) {
 		"staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))",
 	}
 	policy := func(admitWithoutTenant bool) *TenantPolicy {
-		return &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: admitWithoutTenant}
+		return &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: true, AdmitWithoutTenant: admitWithoutTenant}
 	}
 	tests := []struct {
 		name string
@@ -591,6 +595,133 @@ func TestFiles_tenantMaker(t *testing.T) {
 				t.Errorf("%s.go names TenantMaker for an auth a tenant is not made through", tt.spec.Name)
 			}
 		})
+	}
+}
+
+// TestFiles_tenantDirectories pins what an auth carries of a tenant's directory. In an
+// application with tenant directories the auth whose roles the application assigns
+// carries the directory reader, refuses a nil one and sets the directory admission. In
+// an application whose tenants have no directories no auth carries any of it, whatever
+// its methods, and the sign-in rule stands as it does everywhere: the library's tenant
+// policy over the generated reader, which New still refuses nil.
+func TestFiles_tenantDirectories(t *testing.T) {
+	t.Parallel()
+	directory := []string{
+		"\tTenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]\n",
+		"\tif settings.TenantDirectories == nil {\n",
+		"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n",
+		"// tenant alone: a tenant that is not directory only admits everyone it seats,\n",
+		"// directory, makes that directory the tenant's own, all in the transaction that\n",
+		"// tenant's directory are written with the invitation's consumption or not at all.\n",
+	}
+	everywhere := []string{
+		"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
+		"\tif settings.TenantDeclarations == nil {\n",
+		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n",
+		"\tTenantMaker identity.TenantMaker\n",
+		"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
+	}
+	none := []string{
+		"\t// ({{reader}}), which answers nothing for every tenant, since\n\t// the application has no tenant directories. Required; New refuses nil.\n",
+		"\t// directories, so no tenant declares who may enter it and the generated reader\n\t// answers nothing for every tenant: a tenant admits everyone it seats, however they\n",
+		"\t// directory is a way for an invited person to sign in and nothing more.\n",
+		"\t// roles that administer it, in the transaction that consumes the invitation,\n\t// however they signed in: no tenant takes a directory.\n",
+		"\t// is accepted there too: the tenant's row and the person's administrator roles are\n\t// written with the invitation's consumption or not at all.\n",
+	}
+	spec := func(directories bool) *Spec {
+		return &Spec{
+			Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity",
+			Methods: []Method{
+				{Kind: app.MethodPassword},
+				{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
+			},
+			TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: directories, AdmitWithoutTenant: true},
+		}
+	}
+	tests := []struct {
+		name        string
+		directories bool
+	}{
+		{name: "an application with tenant directories", directories: true},
+		{name: "an application whose tenants have no directories, with a Google method all the same"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := spec(tt.directories)
+			if got := s.DirectoryAdmission(); got != tt.directories {
+				t.Errorf("DirectoryAdmission() = %v, want %v", got, tt.directories)
+			}
+			if !s.MakesTenants() {
+				t.Error("MakesTenants() = false: a tenant is made through the auth whether or not a tenant can take a directory")
+			}
+			files, err := Files(s)
+			if err != nil {
+				t.Fatalf("Files() error = %v", err)
+			}
+			rendered := string(files["staff.go"])
+			for _, text := range everywhere {
+				if !strings.Contains(rendered, text) {
+					t.Errorf("staff.go lacks %q", text)
+				}
+			}
+			for _, text := range directory {
+				if got := strings.Contains(rendered, text); got != tt.directories {
+					t.Errorf("staff.go holds %q = %v, want %v", text, got, tt.directories)
+				}
+			}
+			for _, text := range none {
+				text = strings.ReplaceAll(text, "{{reader}}", s.TenantPolicy.Reader)
+				if got := strings.Contains(rendered, text); got == tt.directories {
+					t.Errorf("staff.go holds %q = %v, want %v", text, got, !tt.directories)
+				}
+			}
+			if !tt.directories {
+				for _, word := range []string{"TenantDirectories", "SetDirectoryAdmission", "DirectoryReader", "DirectorySeated"} {
+					if strings.Contains(rendered, word) {
+						t.Errorf("staff.go names %q in an application whose tenants have no directories", word)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestFiles_strangerThroughMethod pins what a directory method's file says of a person
+// with no account, in an auth whose methods are never opened to sign-up (another auth's
+// outlets serve the tenant record): with tenant directories a tenant's directory that
+// names a default role is a second way in beside the invitation, and in an application
+// whose tenants have no directories the invitation is the only one.
+func TestFiles_strangerThroughMethod(t *testing.T) {
+	t.Parallel()
+	const second = "the directory of a tenant that names a default role"
+	methods := []Method{
+		{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
+		{Kind: app.MethodAzure, Name: "entra", Slot: SlotAny, Authority: app.AuthorityApplication},
+		{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication},
+	}
+	for _, directories := range []bool{true, false} {
+		spec := &Spec{
+			Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", Methods: methods,
+			TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", Directories: directories},
+		}
+		files, err := Files(spec)
+		if err != nil {
+			t.Fatalf("Files(directories %v) error = %v", directories, err)
+		}
+		for i := range methods {
+			name := methods[i].Name + ".go"
+			rendered := string(files[name])
+			if rendered == "" {
+				t.Fatalf("Files(directories %v) wrote no %s", directories, name)
+			}
+			if got := strings.Contains(strings.Join(strings.Fields(strings.ReplaceAll(rendered, "//", "")), " "), second); got != directories {
+				t.Errorf("directories %v: %s says %q = %v, want %v", directories, name, second, got, directories)
+			}
+			if !strings.Contains(rendered, "is never opened to sign-up, since nobody") {
+				t.Errorf("directories %v: %s does not say the method is never opened to sign-up", directories, name)
+			}
+		}
 	}
 }
 

@@ -396,6 +396,9 @@ func TestAuthApply(t *testing.T) {
 	declaredConfig := strings.Replace(authConfig, "&staff.Settings{CookieKey: cookieKey}", "&staff.Settings{CookieKey: cookieKey, TenantDeclarations: app.NewTenantDeclarationReader()}", 1)
 	declaredConfig = strings.Replace(declaredConfig, "\t\"example.com/acme/beacon/pkg/auth/staff\"\n", "\t\"example.com/acme/beacon/app\"\n\t\"example.com/acme/beacon/pkg/auth/staff\"\n", 1)
 	const tenantRecord = "package resources\n\ntype (\n\t// Tenant is the tenant record.\n\t//\n\t// @resource\n\t// @tenant\n\tTenant struct {\n\t\tID string `spanner:\"Id\"`\n\t}\n)\n"
+	// tenantDirectoriesRecord is the directories record of an application whose tenants
+	// can have a directory of their own.
+	const tenantDirectoriesRecord = "package resources\n\ntype (\n\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\tTenantDirectory struct {\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t}\n)\n"
 
 	// A data level whose constructor builds no literal at all: the auth can be declared
 	// and imported, but not constructed.
@@ -562,8 +565,10 @@ func TestAuthApply(t *testing.T) {
 			name: "a password auth serving a tenanted site sets the sign-in rule over the record's declaration",
 			auth: Auth{Name: "partners", Outlet: "default"},
 			// The program generates each auth's management, so the auth builds its identity
-			// client in New and sets the hooks a sign-in gives roles through from it.
-			extra: map[string]string{"pkg/config/data.go": declaredConfig, "pkg/resources/tenants.go": tenantRecord, programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
+			// client in New and sets the hooks a sign-in gives roles through from it. The
+			// site has tenant directories, so the auth carries the directory reader and sets
+			// the directory admission.
+			extra: map[string]string{"pkg/config/data.go": declaredConfig, "pkg/resources/tenants.go": tenantRecord, "pkg/resources/tenant_directories.go": tenantDirectoriesRecord, programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
 			wantDid: []string{
 				packageDid + ", and the sign-in rule over the Tenant record's declaration (signin.TenantPolicy through the reader its settings carry, app.NewTenantDeclarationReader), admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since a person who signs up through a method an administrator opened creates their own, and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, app.NewTenantDirectoryReader: a stranger from a declared directory gets the row's default seat or is refused by invitation only), and what makes a tenant from an accepted invitation (TenantMaker in its settings, app.NewTenantMaker, which New refuses nil and hands the identity client: staff of this auth bring a tenant in by inviting one person)",
 				migrationsDid, rolesDid, configDid, "ran go generate ./...",
@@ -607,6 +612,45 @@ func TestAuthApply(t *testing.T) {
 				}
 				if got := read(t, a, "pkg/config/data.go"); !strings.Contains(got, "\tpartnersAuth, err := partners.New(ctx, spannerClient, &partners.Settings{CookieKey: cookieKey, TenantDeclarations: app.NewTenantDeclarationReader()})\n") {
 					t.Errorf("data.go = %q", got)
+				}
+			},
+		},
+		{
+			name: "a password auth serving a tenanted site whose tenants have no directories carries no directory reader and sets no directory admission",
+			auth: Auth{Name: "partners", Outlet: "default"},
+			// The resource package declares a tenant record and no directories record: the
+			// application is one of the invite-only shapes, whatever methods its auths have.
+			extra: map[string]string{"pkg/config/data.go": declaredConfig, "pkg/resources/tenants.go": tenantRecord, programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
+			wantDid: []string{
+				packageDid + ", and the sign-in rule over the Tenant record's declaration (signin.TenantPolicy through the reader its settings carry, app.NewTenantDeclarationReader), admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since a person who signs up through a method an administrator opened creates their own, and what makes a tenant from an accepted invitation (TenantMaker in its settings, app.NewTenantMaker, which New refuses nil and hands the identity client: staff of this auth bring a tenant in by inviting one person)",
+				migrationsDid, rolesDid, configDid, "ran go generate ./...",
+			},
+			wantSkipped: []string{
+				"pkg/config/data.go: a tenant is made through the partners auth, whose outlet serves the Tenant record, and the construction copied from the staff auth hands it nothing to make one with, so it refuses to start (partners.Settings.TenantMaker is nil); build the roster before the auth and pass app.NewTenantMaker(<the roster>, <the live service>) in its Settings",
+			},
+			check: func(t *testing.T, a *app.App) {
+				t.Helper()
+				pkg := read(t, a, "pkg/auth/partners/partners.go")
+				for _, want := range []string{
+					"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
+					"\t// (app.NewTenantDeclarationReader), which answers nothing for every tenant, since\n\t// the application has no tenant directories. Required; New refuses nil.\n",
+					"\tTenantMaker identity.TenantMaker\n}",
+					"\tif settings.TenantDeclarations == nil {\n",
+					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
+					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n",
+					// With no directory admission between them, what a sign-in clears is followed
+					// at once by what an accepted invitation gives.
+					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// An accepted invitation gives its roles",
+					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
+				} {
+					if !strings.Contains(pkg, want) {
+						t.Errorf("partners.go lacks %q:\n%s", want, pkg)
+					}
+				}
+				for _, unwanted := range []string{"TenantDirectories", "SetDirectoryAdmission", "DirectoryReader", "DirectorySeated"} {
+					if strings.Contains(pkg, unwanted) {
+						t.Errorf("partners.go names %s in an application whose tenants have no directories", unwanted)
+					}
 				}
 			},
 		},
@@ -779,7 +823,7 @@ func TestAuthApply(t *testing.T) {
 			auth: Auth{Name: "employees", Methods: []authpkg.Method{{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityDirectory}}, Outlet: "portal"},
 			extra: map[string]string{
 				programFile:                           authRouterProgram,
-				"pkg/resources/tenant_directories.go": "package resources\n\ntype (\n\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\tTenantDirectory struct {\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t}\n)\n",
+				"pkg/resources/tenant_directories.go": tenantDirectoriesRecord,
 			},
 			wantDid: []string{
 				// The auth's identity provider was given no words: the brief says what people

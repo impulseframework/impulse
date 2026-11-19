@@ -416,7 +416,10 @@ func whenOpened(methods []app.Method) string {
 // application with tenants: tenant-owned users where its package says a person belongs
 // to one tenant, global users otherwise; by directory, or each tenant chooses, where
 // the tenants can have directories and a method of the auth goes through an
-// organization's directory, and invite only where its people cannot come through one.
+// organization's directory, and invite only where its people cannot come through one:
+// always where the tenants have no directories, whatever methods the auth registers,
+// since a method through an organization's directory is then a way for an invited
+// person to sign in and nothing more.
 func (r *Reading) judgeTenants(auth *Auth, methods []app.Method) {
 	var through []string
 	for i := range methods {
@@ -434,16 +437,31 @@ func (r *Reading) judgeTenants(auth *Auth, methods []app.Method) {
 	case r.Directories != nil:
 		auth.named(invited, fmt.Sprintf("The tenants can have directories, but no method of this auth goes through an organization's directory, so its people come by invitation alone; a directory method whose roles the application gives (impulse add method) makes it %s.", numbered(directory)))
 	case len(through) > 0:
-		auth.named(invited, "The tenant record declares no directories, so no tenant's people come through one.")
+		auth.named(invited, fmt.Sprintf("%s, and %s a way for an invited person to sign in and nothing more.", noDirectories, isOrAre(through)))
 	default:
-		auth.named(invited, "")
+		auth.named(invited, noDirectories+".")
 	}
 }
 
-// DirectoryMethods lists the application's sign-in methods a tenant's people could come
-// through its own directory by: every method through an organization's directory whose
-// roles the application gives, each as a refusal names it, with the auth it is on and
-// where it is registered.
+// noDirectories is what the reading says of an application whose tenants have no
+// directories, beside the invite-only shape it names: the one sentence, which a method
+// through an organization's directory extends and never changes.
+const noDirectories = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
+
+// isOrAre names sign-in methods as the subject of a sentence: "the google method is",
+// "the google and okta methods are each".
+func isOrAre(names []string) string {
+	if len(names) == 1 {
+		return methodsNamed(names) + " is"
+	}
+
+	return methodsNamed(names) + " are each"
+}
+
+// DirectoryMethods lists the application's sign-in methods through an organization's
+// directory whose roles the application gives, each as a command names it, with the
+// auth it is on and where it is registered: the methods a tenant's people come through
+// its own directory by where the tenants have directories.
 func DirectoryMethods(a *app.App) []string {
 	var found []string
 	for i := range a.Auths {

@@ -5,6 +5,13 @@ import { MatTooltip } from '@angular/material/tooltip';
 const CUT_SHORT_TOOLTIP_CLASS = 'impulse-grid-whole-text';
 
 /**
+ * How long after a tooltip is closed its anchor is taken back, in milliseconds: longer
+ * than the tooltip takes to fade, since a tooltip that is still fading follows its anchor
+ * when the list scrolls.
+ */
+const ANCHOR_KEPT_MS = 200;
+
+/**
  * Whether a one-line text is wider than the box that holds it, so its end is cut off.
  * The browser gives the two widths in whole pixels, and a text a fraction of a pixel too
  * wide is cut with an ellipsis all the same. So a text the whole pixels call a fit is
@@ -72,6 +79,8 @@ export class CutShortTooltipDirective implements OnInit {
   };
   /** The frame in which what the focus arrived on is offered, while it has not come. */
   private awaited: number | undefined;
+  /** The wait after which the anchor of a closed tooltip is taken back, while it runs. */
+  private kept: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     this.tooltip.position = 'above';
@@ -113,6 +122,7 @@ export class CutShortTooltipDirective implements OnInit {
     this.destroyRef.onDestroy(() => {
       table.removeEventListener('mousemove', this.moved);
       this.forget();
+      clearTimeout(this.kept);
     });
   }
 
@@ -190,6 +200,12 @@ export class CutShortTooltipDirective implements OnInit {
     this.withdraw();
   }
 
+  /**
+   * Closes the tooltip and, once it has faded, takes the anchor back to nothing. An
+   * anchor left where a text was would stay there while the list around it changed
+   * width, and could come to lie past the list's edge, where it would give the list
+   * something to scroll to.
+   */
   private withdraw(): void {
     if (!this.offered) {
       return;
@@ -198,6 +214,14 @@ export class CutShortTooltipDirective implements OnInit {
     this.zone.run(() => {
       this.tooltip.hide();
     });
+    clearTimeout(this.kept);
+    this.kept = setTimeout(() => {
+      const style = this.anchor.style;
+      style.left = '0';
+      style.top = '0';
+      style.width = '0';
+      style.height = '0';
+    }, ANCHOR_KEPT_MS);
   }
 
   /**
@@ -219,18 +243,33 @@ export class CutShortTooltipDirective implements OnInit {
     return label === null && text.childElementCount > 0 ? null : text;
   }
 
-  /** Lays the anchor over the text, in the coordinates of the box the anchor is positioned in. */
+  /**
+   * Lays the anchor over the text, in the coordinates of the box the anchor is positioned
+   * in, and over no more of the text than lies inside that box's line: a cell the list has
+   * partly scrolled out of view is offered over the part in view, and the anchor never
+   * reaches past the list's edge.
+   */
   private place(text: HTMLElement): void {
     const frame = this.anchor.offsetParent;
     if (frame === null) {
       return;
     }
+    clearTimeout(this.kept);
     const over = text.getBoundingClientRect();
-    const within = frame.getBoundingClientRect();
+    const box = frame.getBoundingClientRect();
+    // Inside the box's line, where what it holds lies.
+    const inside = {
+      left: box.left + frame.clientLeft,
+      top: box.top + frame.clientTop,
+      right: box.left + frame.clientLeft + frame.clientWidth,
+      bottom: box.top + frame.clientTop + frame.clientHeight,
+    };
+    const left = Math.max(over.left, inside.left);
+    const top = Math.max(over.top, inside.top);
     const style = this.anchor.style;
-    style.left = `${over.left - within.left - frame.clientLeft + frame.scrollLeft}px`;
-    style.top = `${over.top - within.top - frame.clientTop + frame.scrollTop}px`;
-    style.width = `${over.width}px`;
-    style.height = `${over.height}px`;
+    style.left = `${left - inside.left + frame.scrollLeft}px`;
+    style.top = `${top - inside.top + frame.scrollTop}px`;
+    style.width = `${Math.max(0, Math.min(over.right, inside.right) - left)}px`;
+    style.height = `${Math.max(0, Math.min(over.bottom, inside.bottom) - top)}px`;
   }
 }

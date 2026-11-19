@@ -120,7 +120,7 @@ func TestTenancyScan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	wantResources := []DomainResource{{File: "pkg/resources/beacons.go", Line: 8, Name: "Beacon"}}
+	wantResources := []DomainResource{{File: "pkg/resources/beacons.go", Line: 8, Name: "Beacon", Table: true}}
 	if diff := cmp.Diff(wantResources, a.DomainResources); diff != "" {
 		t.Errorf("DomainResources mismatch (-want +got):\n%s", diff)
 	}
@@ -203,5 +203,72 @@ func TestReadOutletOptions(t *testing.T) {
 				t.Errorf("readOutletOptions() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Test_domainResource reads how a tenant-scoped struct is bound to its tenant: a table
+// that carries the tenant's key by the column of its bare @domain field, a table that
+// reaches its tenant through another row by the join path, and a virtual or computed
+// resource or a method as no table.
+func Test_domainResource(t *testing.T) {
+	t.Parallel()
+
+	const src = `package resources
+
+type (
+	// Wing carries its sector's key.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Wing struct {
+		ID string ` + "`spanner:\"Id\"`" + `
+		// @domain
+		SectorID string ` + "`spanner:\"SectorId\" index:\"true\"`" + `
+	}
+
+	// Squadron reaches its sector through its wing.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Squadron struct {
+		ID string ` + "`spanner:\"Id\"`" + `
+		// @domain(via: SectorID)
+		WingID string ` + "`spanner:\"WingId\"`" + `
+	}
+
+	// Roster is a view over a sector's rows.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	Roster struct {
+		// @domain
+		SectorID string ` + "`spanner:\"SectorId\"`" + `
+	}
+
+	// Launch is a method run in a sector.
+	//
+	// @rpc
+	// @permissionScope(domain)
+	Launch struct {
+		MissionID string
+	}
+)
+`
+	docs, err := parseStructDocs("pkg/resources/wings.go", []byte(src))
+	if err != nil {
+		t.Fatalf("parseStructDocs() error = %v", err)
+	}
+	var got []DomainResource
+	for i := range docs {
+		got = append(got, domainResource("pkg/resources/wings.go", &docs[i]))
+	}
+	want := []DomainResource{
+		{File: "pkg/resources/wings.go", Line: 8, Name: "Wing", Table: true, DomainColumn: "SectorId"},
+		{File: "pkg/resources/wings.go", Line: 18, Name: "Squadron", Table: true, DomainVia: "SectorID"},
+		{File: "pkg/resources/wings.go", Line: 28, Name: "Roster", DomainColumn: "SectorId"},
+		{File: "pkg/resources/wings.go", Line: 37, Name: "Launch"},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("domainResource() mismatch (-want +got):\n%s", diff)
 	}
 }
