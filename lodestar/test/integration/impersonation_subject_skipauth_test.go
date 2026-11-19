@@ -18,6 +18,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 )
 
 // actingAsSomeoneElse opens the sentence the rule refuses with, whatever was asked.
@@ -360,5 +361,60 @@ func TestImpersonation_applicationsOwnAction(t *testing.T) {
 	self.signIn(ctx, "wingco")
 	if _, answer := dryRun(ctx, self, sectorPath(anvil, "set-sector-pilot-clearance"), fmt.Appendf(nil, `{"pilotId":%q,"clearance":2}`, pilotWildeID)); strings.Contains(answer, actingAsSomeoneElse) {
 		t.Errorf("rating his own record in a session of his own: the rule refused it: %s", answer)
+	}
+}
+
+// TestImpersonation_noSectorOfTheirOwn proves the rule on the route that creates a sector
+// for the person who asks. The route makes its caller the new sector's marshal, and in a
+// session that acts as a role the caller is the real person behind it, who would hold
+// the seat after the session had ended. The governor opens sign-up, so the route admits
+// a person who holds no sector. The marshal acts as the Bulletin Officer, a role that
+// holds a grant in no sector, so no other refusal of the route answers for this one: she
+// is refused in the route's own words with nothing written, the page that offers the
+// creation is told that none is offered, and in a session of her own the rule says
+// nothing.
+//
+// Demonstrates: impersonation.never-the-subject, impersonation.act-as-role.
+func TestImpersonation_noSectorOfTheirOwn(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	openCrewSignUp(ctx, t, governor, crew.SignUpRegistration)
+
+	acting := newBrowser(t, s, consoleAPI)
+	acting.signIn(ctx, "marshal")
+	mint(ctx, t, acting, `{"kind":"role","principal":"BulletinOfficer","reason":"covering the bulletin desk"}`)
+	// The session holds a grant in no sector, so "one sector per person" is not what
+	// answers below.
+	if held := acting.domains(ctx); len(held) != 0 {
+		t.Fatalf("user-domains acting as the Bulletin Officer = %v, want none: the route's own refusal of a session that holds a sector would answer first", held)
+	}
+
+	sectors, memberships := tableRows(ctx, t, s, "Sectors"), tableRows(ctx, t, s, "CrewUserRoles")
+	status, answer := acting.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmber))
+	if want := actingAsSomeoneElse + "create a sector of your own:"; status != http.StatusForbidden || !strings.Contains(string(answer), want) {
+		t.Errorf("acting as the Bulletin Officer, creating a sector of her own: status %d, want 403 saying %q: %s", status, want, answer)
+	}
+	if got := tableRows(ctx, t, s, "Sectors"); got != sectors {
+		t.Errorf("sectors after the refused call = %d, want the %d there were: nothing is written", got, sectors)
+	}
+	if got := tableRows(ctx, t, s, "CrewUserRoles"); got != memberships {
+		t.Errorf("the crew's memberships after the refused call = %d, want the %d there were: nobody is given a role", got, memberships)
+	}
+	status, answer = acting.do(ctx, http.MethodGet, createSectorRoute, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s acting as the Bulletin Officer: status %d, want 200: %s", createSectorRoute, status, answer)
+	}
+	assertOffered(false)(t, "acting as the Bulletin Officer, asking whether a sector can be created", answer)
+
+	// In a session of her own the route's own rules answer: she holds Anvil, and one
+	// person creates one sector.
+	own := newBrowser(t, s, consoleAPI)
+	own.signIn(ctx, "marshal")
+	if status, answer := own.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmber)); status != http.StatusForbidden || strings.Contains(string(answer), actingAsSomeoneElse) {
+		t.Errorf("creating a sector in a session of her own: status %d, want 403 from the route's own rule, one sector per person: %s", status, answer)
 	}
 }

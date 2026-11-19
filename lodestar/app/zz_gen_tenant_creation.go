@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -34,7 +35,11 @@ var _ interface {
 // a sign-in method of the Crew auth open to sign-up. No grant admits the call. The session
 // must be established, which the router's session group holds it to, and must hold a
 // grant in no sector: a person creates one sector, and the member or administrator of
-// one is refused (403). Whether sign-up is open is read in the transaction that writes
+// one is refused (403). Nobody is the subject of what they do while they act as someone
+// else: in a session that acts as a role the person who would become the administrator
+// is the real person behind it, who is refused before anything is read (403,
+// identity.RefuseImpersonatorAsSubject); in a session that acts as a person the creator
+// is the person acted as. Whether sign-up is open is read in the transaction that writes
 // the row, from the auth's sign-in methods table: while every method is invite only the
 // call is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
@@ -71,13 +76,22 @@ func (a *App) CreateSector() http.HandlerFunc {
 	if len(roles) == 0 {
 		panic("SectorAdministratorRoles() names no role: the person who creates a Sector holds its administrator role, which the application names there")
 	}
-	identity := a.CrewIdentity()
+	identityClient := a.CrewIdentity()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		userPermissions := a.UserPermissions(r)
+		// Nobody is the subject of what they do while they act as someone else: the
+		// creator becomes the sector's administrator, and in a session that acts as a
+		// role the creator is the real person behind it, who is told so before anything
+		// is read or written.
+		if creator, ok := identity.UserID(userPermissions.User()); ok {
+			if err := identity.RefuseImpersonatorAsSubject(ctx, creator, "create a sector of your own"); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+		}
 		// One sector per person: a session holding a grant in any sector is refused.
 		held, err := userPermissions.Domains(ctx)
 		if err != nil {
@@ -102,7 +116,7 @@ func (a *App) CreateSector() http.HandlerFunc {
 			// while an administrator has a sign-in method open to sign-up. A person who
 			// holds an invitation to create a sector is the next admission, and is
 			// decided here, before the refusal, when that invitation exists.
-			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			open, err := identityClient.AnySignInMethodOpen(ctx, txn)
 			if err != nil {
 				return errors.Wrap(err, "CrewIdentity().AnySignInMethodOpen()")
 			}
@@ -136,7 +150,7 @@ func (a *App) CreateSector() http.HandlerFunc {
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
+				if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "CrewIdentity().AssignRole()")
 				}
 			}
@@ -175,30 +189,38 @@ func (a *App) CreateSector() http.HandlerFunc {
 // their own now. A page offers a person only what they may do, so the page that offers
 // the create-your-sector card asks this first and hides the card on a no. The answer is
 // the one CreateSector would reach for the same caller before it reads a body, by the
-// same two facts: the session holds a grant in no sector, and an administrator has a
-// sign-in method of the Crew auth open to sign-up, read as committed. No grant admits the
-// call, which any signed-in person makes, and nothing is written. The POST decides again
-// in its own transaction: what is offered here may be refused there a moment later.
+// same three facts: the creator would not be the real person behind a session that acts
+// as someone else (identity.ImpersonatorIs), the session holds a grant in no sector,
+// and an administrator has a sign-in method of the Crew auth open to sign-up, read as
+// committed. No grant admits the call, which any signed-in person makes, and nothing is
+// written. The POST decides again in its own transaction: what is offered here may be
+// refused there a moment later.
 func (a *App) CreateSectorOffered() http.HandlerFunc {
 	type offer struct {
 		Offered bool `json:"offered"`
 	}
 
-	identity := a.CrewIdentity()
+	identityClient := a.CrewIdentity()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		userPermissions := a.UserPermissions(r)
+		// The real person behind a session that acts as someone else is offered none: the
+		// POST refuses them.
+		if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
 		// One sector per person: a session holding a grant in any sector is offered none.
-		held, err := a.UserPermissions(r).Domains(ctx)
+		held, err := userPermissions.Domains(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if len(held) > 0 {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())
+		open, err := identityClient.AnySignInMethodOpen(ctx, a.ResourceClient())
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "CrewIdentity().AnySignInMethodOpen()"))
 		}

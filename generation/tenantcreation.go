@@ -332,9 +332,11 @@ type tenantCreationData struct {
 	Setters []string
 	// Refusal is the sentence a person who already holds a tenant is answered with, and
 	// ClosedRefusal the one everyone is answered with while no sign-in method is open
-	// to sign-up.
+	// to sign-up. OwnCreation is what the route does, as the end of "you cannot", for
+	// the refusal of the real person behind a session that acts as someone else.
 	Refusal       string
 	ClosedRefusal string
+	OwnCreation   string
 	// Directory is the directories record the route sets the creator's directory on,
 	// nil where the package declares none.
 	Directory *tenantCreationDirectory
@@ -449,6 +451,7 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		Setters:             setters,
 		Refusal:             tenantCreationRefusal(record.Name()),
 		ClosedRefusal:       tenantCreationClosedRefusal(record.Name()),
+		OwnCreation:         tenantCreationOwnCreation(record.Name()),
 		Directory:           tenantCreationDirectoryData(record),
 		record:              record,
 	}
@@ -476,13 +479,22 @@ func tenantCreationRefusal(record string) string {
 	return fmt.Sprintf("the session already holds a %s; a person creates one %s and becomes its administrator", lower, lower)
 }
 
+// tenantCreationOwnCreation is what the route does, said to the person who asks and as
+// the end of "you cannot": the words the route hands the rule that nobody is the subject
+// of what they do while they act as someone else (identity.RefuseImpersonatorAsSubject),
+// so the real person behind such a session reads "you are acting as someone else, so
+// you cannot create a tenant of your own".
+func tenantCreationOwnCreation(record string) string {
+	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
+
+	return fmt.Sprintf("create %s of your own", withArticle(lower))
+}
+
 // tenantCreationClosedRefusal is the sentence a person is answered with while every
 // sign-in method is invite only: nobody signs up, so nobody creates a tenant of their
 // own.
 func tenantCreationClosedRefusal(record string) string {
-	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
-
-	return fmt.Sprintf("sign-up is not open, so you cannot create %s of your own: ask an administrator of the application to create one for you, or to invite you to one", withArticle(lower))
+	return fmt.Sprintf("sign-up is not open, so you cannot %s: ask an administrator of the application to create one for you, or to invite you to one", tenantCreationOwnCreation(record))
 }
 
 // withArticle is the word with its article, as a sentence names one of them: "a

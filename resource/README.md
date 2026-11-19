@@ -3161,11 +3161,12 @@ has no `create`), and there are two ways a tenant is made, neither a declaration
   writes the row, whether an administrator has a sign-in method of the auth open to
   sign-up (section 21, "Who may sign up"), and refuses while every method is invite
   only. The same route answers `GET` with whether the caller may create one now
-  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the two
-  facts the creation refuses on: the caller holds no tenant, and a method is open. A
-  page reads it before it offers the creation, so nobody is shown a dialog the server
-  would refuse; the skeletons' home page shows its create-your-tenant card only while
-  the answer is yes.
+  (`{"offered": true}`, the generated client's `Create<Record>Offered`), by the three
+  facts the creation refuses on: the caller is not the real person behind a session that
+  acts as a role ("The first administrator", below), the caller holds no tenant, and a
+  method is open. A page reads it before it offers the creation, so nobody is shown a
+  dialog the server would refuse; the skeletons' home page shows its create-your-tenant
+  card only while the answer is yes.
 
 `@tenant(creation: ...)`, which declared the choice in code, is refused at generation
 with these words. A record served by session outlets bound to different auths is refused
@@ -3190,6 +3191,15 @@ exist fails the creation. After the route's commit, and once this instance's ros
 lists the tenant, the answer waits until the permission engine answers the membership,
 so the person's next request stands in the tenant; an engine that does not answer
 within ten seconds is logged and the request answered, since the rows are committed.
+In a session that acts as a role, the caller is the real person behind it, who would
+become the tenant's administrator: nobody is the subject of what they do while they act
+as someone else (section 21), so the route refuses them before it reads the body, with
+nothing written ("you are acting as someone else, so you cannot create a sector of your
+own"), and its `GET` answers that none is offered. In a session that acts as a person,
+the tenant is made and the person acted as is its administrator: no grant admits the
+route, so no class marks it and no kind of permission is asked for, and a mask that
+refuses the class `access`, or that keeps no Create, does not refuse it. A mask that
+keeps reading alone does, as it refuses every write of the session.
 
 **The maker.** What makes a tenant from an accepted invitation is generated beside the
 roster: `New<Record>Maker(roster, liveService)` in the handler package answers an
@@ -4502,6 +4512,12 @@ own, outside any request, has no caller and is the application's act):
       return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
   }
   ```
+
+  A route that answers whether to offer such an action asks the same question without
+  refusing anyone, `identity.ImpersonatorIs(ctx, account)`, so a page does not offer what
+  the action would refuse. The generated create-your-tenant route does both: its `POST`
+  asks the rule for its caller, who would become the tenant's administrator, and its
+  `GET` answers that none is offered (section 16, "The first administrator").
 
   What the rule cannot see is whatever reaches the person by another road: a role
   given to a group they are in, an account made for another address of theirs, an

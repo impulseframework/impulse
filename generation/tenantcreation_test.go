@@ -337,10 +337,11 @@ func Test_tenantCreationData_typeImports(t *testing.T) {
 }
 
 // Test_tenantCreationTemplate pins the generated handler: the contract it asserts on
-// the application, the gate on a session holding a tenant, a request that carries no
-// key, the row written under an id the create generates with the administrator's
-// membership in the same transaction, the roster, the wait and the signal after the
-// commit, and the answer that carries the generated id.
+// the application, the refusal of the real person behind a session that acts as someone
+// else, asked before anything is read, the gate on a session holding a tenant, a
+// request that carries no key, the row written under an id the create generates with
+// the administrator's membership in the same transaction, the roster, the wait and the
+// signal after the commit, and the answer that carries the generated id.
 func Test_tenantCreationTemplate(t *testing.T) {
 	t.Parallel()
 
@@ -367,6 +368,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		Setters:             setters,
 		Refusal:             tenantCreationRefusal("Station"),
 		ClosedRefusal:       tenantCreationClosedRefusal("Station"),
+		OwnCreation:         tenantCreationOwnCreation("Station"),
 	})
 	if err != nil {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
@@ -386,12 +388,15 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"ID impulse.UUID `json:\"id\"`",
 		"decoder := resource.MustNewBodyDecoder[request](a.Validator())",
 		"roles := a.StationAdministratorRoles()",
-		"identity := a.StaffIdentity()",
+		"identityClient := a.StaffIdentity()",
+		// The creator becomes the administrator, so the real person behind a session that
+		// acts as someone else is refused in the route's own words, by the one rule.
+		"if creator, ok := identity.UserID(userPermissions.User()); ok {\n\t\t\tif err := identity.RefuseImpersonatorAsSubject(ctx, creator, \"create a station of your own\"); err != nil {\n\t\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t\t}\n\t\t}",
 		"held, err := userPermissions.Domains(ctx)",
 		`httpio.NewForbiddenMessage("the session already holds a station; a person creates one station and becomes its administrator")`,
 		// Whether sign-up is open is read in the transaction that writes the row, and a
 		// person is refused in plain words while no sign-in method is open.
-		"open, err := identity.AnySignInMethodOpen(ctx, txn)",
+		"open, err := identityClient.AnySignInMethodOpen(ctx, txn)",
 		`return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a station of your own: ask an administrator of the application to create one for you, or to invite you to one")`,
 		// The create generates the id, the id's text is the tenant's domain, and the
 		// membership is written under it.
@@ -403,19 +408,19 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"patch.SetName(req.Name)",
 		"patch.SetMotto(req.Motto)",
 		"patch.SetOpened(req.Opened)",
-		"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
+		"if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
 		// The answer carries the generated id.
 		"return httpio.NewEncoder(w).Ok(response{ID: id})",
-		// The route's GET answers whether the caller may create one now, by the two
+		// The route's GET answers whether the caller may create one now, by the three
 		// facts the POST refuses on, read as committed, and writes nothing.
 		"func (a *App) CreateStationOffered() http.HandlerFunc {",
 		"Offered bool `json:\"offered\"`",
-		"held, err := a.UserPermissions(r).Domains(ctx)",
+		"if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		"if len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
-		"open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())",
+		"open, err := identityClient.AnySignInMethodOpen(ctx, a.ResourceClient())",
 		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
@@ -436,10 +441,13 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		t.Errorf("the response struct = %q; want the generated id alone", response)
 	}
 
-	// The gate before the body, whether sign-up is open asked inside the transaction
-	// before anything is made, the id generated before the row is buffered, the membership after the row and before the commit, the commit
-	// before the roster, the roster before the wait, the wait before the signal, the
-	// signal before the answer.
+	// The rule on the person behind an impersonated session before the gate, in the POST
+	// and in the GET, the gate before the body, whether sign-up is open asked inside the
+	// transaction before anything is made, the id generated before the row is buffered,
+	// the membership after the row and before the commit, the commit before the roster,
+	// the roster before the wait, the wait before the signal, the signal before the
+	// answer.
+	subject := strings.Index(s, "identity.RefuseImpersonatorAsSubject(ctx, creator,")
 	gate := strings.Index(s, "if len(held) > 0 {")
 	decode := strings.Index(s, "req, err := decoder.Decode(r)")
 	begin := strings.Index(s, "ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {")
@@ -449,12 +457,19 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 	commit := strings.Index(s, "}); err != nil {")
 	roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
-	given := strings.Index(s, "identity.AssignRole(ctx, txn,")
+	given := strings.Index(s, "identityClient.AssignRole(ctx, txn,")
 	seat := strings.Index(s, "resource.AwaitFirstAdministrator(")
 	signal := strings.Index(s, "Signal(ctx, resource.KindTenants)")
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")
 	if begin >= admitted || admitted >= created || created >= generated {
 		t.Errorf("order: transaction %d, the check that sign-up is open %d, the create patch %d, generated id %d; want ascending:\n%s", begin, admitted, created, generated, out)
+	}
+	if subject < 0 || subject >= gate {
+		t.Errorf("order: the rule on the person behind an impersonated session %d, gate %d; want the rule first:\n%s", subject, gate, out)
+	}
+	offered := strings.Index(s, "func (a *App) CreateStationOffered() http.HandlerFunc {")
+	if asked, gated := strings.Index(s[offered:], "identity.ImpersonatorIs(ctx, creator)"), strings.Index(s[offered:], "if len(held) > 0 {"); asked < 0 || asked >= gated {
+		t.Errorf("order in the GET: the question about the person behind an impersonated session %d, gate %d; want the question first:\n%s", asked, gated, out)
 	}
 	if gate >= decode || decode >= begin || begin >= generated || generated >= row || row >= given || given >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
 		t.Errorf("order: gate %d, decode %d, transaction %d, generated id %d, row %d, membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", gate, decode, begin, generated, row, given, commit, roster, seat, signal, answer, out)

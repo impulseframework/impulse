@@ -922,6 +922,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				Fields:              fields,
 				Setters:             setters,
 				Refusal:             tenantCreationRefusal("Harbor"),
+				OwnCreation:         tenantCreationOwnCreation("Harbor"),
 				Directory:           directory,
 				record:              record,
 			}
@@ -948,7 +949,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				"if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {",
 				tt.wantWritten,
 				`return errors.Wrap(err, "SetHarborDirectory()")`,
-				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
+				"if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 				"return httpio.NewEncoder(w).Ok(response{ID: id})",
@@ -973,7 +974,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			generated := strings.Index(s, "id = patch.ID()")
 			row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 			written := strings.Index(s, "SetHarborDirectory(ctx, txn,")
-			given := strings.Index(s, "identity.AssignRole(ctx, txn,")
+			given := strings.Index(s, "identityClient.AssignRole(ctx, txn,")
 			commit := strings.Index(s, "}); err != nil {")
 			roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
 			wait := strings.Index(s, "resource.AwaitFirstAdministrator(")
