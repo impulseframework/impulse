@@ -3493,7 +3493,8 @@ read wider than it was written, and each time the record is read the log says wh
 session's column does not read and why (`impersonation: the mask stored for session
 ... does not read, so the session is held to nothing`). For people the mask is said in words
 (`PermissionMask.Words()`): "reading only", "everything except credential actions",
-"everything except the action ScrapShip". The session endpoint carries them
+"everything except the action ScrapShip", and "everything except writing Invoices" for
+a record refused its three writes. The session endpoint carries them
 (`impersonation.maskWords`, beside `mask`, `refusedClasses` and `refused`), and a list
 of impersonated sessions shows them for each: `ActiveImpersonations` returns each
 record with its mask, and the generated user management's list of the impersonation

@@ -56,7 +56,9 @@ sorted and joined with commas (`*` for every kind), then each refusal after a
 semicolon, `-class:<class>` or `-on:<Permission>:<Resource>`. `List,Read` is a
 read-only mask and `*;-class:credential` keeps everything except the credential
 actions. `Words()` says the mask as a person would ("reading only", "everything
-except credential actions"), for a banner and a list of impersonated sessions.
+except credential actions"), for a banner and a list of impersonated sessions. A
+record refused its three writes (`RefuseWrites`) is said once, "everything except
+writing Invoices"; one or two of the three are each said ("creating Invoices").
 `NullMaskWords` is the type of a record's field that reads the stored text as
 those words: a list of impersonation records carries it, so the list says
 "everything" for a NULL column and "everything except credential actions" for

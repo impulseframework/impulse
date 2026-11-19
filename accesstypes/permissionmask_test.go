@@ -475,7 +475,25 @@ func TestPermissionMask_Words(t *testing.T) {
 		{name: "three kinds", mask: MaskPermissions(DenyAll(), List, Read, Execute), want: "Execute, List and Read only"},
 		{name: "everything except a class", mask: AllowAll().Refusing(RefuseClass(ClassCredential)), want: "everything except credential actions"},
 		{name: "everything except an action", mask: AllowAll().Refusing(RefuseAction("LaunchMission")), want: "everything except the action LaunchMission"},
-		{name: "everything except a record's writes", mask: AllowAll().Refusing(RefuseWrites("Ships")...), want: "everything except creating Ships, deleting Ships and changing Ships"},
+		{name: "everything except a record's writes", mask: AllowAll().Refusing(RefuseWrites("Ships")...), want: "everything except writing Ships"},
+		{
+			name: "two of a record's three writes are said one by one",
+			mask: AllowAll().Refusing(RefusePermission(Create, "Ships"), RefusePermission(Update, "Ships")), want: "everything except creating Ships and changing Ships",
+		},
+		{
+			name: "a record's writes beside its reads, a field of another and a class",
+			mask: AllowAll().Refusing(RefuseWrites("Ships")...).Refusing(RefusePermission(Read, "Ships"), RefusePermission(Update, "Docks.pier"), RefuseClass(ClassAccess)),
+			want: "everything except access actions, changing Docks.pier, writing Ships and reading Ships",
+		},
+		{
+			name: "the writes of two records and one write of a field",
+			mask: AllowAll().Refusing(RefuseWrites("Ships")...).Refusing(RefuseWrites("Crews")...).Refusing(RefusePermission(Update, "Ships.registry")),
+			want: "everything except writing Crews, writing Ships and changing Ships.registry",
+		},
+		{
+			name: "kinds and a record's writes",
+			mask: MaskPermissions(DenyAll(), Create, Update, Delete, Read).Refusing(RefuseWrites("Ships")...), want: "Create, Delete, Read and Update only, except writing Ships",
+		},
 		{name: "a class and an action", mask: AllowAll().Refusing(RefuseAction("LaunchMission"), RefuseClass(ClassCredential)), want: "everything except credential actions and the action LaunchMission"},
 		{name: "kinds and a class", mask: MaskPermissions(DenyAll(), List, Read, Execute).Refusing(RefuseClass(ClassCredential)), want: "Execute, List and Read only, except credential actions"},
 		{name: "reads of a record", mask: AllowAll().Refusing(RefusePermission(List, "Ships"), RefusePermission(Read, "Ships")), want: "everything except listing Ships and reading Ships"},

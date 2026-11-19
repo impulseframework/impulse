@@ -102,13 +102,18 @@ func RefusePermission(perm Permission, res Resource) MaskRefusal {
 	return MaskRefusal{named: namedRefusal{permission: perm, resource: res}}
 }
 
+// recordWrites are the three writes of a record.
+var recordWrites = []Permission{Create, Update, Delete}
+
 // RefuseWrites refuses the three writes of one record: Create, Update and Delete.
+// A mask says the three in words as one, "writing" the record (Words).
 func RefuseWrites(record Resource) []MaskRefusal {
-	return []MaskRefusal{
-		RefusePermission(Create, record),
-		RefusePermission(Update, record),
-		RefusePermission(Delete, record),
+	refusals := make([]MaskRefusal, len(recordWrites))
+	for i, perm := range recordWrites {
+		refusals[i] = RefusePermission(perm, record)
 	}
+
+	return refusals
 }
 
 // Class returns the class the refusal names and true, or the empty class and
@@ -459,9 +464,10 @@ func (m PermissionMask) String() string {
 
 // Words says the mask as a person would: "everything" for the unrestricted
 // mask, "reading only" for the mask that keeps List and Read, "everything except
-// credential actions" for the mask that refuses the credential class. It is what
-// a list of impersonated sessions shows for each, and what a banner tells the
-// person impersonating.
+// credential actions" for the mask that refuses the credential class, "everything
+// except writing Invoices" for the mask that refuses a record its three writes
+// (RefuseWrites). It is what a list of impersonated sessions shows for each, and
+// what a banner tells the person impersonating.
 func (m PermissionMask) Words() string {
 	var kept string
 	switch perms := m.Permissions(); {
@@ -479,19 +485,50 @@ func (m PermissionMask) Words() string {
 		kept = joinWords(names) + " only"
 	}
 
-	refusals := m.Refusals()
-	if len(refusals) == 0 {
+	refused := m.refusalWords()
+	if len(refused) == 0 {
 		return kept
-	}
-	refused := make([]string, len(refusals))
-	for i, refusal := range refusals {
-		refused[i] = refusal.words()
 	}
 	if m.allowed == nil {
 		return kept + " except " + joinWords(refused)
 	}
 
 	return kept + ", except " + joinWords(refused)
+}
+
+// refusalWords says what the mask refuses inside the kinds it keeps, each refusal as
+// a person would, in the order of Refusals. A record refused its three writes
+// (RefuseWrites) is said once, as "writing" it, where the first of the three stands:
+// a mask that names several records' writes is read on a banner, and three parts a
+// record would be three times as long for nothing more said. A record refused one or
+// two of the three has each said.
+func (m PermissionMask) refusalWords() []string {
+	refusals := m.Refusals()
+	words := make([]string, 0, len(refusals))
+	said := make(map[Resource]bool)
+	for _, refusal := range refusals {
+		record := refusal.named.resource
+		switch {
+		case refusal.isClass || !m.refusesWrites(record) || !slices.Contains(recordWrites, refusal.named.permission):
+			words = append(words, refusal.words())
+		case !said[record]:
+			said[record] = true
+			words = append(words, "writing "+string(record))
+		}
+	}
+
+	return words
+}
+
+// refusesWrites reports whether the mask names all three writes of the record.
+func (m PermissionMask) refusesWrites(record Resource) bool {
+	for _, perm := range recordWrites {
+		if _, refused := m.refused[namedRefusal{permission: perm, resource: record}]; !refused {
+			return false
+		}
+	}
+
+	return true
 }
 
 // words says one refusal as a person would.
