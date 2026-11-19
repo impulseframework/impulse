@@ -10,8 +10,11 @@ type (
 	// Zone is the attribute Ship reaches through a one-hop join path (hangarZone !=
 	// 'quarantine').
 	//
-	// Ships reference their hangar with no cascade, so deleting a hangar that still holds
-	// ships is refused at commit; the refusal answers 409 naming Hangars, never the ships.
+	// A hangar's ships go with it: a ship reaches its sector through its hangar, and every
+	// link of a table's way to its sector carries the delete rule, so a sector that is
+	// deleted takes them. A sortie and a droid's report name a ship from outside that way
+	// and say nothing of a delete, so deleting a hangar whose ships have flown is refused
+	// at commit; the refusal answers 409 naming Hangars, never the ships or the sorties.
 	//
 	// Name carries the prefix fact alone: a stored LOWER(Name) column sits after SectorId
 	// in HangarsBySectorIdNameLower, so `name:startswith:anvil` seeks

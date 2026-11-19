@@ -555,10 +555,25 @@ it by the schema: each of the seven tables that carry a sector's key (Wings, Han
 HangarPasses, Missions, Consignments, DroidReports, DistressCalls) references `Sectors`
 with `ON DELETE CASCADE`, as the skeletons' sample tenant table does, and `impulse check`
 holds every such table to the rule (`tenant-delete-rule`). A table that reaches its
-sector through another row (a squadron through its wing, a ship through its hangar, a
-sortie through its mission) goes as its own foreign key says, and Lodestar's say nothing
-there: a hangar that still holds a ship is not deleted (`commit.referential-refusal`),
-and neither is the sector that hangar is in, until the ship is gone.
+sector through another row carries the rule on every link of that way, and the check
+holds it to that too: a squadron goes with its wing and a membership with its squadron,
+a ship with its hangar, a refit with its ship and its tasks with it, a sortie and a
+document with their mission, an expense with its sortie. So a sector whose hangar holds
+a ship is deleted in the one request, and the ship is gone with it. Each rule is the
+database's, so it fires for the row deleted by itself too: a wing takes its squadrons
+and their memberships, a squadron its memberships, a hangar its ships with their
+refits, a ship its refits, a mission its sorties, their expenses and its documents, a
+sortie its expenses (`test/integration/commit_refusal_test.go` deletes a hangar that
+holds ships). Rows the database removes this way are removed past their own resource's
+Delete grant and row condition: whoever may delete the hangar deletes its ships. They
+leave no change event, and a document's stored file is the orphaned-file cleanup's, as
+the audit pass says below. The references on no table's way to its sector say nothing
+of a delete, and that is where the referential refusal is now
+(`commit.referential-refusal`): a sortie and a droid's report name a ship, and a mission
+the squadron it is assigned to, so a ship that has flown or been reported on is not
+deleted by itself, nor the hangar that would take it along, nor a squadron a mission is
+assigned to. A hangar pass is the exception among those references: it goes with its
+hangar and with the squadron it is issued to.
 
 How it is wired:
 
@@ -1158,10 +1173,11 @@ watch desk then name the cadet by username; and
   the patch machinery, and the generator's audit pass names such tables without saying
   so on every run: `RefitTask.PhotoKey` stores a task photo on a table interleaved in
   Refits `ON DELETE CASCADE`
-  ([`audit.cascade-release`](pkg/resources/refit_tasks.go)), so `go run
-  ./cmd/generate/resourcegenerator -audit` prints the one `Audit:` line naming it after
-  the nine `Warning:` lines, `go generate ./...` prints the nine alone, and
-  `cmd/generate/audit_test.go` pins the finding as a typed value.
+  ([`audit.cascade-release`](pkg/resources/refit_tasks.go)), and `MissionDocument`
+  stores its file on a table that references Missions with the delete rule, so `go run
+  ./cmd/generate/resourcegenerator -audit` prints the two `Audit:` lines naming them
+  after the nine `Warning:` lines, `go generate ./...` prints the nine alone, and
+  `cmd/generate/audit_test.go` pins the findings as typed values.
 - `pkg/telemetry`: the droid link's own package, the one package the generator writes
   into without reading a resource from it: `cmd/generate` names it with `WithTypes`, so
   the frame type a `DroidReports` column holds gets its JSON and Spanner methods generated
