@@ -16,13 +16,17 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   EmailCodeResult,
   EmailCodeStep,
   invitationAddressCode,
+  LINK_DEAD,
   LoginMethod,
   LoginMethods,
+  MAILED_LINK_KINDS,
+  MailedLink,
+  mailedLink,
   OpenedInvitation,
   passwordChangeRequiredCode,
   PendingSignIn,
@@ -135,8 +139,15 @@ export interface Landing {
  * renders are declared in `SIGN_IN_STEPS` and, for the framework's release check, under
  * `impulseframework.signInSteps` in the package's package.json.
  *
- * The mailed links the server sends all lead here, each with its token in the URL. An
- * invitation (`?invitation=`) is opened through the client on arrival and the card becomes
+ * The mailed links the server sends all lead here, each with its token in the URL's
+ * fragment, which a browser sends to no server, so the token is in no request line and no
+ * request log. On arrival the component reads the link (`mailedLink`), takes it out of the
+ * address at once (`dropLink`), so it is in no history entry, bookmark or address a person
+ * copies, and posts the token in the body of the request that uses it. A link in the form
+ * that carried its token in the query, mailed by an older server, is never posted: it is
+ * taken out of the address as well, and the card shows the sentence of a link that has
+ * expired or was already used (`LINK_DEAD`). An
+ * invitation (`#invitation=`) is opened through the client on arrival and the card becomes
  * the invitation screen: "You're invited to <the tenant's name>" and the address, over every way that
  * can accept this invitation for that address and none that cannot (`invitationPaths`). The
  * browser now carries the invitation, so the sign-in that follows accepts it and seats the
@@ -147,9 +158,10 @@ export interface Landing {
  * `invitation_address`, and the screen then says so, naming the address. The password form
  * shows when an account with a password holds the address (`accountExists`, `hasPassword`),
  * with a note saying it accepts; and where no account holds the address and the server
- * offers a password method, the account form opens by itself, without a Cancel, but only
- * where no directory could admit the address, since the invited person has that account
- * already. "Use a different account" is not offered while an invitation stands: the
+ * offers a password method, the person may create an account with a password: the account
+ * form opens by itself, without a Cancel, where it is the one way to accept, and stands
+ * behind a "Create an account with a password" button under the directory buttons where
+ * a directory could admit the address too. "Use a different account" is not offered while an invitation stands: the
  * invitation names the account. An invitation that makes a tenant (`newTenant`: staff
  * bring an organization in by inviting one person, and that person's first sign-in makes
  * the tenant) is headed "You're invited to set up <the tenant's name>", over the same
@@ -165,20 +177,22 @@ export interface Landing {
  * or none; signed in as an account that holds another address, they are told whose the
  * invitation is and how to accept it, since the server refuses that acceptance too
  * (`acceptOffered`). Under an older server that does not say what
- * holds the address every path is offered, the account form behind a "Create an account
- * with a password" button that comes last, under the password form and the redirect
+ * holds the address every path is offered, the account form behind the same button, which
+ * comes last, under the password form and the redirect
  * buttons, where the open "Create an account" step stands when no invitation does. The
  * browser keeps carrying the invitation when a redirect method refuses the sign-in and
  * brings it back here with `?code=` and no token; the methods list then names the
  * invitation under `invitation.standing`, and the screen stands again, with the refusal's
  * sentence under it, so the person sees what they were invited to, the ways to sign in, and
- * why the last attempt was refused, together. A token in the URL is opened instead, which
+ * why the last attempt was refused, together. A link's token is opened instead, which
  * also refreshes what the browser carries. A sign-up link
- * (`?signUp=`) is opened the same way and renders the account form in the list's place; the
+ * (`#signUp=`) is opened the same way and renders the account form in the list's place; the
  * list of a server whose password method offers sign-up also carries the "Create an account"
- * step, which asks for an address and mails it the link. A confirmation link (`?verify=`) is
+ * step, which asks for an address and mails it the link. A confirmation link (`#verify=`) is
  * posted once a session stands, on arrival when the page finds one, else after the
- * sign-in it waits for (a redirect method returns to this page with the token); the
+ * sign-in it waits for. A redirect method's round trip reloads the application, and the
+ * token waits for it in the browser's session storage, never in the address the method
+ * returns to; the
  * component then shows what happened and emits `signedIn` on Continue. On every arrival
  * the component renders nothing until the reads have answered (`arriving`, which a page
  * holds its card back on, so a load shows nothing and then the whole card), so the form
@@ -210,6 +224,7 @@ export class LoginMethodsComponent implements OnInit {
   private auth = inject(AuthService);
   private ui = inject(UiCoreService);
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private document = inject(DOCUMENT);
   private loginPath = inject(FRONTEND_LOGIN_PATH);
   private signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
@@ -292,8 +307,8 @@ export class LoginMethodsComponent implements OnInit {
    * What the card offers for the invitation it carries, from what the server said of the
    * invited address: the directory buttons that could admit it (`redirects`); the password
    * form when an account with a password holds the address (`password`); and the account
-   * form when no account holds it and the server offers a password method, only where no
-   * directory could admit it, since the invited person has that account already (`create`).
+   * form when no account holds it and the server offers a password method, whether or not
+   * a directory could admit the address too: a new person chooses how they sign in (`create`).
    * `known` is false under an older server that did not say whether an account exists:
    * every path is then offered, as before. An invitation that makes a tenant entered
    * through its directory only (`directoryOnly`) is accepted through an organization's
@@ -315,7 +330,7 @@ export class LoginMethodsComponent implements OnInit {
       known,
       redirects,
       password: passwordListed && (!known || invited.hasPassword === true),
-      create: invited.signUp && (!known || (!invited.accountExists && redirects.length === 0)),
+      create: invited.signUp && (!known || !invited.accountExists),
     };
   });
   /** The password method's username is the person's email address: the form asks for the address. */
@@ -403,6 +418,13 @@ export class LoginMethodsComponent implements OnInit {
   readonly unreachableNote = this.ui.loginMessage('unreachable');
   /** The confirmation link's token, posted once a session stands. */
   private verifyToken = '';
+  /**
+   * The mailed link the page was opened with, read once: the address no longer carries it
+   * after the first arrival, and Try again runs the arrival again.
+   */
+  private link: MailedLink | 'old-form' | undefined;
+  /** The address has been read for a mailed link, and the link taken out of it. */
+  private linkRead = false;
   /**
    * The browser path this page's URL named to return to (`returnUrl`), kept through the
    * sign-in's steps; undefined when the URL names none the server would keep, or names
@@ -600,9 +622,11 @@ export class LoginMethodsComponent implements OnInit {
 
   /**
    * Sends the browser to a redirect method's path, naming the page the sign-in returns to:
-   * the address the URL named, the page the guard recorded, or this page with the
-   * confirmation link's token when one waits to be posted, since the round trip through
-   * the identity provider reloads the application. The provider is asked for its account
+   * the address the URL named, the page the guard recorded, or this page when a
+   * confirmation link's token waits to be posted, since the round trip through
+   * the identity provider reloads the application. The token itself is kept in the
+   * browser's session storage for the return (`keepVerifyToken`) and is in no address:
+   * the page a method returns to is named in a request line. The provider is asked for its account
    * chooser while the card is choosing (after a refusal, or once "Use a different account"
    * was pressed), and is told the account to take while an invitation stands: the invited
    * address, as its login hint.
@@ -611,10 +635,14 @@ export class LoginMethodsComponent implements OnInit {
     if (this.busy()) {
       return;
     }
-    const page: Landing =
-      this.verifyToken === ''
-        ? this.landing()
-        : { url: `${this.loginPath}?verify=${encodeURIComponent(this.verifyToken)}`, load: false };
+    let page: Landing;
+    if (this.verifyToken === '') {
+      page = this.landing();
+    } else {
+      // The token waits in the browser, and the method returns to this page without it.
+      this.keepVerifyToken(this.verifyToken);
+      page = { url: this.loginPath, load: false };
+    }
     const invited = this.invitation();
     this.leaveFor(
       this.client.auth.signInUrl(method, this.returnTo(page), {
@@ -956,24 +984,28 @@ export class LoginMethodsComponent implements OnInit {
    */
   private async arrive(): Promise<void> {
     const params = this.route.snapshot.queryParamMap;
-    const invitation = params.get('invitation') ?? '';
-    const signUp = params.get('signUp') ?? '';
-    const reset = params.get('reset') ?? '';
-    const address = params.get('address') ?? '';
-    this.verifyToken = params.get('verify') ?? '';
-    this.returnAddress = this.addressNamed(params.get('returnUrl'));
-    const linked =
-      params.has('pending') ||
-      invitation !== '' ||
-      signUp !== '' ||
-      this.verifyToken !== '' ||
-      reset !== '' ||
-      address !== '';
-    const refused = (params.get('code') ?? '') !== '';
-    let forwarded = false;
     this.arriving.set(true);
     this.unreachable.set(false);
     this.refusal.set(undefined);
+    const link = await this.takeLink();
+    const tokenOf = (kind: MailedLink['kind']): string =>
+      link !== undefined && link !== 'old-form' && link.kind === kind ? link.token : '';
+    const invitation = tokenOf('invitation');
+    const signUp = tokenOf('signUp');
+    const reset = tokenOf('reset');
+    const address = tokenOf('address');
+    // The token kept for a round trip is taken back on every arrival, used or not, so
+    // that none outlives the page it was kept for.
+    const kept = this.takeKeptVerifyToken();
+    this.verifyToken = tokenOf('verify') || this.verifyToken || kept;
+    this.returnAddress = this.addressNamed(params.get('returnUrl'));
+    const linked = params.has('pending') || link !== undefined || this.verifyToken !== '';
+    const refused = (params.get('code') ?? '') !== '';
+    let forwarded = false;
+    if (link === 'old-form') {
+      // The token has been in a request line: it is not posted, and the person asks for a new link.
+      this.refusal.set(LINK_DEAD);
+    }
     try {
       const list = await this.client.auth.methods();
       const carried = this.carriedInvitation(list, invitation);
@@ -1019,6 +1051,72 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
+   * Reads the mailed link the page was opened with and takes it out of the address, once:
+   * a later arrival (Try again) answers the link read then. The address is cleared before
+   * the page's first request, whether the link is one the page posts or one in the old
+   * form, which it never posts.
+   */
+  private async takeLink(): Promise<MailedLink | 'old-form' | undefined> {
+    if (this.linkRead) {
+      return this.link;
+    }
+    const snapshot = this.route.snapshot;
+    this.link = mailedLink(snapshot.fragment, (name) => snapshot.queryParamMap.has(name));
+    this.linkRead = true;
+    if (this.link !== undefined) {
+      try {
+        await this.dropLink();
+      } catch {
+        // The router would not move: the link is used all the same, and the address keeps it until the page is left.
+      }
+    }
+    return this.link;
+  }
+
+  /**
+   * Takes a mailed link out of the address: the fragment that carries its token, and the
+   * query parameter of a link in the old form, replacing the history entry, so the token
+   * is in no history entry, bookmark or address a person copies. The router is asked to,
+   * so its own record of the address loses the token too and nothing writes it back; the
+   * route stays, and a change of fragment or query alone runs no guard again.
+   */
+  protected async dropLink(): Promise<void> {
+    const cleared = Object.fromEntries(MAILED_LINK_KINDS.map((kind) => [kind, null]));
+    await this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: cleared,
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /**
+   * Keeps a confirmation link's token while the browser is away at an identity provider,
+   * in the tab's session storage, which only this origin's pages in this tab read. A
+   * browser that refuses the storage keeps nothing: the person opens the link again once
+   * signed in.
+   */
+  protected keepVerifyToken(token: string): void {
+    try {
+      this.document.defaultView?.sessionStorage.setItem(VERIFY_TOKEN_KEY, token);
+    } catch {
+      // Storage is blocked: nothing is kept.
+    }
+  }
+
+  /** Takes back the confirmation link's token kept for a redirect method's round trip, leaving none behind; empty when none was kept. */
+  protected takeKeptVerifyToken(): string {
+    try {
+      const storage = this.document.defaultView?.sessionStorage;
+      const token = storage?.getItem(VERIFY_TOKEN_KEY) ?? '';
+      storage?.removeItem(VERIFY_TOKEN_KEY);
+      return token;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
    * The redirect method a deep link is forwarded to: the list's only method, when it is a
    * redirect, the URL named an address to return to or the guard recorded a page other
    * than this one or the sign-out page, and no session was found standing; undefined when
@@ -1040,7 +1138,7 @@ export class LoginMethodsComponent implements OnInit {
   }
 
   /**
-   * Opens the invitation the URL's token names and keeps it over the list; a person found
+   * Opens the invitation the link's token names and keeps it over the list; a person found
    * signed in is offered to accept it as they are. A link the server refuses renders its
    * words, and the list alone.
    */
@@ -1097,7 +1195,8 @@ export class LoginMethodsComponent implements OnInit {
    * Keeps the invitation over the list and reads the session: a person found signed in is
    * offered to accept it as they are. For a person signed out whose one way to accept is a
    * new account with a password (no account holds the address and no directory could admit
-   * it), the account form opens by itself.
+   * it), the account form opens by itself; where a directory could admit the address too,
+   * the form stands behind its button, under the directory's.
    */
   private async keepInvitation(invitation: OpenedInvitation): Promise<void> {
     this.invitation.set(invitation);
@@ -1105,7 +1204,7 @@ export class LoginMethodsComponent implements OnInit {
     this.signedInAs.set(session?.username);
     this.signedInEmail.set(session?.email ?? undefined);
     const paths = this.invitationPaths();
-    if (!session?.username && paths?.known && paths.create) {
+    if (!session?.username && paths?.known && paths.create && paths.redirects.length === 0) {
       this.openAccountForm(true);
     }
   }
@@ -1330,10 +1429,15 @@ export class LoginMethodsComponent implements OnInit {
     this.land(page);
   }
 
-  /** Posts the confirmation link's token for the session that stands, and keeps the page for Continue. */
+  /**
+   * Posts the confirmation link's token for the session that stands, and keeps the page for
+   * Continue. The token is spent by the post: a copy kept for a round trip that never came
+   * back to a new page (the person went back and signed in here) is dropped with it.
+   */
   private async verify(page: Landing): Promise<void> {
     const token = this.verifyToken;
     this.verifyToken = '';
+    this.takeKeptVerifyToken();
     const result = await this.client.auth.verifyEmail(token);
     if (result.outcome === 'refused') {
       this.refusal.set(this.sentenceOf(result));
@@ -1452,6 +1556,9 @@ export class LoginMethodsComponent implements OnInit {
     this.document.location.assign(url);
   }
 }
+
+/** Where a confirmation link's token waits, in the tab's session storage, while the browser is away at an identity provider. */
+const VERIFY_TOKEN_KEY = 'impulse.login.verify';
 
 /** The sentence for a new password typed differently the second time; nothing is posted. */
 export const PASSWORDS_DIFFER = 'The new passwords do not match. Type the same password twice.';

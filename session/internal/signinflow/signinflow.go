@@ -221,12 +221,17 @@ type Rules[Tx any] struct {
 // granted. It is accepted only as the invited address: a sign-in whose address is not
 // the one the invitation was mailed to, the directory's for an external identity and
 // the account's own for a password one, is refused before anything is read or written
-// (invitation_address), the invitation left standing for the invited account. An
-// external identity that asserts no address cannot match; a password account that
-// holds no address accepts by the link, since the link is what the person proved, and
-// takes the address. The invitation is told how the person signed in
-// (Invitation.SignInMethod, SignInConnection: the identity's), which the acceptor
-// reads, and an invitation that makes a tenant entered through its directory only
+// (invitation_address), the invitation left standing for the invited account. A
+// password account that holds no address accepts by the link, since the link is what
+// the person proved, and takes the address. An external identity that asserts no
+// address has none to compare: where the Auth sends mail (rules.ConfirmAddress) its
+// acceptance rests on the code the library mails to the invited address, so the sign-in
+// waits, naming no user and writing nothing, until it carries that proof
+// (Invitation.AddressProven; see acceptsByCode, resolveIn), and where it sends none the
+// sign-in is refused as one for another address is. The invitation is told how the
+// person signed in (Invitation.SignInMethod, SignInConnection: the identity's), which
+// the acceptor reads, and an invitation that makes a tenant entered through its
+// directory only
 // (Invitation.NewTenant) is accepted through an organization's directory alone: a
 // sign-in by password or with a personal account is refused before anything is read or
 // written (organization_account_required), the invitation left standing
@@ -273,7 +278,7 @@ func SignIn[Tx any](
 	resolved.User = nil
 	defer func() { req.UserID, req.Username, req.User = resolved.UserID, resolved.Username, resolved.User }()
 
-	if stop := invitedAddressRefusal(req); stop != nil {
+	if stop := invitedAddressRefusal(req, rules.ConfirmAddress); stop != nil {
 		return stop
 	}
 	if stop := signedInThrough(req); stop != nil {
@@ -328,12 +333,152 @@ func SignIn[Tx any](
 // (addressRefusal). Nothing is read or written: the invitation stands and the login
 // page, which still carries it, names the invited address. Nil when the sign-in
 // carries no invitation or the acceptance may go on.
-func invitedAddressRefusal(req *sessioninfo.NewSessionRequest) error {
-	if req.Invitation == nil {
+//
+// A sign-in through a directory that asserts no address has none to compare. Where the
+// Auth sends mail (confirm), such an acceptance is not refused here: the resolution
+// holds it to the code mailed to the invited address (acceptsByCode), which is the
+// proof that the person reads that mailbox.
+func invitedAddressRefusal(req *sessioninfo.NewSessionRequest, confirm bool) error {
+	if req.Invitation == nil || acceptsByCode(req, confirm) {
 		return nil
 	}
 
 	return addressRefusal(req.Identity.Email, !dbtype.IsExternal(req.Identity), req.Invitation)
+}
+
+// acceptsByCode reports whether the sign-in carries an invitation its identity cannot
+// answer for by an address of its own: an external identity that asserts none
+// (Microsoft Entra ID sends none unless the registration is set up to), on an Auth that
+// sends mail (confirm). Such an acceptance rests on the code the library mails to the
+// invited address.
+func acceptsByCode(req *sessioninfo.NewSessionRequest, confirm bool) bool {
+	return confirm && req.Invitation != nil && dbtype.IsExternal(req.Identity) && strings.TrimSpace(req.Identity.Email) == ""
+}
+
+// invitedCodeWait is the wait of an acceptance that rests on the code mailed to the
+// invited address and has not entered it yet: the sign-in is held for the email code,
+// which the library mails to the invited address and nowhere else. It names no user:
+// none is made, linked or changed before the code is entered, and the invitation is
+// accepted in the transaction of the sign-in that carries the code.
+func invitedCodeWait() error {
+	return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUID{}, Username: "", Tenant: "", Factors: []sessioninfo.AuthMethod{sessioninfo.MethodEmailCode}}
+}
+
+// provenAddress is the invited address a sign-in proved by the code mailed to it, "" for
+// none: the address of the invitation of an acceptance that rests on the code
+// (acceptsByCode), once the sign-in has entered it (Invitation.AddressProven).
+func provenAddress(req *sessioninfo.NewSessionRequest, confirm bool) string {
+	if !acceptsByCode(req, confirm) || !req.Invitation.AddressProven {
+		return ""
+	}
+
+	return req.Invitation.Email
+}
+
+// knownHolder finds the user who holds the address a sign-in has shown to be the
+// person's, and answers that address with them: nil where nobody holds it, and "" where
+// the sign-in has shown none. The address the method verified for the identity
+// (Identity.EmailVerified; Google does, Entra does not) counts for the user who holds
+// it verified, and one a user holds unverified matches no one. Or else the address is
+// proven, the invited address whose mailed code the sign-in entered, and it counts for
+// the user who holds it, confirmed or not: an address an administrator entered is kept
+// for its account, the invitation mailed to it is that account's own (ownInvitation),
+// and the code is what confirms it.
+//
+// It is what finds the account a person already has (preCreatedUser) and what keeps a
+// second account from being made for them (addressHeld). It is not what links a second
+// identity to an account somebody already signs in to: that takes the directory's own
+// word (holdsAddress), so the code adds no way in to such an account.
+func knownHolder[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity, proven string) (holder *dbtype.User, address string, err error) {
+	switch {
+	case identity.EmailVerified && identity.Email != "":
+		holder, err = d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
+		if err != nil {
+			return nil, "", errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
+		}
+
+		return holder, identity.Email, nil
+	case proven != "":
+		holder, err = d.UserByEmailIn(ctx, tx, proven)
+		if err != nil {
+			return nil, "", errors.Wrap(err, "Driver.UserByEmailIn()")
+		}
+
+		return holder, proven, nil
+	default:
+		return nil, "", nil
+	}
+}
+
+// notTheInvitedName refuses the acceptance that rests on the mailed code (proven, "" for
+// a sign-in that rests on none) by an account under another name, in a store whose
+// usernames are the addresses. There an account's address is its name: the invited
+// address is not this account's, could be written nowhere on it, and the code that
+// proved it would stand for an address the account does not hold. The refusal is the
+// one of an acceptance with another address. Nil in a store that keeps the address
+// apart, where the account takes the invited address with the acceptance.
+func notTheInvitedName[Tx any](d Driver[Tx], inv *sessioninfo.Invitation, proven, username string) error {
+	if proven == "" || !d.UsernameIsEmail() || sameAddress(proven, username) {
+		return nil
+	}
+
+	return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv))
+}
+
+// notTheInvited refuses the acceptance that rests on the mailed code (proven, "" for a
+// sign-in that rests on none) by user, an account the rule found for an identity it is
+// not linked to yet, where user is not the account the invitation was mailed to: another
+// account holds the invited address, confirmed or not, or user is under another name
+// in a store whose usernames are the addresses (notTheInvitedName). An account found
+// under the directory's name would otherwise spend an invitation that is another
+// account's own, on a code that proves an address it cannot take. The refusal is the
+// one of an acceptance with another address, before anything is written.
+func notTheInvited[Tx any](ctx context.Context, d Driver[Tx], tx Tx, inv *sessioninfo.Invitation, proven string, user *dbtype.User) (stop, err error) {
+	if proven == "" {
+		return nil, nil
+	}
+	if stop := notTheInvitedName(d, inv, proven, user.Username); stop != nil {
+		return stop, nil
+	}
+	holder, err := d.UserByEmailIn(ctx, tx, proven)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
+	}
+	if holder != nil && holder.ID != user.ID {
+		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
+	}
+
+	return nil, nil
+}
+
+// linkedAcceptsByCode decides the acceptance, by an identity that asserts no address,
+// of the invitation req carries, for the user the identity is linked to. The account
+// that holds the invited address confirmed is the one invited, and accepts. An account
+// that holds another confirmed address is not, and neither is any account while
+// another one holds the invited address, confirmed or not (an address an administrator
+// entered is kept for its account): both are refused as an acceptance with another
+// address is. So is an account under another name in a store whose usernames are the
+// addresses, which could not take the invited one. An account that has confirmed no
+// address accepts once the sign-in has entered the code mailed to the invited address,
+// and waits for it until then (invitedCodeWait); the acceptance writes the address on
+// the account, confirmed.
+func linkedAcceptsByCode[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User) (stop, err error) {
+	inv := req.Invitation
+	holder, err := d.UserByEmailIn(ctx, tx, inv.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByEmailIn()")
+	}
+	holds := holder != nil && holder.ID == user.ID
+	switch {
+	case holds && user.EmailConfirmed:
+		return nil, nil
+	case holder != nil && !holds, user.EmailConfirmed, d.UsernameIsEmail() && !sameAddress(inv.Email, user.Username):
+		return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv)), nil
+	case !inv.AddressProven:
+		return invitedCodeWait(), nil
+	default:
+		return nil, nil
+	}
 }
 
 // signedInThrough notes on the invitation the sign-in carries how the person signed in,
@@ -430,15 +575,19 @@ func trustedDevice(ctx context.Context, userID impulse.UUID, check TrustedDevice
 }
 
 // errInvitationDead ends the resolution transaction of a sign-in that its invitation
-// alone admitted, once the invitation turns out to be dead: nothing is committed.
+// alone admitted, or that rests on the code mailed for the invitation, once the
+// invitation turns out to be dead: nothing is committed.
 var errInvitationDead = errors.New("the invitation has expired or was already used")
 
 // consumeInvitation consumes the invitation req carries, if any, inside the
 // resolution's transaction once it has admitted the sign-in (for a provisioned user,
 // before the row is written), and reports whether it was live. A dead invitation is
-// reported dead and the sign-in goes on without it, unless it alone admitted the
-// person (byInvitation), which ends the transaction with errInvitationDead.
-func consumeInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, byInvitation bool) (live bool, err error) {
+// reported dead and the sign-in goes on without it, unless the sign-in stands on it
+// (onInvitation), which ends the transaction with errInvitationDead: it alone admitted
+// the person (the rule's byInvitation), or the sign-in entered the code mailed to the
+// invited address (provenAddress), which was mailed for the invitation's acceptance and
+// is the proof of no other sign-in, of no other address and of no second factor.
+func consumeInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, onInvitation bool) (live bool, err error) {
 	inv := req.Invitation
 	if inv == nil {
 		return false, nil
@@ -448,7 +597,7 @@ func consumeInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *se
 		if !httpio.HasNotFound(err) {
 			return false, errors.Wrap(err, "Driver.ConsumeMailLinkIn()")
 		}
-		if byInvitation {
+		if onInvitation {
 			return false, errInvitationDead
 		}
 
@@ -870,6 +1019,11 @@ func resolveIn[Tx any](
 			return "", "", nil, nil, errors.Wrap(err, "Driver.UserIn()")
 		}
 		req.UserID, req.Username = link.UserID, user.Username
+		if acceptsByCode(req, rules.ConfirmAddress) && !user.Disabled {
+			if stop, err := linkedAcceptsByCode(ctx, d, tx, req, user); err != nil || stop != nil {
+				return "", "", nil, stop, err
+			}
+		}
 		if err := d.TouchIdentityIn(ctx, tx, link.ID); err != nil {
 			return "", "", nil, nil, errors.Wrap(err, "Driver.TouchIdentityIn()")
 		}
@@ -878,11 +1032,17 @@ func resolveIn[Tx any](
 		}
 		source = sessioninfo.UserExistingLink
 		if !user.Disabled {
-			if live, err = consumeInvitation(ctx, d, tx, req, false); err != nil {
+			if live, err = consumeInvitation(ctx, d, tx, req, provenAddress(req, rules.ConfirmAddress) != ""); err != nil {
 				return "", "", nil, nil, err
 			}
 		}
 	} else {
+		if acceptsByCode(req, rules.ConfirmAddress) && !req.Invitation.AddressProven {
+			// Nobody is made or linked before the code mailed to the invited address is
+			// entered. Once it is, the rules know the person by that address
+			// (provenAddress).
+			return "", "", nil, invitedCodeWait(), nil
+		}
 		resolved, stop, err := resolveUnlinked(ctx, d, tx, req, rules)
 		if err != nil || stop != nil {
 			return "", "", nil, stop, err
@@ -1009,7 +1169,9 @@ func decideAccount[Tx any](
 // method synchronizes roles, and an identity without a sign-in name, before any row is
 // written. A pre-created user under the sign-in name, matched without regard to case,
 // or one who holds the identity's verified address (preCreatedUser), is confirmed with
-// its password when it has one and linked when it has none (applyResolution refuses
+// its password when it has one and linked when it has none; where the sign-in rests on
+// the code mailed to an invited address, a user that address does not make the invited
+// one is refused first, password or none (notTheInvited). (applyResolution refuses
 // the link when such a user already signs in through another connection). The link is
 // the person's first sign-in through the directory, so the tenant whose directory it is
 // gives them its default seat with it, when the application reads the declarations
@@ -1030,11 +1192,18 @@ func standardRule[Tx any](
 		return accountDecision{}, Refusal("", sessioninfo.RefusedNoEmail, signin.ErrNoSignInName, "the identity carries no sign-in name"), nil
 	}
 
-	user, err := preCreatedUser(ctx, d, tx, req.Identity)
+	proven := provenAddress(req, rules.ConfirmAddress)
+	user, err := preCreatedUser(ctx, d, tx, req.Identity, proven)
 	if err != nil {
 		return accountDecision{}, nil, err
 	}
 	if user != nil && user.HasPassword {
+		// An account the invited address does not make the invited one is refused before
+		// its password is asked for, as one without a password is when it is linked.
+		if stop, err := notTheInvited(ctx, d, tx, req.Invitation, proven, user); err != nil || stop != nil {
+			return accountDecision{}, stop, err
+		}
+
 		return accountDecision{res: signin.Confirm(user.ID, signin.Tenant(tenant))}, nil, nil
 	}
 
@@ -1184,25 +1353,24 @@ func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
 
 // preCreatedUser finds the user an unlinked identity belongs to, before any row is
 // written: the user under the identity's sign-in name, matched without regard to case,
-// or else the user who holds the identity's address verified, when the method verified
-// the address (Identity.EmailVerified; Google does, Entra does not). A person is one
-// user whichever way they sign in, and an address counts once the person has proven
-// it: an address the method did not verify, or one a user holds unverified, matches no
-// one. nil when there is neither.
-func preCreatedUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity) (*dbtype.User, error) {
+// or else the user who holds the address the sign-in has shown to be the person's
+// (knownHolder): verified, the one the method verified (Identity.EmailVerified; Google
+// does, Entra does not), or, confirmed or not, proven, the invited address whose mailed
+// code the sign-in entered. A person is one user whichever way they sign in, and an
+// address counts once the person has proven it: an address the method did not verify
+// matches no one, and neither does one the method verified that a user holds
+// unverified. nil when there is neither.
+func preCreatedUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity, proven string) (*dbtype.User, error) {
 	user, err := d.UserByUsernameIn(ctx, tx, identity.SignInName)
 	if err != nil {
 		return nil, errors.Wrap(err, "Driver.UserByUsernameIn()")
 	}
-	if user != nil || !identity.EmailVerified || identity.Email == "" {
+	if user != nil {
 		return user, nil
 	}
-	user, err = d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
-	if err != nil {
-		return nil, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
-	}
+	user, _, err = knownHolder(ctx, d, tx, identity, proven)
 
-	return user, nil
+	return user, err
 }
 
 // applyResolution acts on the account rules' answer for an unlinked identity. A link
@@ -1233,7 +1401,7 @@ func applyResolution[Tx any](
 
 		return sessioninfo.UserNewLink, res.Tenant(), live, nil, nil
 	case signin.ProvisionUser:
-		live, stop, err = provisionUser(ctx, d, tx, req, res, decided.byInvitation)
+		live, stop, err = provisionUser(ctx, d, tx, req, res, decided.byInvitation, provenAddress(req, rules.ConfirmAddress))
 		if err != nil || stop != nil {
 			return "", "", false, stop, err
 		}
@@ -1279,6 +1447,9 @@ func linkUser[Tx any](
 	if err != nil {
 		return false, nil, errors.Wrap(err, "Driver.LockUserIn()")
 	}
+	if stop, err := notTheInvited(ctx, d, tx, req.Invitation, provenAddress(req, rules.ConfirmAddress), user); err != nil || stop != nil {
+		return false, stop, err
+	}
 	if user.HasPassword && !res.Trusted() {
 		return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
 	}
@@ -1313,7 +1484,7 @@ func linkUser[Tx any](
 	if user.Disabled {
 		return false, nil, nil
 	}
-	live, err = consumeInvitation(ctx, d, tx, req, byInvitation)
+	live, err = consumeInvitation(ctx, d, tx, req, byInvitation || provenAddress(req, rules.ConfirmAddress) != "")
 
 	return live, nil, err
 }
@@ -1322,7 +1493,9 @@ func linkUser[Tx any](
 // for identity: the person proved the address to the application, and the directory
 // proved it of whoever signs in, so the two are one person whatever name the account is
 // under. An address the method did not verify, and one the user holds unverified or
-// not at all, prove nothing.
+// not at all, prove nothing. Neither does the code of an invitation's acceptance
+// (provenAddress): it shows that the person reads the invited mailbox, and an account
+// somebody already signs in to is not opened to whoever reads its mail.
 func holdsAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, identity *sessioninfo.Identity) (bool, error) {
 	if !identity.EmailVerified || identity.Email == "" {
 		return false, nil
@@ -1434,20 +1607,24 @@ func notInvitedRefusal() error {
 }
 
 // provisionUser writes the user the rule provisioned (signin.ProvisionUser), linked to
-// the identity, and runs the rule's OnProvisioned. An identity whose verified address
+// the identity, and runs the rule's OnProvisioned. A sign-in whose known address (the
+// identity's verified one, or proven, the invited address whose mailed code it entered)
 // another user holds verified is refused instead (stop; see addressHeld). The
 // invitation the sign-in carries is consumed before the row is written, so a dead one
 // gives the new user nothing, not its address and not its grant, and a live one's
 // address goes on the row (invitedAddress); a user provisioned disabled cannot accept
 // and consumes nothing.
 func provisionUser[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool,
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool, proven string,
 ) (live bool, stop, err error) {
 	newUser := res.NewUser()
 	if newUser == nil {
 		return false, nil, errors.New("the account rule provisioned no user: signin.Provision was given nil")
 	}
-	if stop, err = addressHeld(ctx, d, tx, req.Identity); err != nil || stop != nil {
+	if stop := notTheInvitedName(d, req.Invitation, proven, newUser.Username); stop != nil {
+		return false, stop, nil
+	}
+	if stop, err = addressHeld(ctx, d, tx, req.Identity, proven); err != nil || stop != nil {
 		return false, stop, err
 	}
 	req.Username = newUser.Username
@@ -1455,7 +1632,7 @@ func provisionUser[Tx any](
 	// transaction cannot be updated in it.
 	insert := &dbtype.InsertSessionUser{Username: newUser.Username, PasswordHash: newUser.PasswordHash, Disabled: newUser.Disabled, Name: keptName(req.Identity.Name)}
 	if !newUser.Disabled {
-		if live, err = consumeInvitation(ctx, d, tx, req, byInvitation); err != nil {
+		if live, err = consumeInvitation(ctx, d, tx, req, byInvitation || proven != ""); err != nil {
 			return false, nil, err
 		}
 	}
@@ -1485,26 +1662,22 @@ func provisionUser[Tx any](
 	return live, nil, nil
 }
 
-// addressHeld refuses the provisioning of a new user for an identity whose verified
-// address another user already holds verified: that user is the person. The standard
-// rule matches the person by the address before it provisions (preCreatedUser), so a
-// rule that still provisions would make a second user for one person, and one
-// without an address, since the address is held. The refusal is identity_rejected
-// with signin.ErrEmailHeld as its cause, which names the holder for the log. An
-// address the method did not verify, or one a user holds unverified, holds nothing
-// against the provisioning.
-func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity) (stop, err error) {
-	if !identity.EmailVerified || identity.Email == "" {
-		return nil, nil
+// addressHeld refuses the provisioning of a new user for a sign-in whose known address
+// another user already holds (knownHolder: verified for the address the method
+// verified, and confirmed or not for the invited address whose mailed code the sign-in
+// entered): that user is the person. The standard rule matches the person by the
+// address before it provisions (preCreatedUser), so a rule that still provisions would
+// make a second user for one person, and one without an address, since the address is
+// held. The refusal is identity_rejected with signin.ErrEmailHeld as its cause, which
+// names the holder for the log. An address the method did not verify holds nothing
+// against the provisioning, and neither does one it verified that a user holds
+// unverified.
+func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity, proven string) (stop, err error) {
+	holder, address, err := knownHolder(ctx, d, tx, identity, proven)
+	if err != nil || holder == nil {
+		return nil, err
 	}
-	holder, err := d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
-	if err != nil {
-		return nil, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
-	}
-	if holder == nil {
-		return nil, nil
-	}
-	cause := fmt.Errorf("%w: the verified address %s belongs to user %s (%s)", signin.ErrEmailHeld, identity.Email, holder.Username, holder.ID)
+	cause := fmt.Errorf("%w: the address %s belongs to user %s (%s)", signin.ErrEmailHeld, address, holder.Username, holder.ID)
 
 	return Refusal("", sessioninfo.RefusedIdentityRejected, cause, "identity rejected"), nil
 }

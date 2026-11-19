@@ -51,7 +51,7 @@ func inviteTenant(ctx context.Context, t *testing.T, b *browser, value map[strin
 func mailedInvitation(t *testing.T, s *served, email string) string {
 	t.Helper()
 
-	link := regexp.MustCompile(`http://tenanted\.test/login\?invitation=([A-Za-z0-9_-]+)`)
+	link := regexp.MustCompile(`http://tenanted\.test/login#invitation=([A-Za-z0-9_-]+)`)
 	messages := s.mail.Messages()
 	for _, m := range slices.Backward(messages) {
 		if !strings.Contains(m.To, email) {

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import {
   AuthClient,
+  LINK_DEAD,
   LoginMethod,
   LoginMethods,
   loginMethodsRoute,
+  MAILED_LINK_KINDS,
+  mailedLink,
   passwordChangeRequiredCode,
   refusedForPasswordChange,
   returnPath,
@@ -382,6 +385,33 @@ describe('the return address', () => {
     ]) {
       expect([value, returnPath(value)]).toEqual([value, undefined]);
     }
+  });
+});
+
+describe('the mailed link a page was opened with', () => {
+  const none = (): boolean => false;
+
+  it('is read from the fragment, with or without its #, for every kind of link the server mails', () => {
+    for (const kind of MAILED_LINK_KINDS) {
+      expect(mailedLink(`#${kind}=tok_9-Z`, none)).toEqual({ kind, token: 'tok_9-Z' });
+      expect(mailedLink(`${kind}=tok_9-Z`, none)).toEqual({ kind, token: 'tok_9-Z' });
+    }
+    expect([...MAILED_LINK_KINDS]).toEqual(['invitation', 'signUp', 'reset', 'address', 'verify']);
+  });
+
+  it('is nothing for an address that carries no link: no fragment, an empty token, or a fragment that names something else', () => {
+    for (const fragment of [undefined, null, '', '#', '#invitation=', '#section-2', '#returnUrl=%2Fhome']) {
+      expect([fragment, mailedLink(fragment, none)]).toEqual([fragment, undefined]);
+    }
+  });
+
+  it('is never read from the query: a link in the form that carried its token there is answered old-form, whatever the fragment holds, and the page shows the sentence of a dead link', () => {
+    for (const kind of MAILED_LINK_KINDS) {
+      expect(mailedLink('', (name) => name === kind)).toBe('old-form');
+      expect(mailedLink('#invitation=tok', (name) => name === kind)).toBe('old-form');
+    }
+    expect(mailedLink('#invitation=tok', (name) => name === 'returnUrl')).toEqual({ kind: 'invitation', token: 'tok' });
+    expect(LINK_DEAD).toBe('the link has expired or was already used');
   });
 });
 

@@ -227,7 +227,9 @@ func (m *Manager) resetLinksEndAtCommit(txn resource.ReadWriteTransaction, userI
 //
 // The link goes to the person's own mailbox and to nowhere the caller names, so it is
 // the caller's to send for whoever the role file lets them manage; an account of
-// another auth, and no account, are NotFound.
+// another auth, and no account, are NotFound. A super administrator's account is acted
+// on by a super administrator alone, and sending its holder a reset link is acting on
+// it: anybody else is refused (requireSuperAdministratorFor).
 //
 // Shared rule: the session library's SendPasswordReset, which counts the message
 // against the limit on reset links to an address, the person's own requests with it.
@@ -239,6 +241,9 @@ func (m *Manager) SendPasswordResetLink(ctx context.Context, txn resource.ReadWr
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sends a super administrator a password reset link"); err != nil {
+		return err
 	}
 	by := askedBy(ctx)
 
@@ -279,7 +284,8 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 // the name may sign in again. The name is what was typed into the username field,
 // whether or not a user holds it, and is keyed as the session library keys it; a name
 // with no count is no error. The table also keeps the session library's own counts (the
-// mail an address was sent, its reset links, the guesses at a first password's code)
+// mail an address was sent, its sign-in codes, its reset links, the guesses at a first
+// password's code)
 // under keys no name folds to, and a row of one, named as the list shows it, is cleared
 // the same way (session.SignInAttemptKey).
 //

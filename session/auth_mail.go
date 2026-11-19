@@ -27,8 +27,8 @@ import (
 // adds, the link a sign-up starts from, the link that resets a password, the link that
 // confirms an address an administrator asked to put on an account, and the notices that
 // tell a person their account changed, which carry no link. Each of the others is one
-// plain-text message with one link in it, to the login page with the link's token as a query parameter, which the
-// page posts back to the route that completes the step. A message reads as
+// plain-text message with one link in it, to the login page with the link's token in
+// the URL's fragment, which the page posts back to the route that completes the step. A message reads as
 // instructions: what the person did, the link to open and how long it is good for,
 // then, under headings of their own, what to do if it was not them and a word to keep
 // the link to themselves. The library writes to the mail.Sender interface and knows
@@ -40,11 +40,12 @@ type MailSettings struct {
 	// Application is the application's name as the messages say it ("Harbor").
 	Application string
 	// LoginURL is the absolute URL of the application's login page
-	// (https://harbor.example.com/login), where every mailed link leads: with
-	// ?invitation=<token> for an invitation, ?verify=<token> for an address
-	// verification, ?signUp=<token> for a sign-up, ?reset=<token> for a password reset
-	// and ?address=<token> for an address an administrator asked to change. The page
-	// posts the token to the matching route.
+	// (https://harbor.example.com/login), where every mailed link leads, its token in
+	// the fragment, which a browser sends to no server: #invitation=<token> for an
+	// invitation, #verify=<token> for an address verification, #signUp=<token> for a
+	// sign-up, #reset=<token> for a password reset and #address=<token> for an address
+	// an administrator asked to change. The page takes the token out of the address
+	// and posts it to the matching route.
 	LoginURL string
 	// InvitationTimeout is how long an invitation stands; zero is seven days.
 	InvitationTimeout time.Duration
@@ -60,10 +61,17 @@ const (
 
 // mailLimit bounds the sign-in codes and links one address is sent and does not use:
 // five within fifteen minutes, then none for fifteen minutes. It is kept in the sign-in
-// attempts table under the address (mailLimitKey), as a name's failed attempts are. A
-// code or link that is used resets the address (clearMailLimit), so a person who uses
-// what they are sent never meets the limit; it stops mail asked for over and over and
-// never used.
+// attempts table under the address, as a name's failed attempts are, in two counts.
+// The codes of the address's own sign-ins are counted by themselves (codeLimitKey):
+// only a person past the first step of the account that holds the address, or the
+// holder of an invitation's link, has one sent. Everything else is counted together
+// (mailLimitKey), and anybody who knows the address can run that count up: a sign-up
+// started for it, a link asked to add it to an account, a code asked for it by a person
+// whose account holds no address yet. Kept apart, nothing a stranger asks for in a
+// person's name holds up the codes that person signs in with. A code or link that is
+// used resets the address (clearMailLimit, clearCodeLimit), so a person who uses what
+// they are sent never meets the limit; it stops mail asked for over and over and never
+// used.
 var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
 
 // mailLimitKey is the address's key in the sign-in attempts table: the address folded
@@ -72,6 +80,12 @@ var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time
 // person signs in under can spell (attempts.OwnKey).
 func mailLimitKey(email string) string {
 	return attempts.OwnKey(attempts.KindMail, attempts.Normalize(email))
+}
+
+// codeLimitKey is the key of the address's sign-in codes in the sign-in attempts table,
+// folded as mailLimitKey folds it and under a kind of its own.
+func codeLimitKey(email string) string {
+	return attempts.OwnKey(attempts.KindCode, attempts.Normalize(email))
 }
 
 // mailSettings are the Auth's mail settings once validated.
@@ -112,14 +126,13 @@ func (m *mailSettings) validate() error {
 	return nil
 }
 
-// link renders the login page URL that carries token under param.
+// link renders the login page URL that carries token under param, in the URL's
+// fragment. A browser keeps a fragment to itself: it is in no request line, so the
+// token reaches no server's or proxy's request log, and in no Referer header. The page
+// reads the token from the fragment, takes it out of the address at once, and posts it
+// in the body of the request that uses it. Every kind of mailed link is built here.
 func (m *mailSettings) link(param, token string) string {
-	sep := "?"
-	if strings.Contains(m.settings.LoginURL, "?") {
-		sep = "&"
-	}
-
-	return m.settings.LoginURL + sep + param + "=" + url.QueryEscape(token)
+	return m.settings.LoginURL + "#" + param + "=" + url.QueryEscape(token)
 }
 
 // goodFor renders how long a link is good for in everyday words: minutes under an
@@ -532,15 +545,30 @@ func optionalAddress(email *string) (*string, error) {
 	return &bare, nil
 }
 
-// limitMail bounds the codes and links sent to an address (mailLimit): the address's
-// record in the sign-in attempts table counts each one, and an address at the limit is
-// refused with too_many_emails and the wait. A request takes its place under the limit
-// before anything is mailed: the store counts it in one transaction and says whether it
-// was counted (dbtype.SignInAttempts.Counted), and a request that was not, because the
+// limitMail bounds the links, notices and codes sent to an address that anybody who
+// knows the address can ask for (mailLimit, under mailLimitKey): the address's record
+// in the sign-in attempts table counts each one, and an address at the limit is refused
+// with too_many_emails and the wait. A request takes its place under the limit before
+// anything is mailed: the store counts it in one transaction and says whether it was
+// counted (dbtype.SignInAttempts.Counted), and a request that was not, because the
 // address is at the limit already, mails nothing. Requests made at once are so each
 // counted, and no more of them than the limit are ever mailed.
 func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
-	record, err := a.storage.RecordSignInFailure(ctx, mailLimitKey(email), mailLimit)
+	return a.limitSent(ctx, mailLimitKey(email))
+}
+
+// limitCode bounds the sign-in codes sent to the address an account holds, or an
+// invitation was mailed to, as limitMail bounds the address's other mail, in a count of
+// its own (codeLimitKey): what a stranger asks for in the address's name never uses up
+// the codes its person signs in with.
+func (a *Auth[S, U, Tx]) limitCode(ctx context.Context, email string) error {
+	return a.limitSent(ctx, codeLimitKey(email))
+}
+
+// limitSent takes a message's place under the mail limit in the count kept under key,
+// and refuses it with too_many_emails and the wait when the count is at the limit.
+func (a *Auth[S, U, Tx]) limitSent(ctx context.Context, key string) error {
+	record, err := a.storage.RecordSignInFailure(ctx, key, mailLimit)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
 	}
@@ -558,6 +586,14 @@ func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
 // bookkeeping after the proof: a failure is logged, and the request goes on.
 func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
 	if err := a.storage.ClearSignInAttempts(ctx, mailLimitKey(email)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
+}
+
+// clearCodeLimit resets the count of the address's sign-in codes once one is used, as
+// clearMailLimit resets the address's other mail.
+func (a *Auth[S, U, Tx]) clearCodeLimit(ctx context.Context, email string) {
+	if err := a.storage.ClearSignInAttempts(ctx, codeLimitKey(email)); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
 	}
 }

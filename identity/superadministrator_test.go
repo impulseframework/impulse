@@ -492,6 +492,12 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 			},
 		},
 		{
+			name: "a password reset link", says: "sends a super administrator a password reset link",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.SendPasswordResetLink(ctx, txn, userID, nil)
+			},
+		},
+		{
 			name: "a new address", says: "changes a super administrator's email address",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.SetEmail(ctx, txn, userID, address, nil)

@@ -33,6 +33,7 @@ export function openMethodDialog(
     ...(method.presentation?.labels ? { labels: method.presentation.labels } : {}),
     ...(method.presentation?.shows ? { shows: method.presentation.shows } : {}),
     ...(method.presentation?.throughDay ? { throughDay: method.presentation.throughDay } : {}),
+    ...(method.presentation?.narrows ? { narrows: method.presentation.narrows } : {}),
   };
   return dialog
     .open<MethodDialogComponent, MethodDialogData, MethodDialogResult>(MethodDialogComponent, {

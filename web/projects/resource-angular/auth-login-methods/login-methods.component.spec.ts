@@ -1,11 +1,14 @@
 import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import {
   ApiDescriptor,
   createClient,
+  LINK_DEAD,
   LoginMethod,
   LoginMethods,
+  MAILED_LINK_KINDS,
   TransportRequest,
   TransportResponse,
 } from '@impulseframework/resource';
@@ -31,7 +34,9 @@ import {
 // the list names, with a cancel back to the list. A session that must change its password
 // gets the change form in the list's place, posting to the change path the list names, and
 // the page recorded at the sign-in is emitted once the change is accepted. The mailed links
-// arrive here with their token: an invitation is opened and stands over the list until a
+// arrive here with their token in the address's fragment, which the component takes out of
+// the address before its first request and posts in a request's body; a link with its token
+// in the query, the form an older server mailed, is not posted and reads as a dead link: an invitation is opened and stands over the list until a
 // sign-in, an acceptance or an account with a password accepts it, and one the browser is
 // found carrying, with no token in the URL, stands the same way; a sign-up link opens the
 // account form; a confirmation link is posted once a session stands. The component ends no
@@ -276,18 +281,31 @@ interface Page {
   transport: ScriptedTransport;
   /** Where the component sent the browser, in order. */
   left: string[];
+  /** How many times the component took a mailed link out of the address. */
+  dropped: number;
   signedIn: string[];
   cancelled: number;
   settle(): Promise<void>;
   element: HTMLElement;
 }
 
-/** The component over the transport, arrived with the query, before its first change detection. */
+/**
+ * The component over the transport, arrived at an address, before its first change
+ * detection. `address` is what the address carries, by name. A mailed link's token, named
+ * by its kind (invitation, signUp, reset, address, verify), is in the fragment, where the
+ * server writes it; everything else is in the query. With `oldForm` the link's token is in
+ * the query instead, as a server mailed it before tokens moved to the fragment.
+ */
 async function mount(
   transport: ScriptedTransport,
-  query: Record<string, string> = {},
+  address: Record<string, string> = {},
   inputs: Record<string, unknown> = {},
+  oldForm = false,
 ): Promise<Page> {
+  const kinds: readonly string[] = MAILED_LINK_KINDS;
+  const linked = Object.entries(address).filter(([name]) => kinds.includes(name) && !oldForm);
+  const query = Object.fromEntries(Object.entries(address).filter(([name]) => !kinds.includes(name) || oldForm));
+  const fragment = linked.length === 0 ? null : new URLSearchParams(linked).toString();
   const params = convertToParamMap(query);
   await TestBed.configureTestingModule({
     imports: [LoginMethodsComponent],
@@ -296,7 +314,10 @@ async function mount(
         transport,
         client: (t) => createClient(descriptor, { baseUrl: '/console/api', transport: t }),
       }),
-      { provide: ActivatedRoute, useValue: { queryParamMap: of(params), snapshot: { queryParamMap: params } } },
+      {
+        provide: ActivatedRoute,
+        useValue: { queryParamMap: of(params), snapshot: { queryParamMap: params, fragment } },
+      },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(LoginMethodsComponent);
@@ -315,6 +336,7 @@ async function mount(
     component,
     transport,
     left,
+    dropped: 0,
     signedIn,
     cancelled: 0,
     element: fixture.nativeElement as HTMLElement,
@@ -325,16 +347,27 @@ async function mount(
     },
   };
   component.cancelled.subscribe(() => page.cancelled++);
+  // The route is a stub the router cannot navigate on: the call is counted, with the
+  // requests made by then, and the address itself is proved over a real router below.
+  vi.spyOn(component as unknown as { dropLink(): Promise<void> }, 'dropLink').mockImplementation(() => {
+    page.dropped++;
+    droppedBefore.push(transport.requests.length);
+    return Promise.resolve();
+  });
   return page;
 }
 
-/** The component over the server, arrived with the query, settled. */
+/** For each mailed link a spec's pages took out of the address, how many requests the page had made by then. */
+const droppedBefore: number[] = [];
+
+/** The component over the server, arrived at the address, settled. */
 async function pageOver(
   state: Server,
-  query: Record<string, string> = {},
+  address: Record<string, string> = {},
   inputs: Record<string, unknown> = {},
+  oldForm = false,
 ): Promise<Page> {
-  const page = await mount(transportOf(state), query, inputs);
+  const page = await mount(transportOf(state), address, inputs, oldForm);
   await page.settle();
   return page;
 }
@@ -1625,7 +1658,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
   const titleOf = (page: Page): string | null =>
     page.element.querySelector('.impulse-login-invitation-title')?.textContent?.trim() ?? null;
 
-  it('entered with ?invitation=, posts the token after the list and keeps the invitation over the list, checking for a session', async () => {
+  it('entered with #invitation=, posts the token after the list and keeps the invitation over the list, checking for a session', async () => {
     const page = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
     expect(sent(page.transport)).toEqual([
       'GET /console/api/user/methods',
@@ -1915,7 +1948,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.component.accountOpenedItself()).toBe(false);
   });
 
-  it('where the server says a directory admits the address, offers "Continue with … as …" alone, naming the account to the provider', async () => {
+  it('where no account holds the address and a directory admits it, offers "Continue with … as …", naming the account to the provider, and under it the account with a password, which a new person may choose instead', async () => {
     const page = await pageOver(
       server({
         methods: { ...mailingList, methods: [password, google, fleetGoogle] },
@@ -1928,14 +1961,68 @@ describe('LoginMethodsComponent opens an invitation', () => {
       { home: '/dashboard' },
     );
     expect(buttonsOf(page)).toEqual(['Continue with Fleet Google as ensign@fleet.example']);
+    // No account holds the address: there is no password to sign in with, and none is asked for.
     expect(page.element.querySelector('input[name="username"]')).toBeNull();
-    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(orderOf(page)).toEqual(['impulse-login-redirect', 'impulse-login-create-account']);
+    expect(page.element.querySelector('.impulse-login-create-account')?.textContent?.trim()).toBe(
+      'Create an account with a password',
+    );
     expect(page.element.querySelector('.impulse-login-different-account')).toBeNull();
+    // The form does not open by itself while another way stands.
     expect(page.component.account()).toBeUndefined();
     page.component.signInThrough(fleetGoogle);
     expect(page.left).toEqual([
       `/console/api/user/google-one/login?returnUrl=${encodeURIComponent('/dashboard')}&login_hint=${encodeURIComponent('ensign@fleet.example')}`,
     ]);
+  });
+
+  it('the account with a password, chosen beside a directory, opens the account form with a Cancel and creates the account from the invitation', async () => {
+    const page = await pageOver(
+      server({
+        methods: { ...mailingList, methods: [password, google, fleetGoogle] },
+        invitationOpen: {
+          status: 200,
+          body: { ...invited, methods: ['google-one'], accountExists: false, hasPassword: false },
+        },
+      }),
+      { invitation: 'tok-1' },
+      { home: '/dashboard' },
+    );
+    page.element.querySelector<HTMLButtonElement>('.impulse-login-create-account')?.click();
+    await page.settle();
+    expect(page.component.account()).toEqual({
+      source: 'invitation',
+      email: 'ensign@fleet.example',
+      usernameIsEmail: false,
+    });
+    expect(page.component.accountOpenedItself()).toBe(false);
+    expect(page.element.querySelector('.impulse-login-cancel')).not.toBeNull();
+    page.transport.requests.length = 0;
+    page.component.accountUsername = 'ensign';
+    page.component.accountPassword = 'orbit-and-anchor';
+    page.component.accountPasswordAgain = 'orbit-and-anchor';
+    await page.component.createAccount();
+    await page.settle();
+    const created = page.transport.requests.find((r) => r.url === invitationRoutes.signUp);
+    expect(created?.body).toEqual({ username: 'ensign', password: 'orbit-and-anchor' });
+    expect(page.signedIn).toEqual(['/dashboard']);
+  });
+
+  it('a person found signed in as another account is not offered a new account: the invitation says whose it is', async () => {
+    const page = await pageOver(
+      server({
+        methods: { ...mailingList, methods: [password, google, fleetGoogle] },
+        arrivesSignedIn: true,
+        invitationOpen: {
+          status: 200,
+          body: { ...invited, methods: ['google-one'], accountExists: false, hasPassword: false },
+        },
+      }),
+      { invitation: 'tok-1' },
+    );
+    expect(page.component.signedInAs()).toBe('overseer');
+    expect(page.element.querySelector('.impulse-login-create-account')).toBeNull();
+    expect(page.component.account()).toBeUndefined();
   });
 
   it('where an account with a password holds the address, offers the password form, saying so, beside the directory button', async () => {
@@ -2414,7 +2501,7 @@ describe('LoginMethodsComponent signs a person up', () => {
     expect(page.element.querySelector<HTMLButtonElement>('button.impulse-login-submit')?.disabled).toBe(true);
   });
 
-  it('entered with ?signUp=, opens the link after the list and renders the account form, which completes the sign-up with the token', async () => {
+  it('entered with #signUp=, opens the link after the list and renders the account form, which completes the sign-up with the token', async () => {
     const page = await pageOver(server({ methods: mailingList }), { signUp: 'tok-s' }, { home: '/dashboard' });
     expect(sent(page.transport)).toEqual([
       'GET /console/api/user/methods',
@@ -2633,7 +2720,7 @@ describe('LoginMethodsComponent confirms an email address', () => {
   const stepsOf = (page: Page): string[] =>
     sent(page.transport).filter((request) => !/permission-digest|user-domains|features/.test(request));
 
-  it('entered with ?verify= signed out, waits for the sign-in, then posts the token, shows the address and emits the page on Continue', async () => {
+  it('entered with #verify= signed out, waits for the sign-in, then posts the token, shows the address and emits the page on Continue', async () => {
     const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' }, { home: '/dashboard' });
     expect(sent(page.transport)).toEqual(['GET /console/api/user/methods', 'GET /console/api/user/session']);
     expect(page.component.landed()).toBeUndefined();
@@ -2664,7 +2751,7 @@ describe('LoginMethodsComponent confirms an email address', () => {
     expect(page.component.landed()).toBeUndefined();
   });
 
-  it('entered with ?verify= signed in, posts the token at once', async () => {
+  it('entered with #verify= signed in, posts the token at once', async () => {
     const page = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { verify: 'tok-v' });
     expect(stepsOf(page)).toEqual([
       'GET /console/api/user/methods',
@@ -2689,12 +2776,178 @@ describe('LoginMethodsComponent confirms an email address', () => {
     expect(page.signedIn).toEqual(['/']);
   });
 
-  it('a redirect method returns to this page with the token, so the confirmation follows the round trip', async () => {
+  it('a redirect method returns to this page without the token, which waits in the browser: the confirmation follows the round trip and the token is in no address', async () => {
     const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
     page.component.signInThrough(google);
-    expect(page.left).toEqual([
-      `/console/api/user/google/login?returnUrl=${encodeURIComponent('/login?verify=tok-v')}`,
+    expect(page.left).toEqual([`/console/api/user/google/login?returnUrl=${encodeURIComponent('/login')}`]);
+    expect(page.left.join(' ')).not.toContain('tok-v');
+    expect(sessionStorage.getItem('impulse.login.verify')).toBe('tok-v');
+
+    // The provider sends the browser back to the page, signed in, with nothing in the address.
+    TestBed.resetTestingModule();
+    const back = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }));
+    expect(back.transport.requests.find((r) => r.url === emailRoutes.verify)?.body).toEqual({ token: 'tok-v' });
+    expect(back.component.verified()).toBe('pax@fleet.example');
+    // The token is taken once: nothing is left for a later page of the tab.
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a token kept for a round trip that never came back is dropped when this page posts it: no copy waits for a later page of the tab', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
+    page.component.signInThrough(google);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBe('tok-v');
+    // The person comes back to this same page (the browser restores it) and signs in with a password.
+    page.component.username = 'pax';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.transport.requests.find((r) => r.url === emailRoutes.verify)?.body).toEqual({ token: 'tok-v' });
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a kept token is taken back on arrival even where the page was opened with a link of its own, so the older one is never posted later', async () => {
+    sessionStorage.setItem('impulse.login.verify', 'tok-old');
+    const page = await pageOver(server({ methods: mailingList, arrivesSignedIn: true }), { verify: 'tok-new' });
+    expect(page.transport.requests.filter((r) => r.url === emailRoutes.verify).map((r) => r.body)).toEqual([
+      { token: 'tok-new' },
     ]);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a kept token is taken back on arrival with a link of its own before anything is posted, so a page the person leaves holds none for later', async () => {
+    sessionStorage.setItem('impulse.login.verify', 'tok-old');
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-new' });
+    expect(page.transport.requests.filter((r) => r.url === emailRoutes.verify)).toEqual([]);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+
+  it('a browser that refuses the storage keeps nothing, and the method still returns to this page without the token', async () => {
+    const page = await pageOver(server({ methods: mailingList }), { verify: 'tok-v' });
+    const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    try {
+      page.component.signInThrough(google);
+    } finally {
+      refuse.mockRestore();
+    }
+    expect(page.left).toEqual([`/console/api/user/google/login?returnUrl=${encodeURIComponent('/login')}`]);
+    expect(sessionStorage.getItem('impulse.login.verify')).toBeNull();
+  });
+});
+
+describe('LoginMethodsComponent takes a mailed link out of the address', () => {
+  /** A server that opens and completes a mailed reset link and offers no "Forgot your password?". */
+  const administratorOnly: LoginMethods = {
+    ...mailingList,
+    passwordReset: { open: resetRoutes.open, complete: resetRoutes.complete },
+  };
+
+  it('reads each kind of link from the fragment, clears the address before its first request, and posts the token in a body, never in a request line', async () => {
+    const opens: Record<string, { server: Parameters<typeof server>[0]; posted: string | undefined }> = {
+      invitation: { server: { methods: mailingList }, posted: invitationRoutes.open },
+      signUp: { server: { methods: mailingList }, posted: signUpRoutes.open },
+      reset: { server: { methods: administratorOnly }, posted: resetRoutes.open },
+      // Nothing is posted on arrival for an address an administrator set: the page asks first.
+      address: { server: { methods: administratorOnly }, posted: undefined },
+      verify: { server: { methods: mailingList, arrivesSignedIn: true }, posted: emailRoutes.verify },
+    };
+    expect(Object.keys(opens)).toEqual([...MAILED_LINK_KINDS]);
+    for (const [kind, opened] of Object.entries(opens)) {
+      TestBed.resetTestingModule();
+      droppedBefore.length = 0;
+      const page = await pageOver(server(opened.server), { [kind]: 'tok-9' });
+      expect([kind, page.dropped, droppedBefore]).toEqual([kind, 1, [0]]);
+      for (const request of page.transport.requests) {
+        expect([kind, request.url.includes('tok-9')]).toEqual([kind, false]);
+      }
+      if (opened.posted !== undefined) {
+        expect([kind, page.transport.requests.find((r) => r.url === opened.posted)?.body]).toEqual([
+          kind,
+          { token: 'tok-9' },
+        ]);
+      }
+    }
+  });
+
+  it('an address that carries no link is left alone', async () => {
+    const page = await pageOver(server(), { code: 'identity_rejected', returnUrl: '/missions' });
+    expect(page.dropped).toBe(0);
+  });
+
+  it('never posts a link in the form that carried its token in the query: the address is cleared, and the card says the link is dead, over the list', async () => {
+    for (const kind of MAILED_LINK_KINDS) {
+      TestBed.resetTestingModule();
+      const page = await pageOver(
+        server({ methods: mailingList, arrivesSignedIn: kind === 'verify' }),
+        { [kind]: 'tok-old' },
+        {},
+        true,
+      );
+      expect([kind, page.dropped]).toEqual([kind, 1]);
+      expect([kind, sent(page.transport)]).toEqual([kind, ['GET /console/api/user/methods']]);
+      for (const request of page.transport.requests) {
+        expect(JSON.stringify(request.body ?? null)).not.toContain('tok-old');
+      }
+      expect([kind, messageOf(page)]).toEqual([kind, LINK_DEAD]);
+      expect(page.component.invitation()).toBeUndefined();
+      expect(page.component.confirming()).toBeUndefined();
+      expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+    }
+  });
+
+  /** The page as the router opens it at url, over a route of its own: the address is the router's, and nothing of the page is stubbed. */
+  async function opened(url: string): Promise<{ router: Router; transport: ScriptedTransport }> {
+    const transport = transportOf(server({ methods: administratorOnly }));
+    await TestBed.configureTestingModule({
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/console/api', transport: t }),
+        }),
+        provideRouter([{ path: 'login', component: LoginMethodsComponent }]),
+      ],
+    }).compileComponents();
+    const harness = await RouterTestingHarness.create(url);
+    harness.detectChanges();
+    await TestBed.inject(ApplicationRef).whenStable();
+    harness.detectChanges();
+    return { router: TestBed.inject(Router), transport };
+  }
+
+  it('over a real router, leaves the address with no token and no fragment, keeps the rest of it, and posts the token in a body', async () => {
+    const page = await opened('/login?returnUrl=%2Fhome#reset=tok-9');
+    expect(page.router.url).toBe('/login?returnUrl=%2Fhome');
+    expect(page.transport.requests.find((r) => r.url === resetRoutes.open)?.body).toEqual({ token: 'tok-9' });
+    for (const request of page.transport.requests) {
+      expect(request.url).not.toContain('tok-9');
+    }
+  });
+
+  it('over a real router, takes a token in the old form out of the address too, and sends it nowhere', async () => {
+    const page = await opened('/login?reset=tok-old&returnUrl=%2Fhome');
+    expect(page.router.url).toBe('/login?returnUrl=%2Fhome');
+    for (const request of page.transport.requests) {
+      expect(JSON.stringify([request.url, request.body ?? null])).not.toContain('tok-old');
+    }
+  });
+
+  it('Try again, after reads that failed, opens the link read on arrival: the address no longer carries it', async () => {
+    let down = true;
+    const answering = transportOf(server({ methods: mailingList }));
+    const transport = scriptedTransport((request: TransportRequest) =>
+      down ? { status: 502, body: undefined } : answering(request),
+    );
+    const page = await mount(transport, { invitation: 'tok-1' });
+    await page.settle();
+    expect(page.component.unreachable()).toBe(true);
+    expect(page.dropped).toBe(1);
+    down = false;
+    page.component.retry();
+    await page.settle();
+    expect(page.dropped).toBe(1);
+    expect(page.transport.requests.find((r) => r.url === invitationRoutes.open)?.body).toEqual({ token: 'tok-1' });
+    expect(page.component.invitation()?.email).toBe('ensign@fleet.example');
   });
 });
 
@@ -2859,7 +3112,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
   const heldBack = (page: Page): boolean =>
     page.element.querySelector('mat-progress-bar') === null && (page.element.textContent?.trim() ?? '') === '';
 
-  it('with ?verify=, the password form is not in the DOM before the session read answers; nothing renders', async () => {
+  it('with #verify=, the password form is not in the DOM before the session read answers; nothing renders', async () => {
     const held = holdingSession(server({ methods: mailingList }));
     const page = await mount(held.transport, { verify: 'tok-v' });
     page.fixture.detectChanges();
@@ -2881,7 +3134,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.component.arriving()).toBe(false);
   });
 
-  it('with ?verify=, a session read that finds nobody signed in ends the hold and shows the form, which still waits for the sign-in', async () => {
+  it('with #verify=, a session read that finds nobody signed in ends the hold and shows the form, which still waits for the sign-in', async () => {
     const held = holdingSession(server({ methods: mailingList }));
     const page = await mount(held.transport, { verify: 'tok-v' }, { home: '/dashboard' });
     await arrivedAt(held, page);
@@ -2902,7 +3155,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.component.landed()).toEqual({ url: '/dashboard', load: false });
   });
 
-  it('with ?verify=, a session read that finds the person signed in moves straight on to the confirmation, with no form in between', async () => {
+  it('with #verify=, a session read that finds the person signed in moves straight on to the confirmation, with no form in between', async () => {
     const held = holdingSession(server({ methods: mailingList, arrivesSignedIn: true }));
     const page = await mount(held.transport, { verify: 'tok-v' }, { home: '/dashboard' });
     const forms = formsAdded(page);
@@ -2923,7 +3176,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(sent(page.transport)).toContain(`POST ${emailRoutes.verify}`);
   });
 
-  it('with ?invitation=, nothing renders until the invitation and the session are read, then the note and the form show', async () => {
+  it('with #invitation=, nothing renders until the invitation and the session are read, then the note and the form show', async () => {
     const held = holdingSession(server({ methods: mailingList }));
     const page = await mount(held.transport, { invitation: 'tok-1' });
     await arrivedAt(held, page);
@@ -2935,7 +3188,7 @@ describe("LoginMethodsComponent holds the list back while the arrival's reads an
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
   });
 
-  it('with ?invitation=, a person found signed in is offered the acceptance once the reads answer, with no form shown before', async () => {
+  it('with #invitation=, a person found signed in is offered the acceptance once the reads answer, with no form shown before', async () => {
     const held = holdingSession(server({ methods: mailingList, arrivesSignedIn: true }));
     const page = await mount(held.transport, { invitation: 'tok-1' });
     const forms = formsAdded(page);

@@ -231,6 +231,12 @@
               ]
             },
             {
+              "resource": "StaffGivableRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
               "resource": "StaffRoleGrants",
               "fields": [
                 "updatedAt"

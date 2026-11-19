@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -62,6 +63,14 @@ type signInAttempt struct {
 	// fromPending reports a completion of the browser's pending identity, consumed
 	// before the sign-in; only its cookie remains, to delete or replace.
 	fromPending bool
+	// codeEmail is the address the code this sign-in entered was mailed to, "" for a
+	// sign-in that entered none: what an invitation's acceptance rests on where the
+	// identity asserts no address (sessioninfo.Invitation.AddressProven).
+	codeEmail string
+	// acceptsInvitation reports a completion of the wait of an invitation's acceptance
+	// (signinflow's invitedCodeWait): the code it entered was mailed for the invitation,
+	// so the sign-in is that invitation's acceptance or it is nothing.
+	acceptsInvitation bool
 }
 
 // signInOutcome is a sign-in's result: a session, or a pending identity.
@@ -121,6 +130,18 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	inv, err := a.invitationOf(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if inv == nil && at.acceptsInvitation {
+		// The code was mailed for an invitation that no longer stands (used, withdrawn or
+		// run out since the wait began). It proves nothing else: not the address of an
+		// account the sign-in would otherwise make or find, and no second factor of
+		// one. Nothing is resolved or written.
+		return nil, signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used")
+	}
+	if inv != nil {
+		// The code the person entered was mailed to the invited address, or it proves
+		// nothing about the invitation.
+		inv.AddressProven = at.codeEmail != "" && strings.EqualFold(strings.TrimSpace(at.codeEmail), strings.TrimSpace(inv.Email))
 	}
 	req.Invitation = inv
 

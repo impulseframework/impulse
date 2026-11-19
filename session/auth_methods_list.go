@@ -204,8 +204,9 @@ type standingInvitationAnswer struct {
 	DirectoryOnly   bool      `json:"directoryOnly"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	UsernameIsEmail bool      `json:"usernameIsEmail"`
-	// Methods are the names of the listed external registrations that could admit the
-	// invitation's address, empty when none could.
+	// Methods are the names of the listed external registrations through which the
+	// invitation can be accepted for its address (invitedAccount), empty when there is
+	// none.
 	Methods []string `json:"methods"`
 	// AccountExists says an account already holds the invited address, and HasPassword
 	// that it signs in with a password: the page offers that account's password form,
@@ -367,7 +368,7 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 		return nil, nil
 	}
 
-	exists, hasPassword, err := a.invitedAccount(ctx, inv.Email)
+	invited, err := a.invitedAccount(ctx, inv.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -376,8 +377,8 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 
 	return &standingInvitationAnswer{
 		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.invitedTenantName(inv.TenantID, inv.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
-		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
-		AccountExists: exists, HasPassword: hasPassword,
+		ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: invited.methods,
+		AccountExists: invited.exists, HasPassword: invited.hasPassword,
 	}, nil
 }
 

@@ -438,8 +438,8 @@ func TestExecute(t *testing.T) {
 			})
 			code := execute(t.Context(), tt.args, &stdout, &stderr)
 			for where, wrote := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String(), "the log": logged.String()} {
-				if strings.Contains(wrote, "invitation=") || strings.Contains(wrote, "/login?") {
-					t.Errorf("%s holds an invitation's link, which is for the mailed message alone:\n%s", where, wrote)
+				if strings.Contains(wrote, "invitation=") || strings.Contains(wrote, "/login#") || strings.Contains(wrote, "/login?") {
+					t.Errorf("%s holds an invitation's link, which is for the mailed message alone (%d bytes written, not printed here: the link is among them)", where, len(wrote))
 				}
 			}
 			if code != tt.wantCode {

@@ -120,6 +120,8 @@ type GeneratedHandlers interface {
 
 	SetStaffUserName() http.HandlerFunc
 
+	StaffGivableRoles() http.HandlerFunc
+
 	StaffGroups() http.HandlerFunc
 	StaffGroup() http.HandlerFunc
 
@@ -268,6 +270,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
 
 	asked.Post("/api/set-staff-user-name", h.SetStaffUserName())
+
+	staffGivableRolesHandler := h.StaffGivableRoles()
+	bounded.Get("/api/staff-givable-roles", staffGivableRolesHandler)
+	bounded.Post("/api/staff-givable-roles", staffGivableRolesHandler)
 
 	staffGroupsHandler := h.StaffGroups()
 	bounded.Get("/api/staff-groups", staffGroupsHandler)

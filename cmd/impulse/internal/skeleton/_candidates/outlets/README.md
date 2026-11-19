@@ -250,11 +250,12 @@ generated router test proves the route sits behind the token check.
   link. The members administrator opens the link and signs in through the directory: the
   tenants here have directories, where a stranger is admitted by an invitation or by a
   tenant's directory alone, and the first administrator belongs to no tenant, so the
-  invitation is what ties the sign-in to the roles, and the address the directory gives
-  must be the invited one. As the session library stands, the Microsoft method asks the
-  directory for no address, so that sign-in is refused: the members auth has no first
-  administrator yet, and every release goes on asking for its address and the mailbox
-  (the session library's README, "The first administrator's invitation"). No account is
+  invitation is what ties the sign-in to the roles. The Microsoft method asks the
+  directory for no address, so the sign-in has none to hold to the invited one: it waits
+  for a sign-in code, which is mailed to the invited address and which nobody types an
+  address for, and entering it accepts the invitation, makes the account with the invited
+  address confirmed and gives it the roles (the session library's README, "The first
+  administrator's invitation"). No account is
   made ahead of either person and no password is generated. A release leaves an invitation that stands as it is, mails a new one once
   it has run out (seven days), and withdraws one for an address the placement no longer
   names; the migrate command's `-reinvite-administrator <auth>` (`staff` or `members`) withdraws the

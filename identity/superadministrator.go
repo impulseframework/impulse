@@ -28,10 +28,11 @@ import (
 //     account, which removes a super administrator in effect, and enabling one, which
 //     makes one;
 //   - only a super administrator changes how another signs in: a password set for a
-//     holder or taken from them, a change of password required of them, a new username,
-//     a new address (where the code of their second factor is mailed) and the unlinking
-//     of an identity each take a caller who holds the role, since each is a way to
-//     become that person or to shut them out (requireSuperAdministratorFor);
+//     holder or taken from them, a link mailed to them that resets it, a change of
+//     password required of them, a new username, a new address (where the code of their
+//     second factor is mailed) and the unlinking of an identity each take a caller who
+//     holds the role, since each is a way to become that person or to shut them out
+//     (requireSuperAdministratorFor);
 //   - giving the role ends nothing: the sessions the person holds, their bearer tokens
 //     and the browsers remembered for them stand, since a person who is signed in when
 //     the role is given is no risk for being signed in. What the role guards is the

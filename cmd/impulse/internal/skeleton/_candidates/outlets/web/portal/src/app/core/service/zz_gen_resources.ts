@@ -283,6 +283,13 @@ export interface MembersUserRoles {
   endsAt?: Date;
 }
 
+export interface MembersGivableRoles {
+  name: string;
+  description?: string;
+  domain?: string;
+  everyDomain?: boolean;
+}
+
 export interface MembersTenantRoles {
   name: string;
   description?: string;
@@ -720,6 +727,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersGivableRoles]: {
+    route: 'members-givable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
+    ],
+    searchFields: ['domain'],
+  },
   [Resources.MembersTenantRoles]: {
     route: 'tenants/{tenantID}/members-tenant-roles',
     readDisabled: true,
@@ -792,6 +814,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.MembersTenantUserRoles]: PermissionScopes.domain,
   [Resources.MembersUserGroupRoles]: PermissionScopes.global,
   [Resources.MembersUserRoles]: PermissionScopes.global,
+  [Resources.MembersGivableRoles]: PermissionScopes.global,
   [Resources.MembersTenantRoles]: PermissionScopes.domain,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };

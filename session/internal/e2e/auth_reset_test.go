@@ -136,12 +136,12 @@ func (a *resetApp[Tx]) lastLink(t *testing.T, to, param string) (message mail.Me
 
 	messages := a.mailed()
 	if len(messages) == 0 {
-		t.Fatalf("mailed messages = 0, want a ?%s= link to %s", param, to)
+		t.Fatalf("mailed messages = 0, want a #%s= link to %s", param, to)
 	}
 	last := messages[len(messages)-1]
-	m := regexp.MustCompile(`https://app\.example/login\?` + param + `=([A-Za-z0-9_-]+)`).FindStringSubmatch(last.Text)
+	m := regexp.MustCompile(`https://app\.example/login#` + param + `=([A-Za-z0-9_-]+)`).FindStringSubmatch(last.Text)
 	if last.To != to || m == nil {
-		t.Fatalf("the last message = %+v, want one to %s with a ?%s= link", last, to, param)
+		t.Fatalf("the last message is %q to %s, want one to %s with a #%s= link: a message's text holds its link and is not printed", last.Subject, last.To, to, param)
 	}
 
 	return last, m[1]

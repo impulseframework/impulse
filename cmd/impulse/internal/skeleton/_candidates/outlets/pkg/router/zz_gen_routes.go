@@ -237,6 +237,8 @@ type GeneratedHandlers interface {
 
 	SetStaffUserName() http.HandlerFunc
 
+	StaffGivableRoles() http.HandlerFunc
+
 	StaffGroups() http.HandlerFunc
 	StaffGroup() http.HandlerFunc
 
@@ -501,6 +503,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/set-staff-user-email", h.SetStaffUserEmail())
 
 	asked.Post("/console/api/set-staff-user-name", h.SetStaffUserName())
+
+	staffGivableRolesHandler := h.StaffGivableRoles()
+	bounded.Get("/console/api/staff-givable-roles", staffGivableRolesHandler)
+	bounded.Post("/console/api/staff-givable-roles", staffGivableRolesHandler)
 
 	staffGroupsHandler := h.StaffGroups()
 	bounded.Get("/console/api/staff-groups", staffGroupsHandler)
@@ -806,6 +812,8 @@ type GeneratedPortalHandlers interface {
 
 	InviteMembersUser() http.HandlerFunc
 
+	MembersGivableRoles() http.HandlerFunc
+
 	MembersGroups() http.HandlerFunc
 	MembersGroup() http.HandlerFunc
 
@@ -1014,6 +1022,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	asked.Post("/portal/api/tenants/{tenantID}/invite-members-tenant-user", domainGuard(h.InviteMembersTenantUser()))
 
 	asked.Post("/portal/api/invite-members-user", h.InviteMembersUser())
+
+	membersGivableRolesHandler := h.MembersGivableRoles()
+	bounded.Get("/portal/api/members-givable-roles", membersGivableRolesHandler)
+	bounded.Post("/portal/api/members-givable-roles", membersGivableRolesHandler)
 
 	membersGroupsHandler := h.MembersGroups()
 	bounded.Get("/portal/api/members-groups", membersGroupsHandler)

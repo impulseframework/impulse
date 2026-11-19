@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"regexp"
 	"strings"
@@ -213,12 +214,58 @@ func newMailFixtureWithoutPassword(t *testing.T, ctrl *gomock.Controller) (*auth
 func tokenIn(t *testing.T, body, param string) string {
 	t.Helper()
 
-	m := regexp.MustCompile(`https://harbor\.test/login\?` + param + `=([A-Za-z0-9_-]+)`).FindStringSubmatch(body)
+	m := regexp.MustCompile(`https://harbor\.test/login#` + param + `=([A-Za-z0-9_-]+)`).FindStringSubmatch(body)
 	if m == nil {
-		t.Fatalf("no link with ?%s= in the message:\n%s", param, body)
+		t.Fatalf("no link with #%s= in the message that opens %q: a message's text holds its link and is not printed", param, strings.SplitN(body, "\n", 2)[0])
 	}
 
 	return m[1]
+}
+
+// TestMailSettings_linkTokenInTheFragment holds every kind of mailed link to carrying
+// its token in the URL's fragment and nowhere else. A browser sends a fragment to no
+// server, so a link a person opens writes its token to no request log; a token in the
+// query or the path would be in the first request line the browser sends.
+func TestMailSettings_linkTokenInTheFragment(t *testing.T) {
+	t.Parallel()
+
+	const token = "tok_9-Z"
+	for _, loginURL := range []string{"https://harbor.test/login", "https://harbor.test/login?theme=dark"} {
+		m := &mailSettings{settings: MailSettings{Application: "Harbor", LoginURL: loginURL}}
+		for _, tt := range []struct {
+			kind    string
+			message mail.Message
+		}{
+			{kind: "invitation", message: m.invitationMessage("pat@lakeside.edu", token, time.Hour)},
+			{kind: "verify", message: m.verificationMessage("pat@lakeside.edu", token, time.Hour)},
+			{kind: "signUp", message: m.signUpMessage("pat@lakeside.edu", token, time.Hour)},
+			{kind: "reset", message: m.passwordResetMessage("pat@lakeside.edu", token, time.Hour, AskedByPerson(), "")},
+			{kind: "reset", message: m.passwordResetMessage("pat@lakeside.edu", token, time.Hour, AskedBy{Administrator: true, Tenant: ""}, "Harbor")},
+			{kind: "address", message: m.addressChangeMessage("pat@lakeside.edu", token, time.Hour, "Sam")},
+		} {
+			var links []*url.URL
+			for _, word := range strings.Fields(tt.message.Text) {
+				if link, err := url.Parse(word); err == nil && link.Scheme == "https" {
+					links = append(links, link)
+				}
+			}
+			if len(links) != 1 {
+				t.Errorf("the %s message under %s carries %d links, want one", tt.kind, loginURL, len(links))
+
+				continue
+			}
+			link := links[0]
+			if got, want := link.Fragment, tt.kind+"="+token; got != want {
+				t.Errorf("the %s link's fragment = %q, want %q", tt.kind, got, want)
+			}
+			if strings.Contains(link.RawQuery, token) || strings.Contains(link.Path, token) || link.Query().Has(tt.kind) {
+				t.Errorf("the %s link carries its token outside the fragment (path %q, query %q), want it in the fragment alone: a browser sends the rest to the server", tt.kind, link.Path, link.RawQuery)
+			}
+			if got, want := strings.SplitN(link.String(), "#", 2)[0], loginURL; got != want {
+				t.Errorf("the %s link leads to %q, want the login page %q", tt.kind, got, want)
+			}
+		}
+	}
 }
 
 func TestMailSettings_Messages(t *testing.T) {
@@ -236,7 +283,7 @@ func TestMailSettings_Messages(t *testing.T) {
 			want: mail.Message{To: "pat@lakeside.edu", Subject: "You are invited to Harbor", Text: `You are invited to Harbor.
 
 To accept the invitation, open this link:
-https://harbor.test/login?invitation=tok_1
+https://harbor.test/login#invitation=tok_1
 
 The link is good for 7 days.
 
@@ -253,7 +300,7 @@ Anyone who opens the link can accept the invitation in your place. Don't forward
 			want: mail.Message{To: "pat@lakeside.edu", Subject: "Confirm your email address for Harbor", Text: `You added this address to your Harbor account.
 
 To confirm it, open this link:
-https://harbor.test/login?verify=tok_2
+https://harbor.test/login#verify=tok_2
 
 The link is good for 6 hours.
 
@@ -279,7 +326,7 @@ If you did not try to add this address, ignore this message. Nothing changes.
 			want: mail.Message{To: "new@lakeside.edu", Subject: "Finish creating your Harbor account", Text: `You asked to create a Harbor account with this address.
 
 To finish, open this link and choose your password:
-https://harbor.test/login?signUp=tok_3
+https://harbor.test/login#signUp=tok_3
 
 The link is good for 6 hours.
 
@@ -634,6 +681,7 @@ func TestAuth_Invitation(t *testing.T) {
 	t.Run("where the username is the address, the sign-up takes the invitation's address as the username", authInvitationCase5)
 	t.Run("opening an invitation names the listed registrations that could admit its address, none as an empty list", authInvitationCase6)
 	t.Run("opening an invitation names its tenant by the application's namer, and by nothing for a tenant the namer does not know", authInvitationCase7)
+	t.Run("an invitation names every registration that could admit its address, and for an account with no password that signs in through an identity, only the registrations it signs in through", authInvitationCase8)
 }
 
 // namedTenants is a TenantNamer over a fixed map, as the application's tenant roster is
@@ -781,6 +829,81 @@ func authInvitationCase6(t *testing.T) {
 		}
 		if diff := cmp.Diff(tt.want, decoded(t, rr)["methods"]); diff != "" {
 			t.Errorf("Open() for %s: methods mismatch (-want +got):\n%s", tt.email, diff)
+		}
+	}
+}
+
+// authInvitationCase8 holds the methods an invitation names to what the sign-in rules
+// accept for the invited address. Two registrations could admit pat@lakeside.edu here,
+// Lakeside's Google Workspace and its Entra tenant. Both are named while no account
+// holds the address, for an account with a password (the password confirms a new
+// identity's link) and for an account nobody signs in to yet (its first identity is
+// linked by the invitation). An account with no password that signs in through an
+// identity is linked no identity of another connection, so only the registrations it
+// signs in through are named, and none when its identity is of a registration that does
+// not admit the address. Open() and the methods answer's invitation block say the same.
+func authInvitationCase8(t *testing.T) {
+	t.Parallel()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	for _, w := range []struct{ name, domain string }{{"lakeside", "lakeside.edu"}, {"riverside", "riverside.edu"}} {
+		google.SignIn(f.auth, "google-"+w.name, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + w.name + "/callback", Workspaces: google.Workspace(w.name, w.domain)})
+	}
+	azure.SignIn(f.auth, "lakeside-entra", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/entra/callback"})
+	list := &MethodList{
+		Methods: []AdvertisedMethod{
+			{Name: "google-riverside", Label: "Riverside", Path: "/api/user/google-riverside/login"},
+			{Name: "google-lakeside", Label: "Lakeside", Path: "/api/user/google-lakeside/login"},
+			{Name: "lakeside-entra", Label: "Lakeside staff", Path: "/api/user/lakeside-entra/login"},
+			{Name: "password", Label: "Password", Path: "/api/user/password/login"},
+		},
+		ChangePassword: "/api/user/password",
+		Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+	}
+	f.auth.Methods(list)
+	links.expectAccounts(f)
+	const invited = "pat@lakeside.edu"
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: invited}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	token := tokenIn(t, recorder.Messages()[0].Text, "invitation")
+	cookies := invitationCookies(t, f, links, token)
+
+	both := []any{"google-lakeside", "lakeside-entra"}
+	through := func(method sessioninfo.AuthMethod, connection string) []*sessionstorage.SessionIdentity {
+		return []*sessionstorage.SessionIdentity{{ID: impulse.Must(impulse.NewUUID()), Method: method, Connection: connection, Subject: "subject"}}
+	}
+	for _, tt := range []struct {
+		name     string
+		account  bool
+		password bool
+		links    []*sessionstorage.SessionIdentity
+		want     []any
+	}{
+		{name: "no account holds the address", want: both},
+		{name: "an account with a password that signs in through the Entra tenant", account: true, password: true, links: through(sessioninfo.MethodAzure, tenantLake), want: both},
+		{name: "an account with no password that nobody signs in to yet", account: true, want: both},
+		{name: "an account with no password that signs in through the Entra tenant", account: true, links: through(sessioninfo.MethodAzure, tenantLake), want: []any{"lakeside-entra"}},
+		{name: "an account with no password that signs in through the Workspace", account: true, links: through(sessioninfo.MethodGoogle, "lakeside"), want: []any{"google-lakeside"}},
+		{name: "an account with no password that signs in through another Workspace, which does not admit the address", account: true, links: through(sessioninfo.MethodGoogle, "riverside"), want: []any{}},
+	} {
+		if tt.account {
+			user := &sessionstorage.SessionUser{ID: impulse.Must(impulse.NewUUID()), Username: "pat"}
+			if tt.password {
+				user.PasswordHash = hashed(t, "pw")
+			}
+			links.holds(invited, user)
+			linkIdentities(t, user.ID, tt.links...)
+		}
+		rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: Open() = %d, want 200", tt.name, rr.Code)
+		}
+		if diff := cmp.Diff(tt.want, decoded(t, rr)["methods"]); diff != "" {
+			t.Errorf("%s: Open() methods mismatch (-want +got):\n%s", tt.name, diff)
+		}
+		standing, _ := invitationBlock(t, f, list, cookies)["standing"].(map[string]any)
+		if diff := cmp.Diff(tt.want, standing["methods"]); diff != "" {
+			t.Errorf("%s: the methods answer's standing invitation: methods mismatch (-want +got):\n%s", tt.name, diff)
 		}
 	}
 }

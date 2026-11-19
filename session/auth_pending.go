@@ -301,6 +301,17 @@ func (a *Auth[S, U, Tx]) consumePending(ctx context.Context, p *pendingState) er
 func (a *Auth[S, U, Tx]) completePending(
 	ctx context.Context, w http.ResponseWriter, p *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
 ) (*signInOutcome, error) {
+	at, err := a.pendingAttempt(p, reason, more...)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.signIn(ctx, w, at)
+}
+
+// pendingAttempt is the sign-in that completes the pending identity p for reason, with
+// the events p carried and more.
+func (a *Auth[S, U, Tx]) pendingAttempt(p *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent) (*signInAttempt, error) {
 	identity := p.Identity
 	at := &signInAttempt{
 		identity:              &identity,
@@ -324,7 +335,7 @@ func (a *Auth[S, U, Tx]) completePending(
 		at.userID = p.UserID.UUID
 	}
 
-	return a.signIn(ctx, w, at)
+	return at, nil
 }
 
 // pendingEvents returns the events p carried, with the time p was held, as the database

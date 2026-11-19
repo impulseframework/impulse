@@ -22,8 +22,8 @@ func (h *Handlers) InviteStaffUser() http.HandlerFunc {
 	type request struct {
 		Email  string   `json:"email"`
 		Name   *string  `json:"name"`
-		Roles  []string `json:"roles"`
 		Domain *string  `json:"domain"`
+		Roles  []string `json:"roles"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated

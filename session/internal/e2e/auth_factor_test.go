@@ -698,6 +698,20 @@ func seamEmailCodeLimits[Tx any](ctx context.Context, t *testing.T, a *authApp[T
 	a.seedWithEmail(ctx, t, "pat@lakeside.edu", "pat@lakeside.edu")
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
 
+	// A stranger with an account of their own gives pat's address at the code's step
+	// until the address's mail is at its limit. That count is not the one pat's own
+	// sign-in codes are held to: nothing below is held up by it.
+	a.seed(ctx, t, "mallory")
+	stranger := a.browser(t)
+	stranger.prime(ctx)
+	stranger.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "mallory", "password": seedPassword})
+	for range 5 {
+		stranger.expect(ctx, http.StatusOK, http.MethodPost, "/pending/email", map[string]string{"email": "pat@lakeside.edu"})
+	}
+	if status, body := stranger.do(ctx, http.MethodPost, "/pending/email", map[string]string{"email": "pat@lakeside.edu"}); status != http.StatusTooManyRequests || !strings.Contains(string(body), `"code":"too_many_emails"`) {
+		t.Fatalf("the stranger's sixth request for the address = %d %s, want 429 too_many_emails: the address's mail is not at its limit", status, body)
+	}
+
 	b := a.browser(t)
 	b.prime(ctx)
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "pat@lakeside.edu", "password": seedPassword})

@@ -1004,6 +1004,21 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
+				Name:        "MembersGivableRoles",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "domain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "everyDomain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "name", Column: "Name", Type: "string"},
+				},
+			},
+			{
 				Name:        "MembersGroupMembers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -1404,6 +1419,21 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Target:      "StaffSessionUsers",
+			},
+			{
+				Name:        "StaffGivableRoles",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "domain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "everyDomain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "name", Column: "Name", Type: "string"},
+				},
 			},
 			{
 				Name:        "StaffGroupMembers",

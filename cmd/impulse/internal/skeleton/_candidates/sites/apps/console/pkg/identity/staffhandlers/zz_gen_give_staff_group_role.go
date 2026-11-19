@@ -23,9 +23,9 @@ import (
 func (h *Handlers) GiveStaffGroupRole() http.HandlerFunc {
 	type request struct {
 		GroupID     impulse.UUID `json:"groupId"`
-		Role        string       `json:"role"`
 		Domain      *string      `json:"domain"`
 		EveryDomain bool         `json:"everyDomain"`
+		Role        string       `json:"role"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
 	}

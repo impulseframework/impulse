@@ -22,9 +22,9 @@ import (
 func (h *Handlers) AssignStaffRole() http.HandlerFunc {
 	type request struct {
 		UserID      impulse.UUID `json:"userId"`
-		Role        string       `json:"role"`
 		Domain      *string      `json:"domain"`
 		EveryDomain bool         `json:"everyDomain"`
+		Role        string       `json:"role"`
 		StartsAt    *time.Time   `json:"startsAt"`
 		EndsAt      *time.Time   `json:"endsAt"`
 	}

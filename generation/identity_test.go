@@ -352,6 +352,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/assign_crew_role.go",
 		"crewidentity/client.go",
 		"crewidentity/create_crew_user.go",
+		"crewidentity/crew_givable_roles.go",
 		"crewidentity/crew_sign_in_methods.go",
 		"crewidentity/crew_sign_in_ways.go",
 		"crewidentity/crew_sign_up_roles.go",
@@ -463,9 +464,15 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/store.go":                         {"func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":    {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go": {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
-		"crewidentity/create_crew_user.go":              {"Roles       []string", "Domain      *string", "EveryDomain bool", "client.manager.CreateUser(ctx, txn, account)"},
-		"crewidentity/set_crew_temporary_password.go":   {"// @target(CrewSessionUser)", "client.manager.SetTemporaryPassword(ctx, txn, m.UserID, m.Password)"},
-		"crewidentity/remove_crew_password.go":          {"// @rpc\n// @outlet(default)\n// @answers(204)\ntype RemoveCrewPassword struct {\n\t// @target(CrewSessionUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
+		"crewidentity/create_crew_user.go": {
+			// Where the roles are given is asked before the roles, which are picked from the
+			// roles that exist there that the caller could give.
+			"Domain      *string\n\t\tEveryDomain bool\n\t\t// Roles are the roles the person is given, picked from the roles that exist where",
+			"// @attribute(role)\n\t\t// @enumerate(CrewGivableRoles)\n\t\tRoles []string\n\t}",
+			"client.manager.CreateUser(ctx, txn, account)",
+		},
+		"crewidentity/set_crew_temporary_password.go": {"// @target(CrewSessionUser)", "client.manager.SetTemporaryPassword(ctx, txn, m.UserID, m.Password)"},
+		"crewidentity/remove_crew_password.go":        {"// @rpc\n// @outlet(default)\n// @answers(204)\ntype RemoveCrewPassword struct {\n\t// @target(CrewSessionUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
 		// How a person signs in: a computed list of one person's ways, the password and
 		// the identities that count, read through the identity package's judgment and
 		// named by the words the generator program declares for the auth's sign-ins.
@@ -481,9 +488,13 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewSessionUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
 		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
-		"crewidentity/invite_crew_user.go":                       {"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })"},
-		"crewidentity/withdraw_crew_invitation.go":               {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
-		"crewidentity/disable_crew_user.go":                      {"// @rpc", "// @outlet(default)", "// @target(CrewSessionUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
+		"crewidentity/invite_crew_user.go": {
+			"Domain *string\n\t\t// Roles are the roles the person is given, picked from the roles that exist where",
+			"// @attribute(role)\n\t\t// @enumerate(CrewGivableRoles)\n\t\tRoles []string\n\t}",
+			"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",
+		},
+		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
+		"crewidentity/disable_crew_user.go":        {"// @rpc", "// @outlet(default)", "// @target(CrewSessionUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
 		// An address is asked for and never written: the method takes one, answers how
 		// the mailing went, and hands the manager the callback that tells it.
 		"crewidentity/set_crew_user_email.go": {
@@ -507,7 +518,11 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_session_mail_links.go": {"Name            *string       `spanner:\"Name\"`"},
 		// A role is given to and taken from a person by the id of their account, and given
 		// to nobody an id names no user of.
-		"crewidentity/assign_crew_role.go":                      {"UserID impulse.UUID", "client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period)"},
+		"crewidentity/assign_crew_role.go": {
+			"UserID      impulse.UUID\n\tDomain      *string\n\tEveryDomain bool\n",
+			"// @attribute(role)\n\t// @enumerate(CrewGivableRoles)\n\tRole string `validate:\"required\"`",
+			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period)",
+		},
 		"crewidentity/remove_crew_role.go":                      {"UserID      impulse.UUID", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"internal/crewresources/crew_session_impersonations.go": {"ActorUserID     *impulse.UUID `spanner:\"ActorUserId\"`"},
 		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {", "the Members auth has no password method: user %s holds no password to remove", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities", "func (store) Identities(context.Context, resource.ReadOnlyTransaction, impulse.UUID) ([]identity.Link, error) {\n\treturn nil, nil\n}"},

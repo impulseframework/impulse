@@ -24,6 +24,7 @@ export const Resources = {
   Clients: 'Clients' as Resource,
   Commendations: 'Commendations' as Resource,
   Consignments: 'Consignments' as Resource,
+  CrewGivableRoles: 'CrewGivableRoles' as Resource,
   CrewGroupMembers: 'CrewGroupMembers' as Resource,
   CrewGroupRoles: 'CrewGroupRoles' as Resource,
   CrewGroupUsers: 'CrewGroupUsers' as Resource,
@@ -323,6 +324,21 @@ export namespace Consignments {
     mass: 'Consignments.mass' as Resource,
     releasedAt: 'Consignments.releasedAt' as Resource,
     sectorId: 'Consignments.sectorId' as Resource,
+  };
+}
+
+export namespace CrewGivableRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'CrewGivableRoles.description' as Resource,
+    domain: 'CrewGivableRoles.domain' as Resource,
+    everyDomain: 'CrewGivableRoles.everyDomain' as Resource,
+    name: 'CrewGivableRoles.name' as Resource,
   };
 }
 
@@ -1992,9 +2008,9 @@ export namespace AddCrewSectorGroupMember {
 export namespace AssignCrewRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
-    role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
   };
@@ -2080,9 +2096,9 @@ export namespace CreateCrewUser {
     name: 'name' as FieldName,
     email: 'email' as FieldName,
     password: 'password' as FieldName,
-    roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    roles: 'roles' as FieldName,
   };
 }
 
@@ -2242,9 +2258,9 @@ export namespace FailMission {
 export namespace GiveCrewGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
-    role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
     endsAt: 'endsAt' as FieldName,
   };
@@ -2302,8 +2318,8 @@ export namespace InviteCrewUser {
   export const fieldName = {
     email: 'email' as FieldName,
     name: 'name' as FieldName,
-    roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
+    roles: 'roles' as FieldName,
   };
 }
 

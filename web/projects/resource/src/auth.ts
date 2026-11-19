@@ -1551,6 +1551,59 @@ export class AuthClient {
 }
 
 /**
+ * The kinds of link the server mails, each the name its token travels under in the link:
+ * an invitation, a sign-up, a password reset, an address an administrator asked to
+ * change, and an address a person added.
+ */
+export const MAILED_LINK_KINDS = ['invitation', 'signUp', 'reset', 'address', 'verify'] as const;
+
+/** One kind of mailed link. */
+export type MailedLinkKind = (typeof MAILED_LINK_KINDS)[number];
+
+/** A mailed link as a page was opened with it: its kind, and the token the page posts to the route that uses it. */
+export interface MailedLink {
+  readonly kind: MailedLinkKind;
+  readonly token: string;
+}
+
+/**
+ * What a person reads who opens a link that was used, has expired, or was mailed in the
+ * form that carried its token in the address's query: the server's own sentence for a link
+ * that is dead, word for word.
+ */
+export const LINK_DEAD = 'the link has expired or was already used';
+
+/**
+ * Reads the mailed link a page was opened with. The server writes a link's token in the
+ * URL's fragment (`https://app.example/login#invitation=<token>`), which a browser sends
+ * to no server: the token is in no request line, so in no request log. `fragment` is the
+ * address's fragment, with or without its `#`, and `inQuery` says whether the address's
+ * query carries a parameter of that name.
+ *
+ * The answer is the link, for the page to take out of the address at once and post in the
+ * body of the request that uses it; `'old-form'` for an address that carries a link's
+ * parameter in its query, the form mailed before tokens moved to the fragment, which a page
+ * never posts: it shows `LINK_DEAD`, and the person asks for a new link; or undefined for
+ * an address that carries no link.
+ */
+export function mailedLink(
+  fragment: string | null | undefined,
+  inQuery: (name: string) => boolean,
+): MailedLink | 'old-form' | undefined {
+  if (MAILED_LINK_KINDS.some((kind) => inQuery(kind))) {
+    return 'old-form';
+  }
+  const carried = new URLSearchParams((fragment ?? '').replace(/^#/, ''));
+  for (const kind of MAILED_LINK_KINDS) {
+    const token = carried.get(kind) ?? '';
+    if (token !== '') {
+      return { kind, token };
+    }
+  }
+  return undefined;
+}
+
+/**
  * What a person reads who asks for their own password reset link where the application
  * does not let them: the server's own sentence for the request, word for word.
  */

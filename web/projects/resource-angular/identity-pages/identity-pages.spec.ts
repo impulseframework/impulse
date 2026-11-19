@@ -519,6 +519,33 @@ describe("identityPages, the whole application's side", () => {
     });
   });
 
+  it('asks where a role is to be held and offers the roles that exist there: each dialog that gives one narrows its role picker by the place', () => {
+    const narrowed = (presented: MethodPresentation, field: string): ((values: RecordData) => string) => {
+      const narrow = presented.narrows?.[field];
+      if (!narrow) {
+        throw new Error(`${presented.method} does not narrow ${field}`);
+      }
+      return narrow;
+    };
+    const create = narrowed(presentation(list(people).listMethods, 'CreateCrewUser'), 'roles');
+    const invite = narrowed(presentation(list(people).listMethods, 'InviteCrewUser'), 'roles');
+    const give = narrowed(presentation(list(people).rowMethods, 'AssignCrewRole'), 'role');
+    for (const where of [create, give]) {
+      // One sector's roles where a sector is chosen; else the whole application's, or every
+      // sector's, as "In every sector" says.
+      expect(where({ domain: 'a1111111-1111-4111-8111-111111111111', everyDomain: false })).toBe(
+        'domain:eq:a1111111-1111-4111-8111-111111111111',
+      );
+      expect(where({ domain: '', everyDomain: false })).toBe('everyDomain:eq:false');
+      expect(where({ domain: '', everyDomain: '' })).toBe('everyDomain:eq:false');
+      expect(where({ domain: '', everyDomain: true })).toBe('everyDomain:eq:true');
+    }
+    // An invitation's dialog asks no "In every sector": until a sector is chosen it offers
+    // the whole application's roles alone, so no role is given in every sector unasked.
+    expect(invite({ email: 'pat@lakeside.example', domain: '' })).toBe('everyDomain:eq:false');
+    expect(invite({ domain: 'anvil, east' })).toBe('domain:eq:"anvil, east"');
+  });
+
   it("draws a person's row page from the account's fields, with the roles, the identities and the sessions under it", () => {
     const section = list(people).elements[0] as unknown as {
       label: string;
@@ -553,10 +580,15 @@ describe("identityPages, the whole application's side", () => {
       ['createdAt', 'Given'],
     ]);
     // The sector a role is held in is named: the list reads the sector record's row by the
-    // key the membership carries and shows its name. The words below are what a row says
-    // that names no sector, or whose sector the caller may not read.
+    // key the membership carries and shows its name after the sector's word, since the
+    // heading does not say what the name is a name of. A reader who may not read the
+    // record is shown the name their own list of sectors holds (tenantKey). The words
+    // below are what a row says that names no sector, or whose sector's name the reader
+    // may not read: words a person reads, and never the sector's key.
     const where = roles.listColumns[1] as MultiColumnConfig;
     expect(where.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect(where.tenantKey).toBe(true);
+    expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
     expect(where.filterable).toBe(false);
     expect(roles.listColumns[2].hidden).toBe(true);
     const heldIn = where.fallback as (row: RecordData) => string;
@@ -569,7 +601,7 @@ describe("identityPages, the whole application's side", () => {
       },
       {
         row: { userId: 'u-1', role: 'Cadet', kind: 'domain', domainId: 'a1111111-1111-4111-8111-111111111111' },
-        where: 'Sector a1111111-1111-4111-8111-111111111111',
+        where: 'A sector you cannot see',
         body: { userId: 'u-1', role: 'Cadet', domain: 'a1111111-1111-4111-8111-111111111111', everyDomain: false },
       },
       {
@@ -580,6 +612,7 @@ describe("identityPages, the whole application's side", () => {
     ];
     for (const tt of cases) {
       expect(heldIn(tt.row)).toBe(tt.where);
+      expect(heldIn(tt.row)).not.toContain('a1111111');
       expect(remove.fill?.(tt.row)).toEqual(tt.body);
     }
     // The question names no key: the row the person clicked names the sector, and the
@@ -590,6 +623,29 @@ describe("identityPages, the whole application's side", () => {
       'Take Cadet in this sector away from this person?',
       'Take Marshal in every sector away from this person?',
     ]);
+  });
+
+  it('where the sector record marks no name there is none to read, and a row shows the key after the word', () => {
+    // The key is all such an application has for a sector: nobody is refused a name here.
+    const unnamed = (resource: Resource): ResourceMeta =>
+      resource === 'Sectors' ? { ...metas[resource], nameField: undefined } : metas[resource];
+    const [unnamedPeople] = identityPages({ ...descriptor }, unnamed, { auth: 'Crew', scope: 'global' });
+    const where = children(unnamedPeople)[0].listColumns[1] as { valueGetter?: (row: RecordData) => string };
+    expect(where.valueGetter?.({ kind: 'domain', domainId: 's-1' })).toBe('Sector s-1');
+    expect(where.valueGetter?.({ kind: 'every', domainId: '' })).toBe('Every sector');
+  });
+
+  it("where the outlet serves no sector record there is none to read: a row names the sector from the person's own list of tenants, or says the page's words, and never the key", () => {
+    const unserved = { ...descriptor, identity: [{ ...crew, tenantResource: undefined }] } as ApiDescriptor;
+    const [unservedPeople] = identityPages(unserved, resourceMeta, { auth: 'Crew', scope: 'global' });
+    const where = children(unservedPeople)[0].listColumns[1] as MultiColumnConfig;
+    // No record is read, and the list asks the person's own tenants for the name.
+    expect(where.additionalIds).toEqual([]);
+    expect(where.tenantKey).toBe(true);
+    expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
+    const said = where.fallback as (row: RecordData) => string;
+    expect(said({ kind: 'domain', domainId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
+    expect(said({ kind: 'global', domainId: '' })).toBe('The whole application');
   });
 
   it('offers Withdraw on a mailed link that was not used, End the session on a session, and Unlock on a counted name', () => {
@@ -609,12 +665,14 @@ describe("identityPages, the whole application's side", () => {
       'Expires',
       'Used',
     ]);
-    // The sector a link invites into is named the same way, and shows its key where the sector cannot be read.
+    // The sector a link invites into is named the same way, under a heading that is the
+    // sector's word already, so the name stands alone. Where the reader may not read the
+    // sector's name the cell says so, and never shows the key.
     const into = list(invitations).listColumns[3] as MultiColumnConfig;
     expect(into.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
-    expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe(
-      'a1111111-1111-4111-8111-111111111111',
-    );
+    expect(into.tenantKey).toBe(true);
+    expect(into.said).toBeUndefined();
+    expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
     expect(into.fallback?.({ tenantId: null })).toBe('');
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
@@ -693,6 +751,8 @@ describe("identityPages, a tenant's side", () => {
     const withdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewSectorInvitation');
     expect([withdraw.when?.({ pending: true }), withdraw.when?.({ pending: false })]).toEqual([true, false]);
     expect(methodsOf(list(invitations).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
+    // A tenant's dialogs pick from the tenant's own roles: nothing narrows them.
+    expect(presentation(list(invitations).listMethods, 'InviteCrewSectorUser').narrows).toBeUndefined();
   });
 });
 
@@ -1121,15 +1181,21 @@ describe('identityPages, an Auth that keeps groups', () => {
     ]);
     const kept = groups.listColumns[2] as MultiColumnConfig;
     expect(kept.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect(kept.tenantKey).toBe(true);
+    expect(kept.said?.('Anvil', {})).toBe('Sector Anvil');
     const keptIn = kept.fallback as (row: RecordData) => string;
     expect(keptIn({ kind: 'global', domainId: '' })).toBe('The whole application');
-    expect(keptIn({ kind: 'domain', domainId: 's-1' })).toBe('Sector s-1');
+    expect(keptIn({ kind: 'domain', domainId: 's-1' })).toBe('A sector you cannot see');
     expect(methodsOf(groups.rowMethods)).toEqual([
       ['DescribeCrewGroup', 'Change the description'],
       ['AddCrewGroupMember', 'Add a person'],
       ['GiveCrewGroupRole', 'Give a role'],
       ['DeleteCrewGroup', 'Delete'],
     ]);
+    // A group is given a role where it is to be held, picked from the roles that exist there.
+    expect(
+      presentation(groups.rowMethods, 'GiveCrewGroupRole').narrows?.['role']?.({ domain: '', everyDomain: true }),
+    ).toBe('everyDomain:eq:true');
     expect(methodsOf(groups.listMethods)).toEqual([['CreateCrewGroup', 'Add a group']]);
     expect(presentation(groups.listMethods, 'CreateCrewGroup').labels).toEqual({
       domain: 'Sector',

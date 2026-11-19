@@ -264,6 +264,14 @@
               ]
             },
             {
+              "resource": "StaffGivableRoles",
+              "fields": [
+                "description",
+                "domain",
+                "everyDomain"
+              ]
+            },
+            {
               "resource": "StaffRoleGrants",
               "fields": [
                 "updatedAt"

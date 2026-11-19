@@ -647,21 +647,36 @@ the browser holds none. Each step below
 reads the list again first, like every step that posts, and throws when the list names no
 routes for it.
 
-An invitation (`?invitation=<token>`) brings a person into the application, or into one of its
+Every mailed link carries its token in the URL's fragment (`/login#invitation=<token>`), which a
+browser sends to no server, so the token is in no request line and no request log.
+`mailedLink(fragment, inQuery)` reads the link a page was opened with: its kind (one of
+`MAILED_LINK_KINDS`: `invitation`, `signUp`, `reset`, `address`, `verify`) and its token. A page
+takes the link out of the address at once and hands the token to the call below that posts it, in
+the request's body. For an address that carries a link's parameter in its query, the form an older
+server mailed, the answer is `'old-form'`: the token has been in a request line, so a page never
+posts it and shows `LINK_DEAD`, the server's sentence for a link that has expired or was already
+used.
+
+An invitation (`#invitation=<token>`) brings a person into the application, or into one of its
 tenants, with the roles it carries. `openInvitation(token)` posts the token: the answer
 describes the invitation (`email`; `tenantId` and `tenantName`, the tenant's id and what people
 call it, both empty for the global surface and the name empty where the server names none, so
 the screen names the tenant by its name or not at all; `expiresAt`;
 `signUp`, whether an account with a password may be created here; `usernameIsEmail`;
-`methods`, the registration names of the listed directory methods that could admit the
-address, absent when the server did not say; and `accountExists` and `hasPassword`, whether
+`methods`, the registration names of the listed directory methods through which the
+invitation can be accepted for the address (those that could admit it, and for an account with
+no password that already signs in through a directory, the ones it signs in through alone),
+absent when the server did not say; and `accountExists` and `hasPassword`, whether
 an account already holds the address and signs in with a password, absent when the server did
 not say; and, for an invitation that makes a tenant, `newTenant` and `directoryOnly`, whether
 that tenant is entered through its directory only, both absent for any other invitation), and the browser now carries it, so the sign-in that follows accepts it and the
 server's hook seats the person: a password sign-in or sign-up by whoever holds the link, a
 directory sign-in, or a password sign-in by an account that holds an address, only as the
 invited address (another address is refused with `invitation_address`, the invitation still
-standing; an account with no address accepts by the link). `signInUrl(method, returnUrl, {
+standing; an account with no address accepts by the link). A directory sign-in that asserts
+no address is held for the sign-in code, which the server mails to the invited address: the
+pending step's `emailCode` names it masked and never asks for one (`enrollEmail` is false), and
+`verifyCode` accepts the invitation. `signInUrl(method, returnUrl, {
 loginHint })` names the account the provider should take, which a login page sets to the
 invited address. `acceptInvitation()` accepts it for a person already signed in, under the
 same rule: an account that holds another address resolves `refused` with 403 and the
@@ -675,7 +690,7 @@ acceptance by hand for it with `organization_account_required`: it is accepted t
 organization's directory alone. A directory sign-in of an organization that already has a
 tenant is refused with `organization_has_tenant`, which says nothing more of that tenant.
 
-A sign-up (`?signUp=<token>`), where the password method offers it: `startSignUp(email)` asks
+A sign-up (`#signUp=<token>`), where the password method offers it: `startSignUp(email)` asks
 for the link, answering `sent` whatever the address's state (an address an account already
 holds is pointed at the account by mail, and the screen reveals nothing), or the refusal: not
 an address (400), a mailbox sent five links within fifteen minutes and using none (429 with
@@ -683,7 +698,7 @@ an address (400), a mailbox sent five links within fifteen minutes and using non
 address and `usernameIsEmail` for the form; `completeSignUp(token, { password, username? })`
 creates the account with the address verified and signs the person in.
 
-A password reset (`?reset=<token>`), where the server has a password method and sends mail:
+A password reset (`#reset=<token>`), where the server has a password method and sends mail:
 the list's `passwordReset` names `open` and `complete`, and `request` only while the
 application lets people reset their own password, which an administrator turns on and off in
 the running application. A page offers "Forgot your password?" only while `request` is
@@ -701,12 +716,12 @@ password that changed while the reader was choosing (409, which changes nothing)
 session of the person ends with a reset, this browser's too, and nobody is signed in by it:
 the person signs in with the new password.
 
-An address an administrator set (`?address=<token>`): `confirmEmail(token)` posts the token
+An address an administrator set (`#address=<token>`): `confirmEmail(token)` posts the token
 to the list's `email.confirm`, with or without a session, and answers the address the
 account now holds. A page asks before it posts: a link opened by a program that reads a
 person's mail must confirm nothing.
 
-An address (`?verify=<token>`): `addEmail(email)` asks, for the signed-in person, for a
+An address (`#verify=<token>`): `addEmail(email)` asks, for the signed-in person, for a
 confirmation link, answering `sent` the same way, and nothing is written until
 `verifyEmail(token)` posts the token back, which counts for the account that asked and no
 other: the address lands on the user verified (`verified` with the address), replacing what

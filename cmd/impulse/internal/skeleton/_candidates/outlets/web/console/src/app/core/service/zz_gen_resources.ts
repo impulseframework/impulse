@@ -297,6 +297,13 @@ export interface TenantDirectories {
   defaultSeat?: string;
 }
 
+export interface StaffGivableRoles {
+  name: string;
+  description?: string;
+  domain?: string;
+  everyDomain?: boolean;
+}
+
 export interface StaffInvitedTenants {
   id: string;
   email?: string;
@@ -807,6 +814,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, readOnly: true },
     ],
   },
+  [Resources.StaffGivableRoles]: {
+    route: 'staff-givable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
+    ],
+    searchFields: ['domain'],
+  },
   [Resources.StaffInvitedTenants]: {
     route: 'staff-invited-tenants',
     readDisabled: true,
@@ -965,6 +987,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffUserRoles]: PermissionScopes.global,
   [Resources.Tenants]: PermissionScopes.global,
   [Resources.TenantDirectories]: PermissionScopes.domain,
+  [Resources.StaffGivableRoles]: PermissionScopes.global,
   [Resources.StaffInvitedTenants]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,

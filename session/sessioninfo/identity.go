@@ -242,7 +242,10 @@ type PendingIdentity struct {
 	Identity Identity
 	Reason   PendingReason
 	// UserID and Username name the user the identity waits on. This includes an
-	// user the sign-in has just provisioned.
+	// user the sign-in has just provisioned. They name nobody (a null UserID and an
+	// empty Username) for the one wait that comes before any user: the acceptance of
+	// an invitation through an identity that asserts no address, held for the code
+	// mailed to the invited address.
 	UserID    impulse.NullUUID
 	Username  string
 	ExpiresAt time.Time

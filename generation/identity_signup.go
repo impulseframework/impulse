@@ -14,6 +14,11 @@ import "slices"
 // tenants, the roles a person who signs up may be given, which the default role is
 // picked from. An application writes none of it.
 //
+// The same page carries a second choice, whether a person may ask for a link that
+// resets their own password (Set<Auth>SelfServiceReset), which is the password
+// method's and not sign-up's: every auth that declares the password method has the
+// list and that method, whether or not it carries the choice of who may sign up.
+//
 // In an application with tenants a person who signs up holds no role of the whole
 // application: they create a tenant of their own, through the create-your-tenant route,
 // which one auth serves (the one whose outlets serve the tenant record). That auth
@@ -109,16 +114,18 @@ func (d *identitySourceData) JudgesRoleChanges() bool { return d.judgesRoleChang
 // file, for an instance that keeps groups, whose changes are judged as the role changes
 // they make, for one whose administrator picks the default role of an open method, for
 // one whose tenant's administrator picks the role everyone from the tenant's directory
-// gets (seatsDirectory), and for one whose tenant gives roles by hand, where the list a
-// role is picked from offers the roles the caller could give (picksRoles).
+// gets (seatsDirectory), for one whose tenant gives roles by hand, where the list a
+// role is picked from offers the roles the caller could give (picksRoles), and for every
+// one whose roles the application gives, whose whole application's role fields pick
+// from the roles the caller could give (givableRoleSources).
 func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 	var needs []identityTable
 	switch {
 	case i.keepsGroups():
 		needs = append(append(identityGroupTables(), identityUsers), identityMemberships)
-	case i.picksDefaultRole():
-		needs = []identityTable{identitySignInMethods, identityMemberships}
-	case i.seatsDirectory(), i.picksRoles():
+	case !i.rolesSynced:
+		// Every other reason is an instance whose roles the application gives:
+		// picksDefaultRole, seatsDirectory and picksRoles each hold only there.
 		needs = []identityTable{identityMemberships}
 	default:
 		return nil
@@ -127,22 +134,35 @@ func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 	return []identitySourceFile{{dir: i.methods, name: "grants", template: identityGrantsTemplate, needs: needs}}
 }
 
-// signUpSources are the source files of the sign-up part of an instance's management.
+// signUpSources are the source files of the Sign-in page of an instance's management:
+// the list of the auth's sign-in methods, and what an administrator chooses over it.
+// Two things are chosen there, each where the instance has it to choose. Who may sign
+// up (the method that opens a sign-in method and the one that makes it invite only
+// again, and without tenants the roles a default role is picked from) is chosen by an
+// instance that carries the choice (choosesSignUp). Whether people reset their own
+// password is chosen by every instance that declares the password method, whether or
+// not it carries the other choice: an auth whose people join a tenant somebody else
+// made has passwords to reset like any other. An instance with neither has no page.
 func (r *resourceGenerator) signUpSources(inst *identityInstance) []identitySourceFile {
-	if !inst.choosesSignUp() {
+	chooses := inst.choosesSignUp()
+	if !chooses && !inst.password {
 		return nil
 	}
 	needs := []identityTable{identitySignInMethods}
 	files := []identitySourceFile{
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.auth + signInMethodSuffix)), template: identitySignInMethodListTemplate, needs: needs},
-		{dir: inst.methods, name: fileStem("Open" + inst.auth + "SignUp"), template: identityOpenSignUpTemplate, needs: needs},
-		{dir: inst.methods, name: fileStem("Make" + inst.auth + "InviteOnly"), template: identityMakeInviteOnlyTemplate, needs: needs},
+	}
+	if chooses {
+		files = append(files,
+			identitySourceFile{dir: inst.methods, name: fileStem("Open" + inst.auth + "SignUp"), template: identityOpenSignUpTemplate, needs: needs},
+			identitySourceFile{dir: inst.methods, name: fileStem("Make" + inst.auth + "InviteOnly"), template: identityMakeInviteOnlyTemplate, needs: needs},
+		)
 	}
 	// Only an auth that declares the password method has a password to reset.
 	if inst.password {
 		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "SelfServiceReset"), template: identitySetSelfServiceResetTemplate, needs: needs})
 	}
-	if inst.tenant == nil {
+	if chooses && inst.tenant == nil {
 		files = append(files, identitySourceFile{
 			dir: inst.methods, name: fileStem(r.pluralize(inst.auth + signUpRoleSuffix)), template: identitySignUpRolesTemplate, needs: []identityTable{identitySignInMethods, identityMemberships},
 		})

@@ -33,17 +33,20 @@ type (
 		Name     *string
 		Email    *string
 		Password *string `conditions:"secret"`
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles []string
 		// Domain is the one Tenant the roles are given in, picked from the
 		// Tenant records the caller may list.
 		//
 		// @enumerate(Tenants)
 		Domain      *string
 		EveryDomain bool
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there (StaffGivableRoles). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate(StaffGivableRoles)
+		Roles []string
 	}
 	// CreateStaffUserResult answers the new user's id.
 	CreateStaffUserResult struct {

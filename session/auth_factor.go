@@ -42,10 +42,14 @@ import (
 // gives here when it has none (EnrollEmail), and entering the code writes the address on
 // the account, confirmed. A person who comes through a directory that does not vouch for
 // their address is held for this step at their first sign-in whatever the policy asks
-// (signinflow.addressHold). An administrator's reset (AuthAPI.ResetFactors) forgets the
-// person's trusted devices and tells the person; with the email code there is nothing
-// else to reset, and a lost mailbox is answered by an administrator asking for the
-// address to be changed, which the new address confirms (AuthAPI.RequestAddressChange).
+// (signinflow.addressHold). One wait names no account: an invitation accepted through
+// an identity that asserts no address is held here before anybody is made or linked,
+// its code goes to the invited address and to no other (invitedCodeAddress), and the
+// code counts for that invitation's acceptance alone. An administrator's reset
+// (AuthAPI.ResetFactors) forgets the person's trusted devices and tells the person;
+// with the email code there is nothing else to reset, and a lost mailbox is answered by
+// an administrator asking for the address to be changed, which the new address
+// confirms (AuthAPI.RequestAddressChange).
 // See "The second factor" in the README.
 
 // factorSettings are the settings of the library's second factor.
@@ -154,10 +158,11 @@ func (a *Auth[S, U, Tx]) emailCodeState(ctx context.Context, p *pendingState) (*
 // factorAddress is the address the pending MFA wait's code goes to: the one the account
 // holds, "" when it holds none. It is the account's confirmed address, or, for an
 // account that has confirmed none yet, the address it was created with, which this code
-// confirms.
+// confirms. A wait that names no user is the wait of an invitation's acceptance, whose
+// code goes to the invited address (invitedCodeAddress).
 func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (string, error) {
 	if !p.UserID.Valid {
-		return "", errors.New("a pending MFA wait names its user")
+		return a.invitedCodeAddress(ctx)
 	}
 	user, err := a.storage.User(ctx, p.UserID.UUID)
 	if err != nil {
@@ -168,6 +173,25 @@ func (a *Auth[S, U, Tx]) factorAddress(ctx context.Context, p *pendingState) (st
 	}
 
 	return *user.Email, nil
+}
+
+// invitedCodeAddress is the address the code of a wait that names no user goes to: the
+// address of the invitation the browser carries. Such a wait is the acceptance of an
+// invitation through a directory that asserts no address, held before anybody is made
+// or linked (signinflow's invitedCodeWait): the code is mailed to the invited address
+// and nowhere else, and nobody types an address for it. A browser that no longer
+// carries a live invitation has nothing to wait for, and is answered as a wait that
+// ran out is.
+func (a *Auth[S, U, Tx]) invitedCodeAddress(ctx context.Context) (string, error) {
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return "", err
+	}
+	if inv == nil {
+		return "", errPendingExpired()
+	}
+
+	return inv.Email, nil
 }
 
 // maskAddress renders an address for a screen that must not spell it out: the first
@@ -225,13 +249,18 @@ func hashEmailCode(pendingID impulse.UUID, code string) []byte {
 }
 
 // sendEmailCode mails a fresh code for p to email and records it, replacing the code
-// standing. The address's mail is limited as a link's is.
-func (a *Auth[S, U, Tx]) sendEmailCode(ctx context.Context, p *pendingState, email string) (*emailCodeAnswer, error) {
+// standing. limit takes the code's place under the count it is held to before anything
+// is mailed: the sign-in codes' own for the address an account holds or an invitation
+// was mailed to (limitCode), and the address's other mail for an address somebody typed
+// (limitMail).
+func (a *Auth[S, U, Tx]) sendEmailCode(
+	ctx context.Context, p *pendingState, email string, limit func(ctx context.Context, email string) error,
+) (*emailCodeAnswer, error) {
 	m, err := a.mailOf()
 	if err != nil {
 		return nil, err
 	}
-	if err := a.limitMail(ctx, email); err != nil {
+	if err := limit(ctx, email); err != nil {
 		return nil, err
 	}
 	code, err := newEmailCode()
@@ -259,7 +288,11 @@ func errNoAddress() error {
 	return httpio.NewConflictMessage("the user holds no email address: give one to send the code to")
 }
 
-// sendCodeToUser mails the pending wait's user the code at the address they hold.
+// sendCodeToUser mails the pending wait's user the code at the address they hold, or,
+// for the wait of an invitation's acceptance, at the invited address (factorAddress).
+// Nobody types that address, and only a person past the account's first step, or the
+// holder of the invitation's link, comes here: the code is held to the sign-in codes'
+// own count (limitCode).
 func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*emailCodeAnswer, error) {
 	email, err := a.factorAddress(ctx, p)
 	if err != nil {
@@ -269,15 +302,22 @@ func (a *Auth[S, U, Tx]) sendCodeToUser(ctx context.Context, p *pendingState) (*
 		return nil, errNoAddress()
 	}
 
-	return a.sendEmailCode(ctx, p, email)
+	return a.sendEmailCode(ctx, p, email, a.limitCode)
 }
 
 // enrollEmail mails the code to the address a user without one gives. An address
-// another account holds is told so by mail, and the screen is answered as sent.
+// another account holds is told so by mail, and the screen is answered as sent. Both
+// are mail somebody asked for by typing an address, and are held to that address's
+// count of such mail (limitMail), never to the count of its own sign-in codes. The
+// wait of an invitation's acceptance takes no address: its code goes to the invited one
+// (invitedCodeAddress), whatever is typed.
 func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email string) (*emailCodeAnswer, error) {
 	m, err := a.mailOf()
 	if err != nil {
 		return nil, err
+	}
+	if !p.UserID.Valid {
+		return nil, httpio.NewConflictMessage("the code that accepts an invitation goes to the invited address: no address is given for it")
 	}
 	bare, err := address(email)
 	if err != nil {
@@ -305,7 +345,7 @@ func (a *Auth[S, U, Tx]) enrollEmail(ctx context.Context, p *pendingState, email
 		return &emailCodeAnswer{CodeEmail: maskAddress(bare), CodeSent: true}, nil
 	}
 
-	return a.sendEmailCode(ctx, p, bare)
+	return a.sendEmailCode(ctx, p, bare, a.limitMail)
 }
 
 // errInvalidCode and errCodeExpired are the refusals of a code that is not the one
@@ -384,22 +424,34 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 	if err != nil {
 		return nil, err
 	}
-	// The code reached the person: the address's mail count is reset.
+	// The code reached the person: the address's counts are reset.
+	a.clearCodeLimit(ctx, email)
 	a.clearMailLimit(ctx, email)
-	if err := a.claimCodeAddress(ctx, p.UserID.UUID, email); err != nil {
-		return nil, err
+	// A wait that names no user is an invitation's acceptance: the sign-in that carries
+	// the code makes or finds the account and writes the address with the acceptance.
+	if p.UserID.Valid {
+		if err := a.claimCodeAddress(ctx, p.UserID.UUID, email); err != nil {
+			return nil, err
+		}
 	}
 	if err := a.consumePending(ctx, p); err != nil {
 		return nil, err
 	}
 
-	outcome, err := a.completePending(ctx, w, p, sessioninfo.ReasonStepUp, sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
+	at, err := a.pendingAttempt(p, sessioninfo.ReasonStepUp, sessioninfo.AuthEvent{Method: sessioninfo.MethodEmailCode})
+	if err != nil {
+		return nil, err
+	}
+	at.codeEmail, at.acceptsInvitation = email, !p.UserID.Valid
+	outcome, err := a.signIn(ctx, w, at)
 	if err != nil {
 		return nil, err
 	}
 	if outcome.pending == nil {
 		// The person proved who they are: the name's failed attempts are reset.
-		a.clearAttempts(ctx, p.Username)
+		if p.Username != "" {
+			a.clearAttempts(ctx, p.Username)
+		}
 		if remember {
 			a.rememberDevice(ctx, w, outcome.userID)
 		}

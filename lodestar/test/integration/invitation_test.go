@@ -27,8 +27,10 @@ const (
 	signUpPassword = "orbit-and-anchor"
 )
 
-// lastMailTo answers the last message the auths sent to the address and the token in
-// its link under the query parameter named (invitation, verify, signUp).
+// lastMailTo answers the last message the auths sent to the address and the token its
+// link carries, in the URL's fragment, under the name given (invitation, verify,
+// signUp). A link that carries anything in its query fails the test: a browser sends the
+// query to the server, and a token there would be written to the request log.
 func lastMailTo(t *testing.T, s *served, to, param string) (message mail.Message, token string) {
 	t.Helper()
 
@@ -42,11 +44,18 @@ func lastMailTo(t *testing.T, s *served, to, param string) (message mail.Message
 			if err != nil || link.Scheme == "" {
 				continue
 			}
-			if token := link.Query().Get(param); token != "" {
+			if link.RawQuery != "" {
+				t.Fatalf("the link in the message %q to %s carries a query, want its token in the fragment alone", messages[i].Subject, to)
+			}
+			carried, err := url.ParseQuery(link.Fragment)
+			if err != nil {
+				continue
+			}
+			if token := carried.Get(param); token != "" {
 				return messages[i], token
 			}
 		}
-		t.Fatalf("the message to %s carries no link with ?%s=: %q", to, param, messages[i].Text)
+		t.Fatalf("the message %q to %s carries no link with #%s=: a message's text holds its link and is not printed", messages[i].Subject, to, param)
 	}
 	t.Fatalf("no message was sent to %s", to)
 

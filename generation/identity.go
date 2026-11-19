@@ -744,6 +744,8 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Remove" + inst.auth + "Role"), template: identityRemoveRoleTemplate, needs: []identityTable{identityMemberships}},
 		)
 	}
+	// The roles those methods' role fields pick from, where the role is to be held.
+	files = append(files, r.givableRoleSources(inst)...)
 	// Who may sign in without an invitation: the list of the auth's sign-in methods and
 	// the two methods that open one to sign-up and make it invite only again.
 	files = append(files, r.signUpSources(inst)...)

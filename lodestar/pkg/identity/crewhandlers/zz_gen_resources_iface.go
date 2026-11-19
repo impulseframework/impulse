@@ -23,7 +23,8 @@ type Resourcer interface {
 		crewresources.CrewSessionSignInMethod | crewresources.CrewSessionToken |
 		crewresources.CrewSessionTrustedDevice | crewresources.CrewSessionUser |
 		crewresources.CrewUserGroupRole | crewresources.CrewUserRole |
-		crewidentity.CrewInvitedSector | crewidentity.CrewSectorDirectoryRole |
-		crewidentity.CrewSectorRole | crewidentity.CrewSectorSignInWay |
-		crewidentity.CrewSignInMethod | crewidentity.CrewSignInWay
+		crewidentity.CrewGivableRole | crewidentity.CrewInvitedSector |
+		crewidentity.CrewSectorDirectoryRole | crewidentity.CrewSectorRole |
+		crewidentity.CrewSectorSignInWay | crewidentity.CrewSignInMethod |
+		crewidentity.CrewSignInWay
 }

@@ -736,6 +736,13 @@ export interface BriefingTemplates {
   layout?: unknown;
 }
 
+export interface CrewGivableRoles {
+  name: string;
+  description?: string;
+  domain?: string;
+  everyDomain?: boolean;
+}
+
 export interface CrewInvitedSectors {
   id: string;
   email?: string;
@@ -1925,6 +1932,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'layout', displayType: 'object', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewGivableRoles]: {
+    route: 'crew-givable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'domain', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: false, isIndex: false, filterable: 'always' },
+    ],
+    searchFields: ['domain'],
+  },
   [Resources.CrewInvitedSectors]: {
     route: 'crew-invited-sectors',
     readDisabled: true,
@@ -2205,6 +2227,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.SquadronRosters]: PermissionScopes.domain,
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
+  [Resources.CrewGivableRoles]: PermissionScopes.global,
   [Resources.CrewInvitedSectors]: PermissionScopes.global,
   [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,

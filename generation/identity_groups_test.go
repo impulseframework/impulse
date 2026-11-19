@@ -121,7 +121,10 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"client.manager.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_group_role.go": {
-			"type GiveCrewGroupRole struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\tRole        string `validate:\"required\"`", "EveryDomain bool",
+			// Where the role is given is asked before the role, which is picked from the
+			// roles that exist there that the caller could give.
+			"type GiveCrewGroupRole struct {\n\t// @target(CrewGroup)\n\tGroupID     impulse.UUID\n\tDomain      *string\n\tEveryDomain bool\n",
+			"// @attribute(role)\n\t// @enumerate(CrewGivableRoles)\n\tRole string `validate:\"required\"`",
 			"client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period)",
 		},
 		// The whole application's method names no row: a role is held in a scope whose
@@ -337,9 +340,13 @@ func Test_prepareIdentity_grants(t *testing.T) {
 			"return settled(gate, \"AssignCrewRole\")",
 			"caller.ExecuteGate(ctx, RemoveCrewRole{}.Method(), &RemoveCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
 			"return settled(gate, \"RemoveCrewRole\")",
-			// No tenant, so no list a role is picked from: the question of one is answered
-			// by the method that gives a role, of nobody.
-			"func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\treturn g.MayGive(ctx, nil, scope, impulse.NilUUID, role)\n}",
+			// The list the whole application's role fields pick from asks each method that
+			// gives a role with the role and where it is held: a role one of them takes from
+			// the caller is listed.
+			"func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\tcaller := resource.CallerFrom(ctx)\n\tdomain, everyDomain := scopeFields(scope)\n\n\treturn couldGiveBy(ctx, caller, []giving{",
+			"{method: AssignCrewRole{}.Method(), request: &AssignCrewRole{Role: string(role), Domain: domain, EveryDomain: everyDomain}},\n\t\t{method: CreateCrewUser{}.Method(), request: &CreateCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain}},\n\t\t" +
+				"{method: InviteCrewUser{}.Method(), request: &InviteCrewUser{Roles: []string{string(role)}, Domain: domain}},\n\t\t{method: GiveCrewGroupRole{}.Method(), request: &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain}},\n\t})",
+			"if may, settled := gate.Settled(); may || !settled {\n\t\t\treturn true, nil\n\t\t}",
 			// A refusal is an answer, and anything else is an error, never a pass.
 			"case httpio.HasForbidden(err), httpio.HasNotFound(err):\n\t\treturn false, nil\n\tdefault:\n\t\treturn false, errors.Wrap(err, \"resource.Caller.ExecuteGate()\")",
 		},
@@ -363,12 +370,16 @@ func Test_prepareIdentity_grants(t *testing.T) {
 			t.Errorf("crewidentity/grants.go holds %q, a tenant's side, and the program declares no tenant:\n%s", line, content)
 		}
 	}
-	if files := identityTreeFiles(t, "pkg/identity"); slices.Contains(files, "membersidentity/grants.go") {
-		t.Errorf("membersidentity/grants.go is written, and the Members auth keeps no groups: %v", files)
+	// The members keep no groups, and the application gives their roles: their package
+	// answers the role file's grants for the list their roles are picked from, and asks
+	// nothing of a group.
+	members := readTreeFile(t, "membersidentity/grants.go")
+	for _, line := range []string{"GroupRole", "EnforceView", "EnforceProposed"} {
+		if strings.Contains(members, line) {
+			t.Errorf("membersidentity/grants.go holds %q, and the Members auth keeps no groups and declares no tenant:\n%s", line, members)
+		}
 	}
-	if client := readTreeFile(t, "membersidentity/client.go"); strings.Contains(client, "WithRoleGrants") {
-		t.Errorf("membersidentity/client.go hands the library role grants, and the Members auth keeps no groups:\n%s", client)
-	}
+	assertFileContains(t, "membersidentity/client.go", []string{"identity.WithRoleGrants(grants{})"}, nil)
 }
 
 // Test_prepareIdentity_grants_tenant pins a tenant's side of the same: a request made
@@ -404,11 +415,10 @@ func Test_prepareIdentity_grants_tenant(t *testing.T) {
 			// picks from it, with the role and nothing else: a refusal is that method's no,
 			// and a grant that admits the role, or leaves the row to decide, is a yes.
 			"func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {",
-			"{method: AssignCrewShipRole{}.Method(), request: &AssignCrewShipRole{Role: string(role)}},\n\t\t\t{method: CreateCrewShipUser{}.Method(), request: &CreateCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t" +
-				"{method: InviteCrewShipUser{}.Method(), request: &InviteCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t{method: GiveCrewShipGroupRole{}.Method(), request: &GiveCrewShipGroupRole{Role: string(role)}},\n\t\t} {",
-			"gate, err := caller.ExecuteGate(ctx, by.method, by.request)\n\t\t\tif err != nil {",
-			"if _, err := granted(err); err != nil {\n\t\t\t\t\treturn false, err\n\t\t\t\t}\n\n\t\t\t\tcontinue",
-			"if may, settled := gate.Settled(); may || !settled {\n\t\t\t\treturn true, nil\n\t\t\t}\n\t\t}\n\n\t\treturn false, nil\n\t}\n\n\treturn g.MayGive(ctx, nil, scope, impulse.NilUUID, role)",
+			"return couldGiveBy(ctx, caller, []giving{\n\t\t\t{method: AssignCrewShipRole{}.Method(), request: &AssignCrewShipRole{Role: string(role)}},\n\t\t\t{method: CreateCrewShipUser{}.Method(), request: &CreateCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t" +
+				"{method: InviteCrewShipUser{}.Method(), request: &InviteCrewShipUser{Roles: []string{string(role)}}},\n\t\t\t{method: GiveCrewShipGroupRole{}.Method(), request: &GiveCrewShipGroupRole{Role: string(role)}},\n\t\t})\n\t}",
+			"gate, err := caller.ExecuteGate(ctx, method.method, method.request)\n\t\tif err != nil {",
+			"if _, err := granted(err); err != nil {\n\t\t\t\treturn false, err\n\t\t\t}\n\n\t\t\tcontinue",
 		},
 		"crewidentity/store.go": {
 			"func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {",

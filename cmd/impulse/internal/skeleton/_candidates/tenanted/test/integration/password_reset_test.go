@@ -9,7 +9,7 @@ import (
 )
 
 // resetLink finds the token of a password reset link in a message the staff auth mailed.
-var resetLink = regexp.MustCompile(`http://tenanted\.test/login\?reset=([A-Za-z0-9_-]+)`)
+var resetLink = regexp.MustCompile(`http://tenanted\.test/login#reset=([A-Za-z0-9_-]+)`)
 
 // TestPasswordReset_aTenantsAdministratorSendsTheLink proves, on the served stack of an
 // application with tenants, that a tenant's administrator sends a person of the tenant a

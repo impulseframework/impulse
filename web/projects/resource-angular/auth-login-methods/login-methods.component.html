@@ -353,7 +353,7 @@
     </div>
   }
   @if (invitationPaths(); as paths) {
-    @if (!paths.known && paths.create) {
+    @if (paths.create && (!paths.known || !signedInAs())) {
       <button
         mat-stroked-button
         type="button"

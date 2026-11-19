@@ -649,6 +649,21 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffSessionUsers",
 			},
 			{
+				Name:        "StaffGivableRoles",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "domain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "everyDomain", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "name", Column: "Name", Type: "string"},
+				},
+			},
+			{
 				Name:        "StaffGroupMembers",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},

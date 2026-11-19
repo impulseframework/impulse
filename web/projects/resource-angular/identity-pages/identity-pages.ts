@@ -1,5 +1,11 @@
 import { Route } from '@angular/router';
-import { ApiDescriptor, IdentityDescriptor, IdentitySideDescriptor, ScopeKind } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  IdentityDescriptor,
+  IdentitySideDescriptor,
+  quoteFilterValue,
+  ScopeKind,
+} from '@impulseframework/resource';
 import { Page } from '@impulseframework/resource-angular/auth-frame';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
@@ -219,9 +225,14 @@ class SideBuilder {
         listMethods: this.present([
           [
             methods.create,
-            { label: this.tenant ? 'Add a person' : 'Add an account', icon: 'person_add', labels: this.where() },
+            {
+              label: this.tenant ? 'Add a person' : 'Add an account',
+              icon: 'person_add',
+              labels: this.where(),
+              ...this.rolesWhere('roles'),
+            },
           ],
-          [methods.invite, { label: 'Invite', icon: 'send', labels: this.where() }],
+          [methods.invite, { label: 'Invite', icon: 'send', labels: this.where(), ...this.rolesWhere('roles') }],
         ]),
         elements: [
           section({
@@ -287,6 +298,7 @@ class SideBuilder {
               icon: 'badge',
               labels: { ...this.where(), ...periodWords },
               throughDay: periodEnds,
+              ...this.rolesWhere('role'),
             },
           ],
           [
@@ -1025,6 +1037,7 @@ class SideBuilder {
               fill: (row) => ({ userId: row['id'] }),
               labels: { ...this.where(), ...periodWords },
               throughDay: periodEnds,
+              ...this.rolesWhere('role'),
             },
       ],
       // A person has two names: the one people read, and the username they sign in under.
@@ -1128,6 +1141,23 @@ class SideBuilder {
     return { domain: words(this.identity.tenant ?? 'Tenant'), everyDomain: `In every ${this.tenantWord}` };
   }
 
+  /**
+   * How the whole application's dialog that gives a role offers the roles: the dialog
+   * asks where the role is to be held first (the tenant, "In every tenant", or neither
+   * for the whole application), and the role field's picker lists the roles that exist
+   * there that the caller could give (the generated list of the roles to give, filtered
+   * by the place). A dialog of the invitation, which names no "every tenant", lists the
+   * roles of the whole application and of every tenant until a tenant is chosen. A
+   * tenant's own dialogs pick from that tenant's roles, and an application without
+   * tenants holds every role for the whole application: neither narrows.
+   */
+  private rolesWhere(field: 'roles' | 'role'): Pick<MethodPresentation, 'narrows'> {
+    if (this.tenant || !this.identity.tenant) {
+      return {};
+    }
+    return { narrows: { [field]: heldWhere } };
+  }
+
   /** The presentations of the methods the description names; one it does not name presents nothing. */
   private present(
     entries: [method: string | undefined, presentation: Omit<MethodPresentation, 'method'>][],
@@ -1139,8 +1169,10 @@ class SideBuilder {
 
   /**
    * Where a role of the whole application's list is held, or a group of it is kept, in
-   * words, for a row whose tenant could not be named: a role held in one tenant falls
-   * back to the tenant's key, which is all the row carries.
+   * words, for a row that names no tenant, and for one whose tenant has no name to
+   * show (the tenant record marks none): a role held in one tenant then falls back to the
+   * tenant's key, which is all there is. A tenant that has a name the reader may not
+   * read is said by tenantNamed, in words and never by its key.
    */
   private heldIn(row: RecordData): string {
     switch (row['kind']) {
@@ -1171,27 +1203,54 @@ class SideBuilder {
   /**
    * A column over a field that holds a tenant's key, showing the tenant's name: the
    * tenant record's row is read by the keys on the page (the list's related-record
-   * column) and its name field shown. A tenant's key is an id nobody reads. `otherwise`
-   * says what a row shows that names no tenant, or whose tenant could not be read (the
-   * caller holds no List on the record); it is all a row shows where the description
-   * names no tenant record or the record marks no name.
+   * column) and its name field shown; a reader who may not read the record is shown the
+   * name their own list of tenants holds, for a tenant they hold a role in
+   * (`tenantKey`). Under a heading that is not the tenant's word the name follows the
+   * word ("Sector Anvil" under "Held in"), and under the word itself it stands alone. A
+   * tenant's key is an id nobody reads, so a row whose tenant's name the reader may not
+   * read says that in words (tenantUnseen) and never shows the key. Where the outlet's
+   * description names no tenant record there is none to read, and the reader's own list
+   * of tenants and those words are what a row shows. `otherwise` says what a row shows
+   * that names no tenant; it is all a row shows where the record marks no name, since
+   * the key is then all there is.
    */
   private tenantNamed(id: FieldName, header: string, otherwise: (row: RecordData) => string): ColumnConfig {
     const record = this.identity.tenantResource as Resource | undefined;
     const meta = record ? this.resourceMeta(record) : undefined;
     const key = meta?.fields.find((candidate) => candidate.primaryKey)?.fieldName;
-    if (!record || !meta?.nameField || !key) {
+    if (!this.identity.tenant || (record && (!meta?.nameField || !key))) {
+      // An application without tenants has no key to name, and where the tenant record
+      // marks no name the key is all there is to say.
       return { id, header, valueGetter: otherwise, filterable: false };
     }
+    const word = words(this.identity.tenant ?? 'Tenant');
+    const worded = header.trim().toLowerCase() !== word.toLowerCase();
     return multiColumnConfig({
       id,
       header,
-      additionalIds: [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }],
+      // Where the outlet serves no tenant record there is none to read: the person's own
+      // list of tenants names the tenant, or the page's words stand.
+      additionalIds:
+        record && meta?.nameField && key
+          ? [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }]
+          : [],
       concatFn: 'hyphen-concat',
-      fallback: otherwise,
+      tenantKey: true,
+      ...(worded ? { said: (name: string) => `${word} ${name}` } : {}),
+      fallback: (row: RecordData) => (String(row[id] ?? '') === '' ? otherwise(row) : this.tenantUnseen()),
       // The field holds the key: a filter typed over the column would be asked for an id.
       filterable: false,
     });
+  }
+
+  /**
+   * What a cell says of a tenant that has a name the reader may not read, because they
+   * hold no List on the tenant record and no role in the tenant: "A sector you cannot
+   * see".
+   */
+  private tenantUnseen(): string {
+    const one = withArticle(this.tenantWord);
+    return `${one.charAt(0).toUpperCase()}${one.slice(1)} you cannot see`;
   }
 
   /** Whether the resource has the field, by its metadata. */
@@ -1238,6 +1297,23 @@ class SideBuilder {
  * that gives the roles, or by the account rule the registration carries in the
  * application's code. Such a method is neither opened to sign-up nor made invite only.
  */
+/**
+ * The filter the list of the roles to give is asked with for where a role is to be held,
+ * from the dialog's values: one tenant's roles where a tenant is chosen; where none is,
+ * the roles held in every tenant or for the whole application as "In every tenant" says,
+ * and the whole application's alone where the dialog does not ask it (an invitation). A
+ * role the request names with no tenant is held in every tenant when it is a tenant's
+ * kind, so a dialog that does not ask that place never offers one: the person would give
+ * it in every tenant without being told.
+ */
+function heldWhere(values: RecordData): string {
+  const domain = values['domain'];
+  if (typeof domain === 'string' && domain !== '') {
+    return `domain:eq:${quoteFilterValue(domain)}`;
+  }
+  return `everyDomain:eq:${values['everyDomain'] === true}`;
+}
+
 function decidedElsewhere(row: RecordData): boolean {
   return row['directoryGivesRoles'] === true || row['ownRule'] === true;
 }

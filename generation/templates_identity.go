@@ -248,9 +248,10 @@ type (
 	// for one name: a row of {{ .Tables.SignInAttempts }}. Name is what was typed into
 	// the username field, folded as the auth compares names, whether or not a user
 	// holds it; the rows the auth keeps for its own counts are named in capitals, which
-	// no folded name holds: MAIL: and RESET: and the address for the mail and the reset
-	// links an address is sent, FIRST-PASSWORD: and the account for the guesses at the
-	// code of a first password. A name is locked while LockedUntil is ahead.
+	// no folded name holds: MAIL:, CODE: and RESET: and the address for the mail, the
+	// sign-in codes and the reset links an address is sent, FIRST-PASSWORD: and the
+	// account for the guesses at the code of a first password. A name is locked while
+	// LockedUntil is ahead.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -1715,11 +1716,6 @@ type (
 		{{- else if eq .PasswordOnCreate "optional" }}
 		Password    *string ` + "`conditions:\"secret\"`" + `
 		{{- end }}
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles       []string
 		{{- if .TenantPicker }}
 		// Domain is the one {{ .TenantName }} the roles are given in, picked from the
 		// {{ .TenantName }} records the caller may list.
@@ -1728,6 +1724,14 @@ type (
 		{{- end }}
 		Domain      *string
 		EveryDomain bool
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there ({{ .GivablePicker }}). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate({{ .GivablePicker }})
+		Roles       []string
 	}
 	// Create{{ .Auth }}UserResult answers the new user's id.
 	Create{{ .Auth }}UserResult struct {
@@ -2136,11 +2140,6 @@ import (
 // @answers(204)
 type Assign{{ .Auth }}Role struct {
 	UserID      impulse.UUID
-	// Role is the role the person is given. A grant's condition reads it as new.role, so a
-	// role file can limit which roles the grant's holder hands out.
-	//
-	// @attribute(role)
-	Role        string ` + "`validate:\"required\"`" + `
 	{{- if .TenantPicker }}
 	// Domain is the one {{ .TenantName }} the role is given in, picked from the
 	// {{ .TenantName }} records the caller may list.
@@ -2148,7 +2147,15 @@ type Assign{{ .Auth }}Role struct {
 	// @enumerate({{ .TenantPicker }})
 	{{- end }}
 	Domain      *string
-	EveryDomain bool` + identityPeriodFields + `
+	EveryDomain bool
+	// Role is the role the person is given, picked from the roles that exist where it is
+	// given that the caller could give there ({{ .GivablePicker }}). A grant's condition
+	// reads it as new.role, so a role file can limit which roles the grant's holder hands
+	// out.
+	//
+	// @attribute(role)
+	// @enumerate({{ .GivablePicker }})
+	Role        string ` + "`validate:\"required\"`" + identityPeriodFields + `
 }
 
 // Execute buffers the membership into the caller's transaction.
@@ -2374,11 +2381,6 @@ type (
 	Invite{{ .Auth }}User struct {
 		Email  string ` + "`validate:\"required\"`" + `
 		Name   *string
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles  []string
 		{{- if .TenantPicker }}
 		// Domain is the one {{ .TenantName }} the roles are given in, picked from the
 		// {{ .TenantName }} records the caller may list.
@@ -2386,6 +2388,14 @@ type (
 		// @enumerate({{ .TenantPicker }})
 		{{- end }}
 		Domain *string
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there ({{ .GivablePicker }}). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate({{ .GivablePicker }})
+		Roles  []string
 	}
 	// Invite{{ .Auth }}UserResult answers the invitation's id and whether its message
 	// went. Sent is set once the transaction has committed: a caller that runs the

@@ -33,16 +33,19 @@ type (
 	InviteCrewUser struct {
 		Email string `validate:"required"`
 		Name  *string
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles []string
 		// Domain is the one Sector the roles are given in, picked from the
 		// Sector records the caller may list.
 		//
 		// @enumerate(Sectors)
 		Domain *string
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there (CrewGivableRoles). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate(CrewGivableRoles)
+		Roles []string
 	}
 	// InviteCrewUserResult answers the invitation's id and whether its message
 	// went. Sent is set once the transaction has committed: a caller that runs the

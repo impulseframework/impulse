@@ -518,6 +518,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the standard account rule decides an unlinked identity by its sign-in name and by what was chosen for its method: no row is invite only, which refuses a stranger and writes nothing", run: testStandardAccountRules},
 		{name: "a sign-in method's row is written whole at the database's time, replaced by the next write, and listed by name", run: testSignInMethodRows},
 		{name: "a person who comes through a directory that does not vouch for their address is held for the code until the row holds a confirmed address, as the sign-in's transaction reads it", run: testAddressConfirmedFirst},
+		{name: "an address a directory asserts and does not vouch for finds no account, not even one that holds it confirmed and that nobody signs in to yet", run: testUnverifiedClaimFindsNoAccount},
+		{name: "an invitation accepted through a directory that asserts no address waits for the code mailed to the invited address, naming no user and writing nothing, and is accepted in the transaction of the sign-in that carries it", run: testInvitationByCode},
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},

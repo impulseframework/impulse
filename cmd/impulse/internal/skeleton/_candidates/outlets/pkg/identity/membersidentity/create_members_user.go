@@ -27,16 +27,19 @@ type (
 	// @rpc
 	// @outlet(portal)
 	CreateMembersUser struct {
-		Username string `validate:"required"`
-		Name     *string
-		Email    *string
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles       []string
+		Username    string `validate:"required"`
+		Name        *string
+		Email       *string
 		Domain      *string
 		EveryDomain bool
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there (MembersGivableRoles). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate(MembersGivableRoles)
+		Roles []string
 	}
 	// CreateMembersUserResult answers the new user's id.
 	CreateMembersUserResult struct {

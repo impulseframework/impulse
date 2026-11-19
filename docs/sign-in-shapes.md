@@ -244,14 +244,33 @@ names a single provider in a setting, so it serves one organization.
 One thing differs between Google and Microsoft: invitations. An invitation is accepted
 only with the invited email address: the address of the sign-in must be the invited one.
 A Google sign-in carries the person's address. A Microsoft sign-in carries none unless
-the application's registration at Microsoft is set up to send it, and without it an
-invited person who signs in with Microsoft is refused. (A person who is not accepting an
-invitation and signs in with Microsoft confirms their address with a mailed code the first
-time, as described under [In every shape](#in-every-shape).) A person can still accept with a
-password where the auth has the password method. A new person chooses a password from the
-link, and the account is made with the invited address. An account that has no address
-yet accepts by the link alone and takes the invited address. This is described under
-"Invitations" and "The first administrator's invitation" in
+the application's registration at Microsoft is set up to send it. So a person who accepts
+an invitation with Microsoft, or with another provider that sends no address, is stopped
+before the application opens and mailed a code at the invited address. They type no
+address: the code goes to the one that was invited. Entering the code accepts the
+invitation, and a new person's account is made with the invited address, confirmed. The
+first administrator of an auth whose only method is Microsoft accepts the same way.
+
+The code shows that the mailbox is the person's, and nothing more. It makes a new person's
+account, and it confirms the invited address on the account of a person who already signs
+in with that Microsoft account and has no confirmed address yet. It never adds a sign-in
+to an account somebody can already sign in to. Where the invited address belongs to an
+account with a password, the person confirms with the password, and where that account
+has no confirmed address yet they are asked for the code once more after it. Where it belongs to an
+account that signs in through a provider, a different Microsoft account is refused, and
+the person accepts by signing in the way they do. Where the auth sends no mail there is no
+code, and an invited person whose sign-in carries no address is refused. (A person who is
+not accepting an invitation and signs in with Microsoft confirms their address with a
+mailed code the first time, as described under [In every shape](#in-every-shape).)
+
+The page an invitation's link opens offers only the methods the invitation can be accepted
+with. A new person is offered every method that admits the invited address, and, where the
+auth has the password method, the form that chooses a password, beside the other methods:
+the account is then made with the invited address. A person whose account has a password
+is offered the same methods, and confirms with the password. A person whose account has no
+password is offered the methods the account already signs in with. An account that has no
+address yet accepts by the link alone and takes the invited address. This is described
+under "Invitations" and "The first administrator's invitation" in
 [session/README.md](../session/README.md).
 
 The persona method, the sign-in of the test environments, is not part of any shape.
@@ -376,13 +395,13 @@ link mailed to the confirmed address of their account.
 
 - An administrator sends the link from the person's row: the application's administrators
   to any account, a tenant's administrator to a person of the tenant. The message says
-  whose administrator asked.
+  whose administrator asked. A link to a Super Administrator's account is sent only by a
+  Super Administrator: the link changes how the account signs in.
 - A person asks for their own on the login page, under "Forgot your password?", only while
   the application lets them. That is a switch on the auth's Sign-in page, which an
-  administrator turns on and off while the application runs. It starts off. The switch is
-  there where the Sign-in page carries the choice of who may sign up. An auth without that
-  choice (its directory gives the roles, or it has tenants and its people do not create
-  one) has no switch yet, and its people ask an administrator.
+  administrator turns on and off while the application runs. It starts off. Every auth
+  that has the password method has the switch, whether or not its Sign-in page also
+  carries the choice of who may sign up.
 - The login page answers a person's own request the same way whether or not the address
   has an account. An address with no account is mailed nothing.
 - Sending a link changes nothing. The password the account has still signs in, and the
@@ -393,6 +412,10 @@ link mailed to the confirmed address of their account.
 - One address is sent at most five reset links in fifteen minutes, whoever asks. The next
   is refused for fifteen minutes, and an administrator who asked is told why. Sign-in
   codes are counted apart, so reset links never use up a person's codes.
+- The codes mailed to the address an account holds, at a sign-in, are counted by
+  themselves too. Mail that anybody can cause for an address (a sign-up, a change of
+  address, the address a person gives at a first sign-in) has another count, so a stranger
+  who types somebody's address cannot hold up that person's sign-in codes.
 - No link is sent to an account that has no password or no confirmed address. The
   administrator who asked is told so.
 - Turning the switch off stops new requests. A link a person asked for while it was on
@@ -1023,8 +1046,9 @@ impulse add method staff google --slot any-workspace --authority application
   `google`. `--slot any-workspace` registers it as wide as any organization, so every
   tenant's organization can sign in through it. `--authority application` has the
   application give the roles. For Microsoft the line is
-  `impulse add method staff azure --slot any --authority application`, and an invitation
-  is then accepted with Microsoft only where the sign-in carries the person's address, as
+  `impulse add method staff azure --slot any --authority application`, and an invited
+  person whose Microsoft sign-in carries no address then accepts with a code mailed to the
+  invited address, as
   [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
   describes.
 

@@ -1275,55 +1275,76 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // CouldGive reports whether the caller could give the role in the scope by hand, to
 // somebody: the question of the list a role is picked from, asked before anybody is
 // named, with no row to read and so no transaction.
-{{- if .TenantGivings }} For a request made under a
-// tenant, each method of the tenant whose role field picks from the tenant's roles is
-// asked with the role and nothing else:
+{{- if .TenantGivings }}
+//
+// For a request made under a tenant, each method of the tenant whose role field picks
+// from the tenant's roles is asked with the role and nothing else:
 //
 //	{{ .GivingMethods }}
 //
 // The answer is yes where one of them does not refuse the caller the role: its grant
 // admits the role, or what is left of the grant's condition reads the row the method
 // names (a person, a group), so the role could be given to some of them. A role every
-// one of them refuses is one the caller gives nobody. For the whole application the
-// method that gives a role names no row, and its grant answers (MayGive, of nobody).
-{{- else }} The method that gives a role names no row, and its
-// grant answers (MayGive, of nobody).
+// one of them refuses is one the caller gives nobody.
 {{- end }}
+//
+// For a request made for the whole application, each method of the whole application
+// whose role field picks from the roles to give ({{ Pluralize .GivableRole }}) is asked
+// the same way, with the role and where it is held:
+//
+//	{{ .GlobalGivingMethods }}
 func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
-	{{- if .TenantGivings }}
 	caller := resource.CallerFrom(ctx)
+	{{- if .TenantGivings }}
 	if tenant, inTenant := caller.Scope.Domain(); inTenant {
 		// A request made under a tenant gives a role in that tenant alone.
 		if scope != accesstypes.DomainPolicyScope(tenant) {
 			return false, nil
 		}
-		for _, by := range []struct {
-			method  accesstypes.Resource
-			request any
-		}{
+
+		return couldGiveBy(ctx, caller, []giving{
 			{{- range .TenantGivings }}
 			{method: {{ .Method }}{}.Method(), request: &{{ .Method }}{ {{- .Fields -}} }},
 			{{- end }}
-		} {
-			gate, err := caller.ExecuteGate(ctx, by.method, by.request)
-			if err != nil {
-				// A method the caller holds no grant on, or whose grant refuses the
-				// role, is a no of that method, and the next is asked.
-				if _, err := granted(err); err != nil {
-					return false, err
-				}
-
-				continue
-			}
-			if may, settled := gate.Settled(); may || !settled {
-				return true, nil
-			}
-		}
-
-		return false, nil
+		})
 	}
 {{ end }}
-	return g.MayGive(ctx, nil, scope, impulse.NilUUID, role)
+	domain, everyDomain := scopeFields(scope)
+
+	return couldGiveBy(ctx, caller, []giving{
+		{{- range .GlobalGivings }}
+		{method: {{ .Method }}{}.Method(), request: &{{ .Method }}{ {{- .Fields -}} }},
+		{{- end }}
+	})
+}
+
+// giving is one method a role is given by, with a request that names the role.
+type giving struct {
+	method  accesstypes.Resource
+	request any
+}
+
+// couldGiveBy reports whether one of the methods does not refuse the caller its
+// request: its grant admits it, or what is left of the grant's condition reads the row
+// the method names, so the role could be given to some of them.
+func couldGiveBy(ctx context.Context, caller *resource.Caller, by []giving) (bool, error) {
+	for _, method := range by {
+		gate, err := caller.ExecuteGate(ctx, method.method, method.request)
+		if err != nil {
+			// A method the caller holds no grant on, or whose grant refuses the role, is a
+			// no of that method, and the next is asked.
+			if _, err := granted(err); err != nil {
+				return false, err
+			}
+
+			continue
+		}
+		if may, settled := gate.Settled(); may || !settled {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // MayTake reports whether the caller may take the role the person holds in the scope
@@ -1588,11 +1609,6 @@ type Give{{ .Subject }}GroupRole struct {
 	// @enumerate({{ Pluralize .TenantRoleChoice }})
 	Role string ` + "`validate:\"required\"`" + `
 	{{- else }}
-	// Role is the role the group is given. A grant's condition reads it as new.role, so a
-	// role file can limit which roles the grant's holder gives a group.
-	//
-	// @attribute(role)
-	Role string ` + "`validate:\"required\"`" + `
 	{{- if .TenantPicker }}
 	// Domain is the one {{ .TenantName }} the role is given in, picked from the
 	// {{ .TenantName }} records the caller may list.
@@ -1601,6 +1617,16 @@ type Give{{ .Subject }}GroupRole struct {
 	{{- end }}
 	Domain      *string
 	EveryDomain bool
+	// Role is the role the group is given, picked from the roles that exist where it is
+	// given that the caller could give there ({{ .GivablePicker }}). A grant's condition
+	// reads it as new.role, so a role file can limit which roles the grant's holder gives
+	// a group.
+	//
+	// @attribute(role)
+	{{- if .GivablePicker }}
+	// @enumerate({{ .GivablePicker }})
+	{{- end }}
+	Role string ` + "`validate:\"required\"`" + `
 	{{- end }}` + identityPeriodFields + `
 }
 

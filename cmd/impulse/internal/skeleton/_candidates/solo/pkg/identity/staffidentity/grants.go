@@ -47,10 +47,52 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 
 // CouldGive reports whether the caller could give the role in the scope by hand, to
 // somebody: the question of the list a role is picked from, asked before anybody is
-// named, with no row to read and so no transaction. The method that gives a role names no row, and its
-// grant answers (MayGive, of nobody).
+// named, with no row to read and so no transaction.
+//
+// For a request made for the whole application, each method of the whole application
+// whose role field picks from the roles to give (StaffGivableRoles) is asked
+// the same way, with the role and where it is held:
+//
+//	AssignStaffRole, CreateStaffUser, InviteStaffUser, GiveStaffGroupRole
 func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
-	return g.MayGive(ctx, nil, scope, impulse.NilUUID, role)
+	caller := resource.CallerFrom(ctx)
+	domain, everyDomain := scopeFields(scope)
+
+	return couldGiveBy(ctx, caller, []giving{
+		{method: AssignStaffRole{}.Method(), request: &AssignStaffRole{Role: string(role), Domain: domain, EveryDomain: everyDomain}},
+		{method: CreateStaffUser{}.Method(), request: &CreateStaffUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain}},
+		{method: InviteStaffUser{}.Method(), request: &InviteStaffUser{Roles: []string{string(role)}, Domain: domain}},
+		{method: GiveStaffGroupRole{}.Method(), request: &GiveStaffGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain}},
+	})
+}
+
+// giving is one method a role is given by, with a request that names the role.
+type giving struct {
+	method  accesstypes.Resource
+	request any
+}
+
+// couldGiveBy reports whether one of the methods does not refuse the caller its
+// request: its grant admits it, or what is left of the grant's condition reads the row
+// the method names, so the role could be given to some of them.
+func couldGiveBy(ctx context.Context, caller *resource.Caller, by []giving) (bool, error) {
+	for _, method := range by {
+		gate, err := caller.ExecuteGate(ctx, method.method, method.request)
+		if err != nil {
+			// A method the caller holds no grant on, or whose grant refuses the role, is a
+			// no of that method, and the next is asked.
+			if _, err := granted(err); err != nil {
+				return false, err
+			}
+
+			continue
+		}
+		if may, settled := gate.Settled(); may || !settled {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // MayTake reports whether the caller may take the role the person holds in the scope

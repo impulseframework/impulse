@@ -248,7 +248,7 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		a.invitationCookies.Cookie().WritePersistentCookie(w, a.settings.invitationCookie, a.invitationCookies.Domain, true, http.SameSiteLaxMode,
 			time.Until(link.ExpiresAt), cval)
 		methods := a.registered()
-		exists, hasPassword, err := a.invitedAccount(ctx, link.Email)
+		invited, err := a.invitedAccount(ctx, link.Email)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -258,27 +258,71 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(response{
 			Email: link.Email, TenantID: link.TenantID, TenantName: a.invitedTenantName(link.TenantID, link.NewTenant), NewTenant: makes, DirectoryOnly: directoryOnly,
 			ExpiresAt: link.ExpiresAt, SignUp: methods.passwordRegistered() && !directoryOnly, UsernameIsEmail: methods.usernameIsEmail(),
-			Methods: a.admittingMethodNames(link.Email), AccountExists: exists, HasPassword: hasPassword,
+			Methods: invited.methods, AccountExists: invited.exists, HasPassword: invited.hasPassword,
 		})
 	})
 }
 
-// invitedAccount says whether an account already holds the invited address, verified
-// or not, and whether it signs in with a password. What the login page shows the
-// invitee turns on it: the password form for an account with one, the account form
-// where none holds the address, the directory buttons beside either. The link holder
-// may know it, since following the link proved they own the address.
-func (a *Auth[S, U, Tx]) invitedAccount(ctx context.Context, email string) (exists, hasPassword bool, err error) {
+// invitedAccountState is what an invitation's answers say of the invited address: whether an
+// account already holds it, verified or not, whether that account signs in with a
+// password, and the external registrations through which the invitation can be
+// accepted. What the login page shows the invitee turns on it: the password form for an
+// account with one, the account form where none holds the address, and a button for
+// each registration named. The link holder may know it, since following the link proved
+// they own the address.
+type invitedAccountState struct {
+	exists      bool
+	hasPassword bool
+	methods     []string
+}
+
+// invitedAccount answers what holds the address an invitation was mailed to
+// (invitedAccountState) and the registrations that can accept it: those that could admit the
+// address (admittingMethodNames), for an address no account holds, and for an account
+// that has a password or that nobody signs in to yet, since a password confirms a new
+// identity's link and a first identity is linked by the invitation itself. An account
+// with no password that already signs in through an identity is linked no identity of
+// another connection, so only the registrations it signs in through are named
+// (usedMethodNames): the page offers no button whose sign-in the rules would refuse.
+func (a *Auth[S, U, Tx]) invitedAccount(ctx context.Context, email string) (*invitedAccountState, error) {
+	admitting := a.admittingMethodNames(email)
 	user, err := a.storage.UserByEmail(ctx, email)
 	if err != nil {
 		if httpio.HasNotFound(err) {
-			return false, false, nil
+			return &invitedAccountState{exists: false, hasPassword: false, methods: admitting}, nil
 		}
 
-		return false, false, errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
+	}
+	if user.PasswordHash != nil {
+		return &invitedAccountState{exists: true, hasPassword: true, methods: admitting}, nil
+	}
+	links, err := a.storage.IdentitiesByUser(ctx, user.ID)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
+	}
+	if len(links) == 0 {
+		return &invitedAccountState{exists: true, hasPassword: false, methods: admitting}, nil
 	}
 
-	return true, user.PasswordHash != nil, nil
+	return &invitedAccountState{exists: true, hasPassword: false, methods: a.usedMethodNames(admitting, links)}, nil
+}
+
+// usedMethodNames are the names among admitting of the registrations that one of links
+// signs its person in through (signsInThrough), in admitting's order. The list is
+// empty, never nil, when none does.
+func (a *Auth[S, U, Tx]) usedMethodNames(admitting []string, links []*sessionstorage.SessionIdentity) []string {
+	used := []string{}
+	for _, name := range admitting {
+		through := func(link *sessionstorage.SessionIdentity) bool {
+			return slices.Contains(a.signsInThrough(link.Method, link.Connection), name)
+		}
+		if slices.ContainsFunc(links, through) {
+			used = append(used, name)
+		}
+	}
+
+	return used
 }
 
 // liveLink returns the live link of kind that token names, or a NotFound error.

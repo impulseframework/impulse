@@ -315,7 +315,7 @@ func signUpLink(ctx context.Context, t *testing.T, s *served, b *browser, email 
 func mailedToken(t *testing.T, s *served, before int, kind string) string {
 	t.Helper()
 
-	link := regexp.MustCompile(`http://solo\.test/login\?` + kind + `=([A-Za-z0-9_-]+)`)
+	link := regexp.MustCompile(`http://solo\.test/login#` + kind + `=([A-Za-z0-9_-]+)`)
 	for _, m := range s.mail.Messages()[before:] {
 		if match := link.FindStringSubmatch(m.Text); match != nil {
 			return match[1]

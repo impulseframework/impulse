@@ -176,6 +176,11 @@ export interface StaffUserRoles {
   endsAt?: Date;
 }
 
+export interface StaffGivableRoles {
+  name: string;
+  description?: string;
+}
+
 export interface StaffSignInMethods {
   name: string;
   label?: string;
@@ -499,6 +504,18 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffGivableRoles]: {
+    route: 'staff-givable-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffSignInMethods]: {
     route: 'staff-sign-in-methods',
     readDisabled: true,
@@ -589,6 +606,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffSessionUsers]: PermissionScopes.global,
   [Resources.StaffUserGroupRoles]: PermissionScopes.global,
   [Resources.StaffUserRoles]: PermissionScopes.global,
+  [Resources.StaffGivableRoles]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.StaffSignUpRoles]: PermissionScopes.global,

@@ -479,6 +479,14 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "a Microsoft person's first sign-in is held for a mailed code whatever the token and the policy say: nothing is mailed before the person gives an address, no other factor answers the hold, the code confirms the address, and the next sign-in is not held; a Google person, whose address Google vouches for, is never held",
 			run:  seamRulesAddressConfirmedFirst[Tx],
 		},
+		{
+			name: "an invitation accepted through a directory that sends no address waits for the code mailed to the invited address: nobody is made before it, no address is typed, a code mailed for another invitation accepts nothing, and the acceptance makes the account with the invited address confirmed",
+			run:  seamRulesInvitationByCode[Tx],
+		},
+		{
+			name: "the code mailed for an invitation accepts that invitation and proves nothing else: entered once the invitation was withdrawn, through a method open to sign-up, it signs nobody in and makes no account",
+			run:  seamRulesInvitationCodeWithoutItsInvitation[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -530,6 +538,137 @@ func seamRulesAddressConfirmedFirst[Tx any](ctx context.Context, t *testing.T, b
 	if email, verified := g.authenticatedEmail(ctx); email != "sam@lakeside.edu" || !verified {
 		t.Errorf("the Google person's address = %q (confirmed %v), want sam@lakeside.edu confirmed at sign-up", email, verified)
 	}
+}
+
+// seamRulesInvitationByCode is the scenario "an invitation accepted through a directory
+// that sends no address waits for the code mailed to the invited address". Microsoft
+// Entra ID sends a person's address only where the registration is set up to, so such a
+// sign-in has nothing to compare with the invited address: the mailed code is the
+// proof that the person reads the invited mailbox.
+func seamRulesInvitationByCode[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
+	const (
+		invited  = "nell@north.example"
+		signedAs = "nell@lakeside.edu"
+		another  = "omar@north.example"
+	)
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited, Name: "Nell"}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	token := invitationToken(t, a.mail)
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+
+	// Microsoft presents her under her organization's name and sends no address. The
+	// sign-in is held: nobody is made, nothing is mailed until the page asks, and the
+	// invitation stands.
+	claims := azureClaims(azureTenant, "oid-nell", signedAs)
+	delete(claims, "email")
+	mailed := len(a.mail.Messages())
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	a.assertNoRow(ctx, t, b, signedAs)
+	if n := len(a.mail.Messages()) - mailed; n != 0 {
+		t.Errorf("%d message(s) mailed by the held sign-in, want none before the page asks for the code", n)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 {
+		t.Fatalf("standing invitations while the sign-in waits = %d, want the one invitation", len(standing))
+	}
+
+	// The page is told where the code goes, masked, and is asked for no address; one
+	// typed anyway is refused, since the code goes to the invited address alone.
+	status := string(b.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil))
+	if !strings.Contains(status, `"factors":["email-code"]`) || !strings.Contains(status, `"codeEmail":"n•••@north.example"`) || strings.Contains(status, `"enrollEmail":true`) {
+		t.Errorf("pending status = %s, want the email code alone, going to the invited address, with no address asked for", status)
+	}
+	if code, body := b.do(ctx, http.MethodPost, "/pending/email", map[string]string{"email": "mallory@elsewhere.example"}); code != http.StatusConflict || !strings.Contains(string(body), "goes to the invited address") {
+		t.Errorf("an address typed for the code = %d %s, want 409 saying the code goes to the invited address", code, body)
+	}
+	if n := len(a.mail.Messages()) - mailed; n != 0 {
+		t.Errorf("%d message(s) mailed for the address typed, want none", n)
+	}
+
+	// A code mailed for this invitation accepts no other: with another invitation
+	// opened in the browser, her code proves nothing about its address.
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	code := a.lastCode(t, invited)
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: another}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": lastInvitationToken(t, a.mail)}, b.xsrfToken())
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status == http.StatusOK && strings.Contains(string(body), `"mfaIsRequired":false`) {
+		t.Fatalf("her code with another address's invitation in the browser = %d %s, want no sign-in", status, body)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	a.assertNoRow(ctx, t, b, signedAs)
+	if standing := a.standingInvitations(ctx, t); len(standing) != 2 {
+		t.Fatalf("standing invitations after the code met another invitation = %d, want both still standing", len(standing))
+	}
+
+	// With her own invitation in the browser again, a fresh sign-in and its code accept
+	// it: the account is made with the invited address confirmed and the invitation's
+	// name, and she is signed in.
+	b = a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, invited)}); !strings.Contains(string(body), `"mfaIsRequired":false`) {
+		t.Fatalf("code verification = %s, want the sign-in completed", body)
+	}
+	v := signedInAs(ctx, t, b, signedAs)
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
+	if email, verified := b.authenticatedEmail(ctx); email != invited || !verified {
+		t.Errorf("the new account's address = %q (confirmed %v), want the invited address confirmed by the code", email, verified)
+	}
+	if got := b.authenticatedName(ctx); got != "Nell" {
+		t.Errorf("the new account's name = %q, want the invitation's", got)
+	}
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].Email != another {
+		t.Errorf("standing invitations after the acceptance = %+v, want the other address's alone", standing)
+	}
+
+	// Her next sign-in is the directory's alone: the account holds a confirmed address.
+	next := a.browser(t)
+	assertRedirect(t, a.entraRoundTrip(ctx, next, claims), "/home", url.Values{})
+}
+
+// seamRulesInvitationCodeWithoutItsInvitation is the scenario "the code mailed for an
+// invitation accepts that invitation and proves nothing else". The method is open to
+// sign-up, so the person would be given an account with no invitation at all, and
+// would then be held until they confirmed an address of their own. The code they hold
+// was mailed for the invitation: once the invitation is withdrawn it is the proof of
+// no sign-in, so it makes no account and stands for no confirmed address.
+func seamRulesInvitationCodeWithoutItsInvitation[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
+	const (
+		invited  = "pia@north.example"
+		signedAs = "pia@lakeside.edu"
+	)
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: invited}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": invitationToken(t, a.mail)}, b.xsrfToken())
+	claims := azureClaims(azureTenant, "oid-pia", signedAs)
+	delete(claims, "email")
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	code := a.lastCode(t, invited)
+
+	standing := a.standingInvitations(ctx, t)
+	if len(standing) != 1 {
+		t.Fatalf("standing invitations = %d, want the one", len(standing))
+	}
+	if err := a.api.RevokeInvitation(ctx, standing[0].ID); err != nil {
+		t.Fatalf("RevokeInvitation() error = %v", err)
+	}
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/verify", map[string]any{"code": code}); status != http.StatusUnauthorized || !strings.Contains(string(body), `"invitation_expired"`) {
+		t.Errorf("the code entered once its invitation was withdrawn = %d %s, want 401 with invitation_expired", status, body)
+	}
+	a.assertNoRow(ctx, t, b, signedAs)
 }
 
 // seamRulesMembersProvision is the scenario "open to sign-up: a stranger is provisioned".
@@ -803,9 +942,9 @@ func lastInvitationToken(t *testing.T, recorder *mail.Recorder) string {
 func tokenInMessage(t *testing.T, text string) string {
 	t.Helper()
 
-	m := regexp.MustCompile(`https://app\.example/login\?invitation=([A-Za-z0-9_-]+)`).FindStringSubmatch(text)
+	m := regexp.MustCompile(`https://app\.example/login#invitation=([A-Za-z0-9_-]+)`).FindStringSubmatch(text)
 	if m == nil {
-		t.Fatalf("no invitation link in the message:\n%s", text)
+		t.Fatalf("no invitation link in the message that opens %q: a message's text holds its link and is not printed", strings.SplitN(text, "\n", 2)[0])
 	}
 
 	return m[1]

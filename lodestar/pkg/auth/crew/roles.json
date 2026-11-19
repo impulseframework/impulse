@@ -296,6 +296,14 @@
               ]
             },
             {
+              "resource": "CrewGivableRoles",
+              "fields": [
+                "description",
+                "domain",
+                "everyDomain"
+              ]
+            },
+            {
               "resource": "CrewRoleGrants",
               "fields": [
                 "updatedAt"

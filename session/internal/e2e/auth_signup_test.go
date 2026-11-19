@@ -95,9 +95,9 @@ func lastSignUpToken(t *testing.T, recorder *mail.Recorder) string {
 	if len(messages) == 0 {
 		t.Fatal("mailed messages = 0, want a sign-up link")
 	}
-	m := regexp.MustCompile(`https://app\.example/login\?signUp=([A-Za-z0-9_-]+)`).FindStringSubmatch(messages[len(messages)-1].Text)
+	m := regexp.MustCompile(`https://app\.example/login#signUp=([A-Za-z0-9_-]+)`).FindStringSubmatch(messages[len(messages)-1].Text)
 	if m == nil {
-		t.Fatalf("no sign-up link in the message:\n%s", messages[len(messages)-1].Text)
+		t.Fatalf("no sign-up link in the message %q: a message's text holds its link and is not printed", messages[len(messages)-1].Subject)
 	}
 
 	return m[1]

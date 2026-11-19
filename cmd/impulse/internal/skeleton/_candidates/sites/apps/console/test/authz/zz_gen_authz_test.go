@@ -689,6 +689,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "StaffGivableRoles denied",
+			method:       http.MethodGet,
+			target:       "/api/staff-givable-roles",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "StaffGivableRoles granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/api/staff-givable-roles",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "StaffInvitedTenants denied",
 			method:       http.MethodGet,
 			target:       "/api/staff-invited-tenants",

@@ -19,6 +19,6 @@ type Resourcer interface {
 		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
 		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
 		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
-		staffidentity.StaffSignInMethod | staffidentity.StaffSignInWay |
-		staffidentity.StaffSignUpRole
+		staffidentity.StaffGivableRole | staffidentity.StaffSignInMethod |
+		staffidentity.StaffSignInWay | staffidentity.StaffSignUpRole
 }

@@ -24,9 +24,9 @@ func (h *Handlers) CreateStaffUser() http.HandlerFunc {
 		Name        *string  `json:"name"`
 		Email       *string  `json:"email"`
 		Password    *string  `json:"password"`
-		Roles       []string `json:"roles"`
 		Domain      *string  `json:"domain"`
 		EveryDomain bool     `json:"everyDomain"`
+		Roles       []string `json:"roles"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated

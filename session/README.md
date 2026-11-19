@@ -944,8 +944,9 @@ the password method is listed.
   password method is listed; the sign-up block needs the password method listed, and
   is in the answer only while an administrator has the password method open to sign-up,
   read as each request arrives. The page opens a link it was sent to with
-  `?invitation=`, `?verify=` or `?signUp=` by posting the token to the block's `open`
-  (or `verify`) path; see "Invitations", "Users and their email address" and "Sign-up".
+  `#invitation=`, `#verify=` or `#signUp=` by taking the token out of the address and
+  posting it to the block's `open` (or `verify`) path; see "Invitations", "Users and
+  their email address", "Sign-up" and "Mail".
 - `invitation.standing` is the live invitation the browser carries, present when the
   invitation cookie that `open` set still names an invitation that stands: the address
   it was sent to, its tenant (`""` for the application's global surface), when it stops
@@ -1140,7 +1141,12 @@ the person reaches.
    the page offers a new one. An address is sent five codes
    within fifteen minutes that go unused, and the sixth is refused with
    `too_many_emails` and the wait, as a link is; a code that is used resets the count,
-   so a person who signs in with each code sent never meets the limit. A request takes
+   so a person who signs in with each code sent never meets the limit. The codes sent to
+   the address an account holds, and the code that accepts an invitation, are counted by
+   themselves (`CODE:`): the links, and a code asked for an address a person types at
+   this step, are counted together under another key (`MAIL:`), which anybody who knows
+   an address can run up, so nothing a stranger asks for in a person's name holds up the
+   codes that person signs in with. A request takes
    its place under the address's limit before its code is mailed, counted in the
    store's one transaction (`AuthStore.RecordSignInFailure`, `SignInAttempts.Counted`),
    so of codes asked for at once no more than five are mailed; and of codes recorded at
@@ -1488,7 +1494,7 @@ What is refused, and how:
 | A wrong code | 400. The fifth within fifteen minutes ends the code and holds the account's first password for fifteen minutes, whatever codes are asked for meanwhile: 429 with `too_many_attempts`, the wait, and words that say wrong codes were what was held. A guess takes its attempt before it is judged, counted against the account in the store's one transaction, which says whether it was counted (`SignInAttempts.Counted`); a guess that was not, the limit reached already, is answered 429 without being compared with the code, so of guesses entered at once no more than five are ever judged, on both databases (the PostgreSQL driver takes the account's attempts row and its lock in one statement, so a failure recorded while the count is cleared is the first after the clear). The right code gives the attempts back. |
 | A code entered when none stands | 409: none was sent, or the one sent expired, was used, was replaced by a newer one or was ended by wrong codes. |
 | A password shorter than eight characters | 400: the password is held to the rule a sign-up's is. The code still stands. |
-| A sixth code asked for a mailbox that used none of five | 429 with `too_many_emails` and the wait, the limit every code and link shares. |
+| A sixth code asked for a mailbox that used none of five | 429 with `too_many_emails` and the wait, the limit the links share (the codes of a sign-in are counted by themselves). |
 
 A first password ends no session: the person added a way to sign in, and nothing
 they held is in doubt. Where the `Auth` records auth events, the session the person
@@ -1523,7 +1529,7 @@ you a link". There is no second mail.
   account's standing reset links, and an application that writes one in rows of its
   own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
   `PasswordReset().Complete()` takes the new password; the login page reaches both with
-  `?reset=<token>`. The new password is held to the same rule as any other, the old one
+  `#reset=<token>`. The new password is held to the same rule as any other, the old one
   is refused from then on, every session of the person ends, the other reset links of
   the account are withdrawn, and the person signs in with the new password: completing
   a reset starts no session.
@@ -1592,7 +1598,7 @@ How an address gets onto a user:
   new address, good for `MailSettings.LinkTimeout` and once, and the account keeps the
   address it has, where its codes and links still go, until the link is followed. The
   link is followed without a session (`Email().Confirm()`, a public route the login
-  page reaches with `?address=<token>`), since the person may have lost the mailbox
+  page reaches with `#address=<token>`), since the person may have lost the mailbox
   their sign-in code went to. Nothing is mailed to the old address to confirm the
   change; once it is made, the old address is told (a notice with the new address
   masked, and no link). An address another account holds is told so by mail and gets
@@ -1767,7 +1773,7 @@ read the mailbox, and the account takes the address.
   `MailSettings.InvitationTimeout` (seven days). `Invitations(ctx)` lists those that
   stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the
   application's, opaque to the library.
-- **Opening**: the login page, sent to with `?invitation=<token>`, posts the token to
+- **Opening**: the login page, sent to with `#invitation=<token>`, posts the token to
   `Invitation().Open()`, which answers `{"email", "tenantId", "tenantName", "newTenant",
   "directoryOnly", "expiresAt", "signUp", "usernameIsEmail", "methods", "accountExists",
   "hasPassword"}` and sets an encrypted cookie holding the token, so the
@@ -1775,12 +1781,17 @@ read the mailbox, and the account takes the address.
   page then offers the sign-in methods, and, when `signUp` is true (the password method
   is registered, and the invitation is not one accepted with an organization's account
   alone), an account with a password. `methods` names the listed external
-  registrations that could admit the invitation's address, by the names the methods
-  listing advertises them under (`[]` when none could; the password method is never
-  among them), so the page hides the buttons that would refuse the invitee; `accountExists`
-  and `hasPassword` say whether an account already holds the address and signs in with
-  a password, so the page offers that account's password form, and offers to create an
-  account only where none holds the address. `tenantId` is the tenant the invitation
+  registrations the server will accept the invitation through for the invited address,
+  by the names the methods listing advertises them under (`[]` when there is none; the
+  password method is never among them), so the page offers no button that would refuse
+  the invitee. For a new person, for an account that has a password and for an account
+  nobody can sign in to yet, they are the registrations that could admit the address.
+  For an account that has no password and signs in through a provider, they are the
+  registrations that account signs in through and no other: the acceptance never gives
+  such an account a second sign-in. `accountExists` and `hasPassword` say whether an
+  account already holds the address and signs in with a password, so the page offers
+  that account's password form, and offers to create an account, beside the other
+  methods, only where none holds the address. `tenantId` is the tenant the invitation
   seats the person in, and `tenantName` what people call it: the person reading the
   screen is not signed in and can read no tenant record, and a tenant's id says nothing
   to them, so the application hands each Auth its tenant roster
@@ -1797,7 +1808,31 @@ read the mailbox, and the account takes the address.
   compared without regard to case, or the sign-in is refused before anything is read
   or written (`invitation_address`, the login page naming the invited address), the
   invitation standing for the account it was sent to; a password account with no
-  address passes. The acceptance by hand of a person signed in
+  address passes. An external identity that asserts no address (a Microsoft Entra
+  sign-in, unless the registration is set up to send one) has nothing to hold to the
+  invited one, so where the Auth sends mail the sign-in waits for a code instead
+  (`pending=mfa`, the one factor `email-code`): the code is mailed to the invited
+  address, masked on the page, with no address asked for (`Pending().EnrollEmail()`
+  answers 409 there), and the invitation is accepted in the transaction of the sign-in
+  the code completes, the new account made with the invited address verified. The code
+  proves the address and gives no way in to an account somebody can already sign in to.
+  The account that holds the invited address, verified or not (an address an
+  administrator entered is kept for its account), is the one invited: with a password
+  it is held for the password as any link is, without one and signing in through an
+  identity it is refused (`identity_rejected`), and only where nobody signs in to it yet
+  is it linked; no second account is made beside it. A person the identity is already
+  linked to accepts at once where their account holds the invited address verified, and
+  through the code, which then verifies the address onto the account, where it has
+  verified none; an account that holds another verified address, and any account while
+  another one holds the invited address, is refused (`invitation_address`), as is an
+  account under another name on a store whose usernames are the addresses, which could
+  not take the invited one. The code is the proof of that invitation's acceptance and of
+  nothing else: entered once the invitation was used, withdrawn or ran out, it signs
+  nobody in and writes nothing (`invitation_expired`), though the method would have
+  admitted the person without an invitation. Without mail the sign-in is refused as
+  before, and so is one through a registration whose accounts the deployment seeds
+  itself, which is given no code. The
+  acceptance by hand of a person signed in
   (`Invitation().Accept()`) is held the same way, answered 403 with the sentence. Then the
   invitation is consumed, the user takes its address when they hold no verified one,
   and the application's hook grants what it names. Only a sign-in the resolution
@@ -1917,14 +1952,14 @@ it; through a directory the invitation is what ties the sign-in to the roles, wh
 else the directory admits and however many organizations the method is open to, and the
 address the directory gives is held to the invited one, as for every invitation.
 
-As the library stands, an Auth whose only sign-in method asserts no address cannot
-accept the invitation yet. The Microsoft Entra method asks the directory for the
-`openid` and `profile` scopes alone, so its sign-ins carry no address unless the
-registration itself is set up to send one, and a sign-in with no address has nothing to
-hold to the invited one: the invited person is refused there (`invitation_address`),
-nobody becomes that Auth's first administrator, and every release goes on asking for the
-address and the mailbox. An Auth that also has the password method, or a method that
-sends the address (Google), is not affected.
+An Auth whose only sign-in method asserts no address accepts the invitation by a mailed
+code. The Microsoft Entra method asks the directory for the `openid` and `profile` scopes
+alone, so its sign-ins carry no address unless the registration itself is set up to send
+one, and a sign-in with no address has nothing to hold to the invited one: the person
+who opened the link and signed in is held at the code, which goes to the invited address
+and to no other, and entering it makes the account, with the address verified, and gives
+the role (see "Invitations", Accepting). Somebody who has the link and not the mailbox
+gets no further than the code.
 
 The role is what the release asks about, and not whether the Auth has an account. The
 invitation exists so that somebody administers the Auth, and an account that holds
@@ -2004,7 +2039,7 @@ While an administrator has the password method open to sign-up (its row of the s
 methods table; see "Open to sign-up, or invite only"), anyone may create
 an account: the person gives their address to `SignUp().Start()` (`{"email"}`), which
 mails a link standing `MailSettings.LinkTimeout` (a day); the login page, sent to with
-`?signUp=<token>`, posts the token to `SignUp().Open()` for `{"email",
+`#signUp=<token>`, posts the token to `SignUp().Open()` for `{"email",
 "usernameIsEmail"}` and then, with the password the person chose (at least eight
 characters) and the username when the two are apart, to `SignUp().Complete()`, which
 creates the account with the address verified and the method's default role, and signs
@@ -2064,9 +2099,10 @@ the generated user management's unlock method does in a transaction of the
 application's, lifts the lock on every instance within five seconds, since no instance
 trusts what it remembers of a name for longer.
 
-The same table keeps the library's own counts: the mail an address is sent, the reset
-links an address is sent, and the guesses at the code of an account's first password,
-under `MAIL:`, `RESET:` and `FIRST-PASSWORD:` and what each counts. A name is counted
+The same table keeps the library's own counts: the mail an address is sent, the sign-in
+codes an address is sent, the reset links an address is sent, and the guesses at the
+code of an account's first password, under `MAIL:`, `CODE:`, `RESET:` and
+`FIRST-PASSWORD:` and what each counts. A name is counted
 under its case-folded form, which holds no capital, so nothing a person types into the
 username field is ever one of those keys: failing to sign in under the text of one
 counts against a name nobody holds, and closes no address to its mail. A caller that
@@ -2351,7 +2387,14 @@ What the Workspace side needs, once per organization:
 
 The `Auth` is given the sender with `WithMail`, with the application's name and the
 absolute URL of its login page, where every mailed link leads
-(`?invitation=<token>`, `?verify=<token>`, `?signUp=<token>`):
+(`#invitation=<token>`, `#verify=<token>`, `#signUp=<token>`, `#reset=<token>`,
+`#address=<token>`). The token is in the URL's fragment, which a browser sends to no
+server: it is in no request line, so no request log, proxy or `Referer` header holds it.
+The login page reads it there, takes it out of the address at once, and posts it in the
+body of the request that uses it. A link with its token in the query, as links were
+mailed before, is not opened: the page answers what a used link is answered, and the
+person asks for a new one. The login URL itself carries no fragment (NewAuth refuses
+one).
 
 ```go
 auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, superAdministrators,
@@ -2785,7 +2828,7 @@ table is the wire contract:
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
-| `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it asserts (the directory's, or the account's own); refused before anything is read or written, the invitation left standing. An account that holds no address accepts by the link. The login page names the invited address and asks for a sign-in with that account. |
+| `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it asserts (the directory's, or the account's own); refused before anything is read or written, the invitation left standing. A sign-in through an identity that asserts no address, which accepts by a mailed code, is refused with it once the accounts are read and before anything is written: the account it is linked to, or would be linked to, is not the one that holds the invited address. An account that holds no address accepts by the link. The login page names the invited address and asks for a sign-in with that account. |
 | `organization_account_required` | `RefusedOrganizationAccountRequired` | Auth: a sign-in, a sign-up with a password or an acceptance by hand carried an invitation that makes a tenant entered through its directory only, and came through no organization's directory (a password, a personal account, a session established any other way); refused before anything is read or written, no account made and the invitation left standing. The login page asks for a sign-in with the organization's account. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rule refuses. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
@@ -2799,7 +2842,7 @@ table is the wire contract:
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
-| `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
+| `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count; the codes of the address's own sign-ins are counted apart from everything else); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
 | `invalid_code` | `RefusedInvalidCode` | Auth: the sign-in code entered is not the one sent; the code stands with one fewer attempt (see "The second factor"). |
 | `code_expired` | `RefusedCodeExpired` | Auth: a sign-in code entered while none stands: none was sent, or the one sent expired, was used or took its last attempt; the page asks for a new one. |
 

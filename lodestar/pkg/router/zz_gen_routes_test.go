@@ -392,6 +392,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost},
 		{url: "/droids/briefing-templates", method: http.MethodGet},
 		{url: "/droids/briefing-templates", method: http.MethodPost},
+		{url: "/droids/crew-givable-roles", method: http.MethodGet},
+		{url: "/droids/crew-givable-roles", method: http.MethodPost},
 		{url: "/droids/crew-invited-sectors", method: http.MethodGet},
 		{url: "/droids/crew-invited-sectors", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
@@ -705,6 +707,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost},
+		{url: "/portal/api/crew-givable-roles", method: http.MethodGet},
+		{url: "/portal/api/crew-givable-roles", method: http.MethodPost},
 		{url: "/portal/api/crew-invited-sectors", method: http.MethodGet},
 		{url: "/portal/api/crew-invited-sectors", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-directory-roles", method: http.MethodGet},
@@ -2700,6 +2704,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/crew-givable-roles", method: http.MethodGet,
+			handlerFunc: "CrewGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-givable-roles", method: http.MethodPost,
+			handlerFunc: "CrewGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/crew-invited-sectors", method: http.MethodGet,
 			handlerFunc: "CrewInvitedSectors",
 			parameters:  map[string]string{},
@@ -3139,6 +3153,10 @@ func (s *generatedHandlersStub) CreateSector() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CreateSectorOffered() http.HandlerFunc {
 	return s.record("CreateSectorOffered")
+}
+
+func (s *generatedHandlersStub) CrewGivableRoles() http.HandlerFunc {
+	return s.record("CrewGivableRoles")
 }
 
 func (s *generatedHandlersStub) CrewGroups() http.HandlerFunc {

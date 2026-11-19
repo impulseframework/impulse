@@ -38,17 +38,17 @@ export type AddStaffTenantGroupMemberStatus = 204;
 
 export interface AssignStaffRoleConfig {
   userId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
 }
 export interface AssignStaffRole {
   userId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
 }
@@ -122,18 +122,18 @@ export interface CreateStaffUserConfig {
   name?: string | FieldPointer;
   email?: string | FieldPointer;
   password?: string | FieldPointer;
-  roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  roles: string[] | FieldPointer;
 }
 export interface CreateStaffUser {
   username: string;
   name?: string;
   email?: string;
   password?: string;
-  roles: string[];
   domain?: string;
   everyDomain: boolean;
+  roles: string[];
 }
 /** The result CreateStaffUser answers with. */
 export interface CreateStaffUserResult {
@@ -263,17 +263,17 @@ export type EndStaffUserSessionsStatus = 204;
 
 export interface GiveStaffGroupRoleConfig {
   groupId: string | FieldPointer;
-  role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  role: string | FieldPointer;
   startsAt?: Date | FieldPointer;
   endsAt?: Date | FieldPointer;
 }
 export interface GiveStaffGroupRole {
   groupId: string;
-  role: string;
   domain?: string;
   everyDomain: boolean;
+  role: string;
   startsAt?: Date;
   endsAt?: Date;
 }
@@ -334,14 +334,14 @@ export interface InviteStaffTenantUserResult {
 export interface InviteStaffUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
-  roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
+  roles: string[] | FieldPointer;
 }
 export interface InviteStaffUser {
   email: string;
   name?: string;
-  roles: string[];
   domain?: string;
+  roles: string[];
 }
 /** The result InviteStaffUser answers with. */
 export interface InviteStaffUserResult {
@@ -827,9 +827,9 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
@@ -886,9 +886,9 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
       { fieldName: 'password', displayType: 'string', optional: true, secret: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffGivableRoles, attribute: 'role' },
     ],
   },
   [Methods.DeleteStaffGroup]: {
@@ -1017,9 +1017,9 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
-      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffGivableRoles, required: true, attribute: 'role' },
       { fieldName: 'startsAt', displayType: 'date', optional: true },
       { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
@@ -1064,8 +1064,8 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
-      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffGivableRoles, attribute: 'role' },
     ],
   },
   [Methods.MakeStaffInviteOnly]: {

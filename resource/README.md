@@ -3458,6 +3458,7 @@ GET  <prefix>/crew-session-auth-events                     List on CrewSessionAu
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
 GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
+GET  <prefix>/crew-givable-roles                           List on CrewGivableRoles (the roles the whole application's methods give, by where they are held)
 GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
 GET  <prefix>/crew-group-members                           List on CrewGroupMembers
 GET  <prefix>/crew-group-roles                             List on CrewGroupRoles (the roles the groups hold)
@@ -3701,12 +3702,47 @@ judged over a computed resource's rows:
 "List": [{ "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" }]
 ```
 
-An Auth whose directory writes the roles gives none by hand and has no such list. The
-roles of the whole application are given by a field a person types, with no list to
-pick from, and the two other lists a role is picked from are limited the same way: the
-default role of a method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is
-opened to its directory's people with (`CrewSectorDirectoryRoles`) each hold the roles
-the caller may give by the method that gives one (`MayGive`).
+**The roles the whole application gives.** The whole application's methods pick their
+role the same way, from one more list per Auth, `CrewGivableRoles`, declared beside the
+methods and served on their outlets (a list and no read). Its rows are the roles that
+exist where the role is to be held, each with its `name` and `description`, and, in an
+application with tenants, where it is held: `domain`, the one tenant ("" for the whole
+application or every tenant), and `everyDomain`. The two are filter keys. Filtered by
+one tenant (`domain:eq:<id>`) the list holds that tenant's roles; otherwise it holds the
+roles held for the whole application (`everyDomain` false) and those held in every
+tenant (`everyDomain` true), which a filter on `everyDomain` narrows. A filter that
+names tenants any other way beside its other conditions (`in`, `ne`, a range, two
+conditions on `domain`) is refused (400), in the application's word for a tenant; one
+that joins its conditions with `or` is answered over both places and matched row by
+row. A role is listed once for each place, so a custom role held both for the whole
+application and in every tenant is two rows under one name until the request names a
+place, as the dialogs always do. In an application without tenants the list holds the
+whole application's roles and has neither field.
+
+The role fields that name it (`@enumerate`) are those of `AssignCrewRole`,
+`CreateCrewUser`, `InviteCrewUser` and `GiveCrewGroupRole`, each written where the Auth
+has the method. Each request asks where the role is held first (`domain`, then
+`everyDomain`, before the role), so a dialog drawn from the metadata asks where, then
+offers the roles that exist there. As for a tenant, a role is listed where the grant of
+one of those methods could let the caller give it there, with the role, the place and
+nobody named (`identity.Manager.GivableRoles`, over the generated `CouldGive`), and
+left out where every one of them refuses; the list's own List grant may carry a
+condition on `name` that narrows it further. Two rules hold whatever the grants say: the
+Super Administrator role is listed for the whole application alone, and only to a
+caller who holds it, since only a super administrator gives it; and a tenant's
+administrator's role of a tenant that is directory only is listed only to a caller the
+tenant admits (section "Directory only", the rule the methods keep). The role file
+grants the list to the roles that give one:
+
+```json
+"List": [{ "resource": "CrewGivableRoles", "fields": ["description", "domain", "everyDomain"] }]
+```
+
+An Auth whose directory writes the roles gives none by hand and has neither list. The
+two other lists a role is picked from are limited the same way: the default role of a
+method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is opened to its
+directory's people with (`CrewSectorDirectoryRoles`) each hold the roles the caller may
+give by the method that gives one (`MayGive`).
 
 **A tenant's methods.** Beside the lists the generated management writes the methods a
 tenant changes its people through. Each is a method of the tenant's scope
@@ -4041,7 +4077,7 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   method mails a link to the new address once the transaction has committed, and the
   account keeps the address it has until the person follows that link from the new
   mailbox (`POST user/email/confirm`, which the login page reaches with
-  `?address=<token>`). The old address is told once the change is made, and never asked
+  `#address=<token>`). The old address is told once the change is made, and never asked
   to allow it. One change stands at a time: a second request withdraws the first one's
   link. An account always keeps an address, so the method replaces one and never takes
   one off, and the answer says whether the link went (`sent`) and, where it did not,
@@ -4054,7 +4090,9 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   whether the link went and why not (the account has no password or no confirmed
   address, or the address was sent too many reset links: five in fifteen minutes, the
   person's own requests counted with the administrators' and apart from sign-in codes).
-  The role file decides who may send one, as for every method of the set.
+  The role file decides who may send one, as for every method of the set, and a link to
+  a super administrator's account is sent by a super administrator alone, whatever the
+  role file grants: the link changes how the account signs in.
 - Deleting a user removes their role memberships, ends their sessions, and removes
   their identity links and the account; whatever else the Auth keeps for the person
   goes with the row.
@@ -4173,9 +4211,10 @@ assigns the page's two halves, with nothing written by the application:
   it is on, the login page offers "Forgot your password?" from it, and the request's
   route answers 404 while it is off. A link asked for while it was on still works once
   it is off, until it is used or runs out, and a link an administrator sends is never
-  held to the choice. An Auth with a password and no list of sign-in methods (one whose
-  application lets nobody sign up to it) has no such method: its people are sent a
-  reset link by an administrator.
+  held to the choice. Every Auth that declares the password method has the method and
+  the list of its sign-in methods, whether or not it carries the choice of who may sign
+  up: an Auth that carries none (its people join a tenant somebody else made) has the
+  Sign-in page for this switch alone.
 
 What a person who signs up gets depends on the application. Without tenants they get the
 method's default role, a role held for the whole application: opening a method without

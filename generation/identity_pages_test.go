@@ -145,6 +145,20 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
+			name:      "an auth with a password and no choice of who may sign up has the Sign-in page for the reset switch alone",
+			outlet:    "console",
+			instances: []*identityInstance{crew},
+			served:    []string{"CrewSessionUsers", "CrewSignInMethods", "SetCrewSelfServiceReset"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Sides: []*tsAPIIdentitySide{{
+					Scope:   accesstypes.GlobalPermissionScope,
+					Lists:   []identityPart{part("users", "CrewSessionUsers"), part("signInMethods", "CrewSignInMethods")},
+					Methods: []identityPart{part("setSelfServiceReset", "SetCrewSelfServiceReset")},
+				}},
+			}},
+		},
+		{
 			name:      "a side whose people the outlet does not serve is left out, and a tenant record it does not serve is not named",
 			outlet:    "console",
 			instances: []*identityInstance{crew},

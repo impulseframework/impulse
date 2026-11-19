@@ -215,10 +215,60 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 	assertFileContains(t, "crewidentity/grants.go", []string{"{method: AssignCrewShipRole{}.Method(), request: &AssignCrewShipRole{Role: string(role)}},"}, []string{"GroupRole"})
 }
 
+// Test_prepareIdentity_ownResetWithoutTheSignUpChoice pins an auth that declares the
+// password method and carries no choice of who may sign up: its people join a tenant
+// somebody else made, and they have passwords to reset like anybody's. The management
+// carries the list of the auth's sign-in methods and the switch for a person's own
+// reset, and neither method of the other choice.
+func Test_prepareIdentity_ownResetWithoutTheSignUpChoice(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables, []string{"MembersSessionSignInMethods"})...)
+	r.resource = "pkg/resources"
+	r.tableMap["Ships"] = shipsTable()
+	r.extraOutlets[1].auth = &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{PasswordMethod(), AzureMethod("directory").Labeled("Company directory")}}
+	writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	var got []string
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		if !strings.HasPrefix(file, "membersidentity/") {
+			continue
+		}
+		for _, part := range []string{"sign_in_methods", "sign_up", "invite_only", "self_service_reset"} {
+			if strings.Contains(file, part) {
+				got = append(got, file)
+
+				break
+			}
+		}
+	}
+	want := []string{"membersidentity/members_sign_in_methods.go", "membersidentity/set_members_self_service_reset.go"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("the members' sources of the Sign-in page (-want +got):\n%s", diff)
+	}
+	assertFileContains(t, "membersidentity/set_members_self_service_reset.go",
+		[]string{"type SetMembersSelfServiceReset struct {", "client.manager.SetSelfServiceReset(ctx, txn, m.On)"}, nil)
+	assertFileContains(t, "membersidentity/members_sign_in_methods.go",
+		[]string{"type MembersSignInMethod struct {", "client.manager.SignInMethods(ctx, reader)", "SelfServiceReset: methods[i].SelfServiceReset,"}, nil)
+	assertFileContains(t, "membersidentity/store.go",
+		[]string{"membersresources.NewMembersSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)"}, nil)
+	// The choice of who may sign up is still the crew's alone.
+	for _, file := range []string{"membersidentity/open_members_sign_up.go", "membersidentity/make_members_invite_only.go"} {
+		if slices.Contains(identityTreeFiles(t, "pkg/identity"), file) {
+			t.Errorf("the members' management holds %s, want none: the members carry no choice of who may sign up", file)
+		}
+	}
+}
+
 // Test_prepareIdentity_signUpWithoutTheTable pins an auth whose schema holds no sign-in
 // methods table: every method is invite only and nothing chooses otherwise, so the
 // management carries no list and no method, and the store, which still stands for
-// identity.Store, answers no rows and refuses a write saying which table is missing.
+// identity.Store, answers no rows and refuses a write saying which table is missing. The
+// role file's grants are still answered, for the list the roles given by hand are picked
+// from.
 func Test_prepareIdentity_signUpWithoutTheTable(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -239,8 +289,11 @@ func Test_prepareIdentity_signUpWithoutTheTable(t *testing.T) {
 		},
 		[]string{"NewCrewSessionSignInMethod"},
 	)
-	if holdsRoleGrants(t) {
-		t.Error("the crew's package was written grants.go, want none without the table: no method is opened, so no default role is picked")
+	// No default role is picked, and the roles a person is given by hand are still
+	// picked from the roles the caller could give: the package answers the role file's
+	// grants for that list, and the client hands them on.
+	if !holdsRoleGrants(t) {
+		t.Error("the crew's package was written no grants.go, want one: the list the whole application's role fields pick from asks which roles the caller could give")
 	}
-	assertFileContains(t, "crewidentity/client.go", nil, []string{"WithRoleGrants"})
+	assertFileContains(t, "crewidentity/client.go", []string{"identity.WithRoleGrants(grants{})"}, nil)
 }

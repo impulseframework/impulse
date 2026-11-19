@@ -33,10 +33,7 @@ import { NullBooleanFieldComponent } from './fields/nullboolean-field/nullboolea
 import { NumberFieldComponent } from './fields/number-field/number-field.component';
 import { ObjectFieldComponent } from './fields/object-field/object-field.component';
 import { TextFieldComponent } from './fields/text-field/text-field.component';
-import { FieldRenderer, rendererFor } from './renderer';
-
-/** The renderers that present a value and never take one: their field is in view mode whatever the form's mode. */
-const READ_ONLY_RENDERERS: ReadonlySet<FieldRenderer> = new Set<FieldRenderer>(['bytes', 'array', 'object']);
+import { FieldRenderer, READ_ONLY_RENDERERS, rendererFor } from './renderer';
 
 @Component({
   selector: 'impulse-resource-field',

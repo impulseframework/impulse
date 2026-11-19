@@ -315,8 +315,12 @@ func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connectio
 		AdmitsConnection: func(linked string) bool {
 			return linked == connection
 		},
-		// The provider is said by the application's name for it, or by the host of its
-		// issuer where it gave none: what the registration's audience names.
+		// The provider is said by the label of its button where the login page gives
+		// it one: the connection is the registration's key, which no person knows it by.
+		NamedByLabel: true,
+		// Without a label the provider is said by the application's name for it, or by
+		// the host of its issuer where it gave none: what the registration's audience
+		// names.
 		ConnectionName: func(linked string) string {
 			if linked != connection || len(audience.Organizations) == 0 {
 				return ""

@@ -194,7 +194,7 @@ func TestNormalize(t *testing.T) {
 func TestOwnKey(t *testing.T) {
 	t.Parallel()
 
-	for _, kind := range []string{KindMail, KindReset, KindFirstPassword} {
+	for _, kind := range []string{KindMail, KindCode, KindReset, KindFirstPassword} {
 		key := OwnKey(kind, "pat@lakeside.edu")
 		if !IsOwnKey(key) {
 			t.Errorf("IsOwnKey(%q) = false, want the library's own count recognized", key)

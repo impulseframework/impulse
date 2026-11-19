@@ -25,8 +25,8 @@ import (
 // resetToken and addressToken find the token of the link a message carries: the login
 // page's address with the link's kind and its token.
 var (
-	resetToken   = regexp.MustCompile(`/console/login\?reset=([A-Za-z0-9_-]+)`)
-	addressToken = regexp.MustCompile(`/console/login\?address=([A-Za-z0-9_-]+)`)
+	resetToken   = regexp.MustCompile(`/console/login#reset=([A-Za-z0-9_-]+)`)
+	addressToken = regexp.MustCompile(`/console/login#address=([A-Za-z0-9_-]+)`)
 )
 
 // mailedSince are the messages the stack's auths mailed to the address after the first

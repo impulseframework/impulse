@@ -1,6 +1,9 @@
+import { MatDialog } from '@angular/material/dialog';
 import { Method, MethodMeta, MethodPresentation } from '@impulseframework/resource-angular/types';
+import { of } from 'rxjs';
 import { OfferedMethod } from '../row-methods/row-methods';
-import { methodDoneMessage } from './open-method-dialog';
+import { MethodDialogData } from './method-dialog.component';
+import { methodDoneMessage, openMethodDialog } from './open-method-dialog';
 
 const method = 'SendUserPasswordResetLink' as Method;
 
@@ -43,5 +46,24 @@ describe('methodDoneMessage', () => {
   it("falls back to the page's words when the reading of the answer says nothing", () => {
     const presented = offered({ successMessage: 'Saved.', answered: () => undefined });
     expect(methodDoneMessage(presented, {})).toEqual({ message: 'Saved.', failed: false });
+  });
+});
+
+describe('openMethodDialog', () => {
+  it("hands the dialog the page's narrowing of a picker, with its other words", () => {
+    const narrow = (): string => 'everyDomain:eq:false';
+    const opened: MethodDialogData[] = [];
+    const dialog = {
+      open: (_component: unknown, config: { data: MethodDialogData }) => {
+        opened.push(config.data);
+        return { afterClosed: () => of(undefined) };
+      },
+    } as unknown as MatDialog;
+    openMethodDialog(dialog, offered({ labels: { domain: 'Sector' }, narrows: { roles: narrow } }));
+    expect(opened[0].labels).toEqual({ domain: 'Sector' });
+    expect(opened[0].narrows?.['roles']).toBe(narrow);
+    // A page that narrows nothing hands nothing.
+    openMethodDialog(dialog, offered({ labels: { domain: 'Sector' } }));
+    expect('narrows' in opened[1]).toBe(false);
   });
 });

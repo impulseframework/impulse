@@ -29,17 +29,20 @@ type (
 	// @rpc
 	// @outlet(default)
 	CreateStaffUser struct {
-		Username string `validate:"required"`
-		Name     *string
-		Email    *string
-		Password string `validate:"required" conditions:"secret"`
-		// Roles are the roles the person is given. A grant's condition reads each of them as
-		// new.role, so a role file can limit which roles the grant's holder hands out.
-		//
-		// @attribute(role)
-		Roles       []string
+		Username    string `validate:"required"`
+		Name        *string
+		Email       *string
+		Password    string `validate:"required" conditions:"secret"`
 		Domain      *string
 		EveryDomain bool
+		// Roles are the roles the person is given, picked from the roles that exist where
+		// they are given that the caller could give there (StaffGivableRoles). A
+		// grant's condition reads each of them as new.role, so a role file can limit which
+		// roles the grant's holder hands out.
+		//
+		// @attribute(role)
+		// @enumerate(StaffGivableRoles)
+		Roles []string
 	}
 	// CreateStaffUserResult answers the new user's id.
 	CreateStaffUserResult struct {

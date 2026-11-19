@@ -708,6 +708,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
 		},
 		{
+			url: "/api/staff-givable-roles", method: http.MethodGet,
+			handlerFunc: "StaffGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-givable-roles", method: http.MethodPost,
+			handlerFunc: "StaffGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-invited-tenants", method: http.MethodGet,
 			handlerFunc: "StaffInvitedTenants",
 			parameters:  map[string]string{},
@@ -1137,6 +1147,10 @@ func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
 	return s.record("SetStaffUserName")
+}
+
+func (s *generatedHandlersStub) StaffGivableRoles() http.HandlerFunc {
+	return s.record("StaffGivableRoles")
 }
 
 func (s *generatedHandlersStub) StaffGroups() http.HandlerFunc {

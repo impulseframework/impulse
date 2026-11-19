@@ -471,6 +471,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-givable-roles", method: http.MethodGet,
+			handlerFunc: "StaffGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-givable-roles", method: http.MethodPost,
+			handlerFunc: "StaffGivableRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-sign-in-methods", method: http.MethodGet,
 			handlerFunc: "StaffSignInMethods",
 			parameters:  map[string]string{},
@@ -697,6 +707,10 @@ func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
 	return s.record("SetStaffUserName")
+}
+
+func (s *generatedHandlersStub) StaffGivableRoles() http.HandlerFunc {
+	return s.record("StaffGivableRoles")
 }
 
 func (s *generatedHandlersStub) StaffGroups() http.HandlerFunc {

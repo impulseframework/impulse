@@ -23,9 +23,9 @@ func (h *Handlers) CreateMembersUser() http.HandlerFunc {
 		Username    string   `json:"username"`
 		Name        *string  `json:"name"`
 		Email       *string  `json:"email"`
-		Roles       []string `json:"roles"`
 		Domain      *string  `json:"domain"`
 		EveryDomain bool     `json:"everyDomain"`
+		Roles       []string `json:"roles"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated

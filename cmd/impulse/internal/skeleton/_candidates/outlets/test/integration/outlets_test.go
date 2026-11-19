@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -149,18 +150,14 @@ func TestPortalOutlet_aRoleUnderANameAdmitsNobody(t *testing.T) {
 // holds no such role, stops nothing. The application's tenants have directories, and the
 // first administrator belongs to no tenant, so no tenant's directory vouches for them:
 // the invitation does. Another person of the same directory who signs in first is a
-// stranger without the link, and with it the invitation is for another address; neither
+// stranger without the link. With it they are held for the code mailed to the invited
+// address, which is not theirs to read, and no address they give is taken for it; neither
 // makes an account, and the invitation stands. An account somebody created ahead under
 // a name, for the whole application, is nobody's invitation either, and its name links
 // nothing; holding the Super Administrator role, it is somebody who administers the
 // auth, so from then on a release invites nobody and a fresh invitation is refused.
 //
-// The acceptance itself is not played here. An invitation is accepted by the account
-// whose address it was mailed to, and the simulated Microsoft directory asserts no
-// address for anyone, so nobody accepts an invitation through it. The invited person's
-// first sign-in through a directory, linked and holding the roles, is proven where the
-// directory asserts an address: the tenanted skeleton's google registration, and the
-// session library's own suites on both databases.
+// The acceptance itself is played by TestPortalOutlet_theFirstAdministratorAccepts.
 func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 	t.Parallel()
 
@@ -185,7 +182,10 @@ func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 	if status, location := stranger.loginPortal(ctx, other); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedInvitationOnly)) {
 		t.Errorf("another person of the directory signing in first, with no link: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedInvitationOnly)
 	}
-	// The same person with the link: the invitation is for another address.
+	// The same person with the link. The directory asserts no address for anyone, so the
+	// acceptance rests on the code mailed to the invited address: the sign-in is held for
+	// it, the code goes to the administrator's mailbox whatever the person asks, and an
+	// address of their own is not taken for it. Nobody is made meanwhile.
 	stranger = newBrowser(t, s, portalAPI)
 	if status, body := stranger.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
 		t.Fatalf("GET session before login: status %d: %s", status, body)
@@ -193,8 +193,17 @@ func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 	if status, body := stranger.do(ctx, http.MethodPost, portalAPI+"/user/invitation", []byte(`{"token":"`+mailedMembersInvitation(t, s, administrator)+`"}`)); status != http.StatusOK {
 		t.Fatalf("opening the invitation as another person: status %d: %s", status, body)
 	}
-	if status, location := stranger.loginPortal(ctx, other); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedInvitationAddress)) {
-		t.Errorf("another person of the directory accepting the first administrator's invitation: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedInvitationAddress)
+	if status, location := stranger.loginPortal(ctx, other); status != http.StatusFound || !strings.Contains(location, "pending="+string(sessioninfo.PendingMFA)) {
+		t.Fatalf("another person of the directory accepting the first administrator's invitation: status %d to %q, want %d to the login page, held for the sign-in code", status, location, http.StatusFound)
+	}
+	if held := stranger.pending(ctx); held.EmailCode == nil || held.EmailCode.EnrollEmail || held.EmailCode.CodeEmail != "f•••@north.example" {
+		t.Errorf("the held acceptance = %+v, want the code offered to the invited address, masked, and no address asked for", held.EmailCode)
+	}
+	if status, body := stranger.do(ctx, http.MethodPost, portalAPI+"/user/pending/email", []byte(`{"email":"`+other+`"}`)); status != http.StatusConflict {
+		t.Errorf("giving another address for the code that accepts the invitation: status %d: %s, want %d", status, body, http.StatusConflict)
+	}
+	if sent := s.membersMail.Messages(); len(sent) != 1 {
+		t.Errorf("%d message(s) mailed after the held acceptance, want the invitation alone: nothing is mailed to an address a person gives", len(sent))
 	}
 	if accountExists(ctx, t, s, membersUsers, other) {
 		t.Error("an account was made for the person the invitation was not for")
@@ -256,12 +265,128 @@ func TestPortalOutlet_theFirstAdministratorIsInvited(t *testing.T) {
 	}
 }
 
+// TestPortalOutlet_theFirstAdministratorAccepts plays the acceptance of the members
+// auth's first administrator through the directory. The directory presents the person
+// under their sign-in name and asserts no address, so nothing in the sign-in can be held
+// to the invited address: the sign-in waits, with no account made, for the code the
+// library mails to the invited address, which nobody types. The person who reads that
+// mailbox enters it, and the acceptance happens with that sign-in: the account is made
+// under the directory's name with the invited address confirmed, it holds the Super
+// Administrator role, and the invitation is used. From then on somebody administers the
+// auth, the release invites nobody, and the administrator's next sign-in asks for no code.
+func TestPortalOutlet_theFirstAdministratorAccepts(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	const (
+		administrator = "first.administrator@north.example"
+		// The name the directory presents the person under, which is not the address the
+		// placement named.
+		signedInAs = "f.administrator@directory.north.example"
+	)
+	s := newServedInviting(ctx, t, administrator)
+
+	b := newBrowser(t, s, portalAPI)
+	if status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before login: status %d: %s", status, body)
+	}
+	if status, body := b.do(ctx, http.MethodPost, portalAPI+"/user/invitation", []byte(`{"token":"`+mailedMembersInvitation(t, s, administrator)+`"}`)); status != http.StatusOK {
+		t.Fatalf("opening the invitation: status %d: %s", status, body)
+	}
+	status, location := b.loginPortal(ctx, signedInAs)
+	if status != http.StatusFound || !strings.Contains(location, "pending="+string(sessioninfo.PendingMFA)) {
+		t.Fatalf("the invited person's sign-in through the directory: status %d to %q, want %d to the login page, held for the sign-in code", status, location, http.StatusFound)
+	}
+	if accountExists(ctx, t, s, membersUsers, signedInAs) {
+		t.Fatal("an account was made before the code mailed to the invited address was entered")
+	}
+
+	// The code goes to the invited address, and entering it accepts the invitation.
+	s.codeMu.Lock()
+	held := b.pending(ctx)
+	if held.EmailCode == nil || held.EmailCode.EnrollEmail || held.EmailCode.CodeEmail != "f•••@north.example" {
+		s.codeMu.Unlock()
+		t.Fatalf("the held acceptance = %+v, want the code offered to the invited address, masked, and no address asked for", held.EmailCode)
+	}
+	before := len(s.membersMail.Messages())
+	code := b.askCodeLocked(ctx, false, "")
+	if sent := s.membersMail.Messages()[before:]; len(sent) != 1 || sent[0].To != administrator {
+		s.codeMu.Unlock()
+		t.Fatalf("asking for the code mailed %d message(s), want one, to %s", len(sent), administrator)
+	}
+	b.verifyCodeLocked(ctx, signedInAs, code, false)
+	s.codeMu.Unlock()
+
+	// The account is the directory's name with the invited address confirmed, linked to
+	// the directory's identity, and the session is its own.
+	if !accountExists(ctx, t, s, membersUsers, signedInAs) {
+		t.Fatalf("no account was made for %s by the acceptance", signedInAs)
+	}
+	accountID := membersAccountID(ctx, t, s, signedInAs)
+	if !addressConfirmed(ctx, t, s, accountID, administrator) {
+		t.Errorf("the first administrator's account does not hold %s as its confirmed address", administrator)
+	}
+	if n := identityLinks(ctx, t, s, accountID); n != 1 {
+		t.Errorf("the first administrator's account holds %d identity links, want the directory's one", n)
+	}
+	if status, body := b.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK || !strings.Contains(string(body), `"username":"`+signedInAs+`"`) {
+		t.Errorf("the session after the acceptance: status %d, want %d and the session of %s", status, http.StatusOK, signedInAs)
+	}
+
+	// The invitation is used, the account holds the Super Administrator role, and a
+	// release from now on invites nobody.
+	if standing, err := s.membersAuth.Session().API().Invitations(ctx); err != nil || len(standing) != 0 {
+		t.Errorf("the invitations that stand after the acceptance = %d, %v, want none", len(standing), err)
+	}
+	if roles := rolesHeld(ctx, t, s.members, accesstypes.User(accountID), accesstypes.GlobalPolicyScope()); !slices.Contains(roles, accesstypes.SuperAdministrator) {
+		t.Errorf("the first administrator's roles = %v, want %s among them", roles, accesstypes.SuperAdministrator)
+	}
+	release, err := s.membersAuth.InviteAdministrator(ctx, administrator)
+	if err != nil || release.Outcome != session.FirstAdministratorRoleHeld {
+		t.Errorf("the release after the acceptance = %+v, %v, want nobody invited: the role is held", release, err)
+	}
+
+	// The account holds its confirmed address now: the next sign-in asks for no code.
+	mailed := len(s.membersMail.Messages())
+	later := newBrowser(t, s, portalAPI)
+	if status, body := later.do(ctx, http.MethodGet, portalAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the second login: status %d: %s", status, body)
+	}
+	if status, location := later.loginPortal(ctx, signedInAs); status != http.StatusFound || location != portalPage {
+		t.Errorf("the first administrator's next sign-in: status %d to %q, want %d to %q", status, location, http.StatusFound, portalPage)
+	}
+	if got := len(s.membersMail.Messages()); got != mailed {
+		t.Errorf("%d message(s) mailed at the next sign-in, want none", got-mailed)
+	}
+}
+
+// membersAccountID reads the id of the members auth's account under the username.
+func membersAccountID(ctx context.Context, t *testing.T, s *served, username string) string {
+	t.Helper()
+
+	iter := s.db.Client.Single().Query(ctx, spanner.Statement{
+		SQL:    "SELECT Id FROM " + membersUsers + " WHERE Username = @username",
+		Params: map[string]any{"username": username},
+	})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("reading the account named %s: %v", username, err)
+	}
+	var id string
+	if err := row.Columns(&id); err != nil {
+		t.Fatalf("reading the id of the account named %s: %v", username, err)
+	}
+
+	return id
+}
+
 // mailedMembersInvitation reads the token of the invitation link the members auth mailed
 // to the address, which opens the portal's login page.
 func mailedMembersInvitation(t *testing.T, s *served, email string) string {
 	t.Helper()
 
-	link := regexp.MustCompile(`http://outlets\.test/portal/login\?invitation=([A-Za-z0-9_-]+)`)
+	link := regexp.MustCompile(`http://outlets\.test/portal/login#invitation=([A-Za-z0-9_-]+)`)
 	for _, m := range s.membersMail.Messages() {
 		if m.To != email {
 			continue
