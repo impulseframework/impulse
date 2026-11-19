@@ -909,6 +909,39 @@ const (
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
 
+	// subjectGuarded is spliced into the generated write of a record that decides what
+	// a person may do, one whose rows the policy reads as a subject value or a subject
+	// set (resourceInfo.SubjectUserFields), once the operation is decoded and before its
+	// create, update or delete is built (op, patchSet and $subjectReq, the request that
+	// carries the row's key, which the splice's place sets). In a session that acts as
+	// someone else nobody is the subject of what they do, so the write is refused when
+	// the row names the real person behind the session
+	// (identity.RefuseImpersonatorAsRowSubject): the person the stored row names, read
+	// by the key the operation's path carries, and the person the write names, read
+	// from the decoded fields and the key. It sits ahead of the three arms so that none
+	// of them can be reached around it. A create under a generated id has no key in its
+	// path, and no stored row. The splice reads the resource as its dot.
+	subjectGuarded = `// The policy reads this record's rows as what a person may do, so nobody
+					// writes the row that names them while they act as someone else,
+					// whatever the session's mask keeps: the rule is asked about the person
+					// the row names before the write and the person it names after it. The
+					// caller's grants answer first.
+					subjectKey := resource.KeySet{}
+					{{- if .PrimaryKeyIsGeneratedUUID }}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
+					}
+					{{- else if .HasCompoundPrimaryKey }}
+					{{- range $i, $field := .PrimaryKeys }}
+					subjectKey = subjectKey.Add("{{ $field.Name }}", httpio.Param[{{ $field.Type }}]({{ $subjectReq }}, "id{{ Add $i 1 }}"))
+					{{- end }}
+					{{- else }}
+					subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
+					{{- end }}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ .SubjectRecordWords }}"{{ range .SubjectUserFields }}, "{{ .Name }}"{{ end }}); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					}`
+
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
 	// library-owned handlers, so the endpoints' behavior lives in the resource
@@ -2982,6 +3015,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -3334,6 +3368,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 				{{- if .Resource.SignalsTenants }}
 				tenantsWritten = true
 				{{- end }}
+				{{- if .Resource.SubjectUserFields }}
+				{{- with .Resource }}
+				{{- $subjectReq := "op.Req" }}
+
+				` + subjectGuarded + `
+				{{- end }}
+				{{- end }}
 
 				switch op.Type {
 				case resource.OperationCreate:
@@ -3446,6 +3487,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -3633,6 +3675,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
+						{{- if .SubjectUserFields }}
+						{{- $subjectReq := "req" }}
+
+						` + subjectGuarded + `
+						{{- end }}
 
 						switch op.Type {
 						case resource.OperationCreate:

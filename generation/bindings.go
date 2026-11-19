@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
@@ -164,6 +165,46 @@ func (s *subjectBinding) whoTests() []*subjectWho {
 	}
 
 	return []*subjectWho{{Field: s.Anchor, Type: string(resource.AttributeTypeString)}}
+}
+
+// SubjectUserFields are the record's columns that name the person its rows speak for:
+// the column each @subjectValue and @subjectSet of the record ties a row to the
+// requester by, which is the annotated column, or every column a who: part compares to
+// the requester. A who: test against another subject set (TeamID IN subject.teams)
+// names a set, not a person, and its column is left out. The fields come in the order
+// the struct declares them, each once.
+//
+// A record with such a column decides what the person it names may do, since the
+// policy reads its rows as subject.<name>. Its generated write asks the rule that
+// nobody is the subject of what they do while they act as someone else, about the
+// person each of these columns names (the subjectGuarded splice).
+func (r *resourceInfo) SubjectUserFields() []*resourceField {
+	named := make(map[string]bool)
+	for _, subject := range slices.Concat(r.SubjectValues, r.SubjectSets) {
+		for _, who := range subject.whoTests() {
+			if who.Set == "" {
+				named[who.Field.Name()] = true
+			}
+		}
+	}
+	if len(named) == 0 {
+		return nil
+	}
+
+	var fields []*resourceField
+	for _, field := range r.Fields {
+		if named[field.Name()] {
+			fields = append(fields, field)
+		}
+	}
+
+	return fields
+}
+
+// SubjectRecordWords is the record's name as a refusal of the subjectGuarded splice
+// says it: the struct's name in lower case, its words apart ("pilot certification").
+func (r *resourceInfo) SubjectRecordWords() string {
+	return strings.ToLower(strcase.ToCase(r.Name(), strcase.LowerCase, ' '))
 }
 
 // resolveBindingAnnotations extracts and validates every binding annotation

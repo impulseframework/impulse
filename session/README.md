@@ -3447,12 +3447,19 @@ do: the generated user management refuses every change to the account of the per
 started the session, whatever the mask keeps and whether or not the kind was declared,
 since the rule reads the session's record alone (the actor it names). A person who acts
 as an administrator would otherwise give their own account a role and keep it after the
-session ends. An application's own action that names a person asks the same rule
-(`identity.RefuseImpersonatorAsSubject`; the resource package's "User management", "The
-rules on who is asking"). The class `access` is for what that rule cannot see: a role
-that reaches the person through a group they are in, through another account or through
-a colleague. An application that lets people act as a person and does not mean them to
-change who may do what refuses both classes, as the declaration above does.
+session ends. The rule covers a record that decides what a person may do as well: the
+generated write of a record the policy reads as a subject value or a subject set (a
+clearance, a place in a team) refuses the real person a row that names them, asked
+before the write and after it, so they neither raise their own clearance nor move
+someone else's row onto themselves. An application's own action that names a person
+asks the same rule (`identity.RefuseImpersonatorAsSubject`; the resource package's "User
+management", "The rules on who is asking"). The class `access` is for what that rule
+cannot see: a role that reaches the person through a group they are in, through another
+account or through a colleague. An application that lets people act as a person and
+does not mean them to change who may do what refuses both classes, as the declaration
+above does, and refuses by name the writes of its own records that decide what a person
+may do (`accesstypes.RefuseWrites(record)`): the rule holds the real person alone, and
+the mask is what keeps such a session from changing anyone else's.
 
 A masked check is refused when the mask does not keep its kind, refuses one of its
 resource's classes, or refuses the permission on the resource by name. The refusal comes

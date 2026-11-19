@@ -37,7 +37,10 @@ import (
 // Every method of the Manager that changes something of a person asks the rule, of the
 // person's id or of the key the method reaches them by (a session, a name in the
 // sign-in attempts table, an invitation's address), which a test that lists the
-// Manager's methods holds.
+// Manager's methods holds. The rule reaches past the account to a record of the
+// application's that decides what a person may do, a clearance or a place in a team:
+// the generated write of such a record asks it about the person the row names, before
+// the write and after it (RefuseImpersonatorAsRowSubject).
 //
 // A caller is named as the permission store names a person, by the id of their account
 // (User), and no two accounts share an id, in one auth or across two. An outlet that
@@ -158,11 +161,12 @@ func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impuls
 // declared the kind of impersonation, since it reads nothing but the session's record.
 //
 // Every method of the Manager that changes something of a person asks it, so the
-// generated management is held to it without a line in the application. An application
-// calls it in an action of its own that names a person, before the action changes
-// anything. The person is named by the id of their account, which is no other
-// account's, in one auth or across two, so the id alone says whether the person named
-// is the one acting:
+// generated management is held to it without a line in the application, and so does
+// the generated write of a record that decides what a person may do, through
+// RefuseImpersonatorAsRowSubject. An application calls it in an action of its own that
+// names a person, before the action changes anything. The person is named by the id of
+// their account, which is no other account's, in one auth or across two, so the id
+// alone says whether the person named is the one acting:
 //
 //	if err := identity.RefuseImpersonatorAsSubject(ctx, m.PilotID, "assign yourself a mission"); err != nil {
 //		return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
