@@ -90,6 +90,14 @@ function drawnWidth(element: Element, range: Range): number {
   return range.getBoundingClientRect().width;
 }
 
+/**
+ * Whether the page has a font on its way: one it asked for that has neither arrived nor
+ * failed. A page whose browser keeps no account of its fonts has none.
+ */
+function fontOnItsWay(page: Document): boolean {
+  return (page.fonts as FontFaceSet | undefined)?.status === 'loading';
+}
+
 /** What a cell takes of its column beside its content: its padding and its lines. */
 function aroundContent(cell: Element, view: Window): number {
   const style = view.getComputedStyle(cell);
@@ -235,8 +243,10 @@ export class AppGridComponent {
    * column is here once it has been measured, between the least a column goes and
    * MIN_TEXT_COLUMN_WIDTH, and its entry only grows while the list keeps its columns, so
    * a page of shorter values, a sort or a filter narrows nothing under a person's eyes. A
-   * font that arrives changes how wide every text is drawn, and the list then reads what
-   * it shows afresh.
+   * font that arrives changes how wide every text is drawn: the list is read again then,
+   * and a column grows where its text needs more in the font's letters and narrows nowhere.
+   * Nothing is read while a font is on its way, so no column is held as wide as the
+   * letters drawn in a font's place.
    */
   private readonly needs = signal<ReadonlyMap<string, number>>(new Map());
   /** The columns `needs` was measured for, by id and heading, in order: other columns start again. */
@@ -469,10 +479,10 @@ export class AppGridComponent {
       const page = container.ownerDocument;
       look.observe(page.documentElement, { attributes: true });
       look.observe(page.body, { attributes: true });
-      // A font that arrives after the list was drawn changes how wide every text is: what
-      // was read in the letters drawn before it is read again, afresh.
+      // A font that arrives changes how wide every text is drawn. A list that waited for it
+      // is read now, for the first time; one that was read before is read again, and what a
+      // column needs only grows, so nothing a person has paged, sorted or filtered narrows.
       const lettered = (): void => {
-        this.measuredColumns = '';
         this.measureColumns();
       };
       const fonts = page.fonts as FontFaceSet | undefined;
@@ -565,7 +575,11 @@ export class AppGridComponent {
    * nothing to read. Nor has a list that is loading: what it draws under the loading cover
    * is not yet what it shows (a related record not yet read is drawn as its key, longer
    * than the name that replaces it), and a need read from it would never come down. It is
-   * read once the list has loaded.
+   * read once the list has loaded. Nor has a list whose page has a font on its way: a text
+   * is drawn in other letters until its font arrives, and an icon as the word that names
+   * it, and a need read from those would never come down either. Laying a text out is what
+   * starts its font's load, so a pass of reads that leaves a font on its way is not kept.
+   * The list is read when the font has arrived, or has failed to (`loadingdone`).
    */
   private measureColumns(): void {
     const frame = this.scrollContainer()?.nativeElement;
@@ -576,6 +590,9 @@ export class AppGridComponent {
     }
     this.unlaid = frame.clientWidth === 0;
     if (this.unlaid || this.loading()) {
+      return;
+    }
+    if (fontOnItsWay(frame.ownerDocument)) {
       return;
     }
     const range = frame.ownerDocument.createRange();
@@ -617,6 +634,11 @@ export class AppGridComponent {
       }
       next.set(col.id, Math.min(MIN_TEXT_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, need)));
     });
+    // The reads laid the list out, and that started the load of a font it had not asked
+    // for before: what was read is in the letters drawn in the font's place.
+    if (fontOnItsWay(frame.ownerDocument)) {
+      return;
+    }
     const same =
       next.size === this.needs().size && Array.from(next).every(([id, need]) => this.needs().get(id) === need);
     this.measuredColumns = these;

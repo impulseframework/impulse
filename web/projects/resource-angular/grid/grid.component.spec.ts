@@ -1619,18 +1619,27 @@ describe('a list and the width of its frame', () => {
     let reads: number;
     /** Where an element is laid out, for the few a case places: every other is nowhere, as jsdom has it. */
     let placed: Map<Element, { left: number; right: number }>;
-    /** What a font that has arrived tells the list, and whether the list still listens. */
-    let fonts: { arrived?: () => void; listening: boolean };
+    /**
+     * What a font that has arrived tells the list, whether the list still listens, and
+     * whether a font is on its way, as the page's set of fonts says it.
+     */
+    let fonts: { arrived?: () => void; listening: boolean; status: 'loading' | 'loaded' };
     /** How much wider than the font's the letters are drawn: wider while a font has not arrived. */
     let wider: number;
+    /** Whether laying a text out starts the load of its font, as the first text drawn in a font does. */
+    let startsFont: boolean;
 
     beforeEach(() => {
       reads = 0;
       wider = 1;
+      startsFont = false;
       placed = new Map();
-      fonts = { listening: false };
+      fonts = { listening: false, status: 'loaded' };
       ranges.getBoundingClientRect = function (this: Range): DOMRect {
         reads++;
+        if (startsFont) {
+          fonts.status = 'loading';
+        }
         const drawn = this.startContainer as HTMLElement;
         const icon = drawn.querySelector('mat-icon');
         const width = icon
@@ -1669,6 +1678,9 @@ describe('a list and the width of its frame', () => {
       Object.defineProperty(document, 'fonts', {
         configurable: true,
         value: {
+          get status(): string {
+            return fonts.status;
+          },
           addEventListener: (_: string, listener: () => void): void => {
             fonts.arrived = listener;
             fonts.listening = true;
@@ -2011,6 +2023,9 @@ describe('a list and the width of its frame', () => {
         detect();
         await hand('rowData', rows);
         expect(reads).toBe(first);
+        // What the list would say were it empty is drawn in no column.
+        await hand('emptyMessage', 'No flags are declared.');
+        expect(reads).toBe(first);
         await hand('rowData', [shorter]);
         expect(reads).toBeGreaterThan(first);
       });
@@ -2051,14 +2066,63 @@ describe('a list and the width of its frame', () => {
         expect(fonts.listening).toBe(false);
       });
 
-      it('measures afresh when a font arrives: a column read in the wider letters drawn before it comes down to what it needs in the font', async () => {
-        wider = 1.25;
+      it('grows a column whose text needs more in the letters of a font that arrives, and narrows none: the width a column grew to on a page a person has left stays', async () => {
         await plain();
         frameIs(phone);
-        // "Commendations" in letters a quarter wider.
-        expect(widths()[0]).toBe(`${Math.ceil(13 * character * 1.25) + aroundCell + spare}px`);
+        // The person turns to a page of shorter values, and a font the page asked for arrives.
+        await hand('rowData', [shorter]);
+        fonts.arrived?.();
+        detect();
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+
+        // A font whose letters are a quarter wider: "Changed By" needs more, and "Tugs" still less than Name has.
+        wider = 1.25;
+        fonts.arrived?.();
+        detect();
+        expect(widths()[3]).toBe(`${changedBy + 20}px`);
+        expect(widths()[0]).toBe(`${name}px`);
+
+        // And one whose letters are narrower again narrows nothing.
+        wider = 1;
+        fonts.arrived?.();
+        detect();
+        expect(widths()[3]).toBe(`${changedBy + 20}px`);
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+
+      it("reads nothing while a font is on its way, and what it shows once the font has arrived: the wider letters drawn in a font's place do not hold a column wide", async () => {
+        wider = 1.25;
+        fonts.status = 'loading';
+        await plain();
+        frameIs(phone);
+        expect(reads).toBe(0);
+        expect(widths()[0]).toBe(`${text}px`);
+
+        // New rows while the font is still on its way are not read either.
+        await hand('rowData', [rows[0], shorter]);
+        expect(reads).toBe(0);
 
         wider = 1;
+        fonts.status = 'loaded';
+        fonts.arrived?.();
+        detect();
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+
+      it("keeps nothing of a pass of reads that started a font on its way: what it read was drawn in the font's place", async () => {
+        // The first text laid out in a font is what asks the page for it.
+        wider = 1.25;
+        startsFont = true;
+        await plain();
+        frameIs(phone);
+        expect(reads).toBeGreaterThan(0);
+        expect(fonts.status).toBe('loading');
+        expect(widths()[0]).toBe(`${text}px`);
+        expect(Math.ceil(13 * character * 1.25) + aroundCell + spare).toBeLessThan(text);
+
+        startsFont = false;
+        wider = 1;
+        fonts.status = 'loaded';
         fonts.arrived?.();
         detect();
         expect(widths()[0]).toBe(`${name}px`);
