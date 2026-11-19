@@ -157,7 +157,7 @@ describe('ResourceListComponent', () => {
   const create = async (
     options: Omit<ListViewConfigOptions, 'elements'>,
     rows: Record<string, unknown>[] = [],
-    server?: (request: TransportRequest) => TransportResponse,
+    server?: (request: TransportRequest) => TransportResponse | Promise<TransportResponse>,
   ): Promise<void> => {
     const config = listViewConfig({ elements: [], ...options });
     transport = scriptedTransport(
@@ -455,8 +455,28 @@ describe('ResourceListComponent', () => {
         words.textContent?.trim(),
       );
 
-    it('draws its rows when the related read is refused: the wait ends, a cell says what the page gives for a row whose record is not read, and the list says above its rows what it could not read', async () => {
-      const element = await shipsUnder({ status: 403, body: { message: 'no List on Clients' } });
+    // What the server says of a read it refuses, as it says it: the scope, the person's id,
+    // the permission and the resource. None of it is for the screen.
+    const refusal = 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Clients]';
+    const refused: TransportResponse = { status: 403, body: { message: refusal } };
+    const serverWords = /scope \(|user \(|3f2a9c1e|does not have|\(List\)|\[Clients\]|spanner|Unavailable|session pool/;
+
+    /** What was written to the console: each line's words, and the server's own message of the error written with it. */
+    const written = (log: { mock: { calls: unknown[][] } }): string[] =>
+      log.mock.calls.map(([words, error]) => `${String(words)} ${error instanceof Error ? error.message : ''}`);
+
+    let consoleError: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      consoleError.mockRestore();
+    });
+
+    it('draws its rows when the related read is refused: the wait ends, a cell says what the page gives for a row whose record is not read, and the list says above its rows, in plain words, that the person may not see those records', async () => {
+      const element = await shipsUnder(refused);
       // The related read was asked once and is over: the list is not drawn as loading.
       expect(transport.requests.filter((request) => request.url.split('?')[0] === '/api/clients').length).toBe(1);
       expect(fixture.componentInstance.loadingRowData()).toBe(false);
@@ -465,24 +485,154 @@ describe('ResourceListComponent', () => {
         ['Kestrel', 'Client c-1'],
         ['Vega', 'Nobody'],
       ]);
-      expect(noticesOf(element)).toEqual([
-        'The records named in the Client column are not available to you: no List on Clients',
+      expect(noticesOf(element)).toEqual(['You do not have permission to see the records named in the Client column.']);
+      // Nothing the server said is on the screen; it is in the console, once, for whoever looks into it.
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
       ]);
     });
 
     it('says so once for a read two of its columns name, each by the heading the table draws, and in other words for a read that failed', async () => {
-      const element = await shipsUnder({ status: 500, body: { message: 'the database is away' } }, true);
+      const failure = 'spanner: code = "Unavailable", desc = "the session pool is closed"';
+      const element = await shipsUnder({ status: 500, body: { message: failure } }, true);
       expect(element.querySelector('.impulse-grid-loading-overlay')).toBeNull();
       expect(cellsOf(element)).toEqual([
         ['Kestrel', 'Client c-1', 'Client c-2'],
         ['Vega', 'Nobody', 'Nobody'],
       ]);
       expect(noticesOf(element)).toEqual([
-        'The records named in the Client and Home Port columns could not be loaded: the database is away',
+        'The records named in the Client and Home Port columns could not be loaded.',
+      ]);
+      expect(element.textContent).not.toMatch(serverWords);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${failure}`,
       ]);
     });
 
-    it('says nothing above a list whose related read answered', async () => {
+    it('says a sentence once where two reads come to the same one: a column that names two records, neither of which could be read', async () => {
+      const rows = [{ id: 's-1', name: 'Kestrel', clientId: 'c-1' }];
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            multiColumnConfig({
+              id: 'clientId' as FieldName,
+              header: 'Client',
+              additionalIds: [
+                { resource: clients, id: 'id' as FieldName, field: 'name' as FieldName },
+                { resource: calls, id: 'id' as FieldName, field: 'summary' as FieldName },
+              ],
+              concatFn: 'hyphen-concat',
+              fallback: (row: Record<string, unknown>) => `Client ${String(row['clientId'])}`,
+            }),
+          ],
+        },
+        rows,
+        (request) =>
+          request.url.split('?')[0] === '/api/ships'
+            ? { status: 200, body: rows, headers: { 'total-count': String(rows.length) } }
+            : refused,
+      );
+      fixture.detectChanges();
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      // Both reads were made and both were refused: two reads, one sentence.
+      expect(
+        transport.requests.map((request) => request.url.split('?')[0]).filter((path) => path !== '/api/ships'),
+      ).toEqual(['/api/clients', '/api/distress-calls']);
+      expect(noticesOf(element)).toEqual(['You do not have permission to see the records named in the Client column.']);
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+        `Ships: the records read for DistressCalls::id could not be loaded: ${refusal}`,
+      ]);
+    });
+
+    it('keeps what it says above its rows where it is while the same read is asked again, and takes it away once that read answers', async () => {
+      // The read of the clients is asked again each time the list brings other rows: the
+      // first is refused at once, each later one is held until the spec answers it.
+      const answer: ((response: TransportResponse) => void)[] = [];
+      const kestrel = [{ id: 's-1', name: 'Kestrel', clientId: 'c-1' }];
+      const vega = [{ id: 's-2', name: 'Vega', clientId: 'c-2' }];
+      let clientsAsked = 0;
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            multiColumnConfig({
+              id: 'clientId' as FieldName,
+              header: 'Client',
+              additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+              concatFn: 'hyphen-concat',
+              fallback: (row: Record<string, unknown>) => `Client ${String(row['clientId'])}`,
+            }),
+          ],
+        },
+        kestrel,
+        (request) => {
+          if (request.url.split('?')[0] === '/api/clients') {
+            clientsAsked++;
+            return clientsAsked === 1 ? refused : new Promise((resolve) => answer.push(resolve));
+          }
+          const page = decodeURIComponent(request.url).includes('sort=name:desc') ? vega : kestrel;
+          return { status: 200, body: page, headers: { 'total-count': '1' } };
+        },
+      );
+      const element = fixture.nativeElement as HTMLElement;
+      // A read on its way keeps the application from being stable, so the page is turned by hand.
+      const turns = async (): Promise<void> => {
+        for (let i = 0; i < 20; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          fixture.detectChanges();
+        }
+      };
+      const sentence = 'You do not have permission to see the records named in the Client column.';
+      const read = (): string | undefined => fixture.componentInstance.resourceRefMap().get('Clients::id')?.status();
+      fixture.detectChanges();
+      await turns();
+      expect(noticesOf(element)).toEqual([sentence]);
+      const line = element.querySelector('.notice[role="status"]');
+
+      // Another order brings another row, so another client to read: the read is on its
+      // way again, and the line it left stands where it was, the same line.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'desc' }]);
+      await turns();
+      expect(cellsOf(element)).toEqual([['Vega', 'Client c-2']]);
+      expect([clientsAsked, answer.length, read()]).toEqual([2, 1, 'loading']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+
+      // Refused again: still the one line, never taken away in between.
+      answer[0](refused);
+      await turns();
+      expect(read()).toBe('error');
+      expect(noticesOf(element)).toEqual([sentence]);
+      expect(element.querySelector('.notice[role="status"]')).toBe(line);
+
+      // Asked a third time, it answers: the line is there while it is asked, and gone once it has answered.
+      fixture.componentInstance.onSortChange([{ field: 'name', direction: 'asc' }]);
+      await turns();
+      expect([clientsAsked, answer.length, read()]).toEqual([3, 2, 'loading']);
+      expect(noticesOf(element)).toEqual([sentence]);
+      answer[1]({ status: 200, body: [{ id: 'c-1', name: 'Corvid Lines' }], headers: { 'total-count': '1' } });
+      await turns();
+      expect(read()).toBe('resolved');
+      expect(noticesOf(element)).toEqual([]);
+      expect(cellsOf(element)).toEqual([['Kestrel', 'Corvid Lines']]);
+      // Each refusal went to the console once: the line that stood through the second ask wrote nothing more.
+      expect(written(consoleError)).toEqual([
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+        `Ships: the records read for Clients::id could not be loaded: ${refusal}`,
+      ]);
+    });
+
+    it('says nothing above a list whose related read answered, and writes nothing to the console', async () => {
       const element = await shipsUnder({
         status: 200,
         body: [{ id: 'c-1', name: 'Corvid Lines' }],
@@ -493,6 +643,51 @@ describe('ResourceListComponent', () => {
         ['Vega', 'Nobody'],
       ]);
       expect(noticesOf(element)).toEqual([]);
+      expect(written(consoleError)).toEqual([]);
+    });
+
+    describe('says in its own words that the list itself could not be read', () => {
+      const cases: { name: string; answer: TransportResponse; want: string }[] = [
+        {
+          name: 'a list the person may not see',
+          answer: {
+            status: 403,
+            body: {
+              message: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Ships]',
+            },
+          },
+          want: 'You do not have permission to see this list.',
+        },
+        {
+          name: 'a list asked for in a way the server would not serve',
+          answer: { status: 400, body: { message: 'filter: unknown field "ownerId" in clause "ownerId:eq:9"' } },
+          want: 'This list could not be loaded the way it was asked for. Try changing its filters or how it is sorted.',
+        },
+        {
+          name: 'a list the server could not serve',
+          answer: {
+            status: 500,
+            body: { message: 'spanner: code = "Unavailable", desc = "the session pool is closed"' },
+          },
+          want: 'This list could not be loaded.',
+        },
+      ];
+
+      for (const tt of cases) {
+        it(tt.name, async () => {
+          await create({ primaryResource: ships, listColumns: [{ id: 'name' as FieldName }] }, [], () => tt.answer);
+          fixture.detectChanges();
+          await settle();
+          const element = fixture.nativeElement as HTMLElement;
+          expect(element.querySelector('tr.no-records-row .impulse-grid-across')?.textContent?.trim()).toBe(tt.want);
+          expect(element.textContent).not.toMatch(
+            /scope \(|user \(|3f2a9c1e|does not have|\[Ships\]|ownerId|spanner|session pool/,
+          );
+          expect(written(consoleError)).toEqual([
+            `Ships: the list could not be loaded: ${(tt.answer.body as { message: string }).message}`,
+          ]);
+        });
+      }
     });
   });
 
@@ -1251,14 +1446,41 @@ describe('ResourceListComponent', () => {
       expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
     });
 
-    it('sorts and filters as the page asks, and a click on the tenant column sorts nothing', async () => {
+    it('sorts as the page asks, and draws the heading of the tenant column as words: nothing to press, so no sort to lose', async () => {
       await page(missions, { sorts: [{ field: 'title' as FieldName, direction: 'desc' }], pageSize: 10 });
       fixture.detectChanges();
       await settle();
-      fixture.componentInstance.onSortChange([{ field: 'zzTenant', direction: 'asc' }]);
+      const element = fixture.nativeElement as HTMLElement;
+      const headings = (): string[] =>
+        Array.from(element.querySelectorAll('th.data-col'))
+          .filter((th) => th.querySelector('.col-header'))
+          .map(
+            (th) =>
+              `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}`,
+          );
+
+      // The tenant is not a field of the resource, so the server sorts by none: its
+      // heading is words, as a column that opts out of sorting is drawn, and the grid
+      // keeps no room for a sort arrow beside words. A field of the resource is pressed.
+      expect(fixture.componentInstance.columns()[0]).toMatchObject({ id: 'zzTenant', sortable: false });
+      expect(headings()).toEqual(['Sector: words', 'Title: a button', 'Fee: a button']);
+
+      // A click on those words asks for nothing, and the order the page asked for stands.
+      (element.querySelector('th.data-col .header-words') as HTMLElement).click();
       fixture.detectChanges();
       await settle();
+      expect(fixture.componentInstance.store.sorts()).toEqual([{ field: 'title', direction: 'desc' }]);
+      expect(listRequests().map((request) => decodeURIComponent(request.url))).toEqual([
+        '/api/missions?sort=title:desc&limit=10&count=true',
+      ]);
 
+      // A press on a field's heading sorts by it, as on any list.
+      const title = Array.from(element.querySelectorAll<HTMLElement>('th.data-col button.header-label')).find(
+        (button) => button.textContent?.includes('Title'),
+      );
+      title?.click();
+      fixture.detectChanges();
+      await settle();
       expect(listRequests().map((request) => decodeURIComponent(request.url))).toEqual([
         '/api/missions?sort=title:desc&limit=10&count=true',
         '/api/missions?limit=10&count=true',

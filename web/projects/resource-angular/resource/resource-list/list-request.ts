@@ -166,25 +166,29 @@ export function pageLabel(offset: number, rows: number, total: number | undefine
 export const noRecordsFound = 'No records found';
 
 /**
- * What the empty table says: the refusal when the digest leaves no column, the server's
- * own message when it refused the request (a 403 on the list, a 400 on a filter or page
- * size it will not serve) or the request failed, otherwise the page's own sentence for a
- * list that holds nothing (`empty`, the config's `emptyMessage`, which the list hands
- * over only while nothing narrows it), else the plain empty-list text. A refusal must
- * never read as an empty list.
+ * What the empty table says: the refusal when the digest leaves no column; that the person
+ * may not see the list when the server refused it (a 403); that the list could not be
+ * loaded the way it was asked for when the server would not serve the request (a 400 on a
+ * filter, a sort or a page size), with what a person can try, a filter and a sort being
+ * theirs to change; that it could not be loaded when the request failed; otherwise
+ * the page's own sentence for a list that holds nothing (`empty`, the config's
+ * `emptyMessage`, which the list hands over only while nothing narrows it), else the plain
+ * empty-list text. A refusal must never read as an empty list. The words are the page's,
+ * never the server's: what the server says of a refusal names ids and permissions, which
+ * is for the console, where the list logs it, and not for the screen.
  */
 export function listEmptyMessage(error: unknown, noListableColumns: boolean, empty?: string): string {
   if (noListableColumns) {
     return 'Your permissions cover none of the columns on this page.';
   }
   if (error instanceof ApiError && error.status === 403) {
-    return `This list is not available to you: ${error.message}`;
+    return 'You do not have permission to see this list.';
   }
   if (error instanceof ApiError && error.status === 400) {
-    return `The server refused this list's request: ${error.message}`;
+    return 'This list could not be loaded the way it was asked for. Try changing its filters or how it is sorted.';
   }
   if (error) {
-    return `This list could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
+    return 'This list could not be loaded.';
   }
   return empty || noRecordsFound;
 }
@@ -192,9 +196,11 @@ export function listEmptyMessage(error: unknown, noListableColumns: boolean, emp
 /**
  * What a list says above its rows when it could not read the records some of its columns
  * name (a related record's name, read by the keys the rows carry): the columns, by their
- * headings, and the server's own message when it refused the read (a 403: the caller holds
- * no List on the record) or the read failed. The rows are drawn all the same, each such
- * cell saying what the page gives for a row whose record is not read.
+ * headings, and which of the two it was, that the person may not see those records (the
+ * server refused the read with a 403: the caller holds no List on the record) or that the
+ * read failed. The words are the page's, never the server's, as the empty table's are. The
+ * rows are drawn all the same, each such cell saying what the page gives for a row whose
+ * record is not read.
  */
 export function relatedUnreadMessage(error: unknown, headings: readonly string[]): string {
   const columns =
@@ -202,7 +208,7 @@ export function relatedUnreadMessage(error: unknown, headings: readonly string[]
       ? `the ${headings[0]} column`
       : `the ${headings.slice(0, -1).join(', ')} and ${headings.at(-1)} columns`;
   if (error instanceof ApiError && error.status === 403) {
-    return `The records named in ${columns} are not available to you: ${error.message}`;
+    return `You do not have permission to see the records named in ${columns}.`;
   }
-  return `The records named in ${columns} could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
+  return `The records named in ${columns} could not be loaded.`;
 }

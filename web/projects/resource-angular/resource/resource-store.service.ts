@@ -383,8 +383,9 @@ export class ResourceStore {
     // No limit unless the page names one, so the descriptor's default applies; no sort
     // unless the page names one, so a declared @order applies, and a resource declaring
     // none is refused by the server until the config names a sort or a header is
-    // clicked, in the server's own words (see listEmptyMessage). The client fabricates
-    // no sort of its own.
+    // clicked: the list says it could not be loaded the way it was asked for (see
+    // listEmptyMessage) and writes the server's own words to the console. The client
+    // fabricates no sort of its own.
     const sorts = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
     const request: ListQuery<RecordData> = {
       filter: query.filter !== '' ? query.filter : undefined,

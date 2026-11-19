@@ -6,6 +6,7 @@ import {
   inject,
   Injector,
   input,
+  linkedSignal,
   OnInit,
   output,
   ResourceRef,
@@ -226,24 +227,53 @@ export class ResourceListComponent implements OnInit {
   notice = computed(() => this.config()?.notice?.(this.store.page().rows) ?? '');
 
   /**
-   * What the list could not read of the records its columns name: one sentence for each
+   * The related reads the server refused or that failed, each by its key with what the
+   * read ended in. A read asked again stays here while it is on its way: a page turn, a
+   * sort or a filter brings other rows, so other keys to read, and the read that could not
+   * be made a moment ago is the same read, most often with the same answer. It leaves when
+   * it answers.
+   */
+  private unanswered = linkedSignal<{ refKey: string; status: string; error: unknown }[], Map<string, unknown>>({
+    source: () =>
+      [...this.resourceRefMap()].map(([refKey, ref]) => ({
+        refKey,
+        status: ref.status(),
+        error: ref.status() === 'error' ? ref.error() : undefined,
+      })),
+    computation: (reads, previous) => {
+      const unanswered = new Map<string, unknown>();
+      for (const read of reads) {
+        if (read.status === 'error') {
+          unanswered.set(read.refKey, read.error);
+        } else if ((read.status === 'loading' || read.status === 'reloading') && previous?.value.has(read.refKey)) {
+          unanswered.set(read.refKey, previous.value.get(read.refKey));
+        }
+      }
+      return unanswered;
+    },
+  });
+
+  /**
+   * What the list could not read of the records its columns name: a sentence for each
    * related read the server refused or that failed, naming the shown columns it fills by
    * their headings. Such a read is over, so the list is drawn with the rows it has, and
-   * the sentences stand above them until the read is asked again and answers.
+   * its sentence stands above them, standing still while the read is asked again, until
+   * the read answers. Two reads that come to the same sentence (two columns under one
+   * heading, each naming another record) say it once.
    */
   unread = computed<string[]>(() => {
-    const sentences: string[] = [];
-    for (const [refKey, ref] of this.resourceRefMap()) {
-      if (ref.status() !== 'error') {
-        continue;
-      }
+    const sentences = new Set<string>();
+    for (const [refKey, error] of this.unanswered()) {
       const headings = this.headingsOver(refKey);
       if (headings.length > 0) {
-        sentences.push(relatedUnreadMessage(ref.error(), headings));
+        sentences.add(relatedUnreadMessage(error, headings));
       }
     }
-    return sentences;
+    return [...sentences];
   });
+
+  /** The refusals and failures already written to the console, so each is written once. */
+  private logged = new WeakSet<object>();
 
   indentTitle = computed(() => {
     if (this.config() === undefined) {
@@ -496,11 +526,14 @@ export class ResourceListComponent implements OnInit {
   );
 
   /**
-   * What the empty table says: the refusal when the digest leaves no column, the server's
-   * own message when the request was refused (the list, a filter, or a page size) or
-   * failed, otherwise the page's own sentence for a list that holds nothing (the config's
-   * `emptyMessage`), said only while neither a column filter nor the search box narrows
-   * the list, else the plain empty-list text. A refusal must never read as an empty list.
+   * What the empty table says: the refusal when the digest leaves no column; in the page's
+   * own words, that the person may not see the list, that it could not be loaded the way
+   * it was asked for (a filter, a sort or a page size) or that it could not be loaded, when the
+   * request was refused or failed; otherwise the page's own sentence for a list that holds
+   * nothing (the config's `emptyMessage`), said only while neither a column filter nor the
+   * search box narrows the list, else the plain empty-list text. A refusal must never read
+   * as an empty list, and what the server said of it is written to the console, never to
+   * the screen.
    */
   emptyMessage = computed(() =>
     listEmptyMessage(
@@ -568,9 +601,7 @@ export class ResourceListComponent implements OnInit {
 
   /** A header click: the sorts to request next; the store drops the cursor and asks for a first page. */
   onSortChange(sorts: SortRule[]): void {
-    // The tenant column of a list across tenants is not a field of the resource: a
-    // click on its header sorts nothing.
-    this.store.sorts.set((sorts as FieldSort[]).filter((sort) => (sort.field as string) !== TenantProperty));
+    this.store.sorts.set(sorts as FieldSort[]);
   }
 
   /**
@@ -649,11 +680,14 @@ export class ResourceListComponent implements OnInit {
 
     if (this.across()) {
       // Each row of a list across tenants says which tenant it is in: the first column
-      // names it, under the application's word for a tenant.
+      // names it, under the application's word for a tenant. The tenant is not a field of
+      // the resource, so the server sorts by none: the heading is words, with nothing to
+      // press and no room kept for a sort arrow.
       usedIds.add(TenantProperty);
       columns.push({
         id: TenantProperty as FieldName,
         header: tenantWord(this.store.client.descriptor),
+        sortable: false,
         filterable: false,
         valueFormatter: (tenant: DataType | null): string =>
           tenant ? this.store.client.permissions.domainName(tenant as Domain) : '',
@@ -1025,6 +1059,18 @@ export class ResourceListComponent implements OnInit {
     return `${resource}::${keyField}`;
   }
 
+  /** Whether a refusal or failure is seen for the first time; from then on it is known. */
+  private firstSeen(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) {
+      return true;
+    }
+    if (this.logged.has(error)) {
+      return false;
+    }
+    this.logged.add(error);
+    return true;
+  }
+
   /** The headings, as the table draws them, of the shown columns that name a record of the related read under the key. */
   private headingsOver(refKey: string): string[] {
     const headings: string[] = [];
@@ -1141,6 +1187,22 @@ export class ResourceListComponent implements OnInit {
           signal([...entry.columns]),
         );
         this.resourceRefMap.update((map) => new Map(map).set(refKey, ref));
+      });
+
+      effect(() => {
+        // What the server said of a list or of a related read it refused, or how the read
+        // failed, is for whoever looks into it: it is written to the console, once, with
+        // the resource and the read it belongs to. The screen says it in the page's words.
+        const resource = this.config().primaryResource;
+        const pageError: unknown = this.store.pageError();
+        if (pageError && this.firstSeen(pageError)) {
+          console.error(`${resource}: the list could not be loaded:`, pageError);
+        }
+        for (const [refKey, error] of this.unanswered()) {
+          if (this.firstSeen(error)) {
+            console.error(`${resource}: the records read for ${refKey} could not be loaded:`, error);
+          }
+        }
       });
 
       effect(() => {
