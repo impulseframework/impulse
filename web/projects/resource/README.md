@@ -674,7 +674,8 @@ server's hook seats the person: a password sign-in or sign-up by whoever holds t
 directory sign-in, or a password sign-in by an account that holds an address, only as the
 invited address (another address is refused with `invitation_address`, the invitation still
 standing; an account with no address accepts by the link). A directory sign-in that asserts
-no address is held for the sign-in code, which the server mails to the invited address: the
+no address, or one its method did not verify (the invited one or another), is held for the
+sign-in code where the server sends mail, which it mails to the invited address: the
 pending step's `emailCode` names it masked and never asks for one (`enrollEmail` is false), and
 `verifyCode` accepts the invitation. `signInUrl(method, returnUrl, {
 loginHint })` names the account the provider should take, which a login page sets to the

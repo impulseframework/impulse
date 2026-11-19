@@ -1147,7 +1147,7 @@ class SideBuilder {
    * for the whole application), and the role field's picker lists the roles that exist
    * there that the caller could give (the generated list of the roles to give, filtered
    * by the place). A dialog of the invitation, which names no "every tenant", lists the
-   * roles of the whole application and of every tenant until a tenant is chosen. A
+   * roles of the whole application alone until a tenant is chosen (heldWhere). A
    * tenant's own dialogs pick from that tenant's roles, and an application without
    * tenants holds every role for the whole application: neither narrows.
    */
@@ -1293,11 +1293,6 @@ class SideBuilder {
 }
 
 /**
- * Whether who signs in through a method is decided outside this page: by the directory
- * that gives the roles, or by the account rule the registration carries in the
- * application's code. Such a method is neither opened to sign-up nor made invite only.
- */
-/**
  * The filter the list of the roles to give is asked with for where a role is to be held,
  * from the dialog's values: one tenant's roles where a tenant is chosen; where none is,
  * the roles held in every tenant or for the whole application as "In every tenant" says,
@@ -1314,6 +1309,11 @@ function heldWhere(values: RecordData): string {
   return `everyDomain:eq:${values['everyDomain'] === true}`;
 }
 
+/**
+ * Whether who signs in through a method is decided outside this page: by the directory
+ * that gives the roles, or by the account rule the registration carries in the
+ * application's code. Such a method is neither opened to sign-up nor made invite only.
+ */
 function decidedElsewhere(row: RecordData): boolean {
   return row['directoryGivesRoles'] === true || row['ownRule'] === true;
 }
