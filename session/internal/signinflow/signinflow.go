@@ -1026,40 +1026,15 @@ func resolveIn[Tx any](
 		signUpRole string
 	)
 	if link != nil {
-		user, err := d.UserIn(ctx, tx, link.UserID)
-		if err != nil {
-			return "", "", nil, nil, errors.Wrap(err, "Driver.UserIn()")
-		}
-		req.UserID, req.Username = link.UserID, user.Username
-		if acceptsByCode(req, rules.ConfirmAddress) && !user.Disabled {
-			if stop, err := linkedAcceptsByCode(ctx, d, tx, req, user); err != nil || stop != nil {
-				return "", "", nil, stop, err
-			}
-		}
-		if err := d.TouchIdentityIn(ctx, tx, link.ID); err != nil {
-			return "", "", nil, nil, errors.Wrap(err, "Driver.TouchIdentityIn()")
-		}
-		if link.Tenant != nil {
-			tenant = *link.Tenant
-		}
 		source = sessioninfo.UserExistingLink
-		if !user.Disabled {
-			if live, err = consumeInvitation(ctx, d, tx, req, provenAddress(req, rules.ConfirmAddress) != ""); err != nil {
-				return "", "", nil, nil, err
-			}
-		}
+		tenant, live, stop, err = resolveLinked(ctx, d, tx, req, link, rules.ConfirmAddress)
 	} else {
-		if acceptsByCode(req, rules.ConfirmAddress) && !req.Invitation.AddressProven {
-			// Nobody is made or linked before the code mailed to the invited address is
-			// entered. Once it is, the rules know the person by that address
-			// (provenAddress).
-			return "", "", nil, invitedCodeWait(), nil
-		}
-		resolved, stop, err := resolveUnlinked(ctx, d, tx, req, rules)
-		if err != nil || stop != nil {
-			return "", "", nil, stop, err
-		}
+		var resolved unlinkedUser
+		resolved, stop, err = resolveUnlinked(ctx, d, tx, req, rules)
 		source, tenant, seats, live, signUpRole = resolved.source, resolved.tenant, resolved.seats, resolved.live, resolved.signUpRole
+	}
+	if err != nil || stop != nil {
+		return "", "", nil, stop, err
 	}
 	if live {
 		seats = seatsBeyondInvitation(seats, req.Invitation)
@@ -1092,6 +1067,42 @@ func resolveIn[Tx any](
 	return source, tenant, committed, nil, nil
 }
 
+// resolveLinked resolves an identity that is linked to a user, link: the user is named
+// on the request and the link's LastUsedAt is touched. An invitation the sign-in carries
+// is consumed for the user, live reporting that it was, once its acceptance is decided
+// where it rests on the code mailed to the invited address (linkedAcceptsByCode, on an
+// Auth that sends mail, confirm), and not for a disabled user, who is refused once the
+// sign-in is decided. tenant is the link's tenant key.
+func resolveLinked[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, link *dbtype.SessionIdentity, confirm bool,
+) (tenant string, live bool, stop, err error) {
+	user, err := d.UserIn(ctx, tx, link.UserID)
+	if err != nil {
+		return "", false, nil, errors.Wrap(err, "Driver.UserIn()")
+	}
+	req.UserID, req.Username = link.UserID, user.Username
+	if acceptsByCode(req, confirm) && !user.Disabled {
+		if stop, err := linkedAcceptsByCode(ctx, d, tx, req, user); err != nil || stop != nil {
+			return "", false, stop, err
+		}
+	}
+	if err := d.TouchIdentityIn(ctx, tx, link.ID); err != nil {
+		return "", false, nil, errors.Wrap(err, "Driver.TouchIdentityIn()")
+	}
+	if link.Tenant != nil {
+		tenant = *link.Tenant
+	}
+	if user.Disabled {
+		return tenant, false, nil, nil
+	}
+	live, err = consumeInvitation(ctx, d, tx, req, provenAddress(req, confirm) != "")
+	if err != nil {
+		return "", false, nil, err
+	}
+
+	return tenant, live, nil, nil
+}
+
 // unlinkedUser is how an identity linked to no user resolved: the user's source and
 // the tenant key for the link, the default seats the user is granted in the transaction
 // that makes the link, whether the invitation the sign-in carries is live, and the
@@ -1106,10 +1117,17 @@ type unlinkedUser struct {
 }
 
 // resolveUnlinked resolves an identity that is linked to no user: the account rules
-// decide it and their answer is applied.
+// decide it and their answer is applied. An acceptance that rests on the code mailed to
+// the invited address (acceptsByCode) waits for it first, with nothing read or written.
 func resolveUnlinked[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
 ) (resolved unlinkedUser, stop, err error) {
+	if acceptsByCode(req, rules.ConfirmAddress) && !req.Invitation.AddressProven {
+		// Nobody is made or linked before the code mailed to the invited address is
+		// entered. Once it is, the rules know the person by that address
+		// (provenAddress).
+		return unlinkedUser{}, invitedCodeWait(), nil
+	}
 	decided, stop, err := decideAccount(ctx, d, tx, req, rules)
 	if err != nil || stop != nil {
 		return unlinkedUser{}, stop, err

@@ -128,21 +128,9 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 	// The invitation the browser opened, if any, goes with the sign-in: the store
 	// accepts it once the user is known.
-	inv, err := a.invitationOf(ctx)
+	inv, err := a.invitationCarried(ctx, at)
 	if err != nil {
 		return nil, err
-	}
-	if inv == nil && at.acceptsInvitation {
-		// The code was mailed for an invitation that no longer stands (used, withdrawn or
-		// run out since the wait began). It proves nothing else: not the address of an
-		// account the sign-in would otherwise make or find, and no second factor of
-		// one. Nothing is resolved or written.
-		return nil, signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used")
-	}
-	if inv != nil {
-		// The code the person entered was mailed to the invited address, or it proves
-		// nothing about the invitation.
-		inv.AddressProven = at.codeEmail != "" && strings.EqualFold(strings.TrimSpace(at.codeEmail), strings.TrimSpace(inv.Email))
 	}
 	req.Invitation = inv
 
@@ -223,6 +211,34 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: events})
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
+}
+
+// invitationCarried returns the live invitation the browser carries as the sign-in at
+// takes it to the store, nil for none: told whether the person entered, in this
+// sign-in, the code mailed to the invited address (Invitation.AddressProven). A sign-in
+// that completes the wait of an invitation's acceptance and finds the invitation gone
+// is refused before anything is resolved or written.
+func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttempt) (*sessioninfo.Invitation, error) {
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if inv == nil {
+		if at.acceptsInvitation {
+			// The code was mailed for an invitation that no longer stands (used, withdrawn
+			// or run out since the wait began). It proves nothing else: not the address of
+			// an account the sign-in would otherwise make or find, and no second factor
+			// of one.
+			return nil, signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used")
+		}
+
+		return nil, nil
+	}
+	// The code the person entered was mailed to the invited address, or it proves
+	// nothing about the invitation.
+	inv.AddressProven = at.codeEmail != "" && strings.EqualFold(strings.TrimSpace(at.codeEmail), strings.TrimSpace(inv.Email))
+
+	return inv, nil
 }
 
 // passwordNoLongerHeld answers a sign-in that rested on a password proof and found the

@@ -98,6 +98,53 @@ func testUnverifiedClaimFindsNoAccount(ctx context.Context, t *testing.T, h *Aut
 	assertEmail(t, "the account that holds the address", mustUser(ctx, t, in.Driver, ivy.ID), strPtr(address), true)
 }
 
+// noAddress is a person the directory presents under signInName and asserts no address
+// for, as Microsoft Entra ID does unless its registration is set up to send one.
+func noAddress(subject, signInName string) *sessioninfo.Identity {
+	identity := entra(subject, signInName)
+	identity.Email = ""
+
+	return identity
+}
+
+// withInvitedCode is the sign-in of identity that carries the code mailed to the invited
+// address of the invitation link: the one that completes the wait of an acceptance that
+// rests on the code.
+func withInvitedCode(identity *sessioninfo.Identity, link *dbtype.MailLink) *sessioninfo.NewSessionRequest {
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: identity, Invitation: invitationOf(link), AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, {Method: sessioninfo.MethodEmailCode}}}
+	req.Invitation.AddressProven = true
+
+	return req
+}
+
+// userHolding creates a user named username who holds email, confirmed when confirmed
+// says so, with no password and no identity: an account nobody signs in to yet.
+func userHolding(ctx context.Context, t *testing.T, d AuthDriver, username, email string, confirmed bool) *dbtype.SessionUser {
+	t.Helper()
+
+	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: username, Email: &email, EmailVerified: confirmed}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser(%q) error = %v", username, err)
+	}
+
+	return user
+}
+
+// assertInvitationStands fails unless link is still live on the instance and the sign-in
+// did not accept it. It does not read the acceptor's record as assertInvitationKept
+// does: the record is kept under the address, which an earlier acceptance of the same
+// test may hold.
+func assertInvitationStands(ctx context.Context, t *testing.T, what string, on *AuthInstance, link *dbtype.MailLink, inv *sessioninfo.Invitation) {
+	t.Helper()
+
+	if _, err := on.Driver.MailLinkByToken(ctx, link.TokenHash, time.Now()); err != nil {
+		t.Errorf("%s: MailLinkByToken() error = %v, want the invitation still live", what, err)
+	}
+	if inv.Accepted {
+		t.Errorf("%s: Invitation.Accepted = true, want false", what)
+	}
+}
+
 // testInvitationByCode runs the acceptance of an invitation through a directory that
 // asserts no address, as Microsoft Entra ID does unless its registration is set up to
 // send one, on an Auth that sends mail. Such a sign-in has no address to compare with
@@ -112,68 +159,26 @@ func testUnverifiedClaimFindsNoAccount(ctx context.Context, t *testing.T, h *Aut
 // none, and never when it holds another confirmed address or another account holds the
 // invited one.
 //
-// An account that already holds the invited address, which the identity is not linked
-// to, is the person's under the rules of any link, and the code adds no way in to an
-// account somebody can already sign in to: with a password it waits for the password;
-// without one, an account that signs in through an identity is refused the new one,
-// of another connection or of its own; and an account nobody signs in to yet takes
-// its first identity from the person who holds its invitation.
-//
-// The account that holds the invited address is the one invited whether or not the
-// address was ever confirmed (an administrator entered it): the code finds that account
-// and makes no second one. Where the usernames are the addresses, the invited address
-// is the account's under that name alone.
-//
-// The code is the proof of the invitation's acceptance and of nothing else: a sign-in
-// that carries it and finds the invitation dead is refused, with nothing written.
-//
-// An Auth that sends no mail has no code to mail: such a sign-in is refused there, as
-// one whose address is not the invited one.
+// The rest of the acceptance by code is held by the tests beside this one: what the
+// code does for an account that already holds the invited address
+// (testInvitationByCodeAddressHeld), which account is not the one invited
+// (testInvitationByCodeNotTheInvited), and that the code proves its invitation's
+// acceptance and nothing else (testInvitationByCodeAlone).
 func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
-	// The directory presents a person under their sign-in name and asserts no address.
-	person := func(subject, signInName string) *sessioninfo.Identity {
-		identity := entra(subject, signInName)
-		identity.Email = ""
-
-		return identity
-	}
-	waits := func(what string, err error) {
-		t.Helper()
-		var wait *signin.PendingSignInError
-		if !errors.As(err, &wait) || wait.Reason != sessioninfo.PendingMFA || wait.UserID.Valid || wait.Username != "" {
-			t.Fatalf("%s: sign-in error = %v, want the sign-in held for the code, naming no user", what, err)
-		}
-		if len(wait.Factors) != 1 || wait.Factors[0] != sessioninfo.MethodEmailCode {
-			t.Errorf("%s: the wait accepts %v, want the mailed code alone", what, wait.Factors)
-		}
-	}
-
-	// stands fails unless the invitation is still live and unaccepted. The acceptor's
-	// record is kept under the address, which an earlier acceptance here may hold.
-	stands := func(what string, on *AuthInstance, link *dbtype.MailLink, inv *sessioninfo.Invitation) {
-		t.Helper()
-		if _, err := on.Driver.MailLinkByToken(ctx, link.TokenHash, time.Now()); err != nil {
-			t.Errorf("%s: MailLinkByToken() error = %v, want the invitation still live", what, err)
-		}
-		if inv.Accepted {
-			t.Errorf("%s: Invitation.Accepted = true, want false", what)
-		}
-	}
 
 	// A new person: held, with nothing written, until the sign-in carries the proof.
 	const invited = "nell@north.example"
-	nell := person("oid-nell", "nell@corp.example")
+	nell := noAddress("oid-nell", "nell@corp.example")
 	link := insertInvitation(ctx, t, in.Driver, invited, "lakeside", []string{"Teacher"}, tokenHash(1))
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: nell, Invitation: invitationOf(link)}
-	waits("a new person without the code", signInRequest(ctx, in, req))
+	assertWaitsForInvitedCode(t, "a new person without the code", signInRequest(ctx, in, req))
 	assertInvitationKept(ctx, t, in, rec, link, req.Invitation)
 	assertNoUser(ctx, t, in.Driver, nell.SignInName)
 	assertNoLink(ctx, t, in.Driver, nell)
 
-	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: nell, Invitation: invitationOf(link), AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, {Method: sessioninfo.MethodEmailCode}}}
-	req.Invitation.AddressProven = true
+	req = withInvitedCode(nell, link)
 	err := signInRequest(ctx, in, req)
 	assertProvisioned(ctx, t, in.Driver, err, req, nell, "tenant-1")
 	if !req.Invitation.Accepted {
@@ -211,15 +216,14 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// acceptance that carries it writes the invited address on the account.
 	const late = "omar@north.example"
 	omar := createUser(ctx, t, in.Driver, "omar@corp.example")
-	omarIdentity := person("oid-omar", "omar@corp.example")
+	omarIdentity := noAddress("oid-omar", "omar@corp.example")
 	mustLink(ctx, t, in.Driver, omar.ID, omarIdentity)
 	lateLink := insertInvitation(ctx, t, in.Driver, late, "", []string{"Admin"}, tokenHash(4))
 	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: omarIdentity, Invitation: invitationOf(lateLink)}
-	waits("a linked account with no confirmed address, without the code", signInRequest(ctx, in, req))
+	assertWaitsForInvitedCode(t, "a linked account with no confirmed address, without the code", signInRequest(ctx, in, req))
 	assertInvitationKept(ctx, t, in, rec, lateLink, req.Invitation)
 	assertEmail(t, "the linked account before the code", mustUser(ctx, t, in.Driver, omar.ID), nil, false)
-	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: omarIdentity, Invitation: invitationOf(lateLink), AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, {Method: sessioninfo.MethodEmailCode}}}
-	req.Invitation.AddressProven = true
+	req = withInvitedCode(omarIdentity, lateLink)
 	if err := signInRequest(ctx, in, req); err != nil || !req.Invitation.Accepted {
 		t.Fatalf("the linked account's acceptance with the code: error = %v, accepted = %v, want accepted", err, req.Invitation.Accepted)
 	}
@@ -228,52 +232,49 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// A linked account with no confirmed address is not the one invited where another
 	// account holds the invited address.
 	quinn := createUser(ctx, t, in.Driver, "quinn@corp.example")
-	quinnIdentity := person("oid-quinn", "quinn@corp.example")
+	quinnIdentity := noAddress("oid-quinn", "quinn@corp.example")
 	mustLink(ctx, t, in.Driver, quinn.ID, quinnIdentity)
 	held := insertInvitation(ctx, t, in.Driver, late, "", []string{"Admin"}, tokenHash(5))
 	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: quinnIdentity, Invitation: invitationOf(held)}
 	req.Invitation.AddressProven = true
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-	stands("the invitation to an address another account holds", in, held, req.Invitation)
+	assertInvitationStands(ctx, t, "the invitation to an address another account holds", in, held, req.Invitation)
+}
 
-	// An account that already holds the invited address, which the identity is not
-	// linked to, is the person's under the rules of any link: the code proves the address
-	// and adds no way in to an account somebody can already sign in to. proven is the
-	// sign-in that carries the code, for the invitation link.
-	proven := func(identity *sessioninfo.Identity, link *dbtype.MailLink) *sessioninfo.NewSessionRequest {
-		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: identity, Invitation: invitationOf(link), AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, {Method: sessioninfo.MethodEmailCode}}}
-		req.Invitation.AddressProven = true
-
-		return req
-	}
-	holds := func(username, email string) *dbtype.SessionUser {
-		t.Helper()
-		user, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: username, Email: &email, EmailVerified: true}, nil)
-		if err != nil {
-			t.Fatalf("CreateUser(%q) error = %v", username, err)
-		}
-
-		return user
-	}
+// testInvitationByCodeAddressHeld runs the acceptance that rests on the mailed code
+// (testInvitationByCode) where an account the identity is not linked to already holds
+// the invited address. That account is the person's under the rules of any link, and
+// the code adds no way in to an account somebody can already sign in to: with a
+// password it waits for the password; without one, an account that signs in through an
+// identity is refused the new one, of another connection or of its own; and an account
+// nobody signs in to yet takes its first identity from the person who holds its
+// invitation.
+//
+// The account that holds the invited address is the one invited whether or not the
+// address was ever confirmed (an administrator entered it): the code finds that account
+// and makes no second one.
+func testInvitationByCodeAddressHeld(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newAcceptances()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
 
 	// With a password, the new connection's identity waits for the password.
 	guarded := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
 	const taken = "pat@north.example"
 	holder := addressHolder(ctx, t, guarded.Driver, taken, true, true)
-	stranger := person("oid-pat", "pat@corp.example")
+	stranger := noAddress("oid-pat", "pat@corp.example")
 	takenLink := insertInvitation(ctx, t, guarded.Driver, taken, "", []string{"Admin"}, tokenHash(6))
-	req = proven(stranger, takenLink)
+	req := withInvitedCode(stranger, takenLink)
 	assertConfirmationPending(ctx, t, guarded.Driver, signInRequest(ctx, guarded, req), stranger, holder, "tenant-1")
 	assertInvitationKept(ctx, t, guarded, rec, takenLink, req.Invitation)
 
 	// Without a password, an account that signs in through another connection has
 	// nothing to confirm the link with, and the identity is refused.
 	const ruthAddress = "ruth@north.example"
-	ruth := holds("ruth", ruthAddress)
+	ruth := userHolding(ctx, t, in.Driver, "ruth", ruthAddress, true)
 	mustLink(ctx, t, in.Driver, ruth.ID, google("google-ruth", ruthAddress))
-	ruthIdentity := person("oid-ruth", "ruth@corp.example")
+	ruthIdentity := noAddress("oid-ruth", "ruth@corp.example")
 	ruthLink := insertInvitation(ctx, t, in.Driver, ruthAddress, "", []string{"Admin"}, tokenHash(7))
-	req = proven(ruthIdentity, ruthLink)
+	req = withInvitedCode(ruthIdentity, ruthLink)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection)
 	assertInvitationKept(ctx, t, in, rec, ruthLink, req.Invitation)
 	assertNoLink(ctx, t, in.Driver, ruthIdentity)
@@ -281,11 +282,11 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// Nor is a second identity of the connection the account already signs in through
 	// linked on the code: that takes the directory's own word for the address.
 	const samAddress = "sam@north.example"
-	sam := holds("sam", samAddress)
-	mustLink(ctx, t, in.Driver, sam.ID, person("oid-sam-first", "sam.first@corp.example"))
-	samIdentity := person("oid-sam-second", "sam.second@corp.example")
+	sam := userHolding(ctx, t, in.Driver, "sam", samAddress, true)
+	mustLink(ctx, t, in.Driver, sam.ID, noAddress("oid-sam-first", "sam.first@corp.example"))
+	samIdentity := noAddress("oid-sam-second", "sam.second@corp.example")
 	samLink := insertInvitation(ctx, t, in.Driver, samAddress, "", []string{"Admin"}, tokenHash(8))
-	req = proven(samIdentity, samLink)
+	req = withInvitedCode(samIdentity, samLink)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedIdentityRejected, signin.ErrLinkSecondIdentity)
 	assertInvitationKept(ctx, t, in, rec, samLink, req.Invitation)
 	assertNoLink(ctx, t, in.Driver, samIdentity)
@@ -294,10 +295,10 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// identity from the person who holds its own invitation, as it does through any
 	// method, and no second account is made for the address.
 	const toriAddress = "tori@north.example"
-	tori := holds("tori", toriAddress)
-	toriIdentity := person("oid-tori", "tori@corp.example")
+	tori := userHolding(ctx, t, in.Driver, "tori", toriAddress, true)
+	toriIdentity := noAddress("oid-tori", "tori@corp.example")
 	toriLink := insertInvitation(ctx, t, in.Driver, toriAddress, "", []string{"Admin"}, tokenHash(9))
-	req = proven(toriIdentity, toriLink)
+	req = withInvitedCode(toriIdentity, toriLink)
 	if err := signInRequest(ctx, in, req); err != nil || !req.Invitation.Accepted || req.UserID != tori.ID {
 		t.Fatalf("the first identity of an account nobody signs in to: error = %v, accepted = %v, user = %s, want %s accepted", err, req.Invitation.Accepted, req.UserID, tori.ID)
 	}
@@ -310,13 +311,10 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// one. An account nobody signs in to takes the identity and holds the address
 	// confirmed from then on.
 	const umaAddress = "uma@north.example"
-	uma, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "uma", Email: strPtr(umaAddress)}, nil)
-	if err != nil {
-		t.Fatalf("CreateUser(%q) error = %v", "uma", err)
-	}
-	umaIdentity := person("oid-uma", "uma@corp.example")
+	uma := userHolding(ctx, t, in.Driver, "uma", umaAddress, false)
+	umaIdentity := noAddress("oid-uma", "uma@corp.example")
 	umaLink := insertInvitation(ctx, t, in.Driver, umaAddress, "", []string{"Admin"}, tokenHash(13))
-	req = proven(umaIdentity, umaLink)
+	req = withInvitedCode(umaIdentity, umaLink)
 	if err := signInRequest(ctx, in, req); err != nil || !req.Invitation.Accepted || req.UserID != uma.ID {
 		t.Fatalf("the first identity of an account that holds the invited address unconfirmed: error = %v, accepted = %v, user = %s, want %s accepted", err, req.Invitation.Accepted, req.UserID, uma.ID)
 	}
@@ -328,35 +326,45 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	wary := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
 	const valAddress = "val@north.example"
 	val := addressHolder(ctx, t, wary.Driver, valAddress, false, true)
-	valIdentity := person("oid-val", "val@corp.example")
+	valIdentity := noAddress("oid-val", "val@corp.example")
 	valLink := insertInvitation(ctx, t, wary.Driver, valAddress, "", []string{"Admin"}, tokenHash(14))
-	req = proven(valIdentity, valLink)
+	req = withInvitedCode(valIdentity, valLink)
 	assertConfirmationPending(ctx, t, wary.Driver, signInRequest(ctx, wary, req), valIdentity, val, "tenant-1")
-	stands("the invitation to an unconfirmed address of an account with a password", wary, valLink, req.Invitation)
+	assertInvitationStands(ctx, t, "the invitation to an unconfirmed address of an account with a password", wary, valLink, req.Invitation)
 	assertNoUser(ctx, t, wary.Driver, valIdentity.SignInName)
+}
+
+// testInvitationByCodeNotTheInvited holds the acceptance that rests on the mailed code
+// (testInvitationByCode) to the account the invitation was mailed to. While another
+// account holds the invited address, confirmed or not, no other account is the one
+// invited: not one the identity is linked to, and not one the directory's name finds,
+// which with a password is refused before its password is asked for. Where the
+// usernames are the addresses, the invited address is the account's under that name
+// alone.
+func testInvitationByCodeNotTheInvited(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newAcceptances()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
 
 	// A linked account is not the one invited while another account holds the invited
 	// address, confirmed or not.
 	const xanAddress = "xan@north.example"
-	if _, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "xan", Email: strPtr(xanAddress)}, nil); err != nil {
-		t.Fatalf("CreateUser(%q) error = %v", "xan", err)
-	}
+	userHolding(ctx, t, in.Driver, "xan", xanAddress, false)
 	yan := createUser(ctx, t, in.Driver, "yan@corp.example")
-	yanIdentity := person("oid-yan", "yan@corp.example")
+	yanIdentity := noAddress("oid-yan", "yan@corp.example")
 	mustLink(ctx, t, in.Driver, yan.ID, yanIdentity)
 	xanLink := insertInvitation(ctx, t, in.Driver, xanAddress, "", []string{"Admin"}, tokenHash(15))
-	req = proven(yanIdentity, xanLink)
+	req := withInvitedCode(yanIdentity, xanLink)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-	stands("the invitation to an address another account holds unconfirmed", in, xanLink, req.Invitation)
+	assertInvitationStands(ctx, t, "the invitation to an address another account holds unconfirmed", in, xanLink, req.Invitation)
 	assertEmail(t, "the linked account that is not the one invited", mustUser(ctx, t, in.Driver, yan.ID), nil, false)
 
 	// Nor is an account the directory's name finds: it would spend an invitation that is
 	// the address holder's own, and could not take the address the code proved.
 	bea := createUser(ctx, t, in.Driver, "bea@corp.example")
-	beaIdentity := person("oid-bea", "bea@corp.example")
-	req = proven(beaIdentity, xanLink)
+	beaIdentity := noAddress("oid-bea", "bea@corp.example")
+	req = withInvitedCode(beaIdentity, xanLink)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-	stands("the invitation to an address another account holds, carried under the name of an account nobody signs in to", in, xanLink, req.Invitation)
+	assertInvitationStands(ctx, t, "the invitation to an address another account holds, carried under the name of an account nobody signs in to", in, xanLink, req.Invitation)
 	assertNoLink(ctx, t, in.Driver, beaIdentity)
 	assertEmail(t, "the account found under the directory's name", mustUser(ctx, t, in.Driver, bea.ID), nil, false)
 
@@ -371,10 +379,10 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err != nil {
 		t.Fatalf("CreateUser(%q) error = %v", "cal@corp.example", err)
 	}
-	calIdentity := person("oid-cal", "cal@corp.example")
-	req = proven(calIdentity, xanLink)
+	calIdentity := noAddress("oid-cal", "cal@corp.example")
+	req = withInvitedCode(calIdentity, xanLink)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-	stands("the invitation to an address another account holds, carried under the name of an account with a password", in, xanLink, req.Invitation)
+	assertInvitationStands(ctx, t, "the invitation to an address another account holds, carried under the name of an account with a password", in, xanLink, req.Invitation)
 	assertNoLink(ctx, t, in.Driver, calIdentity)
 	assertEmail(t, "the account with a password found under the directory's name", mustUser(ctx, t, in.Driver, cal.ID), nil, false)
 
@@ -386,43 +394,54 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	named := h.New(ctx, t, AuthUsernameIsEmail, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
 	const zoeAddress = "zoe@north.example"
 	zoeLink := insertInvitation(ctx, t, named.Driver, zoeAddress, "", []string{"Admin"}, tokenHash(16))
-	elsewhereNamed := person("oid-zoe-other", "zoe@corp.example")
-	req = proven(elsewhereNamed, zoeLink)
+	elsewhereNamed := noAddress("oid-zoe-other", "zoe@corp.example")
+	req = withInvitedCode(elsewhereNamed, zoeLink)
 	assertRefused(t, signInRequest(ctx, named, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-	stands("the invitation where the usernames are the addresses", named, zoeLink, req.Invitation)
+	assertInvitationStands(ctx, t, "the invitation where the usernames are the addresses", named, zoeLink, req.Invitation)
 	assertNoUser(ctx, t, named.Driver, elsewhereNamed.SignInName)
 	assertNoLink(ctx, t, named.Driver, elsewhereNamed)
-	zoe := person("oid-zoe", zoeAddress)
-	req = proven(zoe, zoeLink)
+	zoe := noAddress("oid-zoe", zoeAddress)
+	req = withInvitedCode(zoe, zoeLink)
 	if err := signInRequest(ctx, named, req); err != nil || !req.Invitation.Accepted {
 		t.Fatalf("the acceptance under the invited address, where the usernames are the addresses: error = %v, accepted = %v, want accepted", err, req.Invitation.Accepted)
 	}
 	assertEmail(t, "the account made under the invited address", mustUser(ctx, t, named.Driver, req.UserID), strPtr(zoeAddress), true)
+}
 
-	// The code was mailed for the invitation, and the sign-in that carries it stands on
-	// the invitation: where it is dead by the time the sign-in runs, nothing is made,
-	// linked or confirmed, though the person would be admitted without any invitation.
-	// A method open to sign-up would give a stranger an account, and a person the
-	// identity is linked to has one.
+// testInvitationByCodeAlone holds the mailed code (testInvitationByCode) to what it
+// proves: the acceptance of the invitation it was mailed for, and nothing else. The
+// sign-in that carries it stands on the invitation: where the invitation is dead by the
+// time the sign-in runs, it is refused and nothing is made, linked or confirmed, though
+// the person would be admitted without any invitation.
+//
+// An Auth that sends no mail has no code to mail: such a sign-in is refused there, as
+// one whose address is not the invited one.
+func testInvitationByCodeAlone(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newAcceptances()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, ConfirmAddress: true, Accept: rec.hook})
+
+	// Without the invitation each of these two would be admitted: a method open to
+	// sign-up gives a stranger an account, and a person the identity is linked to has
+	// one.
 	open := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, ConfirmAddress: true, Accept: rec.hook})
-	vic := person("oid-vic", "vic@corp.example")
+	vic := noAddress("oid-vic", "vic@corp.example")
 	dead := insertInvitation(ctx, t, open.Driver, "vic@north.example", "", []string{"Admin"}, tokenHash(11))
 	if err := open.Driver.ConsumeMailLink(ctx, dead.TokenHash, time.Now()); err != nil {
 		t.Fatalf("ConsumeMailLink() error = %v", err)
 	}
-	req = proven(vic, dead)
+	req := withInvitedCode(vic, dead)
 	assertRefused(t, signInRequest(ctx, open, req), sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired)
 	assertNoUser(ctx, t, open.Driver, vic.SignInName)
 	assertNoLink(ctx, t, open.Driver, vic)
 
 	wes := createUser(ctx, t, in.Driver, "wes@corp.example")
-	wesIdentity := person("oid-wes", "wes@corp.example")
+	wesIdentity := noAddress("oid-wes", "wes@corp.example")
 	mustLink(ctx, t, in.Driver, wes.ID, wesIdentity)
 	spent := insertInvitation(ctx, t, in.Driver, "wes@north.example", "", []string{"Admin"}, tokenHash(12))
 	if err := in.Driver.ConsumeMailLink(ctx, spent.TokenHash, time.Now()); err != nil {
 		t.Fatalf("ConsumeMailLink() error = %v", err)
 	}
-	req = proven(wesIdentity, spent)
+	req = withInvitedCode(wesIdentity, spent)
 	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired)
 	assertEmail(t, "the linked account whose invitation was dead", mustUser(ctx, t, in.Driver, wes.ID), nil, false)
 
@@ -430,13 +449,13 @@ func testInvitationByCode(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// refused as one whose address is not the invited one, whatever the request says of
 	// a proof, and nothing is written.
 	silent := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Accept: rec.hook})
-	una := person("oid-una", "una@corp.example")
+	una := noAddress("oid-una", "una@corp.example")
 	unaLink := insertInvitation(ctx, t, silent.Driver, "una@north.example", "", []string{"Admin"}, tokenHash(10))
 	for _, proven := range []bool{false, true} {
 		req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: una, Invitation: invitationOf(unaLink)}
 		req.Invitation.AddressProven = proven
 		assertRefused(t, signInRequest(ctx, silent, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
-		stands("the invitation on an Auth that sends no mail", silent, unaLink, req.Invitation)
+		assertInvitationStands(ctx, t, "the invitation on an Auth that sends no mail", silent, unaLink, req.Invitation)
 		assertNoUser(ctx, t, silent.Driver, una.SignInName)
 	}
 }
@@ -479,12 +498,6 @@ func testInvitationUnverifiedAddress(ctx context.Context, t *testing.T, h *AuthH
 
 		return identity
 	}
-	withCode := func(identity *sessioninfo.Identity, link *dbtype.MailLink) *sessioninfo.NewSessionRequest {
-		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Identity: identity, Invitation: invitationOf(link), AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, {Method: sessioninfo.MethodEmailCode}}}
-		req.Invitation.AddressProven = true
-
-		return req
-	}
 
 	// A person no account was made for, whose directory claims the invited address, is
 	// held with nothing written; so is one whose directory claims another address.
@@ -502,7 +515,7 @@ func testInvitationUnverifiedAddress(ctx context.Context, t *testing.T, h *AuthH
 	// The person who reads the invited mailbox enters the code, and the account is made
 	// with the invited address confirmed.
 	nell := claims("oid-nell", "nell@corp.example", invited)
-	req := withCode(nell, link)
+	req := withInvitedCode(nell, link)
 	err := signInRequest(ctx, in, req)
 	assertProvisioned(ctx, t, in.Driver, err, req, nell, "tenant-1")
 	if !req.Invitation.Accepted {
@@ -516,10 +529,7 @@ func testInvitationUnverifiedAddress(ctx context.Context, t *testing.T, h *AuthH
 	// address, is not the one invited because its directory now claims the invited
 	// address.
 	const second = "omar@north.example"
-	ruth, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "ruth", Email: strPtr("ruth@south.example"), EmailVerified: true}, nil)
-	if err != nil {
-		t.Fatalf("CreateUser(%q) error = %v", "ruth", err)
-	}
+	ruth := userHolding(ctx, t, in.Driver, "ruth", "ruth@south.example", true)
 	ruthIdentity := claims("oid-ruth", "ruth@rogue.example", second)
 	mustLink(ctx, t, in.Driver, ruth.ID, ruthIdentity)
 	secondLink := insertInvitation(ctx, t, in.Driver, second, "", []string{"Admin"}, tokenHash(2))
@@ -542,10 +552,7 @@ func testInvitationUnverifiedAddress(ctx context.Context, t *testing.T, h *AuthH
 	// a stranger whose directory claims its address is given no account beside it, and
 	// does not spend the invitation.
 	const umaAddress = "uma@north.example"
-	uma, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "uma", Email: strPtr(umaAddress)}, nil)
-	if err != nil {
-		t.Fatalf("CreateUser(%q) error = %v", "uma", err)
-	}
+	uma := userHolding(ctx, t, in.Driver, "uma", umaAddress, false)
 	umaLink := insertInvitation(ctx, t, in.Driver, umaAddress, "lakeside", []string{"Coach"}, tokenHash(3))
 	stranger := claims("oid-stranger", "stranger@rogue.example", umaAddress)
 	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: stranger, Invitation: invitationOf(umaLink)}
