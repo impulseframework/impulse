@@ -132,19 +132,20 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		rule             signin.AccountRule[Tx]
 		method, audience string
 		seeded           bool
-		// oneOrganization says the registration admits exactly one organization and
-		// nobody else, counted as the registration listed them: the width at which the
-		// deployment's seeded account is linked on its name.
-		oneOrganization bool
 	)
 	if m, ok := a.registered().external[at.registration]; ok {
-		rule, method, audience, seeded, oneOrganization = m.rule, m.name, m.Audience.Key(), m.seededUsers, m.Audience.OneOrganization()
+		rule, method, audience, seeded = m.rule, m.name, m.Audience.Key(), m.seededUsers
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
 			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
-			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn, Seeded: a.directorySeeded, OneOrganization: oneOrganization,
+			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn,
 			TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
+			// A person who comes through a directory that does not vouch for their address
+			// confirms one by the mailed code before their first session, where the Auth
+			// can mail it; the accounts a deployment seeds for its own provider are given
+			// their address where they are seeded.
+			ConfirmAddress: a.settings.mail != nil && method != "" && !seeded,
 		})
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
@@ -767,6 +768,7 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 
 		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveProvenUserPassword()")
 	}
+	a.endResetLinks(ctx, user.ID)
 	a.clearAttempts(ctx, user.Username)
 
 	return nil

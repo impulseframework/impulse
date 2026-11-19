@@ -157,6 +157,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "FeatureFlagChanges denied",
+			method:       http.MethodGet,
+			target:       "/api/feature-flags/authz-test-key/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "FeatureFlagChanges granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/api/feature-flags/authz-test-key/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "SetFeature denied",
 			method:       http.MethodPost,
 			target:       "/api/set-feature",

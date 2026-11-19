@@ -1,4 +1,4 @@
-export * from './about-page.component';
+export * from './about-dialog.component';
 export * from './account';
 export * from './account-look';
 export * from './account-page.component';

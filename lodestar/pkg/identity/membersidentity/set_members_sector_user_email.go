@@ -11,38 +11,55 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// SetMembersSectorUserEmail sets the email address of a person of the Members auth
-// by hand, or takes it off (no Email): for a person whose address changed, or who was
-// created without one. The address is held unverified, whatever the one before it was,
-// until the person verifies it themselves. An address another user holds is refused
-// when the transaction commits.
-//
-// It is a tenant's method: served under the address of one Sector, it names a
-// row of MembersSectorUser, the tenant's own list of the auth's people. A person who holds
-// no role in the tenant is not found there, and what the tenant may do to a person who
-// also holds a role outside it is the role file's to say, in a condition on the
-// method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
-//
-// @rpc
-// @permissionScope(domain)
-// @outlet(portal, default)
-// @answers(204)
-// @class(credential)
-type SetMembersSectorUserEmail struct {
-	// @target(MembersSectorUser)
-	UserID impulse.UUID
-	Email  *string
-}
+type (
+	// SetMembersSectorUserEmail asks for a change of the email address of a person of the
+	// Members auth. Nothing about the account changes: a link is mailed to the new
+	// address once the transaction has committed, and the account keeps the address it
+	// has until the person follows that link from the new mailbox. Nothing is mailed
+	// to the old address to confirm the change; it is told once the change is made. An
+	// account always keeps an address, so one is replaced and never taken off, and the
+	// address of a person who signs in through an organization's directory is the
+	// directory's to change. The answer says whether the link went (Sent) and, where
+	// it did not, why (Reason).
+	//
+	// It is a tenant's method: served under the address of one Sector, it names a
+	// row of MembersSectorUser, the tenant's own list of the auth's people. A person who holds
+	// no role in the tenant is not found there, and what the tenant may do to a person who
+	// also holds a role outside it is the role file's to say, in a condition on the
+	// method's grant that reads the facts of the row (heldElsewhere, heldGlobally).
+	//
+	// @rpc
+	// @permissionScope(domain)
+	// @outlet(portal, default)
+	SetMembersSectorUserEmail struct {
+		// @target(MembersSectorUser)
+		UserID impulse.UUID
+		Email  string `validate:"required"`
+	}
+	// SetMembersSectorUserEmailResult answers whether the link that confirms the new
+	// address was mailed and, where it was not, why, in a sentence for the
+	// administrator who asked. Both are set once the transaction has committed: a
+	// caller that runs the method in a transaction of its own reads them after its
+	// ExecuteFunc returns.
+	SetMembersSectorUserEmailResult struct {
+		Sent   bool
+		Reason string
+	}
+)
 
-// Execute buffers the address into the caller's transaction.
-func (m *SetMembersSectorUserEmail) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+// Execute checks the request in the caller's transaction and registers the mailing for
+// after its commit.
+func (m *SetMembersSectorUserEmail) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*SetMembersSectorUserEmailResult, error) {
 	// A tenant's method acts for a request made under the tenant's address.
 	if _, err := client.manager.Tenant(ctx); err != nil {
-		return errors.Wrap(err, "identity.Manager.Tenant()")
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := client.manager.SetEmail(ctx, txn, m.UserID, m.Email); err != nil {
-		return errors.Wrap(err, "identity.Manager.SetEmail()")
+	result := &SetMembersSectorUserEmailResult{}
+	if err := client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {
+		result.Sent, result.Reason = sent, reason
+	}); err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.SetEmail()")
 	}
 
-	return nil
+	return result, nil
 }

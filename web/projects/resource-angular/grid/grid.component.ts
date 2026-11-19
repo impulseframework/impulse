@@ -57,8 +57,36 @@ import {
 import { VirtualScrollState } from './grid-virtual-scroll';
 import { TableButtonComponent } from './table-button/table-button.component';
 
+/** The narrowest a column goes: the least a person can drag one to. */
 const MIN_COLUMN_WIDTH = 48;
 const ACTION_COLUMN_WIDTH = 66;
+const SELECT_COLUMN_WIDTH = 48;
+const EXPAND_COLUMN_WIDTH = 40;
+
+/**
+ * The narrowest a column of text is drawn in any list, in pixels, where the column
+ * declares no width of its own and nobody has dragged it: 135 pixels of text between the
+ * cell's padding and its line, nineteen characters of the list's 14 pixel type, which is
+ * a person's first and last name. It is also the widest that still shows one more column
+ * whole beside the held first one on a phone 390 pixels wide, on a page and in a pop-up,
+ * in a list with no select or expand column.
+ */
+export const MIN_TEXT_COLUMN_WIDTH = 160;
+
+/**
+ * Whether a color, as the browser reports the one an element is drawn with, covers what is
+ * under it: any color but a clear or part-clear one.
+ */
+function coversWhatIsUnder(color: string): boolean {
+  if (color === '' || color === 'transparent') {
+    return false;
+  }
+  const alpha = /^rgba\(.*,\s*([\d.]+)\s*\)$/.exec(color) ?? /\/\s*([\d.]+)(%?)\s*\)$/.exec(color);
+  if (alpha === null) {
+    return true;
+  }
+  return parseFloat(alpha[1]) >= (alpha[2] === '%' ? 100 : 1);
+}
 
 /** What a companion-only column's disabled filter control says. */
 export const COMPANION_FILTER_HINT =
@@ -69,7 +97,8 @@ export const COMPANION_FILTER_HINT =
  * source holds; a header click emits the next sorts, a filter menu emits the next column
  * filters, and the pager emits a turn — the source asks the server and hands back the
  * page. Nothing here filters, sorts, or slices rows in the browser: one paging model, the
- * server's. A filter control is drawn only on a column the generated metadata says the
+ * server's; a table told its rows have one order (`sortable` false) draws its headers as
+ * words, and so does one column that opts out (`sortable: false` on the column). A filter control is drawn only on a column the generated metadata says the
  * server filters (`filterability`), with a companion-only column waiting until an indexed
  * filter is in the request, and its menu offers the text matches the column's field
  * answers (`searches`), which stand alone; the page's search box (`boxActive`) counts as
@@ -80,6 +109,11 @@ export const COMPANION_FILTER_HINT =
  * held as rows, so it spans pages. Virtual scroll renders the one page it is given; row
  * expansion is as before. A cell is one line, and a text or a header wider than its column
  * is cut with an ellipsis and offered whole in a tooltip (CutShortTooltipDirective).
+ *
+ * A column is never squeezed under the narrowest it is drawn (`narrowestFor`): the table
+ * fills its frame while every column fits, and where they do not it stays as wide as they
+ * need and the frame scrolls sideways, the page never. The first column is then held at
+ * the left edge, with the select and expand columns, while the others scroll under it.
  */
 @Component({
   selector: 'impulse-grid',
@@ -118,6 +152,12 @@ export class AppGridComponent {
   virtualScrollConfig = input<VirtualScrollConfig>({});
   /** The sorts the rows were requested in, the first primary. Drawn on the headers; a click emits the next set. */
   sorts = input<SortRule[]>([]);
+  /**
+   * Whether a header is a button that asks for the next sort. False for rows that come in
+   * the one order they have, a history newest first: the headers are then words, with
+   * nothing to press that would do nothing.
+   */
+  sortable = input<boolean>(true);
   /** The column filters the rows were requested with. Drawn on the headers; a menu commit emits the next set. */
   filters = input<ColumnFilter[]>([]);
   /** Which columns the server filters, by column id, from the generated field metadata. A column absent here draws no filter control. */
@@ -160,6 +200,10 @@ export class AppGridComponent {
     return new Map(this.rowData().map((row: RecordData, index: number) => [row, key ? key(row, index) : index]));
   });
   private readonly columnWidths = signal<Record<string, number>>({});
+  /** How far the frame was scrolled sideways when it last scrolled. */
+  private lastScrollLeft = 0;
+  /** Whether the pointer was just pressed on the list: the focus that follows a press is the pointer's, not the keyboard's. */
+  private pressed = false;
   /** The filter each open menu is editing, before it commits; keyed by column id. */
   private readonly drafts = signal<Record<string, ColumnFilter>>({});
 
@@ -180,6 +224,76 @@ export class AppGridComponent {
 
   private readonly scrollContainer = viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
   private readonly tableBody = viewChild<ElementRef<HTMLTableSectionElement>>('tableBody');
+
+  /**
+   * How wide the frame around the table is, as the browser lays it out. Undefined until
+   * the browser has measured it, and where nothing is laid out (a spec under jsdom, a
+   * list inside something hidden): the table then fills its frame and nothing is held.
+   */
+  private readonly frameWidth = signal<number | undefined>(undefined);
+
+  /**
+   * The color the list sits on: the nearest thing around it that is drawn in a color
+   * that covers, as the browser reports it, read when the frame is measured, when it
+   * scrolls sideways and when the page's root or body is given another attribute (a
+   * change from light to dark is set there). Null where nothing around the list has one.
+   * The list draws nothing of its own under its rows, and a held cell, which other cells
+   * scroll under, has to be drawn whole.
+   */
+  readonly ground = signal<string | null>(null);
+
+  readonly selectColumnWidth = SELECT_COLUMN_WIDTH;
+  readonly expandColumnWidth = EXPAND_COLUMN_WIDTH;
+
+  /** Where the expand column stays while the others scroll: after the select column, where the list has one. */
+  expandColumnLeft = computed(() => (this.selectionType() !== 'none' ? SELECT_COLUMN_WIDTH : 0));
+
+  /** Where the first column stays while the others scroll: after the select and expand columns, where the list has them. */
+  firstColumnLeft = computed(
+    () => this.expandColumnLeft() + (this.enableRowExpansion() && this.detailTemplate() ? EXPAND_COLUMN_WIDTH : 0),
+  );
+
+  /**
+   * The narrowest the table is drawn: every column at the narrowest it goes. A frame
+   * narrower than this does not squeeze the columns; the table stays this wide and the
+   * frame scrolls sideways.
+   */
+  tableMinWidth = computed(
+    () => this.firstColumnLeft() + this.columnDefs().reduce((sum, col) => sum + this.narrowestFor(col), 0),
+  );
+
+  /** Whether the columns do not fit the frame, so the table is wider than it and the frame scrolls sideways. */
+  scrollsSideways = computed(() => {
+    const frame = this.frameWidth();
+    return frame !== undefined && this.tableMinWidth() > frame;
+  });
+
+  /** How much of the frame's left edge the held columns take: the select and expand columns and the first column. */
+  heldWidth = computed(() => {
+    const first = this.columnDefs()[0];
+    return this.firstColumnLeft() + (first ? this.narrowestFor(first) : 0);
+  });
+
+  /**
+   * Whether the first column stays at the left edge while the others scroll under it,
+   * with the select and expand columns: so while the list scrolls sideways, unless the
+   * held columns would leave less room beside them than the narrowest a column goes (a
+   * first column dragged as wide as the frame, a list of one column), where holding
+   * them would keep every other column, and the handle that drags the first one back,
+   * out of reach.
+   */
+  holdsFirstColumn = computed(() => {
+    const frame = this.frameWidth();
+    return frame !== undefined && this.scrollsSideways() && this.heldWidth() + MIN_COLUMN_WIDTH <= frame;
+  });
+
+  /**
+   * How wide a row that is one cell across the table draws its words (the empty list's
+   * message, an expanded row's detail): the frame's width while the table is wider than
+   * its frame, so they stay in view whole while the columns scroll, and the cell's own
+   * width otherwise.
+   */
+  acrossWidth = computed(() => (this.scrollsSideways() ? (this.frameWidth() ?? null) : null));
 
   private readonly virtualScroll = new VirtualScrollState(
     computed(() => this.rowData().length),
@@ -252,6 +366,32 @@ export class AppGridComponent {
       onCleanup(() => observer.disconnect());
     });
 
+    // The frame's width, followed as the window, the page around the list or a scrollbar
+    // changes it. An environment with no ResizeObserver (a spec under jsdom) measures
+    // nothing, and a frame that is not laid out measures as nothing.
+    afterRenderEffect((onCleanup) => {
+      const container = this.scrollContainer()?.nativeElement;
+      if (!container || typeof ResizeObserver === 'undefined') {
+        return;
+      }
+      const observer = new ResizeObserver(() => {
+        const width = container.clientWidth;
+        this.frameWidth.set(width > 0 ? width : undefined);
+        this.readGround(container);
+      });
+      observer.observe(container);
+      // A change from light to dark made while the list is on the screen is set on the
+      // page's root or its body (the theme service sets the root's color scheme and palette).
+      const look = new MutationObserver(() => this.readGround(container));
+      const page = container.ownerDocument;
+      look.observe(page.documentElement, { attributes: true });
+      look.observe(page.body, { attributes: true });
+      onCleanup(() => {
+        observer.disconnect();
+        look.disconnect();
+      });
+    });
+
     effect(() => {
       if (this.enableVirtualScroll()) {
         this.expandedIds.set(new Set());
@@ -260,7 +400,60 @@ export class AppGridComponent {
   }
 
   onScroll(event: Event): void {
-    this.virtualScroll.setScrollTop((event.target as HTMLElement).scrollTop);
+    const frame = event.target as HTMLElement;
+    this.virtualScroll.setScrollTop(frame.scrollTop);
+    if (this.holdsFirstColumn() && frame.scrollLeft !== this.lastScrollLeft) {
+      this.readGround(frame);
+    }
+    this.lastScrollLeft = frame.scrollLeft;
+  }
+
+  /** The pointer is pressed on the list. The focus a press gives arrives before anything else is done, so the mark is taken back right after. */
+  onPress(): void {
+    this.pressed = true;
+    setTimeout(() => {
+      this.pressed = false;
+    });
+  }
+
+  /**
+   * The keyboard's focus landed on a control of the list. The browser brings a control
+   * that is out of the frame into view beside the held columns (the frame's scroll
+   * padding), and leaves one that is inside the frame where it is, under the held columns
+   * or not; this brings such a one out from under them. A control in a held cell, and one
+   * in a row that is one cell across, is under nothing. The pointer's own focus moves
+   * nothing: the list must not slide from under a press before the click lands.
+   */
+  onFocusIn(event: FocusEvent): void {
+    if (this.pressed || !this.holdsFirstColumn() || !(event.target instanceof HTMLElement)) {
+      return;
+    }
+    const frame = event.currentTarget as HTMLElement;
+    const cell = event.target.closest('.impulse-row > td, .impulse-grid-header-row > th');
+    if (
+      cell === null ||
+      cell.closest('.impulse-grid-scroll') !== frame ||
+      cell.matches('.select-col, .expand-col, .first-col')
+    ) {
+      return;
+    }
+    const under = frame.getBoundingClientRect().left + this.heldWidth() - event.target.getBoundingClientRect().left;
+    if (under > 0) {
+      frame.scrollLeft -= under;
+    }
+  }
+
+  /** Reads the color the list sits on off the page: the frame's own, else the nearest of the elements it is inside. */
+  private readGround(frame: HTMLElement): void {
+    const view = frame.ownerDocument.defaultView;
+    let ground: string | null = null;
+    for (let element: HTMLElement | null = frame; view && element && ground === null; element = element.parentElement) {
+      const color = view.getComputedStyle(element).backgroundColor;
+      if (coversWhatIsUnder(color)) {
+        ground = color;
+      }
+    }
+    this.ground.set(ground);
   }
 
   /** The row's identity, as `rowKey` answers it or its position in the page. */
@@ -538,6 +731,16 @@ export class AppGridComponent {
   widthFor(col: ColumnConfig): number | null {
     const defaultWidth = col.buttonConfig ? ACTION_COLUMN_WIDTH : null;
     return this.columnWidths()[col.id] ?? col.width ?? defaultWidth;
+  }
+
+  /**
+   * The narrowest the column is drawn: the width a person dragged it to, else the width
+   * it declares, else the action column's own, else the width the library gives every
+   * column of text. A column with none of the first three shares the room the table has
+   * left over, and this is the least that share can be.
+   */
+  narrowestFor(col: ColumnConfig): number {
+    return this.widthFor(col) ?? MIN_TEXT_COLUMN_WIDTH;
   }
 
   startResize(event: MouseEvent, col: ColumnConfig): void {

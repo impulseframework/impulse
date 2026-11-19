@@ -323,7 +323,7 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			return m.RenameUser(ctx, txn, userID, "dana.r")
 		}},
 		{name: "a new address", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.SetEmail(ctx, txn, userID, &address)
+			return m.SetEmail(ctx, txn, userID, address, nil)
 		}},
 		{name: "the unlinking of an identity", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 			return m.UnlinkIdentity(ctx, txn, identityA)

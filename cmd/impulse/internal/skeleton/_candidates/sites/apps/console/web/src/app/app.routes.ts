@@ -10,6 +10,7 @@ import {
   refusedRoute,
   tenantGuard,
 } from '@impulseframework/resource-angular/auth-frame';
+import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
 import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
 import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import { tenantSignInRoute } from '@components/ui/sign-in/sign-in.routes';
@@ -70,7 +71,10 @@ export const routes: Routes = [
           // pages from it, each placed in the menus behind the List grant on its resource,
           // each row offering the methods the caller may run on it.
           ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
-          // The person's account and About pages: the library's, in every place.
+          // The feature flags: the library's list page over the flags the application
+          // declares, a page of the place outside every tenant.
+          featureFlagsRoute(resourceMeta),
+          // The person's account page: the library's, in every place.
           ...frameRoutes(),
         ],
       },

@@ -128,6 +128,11 @@ func (c *servedConfigurer) AppVersion() string {
 	return "dev"
 }
 
+// Environment is none: the suites run as production does, which names no environment.
+func (c *servedConfigurer) Environment() string {
+	return ""
+}
+
 func (c *servedConfigurer) ConsoleDist() string { return "" }
 
 func (c *servedConfigurer) PortalDist() string { return "" }
@@ -165,8 +170,12 @@ type served struct {
 	// tenant declares in code, as a sign-in would, and reloads it as a write path does.
 	tenants *resource.TenantRoster
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
-	// sign-in code a sign-in waits for.
+	// sign-in code a staff sign-in waits for.
 	mail *mail.Recorder
+	// membersMail is the recorder the members auth sends its mail to: the invitation of
+	// its first administrator, where a suite invites one, and the code that confirms the
+	// address a member gives at their first sign-in through the directory.
+	membersMail *mail.Recorder
 	// codeMu lets one sign-in at a time run its second factor on the stack, so the code a
 	// browser reads from the recorder is its own, and trusted holds, per login, the token
 	// of the browser the login asked to be remembered at their first sign-in, which their
@@ -184,14 +193,15 @@ type served struct {
 func newServed(ctx context.Context, t *testing.T) *served {
 	t.Helper()
 
-	return newServedSeeding(ctx, t, "")
+	return newServedInviting(ctx, t, "")
 }
 
-// newServedSeeding is newServed with the members auth's first administrator seeded
-// under membersAdministrator before anything else of the auth exists, as the migrate
-// command seeds one into the auth's empty users table (members.Auth.SeedAdministrator);
-// "" seeds none.
-func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator string) *served {
+// newServedInviting is newServed with the members auth's first administrator invited at
+// membersAdministrator before anything else of the auth exists, as the migrate command
+// invites one while nobody of the auth holds the Super Administrator role
+// (members.Auth.InviteAdministrator); "" invites none. The invitation is mailed to the members auth's recorder
+// (served.membersMail).
+func newServedInviting(ctx context.Context, t *testing.T, membersAdministrator string) *served {
 	t.Helper()
 
 	db, err := prepareDatabase(ctx, t, migrationsSource, devSeedSource)
@@ -208,7 +218,7 @@ func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator st
 	if err := roster.Start(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
 	}
-	// The recorder the staff auth's mail goes to: the suites read the sign-in codes from it.
+	// The recorder the auths' mail goes to: the suites read the sign-in codes from it.
 	sent := &mail.Recorder{}
 	staffAuth, err := staff.New(ctx, db.Client, &staff.Settings{
 		Collection:         router.Collection(),
@@ -243,13 +253,16 @@ func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator st
 	// registration whether or not the directory is simulated. The tenant is declared as
 	// one the deployment administers, so a sign-in through the directory carries the
 	// tenant's own second factor and opens its session at the callback, with no sign-in
-	// code asked.
+	// code asked, once the person's account holds a confirmed address: the directory
+	// vouches for none, so their first sign-in waits for the code that confirms one,
+	// mailed to the members auth's own recorder (served.membersMail).
+	membersSent := &mail.Recorder{}
 	membersAuth, err := members.New(ctx, db.Client, &members.Settings{
 		Collection:     router.Collection(),
 		Signals:        svc,
 		CookieKey:      testCookieKey,
 		SessionTimeout: time.Minute,
-		Mail:           &mail.Recorder{},
+		Mail:           membersSent,
 		MailLoginURL:   "http://outlets.test/portal/login",
 		LoginURL:       "/portal/login",
 		Directory:      members.DirectorySettings{TenantID: directoryTenant, AdministeredTenants: directoryTenant, RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
@@ -267,11 +280,12 @@ func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator st
 		}
 	})
 	membersAccess := membersAuth.Access()
-	// The deployment's seed runs while the members auth's users table is empty.
+	// The deployment's release invites while nobody of the members auth holds the Super
+	// Administrator role.
 	if membersAdministrator != "" {
-		seeded, err := membersAuth.SeedAdministrator(ctx, membersAdministrator)
-		if err != nil || !seeded {
-			t.Fatalf("members.Auth.SeedAdministrator(%s) = %v, %v, want the first administrator seeded", membersAdministrator, seeded, err)
+		invited, err := membersAuth.InviteAdministrator(ctx, membersAdministrator)
+		if err != nil || invited.Outcome != session.FirstAdministratorInvited || invited.Email != membersAdministrator {
+			t.Fatalf("members.Auth.InviteAdministrator(%s) = %+v, %v, want the first administrator invited", membersAdministrator, invited, err)
 		}
 	}
 	// The portal's client is a member: the directory proves who they are, so they hold
@@ -334,7 +348,7 @@ func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator st
 	server.Config.Handler = router.New(a, router.Hooks{})
 	server.Start()
 
-	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, membersAuth: membersAuth, staffAuth: staffAuth, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, membersAuth: membersAuth, staffAuth: staffAuth, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, membersMail: membersSent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in

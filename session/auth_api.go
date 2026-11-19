@@ -271,6 +271,8 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 		return errors.Wrap(err, "sessionstorage.AuthStore.ChangeUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
+	// A reset link mailed for the password before does not reset the new one.
+	a.endResetLinks(ctx, user.ID)
 
 	// The regenerated session keeps the provider's session id, and its issuer, of the
 	// session it replaces, so a provider-initiated logout still finds it.
@@ -370,6 +372,7 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
+	a.endResetLinks(ctx, user.ID)
 
 	return nil
 }
@@ -418,6 +421,8 @@ func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUI
 		return errors.Wrap(err, "sessionstorage.AuthStore.ReplaceUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
+	// A reset link mailed for the password before does not reset the new one.
+	a.endResetLinks(ctx, userID)
 
 	return nil
 }

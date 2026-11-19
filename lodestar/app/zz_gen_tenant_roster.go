@@ -82,9 +82,11 @@ func NewSectorDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransac
 // (resource.TenantDirectoryRules) over the Sector record's table and its declaration's
 // columns: a sector has one directory, a directory is one sector's, a personal account
 // is no directory, and the directory of a sector that is directory only is not removed.
-// Every write of the SectorDirectory record is held to them. The generated SectorDirectory
-// write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes.
+// Every write of the SectorDirectory record a request asks for is held to them. The generated
+// SectorDirectory write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes. The one
+// removal they are not asked is the delete of the sector itself, which takes its
+// directory with it (ClearSectorDirectory).
 func NewSectorDirectoryRules() *resource.TenantDirectoryRules {
 	return resource.NewTenantDirectoryRules("Sectors", "Id", &sectorDeclaration, "sector")
 }
@@ -111,6 +113,37 @@ func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, 
 	patch.SetSectorID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)
 	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
 		return errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// ClearSectorDirectory buffers the removal of the sector's directory, in the transaction
+// that deletes the sector's row: a sector that goes takes its directory with it, as it
+// takes the roles people hold in it. The rule that keeps the directory of a sector that is
+// directory only (NewSectorDirectoryRules, Remove) is not asked here: it keeps a sector
+// that stays from being left with no way in, and this sector does not stay. The row is
+// removed through the record's delete patch, so its change event is written with it, and
+// the directory is free for another sector once the transaction has committed. The
+// generated delete of the Sector record calls it once the caller's grant on that record
+// has answered; code that deletes a sector's row any other way calls it in the same
+// transaction. A sector that has no directory is no error.
+func ClearSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, eventSource ...string) error {
+	query := resources.NewSectorDirectoryQuery().
+		AddColumns(resources.NewSectorDirectoryColumns().ID()).
+		Where(resources.NewSectorDirectoryQueryClause().SectorID().Equal(tenant))
+	// The rows are read before any removal is buffered. The schema keeps a sector to one.
+	var removals []*resources.SectorDirectoryDeletePatch
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return errors.Wrap(err, "resources.SectorDirectoryQuery.List()")
+		}
+		removals = append(removals, resources.NewSectorDirectoryDeletePatch(row.Data.ID))
+	}
+	for _, removal := range removals {
+		if err := removal.Buffer(ctx, txn, eventSource...); err != nil {
+			return errors.Wrap(err, "resources.SectorDirectoryDeletePatch.Buffer()")
+		}
 	}
 
 	return nil

@@ -12,19 +12,20 @@ import (
 )
 
 // signInMethodColumns are the sign-in methods table's columns.
-var signInMethodColumns = []string{nameColumn, "OpenSignUp", "OpenedFor", "DefaultRole", updatedAtColumn}
+var signInMethodColumns = []string{nameColumn, "OpenSignUp", "OpenedFor", "DefaultRole", "SelfServiceReset", updatedAtColumn}
 
 // signInMethodRow is a sign-in method's row as the table holds it.
 type signInMethodRow struct {
-	Name        string             `spanner:"Name"`
-	OpenSignUp  bool               `spanner:"OpenSignUp"`
-	OpenedFor   spanner.NullString `spanner:"OpenedFor"`
-	DefaultRole spanner.NullString `spanner:"DefaultRole"`
-	UpdatedAt   time.Time          `spanner:"UpdatedAt"`
+	Name             string             `spanner:"Name"`
+	OpenSignUp       bool               `spanner:"OpenSignUp"`
+	OpenedFor        spanner.NullString `spanner:"OpenedFor"`
+	DefaultRole      spanner.NullString `spanner:"DefaultRole"`
+	SelfServiceReset bool               `spanner:"SelfServiceReset"`
+	UpdatedAt        time.Time          `spanner:"UpdatedAt"`
 }
 
 func (r *signInMethodRow) record() *dbtype.SignInMethod {
-	rec := &dbtype.SignInMethod{Name: r.Name, OpenSignUp: r.OpenSignUp, UpdatedAt: r.UpdatedAt}
+	rec := &dbtype.SignInMethod{Name: r.Name, OpenSignUp: r.OpenSignUp, SelfServiceReset: r.SelfServiceReset, UpdatedAt: r.UpdatedAt}
 	if r.OpenedFor.Valid {
 		audience := r.OpenedFor.StringVal
 		rec.OpenedFor = &audience
@@ -95,7 +96,8 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 	defer span.End()
 
 	row := map[string]any{
-		nameColumn: m.Name, "OpenSignUp": m.OpenSignUp, "OpenedFor": spanner.NullString{}, "DefaultRole": spanner.NullString{}, updatedAtColumn: spanner.CommitTimestamp,
+		nameColumn: m.Name, "OpenSignUp": m.OpenSignUp, "OpenedFor": spanner.NullString{}, "DefaultRole": spanner.NullString{},
+		"SelfServiceReset": m.SelfServiceReset, updatedAtColumn: spanner.CommitTimestamp,
 	}
 	if m.OpenedFor != nil {
 		row["OpenedFor"] = spanner.NullString{StringVal: *m.OpenedFor, Valid: true}

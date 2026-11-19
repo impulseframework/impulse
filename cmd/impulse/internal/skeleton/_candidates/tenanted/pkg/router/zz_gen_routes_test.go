@@ -793,6 +793,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
+			url: "/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
 			url: "/api/set-feature", method: http.MethodPost,
 			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -1006,6 +1011,10 @@ func (s *generatedHandlersStub) FeatureFlag() http.HandlerFunc {
 	return s.record("FeatureFlag")
 }
 
+func (s *generatedHandlersStub) FeatureFlagChanges() http.HandlerFunc {
+	return s.record("FeatureFlagChanges")
+}
+
 func (s *generatedHandlersStub) Features() http.HandlerFunc {
 	return s.record("Features")
 }
@@ -1090,8 +1099,20 @@ func (s *generatedHandlersStub) RevokeStaffUserTrustedDevices() http.HandlerFunc
 	return s.record("RevokeStaffUserTrustedDevices")
 }
 
+func (s *generatedHandlersStub) SendStaffTenantUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffTenantUserPasswordResetLink")
+}
+
+func (s *generatedHandlersStub) SendStaffUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffUserPasswordResetLink")
+}
+
 func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 	return s.record("SetFeature")
+}
+
+func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
+	return s.record("SetStaffSelfServiceReset")
 }
 
 func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {

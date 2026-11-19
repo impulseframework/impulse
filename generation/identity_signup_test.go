@@ -98,8 +98,8 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		// no route, and every write leaves its change event.
 		"internal/crewresources/crew_session_sign_in_methods.go": {
 			generationHeader, "// @resource\n\t// @suppress(listHandler)\n\t// @suppress(readHandler)\n\t// @suppress(patchHandler)\n\t// @outlet(default)\n\tCrewSessionSignInMethod struct {",
-			"Name        string    `spanner:\"Name\"`", "OpenSignUp  bool      `spanner:\"OpenSignUp\"`", "OpenedFor   *string   `spanner:\"OpenedFor\"`",
-			"DefaultRole *string   `spanner:\"DefaultRole\"`",
+			"Name             string    `spanner:\"Name\"`", "OpenSignUp       bool      `spanner:\"OpenSignUp\"`", "OpenedFor        *string   `spanner:\"OpenedFor\"`",
+			"DefaultRole      *string   `spanner:\"DefaultRole\"`", "SelfServiceReset bool      `spanner:\"SelfServiceReset\"`",
 			"func (CrewSessionSignInMethod) Config() resource.Config {\n\treturn defaultConfig().SetTrackChanges(true)\n}",
 		},
 		"crewidentity/crew_sign_in_methods.go": {
@@ -132,6 +132,10 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 			"client.manager.MakeInviteOnly(ctx, txn, m.Name)",
 		},
 		"crewidentity/store.go": {
+			"func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTransaction, name string, on bool) error {",
+			"crewresources.NewCrewSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)",
+			"crewresources.NewCrewSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)",
+			"SelfServiceReset: row.Data.SelfServiceReset,",
 			"func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {",
 			"func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {",
 			// Either write is the generated patch's, buffered under the caller, which is
@@ -139,7 +143,7 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 			"patch.Buffer(ctx, txn, resource.UserEvent(ctx))",
 			// The row is read with the audience it was opened for, and each of the two
 			// writes, of a row that exists and of one that does not, writes it.
-			"Columns().Name().OpenSignUp().OpenedFor().DefaultRole())", "OpenedFor: row.Data.OpenedFor",
+			"Columns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())", "OpenedFor: row.Data.OpenedFor",
 			"crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).\n\t\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
 			"crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).\n\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
 		},

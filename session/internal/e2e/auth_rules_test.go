@@ -224,7 +224,7 @@ func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db ap
 	t.Cleanup(server.Close)
 
 	return &rulesApp[Tx]{
-		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder, verified: store.VerifyUserEmail},
 		entra:   entraIDP, google: googleIDP, store: store,
 	}
 }
@@ -265,12 +265,42 @@ func closeMethod[Tx any](ctx context.Context, t *testing.T, store *sessionstorag
 	}
 }
 
-// entraSignIn runs an Entra round trip with claims in b and returns where the callback
-// sent the browser.
+// entraSignIn runs an Entra round trip with claims in b and returns where the completed
+// sign-in sent the browser. Entra does not vouch for an address, so a person whose
+// account holds no confirmed one is held for a mailed code first: the helper answers it
+// with the address in claims, as the person would. entraRoundTrip is the round trip
+// alone, for the scenarios about what holds a sign-in.
 func (a *rulesApp[Tx]) entraSignIn(ctx context.Context, b *browser, claims map[string]any) *url.URL {
 	b.t.Helper()
 
+	to := a.entraRoundTrip(ctx, b, claims)
+	if to.Path != "/login" || to.Query().Get("pending") != "mfa" {
+		return to
+	}
+	address, _ := claims["email"].(string)
+
+	return a.confirmAddress(ctx, b, to, address)
+}
+
+// entraRoundTrip runs an Entra round trip with claims in b and returns where the
+// callback sent the browser.
+func (a *rulesApp[Tx]) entraRoundTrip(ctx context.Context, b *browser, claims map[string]any) *url.URL {
+	b.t.Helper()
+
 	return b.oidcSignIn(ctx, a.entra, "/entra", claims)
+}
+
+// entraPerson signs a person in through Entra once, in a browser of their own, and
+// answers the code that confirms their address: the scenarios about a second factor
+// start from a person whose address is confirmed, so what holds their next sign-in is
+// the policy alone.
+func (a *rulesApp[Tx]) entraPerson(ctx context.Context, t *testing.T, claims map[string]any) {
+	t.Helper()
+
+	first := a.browser(t)
+	first.prime(ctx)
+	address, _ := claims["email"].(string)
+	a.confirmAddress(ctx, first, a.entraRoundTrip(ctx, first, claims), address)
 }
 
 // googleSignIn runs a Google round trip with claims in b and returns where the
@@ -445,6 +475,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "any Workspace, invite only: a pre-created person signs in from a Workspace the application never named under its domain as connection, a stranger from another Workspace is refused with not_invited, and an account outside any Workspace is refused",
 			run:  seamRulesAnyWorkspace[Tx],
 		},
+		{
+			name: "a Microsoft person's first sign-in is held for a mailed code whatever the token and the policy say: nothing is mailed before the person gives an address, no other factor answers the hold, the code confirms the address, and the next sign-in is not held; a Google person, whose address Google vouches for, is never held",
+			run:  seamRulesAddressConfirmedFirst[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -452,6 +486,49 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 
 			tt.run(t.Context(), t, be)
 		})
+	}
+}
+
+// seamRulesAddressConfirmedFirst is the scenario "a Microsoft person's first sign-in is
+// held for a mailed code".
+func seamRulesAddressConfirmedFirst[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
+
+	// The token asserts mfa and the policy asks for nothing: the address alone holds
+	// the sign-in. The account is there, without an address, and nothing was mailed.
+	b := a.browser(t)
+	b.prime(ctx)
+	claims := azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")
+	assertRedirect(t, a.entraRoundTrip(ctx, b, claims), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if sent := a.mail.Messages(); len(sent) != 0 {
+		t.Fatalf("mail before the person gave an address = %+v, want none: the directory's word for an address is not a confirmation", sent)
+	}
+
+	// The application's own factor does not answer it: the code is the one factor.
+	if status, body := b.do(ctx, http.MethodPost, "/mfa", nil); status == http.StatusNoContent || status == http.StatusAccepted {
+		t.Errorf("the application's own factor on a sign-in held for the address = %d %s, want it refused", status, body)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+
+	a.answerAddressCode(ctx, b, "pat@lakeside.edu")
+	v := signedInAs(ctx, t, b, "pat@lakeside.edu")
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
+	if email, verified := b.authenticatedEmail(ctx); email != "pat@lakeside.edu" || !verified {
+		t.Errorf("the account's address = %q (confirmed %v), want pat@lakeside.edu confirmed by the code", email, verified)
+	}
+
+	// The address is confirmed: the person's next sign-in is the directory's alone.
+	next := a.browser(t)
+	assertRedirect(t, a.entraRoundTrip(ctx, next, claims), "/home", url.Values{})
+	assertEventsSeen(t, signedInAs(ctx, t, next, "pat@lakeside.edu"), "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+
+	// Google vouches for the address it gives: the account is made with it confirmed,
+	// and the first sign-in is not held.
+	g := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, g, googleClaims("g-sub-sam", "sam@lakeside.edu")), "/home", url.Values{})
+	if email, verified := g.authenticatedEmail(ctx); email != "sam@lakeside.edu" || !verified {
+		t.Errorf("the Google person's address = %q (confirmed %v), want sam@lakeside.edu confirmed at sign-up", email, verified)
 	}
 }
 
@@ -463,8 +540,9 @@ func seamRulesMembersProvision[Tx any](ctx context.Context, t *testing.T, be bac
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "p.lee@lakeside.edu")), "/home", url.Values{})
 	v := signedInAs(ctx, t, b, "p.lee@lakeside.edu")
 	// The fake Entra asserts mfa in every token: the session records the evidence
-	// after the sign-in's own event.
-	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+	// after the sign-in's own event, and then the code that confirmed the address of
+	// a person Entra does not vouch for the address of.
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "email-code")
 	assertOneLink(t, a.links(ctx, t, v.UserID), azureTenant, azureTenant)
 
 	// The identity is linked: the next sign-in goes through the link, and the
@@ -486,6 +564,7 @@ func seamRulesMembersProvision[Tx any](ctx context.Context, t *testing.T, be bac
 func seamRulesMembersPreCreated[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 	kim := a.createUser(ctx, t, "kim@lakeside.edu")
 
 	b := a.browser(t)
@@ -525,6 +604,7 @@ func seamRulesInvitedUsersOnly[Tx any](ctx context.Context, t *testing.T, be bac
 	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
 	kim := a.createUser(ctx, t, "kim@lakeside.edu")
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
+	a.confirmedAddress(ctx, t, pat, "pat@lakeside.edu")
 
 	k := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, k, azureClaims(azureTenant, "oid-kim", "kim@lakeside.edu")), "/home", url.Values{})
@@ -650,7 +730,7 @@ func seamRulesOpenDefaultRole[Tx any](ctx context.Context, t *testing.T, be back
 	}
 	i := a.browser(t)
 	i.prime(ctx)
-	i.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": invitationToken(t, a.mail)}, i.xsrfToken())
+	i.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": lastInvitationToken(t, a.mail)}, i.xsrfToken())
 	assertRedirect(t, a.googleSignIn(ctx, i, googleClaims("sub-sam", "sam@lakeside.edu")), "/home", url.Values{})
 	signedInAs(ctx, t, i, "sam@lakeside.edu")
 	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
@@ -987,7 +1067,7 @@ func seamRulesPolicyEveryStart[Tx any](ctx context.Context, t *testing.T, be bac
 	// RequireMFA holds the sign-in (one asserting mfa would satisfy it).
 	mfa := a.browser(t)
 	mfa.prime(ctx)
-	assertRedirect(t, a.entraSignIn(ctx, mfa, passwordOnlyClaims(azureTenant, "oid-m", "mfa@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	assertRedirect(t, a.entraRoundTrip(ctx, mfa, passwordOnlyClaims("oid-m", "mfa@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
 	if status, body := mfa.do(ctx, http.MethodPost, "/mfa", nil); status != http.StatusUnauthorized || !strings.Contains(string(body), "sign-in denied") {
 		t.Errorf("MFA completion the policy denies = %d %s, want 401 with the policy's refusal", status, body)
 	}
@@ -1006,10 +1086,10 @@ func requireEmailCodeTx(*sessioninfo.NewSessionRequest) *signin.Decision {
 	return signin.RequireMFA(sessioninfo.MethodEmailCode)
 }
 
-// passwordOnlyClaims are azureClaims whose amr names the password alone: Entra ran no
-// second factor.
-func passwordOnlyClaims(tid, oid, username string) map[string]any {
-	claims := azureClaims(tid, oid, username)
+// passwordOnlyClaims are azureClaims of the one tenant whose amr names the password
+// alone: Entra ran no second factor.
+func passwordOnlyClaims(oid, username string) map[string]any {
+	claims := azureClaims(azureTenant, oid, username)
 	claims["amr"] = []string{"pwd"}
 
 	return claims
@@ -1019,6 +1099,8 @@ func passwordOnlyClaims(tid, oid, username string) map[string]any {
 func seamRulesAttestedByEvidence[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCodeTx })
+	a.entraPerson(ctx, t, azureClaims(azureTenant, "oid-a", "ann@lakeside.edu"))
+	a.entraPerson(ctx, t, passwordOnlyClaims("oid-p", "pat@lakeside.edu"))
 
 	// Entra asserts mfa: the sign-in is never held, and the session records the
 	// evidence after the sign-in's own event, under the same connection.
@@ -1031,7 +1113,7 @@ func seamRulesAttestedByEvidence[Tx any](ctx context.Context, t *testing.T, be b
 	// code, and the status names the factor.
 	held := a.browser(t)
 	held.prime(ctx)
-	assertRedirect(t, a.entraSignIn(ctx, held, passwordOnlyClaims(azureTenant, "oid-p", "pat@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	assertRedirect(t, a.entraRoundTrip(ctx, held, passwordOnlyClaims("oid-p", "pat@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
 	held.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 	if body := held.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil); !strings.Contains(string(body), `"factors":["email-code"]`) {
 		t.Errorf("pending status = %s, want the email code as the factor", body)
@@ -1051,6 +1133,8 @@ func seamRulesAttestedByDeclaration[Tx any](ctx context.Context, t *testing.T, b
 		workspaces: google.Workspace("lakeside", hostedDomain).Attesting(), googleAccounts: openSignUp,
 	})
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCodeTx })
+	a.entraPerson(ctx, t, passwordOnlyClaims("oid-p", "pat@lakeside.edu"))
+	a.entraPerson(ctx, t, azureClaims(azureTenant, "oid-a", "ann@lakeside.edu"))
 
 	// The Workspace the application administers vouches for its people.
 	workspace := a.browser(t)
@@ -1061,7 +1145,7 @@ func seamRulesAttestedByDeclaration[Tx any](ctx context.Context, t *testing.T, b
 	// So does the tenant, where the token carries no evidence.
 	declared := a.browser(t)
 	declared.prime(ctx)
-	assertRedirect(t, a.entraSignIn(ctx, declared, passwordOnlyClaims(azureTenant, "oid-p", "pat@lakeside.edu")), "/home", url.Values{})
+	assertRedirect(t, a.entraSignIn(ctx, declared, passwordOnlyClaims("oid-p", "pat@lakeside.edu")), "/home", url.Values{})
 	assertEventsSeen(t, signedInAs(ctx, t, declared, "pat@lakeside.edu"), "azure:"+azureTenant, "attested-by-declaration:"+azureTenant)
 
 	// Evidence in the token is recorded as such, declaration or not.

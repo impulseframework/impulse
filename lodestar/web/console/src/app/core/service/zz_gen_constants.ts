@@ -176,9 +176,12 @@ export const Methods = {
   RevokeMembersSectorUserTrustedDevices: 'RevokeMembersSectorUserTrustedDevices' as Method,
   RevokeMembersUserTrustedDevices: 'RevokeMembersUserTrustedDevices' as Method,
   ScrapShip: 'ScrapShip' as Method,
+  SendCrewSectorUserPasswordResetLink: 'SendCrewSectorUserPasswordResetLink' as Method,
+  SendCrewUserPasswordResetLink: 'SendCrewUserPasswordResetLink' as Method,
   SetCrewSectorTemporaryPassword: 'SetCrewSectorTemporaryPassword' as Method,
   SetCrewSectorUserEmail: 'SetCrewSectorUserEmail' as Method,
   SetCrewSectorUserName: 'SetCrewSectorUserName' as Method,
+  SetCrewSelfServiceReset: 'SetCrewSelfServiceReset' as Method,
   SetCrewTemporaryPassword: 'SetCrewTemporaryPassword' as Method,
   SetCrewUserEmail: 'SetCrewUserEmail' as Method,
   SetCrewUserName: 'SetCrewUserName' as Method,
@@ -965,6 +968,7 @@ export namespace CrewSignInMethods {
     openSignUp: 'openSignUp' as FieldName,
     ownRule: 'ownRule' as FieldName,
     says: 'says' as FieldName,
+    selfServiceReset: 'selfServiceReset' as FieldName,
   };
   export const resourceName = {
     admits: 'CrewSignInMethods.admits' as Resource,
@@ -975,6 +979,7 @@ export namespace CrewSignInMethods {
     openSignUp: 'CrewSignInMethods.openSignUp' as Resource,
     ownRule: 'CrewSignInMethods.ownRule' as Resource,
     says: 'CrewSignInMethods.says' as Resource,
+    selfServiceReset: 'CrewSignInMethods.selfServiceReset' as Resource,
   };
 }
 
@@ -2471,6 +2476,18 @@ export namespace ScrapShip {
   };
 }
 
+export namespace SendCrewSectorUserPasswordResetLink {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
+export namespace SendCrewUserPasswordResetLink {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
 export namespace SetCrewSectorTemporaryPassword {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -2489,6 +2506,12 @@ export namespace SetCrewSectorUserName {
   export const fieldName = {
     userId: 'userId' as FieldName,
     name: 'name' as FieldName,
+  };
+}
+
+export namespace SetCrewSelfServiceReset {
+  export const fieldName = {
+    on: 'on' as FieldName,
   };
 }
 

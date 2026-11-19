@@ -142,8 +142,8 @@ Feature union carries it. In the sites layout --site names the site whose resour
 package declares it.
 
 What the flag gates (@feature(<Constant>) on a resource, a field or a method, or a read of
-it in Go or in the browser) and the description are handed to the agent; the menu file's
-Feature flags… entry opens the dialog that flips it; the feature-flags check fails while
+it in Go or in the browser) and the description are handed to the agent; the Feature flags
+page the menu file places lists the flag and flips it; the feature-flags check fails while
 the flag gates nothing and is read nowhere.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -620,6 +620,7 @@ func newAddMethod() *cobra.Command {
 		slot            string
 		usernameIsEmail bool
 		shapeKey        string
+		label           string
 	)
 
 	cmd := &cobra.Command{
@@ -639,7 +640,7 @@ func newAddMethod() *cobra.Command {
 			if len(args) == 3 {
 				registration = args[2]
 			}
-			spec, err := methodSpec(cmd, args[1], registration, slot, authority, usernameIsEmail, start)
+			spec, err := methodSpec(cmd, args[1], registration, slot, authority, label, usernameIsEmail, start)
 			if err != nil {
 				return err
 			}
@@ -658,20 +659,45 @@ func newAddMethod() *cobra.Command {
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for a directory method: directory (roles synchronized at every sign-in, one organization only) or application (roles assigned in the application); asked when not given, and application for the persona method")
 	cmd.Flags().StringVar(&slot, "slot", "", "the organization slot of a Microsoft or Google method: azure one|listed|any|personal|one-personal|any-personal, google one|listed|any-workspace|any|mixed (default: one); oidc and persona take none")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
+	cmd.Flags().StringVar(&label, "label", "", "the words people read for an oidc method's provider, on the login page's button and in the lists of a person's ways to sign in (\"Lakeside ID\"); without it they are made from the registration name (company-sso reads Company Sso)")
 
 	return cmd
 }
 
+// labelGiven refuses --label where it says nothing a method can carry, before anything
+// is asked or read: given with no words, or given for a kind other than an
+// organization's identity provider, whose words alone are made from a registration
+// name. Every other kind is shown by what it is or by its brand.
+func labelGiven(cmd *cobra.Command, kind, label string) error {
+	if !cmd.Flags().Changed("label") {
+		return nil
+	}
+	if strings.TrimSpace(label) == "" {
+		return errors.New("--label takes the words people read for the provider (--label \"Lakeside ID\"); leave the flag out for the words made from the registration name")
+	}
+	if kind != app.MethodOIDC {
+		probe := authpkg.Method{Kind: kind, Label: label}
+
+		return probe.Validate()
+	}
+
+	return nil
+}
+
 // methodSpec reads add method's arguments and flags into the method to add: its kind,
 // its registration name (the kind's own when none is given, registration being empty
-// then, except for an identity provider, which has no default), its slot and its
-// authority. The password method
-// takes neither flag, the persona method no slot and the application's authority.
+// then, except for an identity provider, which has no default), its slot, its
+// authority and, for an identity provider, the words --label gives it. The password
+// method takes neither --slot nor --authority, the persona method no slot and the
+// application's authority.
 // Under --shape (start) the shape fills in what the flags left open and refuses a
 // method or a flag that contradicts it; without one, a directory method's authority is
 // asked when the flag did not say.
-func methodSpec(cmd *cobra.Command, kind, registration, slot, authority string, usernameIsEmail bool, start *shape.Shape) (authpkg.Method, error) {
-	spec := authpkg.Method{Kind: kind, Name: registration, Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail}
+func methodSpec(cmd *cobra.Command, kind, registration, slot, authority, label string, usernameIsEmail bool, start *shape.Shape) (authpkg.Method, error) {
+	spec := authpkg.Method{Kind: kind, Name: registration, Slot: slot, Authority: authority, UsernameIsEmail: usernameIsEmail, Label: label}
+	if err := labelGiven(cmd, kind, label); err != nil {
+		return spec, err
+	}
 	switch {
 	case registration != "":
 	case spec.Kind == app.MethodOIDC:
@@ -815,9 +841,6 @@ func runTransitions(cmd *cobra.Command, f *transitionFlags, repo handoff.Repo, t
 		return err
 	}
 	check.Report(out, results)
-	if f.start != nil {
-		f.start.writeHeld(out, results)
-	}
 	if !check.Failed(results) && left == 0 {
 		if len(ts) == 1 {
 			fmt.Fprintf(out, "\nThe check is clean: the option is wired. Review the diff and open the pull request.\n")
@@ -886,22 +909,27 @@ sign-in tables, cookie, store prefix, and role file from the start, with one fil
 sign-in method. Its session tables are written as migrations under the new prefix and its
 access tables copied from an auth the application has; an empty role file is written in
 the package (the file its Roles() embeds and hands to the permission engine), and the data
-level constructs it beside that auth. The package carries a foothold (foothold.go): the
-first administrator the migrate command seeds while the auth's users table holds no rows,
-a user named administrator with the password the stack generates for a password auth,
-which the first sign-in changes before anything else is served, or a user without a
-password under a sign-in name the placement names, which that person's first sign-in
-links to, for an auth whose roles the application assigns; its roles, its setting in the
-data level and its seeding from pkg/deploy are handed to the agent. Where the
-application's tenants have directories, a name alone links no account that has never
-signed in, so such a user is seeded for the registration its name is believed from. The
-foothold names that registration itself only for an auth whose one directory method is
-of one Microsoft Entra tenant or one Google Workspace; for any other auth (several
-directory methods, a method open to more than one organization, an organization's
-identity provider) it names none and says so, and the first sign-in links nothing until
-its author names the deployment's own directory in the foothold, or gives the auth a
-password method and seeds the administrator with a password; impulse check fails until
-one of the two is done (first-administrator).
+level constructs it beside that auth. The package carries a foothold (foothold.go) for
+an auth whose roles the application assigns, with the password method or without: the
+first administrator the migrate command invites while nobody of the auth holds the
+Super Administrator role, by an invitation mailed to the address the placement names
+for each environment
+(APP_<AUTH>_ADMINISTRATOR). The invitation gives the Super Administrator role and the
+first administrator's roles, and the person accepts it as everyone invited after them
+does, by signing in from the link through a method of the auth: with the password method
+they choose a password there, and through a directory the invitation is what ties the
+sign-in to the roles, however many organizations the method admits. No account is made
+ahead of the person and no password is generated. A release leaves a standing invitation
+as it is, replaces one that ran out, and withdraws one for an address the placement no
+longer names; the migrate command's -reinvite-administrator mails a fresh one on demand;
+and both refuse while nobody holds the role and the application has no mailbox to send
+as, since the link is never written to a log. Once somebody holds the Super Administrator
+role nobody is invited, and an account that holds no such role stops no invitation. The foothold's roles, its setting in the data level and its invitation
+from pkg/deploy are handed to the agent; impulse check holds the package to inviting
+(first-administrator). An auth the application generates no management for
+(generation.GenerateIdentity) invites nobody, since nothing there would give an accepted
+invitation its roles, and impulse check refuses it until the application does: it has no
+way in.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),
@@ -961,14 +989,8 @@ never written: for directory-members and open-sign-up the command says that it i
 chosen on the application's Sign-in page while the application runs. A method or a
 flag given beside --shape that contradicts it is refused, naming both (--shape
 directory-roles with --authority application, --shape open-sign-up with an identity
-provider's method). In an application whose tenants have directories, Open sign-up on
-an auth with no password method would seed a first administrator who cannot sign in,
-since the shape opens every directory method to more than one organization: the command
-refuses it before anything is written and says what to give instead (the password method
-beside the others, or the auth without the shape and impulse add method afterward). Any
-other starting point impulse check refuses for its first administrator is said after the
-check's report, in the check's words (first-administrator). impulse audit reads the
-shape back from the code (its sign-in section).
+provider's method). impulse audit reads the shape back from the code (its sign-in
+section).
 
 Checking the auth's roles in the deploy, the App's handlers the generated router now
 requires for the outlet, its development identities, and the tests that prove its people
@@ -999,6 +1021,16 @@ release. The registration name is required: it is the application's word for the
 once. It takes no slot. With --authority directory
 every sign-in reconciles the person's roles to the role names the provider's ID token
 carries in its roles claim, which the provider has to be set up to send.
+
+--label gives the words people read for an oidc method's provider: the login page's
+button says "Sign in with" and those words, and the application names the method by them
+wherever it lists a person's ways to sign in. They are written on the method's
+declaration in the generator program (.Labeled), which is where they are changed, with go
+generate run after. Without the flag the words are made from the registration name
+(company-sso reads "Company Sso") and the handoff says where to change them. The flag is
+the oidc method's alone: every other kind is shown by what it is (Password, Persona) or
+by its brand (Google, Microsoft), and the registration name stays the key in routes,
+variables and stored links whatever the words are.
 
 The persona method is registered only where the persona provider is configured: the
 placement's persona block names the provider's issuer and the application's client ID root,
@@ -1047,12 +1079,8 @@ written: for directory-members and open-sign-up the command says that it is chos
 the application's Sign-in page while the application runs, and what it does there. A
 method or a flag given beside --shape that contradicts it is refused, naming both
 (--shape directory-members with --slot any, --shape invite-only with --authority
-directory, --shape directory-members with the password method). In an application
-whose tenants have directories, a starting point that leaves the auth with no password
-method and a directory method open to more than one organization seeds a first
-administrator who cannot sign in: the command says so after the check's report, with
-what to do next in the check's words (first-administrator). impulse audit reads the
-shape back from the code (its sign-in section).`
+directory, --shape directory-members with the password method). impulse audit reads
+the shape back from the code (its sign-in section).`
 
 // retiredAccountsFlag is the flag add auth and add method took for a method's standard
 // account rule, and accountsRetired what either says of it now.

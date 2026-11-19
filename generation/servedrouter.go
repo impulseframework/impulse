@@ -31,6 +31,10 @@ const (
 	// one (session.Auth.FirstPassword): the code is asked for under /code, and the
 	// password is set, with the code, at the suffix itself.
 	userFirstPasswordSuffix = "/user/first-password"
+	// userPasswordResetSuffix is where a password reset link is asked for by the person
+	// (the suffix itself), opened (/open) and completed with a new password (/complete)
+	// (session.Auth.PasswordReset).
+	userPasswordResetSuffix = "/user/password-reset"
 	// userForgetBrowserSuffix is where a signed-in person's account page forgets the
 	// browser the second factor remembered for them (session.Auth.ForgetBrowser).
 	userForgetBrowserSuffix = "/user/browser/forget"
@@ -77,6 +81,13 @@ const (
 	// the password method (session.FirstPasswordHandlers).
 	firstPasswordSendCodeHandler = "FirstPasswordSendCode"
 	firstPasswordSetHandler      = "FirstPasswordSet"
+	// The password reset's handlers on a session outlet's surface whose auth declares
+	// the password method (session.PasswordResetHandlers), and the handler that
+	// confirms an address an administrator set (session.EmailHandlers.Confirm).
+	passwordResetRequestHandler  = "PasswordResetRequest"
+	passwordResetOpenHandler     = "PasswordResetOpen"
+	passwordResetCompleteHandler = "PasswordResetComplete"
+	emailConfirmHandler          = "EmailConfirm"
 	// The device flow's and the token page's handlers on an issuing session outlet's
 	// surface (session.DeviceHandlers, ApplicationTokenHandlers).
 	deviceAuthorizeHandler = "DeviceAuthorize"
@@ -144,10 +155,21 @@ type servedInvitation struct {
 }
 
 // servedEmail are the email address routes of a session outlet: where a signed-in
-// person adds an address and where they verify it from the mailed link.
+// person adds an address, where they verify it from the mailed link, and where the
+// reader of a new address an administrator set confirms it, signed in or not.
 type servedEmail struct {
-	Add    string
-	Verify string
+	Add     string
+	Verify  string
+	Confirm string
+}
+
+// servedPasswordReset are the password reset routes of a session outlet whose auth
+// declares the password method: where a person asks for a link, where the mailed link
+// is opened, and where it is completed with a new password.
+type servedPasswordReset struct {
+	Request  string
+	Open     string
+	Complete string
 }
 
 // servedSignUp are the sign-up routes of a session outlet whose auth declares the
@@ -648,6 +670,9 @@ type servedOutlet struct {
 	// FirstPassword are the first password routes the account page is told beside the
 	// methods, with a password method (nil otherwise).
 	FirstPassword *servedFirstPassword
+	// PasswordReset are the password reset routes the login page is told beside the
+	// methods, with a password method (nil otherwise).
+	PasswordReset *servedPasswordReset
 	// Routes are the session routes under the prefix, in mount order: OpenRoutes, the
 	// ones outside the XSRF guard, GuardedRoutes, the POSTs behind it, then
 	// ValidatedRoutes, the ones a signed-in person calls, inside the validated group
@@ -1272,7 +1297,7 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 	// handlers answer 404 while the method is invite only.
 	hasPassword := slices.ContainsFunc(o.auth.methods, func(m AuthMethod) bool { return m.kind == methodPassword })
 	so.Invitation = servedInvitation{Open: prefix + userInvitationSuffix, Accept: prefix + userInvitationSuffix + "/accept"}
-	so.Email = servedEmail{Add: prefix + userEmailSuffix, Verify: prefix + userEmailSuffix + "/verify"}
+	so.Email = servedEmail{Add: prefix + userEmailSuffix, Verify: prefix + userEmailSuffix + "/verify", Confirm: prefix + userEmailSuffix + "/confirm"}
 	guarded = append(guarded, route(http.MethodPost, userInvitationSuffix, invitationOpenHandler, true))
 	so.SessionHandlers = append(so.SessionHandlers,
 		servedSessionHandler{Name: invitationOpenHandler, Description: "The invitation the login page was sent to, opened (session.InvitationHandlers.Open): the sign-in that follows carries it"},
@@ -1283,9 +1308,13 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 		guarded = append(guarded, route(http.MethodPost, userInvitationSuffix+"/sign-up", invitationSignUpHandler, true))
 		so.SessionHandlers = append(so.SessionHandlers, servedSessionHandler{Name: invitationSignUpHandler, Description: "An invited person's account, created with a password and signed in (session.InvitationHandlers.SignUp)"})
 	}
+	// The reader of a new address an administrator set confirms it behind the XSRF
+	// guard alone: they may have lost the mailbox their sign-in code goes to.
+	guarded = append(guarded, route(http.MethodPost, userEmailSuffix+"/confirm", emailConfirmHandler, true))
 	so.SessionHandlers = append(so.SessionHandlers,
 		servedSessionHandler{Name: emailAddHandler, Description: "A signed-in person's email address, added by mailing it a verification link (session.EmailHandlers.Add)"},
 		servedSessionHandler{Name: emailVerifyHandler, Description: "The address verified from the mailed link (session.EmailHandlers.Verify)"},
+		servedSessionHandler{Name: emailConfirmHandler, Description: "An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm)"},
 	)
 	validatedRoutes = []servedRoute{
 		validated(userInvitationSuffix+"/accept", invitationAcceptHandler),
@@ -1312,6 +1341,22 @@ func servedMailRoutesOf(so *servedOutlet, o *routerOutlet, guarded []servedRoute
 			servedSessionHandler{Name: signUpStartHandler, Description: "A sign-up started from an address, which is mailed its link (session.SignUpHandlers.Start)"},
 			servedSessionHandler{Name: signUpOpenHandler, Description: "The sign-up link opened (session.SignUpHandlers.Open)"},
 			servedSessionHandler{Name: signUpCompleteHandler, Description: "The sign-up completed with a password: the account created and signed in (session.SignUpHandlers.Complete)"},
+		)
+		// Whether a person may ask for their own link is an administrator's choice in
+		// the running application: the request answers 404 while it is off, and the
+		// link an administrator sends is opened and completed either way.
+		so.PasswordReset = &servedPasswordReset{
+			Request: prefix + userPasswordResetSuffix, Open: prefix + userPasswordResetSuffix + "/open", Complete: prefix + userPasswordResetSuffix + "/complete",
+		}
+		guarded = append(guarded,
+			route(http.MethodPost, userPasswordResetSuffix, passwordResetRequestHandler, true),
+			route(http.MethodPost, userPasswordResetSuffix+"/open", passwordResetOpenHandler, true),
+			route(http.MethodPost, userPasswordResetSuffix+"/complete", passwordResetCompleteHandler, true),
+		)
+		so.SessionHandlers = append(so.SessionHandlers,
+			servedSessionHandler{Name: passwordResetRequestHandler, Description: "A person's own request for a password reset link, served while an administrator allows it (session.PasswordResetHandlers.Request)"},
+			servedSessionHandler{Name: passwordResetOpenHandler, Description: "The password reset link opened (session.PasswordResetHandlers.Open)"},
+			servedSessionHandler{Name: passwordResetCompleteHandler, Description: "The password reset completed with a new password: every session of the person ends (session.PasswordResetHandlers.Complete)"},
 		)
 	}
 
@@ -1485,7 +1530,7 @@ var (
 // Package {{ .Package }} serves the application. The middleware in front of every route,
 // outermost first, one line per group, each chain followed by what it stands in front of:
 //
-//	every request: tracing, hooks.Outermost, request logging{{ if .RequestLog.Declared }} ({{ .RequestLog }}){{ end }}, SecurityHeaders, httpio.WithParams
+//	every request: tracing, hooks.Outermost, request logging{{ if .RequestLog.Declared }} ({{ .RequestLog }}){{ end }}, SecurityHeaders, httpio.WithParams, NameEnvironment
 {{- range .RootMountedRoutes }}
 //	  by hand under {{ .Prefix }}: {{ .Words }}
 {{- end }}
@@ -1622,6 +1667,11 @@ type Handlers interface {
 	// (resource.CheckAPIVersion). A value that is not a release, dev for one, is named
 	// as it is and checks nothing.
 	ServerVersion() string
+	// ServerEnvironment is the name of the environment this server runs in, the
+	// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)
+	// and the About pop-up of a browser application shows. Production is told no name
+	// and reports none, so its answers name no environment.
+	ServerEnvironment() string
 
 	// Every request: where the request log goes; the router builds the request logger from it.
 	LogExporter() logger.Exporter
@@ -1813,6 +1863,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- end }}
 	r.Use(h.SecurityHeaders)
 	r.Use(httpio.WithParams)
+	// The environment this server runs in, named on every answer (X-Environment) where the
+	// application reports one: production reports none.
+	r.Use(resource.NameEnvironment(h.ServerEnvironment()))
 
 	// The application's routes outside every outlet.
 	if hooks.Root != nil {
@@ -1933,9 +1986,12 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			SignInMeans: "{{ $outlet.SignInMeans }}",
 			ChangeLook: "{{ $outlet.ChangeLook }}",
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
-			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}"},
+			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}", Confirm: "{{ $outlet.Email.Confirm }}"},
 {{- if $outlet.SignUp }}
 			SignUp: session.SignUpRoutes{Start: "{{ $outlet.SignUp.Start }}", Open: "{{ $outlet.SignUp.Open }}", Complete: "{{ $outlet.SignUp.Complete }}"},
+{{- end }}
+{{- if $outlet.PasswordReset }}
+			PasswordReset: session.PasswordResetRoutes{Request: "{{ $outlet.PasswordReset.Request }}", Open: "{{ $outlet.PasswordReset.Open }}", Complete: "{{ $outlet.PasswordReset.Complete }}"},
 {{- end }}
 		}))
 {{- else if and (not .Validated) (not .Optional) }}
@@ -2244,6 +2300,36 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 	router.ServeHTTP(rr, req)
 
 	return rr
+}
+
+// TestGeneratedRouterEnvironment proves every answer names the environment the server
+// reports, the answer for an address no route serves included, and that a server which
+// reports none, as production does, names none.
+func TestGeneratedRouterEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		environment string
+		want        []string
+	}{
+		{name: "a server told its environment names it", environment: "tst", want: []string{"tst"}},
+		{name: "a server told none names none", environment: "", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newRouterHandlersStub(newRouterCallRecorder())
+			stub.serverEnvironment = tt.environment
+			rr := httptest.NewRecorder()
+			New(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/no-such-route", http.NoBody))
+
+			if got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {
+				t.Errorf("%s = %q, want %q", resource.ServerEnvironmentHeader, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestGeneratedRouter drives every generated route through New: each request answers
@@ -3163,6 +3249,8 @@ type routerHandlersStub struct {
 	// serverVersion is the release the stub reports; empty, no release, so a case that
 	// sets none is never refused.
 	serverVersion string
+	// serverEnvironment is the environment's name the stub reports; empty, production's.
+	serverEnvironment string
 	// exporter is where the request log goes when a test sets one, the console for the
 	// request log test; nil hands the router the recording stub.
 	exporter logger.Exporter
@@ -3170,6 +3258,10 @@ type routerHandlersStub struct {
 
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
+}
+
+func (s *routerHandlersStub) ServerEnvironment() string {
+	return s.serverEnvironment
 }
 {{- if or .FileStores .SecretFields }}
 

@@ -454,6 +454,12 @@ const (
 	// MailLinkFirstPassword is the code a signed-in person who has no password is
 	// mailed to choose their first one.
 	MailLinkFirstPassword = dbtype.MailLinkFirstPassword
+	// MailLinkPasswordReset is the link a person who holds a password chooses a new one
+	// at; see dbtype.MailLinkPasswordReset.
+	MailLinkPasswordReset = dbtype.MailLinkPasswordReset
+	// MailLinkAddressChange is the link that confirms an address an administrator asked
+	// to put on an account; see dbtype.MailLinkAddressChange.
+	MailLinkAddressChange = dbtype.MailLinkAddressChange
 )
 
 // SignInMethod is a row of the sign-in methods table: what an administrator chose for
@@ -599,13 +605,6 @@ type SignInRules[Tx any] struct {
 	// for none): with Directories it decides a first link made on a name alone to an
 	// account that has never signed in.
 	OnlyIn signinflow.OnlyInTenant[Tx]
-	// Seeded reports whether an account is the deployment's own seed for the
-	// registration the sign-in came through (nil for none), and OneOrganization says
-	// that registration admits exactly one organization and nobody else
-	// (signin.Audience.OneOrganization): with Directories the two admit the seed's
-	// first link on the name.
-	Seeded          signinflow.SeededAccount
-	OneOrganization bool
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
@@ -613,6 +612,11 @@ type SignInRules[Tx any] struct {
 	// one just entered at a login or a confirmation, or the one a pending sign-in was
 	// held with. Nil when no password was proved.
 	Proven PasswordProof
+	// ConfirmAddress says a sign-in through a directory that does not vouch for the
+	// person's address is held for the mailed code that confirms one, while the account
+	// holds no confirmed address. The Auth sets it where it sends mail, for a
+	// registration that is not the deployment's own provider of seeded accounts.
+	ConfirmAddress bool
 }
 
 // SignIn implements AuthStore.
@@ -628,8 +632,8 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
-		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, Seeded: rules.Seeded, OneOrganization: rules.OneOrganization,
-		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn,
+		TrustedDevice: rules.TrustedDevice, Proven: rules.Proven, ConfirmAddress: rules.ConfirmAddress,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

@@ -1,4 +1,4 @@
-import { Directive, input, Type } from '@angular/core';
+import { Directive, Injector, input, Type } from '@angular/core';
 import { TooltipPosition } from '@angular/material/tooltip';
 import { IconName } from './icon-names';
 import { FieldName, Method, PermissionScope, Resource } from './permissions';
@@ -64,6 +64,37 @@ export interface RowAction {
 export const rowActionsKey = 'actions:menu';
 
 /**
+ * A button every row of a list carries, for what a row offers that is no method of the
+ * server's: something a person only reads, opened in a pop-up (a flag's history). It is
+ * drawn as an icon button named by its label, ahead of the row's menu of methods, on
+ * every row; what the server lets the caller do is never decided here, so a button that
+ * reads asks the server and shows its answer, a refusal included.
+ */
+export interface RowButton {
+  /** The button's name: its tooltip and what a screen reader says. */
+  label: string;
+  /** The Material Icon the button draws. */
+  icon: IconName;
+  /**
+   * What a click does. The row is the one the server answered, not the one the columns
+   * wrote (a column's getter and formatter change what a cell shows, never what the row
+   * holds), and the injector is the list's own, for a dialog or a service.
+   */
+  run: (row: RecordData, injector: Injector) => void;
+}
+
+/**
+ * The display-row key the row as the server answered it rides under, which a row button
+ * is handed: the grid hands a button the display row, whose cells the columns wrote.
+ */
+export const rowAnswerKey = 'row:answer';
+
+/** The id of the column the n-th row button of a list is drawn in. */
+export function rowButtonKey(index: number): string {
+  return `button:${index}`;
+}
+
+/**
  * How a page presents one method it offers, where the generated metadata's own words
  * are not the ones the page wants. Every part is optional but the method's name: a
  * method the page does not name is offered with its name in words.
@@ -94,6 +125,13 @@ export interface MethodPresentation {
   confirm?: string | ((row: RecordData, listed?: readonly RecordData[]) => string);
   /** What the notice says once the method has run. */
   successMessage?: string;
+  /**
+   * What the notice says for the method's answer, where the answer itself says how the
+   * method went: a method that mails a person answers whether the message was sent and,
+   * where it was not, why. `failed` draws the notice as a failure. Undefined, or an
+   * undefined result, leaves `successMessage`.
+   */
+  answered?: (answer: unknown) => { message: string; failed?: boolean } | undefined;
   /**
    * The words above a request field's input, by the field's name, where the name in
    * words is not what the page wants (`domain` as the application's own word for its
@@ -234,6 +272,13 @@ interface ColumnConfigBase {
    * it there too. It never adds one where the server would refuse the filter.
    */
   filterable?: boolean;
+  /**
+   * Opt the column out of sorting: its header is drawn as words, with nothing to press.
+   * For a column whose shown value is not the value the server orders the field by (a
+   * moment the server works out for each row), where a sort would order the rows by
+   * something the person cannot see. It never makes a table sortable that is not.
+   */
+  sortable?: boolean;
   hideHeader?: boolean;
 }
 
@@ -979,6 +1024,19 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    */
   notice?: (rows: RecordData[]) => string | undefined;
   /**
+   * What the empty table says where the list holds no row at all: the page's own
+   * sentence in place of "No records found" ("This application declares no feature
+   * flags."). It is said only of the whole list: a list narrowed by a filter or the
+   * search box that leaves no row says the plain text, and a refusal, a failed request
+   * and a list with no column the person may see keep their own words.
+   */
+  emptyMessage?: string;
+  /**
+   * The buttons every row carries ahead of its menu of methods; see RowButton. None by
+   * default.
+   */
+  rowButtons?: RowButton[];
+  /**
    * Whether the page draws the search box over the resource's search fields
    * (`ResourceMeta.searchFields`): drawn above the table when the metadata lists any,
    * unless false. Which fields it searches is the resource's, narrowed by the caller's
@@ -1059,6 +1117,10 @@ export interface ListViewConfig extends BaseConfig {
   showRowCount: boolean;
   /** The page's standing notice; see ListViewConfigOptions.notice. */
   notice?: (rows: RecordData[]) => string | undefined;
+  /** What the empty table says of a list with no row; see ListViewConfigOptions.emptyMessage. */
+  emptyMessage?: string;
+  /** The buttons every row carries; see ListViewConfigOptions.rowButtons. */
+  rowButtons?: RowButton[];
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */
   showSearchBox: boolean;
   /** The server page size; see ListViewConfigOptions.pageSize. */

@@ -703,6 +703,12 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 		files = append(files,
 			identitySourceFile{dir: inst.methods, name: fileStem("Require" + inst.auth + "PasswordChange"), template: identityRequirePasswordChangeTemplate, needs: []identityTable{identityUsers}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "TemporaryPassword"), template: identitySetTemporaryPasswordTemplate, needs: []identityTable{identityUsers}},
+			// The reset link is one of the links the auth mails, so the method is written
+			// where the schema holds them.
+			identitySourceFile{
+				dir: inst.methods, name: fileStem("Send" + inst.auth + "UserPasswordResetLink"), template: identitySendPasswordResetLinkTemplate,
+				needs: []identityTable{identityUsers, identityMailLinks},
+			},
 		)
 	}
 	// A password is removed where an identity is unlinked: from a person who signs in

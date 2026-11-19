@@ -39,6 +39,10 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 // adds an address and proves it by following the link sent to it{{if and .Password .SignUpChoice}}; and, while an
 // administrator has the password method open to sign-up, a stranger signs up from a link
 // mailed to the address they give{{end}}.
+// An address an administrator sets for a person is theirs once its mailbox confirms it,
+// by the link the auth mails there{{if .Password}}; and a person who forgot their password gets back
+// in by a link mailed to the address they confirmed, which an administrator sends or,
+// while an administrator allows it, the person asks for at the sign-in page{{end}}.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -47,7 +51,11 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 // person's verified address (a person who holds none gives one first), unless the
 // browser is one the person asked to be remembered after a code (the {{.Name}}-trusted
 // cookie); a sign-in through a directory the deployment administers, or whose token says
-// a second factor was passed, carries the directory's and is asked for nothing. An
+// a second factor was passed, carries the directory's and is asked for nothing.{{if .Directory}} Every
+// account a person signs in to has a confirmed address, so a person who comes through a
+// directory that does not vouch for theirs (Microsoft Entra ID vouches for none)
+// confirms one at their first sign-in with a code mailed to it, whatever the directory
+// attests.{{end}} An
 // administrator makes the server forget the browsers a person asked to be remembered,
 // from the person's account page, so their next sign-in asks again.
 package {{.Name}}
@@ -236,12 +244,8 @@ type Signals interface {
 type Session = session.Auth[session.NoCustomData, session.NoCustomData, *cloudspanner.ReadWriteTransaction]
 
 // Auth is the {{.Name}} auth: its permission store and its session manager with the
-// sign-in methods registered on it{{if .Foothold}}, and the database client it reads its own tables
-// through (the users table, when the deployment seeds the first administrator){{end}}.
+// sign-in methods registered on it.
 type Auth struct {
-{{- if .Foothold}}
-	db       *cloudspanner.Client
-{{- end}}
 	access   *access.Client
 	handlers *Handlers
 {{- if .IdentityPackage}}
@@ -332,6 +336,14 @@ func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
 }
 
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address: the account holds the address it had until then. The
+// reader of the link confirms it signed in or not, since they may have lost the mailbox
+// their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
+}
+
 // DeviceAuthorize starts a command-line client's device authorization ({"client_id",
 // "outlet"}, form-encoded or JSON): the client is told the code the person types and
 // the device code it polls with. The generated router mounts it under the machine
@@ -394,7 +406,8 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 {{- if .RolesSynced}}: its holder enters every tenant. The directory writes
 // this auth's roles, so the directory decides who is a super administrator: the role is
 // given to a person the directory names for it and taken from one it no longer names,
-// nobody is seeded with it, and the library asks a holder for no second factor of its own.
+// the deployment invites nobody to it, and the library asks a holder for no second factor
+// of its own.
 {{- else}}: its holder gives and takes any role of the auth, enters
 // every tenant, and signs in with a second factor whatever the sign-in rule asks.
 {{- end}}
@@ -647,7 +660,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 {{- end}}
 {{- end}}
 
-	return &Auth{ {{- if .Foothold}}db: db, {{end}}access: accessClient, handlers: handlers{{if .IdentityPackage}}, identity: identityClient{{end}}}, nil
+	return &Auth{access: accessClient, handlers: handlers{{if .IdentityPackage}}, identity: identityClient{{end}}}, nil
 }
 
 // Access returns the auth's permission engine: the handlers check against it, and its
@@ -676,8 +689,13 @@ func (a *Auth) Identity() *{{.Name}}identity.Client {
 }
 {{- end}}
 
-// Close releases the permission engine, which ends its subscription to the policy kind.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine, which ends its subscription to the policy kind. A reset link a person asked
+// for is mailed after their request is answered (session.AuthAPI.WaitForMail), so an
+// application that has stopped serving closes the auth before it closes the database,
+// and no link a person was promised is lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}
@@ -731,7 +749,8 @@ import (
 // always password: the segment of its login route (user/password/login). A password
 // sign-in is checked against the user's hash in the users table; the bootstrap creates
 // the development logins with their passwords, and a deployed environment starts from the
-// administrator the migrate command seeds (foothold.go), the rest coming from its
+// first administrator the migrate command invites (foothold.go), who chooses a password
+// from the mailed link, the rest coming from its
 {{- if .SignUpChoice}}
 // administration surface, from the invitations it mails and, while an administrator has
 // the method open to sign-up, from the strangers who sign up from a mailed link.
@@ -769,6 +788,27 @@ func (h *Handlers) FirstPasswordSendCode() http.HandlerFunc {
 // old one (PasswordChange).
 func (h *Handlers) FirstPasswordSet() http.HandlerFunc {
 	return h.FirstPassword().Set()
+}
+
+// PasswordResetRequest takes a person's own request for a link that resets their
+// password, served while an administrator has turned that on: the answer is the same
+// whether or not the address has an account, and an address with none is mailed
+// nothing.
+func (h *Handlers) PasswordResetRequest() http.HandlerFunc {
+	return h.PasswordReset().Request()
+}
+
+// PasswordResetOpen opens a password reset link, the person's own or one an
+// administrator sent, and answers the username it resets the password of.
+func (h *Handlers) PasswordResetOpen() http.HandlerFunc {
+	return h.PasswordReset().Open()
+}
+
+// PasswordResetComplete sets the new password a reset link's reader chose: the link is
+// spent, the old password is refused from then on, every session of the person ends,
+// and they sign in with the new password.
+func (h *Handlers) PasswordResetComplete() http.HandlerFunc {
+	return h.PasswordReset().Complete()
 }
 
 // InvitationSignUp accepts an invitation as a stranger with a new password: the invitee
@@ -822,27 +862,22 @@ func register{{.Pascal}}(authSession *Session) *session.PasswordMethod {
 }
 `
 
-// footholdTemplate renders the foothold file: the first administrator the deployment
-// seeds while the auth's users table holds no rows, in the form the auth's sign-in allows.
+// footholdTemplate renders the foothold file: the roles that count as an administrator's
+// and, where the deployment invites the auth's first administrator, the invitation the
+// migrate command asks for while nobody of the auth holds the Super Administrator role.
 const footholdTemplate = `package {{.Name}}
-
+{{if .InvitesAdministrator}}
 import (
 	"context"
+	"slices"
 
-	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session"
 )
-{{if eq .Foothold "password"}}
-// Administrator is the username of the auth's first administrator: the foothold a deployed
-// environment starts from. The migrate command seeds it while the auth's users table holds
-// no rows, with the password the stack generates for it (a generated secret the data level
-// declares), and never again while a user exists; the first sign-in changes the password,
-// and every user after the first comes from the administration surface. The development
-// bootstrap creates its own logins instead (cmd/bootstrap/users.json).
-const Administrator = "administrator"
+{{else}}
+import "github.com/impulseframework/impulse/accesstypes"
 {{end}}
 // AdministratorRoles are the roles that count as an administrator's, by where they are
 // held: the ones whose holder can give a role back.
@@ -859,174 +894,145 @@ const Administrator = "administrator"
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return {{.AdministratorGlobal}}, {{.AdministratorEveryDomain}}
 }
+{{- if .InvitesAdministrator}}
 
-// FirstAdministratorRoles are the application's roles the first administrator is seeded
-// with, by where they are held, beside the Super Administrator role every first
-// administrator holds (assignAdministrator):
-{{- if .AdministratorAuthored}} the administrator's roles and what else the
-// development identities hold (cmd/bootstrap/users.json), so the foothold can do what the
-// development logins can.
-{{- else}} none until they are authored with the role file
-// (roles.json), since the seed names nothing the file does not define, and the first
-// administrator holds the Super Administrator role alone until then.
+// FirstAdministratorRoles are the application's roles the first administrator's
+// invitation gives, by where they are held, beside the Super Administrator role every
+// first administrator holds (firstAdministratorRoleNames):
+{{- if .AdministratorAuthored}} the administrator's roles and
+// what else the development identities hold (cmd/bootstrap/users.json), so the first
+// administrator can do what the development logins can.
+{{- else}} none until they are authored with the
+// role file (roles.json), since the invitation names nothing the file does not define,
+// and the first administrator holds the Super Administrator role alone until then.
 {{- end}}
 func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return {{.FirstAdministratorGlobal}}, {{.FirstAdministratorEveryDomain}}
 }
-{{if eq .Foothold "password"}}
-// SeedAdministrator creates the first administrator when the auth's users table holds no
-// rows and reports whether it did: the roles first, then the user who holds them
-// (seedFoothold). Once a user exists nothing is seeded. An empty password is refused
-// while the table is empty: a deployment carries the generated one, and nothing seeds a
-// user without a password. The password is the one the deployment generated, known to
-// whoever can read that secret, so the user is created marked to change it
-// (session.CreateUserRequest.PasswordChangeRequired): the person signs in with it once,
-// is served nothing but the password change until they have chosen one of their own, and
-// the generated one signs nobody in after that.
-func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, error) {
-	empty, err := a.usersTableEmpty(ctx)
-	if err != nil {
-		return false, err
-	}
-	if !empty {
-		return false, nil
-	}
-	if password == "" {
-		return false, errors.Newf("the %s auth's users table holds no rows and no administrator password was given: a deployment generates one as a secret, and the migrate command seeds nothing without it", Name)
-	}
-	if err := a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password, PasswordChangeRequired: true}); err != nil {
-		return false, err
-	}
 
-	return true, nil
-}
-{{else}}
-// SeedAdministrator creates the first administrator under signInName when the auth's users
-// table holds no rows and reports whether it did: the foothold a deployed environment
-// starts from. The directory proves who someone is and the application assigns the roles
-// (signin.DisableRoleSync), and a role is held by an account, so the user is created,
-// password-less, under the sign-in name the directory presents (the user principal name on
-// Entra, the email on Google), which the placement names per environment, and holds the
-// administrator roles from the start (seedFoothold). The person's first sign-in through
-// the directory links to it. Once a user exists nothing is seeded: every user after the
-// first comes from the administration surface. An empty name is refused while the table is
-// empty. The development bootstrap seeds the development identities instead.
-{{- if .FootholdRegistration}}
-//
-// The account is seeded for the {{.FootholdMethodName}} registration, the auth's one directory method
-// whose roles the application gives (session.SeedUserIDThrough, over
-// {{.FootholdRegistration}}): its id says which of the auth's
-// registrations the name is believed from. An account with no password that has never
-// signed in is tied to whoever signs in next by nothing but its name, and a directory
-// asserts the names it likes, so where the application's tenants have directories a
-// name alone links nothing. The first administrator holds roles for the whole
-// application and belongs to no tenant, so no tenant's directory vouches for the
-// account; the deployment does, by this id, which no request can give an account, and
-// the sign-in rule links it at the person's first sign-in through that registration,
-// which admits one organization and nobody else. There, a sign-in under the name
-// through another directory's registration links nothing, and neither does one through
-// this registration once it is widened to more than one organization: keep it to the
-// one until the first administrator has signed in.
-{{- else}}
-//
-// The account is seeded for no registration. Where the application's tenants have
-// directories, an account with no password that has never signed in is linked on its
-// name only when something vouches for it, since a directory asserts the names it
-// likes, and nothing vouches for this one: its first sign-in is refused as a
-// stranger's is. The generator names a registration only where it cannot be wrong, for
-// an auth whose one directory method is of one Microsoft Entra tenant or one Google
-// Workspace, and this auth is not such: it has several directory methods, or one open
-// to more than one organization, or an organization's identity provider, whose
-// sign-in names the library can hold to nothing. Where one registration is the
-// deployment's own directory, and only its administrators give its sign-in names, say
-// so in seedFoothold: derive the id with session.SeedUserIDThrough(Name, the
-// registration's constant, req.Username), and the sign-in rule links the account at
-// its person's first sign-in through that registration while it admits one
-// organization alone. Naming a registration is the deployment's word that whoever its
-// directory presents under this name is the administrator. Otherwise give the auth a
-// password method and seed its first administrator with a password, as impulse add
-// auth writes SeedAdministrator for an auth that starts with the method: adding the
-// method alone leaves this seed as it is, an account with no password. impulse check
-// fails on such an application until one of the two is done (first-administrator), so
-// it is not deployed with an administrator nobody can sign in as.
+// AdministratorVariable is the setting the placement names the auth's first
+// administrator in, for each environment: the person's email address. The data level
+// reads it, and the migrate command hands it to InviteAdministrator.
+const AdministratorVariable = "{{.AdministratorVariable}}"
+
+// InviteAdministrator invites the auth's first administrator, the way into a deployed
+// environment: while nobody of the auth holds the Super Administrator role, the migrate
+// command has an invitation mailed to email, the address the placement names
+// (AdministratorVariable), which gives the Super Administrator role and the
+// application's own roles for the first administrator (FirstAdministratorRoles). The
+// person opens the link and signs in by a method of the auth, as everyone invited after
+// them does.
+{{- if .Password}}
+// With the password method they choose a password there, their address proven by the
+// link.
 {{- end}}
-func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, error) {
-	empty, err := a.usersTableEmpty(ctx)
+{{- if .Directory}}
+// Through a directory the invitation is what ties the sign-in to the roles, whoever
+// else the directory admits and however many organizations the method is open to, and
+// the address the directory gives must be the invited one.
+{{- end}}
+// No account is created ahead of them and no password is generated, so nothing stands
+// that anybody else could sign in with. From there they invite the others. The
+// development bootstrap creates its own logins instead (cmd/bootstrap/users.json).
+//
+// Every release runs it, and it answers what it did (session.FirstAdministrator, never
+// the link): an invitation that stands for the address is left as it is and nothing is
+// mailed; one that ran out (seven days) is replaced by a new one; one that stands for an
+// address the placement no longer names, or for roles the release no longer names, is
+// withdrawn, so its link no longer opens, and the address named now is mailed. Once
+// somebody holds the Super Administrator role nobody is invited, nothing is mailed and
+// no mailbox is asked for: every person after the first comes from the administration
+// surface. An invitation of the first administrator's that still stands then, for an
+// address the placement no longer names, is withdrawn all the same.
+//
+// The role is what is asked, read from the auth's own permission engine: an account
+// that holds nothing (a person who signed up, one a directory seated, a persona who
+// holds no such role) administers nothing and stops no invitation, and a holder whose
+// account is disabled is a holder still. A persona the environment's cast seeds holding
+// the role is a holder, so the cast is seeded before this runs.
+//
+// It refuses, with nothing mailed, while nobody holds the role and the placement names
+// no address, and while nobody holds it and the application has no mailbox to send as:
+// an invitation's link is never written to a log, since whoever opens it becomes the
+// administrator, so the mailbox comes before the first release.
+func (a *Auth) InviteAdministrator(ctx context.Context, email string) (*session.FirstAdministrator, error) {
+	roles, err := firstAdministratorRoleNames()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	if !empty {
-		return false, nil
-	}
-	if signInName == "" {
-		return false, errors.Newf("the %s auth's users table holds no rows and no first administrator is named: a deployment names one per environment, and the migrate command seeds nothing without it", Name)
-	}
-	if err := a.seedFoothold(ctx, &session.CreateUserRequest{Username: signInName}); err != nil {
-		return false, err
+	invited, err := a.handlers.API().InviteFirstAdministrator(ctx, a.access.UserManager(), &session.FirstAdministratorRequest{Email: email, RoleNames: roles})
+	if err != nil {
+		return nil, errors.Wrapf(err, "the %s auth's first administrator (%s)", Name, AdministratorVariable)
 	}
 
-	return true, nil
-}
-{{end}}
-// seedFoothold seeds the first administrator into an empty users table: the roles first,
-// then the user who holds them. A role is held by the id of an account, so the seed
-// chooses the id ({{if .FootholdRegistration}}session.SeedUserIDThrough{{else}}session.SeedUserID{{end}}, the same on every run), writes the Super
-// Administrator role and the administrator roles under it, and creates the user under it
-// last. The user's row is what says the seed is done: a run that stops before it leaves
-// the table empty, and the next deploy writes the same memberships again, each left as it
-// is where it exists, and creates the user. Once a user exists nothing is seeded, whoever
-// that user is and whatever it holds: the seed never gives a role to an account it did
-// not create.
-func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest) error {
-	id := {{if .FootholdRegistration}}session.SeedUserIDThrough(Name, {{.FootholdRegistration}}, req.Username){{else}}session.SeedUserID(Name, req.Username){{end}}
-	if err := a.assignAdministrator(ctx, id); err != nil {
-		return err
-	}
-	req.ID = impulse.NullUUIDFromUUID(id)
-	if _, err := a.handlers.API().CreateSessionUser(ctx, req); err != nil {
-		return errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): %s", req.Username)
-	}
-
-	return nil
+	return invited, nil
 }
 
-// assignAdministrator writes the first administrator's memberships, held by the id of the
-// user's account, each where its roles are held; a membership that exists is left as it is.
-// The first administrator is the deployment's first super administrator: the role the
-// framework defines in every auth (accesstypes.SuperAdministrator), held for the whole
-// application, whose holder alone makes another, is written beside the application's own
-// roles (FirstAdministratorRoles).
-func (a *Auth) assignAdministrator(ctx context.Context, userID impulse.UUID) error {
+// ReinviteAdministrator withdraws the first administrator's standing invitation and
+// mails a fresh one to email, for a message that was lost: the earlier link no longer
+// opens. It is what the migrate command's -reinvite-administrator runs, on demand from
+// the deployment's operations. It refuses once somebody holds the Super Administrator
+// role, since somebody is then there to invite the others, and is InviteAdministrator
+// in every other respect.
+func (a *Auth) ReinviteAdministrator(ctx context.Context, email string) (*session.FirstAdministrator, error) {
+	roles, err := firstAdministratorRoleNames()
+	if err != nil {
+		return nil, err
+	}
+	invited, err := a.handlers.API().ReinviteFirstAdministrator(ctx, a.access.UserManager(), &session.FirstAdministratorRequest{Email: email, RoleNames: roles})
+	if err != nil {
+		return nil, errors.Wrapf(err, "the %s auth's first administrator (%s)", Name, AdministratorVariable)
+	}
+
+	return invited, nil
+}
+
+// firstAdministratorRoleNames are the roles the first administrator's invitation
+// carries: the role the framework defines in every auth (accesstypes.SuperAdministrator),
+// held for the whole application, whose holder alone makes another, and the
+// application's own (FirstAdministratorRoles). The acceptance gives each role where the
+// role file holds it, a global role for the whole application and a domain role in every
+// tenant, so the invitation names nothing the file does not define where
+// FirstAdministratorRoles says it is held: a role the release does not ship there is
+// refused here, before an invitation is mailed that nobody could accept.
+func firstAdministratorRoleNames() ([]string, error) {
+	defined, err := Roles().Parse()
+	if err != nil {
+		return nil, errors.Wrap(err, "access.RoleFile.Parse()")
+	}
+	defines := func(roles []*access.Role, role accesstypes.Role) bool {
+		return slices.ContainsFunc(roles, func(r *access.Role) bool {
+			return r.Name == role
+		})
+	}
 	global, everyDomain := FirstAdministratorRoles()
-	global = append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)
-	manager := a.access.UserManager()
-	user := accesstypes.User(userID.String())
-	if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, global...); err != nil {
-		return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in the global partition", userID)
-	}
-	if len(everyDomain) > 0 {
-		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), user, everyDomain...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in every domain", userID)
+	names := []string{string(accesstypes.SuperAdministrator)}
+	for _, role := range global {
+		if !defines(defined.Roles.Global, role) {
+			return nil, errors.Newf("the %s auth's first administrator is given the role %q for the whole application (FirstAdministratorRoles), which the auth's role file does not define as a global role: name a role roles.json defines there", Name, role)
 		}
+		names = append(names, string(role))
+	}
+	for _, role := range everyDomain {
+		if !defines(defined.Roles.Domain, role) || defines(defined.Roles.Global, role) {
+			return nil, errors.Newf("the %s auth's first administrator is given the role %q in every tenant (FirstAdministratorRoles), which the auth's role file does not define as a domain role alone: name a role roles.json defines there", Name, role)
+		}
+		names = append(names, string(role))
 	}
 
-	return nil
+	return names, nil
 }
+{{- else}}
 
-// usersTableEmpty reads one row of the users table, any row, and reports there is none.
-func (a *Auth) usersTableEmpty(ctx context.Context) (bool, error) {
-	rows := 0
-	iter := a.db.Single().ReadWithOptions(ctx, usersTable, cloudspanner.AllKeys(), []string{"Id"}, &cloudspanner.ReadOptions{Limit: 1})
-	if err := iter.Do(func(*cloudspanner.Row) error {
-		rows++
-
-		return nil
-	}); err != nil {
-		return false, errors.Wrapf(err, "spanner.RowIterator.Do(): %s", usersTable)
-	}
-
-	return rows == 0, nil
-}
+// The deployment invites no first administrator for this auth. The application
+// generates no management of the auth's people (generation.GenerateIdentity), so nothing
+// gives an accepted invitation its roles, and an invitation mailed to the first
+// administrator would let them in holding nothing. impulse check refuses the auth as it
+// stands (first-administrator), since nobody can be invited as its first administrator
+// and an account seeded by hand is refused too: have the application generate the
+// management, build the auth's identity client from it, and invite the first
+// administrator as impulse add auth writes it for such an auth.
+{{- end}}
 `
 
 // azureTemplate renders a Microsoft Entra method's file.
@@ -1644,6 +1650,9 @@ const castTemplate = `package {{.Auth}}
 import (
 	"context"
 	_ "embed" // the cast rides in the binary
+	"fmt"
+	"io"
+	"slices"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -1666,33 +1675,56 @@ var castFile []byte
 
 // Cast reads the cast file.
 func Cast() (*cast.Cast, error) {
-	cast, err := cast.ReadCast(castFile)
+	read, err := cast.ReadCast(castFile)
 	if err != nil {
 		return nil, errors.Wrap(err, "cast.ReadCast(): cast.json")
 	}
 
-	return cast, nil
+	return read, nil
 }
 
-// SeedCast seeds the cast: a password-less user under each persona's login, with the
-// persona's name and address, seated in the roles the cast names, a global role in the global
-// partition and a domain role in every tenant domain, as the first administrator's roles
-// are; a persona the cast names a super administrator holds the framework's role
-// (accesstypes.SuperAdministrator) in the global partition. A persona whose user exists is left as it is, whatever it holds, so every deploy
-// seeds the cast again harmlessly and a persona added to the cast arrives at the next one.
-// A role is held by the id of an account, so the seed chooses the id of a persona's
-// account (session.SeedUserID, the same on every run), writes the roles under it, and
-// creates the user under it last: a run that stops between the two is repeated at the
-// next deploy, and the seed never gives a role to an account it did not create.{{ if eq .Foothold "password" }} A
-// persona named as the first administrator is refused, since the two seeds would derive
-// one account.{{ end }} The persona sign-in links the provider's identity to the user of the same login at the
-// first sign-in (the method is invite only, as every sign-in method starts, and declares
-// seeded users), so a persona the seed never made is refused there.
-// It answers how many users it created.
-func (a *Auth) SeedCast(ctx context.Context) (int, error) {
-	cast, err := Cast()
+// SeedCast seeds the cast file this package embeds (SeedCastFile over cast.json): the
+// migrate command calls it in the environments that take the seed, before it invites a
+// first administrator, and out is where it says each role it gives.
+func (a *Auth) SeedCast(ctx context.Context, out io.Writer) (int, error) {
+	return a.SeedCastFile(ctx, out, castFile)
+}
+
+// SeedCastFile seeds the cast a cast file declares, read and checked as cast.json is
+// (cast.ReadCast): a password-less user under each persona's login, with the persona's
+// name and address, holding the roles its entry names, a global role in the global
+// partition and a domain role in every tenant domain, as the first administrator's
+// roles are; a persona its entry names a super administrator holds the framework's role
+// (accesstypes.SuperAdministrator) in the global partition. A role is held by the id of
+// an account, so the seed chooses the id of a persona's account (session.SeedUserID, the
+// same on every run), writes the roles under it, and creates the user under it last: a
+// run that stops between the two is repeated at the next deploy.
+//
+// A persona seeded earlier is brought up to its entry: the account under the id the seed
+// chose, whatever login it carries now, is given every role the entry names that it does
+// not hold, so a role added to the cast reaches the environments seeded before it at the
+// next deploy, and a persona added to the cast arrives then too. Nothing is taken: a
+// role that left the cast stays on the account until somebody removes it. A role the
+// account holds now, of its own or through a group, is left as it is, the period it is
+// held for included, so a run over an unchanged cast writes nothing; a role it held for
+// a period that has ended or has not begun is not held, and is given with no period. A
+// user of another id who holds a persona's login is not the seed's: it is given nothing,
+// since the seed never gives a role to an account because of the name it carries.
+//
+// It says each role it gives on out, one line each, and nothing where there is nothing to
+// give, and answers how many users it created; with no writer it refuses before it reads
+// or writes anything (io.Discard says nothing). The persona sign-in links the provider's
+// identity to the user of the same login at the first sign-in (the method is invite
+// only, as every sign-in method starts, and declares seeded users), so a persona the
+// seed never made is refused there. SeedCast is this over the package's own cast file; a
+// suite that changes a cast between two runs hands it each.
+func (a *Auth) SeedCastFile(ctx context.Context, out io.Writer, file []byte) (int, error) {
+	if out == nil {
+		return 0, errors.New("the cast's seed was handed no writer to say the roles it gives on: hand it the command's output, or io.Discard to say nothing")
+	}
+	declared, err := cast.ReadCast(file)
 	if err != nil {
-		return 0, err
+		return 0, errors.Wrap(err, "cast.ReadCast()")
 	}
 	roles, err := Roles().Parse()
 	if err != nil {
@@ -1700,26 +1732,21 @@ func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	}
 	api := a.handlers.API()
 	created := 0
-	for i := range cast.Personas {
-		p := &cast.Personas[i]
+	for i := range declared.Personas {
+		p := &declared.Personas[i]
 		id := session.SeedUserID(Name, p.Login)
-{{- if eq .Foothold "password" }}
-		// The first administrator's seed derives its account's id from its name too: a
-		// persona of that name would be the same account, and would take the roles a
-		// stopped first-administrator seed left under the id.
-		if id == session.SeedUserID(Name, Administrator) {
-			return created, errors.Newf("persona %s signs in under the first administrator's name (%s), and the two seeds would make one account: name the persona otherwise in the cast", p.Login, Administrator)
-		}
-{{- end }}
-		seeded, err := a.personaSeeded(ctx, p.Login, id)
+		seeded, taken, err := a.personaAccount(ctx, p.Login, id)
 		if err != nil {
+			return created, err
+		}
+		if taken {
+			continue
+		}
+		if err := a.seatPersona(ctx, out, roles, p, id); err != nil {
 			return created, err
 		}
 		if seeded {
 			continue
-		}
-		if err := a.seatPersona(ctx, roles, p, id); err != nil {
-			return created, err
 		}
 		req := &session.CreateUserRequest{ID: impulse.NullUUIDFromUUID(id), Username: p.Login}
 		if p.Email != "" {
@@ -1737,31 +1764,33 @@ func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	return created, nil
 }
 
-// personaSeeded reports whether a persona needs no seeding: a user holds its login, or
-// the account the seed made for it exists under another name (a persona renamed since,
-// which keeps the id the seed chose). Either is left as it is.
-func (a *Auth) personaSeeded(ctx context.Context, login string, id impulse.UUID) (bool, error) {
+// personaAccount reports what stands where a persona's account goes: seeded, when the
+// account the seed made for it exists, the one under the id the seed chose, under the
+// persona's login or, for a persona renamed since, under another; and taken, when there
+// is no such account and a user of another id holds the persona's login, an account the
+// seed did not make and leaves as it is.
+func (a *Auth) personaAccount(ctx context.Context, login string, id impulse.UUID) (seeded, taken bool, err error) {
 	api := a.handlers.API()
-	if _, err := api.UserByUsername(ctx, login); err == nil {
-		return true, nil
-	} else if !httpio.HasNotFound(err) {
-		return false, errors.Wrapf(err, "session.AuthAPI.UserByUsername(): %s", login)
-	}
 	if _, err := api.User(ctx, id); err == nil {
-		return true, nil
+		return true, false, nil
 	} else if !httpio.HasNotFound(err) {
-		return false, errors.Wrapf(err, "session.AuthAPI.User(): the account the seed chose for %s", login)
+		return false, false, errors.Wrapf(err, "session.AuthAPI.User(): the account the seed chose for %s", login)
+	}
+	if _, err := api.UserByUsername(ctx, login); err == nil {
+		return false, true, nil
+	} else if !httpio.HasNotFound(err) {
+		return false, false, errors.Wrapf(err, "session.AuthAPI.UserByUsername(): %s", login)
 	}
 
-	return false, nil
+	return false, false, nil
 }
 
-// seatPersona writes a persona's memberships, held by the id of its user's account, each
-// role where the role file holds it: a global role in the global partition, a domain role
-// in every tenant domain. The Super Administrator role is the framework's, in no role
-// file, and is held in the global partition. Any other role the file does not define is
+// seatPersona brings a persona's account up to the roles its entry names, each role
+// where the role file holds it: a global role in the global partition, a domain role in
+// every tenant domain. The Super Administrator role is the framework's, in no role file,
+// and is held in the global partition. Any other role the file does not define is
 // refused, since the seed names nothing the release does not.
-func (a *Auth) seatPersona(ctx context.Context, roles *access.RoleConfig, p *cast.Persona, userID impulse.UUID) error {
+func (a *Auth) seatPersona(ctx context.Context, out io.Writer, roles *access.RoleConfig, p *cast.Persona, userID impulse.UUID) error {
 	var global, everyDomain []accesstypes.Role
 	for _, name := range p.Roles {
 		role := accesstypes.Role(name)
@@ -1774,17 +1803,38 @@ func (a *Auth) seatPersona(ctx context.Context, roles *access.RoleConfig, p *cas
 			return errors.Newf("cast.json: the persona %s holds the role %q, which the %s auth's role file does not define", p.Login, name, Name)
 		}
 	}
-	manager := a.access.UserManager()
 	user := accesstypes.User(userID.String())
-	if len(global) > 0 {
-		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, global...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in the global partition", p.Login)
-		}
+	if err := a.givePersona(ctx, out, p.Login, user, accesstypes.GlobalPolicyScope(), global, ""); err != nil {
+		return err
 	}
-	if len(everyDomain) > 0 {
-		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), user, everyDomain...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in every domain", p.Login)
+
+	return a.givePersona(ctx, out, p.Login, user, accesstypes.EveryDomainPolicyScope(), everyDomain, " in every tenant domain")
+}
+
+// givePersona gives a persona's account the roles its entry names in one place that the
+// account does not hold there now, and says each on out, a domain role with the words
+// that it is held in every tenant domain. A role the account holds, of its own or through a
+// group, is not written again, so it keeps the period it is held for; nothing the entry
+// does not name is touched.
+func (a *Auth) givePersona(ctx context.Context, out io.Writer, login string, user accesstypes.User, scope accesstypes.PolicyScope, named []accesstypes.Role, where string) error {
+	if len(named) == 0 {
+		return nil
+	}
+	manager := a.access.UserManager()
+	held, err := manager.UserRoles(ctx, user, scope)
+	if err != nil {
+		return errors.Wrapf(err, "access.UserManager.UserRoles(): %s", login)
+	}
+	holds := held[scope]
+	for _, role := range named {
+		if slices.Contains(holds, role) {
+			continue
 		}
+		if err := manager.AddUserRoles(ctx, scope, user, role); err != nil {
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s, the role %s%s", login, role, where)
+		}
+		holds = append(holds, role)
+		fmt.Fprintf(out, "Gave the %s auth's persona %s the role %s%s\n", Name, login, role, where)
 	}
 
 	return nil

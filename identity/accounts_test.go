@@ -404,9 +404,43 @@ func TestManager_RevokeTrustedDevices(t *testing.T) {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
 
+	// The person is told once the reset has committed, and not when it did not.
+	mail := &fakeMail{}
+	store = &fakeStore{devices: map[impulse.UUID][]impulse.UUID{userID: {deviceA}}}
+	told, err := New(managedAuth, store, &fakeEngine{}, fakeSessions{mail: mail})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		err := told.RevokeTrustedDevices(ctx, txn, userID)
+		if len(mail.asked) != 0 {
+			t.Errorf("before the commit the session library was asked %v, want nothing", mail.asked)
+		}
+
+		return err
+	}); err != nil {
+		t.Fatalf("RevokeTrustedDevices() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"factor reset notice to " + userID.String()}, mail.asked); diff != "" {
+		t.Errorf("notices after the commit (-want +got):\n%s", diff)
+	}
+	mail.asked = nil
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := told.RevokeTrustedDevices(ctx, txn, userID); err != nil {
+			return err
+		}
+
+		return errStore
+	}); !errors.Is(err, errStore) {
+		t.Fatalf("a transaction that fails after the reset: error = %v, want its failure", err)
+	}
+	if len(mail.asked) != 0 {
+		t.Errorf("notices of a reset that did not commit = %v, want none", mail.asked)
+	}
+
 	store = &fakeStore{failOn: "RevokeTrustedDevice", devices: map[impulse.UUID][]impulse.UUID{userID: {deviceA}}}
 	m, _ = newManager(t, store, nil)
-	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+	err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		return m.RevokeTrustedDevices(ctx, txn, userID)
 	})
 	if !errors.Is(err, errStore) {
@@ -427,6 +461,11 @@ func TestManager_UnlockSignIn(t *testing.T) {
 	}{
 		{name: "the name's count is cleared", typed: "dana", wantWrites: []string{"clear attempts dana"}},
 		{name: "the name is keyed without case, as the limiter keys it", typed: "Dana@Example.COM", wantWrites: []string{"clear attempts dana@example.com"}},
+		// The list also shows the session library's own counts, under keys no name folds
+		// to: such a row is cleared as it is listed.
+		{name: "a listed count of the mail an address was sent is cleared as it is listed", typed: "MAIL:dana@example.com", wantWrites: []string{"clear attempts MAIL:dana@example.com"}},
+		{name: "a listed count of an address's reset links is cleared as it is listed", typed: "RESET:dana@example.com", wantWrites: []string{"clear attempts RESET:dana@example.com"}},
+		{name: "a name that spells such a key without its capitals is a name", typed: "Reset:dana@example.com", wantWrites: []string{"clear attempts reset:dana@example.com"}},
 		{name: "a blank name is refused", typed: "  ", wantErr: httpio.HasBadRequest},
 	}
 	for _, tt := range tests {
@@ -447,6 +486,146 @@ func TestManager_UnlockSignIn(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestManager_SendPasswordResetLink pins an administrator's reset link: nothing about the
+// account is written, the session library is asked to mail the link once the
+// transaction has committed, saying who asked, and the caller is told how it went.
+func TestManager_SendPasswordResetLink(t *testing.T) {
+	t.Parallel()
+
+	inAlpha := func(ctx context.Context) context.Context {
+		return resource.WithCaller(ctx, &resource.Caller{Permissions: callerPermissions{user: erin}, Scope: accesstypes.DomainScope("alpha")})
+	}
+	noPassword := httpio.NewConflictMessage("No link was sent: the account has no password to reset, or no confirmed email address to send the link to")
+	tests := []struct {
+		name       string
+		user       impulse.UUID
+		caller     func(ctx context.Context) context.Context
+		failOn     string
+		mailErr    error
+		wantErr    func(error) bool
+		wantAsked  []string
+		wantSent   bool
+		wantReason string
+	}{
+		{name: "an administrator of the application", user: userID, wantAsked: []string{"password reset of " + userID.String() + " asked by the application"}, wantSent: true},
+		{name: "an administrator of a tenant is named by the tenant", user: userID, caller: inAlpha, wantAsked: []string{"password reset of " + userID.String() + " asked by tenant alpha"}, wantSent: true},
+		{name: "a user that does not exist is not found, and nothing is mailed", user: createdID, wantErr: httpio.HasNotFound},
+		{name: "a failed read fails the call", user: userID, failOn: "Username", wantErr: func(err error) bool { return errors.Is(err, errStore) }},
+		{
+			name: "an account with nothing to reset is said in the session library's sentence", user: userID, mailErr: noPassword,
+			wantReason: "No link was sent: the account has no password to reset, or no confirmed email address to send the link to",
+		},
+		{name: "any other failure is a message that could not be sent", user: userID, mailErr: errStore, wantReason: "The message could not be sent. Try again in a few minutes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, failOn: tt.failOn}
+			mail := &fakeMail{err: tt.mailErr}
+			m, err := New(managedAuth, store, &fakeEngine{}, fakeSessions{mail: mail})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			told, sent, reason := 0, false, ""
+			err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				if tt.caller != nil {
+					ctx = tt.caller(ctx)
+				}
+				err := m.SendPasswordResetLink(ctx, txn, tt.user, func(s bool, r string) { told, sent, reason = told+1, s, r })
+				if len(mail.asked) != 0 || told != 0 {
+					t.Errorf("before the commit: asked %v, told %d time(s), want nothing mailed until the transaction commits", mail.asked, told)
+				}
+
+				return err
+			})
+			if tt.wantErr != nil {
+				if err == nil || !tt.wantErr(err) {
+					t.Fatalf("SendPasswordResetLink() error = %v, want the refusal", err)
+				}
+				if len(mail.asked) != 0 || told != 0 {
+					t.Errorf("a refused send: asked %v, told %d time(s), want nothing", mail.asked, told)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("SendPasswordResetLink() error = %v", err)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: nothing about the account changes when the link is sent", store.writes)
+			}
+			if diff := cmp.Diff(tt.wantAsked, mail.asked); diff != "" {
+				t.Errorf("asked of the session library (-want +got):\n%s", diff)
+			}
+			if told != 1 || sent != tt.wantSent || reason != tt.wantReason {
+				t.Errorf("told %d time(s): sent %v, reason %q; want once: sent %v, reason %q", told, sent, reason, tt.wantSent, tt.wantReason)
+			}
+		})
+	}
+}
+
+// TestManager_passwordWritesEndResetLinks pins what a write of a person's password owes
+// the reset links mailed before it: once the write has committed, and not when it did
+// not, the session library is asked to withdraw them, so a link mailed for the password
+// before does not reset the one after.
+func TestManager_passwordWritesEndResetLinks(t *testing.T) {
+	t.Parallel()
+
+	acts := map[string]func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error{
+		"an administrator sets a temporary password": func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+			return m.SetTemporaryPassword(ctx, txn, userID, "a temporary one")
+		},
+		"an administrator removes the password of a person who signs in through a directory": func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+			return m.RemovePassword(ctx, txn, userID)
+		},
+	}
+	for name, act := range acts {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{
+				usernames:  map[impulse.UUID]string{userID: "dana"},
+				passwords:  map[impulse.UUID]bool{userID: true},
+				identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			}
+			mail := &fakeMail{}
+			m, err := New(managedAuth, store, &fakeEngine{}, fakeSessions{mail: mail})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				err := act(ctx, txn, m)
+				if len(mail.asked) != 0 {
+					t.Errorf("before the commit the session library was asked %v, want nothing", mail.asked)
+				}
+
+				return err
+			}); err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if diff := cmp.Diff([]string{"end the password reset links of " + userID.String()}, mail.asked); diff != "" {
+				t.Errorf("asked of the session library after the commit (-want +got):\n%s", diff)
+			}
+
+			mail.asked = nil
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				if err := act(ctx, txn, m); err != nil {
+					return err
+				}
+
+				return errStore
+			}); !errors.Is(err, errStore) {
+				t.Fatalf("a transaction that fails after the write: error = %v, want its failure", err)
+			}
+			if len(mail.asked) != 0 {
+				t.Errorf("asked of the session library for a write that did not commit = %v, want nothing", mail.asked)
 			}
 		})
 	}

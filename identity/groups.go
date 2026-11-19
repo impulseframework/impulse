@@ -343,6 +343,11 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 		return errors.Wrap(err, "identity.Store.UserGroups()")
 	}
 	elsewhere := slices.ContainsFunc(places, func(place GroupPlace) bool { return place.ID != groupID })
+	// The notice of a removal from a tenant is mailed to the address the person
+	// confirmed, read while the account is still there to read it from.
+	if err := m.noticePlaceTaken(ctx, txn, groupID, userID, len(own) == 0 && !elsewhere); err != nil {
+		return err
+	}
 	if len(own) == 0 && !elsewhere {
 		if err := m.deleteLeftWithNothing(ctx, txn, userID, "the group they were removed from was the last thing they held"); err != nil {
 			return err
@@ -542,6 +547,9 @@ func (m *Manager) TakeGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 		return nil
 	}
 	if err := m.refuseTakingGroupRole(ctx, txn, groupID, scope, &key); err != nil {
+		return err
+	}
+	if err := m.noticeGroupRoleTaken(ctx, txn, groupID, &key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteGroupRole(ctx, txn, &key); err != nil {

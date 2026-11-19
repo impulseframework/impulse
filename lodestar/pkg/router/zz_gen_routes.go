@@ -333,6 +333,7 @@ type GeneratedHandlers interface {
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
+	FeatureFlagChanges() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
@@ -495,6 +496,10 @@ type GeneratedHandlers interface {
 	SectorPilots() http.HandlerFunc
 	SectorPilot() http.HandlerFunc
 
+	SendCrewSectorUserPasswordResetLink() http.HandlerFunc
+
+	SendCrewUserPasswordResetLink() http.HandlerFunc
+
 	ServiceLedgers() http.HandlerFunc
 
 	SetCrewSectorTemporaryPassword() http.HandlerFunc
@@ -502,6 +507,8 @@ type GeneratedHandlers interface {
 	SetCrewSectorUserEmail() http.HandlerFunc
 
 	SetCrewSectorUserName() http.HandlerFunc
+
+	SetCrewSelfServiceReset() http.HandlerFunc
 
 	SetCrewTemporaryPassword() http.HandlerFunc
 
@@ -965,6 +972,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/feature-flags/{featureFlagName}", featureFlagHandler)
 	bounded.Post("/console/api/feature-flags/{featureFlagName}", featureFlagHandler)
 
+	bounded.Get("/console/api/feature-flags/{featureFlagName}/changes", h.FeatureFlagChanges())
+
 	bounded.Get("/console/api/features", h.Features())
 
 	feeByKindsHandler := h.FeeByKinds()
@@ -1269,6 +1278,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/sector-pilots/{sectorPilotPilotID}", sectorPilotHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/sector-pilots/{sectorPilotPilotID}", sectorPilotHandler)
 
+	asked.Post("/console/api/sectors/{sectorID}/send-crew-sector-user-password-reset-link", domainGuard(h.SendCrewSectorUserPasswordResetLink()))
+
+	asked.Post("/console/api/send-crew-user-password-reset-link", h.SendCrewUserPasswordResetLink())
+
 	serviceLedgersHandler := h.ServiceLedgers()
 	bounded.Get("/console/api/service-ledgers", serviceLedgersHandler)
 	bounded.Post("/console/api/service-ledgers", serviceLedgersHandler)
@@ -1278,6 +1291,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-email", domainGuard(h.SetCrewSectorUserEmail()))
 
 	asked.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-name", domainGuard(h.SetCrewSectorUserName()))
+
+	asked.Post("/console/api/set-crew-self-service-reset", h.SetCrewSelfServiceReset())
 
 	asked.Post("/console/api/set-crew-temporary-password", h.SetCrewTemporaryPassword())
 
@@ -1527,6 +1542,7 @@ type GeneratedPortalHandlers interface {
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
+	FeatureFlagChanges() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
@@ -1684,6 +1700,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	featureFlagHandler := h.FeatureFlag()
 	bounded.Get("/portal/api/feature-flags/{featureFlagName}", featureFlagHandler)
 	bounded.Post("/portal/api/feature-flags/{featureFlagName}", featureFlagHandler)
+
+	bounded.Get("/portal/api/feature-flags/{featureFlagName}/changes", h.FeatureFlagChanges())
 
 	bounded.Get("/portal/api/features", h.Features())
 

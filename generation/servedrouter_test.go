@@ -649,15 +649,15 @@ func Test_servedRouterData(t *testing.T) {
 					"GET /api/user/azure/login AzureLogin,GET /api/user/azure/callback AzureCallback,GET /api/user/azure/logout AzureFrontChannelLogout," +
 					"POST /api/user/pending/confirm PendingConfirmWithPassword (xsrf),POST /api/user/pending/cancel PendingCancel (xsrf)," +
 					"POST /api/user/pending/code PendingSendCode (xsrf),POST /api/user/pending/code/verify PendingVerifyCode (xsrf),POST /api/user/pending/email PendingEnrollEmail (xsrf),POST /api/user/browser/forget ForgetBrowser (xsrf),POST /api/user/name ChangeName (xsrf),POST /api/user/look ChangeLook (xsrf)," +
-					"POST /api/user/invitation InvitationOpen (xsrf)," +
+					"POST /api/user/invitation InvitationOpen (xsrf),POST /api/user/email/confirm EmailConfirm (xsrf)," +
 					"POST /api/user/invitation/accept InvitationAccept (xsrf),POST /api/user/email EmailAdd (xsrf),POST /api/user/email/verify EmailVerify (xsrf)"
 				if got := strings.Join(paths, ","); got != want {
 					t.Errorf("routes = %s, want %s", got, want)
 				}
-				if len(o.OpenRoutes) != 8 || len(o.GuardedRoutes) != 9 || len(o.ValidatedRoutes) != 3 {
-					t.Errorf("open, guarded, validated = %d, %d, %d; want 8, 9, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
+				if len(o.OpenRoutes) != 8 || len(o.GuardedRoutes) != 10 || len(o.ValidatedRoutes) != 3 {
+					t.Errorf("open, guarded, validated = %d, %d, %d; want 8, 10, 3", len(o.OpenRoutes), len(o.GuardedRoutes), len(o.ValidatedRoutes))
 				}
-				if o.Invitation != (servedInvitation{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}) || o.Email != (servedEmail{Add: "/api/user/email", Verify: "/api/user/email/verify"}) || o.SignUp != nil {
+				if o.Invitation != (servedInvitation{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}) || o.Email != (servedEmail{Add: "/api/user/email", Verify: "/api/user/email/verify", Confirm: "/api/user/email/confirm"}) || o.SignUp != nil || o.PasswordReset != nil {
 					t.Errorf("invitation, email, sign-up = %+v, %+v, %+v; want the invitation without sign-up, the email routes, no sign-up", o.Invitation, o.Email, o.SignUp)
 				}
 				// An auth with no password method mounts no first password: there is none
@@ -698,7 +698,8 @@ func Test_servedRouterData(t *testing.T) {
 				}
 				if want := "GET /api/user/methods,GET /api/user/session,DELETE /api/user/session,GET /api/user/pending,GET /api/user/sign-in-means,POST /api/user/password/login,POST /api/user/password/change,POST /api/user/password/remove,POST /api/user/pending/confirm,POST /api/user/pending/cancel," +
 					"POST /api/user/pending/code,POST /api/user/pending/code/verify,POST /api/user/pending/email,POST /api/user/browser/forget,POST /api/user/name,POST /api/user/look," +
-					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/sign-up,POST /api/user/sign-up/open,POST /api/user/sign-up/complete," +
+					"POST /api/user/invitation,POST /api/user/invitation/sign-up,POST /api/user/email/confirm,POST /api/user/sign-up,POST /api/user/sign-up/open,POST /api/user/sign-up/complete," +
+					"POST /api/user/password-reset,POST /api/user/password-reset/open,POST /api/user/password-reset/complete," +
 					"POST /api/user/invitation/accept,POST /api/user/email,POST /api/user/email/verify,POST /api/user/first-password/code,POST /api/user/first-password," +
 					"GET /api/user/tokens,POST /api/user/tokens,POST /api/user/tokens/revoke,GET /api/user/device,POST /api/user/device/approve,POST /api/user/device/deny"; strings.Join(crewRoutes, ",") != want {
 					t.Errorf("crew routes = %v, want %s", crewRoutes, want)
@@ -706,6 +707,9 @@ func Test_servedRouterData(t *testing.T) {
 				crewOutlet := data.Outlets[0]
 				if !crewOutlet.IssuesTokens || len(crewOutlet.ValidatedRoutes) != 11 || strings.Join(crewOutlet.ExtraHandlers, ",") != "DeviceAuthorize,DeviceToken" {
 					t.Errorf("the issuing outlet = %+v, want the token page's six validated routes after the account's five and the device flow's two handlers", crewOutlet)
+				}
+				if want := (servedPasswordReset{Request: "/api/user/password-reset", Open: "/api/user/password-reset/open", Complete: "/api/user/password-reset/complete"}); crewOutlet.PasswordReset == nil || *crewOutlet.PasswordReset != want {
+					t.Errorf("password reset = %+v, want the three routes on an auth with the password method", crewOutlet.PasswordReset)
 				}
 				if crewOutlet.FirstPassword == nil || *crewOutlet.FirstPassword != (servedFirstPassword{SendCode: "/api/user/first-password/code", Set: "/api/user/first-password"}) {
 					t.Errorf("first password = %+v, want the code's and the password's routes on an auth with the password method", crewOutlet.FirstPassword)
@@ -1055,7 +1059,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 			outlets: []*routerOutlet{{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/config", methods: []AuthMethod{AzureMethod("azure")}}, webApp: "/"}},
 			wantRouter: []string{
 				"// Package router serves the application.",
-				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams",
+				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment\n",
 				"//\tdefault (/api), sessions (azure):",
 				"//\t  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/azure/login, GET /api/user/azure/callback, GET /api/user/azure/logout",
 				"//\t  + ValidateXSRFToken: POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look",
@@ -1071,19 +1075,20 @@ func Test_servedRouterTemplates(t *testing.T) {
 					"\t// The invitation accepted by a person already signed in (session.InvitationHandlers.Accept).\n\tInvitationAccept() http.HandlerFunc\n" +
 					"\t// A signed-in person's email address, added by mailing it a verification link (session.EmailHandlers.Add).\n\tEmailAdd() http.HandlerFunc\n" +
 					"\t// The address verified from the mailed link (session.EmailHandlers.Verify).\n\tEmailVerify() http.HandlerFunc\n" +
+					"\t// An address an administrator set for a person, confirmed from the link mailed to it (session.EmailHandlers.Confirm).\n\tEmailConfirm() http.HandlerFunc\n" +
 					"\t// The azure registration's login, callback and front-channel logout (azure.Method).\n\tAzureLogin() http.HandlerFunc\n\tAzureCallback() http.HandlerFunc\n\tAzureFrontChannelLogout() http.HandlerFunc\n}",
 				"\t\tbounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())\n\t\tguarded := bounded.With(h.ValidateXSRFToken)\n\t\tbounded.Get(\"/api/user/methods\", h.Methods(&session.MethodList{\n\t\t\tMethods: []session.AdvertisedMethod{\n\t\t\t\t{Name: \"azure\", Label: \"Microsoft\", Path: \"/api/user/azure/login\"},\n\t\t\t},\n\t\t\tPending: session.PendingRoutes{\n\t\t\t\tStatus: \"/api/user/pending\", Confirm: \"/api/user/pending/confirm\", Cancel: \"/api/user/pending/cancel\",\n\t\t\t\tSendCode: \"/api/user/pending/code\", VerifyCode: \"/api/user/pending/code/verify\", EnrollEmail: \"/api/user/pending/email\",\n\t\t\t},\n" +
 					"\t\t\tForgetBrowser: \"/api/user/browser/forget\",\n" +
 					"\t\t\tChangeName:    \"/api/user/name\",\n" +
 					"\t\t\tSignInMeans:   \"/api/user/sign-in-means\",\n" +
 					"\t\t\tChangeLook:    \"/api/user/look\",\n" +
-					"\t\t\tInvitation:    session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:         session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\"},\n\t\t}))\n",
+					"\t\t\tInvitation:    session.InvitationRoutes{Open: \"/api/user/invitation\", Accept: \"/api/user/invitation/accept\"},\n\t\t\tEmail:         session.EmailRoutes{Add: \"/api/user/email\", Verify: \"/api/user/email/verify\", Confirm: \"/api/user/email/confirm\"},\n\t\t}))\n",
 				"\t\tguarded.Post(\"/api/user/invitation\", h.InvitationOpen())\n",
 				"\t\tguarded.Post(\"/api/user/pending/confirm\", h.PendingConfirmWithPassword())\n\t\tguarded.Post(\"/api/user/pending/cancel\", h.PendingCancel())\n",
-				"\tServerVersion() string\n",
+				"\tServerVersion() string\n\t// ServerEnvironment is the name of the environment this server runs in, the\n\t// configuration's APP_ENVIRONMENT: what every answer names (resource.NameEnvironment)\n\t// and the About pop-up of a browser application shows. Production is told no name\n\t// and reports none, so its answers name no environment.\n\tServerEnvironment() string\n",
 				"func New(h Handlers, hooks Hooks) *chi.Mux {",
 				"\tr := chi.NewRouter()\n\t// The release this server was built from: every outlet names it on each answer\n\t// (X-Api-Version), and each session outlet's version check compares a browser\n\t// application's against it.\n\tserverVersion := h.ServerVersion()\n",
-				"\tr.Use(tracer.NewHandler())\n\tr.Use(hooks.Outermost...)\n\tr.Use(logger.NewRequestLogger(h.LogExporter()))\n\tr.Use(h.SecurityHeaders)\n\tr.Use(httpio.WithParams)\n",
+				"\tr.Use(tracer.NewHandler())\n\tr.Use(hooks.Outermost...)\n\tr.Use(logger.NewRequestLogger(h.LogExporter()))\n\tr.Use(h.SecurityHeaders)\n\tr.Use(httpio.WithParams)\n\t// The environment this server runs in, named on every answer (X-Environment) where the\n\t// application reports one: production reports none.\n\tr.Use(resource.NameEnvironment(h.ServerEnvironment()))\n",
 				"\tLogExporter() logger.Exporter\n",
 				"\tValidateXSRFToken(next http.Handler) http.Handler\n\t// EnforceReadOnlyMask refuses a write from a session that views as someone else\n\t// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front\n\t// of the routes a signed-in person calls on their own account and of the outlet's\n\t// generated routes, so it holds wherever the application's hook registers those and\n\t// whether or not the hook mounts it.\n\tEnforceReadOnlyMask(next http.Handler) http.Handler\n",
 				"\t\tbounded.Get(\"/api/user/azure/logout\", h.AzureFrontChannelLogout())\n",
@@ -1099,6 +1104,8 @@ func Test_servedRouterTemplates(t *testing.T) {
 			wantNoRouterImports: []string{"example.com/acme/beacon/pkg/config"},
 			wantRouterTest: []string{
 				"var routerRootChain = []string{\"LogExporter\", \"SecurityHeaders\"}",
+				"func TestGeneratedRouterEnvironment(t *testing.T) {",
+				"\t\t\tstub.serverEnvironment = tt.environment\n\t\t\trr := httptest.NewRecorder()\n\t\t\tNew(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, \"/no-such-route\", http.NoBody))\n\n\t\t\tif got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {",
 				"func (s *routerHandlersStub) LogExporter() logger.Exporter {\n\tif s.exporter != nil {\n\t\treturn s.exporter\n\t}\n\n\treturn &routerLogExporterStub{rec: s.rec}\n}",
 				"func (s *routerLogExporterStub) Middleware() func(http.Handler) http.Handler {\n\treturn s.rec.Middleware(\"LogExporter\")\n}",
 				"type routerDefaultSessionStub struct {\n\trec    *routerCallRecorder\n\tprefix string\n}",
@@ -1118,7 +1125,7 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\t{url: \"/generated-router-page/deep/link\", handler: \"Assets\", deepLink: \"DeepLink\"},",
 				"func TestGeneratedRouterAPIVersion(t *testing.T) {",
 				"\t\t{\n\t\t\tprefix: \"/api/\", server: \"2.0.0\", inRange: \"0.0.1\", below: \"\", above: \"2.0.1\",\n\t\t},",
-				"\tserverVersion string\n\t// exporter is where the request log goes when a test sets one, the console for the\n\t// request log test; nil hands the router the recording stub.\n\texporter logger.Exporter\n}\n\nfunc (s *routerHandlersStub) ServerVersion() string {\n\treturn s.serverVersion\n}",
+				"\tserverVersion string\n\t// serverEnvironment is the environment's name the stub reports; empty, production's.\n\tserverEnvironment string\n\t// exporter is where the request log goes when a test sets one, the console for the\n\t// request log test; nil hands the router the recording stub.\n\texporter logger.Exporter\n}\n\nfunc (s *routerHandlersStub) ServerVersion() string {\n\treturn s.serverVersion\n}\n\nfunc (s *routerHandlersStub) ServerEnvironment() string {\n\treturn s.serverEnvironment\n}",
 				"\t\t\tDefault: func(r chi.Router, generated func(chi.Router)) {\n\t\t\t\tr.Use(rec.Middleware(\"DefaultHook\"))\n\t\t\t\tgenerated(r)\n\t\t\t},",
 			},
 			wantNotRouterTest: []string{"BindAuth", "routerPortalSessionStub", "PasswordLogin", "TestGeneratedRouterRoot", "files: []routerFileRoute"},
@@ -1211,6 +1218,13 @@ func Test_servedRouterTemplates(t *testing.T) {
 				"\t\t\t\tExempt: []string{\n\t\t\t\t\t\"/api/user/invitation/accept\",\n\t\t\t\t\t\"/api/user/email\",\n\t\t\t\t\t\"/api/user/email/verify\",\n\t\t\t\t\t\"/api/user/first-password/code\",\n\t\t\t\t\t\"/api/user/first-password\",\n\t\t\t\t\t\"/api/user/tokens\",\n\t\t\t\t\t\"/api/user/tokens\",\n\t\t\t\t\t\"/api/user/tokens/revoke\",\n\t\t\t\t\t\"/api/user/device\",\n\t\t\t\t\t\"/api/user/device/approve\",\n\t\t\t\t\t\"/api/user/device/deny\",\n\t\t\t\t},",
 				"\t\t\taccount.Post(\"/api/user/email/verify\", h.EmailVerify())\n\t\t\taccount.Post(\"/api/user/first-password/code\", h.FirstPasswordSendCode())\n\t\t\taccount.Post(\"/api/user/first-password\", h.FirstPasswordSet())\n",
 				"\t\t\tFirstPassword:  session.FirstPasswordRoutes{SendCode: \"/api/user/first-password/code\", Set: \"/api/user/first-password\"},\n",
+				// The reset link is asked for, opened and completed behind the XSRF guard alone, as
+				// the confirmation of an address an administrator set is: neither needs a session.
+				"\t\t\tPasswordReset:  session.PasswordResetRoutes{Request: \"/api/user/password-reset\", Open: \"/api/user/password-reset/open\", Complete: \"/api/user/password-reset/complete\"},\n",
+				"guarded.Post(\"/api/user/password-reset\", h.PasswordResetRequest())",
+				"guarded.Post(\"/api/user/password-reset/open\", h.PasswordResetOpen())",
+				"guarded.Post(\"/api/user/password-reset/complete\", h.PasswordResetComplete())",
+				"guarded.Post(\"/api/user/email/confirm\", h.EmailConfirm())",
 				"\t// The code of a first password, mailed to the confirmed address of a signed-in person who has no password (session.FirstPasswordHandlers.SendCode).\n\tFirstPasswordSendCode() http.HandlerFunc\n\t// The first password of a signed-in person who has none, set with the mailed code (session.FirstPasswordHandlers.Set).\n\tFirstPasswordSet() http.HandlerFunc\n",
 				"\t\t\taccount.Get(\"/api/user/tokens\", h.TokensList())\n\t\t\taccount.Post(\"/api/user/tokens\", h.TokensCreate())\n\t\t\taccount.Post(\"/api/user/tokens/revoke\", h.TokensRevoke())\n\t\t\taccount.Get(\"/api/user/device\", h.DeviceLookup())\n\t\t\taccount.Post(\"/api/user/device/approve\", h.DeviceApprove())\n\t\t\taccount.Post(\"/api/user/device/deny\", h.DeviceDeny())\n",
 				"\t// Droids runs inside the droids outlet's token group: r already sits behind\n\t// BindAuth(crew.Name) and the token check, and generated registers the outlet's generated\n\t// routes. Nil registers them directly.\n\tDroids func(r chi.Router, generated func(chi.Router))",
@@ -1712,7 +1726,7 @@ func Test_servedRouterTemplates_words(t *testing.T) {
 			fileRoutes:   fileRoutes,
 			wordedRoutes: wordedRoutes,
 			wantRouter: []string{
-				"//\tevery request: tracing, hooks.Outermost, request logging (always, Warning and above), SecurityHeaders, httpio.WithParams\n//\t  by hand under /beacons/: request log on event, traces off\n//\tdefault (/api), sessions of the crew auth (password):\n",
+				"//\tevery request: tracing, hooks.Outermost, request logging (always, Warning and above), SecurityHeaders, httpio.WithParams, NameEnvironment\n//\t  by hand under /beacons/: request log on event, traces off\n//\tdefault (/api), sessions of the crew auth (password):\n",
 				"//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Default\n//\t  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Default, EnforceReadOnlyMask: generatedRoutes\n//\t  GET /api/widgets/{widgetID}/content: request log never, traces off\n//\tdroids (/droids), bearer tokens of the crew auth, request log on event, traces off:\n//\t  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader: POST /droids/oauth/device/authorize, POST /droids/oauth/token\n//\t  + ValidateToken: hooks.Droids, generatedDroidsRoutes\n//\t  by hand under /droids/telemetry/: request log never, traces capped at 0.5\n//\t  POST /droids/ingest: request log sampled at 0.5\n//\tportal (/portal/api), sessions of the members auth (google), traces capped at 0.1:\n",
 				"//\tscheduled (/_scheduled), Cloud Scheduler's token:\n//\t  NoCaching, CompressionMiddleware, ReleaseHeader, SchedulerAuth: generatedScheduledRoutes\n//\t  POST /_scheduled/prune-logs: request log on event\n//\n",
 				"// None is mounted at /: the root alone redirects to /console/, the default outlet's application.\n//\n// The request log word and the trace setting named at each place are the nearest\n// declarations, a route's over its outlet's and an outlet's over the application\n// default; a request under none writes its entry always and its spans follow the front\n// end. The root's request logger decides each entry when the request ends, and a handler\n// may change its own request's word through logger.FromReq(r).SetPolicy.\npackage router\n",
@@ -1745,7 +1759,7 @@ func Test_servedRouterTemplates_words(t *testing.T) {
 			r:       plain,
 			outlets: alone,
 			wantRouter: []string{
-				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams\n//\tdefault (/api), sessions (password), request log on event:\n",
+				"//\tevery request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams, NameEnvironment\n//\tdefault (/api), sessions (password), request log on event:\n",
 				"\tr.Use(tracer.NewHandler())\n",
 				"\tr.Use(logger.NewRequestLogger(h.LogExporter()))\n",
 				"\tr.Group(func(r chi.Router) {\n\t\t// Every request under the outlet writes its request log on event.\n\t\tr.Use(logger.WithPolicy(logger.OnEvent()))\n\t\tr.Use(h.NoCaching)\n",

@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	// The templates render Go source files, never HTML, so text/template is the right package.
 	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
@@ -191,6 +192,14 @@ type Method struct {
 	// the username, a verified change of address renames the user, and the roles held
 	// under the old name follow it. The password method alone takes it.
 	UsernameIsEmail bool
+	// Label is the words people read for an organization's identity provider
+	// (app.MethodOIDC): on the login page's button and in the generated lists of a
+	// person's ways to sign in. The declaration a generator program carries chains them
+	// (.Labeled), and that declaration is where they are changed. Empty leaves the generation package's
+	// default, the registration name with its words capitalized (DefaultWords). An
+	// organization's identity provider alone takes it: every other kind is shown by what
+	// it is (Password, Persona) or by its brand (Google, Microsoft).
+	Label string
 }
 
 // The organization slots.
@@ -225,17 +234,21 @@ func Slots(kind string) []string {
 // invitation is no part of it: every method is invite only until an administrator opens
 // it to sign-up in the running application.
 func (m *Method) Validate() error {
+	switch m.Kind {
+	case app.MethodOIDC:
+		return m.validateOIDC()
+	case app.MethodPassword, app.MethodPersona, app.MethodAzure, app.MethodGoogle:
+	default:
+		return errors.Newf("%q is not a sign-in method impulse composes: password, azure, google, oidc or persona", m.Kind)
+	}
+	if m.Label != "" {
+		return errors.Newf("a label names an organization's identity provider (the oidc method), whose words are otherwise made from its registration name; the %s method is shown by what it is. To show it under other words, chain .Labeled(%q) on its declaration in the generator program and run go generate", m.Kind, m.Label)
+	}
 	if m.Kind == app.MethodPassword {
 		return m.validatePassword()
 	}
 	if m.Kind == app.MethodPersona {
 		return m.validatePersona()
-	}
-	if m.Kind == app.MethodOIDC {
-		return m.validateOIDC()
-	}
-	if m.Kind != app.MethodAzure && m.Kind != app.MethodGoogle {
-		return errors.Newf("%q is not a sign-in method impulse composes: password, azure, google, oidc or persona", m.Kind)
 	}
 	if m.UsernameIsEmail {
 		return errors.New("username-is-email describes the password method's sign-in name; a directory method's people sign in as the directory names them")
@@ -329,8 +342,36 @@ func (m *Method) validateOIDC() error {
 	default:
 		return errors.Newf("authority %q: directory or application", m.Authority)
 	}
+	if m.Label != strings.TrimSpace(m.Label) || strings.ContainsFunc(m.Label, unicode.IsControl) {
+		return errors.Newf("label %q: the words the login page shows for the provider, on one line, with no space before or after them (Lakeside ID)", m.Label)
+	}
 
 	return nil
+}
+
+// DefaultWords is what people read for an organization's identity provider whose
+// declaration chains no label: the registration name as words, its hyphens spaces and
+// each word capitalized (company-sso is "Company Sso"), as the generation package's
+// OIDCMethod makes them.
+func (m *Method) DefaultWords() string {
+	words := strings.Split(m.Name, "-")
+	for i, word := range words {
+		if word != "" {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+
+	return strings.Join(words, " ")
+}
+
+// Words is what people read for an organization's identity provider: the label given
+// for it, or the default made from its registration name.
+func (m *Method) Words() string {
+	if m.Label != "" {
+		return m.Label
+	}
+
+	return m.DefaultWords()
 }
 
 // The variable suffixes every redirect method's registration shares.
@@ -375,13 +416,15 @@ func (m *Method) SyncsRoles() bool {
 // management the generator emits shows the roles the method file's RoleSync writes as
 // the directory's and never writes them (a role removed by hand would come back at the
 // next sign-in), and .UsernameIsEmail() on a password method whose sign-in name is the
-// address. The declaration and the method file read the same rule for each. Whether the
+// address, and .Labeled(words) on an organization's identity provider given words of its
+// own. The declaration and the method file read the same rule for each. Whether the
 // method admits a person with no account and no invitation is declared nowhere: an
 // administrator opens it to sign-up in the running application.
 func (m *Method) Arg() app.AuthMethodArg {
 	return app.AuthMethodArg{
 		Kind:            m.Kind,
 		Name:            m.Name,
+		Label:           m.Label,
 		SyncsRoles:      m.SyncsRoles(),
 		UsernameIsEmail: m.UsernameIsEmail,
 	}
@@ -645,7 +688,7 @@ func Files(spec *Spec) (map[string][]byte, error) {
 		return nil, err
 	}
 	files[spec.Name+".go"] = main
-	if Foothold(spec) != "" {
+	if Foothold(spec) {
 		foothold, err := render(footholdFile, footholdTemplate, newView(spec))
 		if err != nil {
 			return nil, err
@@ -734,7 +777,7 @@ func CastFile(spec *Spec, m *Method) ([]byte, error) {
 func FileNames(spec *Spec) []string {
 	files := make([]string, 0, 2+len(spec.Methods))
 	files = append(files, spec.Name+".go")
-	if Foothold(spec) != "" {
+	if Foothold(spec) {
 		files = append(files, footholdFile)
 	}
 	for i := range spec.Methods {

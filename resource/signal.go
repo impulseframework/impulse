@@ -26,9 +26,14 @@ const (
 )
 
 // Signaler signals every instance of the application that a kind of shared state
-// changed: what a flip signals through. The live service implements it
-// (live.Signaler); a failure is the caller's to log and never fails the request, since
-// every subscriber also rereads at its own backstop.
+// changed: what a flip signals through. Signal returns once the signal is sent, or has
+// failed, and leaves nothing to be sent behind it: the caller signals before it
+// answers, and an instance that gets no CPU once it has answered would never send what
+// was left to a goroutine. The live service implements it (live.Signaler) and bounds
+// every Signal itself, by two seconds (live.SignalTimeout), whatever the caller's
+// context allows; a failure is the caller's to log and never fails the request, since
+// every subscriber also holds its copy to its own backstop: no request is answered from
+// a copy older than that, signal or no signal.
 type Signaler interface {
 	Signal(ctx context.Context, kind SignalKind) error
 }

@@ -97,9 +97,13 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
 		{url: "/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
+		{url: "/api/user/email/confirm", suffix: "/user/email/confirm", method: http.MethodPost, handler: "EmailConfirm", xsrf: true},
 		{url: "/api/user/sign-up", suffix: "/user/sign-up", method: http.MethodPost, handler: "SignUpStart", xsrf: true},
 		{url: "/api/user/sign-up/open", suffix: "/user/sign-up/open", method: http.MethodPost, handler: "SignUpOpen", xsrf: true},
 		{url: "/api/user/sign-up/complete", suffix: "/user/sign-up/complete", method: http.MethodPost, handler: "SignUpComplete", xsrf: true},
+		{url: "/api/user/password-reset", suffix: "/user/password-reset", method: http.MethodPost, handler: "PasswordResetRequest", xsrf: true},
+		{url: "/api/user/password-reset/open", suffix: "/user/password-reset/open", method: http.MethodPost, handler: "PasswordResetOpen", xsrf: true},
+		{url: "/api/user/password-reset/complete", suffix: "/user/password-reset/complete", method: http.MethodPost, handler: "PasswordResetComplete", xsrf: true},
 		{url: "/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
 		{url: "/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "EmailAdd", xsrf: true, validated: true},
 		{url: "/api/user/email/verify", suffix: "/user/email/verify", method: http.MethodPost, handler: "EmailVerify", xsrf: true, validated: true},
@@ -128,6 +132,36 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 	router.ServeHTTP(rr, req)
 
 	return rr
+}
+
+// TestGeneratedRouterEnvironment proves every answer names the environment the server
+// reports, the answer for an address no route serves included, and that a server which
+// reports none, as production does, names none.
+func TestGeneratedRouterEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		environment string
+		want        []string
+	}{
+		{name: "a server told its environment names it", environment: "tst", want: []string{"tst"}},
+		{name: "a server told none names none", environment: "", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newRouterHandlersStub(newRouterCallRecorder())
+			stub.serverEnvironment = tt.environment
+			rr := httptest.NewRecorder()
+			New(stub, Hooks{}).ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/no-such-route", http.NoBody))
+
+			if got := rr.Header().Values(resource.ServerEnvironmentHeader); !slices.Equal(got, tt.want) {
+				t.Errorf("%s = %q, want %q", resource.ServerEnvironmentHeader, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestGeneratedRouter drives every generated route through New: each request answers
@@ -861,6 +895,10 @@ func (s *routerDefaultSessionStub) InvitationSignUp() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationSignUp")
 }
 
+func (s *routerDefaultSessionStub) EmailConfirm() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "EmailConfirm")
+}
+
 func (s *routerDefaultSessionStub) SignUpStart() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpStart")
 }
@@ -871,6 +909,18 @@ func (s *routerDefaultSessionStub) SignUpOpen() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) SignUpComplete() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "SignUpComplete")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetRequest() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetRequest")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetOpen() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetOpen")
+}
+
+func (s *routerDefaultSessionStub) PasswordResetComplete() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordResetComplete")
 }
 
 func (s *routerDefaultSessionStub) InvitationAccept() http.HandlerFunc {
@@ -924,6 +974,8 @@ type routerHandlersStub struct {
 	// serverVersion is the release the stub reports; empty, no release, so a case that
 	// sets none is never refused.
 	serverVersion string
+	// serverEnvironment is the environment's name the stub reports; empty, production's.
+	serverEnvironment string
 	// exporter is where the request log goes when a test sets one, the console for the
 	// request log test; nil hands the router the recording stub.
 	exporter logger.Exporter
@@ -931,6 +983,10 @@ type routerHandlersStub struct {
 
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
+}
+
+func (s *routerHandlersStub) ServerEnvironment() string {
+	return s.serverEnvironment
 }
 
 func newRouterHandlersStub(rec *routerCallRecorder) *routerHandlersStub {

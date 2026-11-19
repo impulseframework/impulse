@@ -2,3 +2,4 @@
 .overmind.sock
 .envrc
 .app-secret-key.dev
+.impulse-handoff.md

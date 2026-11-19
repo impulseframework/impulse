@@ -51,6 +51,7 @@ import {
   Transport,
   TransportResponse,
   apiVersionHeader,
+  environmentHeader,
   fetchTransport,
   maintenanceHeader,
   maintenanceHeaderValue,
@@ -535,6 +536,14 @@ export interface ClientBase {
    */
   readonly serverRelease: Store<string | undefined>;
   /**
+   * The name of the environment the server said it runs in on its last answer
+   * (`X-Environment`, which every answer of a server told its environment carries),
+   * undefined until an answer named one, and for good on a server that names none, which
+   * is how production runs: what an About pop-up shows and a problem report says. Read
+   * with `get()` and watched with `subscribe()`.
+   */
+  readonly serverEnvironment: Store<string | undefined>;
+  /**
    * The client's warning hook (`ClientOptions.warn`, the console by default), each
    * distinct message delivered once: what the client announces the descriptor's gaps
    * through, and what a page layer announces its own through, so an application's
@@ -589,6 +598,7 @@ export function createClient<G, D, A = Record<never, never>>(
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const transport = options.transport ?? fetchTransport();
   const serverRelease = new Store<string | undefined>(undefined);
+  const serverEnvironment = new Store<string | undefined>(undefined);
   // The live session is built over the requester, and the requester hands it each
   // write's answer: the session takes its place here below, before any request is made.
   const session: { live?: LiveSession } = {};
@@ -598,6 +608,7 @@ export function createClient<G, D, A = Record<never, never>>(
     olderServerRetryDelays: options.olderServerRetryDelays,
     timeZone: options.timeZone,
     serverRelease,
+    serverEnvironment,
     wrote: (changes) => session.live?.wrote(changes),
   });
   const request: Requester = async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
@@ -613,6 +624,7 @@ export function createClient<G, D, A = Record<never, never>>(
     request,
     route: descriptor.features?.route,
     setFeature: descriptor.methods[setFeatureMethod],
+    flagsRoute: descriptor.resources[featureFlagsResource]?.route,
     permissions,
     flags: () => listFlags(base),
     warn,
@@ -628,6 +640,7 @@ export function createClient<G, D, A = Record<never, never>>(
     features,
     auth,
     serverRelease,
+    serverEnvironment,
     warn,
     request,
     requestResponse,
@@ -740,6 +753,22 @@ function definedFields(permissions: PermissionStore, scope: PermissionScope): re
   return fields.length > 0 ? fields : undefined;
 }
 
+/**
+ * The environment's name an answer carries in the environment header, decoded; undefined
+ * for an answer that names none. A value that does not decode, which no server of this
+ * framework writes, is taken as it is.
+ */
+export function environmentName(header: string | undefined): string | undefined {
+  if (header === undefined || header === '') {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(header);
+  } catch {
+    return header;
+  }
+}
+
 /** What createRequester takes beside the transport: the error hook and the release header's settings. */
 interface RequesterOptions {
   onError?: (error: ApiError) => void;
@@ -749,6 +778,8 @@ interface RequesterOptions {
   timeZone?: string;
   /** Where the release each answer names is kept, when the caller keeps it. */
   serverRelease?: Store<string | undefined>;
+  /** Where the environment each answer names is kept, when the caller keeps it. */
+  serverEnvironment?: Store<string | undefined>;
   /** Who takes what a write's answer says it changed (the changes header): the live session. */
   wrote?: (changes: WriteChanges) => void;
 }
@@ -762,7 +793,7 @@ interface RequesterOptions {
  * new instance); when the retries run out, or when this build is the older one, the
  * refusal is thrown as ApiVersionError, observed by the hook first. Every answer that names
  * the server's release in the version header, refusals included, is kept in `serverRelease`
- * before it is judged, and every answer that carries the changes header, a write's, is
+ * before it is judged, as the environment an answer names is in `serverEnvironment`, and every answer that carries the changes header, a write's, is
  * handed to `wrote` before the caller is answered, so the live pages the write changed
  * fetch at once. A 503 that carries the
  * maintenance marker is the server down for maintenance and is judged the same way, before
@@ -785,6 +816,10 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       const named = response.headers?.[apiVersionHeader.toLowerCase()];
       if (named !== undefined && named !== '') {
         requester.serverRelease?.set(named);
+      }
+      const environment = environmentName(response.headers?.[environmentHeader.toLowerCase()]);
+      if (environment !== undefined) {
+        requester.serverEnvironment?.set(environment);
       }
       const changes = parseChangesHeader(response.headers?.[changesHeader.toLowerCase()]);
       if (changes) {
@@ -1288,12 +1323,21 @@ function createMethodHandle<Body, Result = void>(
     const answer = await client.request<Result | null | undefined>('POST', route, { body, headers });
     return (answer ?? undefined) as Result;
   };
+  // The method that flips a feature flag changes what the person's own pages may show: once
+  // the write succeeds the enabled set and the digests are read again before the call
+  // resolves, whichever page made it (FeatureState.flipped).
+  const flipsFlag = descriptor.method === setFeatureMethod;
+  const flip = async (body: Body): Promise<Result> => {
+    const answer = await post(body);
+    await client.features.flipped();
+    return answer;
+  };
   const handle: MethodHandle<Body, Result> = {
     method: descriptor.method,
     descriptor,
     domain: scope.domain,
     url: () => `${client.baseUrl}/${route}`,
-    execute: (body) => post(body),
+    execute: flipsFlag ? flip : (body) => post(body),
     dryRun: async (body) => {
       await client.request<unknown>('POST', route, { body, headers: { [dryRunHeader]: 'true' } });
     },

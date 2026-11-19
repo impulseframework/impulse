@@ -19,9 +19,10 @@ type Method interface {
 		RenameStaffTenantUser | RenameStaffUser | RequireStaffPasswordChange |
 		RequireStaffTenantPasswordChange | RevokeStaffSessionToken |
 		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
-		SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail |
-		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
-		TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
+		SendStaffTenantUserPasswordResetLink | SendStaffUserPasswordResetLink |
+		SetStaffSelfServiceReset | SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword |
+		SetStaffTenantUserEmail | SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
+		TakeStaffGroupRole | TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
 		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
 		WithdrawStaffInvitedTenant | WithdrawStaffTenantInvitation
 }

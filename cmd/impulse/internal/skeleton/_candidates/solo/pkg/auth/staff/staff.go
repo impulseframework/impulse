@@ -20,6 +20,10 @@
 // adds an address and proves it by following the link sent to it; and, while an
 // administrator has the password method open to sign-up, a stranger signs up from a link
 // mailed to the address they give.
+// An address an administrator sets for a person is theirs once its mailbox confirms it,
+// by the link the auth mails there; and a person who forgot their password gets back
+// in by a link mailed to the address they confirmed, which an administrator sends or,
+// while an administrator allows it, the person asks for at the sign-in page.
 // The links open the login page of the surface that binds to this auth
 // (Settings.MailLoginURL), through the sender the data level hands in (Settings.Mail).
 //
@@ -163,10 +167,8 @@ type Signals interface {
 type Session = session.Auth[session.NoCustomData, session.NoCustomData, *cloudspanner.ReadWriteTransaction]
 
 // Auth is the staff auth: its permission store and its session manager with the
-// sign-in methods registered on it, and the database client it reads its own tables
-// through (the users table, when the deployment seeds the first administrator).
+// sign-in methods registered on it.
 type Auth struct {
-	db       *cloudspanner.Client
 	access   *access.Client
 	handlers *Handlers
 	// identity is the auth's identity client: the generated management of its people
@@ -238,6 +240,14 @@ func (h *Handlers) EmailAdd() http.HandlerFunc {
 // EmailVerify completes an address change from its link: the address is stored verified.
 func (h *Handlers) EmailVerify() http.HandlerFunc {
 	return h.Email().Verify()
+}
+
+// EmailConfirm confirms an address an administrator set for a person, from the link
+// mailed to the new address: the account holds the address it had until then. The
+// reader of the link confirms it signed in or not, since they may have lost the mailbox
+// their sign-in code goes to.
+func (h *Handlers) EmailConfirm() http.HandlerFunc {
+	return h.Email().Confirm()
 }
 
 // DeviceAuthorize starts a command-line client's device authorization ({"client_id",
@@ -409,7 +419,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// account is left holding nothing.
 	authSession.SetSignUpSeated(identityClient.SignedUp())
 
-	return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil
+	return &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil
 }
 
 // Access returns the auth's permission engine: the handlers check against it, and its
@@ -436,8 +446,13 @@ func (a *Auth) Identity() *staffidentity.Client {
 	return a.identity
 }
 
-// Close releases the permission engine, which ends its subscription to the policy kind.
+// Close waits for the mail the auth is still sending, then releases the permission
+// engine, which ends its subscription to the policy kind. A reset link a person asked
+// for is mailed after their request is answered (session.AuthAPI.WaitForMail), so an
+// application that has stopped serving closes the auth before it closes the database,
+// and no link a person was promised is lost.
 func (a *Auth) Close() error {
+	a.handlers.API().WaitForMail()
 	if err := a.access.Close(); err != nil {
 		return errors.Wrap(err, "access.Client.Close()")
 	}

@@ -3,6 +3,7 @@ package attempts
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -184,6 +185,31 @@ func TestNormalize(t *testing.T) {
 				t.Errorf("Normalize(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestOwnKey pins what keeps the library's own counts apart from the names people sign in
+// under: a key of the library's is spelled in capitals, so no name normalizes to one,
+// whatever a person types, the key's own text and its capitals among it.
+func TestOwnKey(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{KindMail, KindReset, KindFirstPassword} {
+		key := OwnKey(kind, "pat@lakeside.edu")
+		if !IsOwnKey(key) {
+			t.Errorf("IsOwnKey(%q) = false, want the library's own count recognized", key)
+		}
+		for _, typed := range []string{key, strings.ToLower(key), strings.ToUpper(key), " " + key} {
+			name := Normalize(typed)
+			if name == key || IsOwnKey(name) {
+				t.Errorf("a sign-in under the name %q is counted under %q, which is the library's own count %q", typed, name, key)
+			}
+		}
+	}
+	for _, name := range []string{"pat", "pat@lakeside.edu", "mail:pat@lakeside.edu", "reset:pat@lakeside.edu", "first-password:0f9a1c2e", "MAILROOM", ""} {
+		if IsOwnKey(name) {
+			t.Errorf("IsOwnKey(%q) = true, want a name's count", name)
+		}
 	}
 }
 

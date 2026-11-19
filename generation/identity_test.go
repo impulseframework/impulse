@@ -371,6 +371,8 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/require_crew_password_change.go",
 		"crewidentity/revoke_crew_session_token.go",
 		"crewidentity/revoke_crew_user_trusted_devices.go",
+		"crewidentity/send_crew_user_password_reset_link.go",
+		"crewidentity/set_crew_self_service_reset.go",
 		"crewidentity/set_crew_temporary_password.go",
 		"crewidentity/set_crew_user_email.go",
 		"crewidentity/set_crew_user_name.go",
@@ -482,11 +484,27 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/invite_crew_user.go":                       {"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })"},
 		"crewidentity/withdraw_crew_invitation.go":               {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
 		"crewidentity/disable_crew_user.go":                      {"// @rpc", "// @outlet(default)", "// @target(CrewSessionUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
-		"crewidentity/set_crew_user_email.go":                    {"// @target(CrewSessionUser)", "Email  *string", "client.manager.SetEmail(ctx, txn, m.UserID, m.Email)"},
-		"crewidentity/set_crew_user_name.go":                     {"type SetCrewUserName struct {", "// @target(CrewSessionUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
-		"membersidentity/set_members_user_name.go":               {"type SetMembersUserName struct {", "// @target(MembersSessionUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
-		"internal/crewresources/crew_session_users.go":           {"Name                   *string      `spanner:\"Name\"`"},
-		"internal/crewresources/crew_session_mail_links.go":      {"Name            *string       `spanner:\"Name\"`"},
+		// An address is asked for and never written: the method takes one, answers how
+		// the mailing went, and hands the manager the callback that tells it.
+		"crewidentity/set_crew_user_email.go": {
+			"// @target(CrewSessionUser)", "Email  string `validate:\"required\"`", "SetCrewUserEmailResult struct {",
+			"client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {",
+		},
+		// Whether people may reset their own password is one question, written as the one
+		// field of the password method's row; an auth with no password method has no
+		// such method (the sign-up part's own test lists its files without it).
+		"crewidentity/set_crew_self_service_reset.go": {
+			"// @rpc\n// @outlet(default)\n// @answers(204)\ntype SetCrewSelfServiceReset struct {", "On bool",
+			"client.manager.SetSelfServiceReset(ctx, txn, m.On)",
+		},
+		"crewidentity/send_crew_user_password_reset_link.go": {
+			"// @target(CrewSessionUser)", "SendCrewUserPasswordResetLinkResult struct {",
+			"client.manager.SendPasswordResetLink(ctx, txn, m.UserID, func(sent bool, reason string) {",
+		},
+		"crewidentity/set_crew_user_name.go":                {"type SetCrewUserName struct {", "// @target(CrewSessionUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
+		"membersidentity/set_members_user_name.go":          {"type SetMembersUserName struct {", "// @target(MembersSessionUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
+		"internal/crewresources/crew_session_users.go":      {"Name                   *string      `spanner:\"Name\"`"},
+		"internal/crewresources/crew_session_mail_links.go": {"Name            *string       `spanner:\"Name\"`"},
 		// A role is given to and taken from a person by the id of their account, and given
 		// to nobody an id names no user of.
 		"crewidentity/assign_crew_role.go":                      {"UserID impulse.UUID", "client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period)"},
@@ -955,6 +973,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/rename_crew_ship_user.go",
 		"crewidentity/require_crew_ship_password_change.go",
 		"crewidentity/revoke_crew_ship_user_trusted_devices.go",
+		"crewidentity/send_crew_ship_user_password_reset_link.go",
 		"crewidentity/set_crew_ship_temporary_password.go",
 		"crewidentity/set_crew_ship_user_email.go",
 		"crewidentity/set_crew_ship_user_name.go",
@@ -988,7 +1007,13 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			"// It is a tenant's method: served under the address of one Ship, it names a", guard, "client.manager.DisableUser(ctx, txn, m.UserID)",
 		},
 		"crewidentity/set_crew_ship_temporary_password.go": {"type SetCrewShipTemporaryPassword struct {", "// @target(CrewShipUser)", guard},
-		"crewidentity/set_crew_ship_user_email.go":         {"type SetCrewShipUserEmail struct {", "// @target(CrewShipUser)", guard, "client.manager.SetEmail(ctx, txn, m.UserID, m.Email)"},
+		"crewidentity/set_crew_ship_user_email.go": {
+			"SetCrewShipUserEmail struct {", "// @target(CrewShipUser)", guard, "client.manager.SetEmail(ctx, txn, m.UserID, m.Email, func(sent bool, reason string) {",
+		},
+		"crewidentity/send_crew_ship_user_password_reset_link.go": {
+			"SendCrewShipUserPasswordResetLink struct {", "// @target(CrewShipUser)", guard,
+			"client.manager.SendPasswordResetLink(ctx, txn, m.UserID, func(sent bool, reason string) {",
+		},
 		"crewidentity/set_crew_ship_user_name.go": {
 			"type SetCrewShipUserName struct {", "// @rpc\n// @permissionScope(domain)\n// @outlet(default)\n// @answers(204)", "// @target(CrewShipUser)",
 			"// It is a tenant's method: served under the address of one Ship, it names a", guard, "client.manager.SetName(ctx, txn, m.UserID, m.Name)",

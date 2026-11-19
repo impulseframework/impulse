@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -275,10 +276,6 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// anything: with directories it decides a first link made on a name alone. Set
 	// with them.
 	directoryOnlyIn signinflow.OnlyInTenant[Tx]
-	// directorySeeded reports whether an account is the deployment's own seed for a
-	// registration, nil where the application named none
-	// (DirectorySeatedHook.Seeded).
-	directorySeeded signinflow.SeededAccount
 	// signUpSeated gives a person who signed up through an open method the method's
 	// default role, nil for none.
 	signUpSeated signinflow.SignUpSeater[Tx]
@@ -287,6 +284,9 @@ type Auth[SessionData, UserData, Tx any] struct {
 	tenantNames TenantNamer
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
+	// background counts the work the Auth does once a request is answered (later),
+	// which AuthAPI.WaitForMail waits for.
+	background sync.WaitGroup
 }
 
 // SuperAdministrators is what NewAuth is told about the holders of the Super
@@ -774,24 +774,12 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 // the directory of the one tenant the person belongs to, which is given nothing the
 // tenant's own administrators could not give, or by a sign-in that carries the person's
 // own invitation; any other sign-in under the name is refused as a person no account
-// was created for is.
-//
-// Seeded is optional and reports whether the account with this id and username is the
-// one the deployment's own seed created for a person who signs in through the
-// registration named: the first administrator of an Auth whose people sign in through
-// a directory, who holds roles for the whole application and belongs to no tenant, so
-// no tenant's directory vouches for them. The seed creates the account under
-// SeedUserIDThrough, and the function answers by that id, which no request can give an
-// account. Such an account is linked on its name at its person's first sign-in through
-// that registration, where the registration admits one organization and nobody else
-// (signin.Audience.OneOrganization) and the account is not disabled; through any other
-// registration, or a wider one, the name links nothing. Nil
-// recognizes no account, and a seeded first administrator is then held to the rule
-// every account created ahead is.
+// was created for is. The deployment's own first administrator, who belongs to no
+// tenant, is no such account: the deployment invites the person
+// (AuthAPI.InviteFirstAdministrator), and their invitation is what vouches.
 type DirectorySeatedHook[Tx any] struct {
 	Seat   func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 	OnlyIn func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
-	Seeded func(userID impulse.UUID, username, registration string) bool
 }
 
 // SetDirectoryAdmission sets what a tenanted application gives a person's first
@@ -808,10 +796,7 @@ type DirectorySeatedHook[Tx any] struct {
 // in (an account an administrator created ahead) is tied to the sign-in by nothing but
 // the name the directory asserts, so the identity is linked only when the directory is
 // that of the one tenant the person belongs to, holding a role there and nothing
-// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation, or
-// the account is the deployment's own seed for the registration the sign-in came
-// through and that registration admits one organization alone (hook.Seeded, the first
-// administrator of an Auth whose people sign in through a directory); any
+// anywhere else (hook.OnlyIn), or the sign-in carries the person's own invitation; any
 // other sign-in under the name is refused as a stranger is, and says nothing of the
 // account. A directory no tenant declares, and a personal
 // account, which is no organization's directory (signin.Directory.PersonalAccounts),
@@ -835,7 +820,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.Di
 	if a.directories != nil {
 		panic("session: the directory admission was set twice: one Auth has one")
 	}
-	a.directories, a.directorySeated, a.directoryOnlyIn, a.directorySeeded = reader, hook.Seat, hook.OnlyIn, hook.Seeded
+	a.directories, a.directorySeated, a.directoryOnlyIn = reader, hook.Seat, hook.OnlyIn
 }
 
 // SignUpSeatedHook is the application's half of a sign-up through a method an

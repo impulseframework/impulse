@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/db"
 )
 
@@ -64,4 +65,34 @@ func applyDDL(ctx context.Context, database *db.PostgresDatabase, store *Store) 
 	}
 
 	return nil
+}
+
+// openTransaction is the open transaction of another request the engine's suite makes
+// its checks inside: a transaction on the store's pool that has read the roles table
+// and changed a row of it, so it holds a lock on a row the engine's reload reads, with
+// f run under the context the transaction runs under. It is rolled back.
+func openTransaction(database *db.PostgresDatabase) storetest.Transaction {
+	return func(t *testing.T, f func(ctx context.Context)) {
+		t.Helper()
+		ctx := t.Context()
+
+		tx, err := database.Begin(ctx)
+		if err != nil {
+			t.Fatalf("pgxpool.Pool.Begin() error = %v", err)
+		}
+		defer func() {
+			if err := tx.Rollback(ctx); err != nil {
+				t.Errorf("pgx.Tx.Rollback() error = %v", err)
+			}
+		}()
+		var roles int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM "AccessRoles"`).Scan(&roles); err != nil {
+			t.Fatalf("pgx.Tx.QueryRow() error = %v", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE "AccessRoles" SET "Description" = 'Held by an open transaction.' WHERE "Role" = 'Editor'`); err != nil {
+			t.Fatalf("pgx.Tx.Exec() error = %v", err)
+		}
+
+		f(ctx)
+	}
 }

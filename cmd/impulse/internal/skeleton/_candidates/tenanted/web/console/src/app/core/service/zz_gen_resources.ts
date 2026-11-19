@@ -318,6 +318,7 @@ export interface StaffSignInMethods {
   directoryGivesRoles?: boolean;
   ownRule?: boolean;
   says?: string;
+  selfServiceReset?: boolean;
 }
 
 export interface StaffSignInWays {
@@ -350,12 +351,16 @@ export interface StaffTenantSignInWays {
   heldGlobally?: boolean;
 }
 
-/** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
+/**
+ * A feature flag: one declared flag's row, as the Feature flags page lists it. updatedAt
+ * and updatedBy are when the flag was last turned on or off and by whom: null and empty
+ * for a flag nobody has flipped.
+ */
 export interface FeatureFlags {
   name: string;
   description?: string;
   enabled?: boolean;
-  updatedAt?: Date;
+  updatedAt?: Date | null;
   updatedBy?: string;
 }
 
@@ -837,6 +842,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'selfServiceReset', displayType: 'boolean', required: false, isIndex: false },
     ],
   },
   [Resources.StaffSignInWays]: {

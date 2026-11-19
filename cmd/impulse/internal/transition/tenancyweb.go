@@ -305,13 +305,13 @@ func referenceText(candidate, rel string) (string, error) {
 	return string(src), nil
 }
 
-// The anchors the menu edit works from: the menu function's opening and its array, the
-// System menu the tenant menus go ahead of, and the feature flags entry, which belongs to
-// the place outside every tenant once there are tenants.
+// The anchors the menu edit works from: the menu function's opening and its array, and
+// the System menu the tenant menus go ahead of. The Feature flags page the System menu
+// places needs no edit: its address has no tenant in it, which makes it a page of the
+// place outside every tenant once there are tenants.
 var (
-	menuFunctionRE  = regexp.MustCompile(`export function appMenus\(actions: FrameActions\): Menu\[\] \{`)
+	menuFunctionRE  = regexp.MustCompile(`export function appMenus\(\): Menu\[\] \{`)
 	menuReturnRE    = regexp.MustCompile(`\n(\s*)return \[\n`)
-	featureFlagsRE  = regexp.MustCompile(`\n(\s*)run: \(\) => actions\.featureFlags\(\),\n(\s*)permission:`)
 	importStatement = regexp.MustCompile(`(?m)^import [^;]*;\n`)
 )
 
@@ -339,7 +339,7 @@ func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	}
 	opening := menuFunctionRE.FindStringIndex(text)
 	if opening == nil {
-		ch.skipf("%s does not declare the menus as the skeleton's menu file does (export function appMenus(actions: FrameActions): Menu[]), so the tenant menus were not written: put the %s menu (All %s), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.one())
+		ch.skipf("%s does not declare the menus as the skeleton's menu file does (export function appMenus(): Menu[]), so the tenant menus were not written: put the %s menu (All %s), People and %s (Sign-in settings) ahead of the others, as the reference's menu file does", rel, tn.many(), tn.manyLower(), tn.one())
 
 		return nil
 	}
@@ -362,12 +362,11 @@ func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	menus = tn.inRecordWords(appMenusFile, menus)
 
 	edited := text[:opening[1]] + body[:ret[1]] + menus + body[ret[1]:]
-	edited = featureFlagsRE.ReplaceAllString(edited, "\n${1}run: () => actions.featureFlags(),\n${1}place: 'outside',\n${2}permission:")
 	edited = addImports(edited, importStatement.FindAllString(tn.inRecordWords(appMenusFile, forAuth(reference, auth)), -1))
 	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
-	ch.didf("%s: the tenant menus ahead of the others, as the reference's: %s (All %s, in the place outside every %s), People (the %s's side of the auth's people) and %s (Sign-in settings), each showing in its place only; Feature flags… stays outside every %s", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.oneLower(), tn.one(), tn.oneLower())
+	ch.didf("%s: the tenant menus ahead of the others, as the reference's: %s (All %s, in the place outside every %s), People (the %s's side of the auth's people) and %s (Sign-in settings), each showing in its place only; Feature flags, whose address has no %s in it, is a page of the place outside every one", rel, tn.many(), tn.manyLower(), tn.oneLower(), tn.oneLower(), tn.one(), tn.oneLower())
 
 	return nil
 }

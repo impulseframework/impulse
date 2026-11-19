@@ -40,7 +40,7 @@ var managementPackages = []string{"identity", "handlers", "resources"}
 // wherever it starts a word of an identifier (MembersSessions, CK_MembersSessionsId,
 // MembersMembersUserRoles). The upper-case form is renamed where it is a whole word of an
 // upper-case name, as an auth's environment variables spell it
-// (APP_MEMBERS_ADMINISTRATOR_PASSWORD), and not inside a longer one (MEMBERSHIP).
+// (APP_MEMBERS_ADMINISTRATOR), and not inside a longer one (MEMBERSHIP).
 // Adjacent occurrences are each renamed: the boundary is read, never consumed.
 func Rename(text, from, to string) string {
 	standsAlone := func(prev, next byte) bool { return !isLetter(prev) && !isLower(next) }

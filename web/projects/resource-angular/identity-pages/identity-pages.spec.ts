@@ -67,6 +67,7 @@ const metas: Record<string, ResourceMeta> = {
     'directoryGivesRoles',
     'ownRule',
     'says',
+    'selfServiceReset',
   ),
   CrewSectorUsers: fields(
     'id',
@@ -118,6 +119,7 @@ const metas: Record<string, ResourceMeta> = {
     'directoryGivesRoles',
     'ownRule',
     'says',
+    'selfServiceReset',
   ),
   StaffSignUpRoles: { ...fields('name', 'description'), nameField: 'name' },
   // The tenant record: keyed by an id, and it says which field a sector is called by.
@@ -155,6 +157,7 @@ const crew: IdentityDescriptor = {
         setName: 'SetCrewUserName',
         setEmail: 'SetCrewUserEmail',
         setTemporaryPassword: 'SetCrewTemporaryPassword',
+        sendPasswordResetLink: 'SendCrewUserPasswordResetLink',
         requirePasswordChange: 'RequireCrewPasswordChange',
         endUserSessions: 'EndCrewUserSessions',
         revokeTrustedDevices: 'RevokeCrewUserTrustedDevices',
@@ -163,6 +166,7 @@ const crew: IdentityDescriptor = {
         unlockSignIn: 'UnlockCrewSignIn',
         openSignUp: 'OpenCrewSignUp',
         makeInviteOnly: 'MakeCrewInviteOnly',
+        setSelfServiceReset: 'SetCrewSelfServiceReset',
       },
     },
     {
@@ -321,6 +325,8 @@ describe("identityPages, the whole application's side", () => {
         ['openSignUp', 'Sign-up', false],
         // With tenants a person who signs up creates a sector of their own: no role is chosen here.
         ['says', 'A person with no invitation', false],
+        // The Auth has a password to reset, so the page says whether a person may ask for a link themselves.
+        ['selfServiceReset', 'People can reset their own password', false],
         ['name', 'Name', true],
         ['directoryGivesRoles', 'Directory gives roles', true],
         ['ownRule', 'Decided by its own rule', true],
@@ -341,6 +347,8 @@ describe("identityPages, the whole application's side", () => {
       expect(methodsOf(list(signIn).rowMethods)).toEqual([
         ['OpenCrewSignUp', 'Open sign-up'],
         ['MakeCrewInviteOnly', 'Make invite only'],
+        ['SetCrewSelfServiceReset', 'Let people reset their own password'],
+        ['SetCrewSelfServiceReset', 'Stop people resetting their own password'],
       ]);
       expect([password, google, entra, partners, widened].map((row) => [open.when?.(row), close.when?.(row)])).toEqual([
         [false, true],
@@ -354,6 +362,29 @@ describe("identityPages, the whole application's side", () => {
       // Neither method names a target row: the page fills the method's name from the row.
       expect(open.fill?.(google)).toEqual({ name: 'google' });
       expect(close.fill?.(password)).toEqual({ name: 'password' });
+    });
+
+    it("offers the change that is left to make to a person's own password reset, on the password method alone, and says which way it stands", () => {
+      const [allow, stop] = (list(signIn).rowMethods || []).filter((p) => p.method === 'SetCrewSelfServiceReset');
+      const on: RecordData = { ...password, selfServiceReset: true };
+      // Off, or never chosen: the page offers to let people ask. On: it offers to stop them.
+      expect([password, on, google, entra].map((row) => [allow.when?.(row), stop.when?.(row)])).toEqual([
+        [true, false],
+        [false, true],
+        [false, false],
+        [false, false],
+      ]);
+      // One method says it either way, and names no row: each entry fills its own answer.
+      expect(allow.fill?.(password)).toEqual({ on: true });
+      expect(stop.fill?.(on)).toEqual({ on: false });
+      expect(allow.confirm).toBe(
+        'The sign-in page will offer "Forgot your password?". A person who asks is mailed a link to the email address on their account.',
+      );
+      expect(stop.confirm).toBe(
+        'The sign-in page will no longer offer "Forgot your password?". A link already mailed still works, and an administrator can still send one.',
+      );
+      const stands = list(signIn).listColumns.find((column) => column.id === 'selfServiceReset')?.valueGetter;
+      expect([password, on, google].map((row) => stands?.(row))).toEqual(['No', 'Yes', '']);
     });
 
     it('asks a plain question before a method is made invite only, and leaves the question of opening one to the warning the server writes', () => {
@@ -392,6 +423,11 @@ describe("identityPages, the whole application's side", () => {
       ]);
     });
 
+    it("draws no column for a person's own password reset where the description names no method that sets it", () => {
+      const [, staffSignIn] = identityPages(descriptor, resourceMeta, { auth: 'Staff', scope: 'global' });
+      expect(columns(list(staffSignIn)).map(([id]) => id)).not.toContain('selfServiceReset');
+    });
+
     it('is no page of an auth whose description names no sign-in methods: a directory that gives the roles has nothing to choose', () => {
       const built = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' });
       expect(built.map((page) => page.page?.label)).toEqual(['Accounts']);
@@ -413,6 +449,7 @@ describe("identityPages, the whole application's side", () => {
       ['RenameCrewUser', 'Change the username'],
       ['SetCrewUserEmail', 'Change the email address'],
       ['SetCrewTemporaryPassword', 'Set a temporary password'],
+      ['SendCrewUserPasswordResetLink', 'Send a password reset link'],
       ['RequireCrewPasswordChange', 'Require a new password'],
       ['EndCrewUserSessions', 'Sign out everywhere'],
       ['RevokeCrewUserTrustedDevices', 'Forget trusted devices'],
@@ -424,6 +461,32 @@ describe("identityPages, the whole application's side", () => {
       ['CreateCrewUser', 'Add an account'],
       ['InviteCrewUser', 'Invite'],
     ]);
+  });
+
+  it('says whether the message of a method that mails a person went, in the words the server gives when it did not', () => {
+    const reset = presentation(list(people).rowMethods, 'SendCrewUserPasswordResetLink');
+    const address = presentation(list(people).rowMethods, 'SetCrewUserEmail');
+    expect(reset.confirm).toBe(
+      'A link to choose a new password is mailed to the email address on the account. Nothing changes until the link is used.',
+    );
+    expect(reset.answered?.({ sent: true, reason: '' })).toEqual({ message: 'The reset link is on its way.' });
+    expect(
+      reset.answered?.({ sent: false, reason: 'No link was sent: the account has no password to reset.' }),
+    ).toEqual({
+      message: 'No link was sent: the account has no password to reset.',
+      failed: true,
+    });
+    expect(reset.answered?.({ sent: false, reason: '' })).toEqual({
+      message: 'The message could not be sent.',
+      failed: true,
+    });
+    expect(address.answered?.({ sent: true, reason: '' })?.message).toContain(
+      'The account keeps its address until the link is used.',
+    );
+    expect(address.answered?.({ sent: false, reason: 'Change it in the directory.' })).toEqual({
+      message: 'Change it in the directory.',
+      failed: true,
+    });
   });
 
   it('holds Enable to a disabled account and Disable to an enabled one, and asks before each', () => {

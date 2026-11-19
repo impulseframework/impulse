@@ -148,9 +148,9 @@ func TestFeatureFlagsDDL(t *testing.T) {
 }
 
 // featureSetOf builds a FeatureSet holding the given flags, for the tests that need no
-// database behind it.
-func featureSetOf(flags map[Feature]bool) *FeatureSet {
-	s := &FeatureSet{flags: make(map[Feature]FeatureFlag, len(flags))}
+// database behind it: nothing rereads it, since no test makes it due.
+func featureSetOf(flags map[Feature]bool, opts ...FeatureOption) *FeatureSet {
+	s := newFeatureSet(nil, opts...)
 	for name, enabled := range flags {
 		s.flags[name] = FeatureFlag{Name: string(name), Enabled: enabled}
 	}
@@ -200,8 +200,7 @@ func TestFeatureSet_Follow_requiresSubscriber(t *testing.T) {
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			features := featureSetOf(map[Feature]bool{"debriefs": false})
-			features.backstop = time.Hour
+			features := featureSetOf(map[Feature]bool{"debriefs": false}, WithFeatureBackstop(time.Hour))
 			err := features.Follow(ctx, tt.subscriber)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Follow() error = %v, wantErr %v", err, tt.wantErr)

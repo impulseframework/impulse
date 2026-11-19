@@ -138,6 +138,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/feature-flags", method: http.MethodPost},
 		{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		{url: "/droids/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		{url: "/droids/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		{url: "/droids/set-feature", method: http.MethodPost},
 		{url: "/droids/clients", method: http.MethodGet},
 		{url: "/droids/clients", method: http.MethodPost},
@@ -490,9 +491,12 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/revoke-members-sector-user-trusted-devices", method: http.MethodPost},
 		{url: "/droids/revoke-members-user-trusted-devices", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
+		{url: "/droids/send-crew-user-password-reset-link", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
+		{url: "/droids/set-crew-self-service-reset", method: http.MethodPost},
 		{url: "/droids/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/droids/set-crew-user-email", method: http.MethodPost},
 		{url: "/droids/set-crew-user-name", method: http.MethodPost},
@@ -789,9 +793,12 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/revoke-crew-session-token", method: http.MethodPost},
 		{url: "/portal/api/revoke-crew-user-trusted-devices", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/scrap-ship", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/send-crew-sector-user-password-reset-link", method: http.MethodPost},
+		{url: "/portal/api/send-crew-user-password-reset-link", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-email", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/set-crew-sector-user-name", method: http.MethodPost},
+		{url: "/portal/api/set-crew-self-service-reset", method: http.MethodPost},
 		{url: "/portal/api/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/set-crew-user-email", method: http.MethodPost},
 		{url: "/portal/api/set-crew-user-name", method: http.MethodPost},
@@ -2853,6 +2860,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
+			url: "/console/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
 			url: "/console/api/set-feature", method: http.MethodPost,
 			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -2885,6 +2897,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/feature-flags/testFeatureFlagName", method: http.MethodPost,
 			handlerFunc: "FeatureFlag",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
+			url: "/portal/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
@@ -3468,6 +3485,10 @@ func (s *generatedHandlersStub) FeatureFlag() http.HandlerFunc {
 	return s.record("FeatureFlag")
 }
 
+func (s *generatedHandlersStub) FeatureFlagChanges() http.HandlerFunc {
+	return s.record("FeatureFlagChanges")
+}
+
 func (s *generatedHandlersStub) Features() http.HandlerFunc {
 	return s.record("Features")
 }
@@ -3848,6 +3869,14 @@ func (s *generatedHandlersStub) SectorPilot() http.HandlerFunc {
 	return s.record("SectorPilot")
 }
 
+func (s *generatedHandlersStub) SendCrewSectorUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendCrewSectorUserPasswordResetLink")
+}
+
+func (s *generatedHandlersStub) SendCrewUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendCrewUserPasswordResetLink")
+}
+
 func (s *generatedHandlersStub) ServiceLedgers() http.HandlerFunc {
 	return s.record("ServiceLedgers")
 }
@@ -3862,6 +3891,10 @@ func (s *generatedHandlersStub) SetCrewSectorUserEmail() http.HandlerFunc {
 
 func (s *generatedHandlersStub) SetCrewSectorUserName() http.HandlerFunc {
 	return s.record("SetCrewSectorUserName")
+}
+
+func (s *generatedHandlersStub) SetCrewSelfServiceReset() http.HandlerFunc {
+	return s.record("SetCrewSelfServiceReset")
 }
 
 func (s *generatedHandlersStub) SetCrewTemporaryPassword() http.HandlerFunc {

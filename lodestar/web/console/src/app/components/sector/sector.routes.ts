@@ -164,7 +164,7 @@ export const sectorRoute = (pages: Route[]): Route => {
         loadComponent: (): Promise<Type<SectorSignInComponent>> =>
           import('./sector-sign-in/sector-sign-in.component').then((comp) => comp.SectorSignInComponent),
       }),
-      // The person's account, API keys and About pages: the library's, in every place.
+      // The person's account and API keys pages: the library's, in every place.
       ...frameRoutes(),
       { path: '**', redirectTo: 'dashboard' },
     ],

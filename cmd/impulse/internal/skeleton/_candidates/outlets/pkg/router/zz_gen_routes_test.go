@@ -406,6 +406,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/revoke-staff-session-token", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/portal/api/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		{url: "/portal/api/send-staff-user-password-reset-link", method: http.MethodPost},
+		{url: "/portal/api/set-staff-self-service-reset", method: http.MethodPost},
 		{url: "/portal/api/set-staff-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -429,6 +432,7 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/feature-flags", method: http.MethodPost},
 		{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodGet},
 		{url: "/devices/feature-flags/testFeatureFlagName", method: http.MethodPost},
+		{url: "/devices/feature-flags/testFeatureFlagName/changes", method: http.MethodGet},
 		{url: "/devices/set-feature", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodPost},
@@ -695,10 +699,13 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/revoke-staff-session-token", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/devices/revoke-staff-user-trusted-devices", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/send-staff-tenant-user-password-reset-link", method: http.MethodPost},
+		{url: "/devices/send-staff-user-password-reset-link", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-email", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-members-tenant-user-name", method: http.MethodPost},
 		{url: "/devices/set-members-user-email", method: http.MethodPost},
 		{url: "/devices/set-members-user-name", method: http.MethodPost},
+		{url: "/devices/set-staff-self-service-reset", method: http.MethodPost},
 		{url: "/devices/set-staff-temporary-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/set-staff-tenant-user-email", method: http.MethodPost},
@@ -1941,6 +1948,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
+			url: "/console/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
 			url: "/console/api/set-feature", method: http.MethodPost,
 			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -1968,6 +1980,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/feature-flags/testFeatureFlagName", method: http.MethodPost,
 			handlerFunc: "FeatureFlag",
+			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
+		},
+		{
+			url: "/portal/api/feature-flags/testFeatureFlagName/changes", method: http.MethodGet,
+			handlerFunc: "FeatureFlagChanges",
 			parameters:  map[string]string{"featureFlagName": "testFeatureFlagName"},
 		},
 		{
@@ -2220,6 +2237,10 @@ func (s *generatedHandlersStub) FeatureFlag() http.HandlerFunc {
 	return s.record("FeatureFlag")
 }
 
+func (s *generatedHandlersStub) FeatureFlagChanges() http.HandlerFunc {
+	return s.record("FeatureFlagChanges")
+}
+
 func (s *generatedHandlersStub) Features() http.HandlerFunc {
 	return s.record("Features")
 }
@@ -2304,8 +2325,20 @@ func (s *generatedHandlersStub) RevokeStaffUserTrustedDevices() http.HandlerFunc
 	return s.record("RevokeStaffUserTrustedDevices")
 }
 
+func (s *generatedHandlersStub) SendStaffTenantUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffTenantUserPasswordResetLink")
+}
+
+func (s *generatedHandlersStub) SendStaffUserPasswordResetLink() http.HandlerFunc {
+	return s.record("SendStaffUserPasswordResetLink")
+}
+
 func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 	return s.record("SetFeature")
+}
+
+func (s *generatedHandlersStub) SetStaffSelfServiceReset() http.HandlerFunc {
+	return s.record("SetStaffSelfServiceReset")
 }
 
 func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {

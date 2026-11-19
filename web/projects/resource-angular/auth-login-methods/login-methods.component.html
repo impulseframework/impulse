@@ -176,6 +176,81 @@
       </button>
     }
   </div>
+} @else if (resetDone()) {
+  <div class="impulse-login-reset-done">
+    <p class="impulse-login-reset-note">
+      Your password is changed, and you are signed out everywhere. Sign in with your new password.
+    </p>
+    <button mat-flat-button type="button" class="impulse-login-continue" (click)="leaveLink()">Sign in</button>
+  </div>
+} @else if (resetting(); as link) {
+  <div class="impulse-login-resetting">
+    <p class="impulse-login-reset-note">Choose a new password for {{ link.username }}.</p>
+    <form class="impulse-login-form" (ngSubmit)="completeReset()">
+      <mat-form-field appearance="outline" class="impulse-login-field">
+        <mat-label>New password</mat-label>
+        <input
+          matInput
+          name="resetPassword"
+          type="password"
+          [(ngModel)]="resetPassword"
+          autocomplete="new-password"
+          required />
+      </mat-form-field>
+      <mat-form-field appearance="outline" class="impulse-login-field">
+        <mat-label>New password again</mat-label>
+        <input
+          matInput
+          name="resetPasswordAgain"
+          type="password"
+          [(ngModel)]="resetPasswordAgain"
+          autocomplete="new-password"
+          required />
+      </mat-form-field>
+      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Change my password</button>
+    </form>
+    <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">Cancel</button>
+  </div>
+} @else if (resetAsked(); as address) {
+  <div class="impulse-login-reset-asked">
+    <p class="impulse-login-reset-note">
+      If {{ address }} is the email address of an account with a password, a link to reset it is on its way. The link
+      works once. Your password stays as it is until you use the link.
+    </p>
+    <button mat-button type="button" class="impulse-login-cancel" (click)="leaveLink()">Back to sign in</button>
+  </div>
+} @else if (forgetting()) {
+  <div class="impulse-login-forgetting">
+    <p class="impulse-login-reset-note">Enter the email address of your account. A link to reset your password is mailed to it.</p>
+    <form class="impulse-login-form" (ngSubmit)="sendResetLink()">
+      <mat-form-field appearance="outline" class="impulse-login-field">
+        <mat-label>Email address</mat-label>
+        <input matInput name="resetEmail" type="email" [(ngModel)]="resetEmail" autocomplete="email" required />
+      </mat-form-field>
+      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy() || resetHeld()">
+        Send me a link
+      </button>
+    </form>
+    <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">Cancel</button>
+  </div>
+} @else if (addressConfirmed(); as address) {
+  <div class="impulse-login-address-confirmed">
+    <p class="impulse-login-address-note">{{ address }} is now the email address of your account.</p>
+    <button mat-flat-button type="button" class="impulse-login-continue" (click)="leaveLink()">Sign in</button>
+  </div>
+} @else if (confirming()) {
+  <div class="impulse-login-confirming">
+    <p class="impulse-login-address-note">
+      An administrator asked to change the email address of an account to the one this link was mailed to. Confirm it
+      only if you expected this.
+    </p>
+    <button mat-flat-button type="button" class="impulse-login-submit" [disabled]="busy()" (click)="confirmAddress()">
+      Confirm this email address
+    </button>
+    <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="leaveLink()">
+      Not now
+    </button>
+  </div>
 } @else if (started(); as address) {
   <div class="impulse-login-started">
     <p class="impulse-login-started-note">
@@ -244,6 +319,11 @@
         </mat-form-field>
         <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Sign in</button>
       </form>
+      @if (resetOffered()) {
+        <button mat-button type="button" class="impulse-login-forgot" [disabled]="busy()" (click)="beginReset()">
+          Forgot your password?
+        </button>
+      }
     }
   }
   @for (method of offeredRedirectMethods(); track method.name) {

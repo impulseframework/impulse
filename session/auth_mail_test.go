@@ -989,7 +989,7 @@ func TestAuth_Email(t *testing.T) {
 	t.Run("adding an address mails it a verification link, and following the link writes the address verified and resets the address's mail count", authEmailCase1)
 	t.Run("a link counts only for the account that asked", authEmailCase2)
 	t.Run("an address another account holds is told so by mail, the screen says nothing; a mailbox is sent five mails it does not use, then refused", authEmailCase3)
-	t.Run("an operator's entry is written unverified; an Auth without mail has no email handlers", authEmailCase4)
+	t.Run("an Auth without mail has no email and no password reset handlers, and changes nobody's address", authEmailCase4)
 	t.Run("where the username is the address, a verified new address renames the user and the rename hook moves what the application keys by it", authEmailCase5)
 }
 
@@ -1013,7 +1013,7 @@ func authEmailCase1(t *testing.T) {
 		t.Fatalf("messages = %+v, want the verification", msgs)
 	}
 	token := tokenIn(t, msgs[0].Text, "verify")
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record == nil || record.Failures != 1 {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record == nil || record.Failures != 1 {
 		t.Errorf("the address's mail count after Add() = %+v, want one", record)
 	}
 
@@ -1022,7 +1022,7 @@ func authEmailCase1(t *testing.T) {
 	if rr.Code != http.StatusOK || decoded(t, rr)["email"] != "Pat@Lakeside.edu" {
 		t.Errorf("Verify() = %d %s, want the address", rr.Code, rr.Body.String())
 	}
-	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the link was followed = %+v, want none", record)
 	}
 	if rr := f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": token}, nil); rr.Code != http.StatusNotFound {
@@ -1113,24 +1113,15 @@ func authEmailCase5(t *testing.T) {
 
 func authEmailCase4(t *testing.T) {
 	t.Parallel()
-	userID, _ := newIDs()
-	f, _, _ := newMailFixture(t, gomock.NewController(t))
-	f.store.EXPECT().SetUserEmail(gomock.Any(), userID, gomock.Any()).DoAndReturn(func(_ context.Context, _ impulse.UUID, email *string) error {
-		if email == nil || *email != "pat@lakeside.edu" {
-			t.Errorf("SetUserEmail() given %v, want the bare address", email)
-		}
-
-		return nil
-	})
-	if err := f.auth.API().SetSessionUserEmail(context.Background(), userID, strPtr("Pat Lee <pat@lakeside.edu>")); err != nil {
-		t.Errorf("SetSessionUserEmail() error = %v", err)
-	}
-	if err := f.auth.API().SetSessionUserEmail(context.Background(), userID, strPtr("nope")); !httpio.HasBadRequest(err) {
-		t.Errorf("SetSessionUserEmail() of a bad address error = %v, want BadRequest", err)
-	}
 	plain := newAuthFixture(t, gomock.NewController(t))
 	if recovered := registrationPanic(func() { plain.auth.Email() }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "WithMail") {
 		t.Errorf("Email() without mail panicked with %v, want the wiring named", recovered)
+	}
+	if recovered := registrationPanic(func() { plain.auth.PasswordReset() }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "WithMail") {
+		t.Errorf("PasswordReset() without mail panicked with %v, want the wiring named", recovered)
+	}
+	if err := plain.auth.API().RequestAddressChange(context.Background(), impulse.Must(impulse.NewUUID()), "pat@lakeside.edu", AskedByApplication()); err == nil {
+		t.Error("RequestAddressChange() on an Auth without mail error = nil, want the wiring named: the change waits on a mailed link")
 	}
 }
 
@@ -1179,7 +1170,7 @@ func authSignUpCase1(t *testing.T) {
 	if link.Kind != sessionstorage.MailLinkSignUp || link.Email != "new@lakeside.edu" {
 		t.Errorf("stored link = %+v, want a sign-up for the address", link)
 	}
-	if record := f.attemptsRecord("mail:new@lakeside.edu"); record == nil || record.Failures != 1 {
+	if record := f.attemptsRecord("MAIL:new@lakeside.edu"); record == nil || record.Failures != 1 {
 		t.Errorf("the address's mail count after Start() = %+v, want one", record)
 	}
 
@@ -1229,7 +1220,7 @@ func authSignUpCase1(t *testing.T) {
 	if want := proofOf(t, created); f.signedIn == nil || !bytes.Equal(f.signedIn.proven, want) {
 		t.Errorf("SignIn() after a sign-up given the proof %x, want %x: the proof of the password the account was created with", f.signedIn.proven, want)
 	}
-	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:new@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the sign-up was completed = %+v, want none", record)
 	}
 }
@@ -1317,7 +1308,7 @@ func authSignUpCase4(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("Complete() through a closed method = %d %s, want 404", rr.Code, rr.Body.String())
 	}
-	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
+	if record := f.attemptsRecord("MAIL:new@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count = %+v, want it untouched by a refused sign-up", record)
 	}
 }

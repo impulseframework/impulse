@@ -23,14 +23,17 @@ import (
 // and a method listed as a credential method fails it until its template carries the
 // class. To change the set, change the line and the template together.
 var identityMethodActs = map[string]bool{
-	// A person's credentials: what they sign in with, and the username and the address
-	// they sign in under or recover the account through.
-	"SetTemporaryPassword":  true,
-	"RequirePasswordChange": true,
-	"RemovePassword":        true,
-	"UnlinkSessionIdentity": true,
-	"RenameUser":            true,
-	"SetUserEmail":          true,
+	// A person's credentials: what they sign in with, the link that lets them choose a
+	// new password, and the username and the address they sign in under or recover the
+	// account through. The address changes once the person confirms the new one; asking
+	// for the change is the act.
+	"SetTemporaryPassword":      true,
+	"RequirePasswordChange":     true,
+	"RemovePassword":            true,
+	"SendUserPasswordResetLink": true,
+	"UnlinkSessionIdentity":     true,
+	"RenameUser":                true,
+	"SetUserEmail":              true,
 
 	// Whether a person has an account and may use it, and the name people read.
 	"CreateUser":  false,
@@ -48,13 +51,17 @@ var identityMethodActs = map[string]bool{
 	"RevokeUserTrustedDevices": false,
 	"UnlockSignIn":             false,
 
-	// Who is let in: invitations, and whether a method is open to sign-up.
+	// Who is let in: invitations, and what a sign-in method of the auth offers
+	// everyone, which is a setting of the auth and no act on a person's credentials:
+	// whether it is open to sign-up, and whether a person may ask for their own reset
+	// link at the sign-in page.
 	"InviteUser":            false,
 	"WithdrawInvitation":    false,
 	"InviteTenant":          false,
 	"WithdrawInvitedTenant": false,
 	"OpenSignUp":            false,
 	"MakeInviteOnly":        false,
+	"SetSelfServiceReset":   false,
 
 	// What a person may do: roles, and the groups that hold them.
 	"AssignRole":        false,
@@ -149,14 +156,15 @@ func Test_prepareIdentity_credentialMethods(t *testing.T) {
 
 	// The credential methods the fixture's two auths write: the whole application's and
 	// one tenant's of each act. The members sign in through a directory alone, so they
-	// hold no password to set, require or remove.
+	// hold no password to set, require, remove or reset.
 	want := map[string][]string{
-		"SetTemporaryPassword":  {"SetCrewShipTemporaryPassword", "SetCrewTemporaryPassword"},
-		"RequirePasswordChange": {"RequireCrewPasswordChange", "RequireCrewShipPasswordChange"},
-		"RemovePassword":        {"RemoveCrewPassword", "RemoveCrewShipPassword"},
-		"UnlinkSessionIdentity": {"UnlinkCrewSessionIdentity", "UnlinkCrewShipSessionIdentity"},
-		"RenameUser":            {"RenameCrewShipUser", "RenameCrewUser", "RenameMembersShipUser", "RenameMembersUser"},
-		"SetUserEmail":          {"SetCrewShipUserEmail", "SetCrewUserEmail", "SetMembersShipUserEmail", "SetMembersUserEmail"},
+		"SetTemporaryPassword":      {"SetCrewShipTemporaryPassword", "SetCrewTemporaryPassword"},
+		"RequirePasswordChange":     {"RequireCrewPasswordChange", "RequireCrewShipPasswordChange"},
+		"RemovePassword":            {"RemoveCrewPassword", "RemoveCrewShipPassword"},
+		"SendUserPasswordResetLink": {"SendCrewShipUserPasswordResetLink", "SendCrewUserPasswordResetLink"},
+		"UnlinkSessionIdentity":     {"UnlinkCrewSessionIdentity", "UnlinkCrewShipSessionIdentity"},
+		"RenameUser":                {"RenameCrewShipUser", "RenameCrewUser", "RenameMembersShipUser", "RenameMembersUser"},
+		"SetUserEmail":              {"SetCrewShipUserEmail", "SetCrewUserEmail", "SetMembersShipUserEmail", "SetMembersUserEmail"},
 	}
 	for _, methods := range credential {
 		slices.Sort(methods)

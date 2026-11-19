@@ -271,23 +271,11 @@ DML what a later rule must read.
   a disabled account accepts no invitation, so its own vouches for nothing. A person
   created ahead in two tenants, or holding a role in every tenant or outside them, is
   therefore linked at a first sign-in only with their invitation, or once they have a
-  password to confirm with. One such account is the deployment's own: the first
-  administrator of an Auth whose people sign in through a directory, which the seed
-  creates with no password, holding roles for the whole application and belonging to
-  no tenant. The deployment vouches for it. The seed creates it under
-  `session.SeedUserIDThrough(auth, registration, username)`, an id that names the
-  sign-in registration the person comes through and that no request can give an
-  account, the hook's `Seeded` recognizes the id, and the account is linked at its
-  person's first sign-in through that registration while the registration admits one
-  organization and nobody else. The same name through another registration of the
-  Auth, a customer's own provider among them, or through a registration that names
-  several organizations or is open to any or to personal accounts, is not the
-  deployment's word and links nothing, and neither does a seed that was disabled; so
-  the first administrator of an Auth whose only directory methods are that wide is
-  given another way in (a directory method of one organization, or a password). Naming
-  a registration in the seed says that whoever its directory presents under the name
-  is that person: it is for the deployment's own directory, whose sign-in names only
-  its administrators give, and never for a provider that lets a person choose a name.
+  password to confirm with. The deployment's own first administrator, who holds roles
+  for the whole application and belongs to no tenant, is no such account: the
+  deployment creates none ahead of the person and invites them, and the invitation is
+  what ties their first sign-in through a directory to the roles, however many
+  organizations the method admits (see "The first administrator's invitation").
   Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
   say nothing of the account (`invitation_only` through a directory some tenant has,
@@ -302,8 +290,7 @@ DML what a later rule must read.
   organization's to assert. An account an application's seed creates with no password
   and with roles in every tenant or in none, as the cast of the persona sign-in is,
   signs in through such a registration; through any other it has no tenant whose
-  directory could vouch for it and is linked only with its own invitation, or as the
-  seed of that registration (the first administrator, above). An
+  directory could vouch for it and is linked only with its own invitation. An
   application whose
   tenants have no directories (no `SetDirectoryAdmission`) has only the directories its
   deployment registered for itself, and links such an account under its name as
@@ -536,6 +523,10 @@ the row with `sessionstorage.AuthStore.SetSignInMethod`, with `OpenedFor` the ke
 registration's audience (`auth.API().SignInMethods()` answers each registration's), and
 lists them with `SignInMethods`. `session.WithSignInMethodsTableName` renames the table.
 
+Open to sign-up or invite only is one of the choices that add up to an auth's sign-in
+shape. The eight shapes that have a name, and every choice they are made of, are
+described in [docs/sign-in-shapes.md](../docs/sign-in-shapes.md).
+
 ### The tenant policy
 
 The tenant policy is the library's sign-in rule for an application whose users belong
@@ -580,10 +571,7 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
   that transaction, which the library asks before it links an identity on its name
   alone to an account that has never signed in (see "A first link on a name alone"
-  above). Its `Seeded`, which a hook may leave out, answers whether an account is the
-  one the deployment's seed created for the registration a sign-in came through
-  (`session.SeedUserIDThrough`), which the library asks at the same point; the
-  generated identity client answers all three.
+  above). The generated identity client answers both.
   `Seat` is called at a person's first sign-in through the directory, the one that
   makes the link, whether the account is created in it or stood before: a person
   given a role ahead of their first sign-in, or invited by another tenant, has an
@@ -1182,9 +1170,12 @@ and it refuses an impersonated session; the generated router mounts it at
 `/user/browser/forget` and names it in the methods list (`MethodList.ForgetBrowser`). The
 session read (`Authenticated`) says `browserRemembered: true` while the browser carries the
 person's remembered entry, so the page offers the action only then. The email code itself has nothing to reset: a person who lost
-their mailbox is given a new address by an operator (`SetSessionUserEmail`),
-unverified, and the next code proves it. Recovery codes are not offered. Live sessions
-are not touched by the reset; `DestroyUserSessions` ends them.
+their mailbox has an administrator ask for a new address (`RequestAddressChange`), and
+the code keeps going to the address the account holds until the person confirms the new
+one from its mailbox. Recovery codes are not offered. Live sessions
+are not touched by the reset; `DestroyUserSessions` ends them. The person is told of an
+administrator's reset by a notice to the address they confirmed (`NoticeFactorReset`
+sends it for an application that resets the factor in rows of its own).
 
 **What the tables hold.** A code is a row of `SessionFactorCodes`: the pending sign-in
 it was sent for, the address, the code's hash salted by the pending sign-in, the wrong
@@ -1304,7 +1295,11 @@ and is not asked.
 | `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
 | `DirectoryName(method, connection)` | What the Auth's sign-in registrations call the directory an identity of this method and connection came through, for a sentence that names it to a person: the name a registration that takes the connection gives it (`signin.Method.ConnectionName`: a tenant listed with `azure.NamedTenant`, a Google Workspace's name or the domain of one admitted as any Workspace, an OpenID Connect provider's name or its issuer's host), and the label of the button of the first registration of the login page that takes the connection; each is empty where the registrations have none. A tenant listed by its id alone (`azure.Tenant`), one admitted as any tenant, and a method that names no connection have no name, so a sentence says such a directory by the label ("your organization's Microsoft directory") and never by the connection, which for an Entra tenant is an id. It reads nothing. |
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
-| `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
+| `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
+| `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
+| `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address. See "A password reset". |
+| `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
+| `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 | `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
@@ -1316,27 +1311,11 @@ under it last (`CreateUserRequest.ID`). The user's row then says the seed is don
 that stopped before it is repeated whole by the next one, which writes the same
 memberships again and creates the user. A seed that created the user first would have to
 give the roles, after a stopped run, to a user it found under a name, and a name is
-something anyone may come to hold. The generated seed of an auth's first administrator
-and the persona cast's seed work this way, and seed nothing for a user that exists,
-whatever it holds. The first administrator is the deployment's first super administrator:
-the seed writes the Super Administrator role under the id beside the application's own
-administrator roles, since only a holder of that role makes another. An auth whose
-roles come from its directory seeds nobody: the directory names its super
-administrators, as it names every role.
-
-A first administrator who signs in through a directory holds no password, and the seed
-creates the account under `session.SeedUserIDThrough(auth, registration, username)`:
-the same id on every run, which also names the sign-in registration the person comes
-through. In an application whose tenants have directories that id is what links the
-account at the person's first sign-in (see "A first link on a name alone"): it is the
-deployment's word on which registration the name is believed from, and it holds while
-that registration admits one organization alone. The id names the registration and not
-the organization behind it: a registration pointed at another organization before the
-person has signed in believes that organization's word instead. The generated foothold
-seeds its administrator this way where it can name the registration without guessing,
-for an auth whose one directory method is of one Microsoft Entra tenant or one Google
-Workspace; for any other auth it seeds for no registration and says how its author
-names the deployment's own directory.
+something anyone may come to hold. The persona cast's generated seed works this way:
+at every run it gives the account under that id the roles its entry names that it does
+not hold, and gives nothing to a user of another id who holds the persona's login. A deployed Auth's first
+administrator is not seeded: no account is made ahead of the person, who is invited (see
+"The first administrator's invitation").
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -1349,10 +1328,9 @@ wiring above. A login page that reads the mark from the session read posts the c
 to the methods list's `changePassword` path before it opens the application. The change
 clears the mark and goes on in a new session that carries the auth events of the one
 that made it (`ChangeSessionUserPassword`, below); an
-impersonated session is the actor's and is not held to the user's mark. The seed user
-of a new application and every user an operator creates with a password carry the
-mark; the password a user chose through `ChangeSessionUserPassword` or
-`SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
+impersonated session is the actor's and is not held to the user's mark. Every user an
+operator creates with a password carries the mark; the password a user chose through
+`ChangeSessionUserPassword` or `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
 
 **Removing a password.** A person who signs in through a directory does not need the
@@ -1528,6 +1506,56 @@ the validated group, where the auth has the password method
 list. The account page offers "Choose a password" to a person the server says holds
 none.
 
+### A password reset
+
+A person gets back in by a link mailed to the address they confirmed
+(`Auth.PasswordReset()`, which needs mail). Three parties send one: an administrator of
+the application or of a tenant (`AuthAPI.SendPasswordReset(ctx, id, by)`, where `by` is
+`AskedByApplication()` or `AskedByTenant(key)`), and the person, from the sign-in page
+(`PasswordReset().Request()`). The message says who asked: "You asked to reset the
+password", or "An administrator of <the tenant, or the application> asked us to send
+you a link". There is no second mail.
+
+- **Sending changes nothing.** The password the account has signs the person in, and
+  their sessions stand, until the link is used.
+- **The link works once**, for `MailSettings.LinkTimeout`, and for the account whose
+  confirmed address it was mailed to: it is dead once that address or the password
+  changed. Every write and removal of a password in the library withdraws the
+  account's standing reset links, and an application that writes one in rows of its
+  own says so with `AuthAPI.EndPasswordResetLinks(ctx, id)`. `PasswordReset().Open()` answers the username of a live link and
+  `PasswordReset().Complete()` takes the new password; the login page reaches both with
+  `?reset=<token>`. The new password is held to the same rule as any other, the old one
+  is refused from then on, every session of the person ends, the other reset links of
+  the account are withdrawn, and the person signs in with the new password: completing
+  a reset starts no session.
+- **It goes to a confirmed address and to an account that has a password.** An
+  administrator is told in one sentence when no link was sent (Conflict). A person's
+  own request answers the same whether or not the address has an account, mails
+  nothing where there is none, and does its work after the answer, so neither the
+  answer nor its timing says which. `WaitForMail` waits for that work, so a shutdown
+  loses no link a person was promised: the auth package `impulse` writes calls it in
+  its `Close`.
+- **A limit of their own.** Reset links are counted per address, five in fifteen
+  minutes, then fifteen minutes closed, whoever asked: an administrator's link and the
+  person's own request share the one count, and a link that is used resets it. The
+  count is kept apart from the one for sign-in codes and the other links: a request
+  anyone can make for an address never uses up the codes a person who is past their
+  password needs, and a code that is used does not reopen the address to reset links.
+- **Self-service is a setting, read on each request.** The person's own request is
+  served only while the password method's row of the sign-in methods table says so
+  (`SelfServiceReset`, false until an administrator turns it on, and false with no
+  row): turning it on or off takes effect in the running application with no restart.
+  `AuthAPI.SetSelfServiceReset(ctx, on)` writes that one field and leaves what else
+  the row says as it is.
+  While it is off the request is NotFound, in words that say to ask an administrator,
+  and the methods listing leaves the request route out, so the page draws no "Forgot
+  your password?". A link a person asked for while it was on still works once it is
+  turned off, until it is used or runs out: turning it off stops new requests, and
+  takes back nothing already mailed.
+
+The methods listing names the routes (`MethodList.PasswordReset`, and
+`MethodList.Email.Confirm` for the confirmation of an address an administrator set).
+
 ### Users and their email address
 
 A user may hold one email address, in two states. **Verified before trusted**: an
@@ -1558,10 +1586,41 @@ How an address gets onto a user:
   the limit before anything is mailed, so of links asked for at once no more than five
   are mailed. A link that is followed resets the count, as a sign-in code that is used
   does.
-- **An operator enters one**, unverified: `CreateUserRequest.Email` or
-  `SetSessionUserEmail`. The entry reserves the address within the auth: a later
-  sign-up with it is pointed at this account by mail, and the person verifies it
-  through the same add step. An entry over a verified address leaves it unverified.
+- **An operator enters one at creation**, unverified: `CreateUserRequest.Email`. The
+  entry reserves the address within the auth: a later sign-up with it is pointed at
+  this account by mail, and the first code mailed to it at a sign-in confirms it.
+- **An administrator asks for a change** (`RequestAddressChange`): a link goes to the
+  new address, good for `MailSettings.LinkTimeout` and once, and the account keeps the
+  address it has, where its codes and links still go, until the link is followed. The
+  link is followed without a session (`Email().Confirm()`, a public route the login
+  page reaches with `?address=<token>`), since the person may have lost the mailbox
+  their sign-in code went to. Nothing is mailed to the old address to confirm the
+  change; once it is made, the old address is told (a notice with the new address
+  masked, and no link). An address another account holds is told so by mail and gets
+  no link, and the answer is the same. One change stands at a time: asking again
+  withdraws the links asked for before, and a link is dead once the account confirmed
+  any address after it was mailed. A sign-in code never replaces a confirmed address,
+  and a code mailed to an address the account has replaced since is dead
+  (`code_expired`). Nothing writes an address onto an account unconfirmed after its
+  creation.
+- **A directory keeps its people's**: the address of a person with an identity linked
+  through an organization's directory (`signin.Directory.Organization()`) is changed in
+  the directory. Their own add and verify, an administrator's request and the
+  confirmation of a link sent before the identity was linked are each refused
+  (Conflict); a directory person who holds no confirmed address may still confirm
+  their first, and so may one whose directory vouched for a value no message can be
+  sent to, as the simulated build's directories do under a login name.
+- **A directory that does not vouch for an address leaves it to a code**: a sign-in
+  through an external method whose identity does not assert a verified address
+  (Entra, WorkOS, an OpenID Connect provider that says nothing) is held for the email
+  code while the account holds no confirmed address, whatever the token attests and
+  whatever the sign-in policy says about a second factor (`PendingMFA`, the email code
+  its one factor). The person gives the address where the account has none
+  (`Pending().EnrollEmail()`), and the code confirms it; their next sign-in is not held
+  for it. An Auth that sends no mail holds nobody: nothing is ever mailed there, no
+  code, no link and no notice, so there is no unconfirmed address that could be mailed
+  to, and no code that could confirm one. A registration of seeded users holds nobody
+  either.
 - **Google writes its own**: a Google sign-in writes the address Google verified
   onto the user, verified at the time of the sign-in, when the user holds no verified
   address yet and no other user holds it (any method that asserts
@@ -1845,6 +1904,101 @@ Workspace's primary domain in the `hd` claim, so an invitation to an address at 
 secondary domain of a Workspace whose primary domain alone is named is refused here
 although Google would admit the sign-in: name the secondary domain on the Workspace too.
 
+### The first administrator's invitation
+
+The first administrator of a deployed application comes in as everyone after them does:
+by an invitation mailed to their own address, which they accept by signing in through a
+method of the Auth. The deployment names the address, and its release asks for the
+invitation while nobody of the Auth holds the Super Administrator role
+(`accesstypes.SuperAdministrator`). No account is created ahead of the person and no
+password is generated for them, so nothing stands that somebody other than the mailbox's
+owner could sign in with, and no secret exists that a person would have to read. With
+the password method the person chooses a password from the link, their address proven by
+it; through a directory the invitation is what ties the sign-in to the roles, whoever
+else the directory admits and however many organizations the method is open to, and the
+address the directory gives is held to the invited one, as for every invitation.
+
+As the library stands, an Auth whose only sign-in method asserts no address cannot
+accept the invitation yet. The Microsoft Entra method asks the directory for the
+`openid` and `profile` scopes alone, so its sign-ins carry no address unless the
+registration itself is set up to send one, and a sign-in with no address has nothing to
+hold to the invited one: the invited person is refused there (`invitation_address`),
+nobody becomes that Auth's first administrator, and every release goes on asking for the
+address and the mailbox. An Auth that also has the password method, or a method that
+sends the address (Google), is not affected.
+
+The role is what the release asks about, and not whether the Auth has an account. The
+invitation exists so that somebody administers the Auth, and an account that holds
+nothing (a person who signed up, one a directory seated, a persona a test environment
+seeds) administers nothing and stops no invitation. A holder counts when the id the
+role store lists is an account of this Auth; the account may be disabled, since the
+last holder who can sign in keeps the role and the account whoever asks, so the
+question is who holds the role, not who can sign in. A persona a test environment
+seeds holding the role is a holder: such an environment seeds its cast before this
+step, invites nobody and needs no mailbox.
+
+`AuthAPI.InviteFirstAdministrator(ctx, roles, &session.FirstAdministratorRequest{Email, RoleNames})`
+is the step a release runs. `roles` is the role store it asks who holds the Super
+Administrator role (`session.RoleHolders`, which the access library's user manager is:
+pass the manager of the Auth's own permission engine, the one the acceptance hook gives
+the roles through); a call handed none is refused. It answers what it did
+(`session.FirstAdministrator`: the outcome, the address, when the invitation runs out
+and the addresses of the invitations it withdrew), and never the link or its token,
+which are in the mailed message alone:
+
+- Somebody holds the Super Administrator role: nobody is invited
+  (`FirstAdministratorRoleHeld`), nothing is mailed, and neither an address nor a
+  mailbox is asked for; every person after the first is invited from the application.
+  One thing is still done: an invitation of the deployment's that still stands for an
+  address the deployment no longer names is withdrawn, so no link stays open for an
+  address it took back. One to the address still named is left to be accepted, with the
+  roles it was sent with.
+- An invitation to the address with those roles stands: nothing is mailed
+  (`FirstAdministratorStanding`), so a release while the person has not yet accepted
+  sends no second message.
+- None stands, because none was sent or the one sent has run out
+  (`MailSettings.InvitationTimeout`, seven days unless set): one is mailed
+  (`FirstAdministratorInvited`).
+- One stands that the deployment no longer names: it is withdrawn, so its link no longer
+  opens, and the address named now is mailed. That is so for another address, and for
+  other roles: an invitation carries the roles it was sent with, so a release that
+  names a changed set of roles replaces the standing invitation with one that gives
+  the set named now, and the person is mailed again.
+
+`AuthAPI.ReinviteFirstAdministrator` is the same on demand, for a message that was lost:
+it withdraws the standing invitation and mails a fresh one. It is refused once somebody
+holds the Super Administrator role (`ErrFirstAdministratorRoleHeld`), and a refusal
+changes nothing; an account that holds no such role does not refuse it.
+
+While nobody holds the role, both refuse, with nothing mailed, an empty address
+(`ErrFirstAdministratorUnnamed`) and an Auth whose sender delivers nothing
+(`ErrFirstAdministratorNoMailbox`). The second is
+the rule that the release never writes an invitation's link to a log: a sender says
+itself whether it hands its messages to a mail system (`mail.Deliverer`, which the
+Workspace relay declares), `mail.Delivers` takes a sender that says nothing, as
+`mail.Log` and anything that wraps it, for one that does not, and whoever reads the link
+of the first administrator's invitation becomes the administrator. An application's own
+driver declares `Delivers() bool` before it can carry this invitation. An
+invitation the deployment no longer names is withdrawn before either refusal, and the
+error says so. The checks every invitation is held to apply too: an address no sign-in
+method of the Auth could admit is refused, and a message that could not be sent leaves no
+invitation standing.
+
+The first administrator is the deployment's first super administrator, the one person
+who can make another, so the roles name the Super Administrator role
+(`accesstypes.SuperAdministrator`), and a request without it is refused. That role is
+also how the deployment's own invitation is told from every other: it is an invitation
+into the application that gives the Super Administrator role and that no user of the
+Auth sent, which only the application acting for itself writes. Those are the
+invitations the two calls read and withdraw, and they touch no invitation a user sent,
+none into a tenant, none that makes a tenant and none that gives other roles alone. The
+roles are given by the application's acceptance hook
+(`SetInvitationAccepted`), as any invitation's are. An Auth with no such hook gives an
+accepted invitation nothing: nobody would come to hold the role and every release would
+mail the address again, so both calls refuse such an Auth, whoever holds the role, as
+they refuse a call handed no role store.
+Nothing here locks: a deployment runs one release at a time, and the step is its.
+
 ### Sign-up
 
 While an administrator has the password method open to sign-up (its row of the sign-in
@@ -1910,6 +2064,15 @@ deleted from the sign-in attempts table (the key is `SignInAttemptName(username)
 the generated user management's unlock method does in a transaction of the
 application's, lifts the lock on every instance within five seconds, since no instance
 trusts what it remembers of a name for longer.
+
+The same table keeps the library's own counts: the mail an address is sent, the reset
+links an address is sent, and the guesses at the code of an account's first password,
+under `MAIL:`, `RESET:` and `FIRST-PASSWORD:` and what each counts. A name is counted
+under its case-folded form, which holds no capital, so nothing a person types into the
+username field is ever one of those keys: failing to sign in under the text of one
+counts against a name nobody holds, and closes no address to its mail. A caller that
+clears a row a list shows, whichever kind it is, clears the row of
+`SignInAttemptKey(listed)`.
 
 **Attempts made at once.** An attempt takes its place under the limit before its
 password is compared: the store counts it against the name in one transaction and says
@@ -2126,8 +2289,19 @@ when they want it gone there too.
 
 The library sends mail for the flows that need a link or a code in someone's mailbox:
 the invitation a tenant's administrator sends to an address, the link that verifies an
-address a person adds or changes, the link a password sign-up starts from, and the
-sign-in code of the second factor. It writes
+address a person adds or changes, the link a password sign-up starts from, the link
+that resets a password, the link that confirms an address an administrator set, and the
+sign-in code of the second factor. It also sends notices, which carry no link and are
+not counted against the limit on mail to an address: that an account's address changed
+(to the old address), that an administrator reset a person's second factor, and that an
+administrator removed a person from a tenant, which says so when the account went with
+it. The removal notice is for an administrator's act that leaves the person with no role
+in the tenant, of their own or through a group: a role taken, the person taken out of a
+group, or a role taken from a group; where that was the last thing the person held
+anywhere and the account went with it, the notice says so. It is not sent when an
+administrator deletes the account outright or a tenant is cleared, for a role that ends
+by itself, or when the person leaves themselves. A link, a code or a notice goes to a confirmed address or, where it is what
+confirms one, to the address being confirmed. It writes
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
 plain text with one link in it (`mail.Message`: the recipient, the subject and the body),

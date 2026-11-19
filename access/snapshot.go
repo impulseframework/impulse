@@ -56,11 +56,6 @@ type snapshot struct {
 	// skips recompiling when a fresh read matches it.
 	recordsHash [sha256.Size]byte
 
-	// writeGen is the engine's local write generation observed BEFORE the
-	// store read this snapshot was compiled from: any local write up to and
-	// including that generation is guaranteed to be reflected here.
-	writeGen int64
-
 	// since and until bound the instants the snapshot answers for. It is
 	// compiled from the assignments that count at one instant, and the same
 	// ones count from since, the latest start or end of a period at or before

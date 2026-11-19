@@ -1073,8 +1073,16 @@ the session library wires them: `POST user/password/login`, `POST user/password/
 `POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
 the sign-in code to a sign-in that waits for the second factor), `POST
 user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
-none gives for the code); a browser reaches them with the XSRF cookie its first request
-was issued, echoed in the header. The password change
+none gives for the code); `POST user/email/confirm` (the link an administrator's change
+of a person's address mails to the new address, confirmed by a person who need not be
+signed in); and, for an Auth with a password method, `POST user/password-reset` (a
+person's own request for a reset link), `POST user/password-reset/open` and `POST
+user/password-reset/complete` (the mailed link opened, and completed with the new
+password). A browser reaches them with the XSRF cookie its first request
+was issued, echoed in the header. The methods route names the reset paths
+(`passwordReset`), the request's only while an administrator lets people ask for a link
+themselves (section 21, "Who may sign up"), so the login page offers "Forgot your
+password?" from the list it already reads. The password change
 (`PasswordChange`, the password method's `ChangeUserPassword`) validates the session
 itself, so it sits outside `ValidateSession`: a person whose operator-set password must
 change before anything else is served reaches it, and the methods route tells the login
@@ -1187,6 +1195,21 @@ names the check per outlet with its oldest answered release, and the generated t
 proves it: in range answered, below or above refused with the header and no handler run
 and no body read, no header and `dev` answered, session and file routes answered at any
 release, the machine outlets unchecked, and the refusal landing before the hook.
+
+**The environment's name.** Beside its release a server names the environment it runs in,
+wherever that is not production, so a browser application can show it and a problem
+report can say where it happened. The name is `Handlers.ServerEnvironment()`, which the
+application answers from its configuration's `APP_ENVIRONMENT`: a deployment sets the
+variable to the environment's name (`tst`, `development`) everywhere but production,
+which leaves it unset. The generated router names it on every answer in `X-Environment`
+(`resource.NameEnvironment`, in front of every route, last in the chain every request
+passes), percent-encoded as a path segment is, so a name with a space or a letter outside
+ASCII arrives whole; a server that reports no name sends no such header, which is how
+production reads. The browser's client keeps the name from any answer
+(`client.serverEnvironment`) and the library's About pop-up shows it and copies it, with
+the application's name and the release, as one line for a report. The generated test
+proves both halves: a server told its environment names it on an answer, the answer for
+an address no route serves included, and a server told none names none.
 
 **The release file.** Beside the router the generator writes `zz_gen_release.json`, which
 names every outlet and, for each session outlet, the oldest release it answers, so a
@@ -2287,7 +2310,15 @@ domain-scoped resource holds no grant, and the subscription is dropped. Revocati
 therefore ends a subscription at the next renewal, and the refetch is refused meanwhile;
 the publisher never checks permission. A page sends `unsubscribe {tab}` best effort as it
 leaves; a logout sends `{tab, all: true}`, which deletes every subscription of the
-principal and revokes the browser's identity. The token route answers the session
+principal and revokes the browser's identity. An unsubscribe that has reached its
+handler is finished whatever becomes of the connection: its deletes run under the
+handler's own five seconds and not under the request's context, so a page that closes
+before the answer leaves no subscription behind, and its closing logs nothing. A record
+that refuses the delete, or does not answer within the five seconds, is logged as any
+failure is. An unsubscribe that never reaches the handler leaves the tab's subscriptions
+to their expiry: they are not renewed, the publisher's lookups pass them over five
+minutes after their last renewal at the latest, and the time-to-live policy deletes the
+documents (`live/firestore/README.md`). The token route answers the session
 principal's id (below), how to reach the change set, and the identity: in production a
 Firebase custom token the browser signs in with, against the emulator an empty token and
 the emulator host, which the browser connects to with the SDK's mock user token. A
@@ -2353,9 +2384,25 @@ written after it was made, while one made after it hears only the signals after 
 with backoff by the subscriber, the one place that owns reconnection, and on the
 reopen every kind that advanced while it was down wakes once. A signal carries nothing
 but the fact of a change, so the signaler coalesces: while a write of a kind is in
-flight, later signals of the kind are absorbed into one following write. A signal's
-failure is returned for the caller to log and never fails the request, since every
-subscriber also rereads at its own backstop. The kinds are `resource.SignalKind`
+flight, later signals of the kind wait for one write that covers them all, which one
+of their callers makes when the write in flight ends, so a burst costs two writes where
+the channel answers well inside the limit below. A `Signal` returns once its signal is
+sent and leaves nothing to be sent behind it, so an instance that gets no CPU once its
+requests have answered (Cloud Run's default) owes no signal; a covering write that fails is the failure of every
+caller that waited for it. No caller's context ends another's signal: a caller whose
+context ends, or whose deadline passes, under the covering write it is making fails
+alone and another waiting caller makes the write, so no call makes more than one write
+or waits past its context.
+The live service gives every `Signal` its own limit of two seconds
+(`live.SignalTimeout`), for its wait and its write together and on top of the caller's
+context: a caller that brings no deadline, as the tenant write paths do, is not held by
+a channel that does not answer, and a caller whose own deadline is shorter keeps it. On
+a channel too slow for both writes of a burst to fit in two seconds, the callers that
+waited reach their limit in turn, each of them alone.
+A signal's failure is returned for the caller to log and never fails the request, since every
+subscriber also holds its copy to its own backstop, on the request's path and not only
+on a loop's (sections 15 and 16: the feature flags and the tenant roster; the permission
+engine's heartbeat interval in the access package). The kinds are `resource.SignalKind`
 (`KindFeatures`, `KindTenants`, `KindPolicy`), re-exported by the live package as
 `live.Kind`; the document needs no index, no time-to-live and no rules exposure, since
 no client reads it.
@@ -2439,10 +2486,28 @@ bootstrap commands.
 **The copy every instance holds.** `resource.LoadFeatures(ctx, client)` reads the table
 into a `FeatureSet`, and `FeatureSet.Follow(ctx, liveService)` keeps it current until
 ctx ends: the flags ride the `features` kind of the live service's signals document
-(section 14), so on every signal of that kind, and at the five-minute backstop
-regardless, the table is reread; a failed reread is logged and the copy stays as it
-was. A flip therefore reaches every instance within a moment, and the backstop is the
-guard should a signal be missed. The subscriber is the application's live service,
+(section 14). The freshness is the request's own: a lookup (`Enabled`, `Flag`,
+`EnabledNames`) that finds the copy older than the backstop
+(`resource.WithFeatureBackstop`, five minutes by default), or behind a signal of that
+kind this instance received, rereads the table before it answers, under the context
+`Follow` was given and never the request's, and one reread serves every request waiting
+at that moment. A signal is recorded the moment it arrives, before any reread is tried,
+and a reread already in flight then does not clear it. `Follow`'s loop rereads on every
+signal and at the backstop interval too, ahead of the requests, so on an instance that
+is serving a lookup finds the copy fresh and reads nothing; nothing depends on the loop,
+so an instance that got no CPU between requests (Cloud Run's default) answers its next
+one from a read no older than the backstop. A failed reread is logged, the copy stays as
+it was, and the table is left alone for one second: lookups in that pause are answered
+from the copy without a read, so a database that is down is read, and its failure
+logged, once a pause and not once a lookup, and the first lookup after the pause tries
+again. `Reload`, which a flip's handler calls after its commit, records the flip before
+it reads, so a reload that fails (the request that flipped had ended) is made good by
+the next lookup, under the set's own context. A flip of this instance ends the pause
+too: the database has just taken a write, so the next lookup reads it, and a read that
+fails after the flip begins a pause of its own. A database that does not answer holds a
+lookup for less than twice the read's timeout (ten seconds): the read in flight when the
+lookup came, and at most one after it. A flip therefore reaches every instance that
+is serving within a moment, and the backstop bounds the rest. The subscriber is the application's live service,
 which every application wires; `Follow` refuses a nil one. The application exposes the
 copy as `FeatureSet() *resource.FeatureSet`, asserted on the application type beside
 `LiveService`, and the generated decoders, routes and digest read it. Lodestar reads it
@@ -2455,6 +2520,9 @@ through the configuration's database client when the App is built and follows it
 GET  <prefix>/features                       → 200 {"enabled":["debriefs", ...]}     anyone signed in, every outlet
 GET  <prefix>/feature-flags                  → the FeatureFlags list, sort=name       List on FeatureFlags (global)
 GET  <prefix>/feature-flags/{featureFlagName} → one flag                              Read on FeatureFlags (global)
+GET  <prefix>/feature-flags/{featureFlagName}/changes
+                                             → 200 {"changes":[{"changedAt","enabled","changedBy"}, ...],"more":false}
+                                                                                      List on FeatureFlags (global)
 POST <prefix>/set-feature                    {"name":"debriefs","enabled":true}      Execute on SetFeature (global)
                                              → 200 {"name","enabled","updatedAt"}; an undeclared flag is 404
 ```
@@ -2465,16 +2533,58 @@ again after a flip, and what the client's `features` state (`enabled(name)`,
 generator registers in every application's collection (List and Read over `description`,
 `enabled`, `updatedAt` and `updatedBy`, `name` the key, listed by name) and carries in
 the TypeScript constants, metadata and descriptor exactly as a generated resource, so
-the feature flags dialog reads it through an ordinary handle; the routes are the
-library's handlers (`resource.FeatureFlagsHandler`, `resource.FeatureFlagHandler`),
-delegated to from the generated `zz_gen_features.go` in the handler package, and a
-struct or a manual registration that would take the name `FeatureFlags` is refused.
+the Feature flags page is the library's list over it and reads it through an ordinary
+handle; the routes are the library's handlers (`resource.FeatureFlagsHandler`,
+`resource.FeatureFlagHandler`), delegated to from the generated `zz_gen_features.go` in
+the handler package, and a struct or a manual registration that would take the name
+`FeatureFlags` is refused. Three of its fields are served as a person reads them. The
+`description` is the constant's doc comment with the flag's name in words in the
+constant's place where the comment opens with it, as a Go comment does
+(`FeatureDeclaration.Words`: "CargoManifest shows a ship's cargo bays." is served as
+"Cargo manifest shows a ship's cargo bays."), which is how `MigrateFeatures` writes the
+table. `updatedAt` and `updatedBy` are when the flag was last flipped and by whom, read
+from the flag's newest change record and not from the row's columns of those names,
+since the deploy step that declares a flag writes the row too, under a process's name
+and at the time of the deploy: so the list says what the flag's history says.
+`updatedAt` is the moment of the last flip, and `null` for a flag nobody has flipped.
+`updatedBy` is the name the person signs in under, read out of the event source the flip
+recorded (`resource.EventActor`; the session and the account's id stay in the table as
+evidence), a process's source as it was recorded where a process flipped it, and the
+empty string for a flag nobody has flipped. `EventActor` reads the words of a sentence
+in which nothing is escaped, so the name is for showing to a reader and for no decision.
+A list request that asks for a sort on `updatedAt` or `updatedBy` is refused with 400,
+in a sentence that says the two are worked out from the flag's history and what the list
+can be sorted on (`name`, `description`, `enabled`): the statement that orders the list
+reads the row's own columns, the last write of any kind, so the order would be by
+something the answer does not show. The Feature flags page offers no sort on them.
+
+**A flag's history.** `GET <prefix>/feature-flags/{featureFlagName}/changes`
+(`resource.FeatureFlagChangesHandler`) reads the flag's change records back newest
+first: when each flip was committed, what the flag was turned to, and who did it, by the
+same rule as `updatedBy`. It asks no grant of its own. The flag is read first as the
+list reads it, under List on `FeatureFlags` with whatever condition the grant carries, so
+whoever may see the flag in the list may see its history, a caller without the grant is
+refused with 403 and an undeclared flag is 404. Each flip carries what the caller may see
+of the flag: its facts ride the grants on the flag's fields that hold the same facts
+today (`changedAt` under `updatedAt`, `enabled` under `enabled`, `changedBy` under
+`updatedBy`), so a grant that leaves out who last flipped a flag leaves `changedBy` out
+of every flip, and a caller who may list none of the three (the description alone, say)
+is refused with 403, since the answer would tell them only how often the flag was
+flipped. The request's query is not read; nothing asked of the list (`columns`, a
+filter, a page) narrows the history. One read answers the newest
+`resource.FeatureFlagChangesLimit` flips (100) and says with `more` when older ones are
+left out; a flag nobody has flipped answers an empty list. The route reads the change
+table and never the `FeatureSet`, so it adds nothing to how the instances keep their
+copies.
 `SetFeature` is the library's method (`resource.SetFeatureHandler`), registered with
 Execute and carried as an RPC method entry: it writes the row and its change record in
 one transaction, honors `X-Dry-Run`, refuses `X-Warning` (it declares no warning),
-signals the other instances through the live service (`Signal(ctx,
-resource.KindFeatures)`, bounded by two seconds, a failure logged), reloads this
-instance's copy, and answers the flag as written. An `@rpc` struct named `SetFeature`
+reloads this instance's copy, then signals the other instances through the live
+service (`Signal(ctx, resource.KindFeatures)`, bounded by two seconds, a failure
+logged), and answers the flag as written. The reload comes first, so this instance
+answers from the flip while the signal is being sent; the signal does not run under the
+request's context, so a request that ends once the flip is committed still tells the
+other instances. An `@rpc` struct named `SetFeature`
 is refused.
 
 **The role.** A role that administers flags holds Execute on `SetFeature` and List and
@@ -2491,8 +2601,9 @@ Read on `FeatureFlags` with its four non-key fields, in the global scope:
 }
 ```
 
-The digest decides what the dialog may do: a user without Execute sees the flags and
-cannot flip them; a user without List is never shown the dialog.
+The digest decides what the Feature flags page may do: a user without Execute sees the
+flags and each flag's history and cannot flip one; a user without List is never shown the
+page.
 
 **Tests.** The generated authorization matrix carries the features route as an open
 case (200 without a grant), the FeatureFlags routes as query pairs, and SetFeature as
@@ -2564,9 +2675,10 @@ holds, built by the generated constructor in the handler package,
 `New<Record>Roster(client, opts...)` (`NewSectorRoster` for `Sector`), which carries the
 record's table and key column so the application names neither. `Start(ctx)` reads the
 set once, failing the start when the read fails, and then keeps it current until ctx
-ends. `Has(domain)` answers from the set behind an atomic pointer, so it never waits and
-performs no read: a domain the set does not hold is unknown, whatever the table says at
-that moment. `Domains(ctx)` lists the set sorted, in `DomainRoster`'s signature, so the
+ends. `Has(domain)` answers from the set behind an atomic pointer: while the copy is
+inside its backstop and no tenants signal has arrived since its last read, it waits on
+nothing and performs no read (Keeping up, below, says when it rereads first). A domain
+the set does not hold is unknown. `Domains(ctx)` lists the set sorted, in `DomainRoster`'s signature, so the
 roster's `Domains` is what the application hands `SessionPermissions`. `Add` and
 `Remove` change the set at once. The read is one statement selecting the key column,
 rendered for Spanner and for PostgreSQL and run outside any request transaction. The
@@ -2597,11 +2709,28 @@ the application's one signals document, after the commit and before the response
 feature flip signals the features kind; a failure to reload or to signal is logged and
 never fails the request. Every instance's roster reloads on the signal: `Start`
 subscribes to the application's one watch when `resource.WithTenantSignals(liveService)`
-is passed, and never opens a listener of its own. Behind the push, a backstop reread
-(`resource.WithTenantBackstop`, five minutes by default) is the correctness guard, so an
-instance that missed a signal is at most that far behind; a failed reread is logged and
-the set stays as it was until the next. A role held in every tenant domain reaches a new
-tenant with nothing written for it; the one membership written when a tenant is made is
+is passed, and never opens a listener of its own. The freshness is the request's own: a
+lookup (`Has`, `Domains`, `Declarations`, `Name`, `Named`) that finds the copy older
+than the backstop (`resource.WithTenantBackstop`, five minutes by default), or behind a
+tenants signal this instance received, rereads the table before it answers, under the
+context `Start` was given and never the request's, and one reread serves every request
+waiting at that moment. A signal is recorded the moment it arrives, before any reread is
+tried, and a reread already in flight then does not clear it. `Start`'s loop rereads on
+every signal and at the backstop interval too, ahead of the requests, so on an instance
+that is serving a lookup finds the copy fresh; nothing depends on the loop, so an
+instance that got no CPU between requests (Cloud Run's default) answers its next one
+from a read no older than the backstop, and an instance that missed a signal is at most
+that far behind. A failed reread is logged, the set stays as it was, and the table is
+left alone for one second: lookups in that pause are answered from the set without a
+read, so a database that is down is read, and its failure logged, once a pause and not
+once a lookup, and the first lookup after the pause tries again. `Reload` records the
+change before it reads, so a reload that fails (the request that wrote had ended) is
+made good by the next lookup, under the roster's own context. A write of this instance
+ends the pause too: the database has just taken a write, so the next lookup reads it,
+and a read that fails after the write begins a pause of its own. A database that does
+not answer holds a lookup for less than twice the read's timeout (ten seconds): the read
+in flight when the lookup came, and at most one after it. A role held in every tenant
+domain reaches a new tenant with nothing written for it; the one membership written when a tenant is made is
 its first administrator's. `Add` stays for a test harness that seeds a roster without a
 table; the generated paths never call it.
 
@@ -3069,9 +3198,17 @@ withdrawn. A person who held roles in the tenant alone then holds none anywhere 
 deleted with their identity links and sessions, by the rule on an account nothing admits
 (section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
 role held in every tenant, which is no one tenant's. The permission engine is told once
-the delete has committed. The rows the tenant owns are the application's: a foreign key
-on a tenancy column refuses the delete while they remain. An application that deletes a
-tenant in a transaction of its own calls `ClearTenant` there, and a program that
+the delete has committed. The tenant's directory goes with it in the same transaction,
+whether the tenant is directory only or not: the generated delete removes the directories
+record's row through the record's own delete patch (the generated
+`Clear<Record>Directory` of the roster file), so its change event is written and the
+directory is free for another tenant. The rule that keeps the directory of a
+directory-only tenant is for a tenant that stays and is not asked. The rows the tenant
+owns are the application's, and go by the application's schema: a foreign key on a
+tenancy column declared `ON DELETE CASCADE` takes them in the same transaction, which is
+how the skeletons' sample tenant table is declared, and one without the rule refuses the
+delete while its rows remain. An application that deletes a tenant in a transaction of
+its own calls `ClearTenant` and `Clear<Record>Directory` there, and a program that
 generates no auth's management removes the memberships itself.
 
 With the last-owner rule (section 21, "The rules") an operator brings a customer's
@@ -3362,7 +3499,8 @@ POST <prefix>/create-crew-user                {"username","name","email","passwo
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-email             {"userId","email"}               Execute on SetCrewUserEmail, targeting CrewSessionUsers
+POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewSessionUsers
+POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewSessionUsers
 POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
@@ -3390,6 +3528,7 @@ POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyD
 POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/open-crew-sign-up               {"name"}                         Execute on OpenCrewSignUp (declares a warning; {"name","defaultRole"} without tenants)
 POST <prefix>/make-crew-invite-only           {"name"}                         Execute on MakeCrewInviteOnly
+POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
 POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
@@ -3405,8 +3544,9 @@ POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","u
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
-     set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
-     end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
+     set-crew-sector-temporary-password, send-crew-sector-user-password-reset-link, require-crew-sector-password-change,
+     revoke-crew-sector-user-trusted-devices, end-crew-sector-user-sessions
+                                              the whole application's bodies and answers    Execute on each, targeting CrewSectorUsers
 ```
 
 The names are table-derived: the Auth's package name in PascalCase and the library's own
@@ -3420,7 +3560,9 @@ decides which methods exist: the two role methods, the two invitation methods, t
 create, and the list and the two methods of the sign-in methods ("Who may sign up",
 below) are left out for an Auth whose roles a directory writes (`SyncsRoles`), where the
 directory admits its own members and the first sign-in creates the row, the two password
-methods (and the create's `password`) for an Auth with no password method, as are the
+methods (and the create's `password`), the method that mails a reset link and the one
+that says whether a person may ask for one themselves for an Auth with no password
+method, as are the
 method that removes a person's password and the list of how a person signs in, which are
 also written only where the schema holds the identities table (the rule they keep reads a
 person's identity links), the rename and
@@ -3933,16 +4075,39 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
 - A rename takes with it what is held under the old name: the person's sessions, the
   sessions they hold as someone else with their impersonation records, and every role
   membership. A name another user holds is refused (409).
-- An address set by hand is written bare and held unverified, whatever the one before it
-  was: it is trusted for nothing until the person verifies it themselves, and it
-  reserves the address, so one another user holds is refused at the commit. No address
-  (`email` null or left out) takes the one held off.
+- An address an administrator sets changes nothing until the person confirms it. The
+  method mails a link to the new address once the transaction has committed, and the
+  account keeps the address it has until the person follows that link from the new
+  mailbox (`POST user/email/confirm`, which the login page reaches with
+  `?address=<token>`). The old address is told once the change is made, and never asked
+  to allow it. One change stands at a time: a second request withdraws the first one's
+  link. An account always keeps an address, so the method replaces one and never takes
+  one off, and the answer says whether the link went (`sent`) and, where it did not,
+  why (`reason`), which the page shows the administrator.
+- A password reset link is mailed to the address the person confirmed, once the
+  transaction has committed, and changes nothing until it is used: the password the
+  account has signs the person in and their sessions stand. The message says who asked,
+  an administrator of the tenant the request was checked in or of the application. The
+  link works once; the new password ends every session of the person. The answer says
+  whether the link went and why not (the account has no password or no confirmed
+  address, or the address was sent too many reset links: five in fifteen minutes, the
+  person's own requests counted with the administrators' and apart from sign-in codes).
+  The role file decides who may send one, as for every method of the set.
 - Deleting a user removes their role memberships, ends their sessions, and removes
   their identity links and the account; whatever else the Auth keeps for the person
   goes with the row.
 - Resetting a person's second factor forgets every browser the Auth remembered for
   them, so their next sign-in from any of them is asked for the factor. The sessions
-  that stand are left.
+  that stand are left. The person is told at their confirmed address, once the
+  transaction has committed.
+- A person an administrator takes out of a tenant is told at their confirmed address,
+  once the transaction has committed: when the last role they held there is taken away,
+  when they are taken out of the group that gave them their last holding there, and
+  when that group's role is taken away, each of its people who held nothing else there
+  told. Where it was the last thing the person held anywhere and the account went with
+  it, the notice says so. Nothing is mailed when an administrator deletes the account
+  outright, when a tenant is cleared, for a role that ended by itself, or to a person
+  who still holds something in the tenant, of their own or through another group.
 - A lockout is cleared by removing the count of failed sign-ins kept under the name.
   Each instance of the application trusts what it remembers of a name for five seconds,
   a lock included, so the lock is gone from every instance within that time of the
@@ -4028,7 +4193,9 @@ assigns the page's two halves, with nothing written by the application:
   (`admits`: "Anyone with a Google account", "Anyone with an account at acme.example",
   from how wide the method's registration is), `openSignUp`, `defaultRole`,
   `directoryGivesRoles` and `ownRule` (the two kinds of method nothing is chosen for,
-  below), and `says`, what a person with no invitation meets, as a sentence. It is
+  below), `selfServiceReset` (on the password method's row alone: people may ask at the
+  sign-in page for a link that resets their own password), and `says`, what a person
+  with no invitation meets, as a sentence. It is
   computed from the Auth's registrations and the table's rows, so a method with no row is
   listed as invite only, and a row of a method the Auth no longer registers is not listed.
 - `OpenCrewSignUp` and `MakeCrewInviteOnly`, the two methods that write the row. Opening
@@ -4037,6 +4204,16 @@ assigns the page's two halves, with nothing written by the application:
   gets, with the words for the confirm button ("Open to anyone with a Google account"),
   and saves nothing. Making a method invite only says nothing first: the people who have
   accounts keep them, and new people need an invitation.
+- `SetCrewSelfServiceReset`, for an Auth with a password method: whether a person may
+  ask at the sign-in page for a link that resets their own password (`on`). It is off
+  until an administrator turns it on, and the choice holds in the running application
+  from the commit on, with no restart: the methods route names the request's path while
+  it is on, the login page offers "Forgot your password?" from it, and the request's
+  route answers 404 while it is off. A link asked for while it was on still works once
+  it is off, until it is used or runs out, and a link an administrator sends is never
+  held to the choice. An Auth with a password and no list of sign-in methods (one whose
+  application lets nobody sign up to it) has no such method: its people are sent a
+  reset link by an administrator.
 
 What a person who signs up gets depends on the application. Without tenants they get the
 method's default role, a role held for the whole application: opening a method without
@@ -4098,7 +4275,7 @@ nothing once it is closed. The table's rows are written through its generated pa
 with change tracking on, so the change record keeps who opened a method and who made it
 invite only, and when (`DataChangeEvents` under `CrewSessionSignInMethods`); the table
 itself has no route, and nothing but the two methods writes it. The role file grants
-List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the two methods to the
+List on `CrewSignInMethods` (and `CrewSignUpRoles`) and Execute on the methods to the
 roles that may decide, and nobody else reads the list or the warning.
 
 **What the application supplies.** One client per Auth, built by the Auth's own package
@@ -4415,9 +4592,9 @@ the tenant record's name where the application has one, and a side for each scop
 each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
-`rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
+`rename`, `setEmail`, `setTemporaryPassword`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
-the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
+the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
 what the outlet serves, so a method the Auth's shape leaves out, or a list the schema has
 no table for, is absent, and a side without its list of people is not listed. The Angular

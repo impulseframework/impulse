@@ -240,21 +240,28 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 			t.Error("ada is still disabled after the call")
 		}
 	})
-	t.Run("the address is set by hand, unverified, and taken off", func(t *testing.T) {
-		status, body := post("marshal", anvil, "set-crew-sector-user-email", fmt.Sprintf(`{"userId":%q,"email":"Ada <ada.new@example.com>"}`, w.ids["ada"]))
-		assertStatus(t, status, http.StatusNoContent, body)
-		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Email"); got.StringVal != "ada.new@example.com" {
-			t.Errorf("ada's address = %v, want it written bare", got)
+	t.Run("a new address is asked for and changes nothing until its mailbox confirms", func(t *testing.T) {
+		address := func() spanner.NullString {
+			return readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Email")
 		}
-		if got := readColumn[spanner.NullTime](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "EmailVerifiedAt"); got.Valid {
-			t.Errorf("ada's address is verified at %v; an address entered by hand is not", got)
+		before := address()
+		// The method answers how the mailing went. This suite serves no session manager,
+		// so no link is mailed and the answer says so; the link, from the request to the
+		// address it confirms, is held on the served stack (TestAccountMail).
+		status, body := post("marshal", anvil, "set-crew-sector-user-email", fmt.Sprintf(`{"userId":%q,"email":"Ada <ada.new@example.com>"}`, w.ids["ada"]))
+		if sent, reason := mailingAnswer(t, status, body); sent || reason == "" {
+			t.Errorf("the answer = %s, want no link sent and the reason said", body)
+		}
+		if got := address(); got != before {
+			t.Errorf("ada's address = %v after the request, want %v kept: an address changes when its mailbox confirms", got, before)
 		}
 		status, body = post("marshal", anvil, "set-crew-sector-user-email", fmt.Sprintf(`{"userId":%q,"email":"ada at example"}`, w.ids["ada"]))
 		assertStatus(t, status, http.StatusBadRequest, body)
+		// An account always keeps an address: a request that names none is refused.
 		status, body = post("marshal", anvil, "set-crew-sector-user-email", userBody("ada"))
-		assertStatus(t, status, http.StatusNoContent, body)
-		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Email"); got.Valid {
-			t.Errorf("ada's address = %v, want none", got)
+		assertStatus(t, status, http.StatusBadRequest, body)
+		if got := address(); got != before {
+			t.Errorf("ada's address = %v after the refused requests, want %v kept", got, before)
 		}
 	})
 	t.Run("the name is written without the space around it, refused when too long, and taken off", func(t *testing.T) {
