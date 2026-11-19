@@ -20,6 +20,23 @@ type ActionClass string
 // except the credential actions" with a mask that refuses the class.
 const ClassCredential ActionClass = "credential"
 
+// ClassAccess is the class of the actions that give or take away what someone may
+// do: a role given or removed, a person put in a group or taken out of one, a role
+// given to a group or taken from it, a group made or deleted, an invitation sent or
+// withdrawn, an account made, disabled, enabled or deleted, and what a sign-in
+// method or a tenant's directory gives everyone who arrives through it. The library
+// marks its own generated identity methods of that kind with it, so an application
+// can grant "act as a person, without changing who may do what" with a mask that
+// refuses the class.
+//
+// The class is the second of two controls. The first needs no mask: in an
+// impersonated session nobody is the subject of what they do, so the person who
+// impersonates never changes their own account, whatever the mask keeps
+// (identity.RefuseImpersonatorAsSubject). The class refuses what that rule cannot
+// see: a role given to a group the person is in, to another account of theirs, or
+// to a colleague.
+const ClassAccess ActionClass = "access"
+
 // actionClassName is what a class may be named: a lowercase letter, then
 // lowercase letters, digits and underscores, 64 characters at most.
 var actionClassName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)

@@ -184,6 +184,9 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "enable your own account"); err != nil {
+		return err
+	}
 	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "enables a super administrator's account"); err != nil {
 		return err
 	}
@@ -212,6 +215,9 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "require a password change of your own account"); err != nil {
+		return err
+	}
 	has, found, err := m.store.UserHasPassword(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.UserHasPassword()")
@@ -260,6 +266,9 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "change your own email address"); err != nil {
+		return err
+	}
 	if strings.TrimSpace(email) == "" {
 		return httpio.NewBadRequestMessage("an address is required: an account always keeps an email address, so one is replaced and never taken off")
 	}
@@ -297,6 +306,9 @@ func (m *Manager) SetName(ctx context.Context, txn resource.ReadWriteTransaction
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "change your own name"); err != nil {
+		return err
+	}
 	clean, err := sessioninfo.CleanName(name)
 	if err != nil {
 		return errors.Wrap(err, "sessioninfo.CleanName()")

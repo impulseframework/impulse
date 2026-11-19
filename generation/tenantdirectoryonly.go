@@ -56,11 +56,15 @@ const (
 var directoryOnlyNamingFields = []string{"username", "name"}
 
 // tenantOwnMethod is a method the generator writes in the tenant's scope beside the
-// tenant record's declaration: its name, as grants and the client name it, and the word
-// its warning has a person type, empty for a method that declares none.
+// tenant record's declaration: its name, as grants and the client name it, the word its
+// warning has a person type, empty for a method that declares none, and the classes its
+// action carries. A method the application declares says its classes with @class; these
+// have no declaration to annotate, so the generator says them where it registers the
+// action, and a permission mask that refuses a class refuses them as it does any other.
 type tenantOwnMethod struct {
-	Name  string
-	Typed string
+	Name    string
+	Typed   string
+	Classes []accesstypes.ActionClass
 }
 
 // Route is the method's route segment under the tenant's own route.
@@ -84,8 +88,8 @@ func endDirectoryOnlyMethodName(record string) string {
 // it on, which warns, and the one that turns it off.
 func directoryOnlyMethodsOf(record string) []tenantOwnMethod {
 	return []tenantOwnMethod{
-		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord},
-		{Name: endDirectoryOnlyMethodName(record), Typed: ""},
+		{Name: makeDirectoryOnlyMethodName(record), Typed: resource.DirectoryOnlyWord, Classes: nil},
+		{Name: endDirectoryOnlyMethodName(record), Typed: "", Classes: nil},
 	}
 }
 
@@ -246,6 +250,7 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 			if err := b.AddMethodResource(accesstypes.DomainPermissionScope, accesstypes.Execute, accesstypes.Resource(method.Name)); err != nil {
 				return errors.Wrapf(err, "registering %s", method.Name)
 			}
+			b.SetActionClasses(accesstypes.DomainPermissionScope, accesstypes.Resource(method.Name), method.Classes)
 		}
 
 		return nil

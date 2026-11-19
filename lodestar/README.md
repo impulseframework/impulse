@@ -1089,7 +1089,7 @@ out by hand does not compile:
 | Kind | Grant | Role | The widest mask |
 | --- | --- | --- | --- |
 | `view`: view as a person | Execute on `ViewAsUser` | `CommandStaff` (the governor, the marshal) | Reading only |
-| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential`: the session cannot set, require or remove a password, unlink a sign-in identity, or change a username or an address |
+| `act`: act as a person | Execute on `ActAsUser` | `StandIn` (the governor) | Everything except the actions classed `credential` and the actions classed `access`: the session cannot set, require or remove a password, send a reset link, unlink a sign-in identity, or change a username or an address, and it cannot give or remove a role, change a group or what it holds, invite anyone, or make, disable, enable or delete an account |
 | `role`: act as a role | Execute on `AssumeRole` | `CommandStaff` | Everything the role holds |
 
 A request may ask for less than its kind gives: permission kinds to keep
@@ -1100,7 +1100,23 @@ kind gives (`"kind":"view"` with `Execute` in its mask) is refused, 403, with no
 started, and so is `"kind":"act"` from a holder of `CommandStaff` alone: the grant to
 view is not the grant to act. The answer, the session route's `impersonation.maskWords`,
 the banner and the watch desk say the session's mask in words ("reading only",
-"everything except credential actions").
+"everything except access actions and credential actions"), and so does the generated
+list of the impersonation records (`crew-session-impersonations`), whose `mask` column
+reads the stored text as words.
+
+Whatever the kind and its mask, nobody is the subject of what they do in such a session.
+The marshal who acts as the `Headquarters` role holds, for the length of the session,
+everything headquarters may do to the crew's accounts, and is refused each of those
+things on her own account ("you are acting as someone else, so you cannot give yourself
+a role: while you act as another person, nothing you do is done to your own account.
+Stop acting as them first"): a role, a place in a group, a password, an address, an
+enable, the unlock of her own name, an invitation to her own address. The same act on
+anyone else goes through, and her own row is still listed. The rule is the identity
+library's and needs no line in the application. An action of Lodestar's own that names a
+person asks it too: `SetSectorPilotClearance` reads the pilot's account off the registry
+and calls `identity.RefuseImpersonatorAsSubject`, so nobody raises their own clearance
+through someone else's grant. The class `access` on the `act` kind is for what that rule
+cannot see, a role that reaches a person through a group or a colleague.
 
 | Login | Who | What their view proves |
 | --- | --- | --- |

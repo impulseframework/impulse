@@ -20,7 +20,7 @@ const (
 	// kindView views the console as another person: reading only.
 	kindView = "view"
 	// kindAct acts as another person: everything they may do, except the credential
-	// actions.
+	// actions and the actions that change who may do what.
 	kindAct = "act"
 	// kindRole acts as a role.
 	kindRole = "role"
@@ -36,18 +36,29 @@ const (
 //   - view: Execute on ViewAsUser. The session reads what the person reads and writes
 //     nothing.
 //   - act: Execute on ActAsUser. The session does what the person may do, except the
-//     actions classed credential (router.ClassCredential): it cannot set, require or
-//     remove a password, unlink a sign-in identity, or change a username or an address.
-//     The constant is the generated collection's, so the mask names a class the
-//     application's actions carry, or this file does not compile.
+//     actions classed credential (router.ClassCredential), so it cannot set, require or
+//     remove a password, unlink a sign-in identity, or change a username or an address,
+//     and the actions classed access (router.ClassAccess), so it cannot give or remove
+//     a role, change a group or what it holds, invite anyone, or make, disable, enable
+//     or delete an account. The constants are the generated collection's, so the mask
+//     names classes the application's actions carry, or this file does not compile.
 //   - role: Execute on AssumeRole. The session holds what the role holds; the kind says
 //     in so many words that it is unmasked.
+//
+// Whatever the kind and its mask, nobody is the subject of what they do in such a
+// session: the identity library refuses every change to the account of the person who
+// started it (identity.RefuseImpersonatorAsSubject), so a person who acts as a role that
+// manages the crew cannot give their own account a role and keep it afterward. The
+// class access refuses what that rule cannot see, a role that reaches them through a
+// group or a colleague.
 //
 // Demonstrates: impersonation.grant-mask, impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, @class.
 func impersonationKinds() []session.ImpersonationKind {
 	return []session.ImpersonationKind{
 		session.ImpersonatesUser(kindView, resources.ViewAsUser, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
-		session.ImpersonatesUser(kindAct, resources.ActAsUser, accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(router.ClassCredential))),
+		session.ImpersonatesUser(kindAct, resources.ActAsUser, accesstypes.AllowAll().Refusing(
+			accesstypes.RefuseClass(router.ClassCredential), accesstypes.RefuseClass(router.ClassAccess),
+		)),
 		session.ImpersonatesRole(kindRole, resources.AssumeRole, accesstypes.AllowAll()),
 	}
 }

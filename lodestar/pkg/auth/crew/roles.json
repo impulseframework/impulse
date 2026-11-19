@@ -938,7 +938,7 @@
       },
       {
         "name": "StandIn",
-        "description": "Acts as another crew member: does what they may do, except change how they sign in.",
+        "description": "Acts as another crew member: does what they may do, except change how they sign in or who may do what.",
         "permissions": {
           "Execute": [
             {

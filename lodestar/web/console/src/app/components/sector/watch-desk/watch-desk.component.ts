@@ -15,7 +15,7 @@ interface ActiveImpersonation {
   actor: string;
   principal: string;
   kind: 'user' | 'role';
-  /** What the session may do, in the server's words: "reading only", "everything except credential actions". */
+  /** What the session may do, in the server's words: "reading only", "everything except access actions and credential actions". */
   mask: string;
   reason: string;
   startedAt: string;

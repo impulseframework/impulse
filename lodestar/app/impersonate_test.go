@@ -25,6 +25,8 @@ var credentialActions = []accesstypes.Resource{
 	"RenameMembersUser",
 	"RequireCrewPasswordChange",
 	"RequireCrewSectorPasswordChange",
+	"SendCrewSectorUserPasswordResetLink",
+	"SendCrewUserPasswordResetLink",
 	"SetCrewSectorTemporaryPassword",
 	"SetCrewSectorUserEmail",
 	"SetCrewTemporaryPassword",
@@ -35,6 +37,78 @@ var credentialActions = []accesstypes.Resource{
 	"UnlinkCrewSessionIdentity",
 	"UnlinkMembersSectorSessionIdentity",
 	"UnlinkMembersSessionIdentity",
+}
+
+// accessActions are the actions of the console and the portal that give or take away
+// what someone may do, by name: the generated identity methods that give and remove a
+// role, make and delete a group, put a person in one and take them out, give a group a
+// role and take it, send and withdraw an invitation, the one that makes a sector among
+// them, make, disable, enable and delete an account, and open a sign-in method to
+// sign-up or make it invite only, for the whole application and for a sector; and the
+// two methods the generator writes for the sector record's directory, which open it to
+// the directory's people with a role and make it invite only again. The generated
+// collection classes each access, which the kind that acts as a person refuses beside
+// credential. When the generated set gains, loses or renames such a method, this list
+// changes with it.
+var accessActions = []accesstypes.Resource{
+	"AddCrewGroupMember",
+	"AddCrewSectorGroupMember",
+	"AssignCrewRole",
+	"AssignCrewSectorRole",
+	"CreateCrewGroup",
+	"CreateCrewSectorGroup",
+	"CreateCrewSectorUser",
+	"CreateCrewUser",
+	"DeleteCrewGroup",
+	"DeleteCrewSectorGroup",
+	"DeleteCrewSectorUser",
+	"DeleteCrewUser",
+	"DeleteMembersSectorUser",
+	"DeleteMembersUser",
+	"DisableCrewSectorUser",
+	"DisableCrewUser",
+	"DisableMembersSectorUser",
+	"DisableMembersUser",
+	"EnableCrewSectorUser",
+	"EnableCrewUser",
+	"EnableMembersSectorUser",
+	"EnableMembersUser",
+	"GiveCrewGroupRole",
+	"GiveCrewSectorGroupRole",
+	"InviteCrewSector",
+	"InviteCrewSectorUser",
+	"InviteCrewUser",
+	"MakeCrewInviteOnly",
+	"MakeSectorInviteOnly",
+	"OpenCrewSignUp",
+	"OpenSectorToDirectory",
+	"RemoveCrewGroupMember",
+	"RemoveCrewRole",
+	"RemoveCrewSectorGroupMember",
+	"RemoveCrewSectorRole",
+	"TakeCrewGroupRole",
+	"TakeCrewSectorGroupRole",
+	"WithdrawCrewInvitation",
+	"WithdrawCrewInvitedSector",
+	"WithdrawCrewSectorInvitation",
+}
+
+// TestAccessActions pins the generated collection's list of the actions classed access,
+// by name, as TestCredentialActions pins the credential ones: the mask of the kind that
+// acts as a person refuses the class, so the list is what such a session cannot do to
+// who may do what.
+func TestAccessActions(t *testing.T) {
+	t.Parallel()
+
+	got := router.Collection().ActionsOfClass(router.ClassAccess)
+	if !slices.Equal(got, accessActions) {
+		t.Errorf("the actions the generated collection classes access = %v, want %v", got, accessActions)
+	}
+	for _, action := range got {
+		if slices.Contains(credentialActions, action) {
+			t.Errorf("%s is classed both access and credential: an action that changes how a person signs in is the one class, one that changes who may do what the other", action)
+		}
+	}
 }
 
 // TestCredentialActions pins the generated collection's list of the actions classed
@@ -70,7 +144,7 @@ func TestImpersonationKinds(t *testing.T) {
 	}
 	want := []kind{
 		{Name: "view", Grant: "ViewAsUser", Widest: "reading only"},
-		{Name: "act", Grant: "ActAsUser", Widest: "everything except credential actions"},
+		{Name: "act", Grant: "ActAsUser", Widest: "everything except access actions and credential actions"},
 		{Name: "role", Grant: "AssumeRole", AsRole: true, Widest: "everything"},
 	}
 	var got []kind

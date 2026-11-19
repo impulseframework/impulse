@@ -87,7 +87,7 @@ type Ship struct { ... }
 | `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, and the two optional parts `who: <tests>` and `where: <condition>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. |
 | `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. |
 | `@manualAddResource` | `accesstypes.Resource` constant | `permission[, scope]` | Registers the permission on the resource in the generated Collection for a hand-written route with no generated handler. Repeatable. Scope is `global` or `domain`; omitted means the global default. An `@outlet` annotation on the same constant names the outlets the hand-written route is mounted under, so an outlet-filtered TypeScript target (`ForOutlet`) carries the registration only when it names that outlet; omitted means the default outlet. The constant's value is the resource name and must not contain `:` (reserved for access-defined markers like `accesstypes.GlobalResource`); generation rejects it. The registration reaches the TypeScript constants like a generated one: an `Execute` registration joins `Methods`, any other permission joins `Resources`. |
-| `@class` | `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of class names, `credential` | Marks the action with the classes it carries, which a permission mask refers to: the mask of an impersonated session that refuses a class (`accesstypes.RefuseClass`) refuses every action that carries it, the ones declared after the mask was written among them, so nobody keeps a list of actions in step with the application (section 6). Repeatable, and a list and repeated annotations mean the same. A class is named by a lowercase letter, then lowercase letters, digits and underscores (`money_movement`); the library names one, `credential` (`accesstypes.ClassCredential`), which its generated identity methods that change how a person signs in carry (a password set, required anew or removed, a sign-in identity unlinked, a username or an address changed; section 21), and an application marks its own actions with that class or with one it names. The generated Collection carries each action's classes (`CollectionResource.Classes`, read back with `ActionClasses`), which is where the masked check reads them, and the collection file declares a constant for each class in use (`ClassCredential`, `ClassMoneyMovement`), so a mask is written against a name the compiler knows and one that names a class no action carries any more does not compile. A registration declared with `WithManualResources` carries its classes in `ManualRegistration.Classes`. **Refused at generation:** a name no class may carry, a class named twice on one action, the annotation on a `@resource`, `@virtual` or `@computed` struct (a class is carried by an action; a mask holds a session off a record by naming the record, `accesstypes.RefuseWrites`), the annotation on a constant that registers nothing, the annotation on a method that registers no action (its handler suppressed with `@suppress`, or a generation that writes no routes: the class rides the registration, so it goes on the constant that registers the action by hand, and is never dropped without a word), and two classes whose constants would share a name. A name registered twice, by a method and by hand, carries the classes of both. Example: [ScrapShip](../lodestar/pkg/rpc/scrap_ship.go). |
+| `@class` | `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of class names, `credential`, `access` | Marks the action with the classes it carries, which a permission mask refers to: the mask of an impersonated session that refuses a class (`accesstypes.RefuseClass`) refuses every action that carries it, the ones declared after the mask was written among them, so nobody keeps a list of actions in step with the application (section 6). Repeatable, and a list and repeated annotations mean the same. A class is named by a lowercase letter, then lowercase letters, digits and underscores (`money_movement`); the library names two, which its generated identity methods carry (section 21): `credential` (`accesstypes.ClassCredential`), on the methods that change how a person signs in (a password set, required anew or removed, a reset link sent, a sign-in identity unlinked, a username or an address changed), and `access` (`accesstypes.ClassAccess`), on the methods that give or take away what someone may do (a role given or removed, a group and who is in it and what it holds, an invitation, an account made, disabled, enabled or deleted, and what a sign-in method or a tenant's directory gives everyone who arrives through it). An application marks its own actions with either or with a class it names. The generated Collection carries each action's classes (`CollectionResource.Classes`, read back with `ActionClasses`), which is where the masked check reads them, and the collection file declares a constant for each class in use (`ClassCredential`, `ClassAccess`, `ClassMoneyMovement`), so a mask is written against a name the compiler knows and one that names a class no action carries any more does not compile. A registration declared with `WithManualResources` carries its classes in `ManualRegistration.Classes`. **Refused at generation:** a name no class may carry, a class named twice on one action, the annotation on a `@resource`, `@virtual` or `@computed` struct (a class is carried by an action; a mask holds a session off a record by naming the record, `accesstypes.RefuseWrites`), the annotation on a constant that registers nothing, the annotation on a method that registers no action (its handler suppressed with `@suppress`, or a generation that writes no routes: the class rides the registration, so it goes on the constant that registers the action by hand, and is never dropped without a word), and two classes whose constants would share a name. A name registered twice, by a method and by hand, carries the classes of both. Example: [ScrapShip](../lodestar/pkg/rpc/scrap_ship.go). |
 | `@manualAddResourceSet` | `@resource` struct | comma list of `listHandler`, `readHandler`, `patchHandler`, or `allHandlers` | Declares that hand-written handlers register this resource's permission Sets for the given handler types; validated against the set of generated handlers. |
 | `@outlet` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of outlet names | Names the router outlets the struct's routes — or the constant's hand-written route — are registered under. Outlets are independent registration surfaces with their own route prefixes — the generator emits a `Generated<Name>Handlers` interface and `generated<Name>Routes` function per outlet, so the application composes different authentication and middleware around each (a browser app on one, a machine REST API on another). The default outlet is declared by `generation.GenerateRoutes` and carries the reserved name `default`; additional outlets are declared with `generation.WithRouterOutlet(name, routePrefix)`, and referencing an undeclared name is a generation error. An outlet serving browser sessions declares it (`WithRouterOutlet(name, prefix, Auth(pkg, flavor))` under the generated router, `ServesSessions()` under a hand-written one; section 8): the generated route tables register the permission-digest and user-domains routes under its prefix, and only a session-serving outlet may be the target of a `GenerateTypescript` call (`ForOutlet(name)`), which filters every emitted TypeScript file to that outlet's members — a client for a session-less outlet would have no permission channels and fail closed on every page, so it is a generation error. Without the annotation a struct is on the default outlet only; naming outlets replaces that default, so `@outlet(default, automation)` serves both while `@outlet(automation)` serves the automation outlet only. Consolidated resources get one consolidated patch dispatcher per outlet (`PatchResources`, `Patch<Name>Resources`), each bundling exactly that outlet's members. The generated router tests cover every outlet's routes and additionally prove isolation: a route's path under an outlet it is not attached to must 404. Example: [Consignment](../lodestar/pkg/resources/consignments.go). |
 | `@permissionScope` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct | `global` or `domain` | Sets the permission scope used by all of the resource's registrations. Default: `global`. It also selects the domain the generated handlers evaluate permissions in: global-scoped handlers pass `accesstypes.GlobalDomain`, while domain-scoped handlers read it from a required `/<tenants>/{<tenant>ID}/` route segment pair between the route prefix and the resource path (pair-style, so domain values can never collide with resource or method route names). Both names derive from the package's `@tenant` record: the segment is the record's route name and the parameter its key's route parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/`), and a tenant-scoped resource in a package with no `@tenant` record is refused. Domain-scoped routes are wrapped in the generated `DomainGuard`, which asks the application's tenant roster (`TenantRoster().Has`, section 16) and answers 404 for a domain the roster does not hold before the handler runs, and the same 404 for a tenant the session does not reach (`UserPermissions.Reaches`: the tenant's declaration does not admit the way the session was established, section 6). With `generation.WithConcealedDomains()` the guard asks the caller's foothold next (`UserPermissions.HasGrants` in the domain): a domain where the requesting user holds zero grants answers identically to a domain that does not exist (404 on routes, 400 in consolidated op paths), so refusals never confirm a tenant; any grant in the domain restores ordinary 403s (`access.Client.UserHasGrants` answers the foothold question from the in-memory snapshot, so the check stays legal inside the consolidated mutation transaction). Tenant identifiers must be a single URL-safe path segment and must never contain `:` (the character is reserved for access-defined markers; `accesstypes.GlobalDomain` is `access:global`); a URL domain is pure data, and `accesstypes.DomainScope` routes it to a tenant partition by construction, so no value can address the global partition. In the consolidated patch handler, a domain-scoped resource's operations carry the domain in the path exactly as the URL grammar does (`{"op":"patch","path":"/sectors/sector-alpha/berths/…"}`); global operations stay domainless, an unknown domain in an operation path is a 400, and cross-domain batches are legal (each operation is checked in its own partition; the batch is one transaction). Example: [Sector](../lodestar/pkg/resources/sectors.go). |
@@ -667,6 +667,14 @@ about it:
   an action, granted outright, in one scope. It is the grant check the session
   package's declaration of impersonation asks
   (`session.Impersonations.Request(ctx, ask, resource.HoldsAction(perms, scope))`).
+- **Nobody is the subject of what they do in such a session.** The mask says what the
+  session may do. One thing no mask decides: the person who started the session changes
+  nothing of their own account from inside it, a role, a place in a group, a password,
+  an address. The generated user management refuses every such act whatever the mask
+  keeps, and an application's own action that names a person asks the same rule with
+  `identity.RefuseImpersonatorAsSubject(ctx, account, act)` (section 21, "The rules on
+  who is asking", which also says what the rule cannot see and the class `access` a mask
+  refuses for it).
 - **The tenant list and the admission.** `roster` is the application's tenant roster
   (`DomainRoster`, the `TenantRoster`'s `Domains`; nil in an application without
   tenants), and `declarations` is the application's reader of what a tenant declares
@@ -3087,7 +3095,10 @@ for no person: a grant whose condition reads the person a role is given to admit
 default role. A tenant with no directory is refused (409): there is nobody to open it
 to. `Make<Record>InviteOnly` is plain and declares no warning. Each method writes the
 column through the directories record's update patch, so the record's change events
-are the audit of who opened the door and when. The role is picked from a list of its own,
+are the audit of who opened the door and when. Both give or take away what people may
+do, so their actions carry the class `access` (`accesstypes.ClassAccess`) in the
+generated collection, as the generated management's role and group methods do (section
+21), and a session whose mask refuses the class runs neither. The role is picked from a list of its own,
 `<Auth><Record>DirectoryRoles` (Lodestar's `CrewSectorDirectoryRoles`), a computed
 resource the generated management declares for the auth that judges the role: the roles
 of the tenant that the caller could give there directly
@@ -3472,7 +3483,7 @@ GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewS
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
-GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations
+GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations (newest first; `mask` is each session's mask in words)
 GET  <prefix>/crew-session-trusted-devices, …/{id}         List, Read on CrewSessionTrustedDevices (the remembered browsers)
 GET  <prefix>/crew-session-sign-in-attempts                List on CrewSessionSignInAttempts
 GET  <prefix>/crew-session-auth-events                     List on CrewSessionAuthEvents
@@ -3583,17 +3594,46 @@ are written with `@class(credential)` (`accesstypes.ClassCredential`), in the wh
 application's form and in a tenant's alike: the temporary password
 (`set-crew-temporary-password`), the required new password
 (`require-crew-password-change`), the removal of a password (`remove-crew-password`), the
-unlinking of a sign-in identity (`unlink-crew-session-identity`), the rename
-(`rename-crew-user`) and the address set by hand (`set-crew-user-email`). The generated
-collection carries the class on each, and a session whose mask refuses the class, one
-that acts as a person under a grant declared "everything except the credential actions",
-is refused every one of them before any policy is read, and its permission digest leaves
-them out (section 6; the session package's "Impersonation is granted with a mask"). No
-method refuses an impersonated session by a rule of its own for being a credential
-action: the mask is the control. The generator's own test lists the methods and fails
-when one that changes how a person signs in is written without the class, or one that
-does not is written with it (`identityMethodActs` in
-`generation/identity_credential_test.go`, the one table to keep in step).
+reset link an administrator sends (`send-crew-user-password-reset-link`), the unlinking
+of a sign-in identity (`unlink-crew-session-identity`), the rename (`rename-crew-user`)
+and the address set by hand (`set-crew-user-email`). The generated collection carries
+the class on each, and a session whose mask refuses the class is refused every one of
+them before any policy is read, and its permission digest leaves them out (section 6;
+the session package's "Impersonation is granted with a mask"). No method refuses an
+impersonated session by a rule of its own for being a credential action: the mask is the
+control.
+
+**The methods that change who may do what carry a class too.** The methods that give or
+take away what someone may do are written with `@class(access)`
+(`accesstypes.ClassAccess`), in both forms: a role given or removed (`assign-crew-role`,
+`remove-crew-role`), a group made or deleted and a person put in one or taken out
+(`create-crew-group`, `delete-crew-group`, `add-crew-group-member`,
+`remove-crew-group-member`), a role given to a group or taken from it
+(`give-crew-group-role`, `take-crew-group-role`), an invitation sent or withdrawn, the
+one that makes a tenant among them (`invite-crew-user`, `withdraw-crew-invitation`,
+`invite-crew-sector`, `withdraw-crew-invited-sector`), an account made, disabled, enabled
+or deleted (`create-crew-user`, `disable-crew-user`, `enable-crew-user`,
+`delete-crew-user`), and a sign-in method opened to sign-up or made invite only
+(`open-crew-sign-up`, `make-crew-invite-only`). The two methods the generator writes for
+a tenant record's directory, which have no declaration to annotate, carry the class by
+their registration: `open-sector-to-directory`, which gives a role to everyone who
+arrives through the directory, and `make-sector-invite-only`. A session that acts as a
+person under a grant declared "everything except the credential actions and the actions
+that change who may do what" is refused every one of both classes.
+
+What carries neither class: the name people read and a group's description
+(`set-crew-user-name`, `describe-crew-group`), which are words; the end of a session, of
+a person's sessions or of an impersonation, the revocation of a token or of the
+remembered browsers, and the unlock, each of which ends a sign-in already made or lets
+one be tried again and leaves what the person may do as it was; the switch that lets
+people ask for their own reset link (`set-crew-self-service-reset`); and the tenant
+record's directory-only switch, which says how a tenant's people must sign in to enter
+it. A record's own writes carry no class, since a class marks an action: a mask names
+the record instead (`accesstypes.RefuseWrites`).
+
+The generator's own test lists the methods and fails when one is written without the
+class its act is listed with, or with a class it is not listed with (`identityMethodActs`
+in `generation/identity_classes_test.go`, the one table to keep in step).
 
 **A tenant's lists.** An account is one row for the whole application, and a role held
 is a row that names where it is held, so neither table can be served under a tenant's
@@ -4413,7 +4453,7 @@ names one person, in a transaction of its own, so no request puts two in one; th
 is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
 
-**The rules on who is asking.** Who may run a method is the role file's to say. Four
+**The rules on who is asking.** Who may run a method is the role file's to say. Five
 rules of the user management are the methods' own, whatever the role file grants, and
 each judges the request's caller (a method an application runs in a transaction of its
 own, outside any request, has no caller and is the application's act):
@@ -4423,6 +4463,40 @@ own, outside any request, has no caller and is the application's act):
   which they could not get back. They are refused the account they view as too ("you
   cannot disable the account you are viewing as"): a session that views as a person
   does no more than that person may, and nobody disables or deletes themselves.
+- In a session that acts as someone else, nobody is the subject of what they do. It is
+  the rule above, widened for the person who impersonates to every change of their
+  account: a person who acts as an administrator holds, for the length of the session,
+  what the administrator may do, and an act on their own account would leave them
+  holding it afterward. The real person behind the session is refused a role given to
+  them or taken from them, a place in a group, a password set, required anew or
+  removed, a reset link, an address, a name, a rename, an enable, the end of their own
+  sessions, their remembered browsers, a sign-in identity and a token of theirs, the
+  unlock of the counts kept for their account, and an invitation to the address their
+  account has confirmed. The refusal says so: "you are acting as someone else, so you
+  cannot give yourself a role: while you act as another person, nothing you do is done
+  to your own account. Stop acting as them first". The rule reads the session's record
+  and nothing else, so it holds whatever the session's mask keeps and whether or not
+  the application declared the kind of impersonation. It is for changes: the person's
+  own row is still listed and read. The same act on anyone else goes through, and the
+  impersonated session itself is still ended by the person who started it. An actor
+  from another application has no account here, so the rule has nobody to name.
+
+  An application's own action that names a person asks the same rule, before it
+  changes anything, with the id of the person's account:
+
+  ```go
+  if err := identity.RefuseImpersonatorAsSubject(ctx, account, "set your own clearance"); err != nil {
+      return err
+  }
+  ```
+
+  What the rule cannot see is whatever reaches the person by another road: a role
+  given to a group they are in, an account made for another address of theirs, an
+  invitation to an address they hold and never confirmed on the account, a colleague
+  who returns the favor, and an action of the application's own that does not ask. A
+  mask that refuses the class `access` refuses the library's share of those. Every
+  method of the identity library that takes a person is held to the rule by a test that
+  lists them (`guardedMethods` in `identity/impersonator_listing_test.go`).
 - A person who removes a role from themselves in a tenant keeps an administrator role
   nobody else would hold there. The application names the roles that administer a tenant
   when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged

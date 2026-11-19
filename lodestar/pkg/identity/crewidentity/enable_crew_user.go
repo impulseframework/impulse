@@ -17,6 +17,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type EnableCrewUser struct {
 	// @target(CrewSessionUser)
 	UserID impulse.UUID

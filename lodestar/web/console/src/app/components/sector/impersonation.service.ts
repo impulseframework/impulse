@@ -13,9 +13,9 @@ export interface ImpersonationRecord {
   principal: string;
   /** The permission kinds the session keeps; absent when it keeps every kind. */
   mask?: string[];
-  /** The classes of action the session is refused, the credential actions for one that acts as a person. */
+  /** The classes of action the session is refused: access and credential for one that acts as a person. */
   refusedClasses?: string[];
-  /** The session's whole mask in the server's words: "reading only", "everything except credential actions". */
+  /** The session's whole mask in the server's words: "reading only", "everything except access actions and credential actions". */
   maskWords: string;
   reason?: string;
   expiresAt: string;
@@ -35,7 +35,8 @@ interface EndImpersonationResponse {
 /**
  * ImpersonationService drives the three kinds of impersonation the console offers.
  * "View as" mints a session that reads what another person reads and writes nothing;
- * "act as" mints one that does what the person may do, except change how they sign in;
+ * "act as" mints one that does what the person may do, except change how they sign in
+ * or who may do what;
  * "act as a role" mints one that holds what a role holds, with subject still bound to
  * the actor. Each kind is a grant of its own (ViewAsUser, ActAsUser, AssumeRole), and
  * the server gives each its mask: the session endpoint reports the record back with the
@@ -118,8 +119,8 @@ export class ImpersonationService {
 
   /**
    * Mints a session that acts as another person, named by the id of their account: what
-   * they may do, except change how they sign in. The server's mask says so, and the
-   * banner repeats it.
+   * they may do, except change how they sign in or who may do what. The server's mask
+   * says so, and the banner repeats it.
    */
   async actAs(userId: string): Promise<void> {
     await this.mint({ kind: 'act', principal: userId, reason: 'crew roster: act as' });

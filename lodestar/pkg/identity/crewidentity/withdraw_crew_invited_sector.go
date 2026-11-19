@@ -21,6 +21,7 @@ import (
 // @rpc
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type WithdrawCrewInvitedSector struct {
 	// InvitationID is the invitation's id, as the list of them carries it
 	// (CrewInvitedSectors).

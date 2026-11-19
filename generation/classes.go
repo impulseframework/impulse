@@ -26,8 +26,21 @@ import (
 // annotations with it, so an application can grant "act as a person, except the
 // credential actions" with a mask that refuses the class. A method that changes how a
 // person signs in and lacks the line fails the test that lists them
-// (Test_prepareIdentity_credentialMethods).
+// (Test_prepareIdentity_classedMethods).
 const identityCredentialClass = "\n// @" + classKeyword + "(" + string(accesstypes.ClassCredential) + ")"
+
+// identityAccessClass is the @class line of the generated identity methods that give or
+// take away what someone may do: a role given or removed, a person put in a group or
+// taken out of one, a role given to a group or taken from it, a group made or deleted,
+// an invitation sent or withdrawn, an account made, disabled, enabled or deleted, and a
+// sign-in method opened to sign-up or made invite only. The template of each ends its
+// annotations with it, so an application can grant "act as a person, without changing
+// who may do what" with a mask that refuses the class. A method that gives or takes
+// away what someone may do and lacks the line fails the test that lists them
+// (Test_prepareIdentity_classedMethods). The two methods the generator writes for a
+// tenant record, which open the tenant to its directory's people with a role and make
+// it invite only again, carry the class by their registration (tenantOwnMethod.Classes).
+const identityAccessClass = "\n// @" + classKeyword + "(" + string(accesstypes.ClassAccess) + ")"
 
 // classConstantPrefix opens the name of the constant the collection file declares for
 // a class: ClassCredential for the class credential.

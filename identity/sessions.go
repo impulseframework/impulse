@@ -33,6 +33,9 @@ func (m *Manager) EndSession(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorsSession(ctx, txn, sessionID); err != nil {
+		return err
+	}
 	found, err := m.endSession(ctx, txn, sessionID)
 	if err != nil {
 		return err
@@ -86,6 +89,9 @@ func (m *Manager) EndUserSessions(ctx context.Context, txn resource.ReadWriteTra
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "end your own sessions"); err != nil {
+		return err
+	}
 	return m.endUserSessions(ctx, txn, userID)
 }
 

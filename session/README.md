@@ -3344,9 +3344,11 @@ impersonations, err := session.NewImpersonations(collection,
     // View as a person: reading only.
     session.ImpersonatesUser("view", resources.ViewAsUser,
         accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
-    // Act as a person: everything they may do, except the credential actions.
+    // Act as a person: everything they may do, except the credential actions and the
+    // actions that change who may do what.
     session.ImpersonatesUser("act", resources.ActAsUser,
-        accesstypes.AllowAll().Refusing(accesstypes.RefuseClass(router.ClassCredential))),
+        accesstypes.AllowAll().Refusing(
+            accesstypes.RefuseClass(router.ClassCredential), accesstypes.RefuseClass(router.ClassAccess))),
     // Act as a role: what the role holds. The kind says in so many words that it is unmasked.
     session.ImpersonatesRole("role", resources.AssumeRole, accesstypes.AllowAll()),
 )
@@ -3428,12 +3430,29 @@ refuses:
 An action carries its **classes** where it is declared: `@class(name)` on a generated
 method's struct or on the constant of a registration made by hand, or
 `ManualRegistration.Classes` (the resource package's "Annotation reference"). The library
-names one class and marks its own actions with it: `accesstypes.ClassCredential`,
-`credential`, on every generated identity method that changes how a person signs in (a
-temporary password set, a new password required, a password removed, a sign-in identity
-unlinked, a username or an address changed). An application marks its own actions with
-that class or with one it names. The generated permission collection carries each
-action's classes, which is where a check reads them.
+names two classes and marks its own actions with them. `accesstypes.ClassCredential`,
+`credential`, is on every generated identity method that changes how a person signs in
+(a temporary password set, a new password required, a password removed, a reset link
+sent, a sign-in identity unlinked, a username or an address changed).
+`accesstypes.ClassAccess`, `access`, is on every one that gives or takes away what
+someone may do (a role given or removed, a person put in a group or taken out, a role
+given to a group or taken from it, a group made or deleted, an invitation sent or
+withdrawn, an account made, disabled, enabled or deleted, and what a sign-in method or a
+tenant's directory gives everyone who arrives through it). An application marks its own
+actions with either or with a class it names. The generated permission collection
+carries each action's classes, which is where a check reads them.
+
+**What no mask decides.** In an impersonated session nobody is the subject of what they
+do: the generated user management refuses every change to the account of the person who
+started the session, whatever the mask keeps and whether or not the kind was declared,
+since the rule reads the session's record alone (the actor it names). A person who acts
+as an administrator would otherwise give their own account a role and keep it after the
+session ends. An application's own action that names a person asks the same rule
+(`identity.RefuseImpersonatorAsSubject`; the resource package's "User management", "The
+rules on who is asking"). The class `access` is for what that rule cannot see: a role
+that reaches the person through a group they are in, through another account or through
+a colleague. An application that lets people act as a person and does not mean them to
+change who may do what refuses both classes, as the declaration above does.
 
 A masked check is refused when the mask does not keep its kind, refuses one of its
 resource's classes, or refuses the permission on the resource by name. The refusal comes
@@ -3459,7 +3478,9 @@ The mask is kept on the impersonation record in its text form, in the table's on
 `Mask` column on both databases: the kinds it keeps, sorted and joined with commas (`*`
 for every kind), then each refusal after a semicolon, `-class:<class>` or
 `-on:<Permission>:<Resource>`. A read-only mask is `List,Read`; everything except the
-credential actions is `*;-class:credential`; an unrestricted session's column is NULL.
+credential actions is `*;-class:credential`, and everything except those and the actions
+that change who may do what is `*;-class:access;-class:credential`; an unrestricted
+session's column is NULL.
 A column that does not read as a mask holds the session to nothing: a mask is never
 read wider than it was written, and each time the record is read the log says which
 session's column does not read and why (`impersonation: the mask stored for session
@@ -3467,8 +3488,12 @@ session's column does not read and why (`impersonation: the mask stored for sess
 (`PermissionMask.Words()`): "reading only", "everything except credential actions",
 "everything except the action ScrapShip". The session endpoint carries them
 (`impersonation.maskWords`, beside `mask`, `refusedClasses` and `refused`), and a list
-of impersonated sessions shows them for each (`ActiveImpersonations` returns each
-record with its mask).
+of impersonated sessions shows them for each: `ActiveImpersonations` returns each
+record with its mask, and the generated user management's list of the impersonation
+records (`<Auth>SessionImpersonations`) reads the column as words itself, through the
+type of its `mask` field (`accesstypes.NullMaskWords`: "everything" for NULL, and
+"nothing (the stored mask does not read)" for a column that is no mask's text), so the
+list never shows the text form.
 
 #### Identity by session type
 

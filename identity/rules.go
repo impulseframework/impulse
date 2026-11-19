@@ -12,6 +12,8 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // The rules that judge who is asking. A generated handler stamps the caller of the
@@ -23,6 +25,17 @@ import (
 // session as well (actorIs). A method an application runs in a transaction of its own,
 // outside any request, has no caller: what it does is the application's act, and these
 // rules let it through.
+//
+// The rule on a person's own account is one rule with two reaches. Nobody disables or
+// deletes themselves, in any session (refuseOwnAccount). And in a session that acts as
+// someone else, nobody is the subject of anything they do: the real person behind the
+// session changes nothing of their own account, a role, a place in a group, a password,
+// an address, a name, a session, a token, whatever the session's mask keeps
+// (refuseImpersonatorAsSubject, which an application's own action asks as
+// RefuseImpersonatorAsSubject). A person who acts as an administrator would otherwise
+// give themselves what the administrator may give and keep it after the session ends.
+// Every method of the Manager that changes something of a person carries one of the
+// two, which a test that lists the Manager's methods holds.
 //
 // A caller is named as the permission store names a person, by the id of their account
 // (User), and no two accounts share an id, in one auth or across two. An outlet that
@@ -74,7 +87,9 @@ func (m *Manager) actorIs(ctx context.Context, userID impulse.UUID) bool {
 // their own account, which they could not get back. They are refused the account they
 // view as too, and told so (callerIs): a session that views as a person does no more
 // than that person may, and nobody disables or deletes themselves. act names what was
-// asked ("disable", "delete").
+// asked ("disable", "delete"). It is the rule refuseImpersonatorAsSubject widens, in the
+// form that holds in every session, and it ends in that rule, which reads the session
+// where no generated route stamped a caller: a method that calls this one needs no other.
 func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
 	if m.actorIs(ctx, userID) {
 		return httpio.NewForbiddenMessagef("you cannot %s your own account", act)
@@ -83,7 +98,168 @@ func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act
 		return httpio.NewForbiddenMessagef("you cannot %s the account you are viewing as", act)
 	}
 
-	return nil
+	return m.refuseImpersonatorAsSubject(ctx, userID, act+" your own account")
+}
+
+// impersonatorOf is the real person behind a request that runs in a session established
+// as someone or something else: the account, by its id, of whoever started the session,
+// as its record names them (the actor callerActor reads). ok is false outside such a
+// session, and for an actor who has no account here, a person of another application,
+// whom no account of this application can be. The session is read off the request
+// itself, so a rule that asks holds in a handler an application wrote too, where no
+// generated route stamped a caller.
+func impersonatorOf(ctx context.Context) (actor impulse.UUID, ok bool) {
+	sess, found := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !found || sess.Impersonation == nil || !sess.Impersonation.ActorID.Valid {
+		return impulse.NilUUID, false
+	}
+
+	return sess.Impersonation.ActorID.UUID, true
+}
+
+// impersonator is impersonatorOf for this auth's accounts. As for callerIs and actorIs,
+// a request bound to another auth is another auth's person, whose id is no account of
+// this one: on an outlet that signs its people in through one auth and serves the
+// management of another, nobody who impersonates is a person of the auth managed.
+func (m *Manager) impersonator(ctx context.Context) (actor impulse.UUID, ok bool) {
+	if auth, bound := resource.AuthFrom(ctx); bound && auth != m.auth {
+		return impulse.NilUUID, false
+	}
+
+	return impersonatorOf(ctx)
+}
+
+// refuseImpersonatorAsSubject is RefuseImpersonatorAsSubject as the Manager's own
+// methods ask it, for an account of this auth (impersonator).
+func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impulse.UUID, act string) error {
+	actor, acting := m.impersonator(ctx)
+	if !acting || actor != userID {
+		return nil
+	}
+
+	return impersonatorRefused(ctx, actor, act)
+}
+
+// RefuseImpersonatorAsSubject refuses an act whose subject is the real person behind a
+// session that acts as someone else: in such a session nobody is the subject of what
+// they do. subject is the account the act names, by its id, and act says what was
+// asked, as the end of "you cannot" ("give yourself a role", "change your own email
+// address"). It answers nil outside an impersonated session, and for any other person:
+// the same act on someone else goes through, and the person's own row is still listed
+// and read, since the rule is for changes.
+//
+// It is the rule that nobody disables or deletes themselves, widened for the person who
+// impersonates to everything that changes their account. A person who acts as an
+// administrator holds, for the length of the session, what the administrator may do; an
+// act on their own account would leave them holding it afterward. The rule holds
+// whatever the session's permission mask keeps, and whether or not the application
+// declared the kind of impersonation, since it reads nothing but the session's record.
+//
+// Every method of the Manager that changes something of a person asks it, so the
+// generated management is held to it without a line in the application. An application
+// calls it in an action of its own that names a person, before the action changes
+// anything. The person is named by the id of their account, which is no other
+// account's, in one auth or across two, so the id alone says whether the person named
+// is the one acting:
+//
+//	if err := identity.RefuseImpersonatorAsSubject(ctx, m.PilotID, "assign yourself a mission"); err != nil {
+//		return err
+//	}
+//
+// What it cannot see is whatever reaches the person by another road: a role given to a
+// group they are in, an invitation to an address they hold and never confirmed on the
+// account, an act on a colleague who returns the favor. A mask that refuses the class
+// of the actions that change who may do what (accesstypes.ClassAccess) refuses those.
+func RefuseImpersonatorAsSubject(ctx context.Context, subject impulse.UUID, act string) error {
+	actor, acting := impersonatorOf(ctx)
+	if !acting || actor != subject {
+		return nil
+	}
+
+	return impersonatorRefused(ctx, actor, act)
+}
+
+// impersonatorRefused is the refusal of RefuseImpersonatorAsSubject and of the rules
+// that reach the person by another key, logged as what it is: the real person behind an
+// impersonated session asked for something whose subject is themselves.
+func impersonatorRefused(ctx context.Context, actor impulse.UUID, act string) error {
+	logger.FromCtx(ctx).Infof("identity: the person who started this impersonated session (%s) asked to %s: refused, since nobody is the subject of what they do while they act as someone else", actor, act)
+
+	return httpio.NewForbiddenMessagef("you are acting as someone else, so you cannot %s: while you act as another person, nothing you do is done to your own account. Stop acting as them first", act)
+}
+
+// refuseImpersonatorsSession is refuseImpersonatorAsSubject for a session named by its
+// id: one of the real person's own sessions, the ones they signed in to themselves, is
+// not ended from a session that acts as someone else. The impersonated session is none
+// of them: it is the session of the person acted as, or of nobody's account where it
+// acts as a role, so the person who started it ends it like any other, here and by the
+// session library's own way out.
+func (m *Manager) refuseImpersonatorsSession(ctx context.Context, txn resource.ReadWriteTransaction, sessionID impulse.UUID) error {
+	actor, acting := m.impersonator(ctx)
+	if !acting {
+		return nil
+	}
+	own, err := m.store.LiveSessions(ctx, txn, actor)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.LiveSessions()")
+	}
+	if !slices.Contains(own, sessionID) {
+		return nil
+	}
+
+	return impersonatorRefused(ctx, actor, "end a session of your own")
+}
+
+// refuseImpersonatorsName is refuseImpersonatorAsSubject for a row of the sign-in
+// attempts table named as the list shows it: the count kept under the real person's own
+// username, and the library's own counts for their account, the mail and the reset links
+// their confirmed address is sent and the guesses at the code of their first password
+// (session.AccountAttemptKeys), are not cleared from a session that acts as someone
+// else.
+func (m *Manager) refuseImpersonatorsName(ctx context.Context, txn resource.ReadWriteTransaction, name string) error {
+	actor, acting := m.impersonator(ctx)
+	if !acting {
+		return nil
+	}
+	username, found, err := m.store.Username(ctx, txn, actor)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.Username()")
+	}
+	if !found {
+		return nil
+	}
+	email, _, err := m.store.ConfirmedEmail(ctx, txn, actor)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.ConfirmedEmail()")
+	}
+	if !slices.Contains(session.AccountAttemptKeys(actor, username, email), session.SignInAttemptKey(name)) {
+		return nil
+	}
+
+	return impersonatorRefused(ctx, actor, "unlock your own sign-in")
+}
+
+// refuseImpersonatorsAddress is refuseImpersonatorAsSubject for an invitation, which
+// names a person by an address: the account that would accept it is the one that has
+// confirmed the address, as the rule of one tenant per person reads it
+// (refuseInvitedElsewhere), and an invitation to the real person's own account is not
+// sent from a session that acts as someone else. email is the bare address, as the
+// session library prepared it. An address nobody confirmed on the account says nothing
+// of who reads its mail, so the rule does not see it.
+func (m *Manager) refuseImpersonatorsAddress(ctx context.Context, txn resource.ReadWriteTransaction, email string) error {
+	actor, acting := m.impersonator(ctx)
+	if !acting {
+		return nil
+	}
+	holder, found, err := m.store.UserByVerifiedEmail(ctx, txn, email)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.UserByVerifiedEmail()")
+	}
+	if !found || holder != actor {
+		return nil
+	}
+
+	return impersonatorRefused(ctx, actor, "invite yourself")
 }
 
 // removal is what a person loses by an act of their own, as the rule on a tenant's last

@@ -35,6 +35,9 @@ func (m *Manager) RevokeToken(ctx context.Context, txn resource.ReadWriteTransac
 	if !found || token.Revoked || !token.ExpiresAt.After(m.now()) {
 		return httpio.NewNotFoundMessage("no live token")
 	}
+	if err := m.refuseImpersonatorAsSubject(ctx, token.UserID, "revoke a token of your own"); err != nil {
+		return err
+	}
 	targets := []impulse.UUID{tokenID}
 	if token.FamilyID != nil {
 		if targets, err = m.store.FamilyTokens(ctx, txn, *token.FamilyID); err != nil {

@@ -1235,8 +1235,8 @@ r=$(req marshal GET "$ANVIL/missions"); check "the revoked console's next reques
 login marshal
 # Act as a person: the governor holds the StandIn role, the grant to act (ActAsUser), and
 # acts as the marshal. The session does what the marshal may do, except the actions
-# classed credential: it cannot change how anyone signs in, and its digest leaves those
-# actions out, so no page offers them.
+# classed credential and the actions classed access: it cannot change how anyone signs
+# in or who may do what, and its digest leaves those actions out, so no page offers them.
 #
 # The refusal is shown on a person the marshal's own grant reaches, so it is the mask's
 # and not her roles': her sector's credential methods stop at a person who holds a role
@@ -1247,15 +1247,33 @@ r=$(req marshal POST "$ANVIL/create-crew-sector-user" '{"username":"gus","email"
 GUS_ID=$(body "$r" | py "print(rows['id'])")
 r=$(dryrun marshal POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "the marshal herself may set that person's address: her dry run would commit" 200 "$r"
 r=$(req governor POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\"}"); check "governor mints a session that acts as the marshal" 200 "$r"
-assert_py "and is told what the session may do" "$r" "rows['mask']=='everything except credential actions'"
+assert_py "and is told what the session may do" "$r" "rows['mask']=='everything except access actions and credential actions'"
 ACTING=$(body "$r" | py "print(rows['sessionId'])")
-r=$(req governor GET "$API/user/session"); assert_py "the console is Maren's, and its record carries the mask" "$r" "rows['username']=='marshal' and rows['impersonation']['actor']=='governor' and rows['impersonation']['refusedClasses']==['credential'] and rows['impersonation']['maskWords']=='everything except credential actions'"
+r=$(req governor GET "$API/user/session"); assert_py "the console is Maren's, and its record carries the mask" "$r" "rows['username']=='marshal' and rows['impersonation']['actor']=='governor' and rows['impersonation']['refusedClasses']==['access','credential'] and rows['impersonation']['maskWords']=='everything except access actions and credential actions'"
 r=$(req governor POST "$API/issue-bulletin" '{"announcement":"Relief watch: drill moved to 0700"}'); check "acting as the marshal, a write of hers lands" 200 "$r"
 r=$(req governor POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "the same credential action on the same person is refused the session that acts as her: the mask refuses it, where her own roles allow it" 403 "$r"
 r=$(req marshal POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "and the marshal, in a session of her own, sets the address" 204 "$r"
-r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential methods out and keeps their neighbors" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorTemporaryPassword' not in rows and 'Execute' in rows.get('AssignCrewSectorRole',{})"
-r=$(req marshal GET "$API/impersonations"); assert_py "the watch desk says what the session may do, in words" "$r" "any(s['sessionId']=='$ACTING' and s['actor']=='governor' and s['principal']=='marshal' and s['mask']=='everything except credential actions' for s in rows)"
+r=$(req governor POST "$ANVIL/assign-crew-sector-role" "{\"userId\":\"$GUS_ID\",\"role\":\"Pilot\"}"); check "an action that changes who may do what is refused the session too: the mask refuses the class access" 403 "$r"
+r=$(req governor GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the session's digest leaves the credential and the access methods out and keeps their neighbors" "$r" "'RequireCrewSectorPasswordChange' not in rows and 'SetCrewSectorTemporaryPassword' not in rows and 'AssignCrewSectorRole' not in rows and 'Execute' in rows.get('SetCrewSectorUserName',{})"
+r=$(req marshal GET "$API/impersonations"); assert_py "the watch desk says what the session may do, in words" "$r" "any(s['sessionId']=='$ACTING' and s['actor']=='governor' and s['principal']=='marshal' and s['mask']=='everything except access actions and credential actions' for s in rows)"
 r=$(req governor POST "$API/impersonate/end" '{}'); assert_py "governor returns to self" "$r" "rows['restored'] is True"
+
+# Nobody is the subject of what they do while they act as someone else. The marshal
+# holds CommandStaff, the grant to act as a role, and acts as Headquarters, the role that
+# manages the crew's accounts. The kind is unmasked, so the session holds everything
+# headquarters may do, and is refused each of those things on the marshal's own account:
+# the rule is the identity library's, and reads the session's record, not its mask. The
+# same act on anyone else goes through, and her own row is still read.
+r=$(req marshal POST "$API/impersonate" '{"kind":"role","principal":"Headquarters","reason":"walkthrough"}'); check "the marshal acts as the Headquarters role" 200 "$r"
+assert_py "with no mask" "$r" "rows['mask']=='everything'"
+r=$(req marshal POST "$API/assign-crew-role" "{\"userId\":\"$MARSHAL_ID\",\"role\":\"StandIn\"}"); check "acting as headquarters, she is refused a role given to her own account" 403 "$r"
+assert_py "and told that she is acting as someone else, and what to do" "$r" "rows['message']=='you are acting as someone else, so you cannot give yourself a role: while you act as another person, nothing you do is done to your own account. Stop acting as them first'"
+r=$(req marshal POST "$API/unlock-crew-sign-in" '{"name":"Marshal"}'); check "nor does she unlock her own sign-in, however the name is spelled" 403 "$r"
+r=$(req marshal POST "$API/set-crew-temporary-password" "{\"userId\":\"$MARSHAL_ID\",\"password\":\"a temporary passphrase 7\"}"); check "nor set her own password" 403 "$r"
+r=$(dryrun marshal POST "$API/assign-crew-role" "{\"userId\":\"$CADET_ID\",\"role\":\"StandIn\"}"); check "the same role given to another person would go through" 204 "$r"
+r=$(req marshal GET "$API/crew-session-users/$MARSHAL_ID"); check "her own row is still read" 200 "$r"
+r=$(req marshal GET "$API/crew-session-impersonations"); assert_py "the generated list of impersonation records says each session's mask in words" "$r" "any(s['sessionId']=='$ACTING' and s['mask']=='everything except access actions and credential actions' for s in rows) and any(s['mask']=='everything' and s['endedAt'] is None for s in rows) and any(s['mask']=='reading only' for s in rows)"
+r=$(req marshal POST "$API/impersonate/end" '{}'); assert_py "the marshal returns to self" "$r" "rows['restored'] is True"
 r=$(req governor POST "$API/impersonate" '{"kind":"role","principal":"Dispatcher","reason":"walkthrough"}'); check "governor assumes the Dispatcher role" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$COURIER\",\"value\":{\"deadline\":\"$(days +88)\"}}]"); check "deadline extended under the role (grant B, on hold is not terminal)" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$HAMMER\"}}]"); check "assignment refused on a claimed mission: subject is Greer, not a dispatcher" 403 "$r"

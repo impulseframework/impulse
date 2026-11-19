@@ -85,6 +85,9 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "give yourself a role"); err != nil {
+		return err
+	}
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
 	}
@@ -160,6 +163,9 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.refuseImpersonatorAsSubject(ctx, userID, "take a role from yourself"); err != nil {
+		return err
+	}
 	key := access.NewMembershipKey(scope, User(userID), role)
 	held, err := m.store.HasMembership(ctx, txn, &key)
 	if err != nil {

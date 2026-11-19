@@ -14,7 +14,8 @@ import { SectorService } from '../sector.service';
  * The squadron roster: the sector's wings and squadrons (the Wing Commander sees only
  * Forge Wing's, through subject.wings), the crew, and the three kinds of impersonation.
  * "View as" mints a read-only session as another crew member; "Act as" mints one that
- * does what they may do, except change how they sign in; "Act as role" mints a session
+ * does what they may do, except change how they sign in or who may do what; "Act as
+ * role" mints a session
  * under a role with subject still bound to you. Each control renders only when the
  * digest carries its own manual Execute registration, checked by the generated Methods
  * constants, never a hand-typed string: the grant to view is not the grant to act.

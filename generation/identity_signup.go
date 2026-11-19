@@ -512,7 +512,7 @@ import (
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
-// @warning(typed: open)
+// @warning(typed: open)` + identityAccessClass + `
 type Open{{ .Auth }}SignUp struct {
 	// Name is the name the sign-in method is registered under.
 	Name string ` + "`validate:\"required\"`" + `
@@ -618,7 +618,7 @@ import (
 //
 // @rpc
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(204)` + identityAccessClass + `
 type Make{{ .Auth }}InviteOnly struct {
 	// Name is the name the sign-in method is registered under.
 	Name string ` + "`validate:\"required\"`" + `

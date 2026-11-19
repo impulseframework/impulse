@@ -31,6 +31,7 @@ import (
 // @permissionScope(domain)
 // @outlet(default)
 // @answers(204)
+// @class(access)
 type RemoveCrewSectorRole struct {
 	// @target(CrewSectorUserRole, key: UserID)
 	UserID impulse.UUID

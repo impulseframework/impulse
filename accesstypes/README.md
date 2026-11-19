@@ -36,9 +36,11 @@ classes...)` is the whole question a check asks, with the reason for the log;
 declared (`@class` on a generated method or on the constant of a registration
 made by hand). A mask that refuses a class refuses every action that carries
 it, the ones declared after the mask was written among them, so nobody keeps a
-list of actions in step with the application. `ClassCredential` (`credential`)
-is the library's: the actions that change how a person signs in. An application
-names its own beside it.
+list of actions in step with the application. Two classes are the library's:
+`ClassCredential` (`credential`), the actions that change how a person signs
+in, and `ClassAccess` (`access`), the actions that give or take away what
+someone may do, a role, a place in a group, an invitation, an account. An
+application names its own beside them.
 
 `ceiling.Narrow(request)` is the arithmetic of a grant that carries a mask: the
 mask a request gets under the widest mask its grant gives. A request that names
@@ -55,6 +57,12 @@ semicolon, `-class:<class>` or `-on:<Permission>:<Resource>`. `List,Read` is a
 read-only mask and `*;-class:credential` keeps everything except the credential
 actions. `Words()` says the mask as a person would ("reading only", "everything
 except credential actions"), for a banner and a list of impersonated sessions.
+`NullMaskWords` is the type of a record's field that reads the stored text as
+those words: a list of impersonation records carries it, so the list says
+"everything" for a NULL column and "everything except credential actions" for
+`*;-class:credential`, and a column that is no mask's text reads "nothing (the
+stored mask does not read)", as the session it belongs to is held. It is read
+only: it refuses to be written to a database.
 `ReadOnly()` is what the session library's read-only guard asks: the mask names
 its kinds and keeps nothing beyond List and Read.
 

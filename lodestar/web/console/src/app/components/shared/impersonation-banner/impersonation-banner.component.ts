@@ -10,7 +10,8 @@ import { ImpersonationService } from '@components/sector/impersonation.service';
  * The banner above the frame's bar while the session was minted through the impersonation
  * route: whom the actor views or acts as and what the session may do, in the server's
  * words ("Viewing as cadet: reading only. You are marshal.", "Acting as marshal:
- * everything except credential actions. You are governor."), the time left under the
+ * everything except access actions and credential actions. You are governor."), the time
+ * left under the
  * minted session's two-hour hard cap, and the way back. The frame draws it on every
  * signed-in page (provideFrame's banner); outside an impersonated session it draws
  * nothing.

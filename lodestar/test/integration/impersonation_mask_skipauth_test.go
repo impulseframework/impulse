@@ -8,7 +8,9 @@ package integration
 // these suites prove what each mask refuses, that a request gets the grant's mask or a
 // narrower one and never a wider one, and that the generated credential methods, each
 // one the generated collection classes credential, are refused under every mask that
-// refuses them while the person they are refused to runs them unmasked.
+// refuses them while the person they are refused to runs them unmasked. The actions
+// classed access are impersonation_access_skipauth_test's, and the rule that nobody is
+// the subject of what they do impersonation_subject_skipauth_test's.
 
 import (
 	"context"
@@ -59,7 +61,7 @@ func credentialBody(t *testing.T, action accesstypes.Resource, userID accesstype
 	switch act {
 	case "SetTemporaryPassword":
 		return fmt.Appendf(nil, `{"userId":%q,"password":"a temporary passphrase 7"}`, userID)
-	case "RequirePasswordChange", "RemovePassword":
+	case "RequirePasswordChange", "RemovePassword", "SendUserPasswordResetLink":
 		return fmt.Appendf(nil, `{"userId":%q}`, userID)
 	case "UnlinkSessionIdentity":
 		return []byte(`{"identityId":"c0000000-0000-4000-8000-00000000c4ed"}`)
@@ -206,9 +208,9 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 	sessions := []masked{
 		{
 			name:    "a session whose mask keeps no Execute",
-			browser: start("no Execute", actAs(t, "governor", "no Execute", `,"mask":["List","Read","Create","Update","Delete"]`), "Create, Delete, List, Read and Update only, except credential actions"),
+			browser: start("no Execute", actAs(t, "governor", "no Execute", `,"mask":["List","Read","Create","Update","Delete"]`), "Create, Delete, List, Read and Update only, except access actions and credential actions"),
 			logged: func(action accesstypes.Resource) []string {
-				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;-class:credential) for " + string(account(t, "governor")), string(action)}
+				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;-class:access;-class:credential) for " + string(account(t, "governor")), string(action)}
 			},
 		},
 		{
@@ -221,9 +223,9 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 		},
 		{
 			name:    "a session whose mask refuses the class credential",
-			browser: start("no credential", actAs(t, "governor", "no credential", ""), "everything except credential actions"),
+			browser: start("no credential", actAs(t, "governor", "no credential", ""), "everything except access actions and credential actions"),
 			logged: func(action accesstypes.Resource) []string {
-				return []string{"impersonation: Execute denied by mask (*;-class:credential) for " + string(account(t, "governor")) + " on " + string(action) + ": the mask refuses the class credential"}
+				return []string{"impersonation: Execute denied by mask (*;-class:access;-class:credential) for " + string(account(t, "governor")) + " on " + string(action) + ": the mask refuses the class credential"}
 			},
 		},
 	}
@@ -286,7 +288,7 @@ func TestImpersonationMask_credentialMethods(t *testing.T) {
 		}
 	}
 	if status, body := sessions[2].browser.do(ctx, http.MethodPost, consoleAPI+"/issue-bulletin", []byte(`{"announcement":"All hands: drill at 0600"}`)); status != http.StatusOK {
-		t.Errorf("issue-bulletin in %s: status %d, want 200: the mask refuses the credential actions alone: %s", sessions[2].name, status, body)
+		t.Errorf("issue-bulletin in %s: status %d, want 200: the mask refuses the two classes alone: %s", sessions[2].name, status, body)
 	}
 }
 
@@ -446,19 +448,20 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 	}
 
 	// The governor holds the grant to act and acts as the marshal: the session does
-	// what she may do, except the credential actions.
+	// what she may do, except the credential actions and the actions that change who
+	// may do what.
 	acting := newBrowser(t, s, consoleAPI)
 	acting.signIn(ctx, "governor")
 	act := mint(ctx, t, acting, actAs(t, "marshal", "stand in", ""))
-	if act.Mask != "everything except credential actions" {
-		t.Errorf("a session that acts as a person = %q, want the grant's mask: everything except credential actions", act.Mask)
+	if act.Mask != "everything except access actions and credential actions" {
+		t.Errorf("a session that acts as a person = %q, want the grant's mask: everything except access actions and credential actions", act.Mask)
 	}
 	if info := acting.session(ctx); info["username"] != "marshal" {
 		t.Fatalf("the session after the governor acts as the marshal = %v, want the marshal's", info)
 	}
 	record = impersonation(acting)
-	if classes, _ := record["refusedClasses"].([]any); record["actor"] != "governor" || record["mask"] != nil || !slices.Equal(classes, []any{"credential"}) || record["maskWords"] != "everything except credential actions" {
-		t.Errorf("the acting session's record = %v, want the actor governor, every kind kept, the class credential refused, and the mask in words", record)
+	if classes, _ := record["refusedClasses"].([]any); record["actor"] != "governor" || record["mask"] != nil || !slices.Equal(classes, []any{"access", "credential"}) || record["maskWords"] != "everything except access actions and credential actions" {
+		t.Errorf("the acting session's record = %v, want the actor governor, every kind kept, the classes access and credential refused, and the mask in words", record)
 	}
 	if status, body := acting.do(ctx, http.MethodPost, consoleAPI+"/issue-bulletin", []byte(`{"announcement":"Relief watch: drill moved to 0700"}`)); status != http.StatusOK {
 		t.Errorf("issuing a bulletin acting as the marshal: status %d, want 200: the session acts: %s", status, body)
@@ -478,12 +481,30 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 		t.Errorf("a session that acts as a role = %q, want the grant's mask: everything", role.Mask)
 	}
 
-	// The watch desk says each live session's mask in words.
+	// The watch desk says each live session's mask in words, and so does the generated
+	// list of the impersonation records, which reads the stored text as words.
+	words := map[string]string{view.SessionID: "reading only", listing.SessionID: "List only", act.SessionID: "everything except access actions and credential actions", role.SessionID: "everything"}
 	entries := listed()
-	for id, want := range map[string]string{view.SessionID: "reading only", listing.SessionID: "List only", act.SessionID: "everything except credential actions", role.SessionID: "everything"} {
+	for id, want := range words {
 		if got, ok := entries[id]; !ok || got.Mask != want {
 			t.Errorf("the watch desk's entry for the session %s = %+v, want it listed with the mask %q", id, got, want)
 		}
+	}
+	status, body = desk.do(ctx, http.MethodGet, consoleAPI+"/crew-session-impersonations?limit=200", nil)
+	assertStatus(t, status, http.StatusOK, body)
+	records := make(map[string]any)
+	for _, row := range decodeRows(t, body) {
+		records[cell[string](t, row, "sessionId")] = row["mask"]
+	}
+	for id, want := range words {
+		if got, ok := records[id]; !ok || got != want {
+			t.Errorf("the generated list's record of the session %s says the mask %v, want %q", id, got, want)
+		}
+	}
+	status, body = desk.do(ctx, http.MethodGet, consoleAPI+"/crew-session-impersonations/"+act.SessionID, nil)
+	assertStatus(t, status, http.StatusOK, body)
+	if got := decodeRow(t, body)["mask"]; got != words[act.SessionID] {
+		t.Errorf("the generated read of the acting session's record says the mask %v, want %q", got, words[act.SessionID])
 	}
 }
 
@@ -559,27 +580,28 @@ func TestImpersonationMask_namedActionAndOwnClass(t *testing.T) {
 			}
 		}
 	}
-	credential := collection.ActionsOfClass(accesstypes.ClassCredential)
+	// What the kind refuses of its own: the actions classed credential and access.
+	kindRefuses := slices.Concat(collection.ActionsOfClass(accesstypes.ClassCredential), collection.ActionsOfClass(accesstypes.ClassAccess))
 
 	// One named action.
-	named := acting("one named action", `,"refuseActions":["ScrapShip"]`, "everything except credential actions and the action ScrapShip")
+	named := acting("one named action", `,"refuseActions":["ScrapShip"]`, "everything except access actions, credential actions and the action ScrapShip")
 	if status, body := named.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the action ScrapShip: status %d, want 403: %s", status, body)
 	}
-	assertDigest("one named action", digestOf(ctx, t, named, anvil), wantDigest(append([]accesstypes.Resource{"ScrapShip"}, credential...)...))
+	assertDigest("one named action", digestOf(ctx, t, named, anvil), wantDigest(append([]accesstypes.Resource{"ScrapShip"}, kindRefuses...)...))
 
 	// A class of the application's own.
-	classed := acting("a class of the application's own", `,"refuseClasses":["irreversible"]`, "everything except credential actions and irreversible actions")
+	classed := acting("a class of the application's own", `,"refuseClasses":["irreversible"]`, "everything except access actions, credential actions and irreversible actions")
 	if status, body := classed.do(ctx, http.MethodPost, scrap, mule); status != http.StatusForbidden {
 		t.Errorf("scrap-ship under a mask that refuses the class irreversible: status %d, want 403: %s", status, body)
 	}
-	assertDigest("a class of the application's own", digestOf(ctx, t, classed, anvil), wantDigest(append([]accesstypes.Resource{"ScrapShip"}, credential...)...))
+	assertDigest("a class of the application's own", digestOf(ctx, t, classed, anvil), wantDigest(append([]accesstypes.Resource{"ScrapShip"}, kindRefuses...)...))
 
 	// The same kind without either refusal is let through: what refused the two
 	// sessions above is what their requests named.
-	plain := acting("neither", "", "everything except credential actions")
+	plain := acting("neither", "", "everything except access actions and credential actions")
 	if status, answer := dryRun(ctx, plain, scrap, mule); status != http.StatusOK {
 		t.Errorf("scrap-ship acting as the marshal with neither refusal, as a dry run: status %d, want 200: %s", status, answer)
 	}
-	assertDigest("neither", digestOf(ctx, t, plain, anvil), wantDigest(credential...))
+	assertDigest("neither", digestOf(ctx, t, plain, anvil), wantDigest(kindRefuses...))
 }
