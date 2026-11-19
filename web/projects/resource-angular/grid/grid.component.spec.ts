@@ -829,7 +829,7 @@ describe('a text cut short', () => {
   });
 
   it("offers an empty list's message whole where it is cut short, and nothing where it fits", async () => {
-    const refusal = 'This list is not available to you: the sector keeps its roster to its own marshal.';
+    const refusal = 'You do not have permission to see this list. The sector keeps its roster to its own marshal.';
     fixture.componentRef.setInput('rowData', []);
     fixture.componentRef.setInput('emptyMessage', refusal);
     fixture.detectChanges();
@@ -1629,10 +1629,13 @@ describe('a list and the width of its frame', () => {
     /** Where an element is laid out, for the few a case places: every other is nowhere, as jsdom has it. */
     let placed: Map<Element, { left: number; right: number }>;
     /**
-     * What a font that has arrived tells the list, whether the list still listens, and
-     * whether a font is on its way, as the page's set of fonts says it.
+     * The page's set of fonts: whether a font is on its way, as it says it, what it tells
+     * whoever listens when the fonts have arrived or failed, and whether a list still
+     * listens (the wait the lists of a page share listens too, once).
      */
-    let fonts: { arrived?: () => void; listening: boolean; status: 'loading' | 'loaded' };
+    let fonts: { arrived: () => void; listening: boolean; status: 'loading' | 'loaded' };
+    /** Who is told when the fonts have arrived, and whether only the once. */
+    let told: Map<() => void, boolean>;
     /** How much wider than the font's the letters are drawn: wider while a font has not arrived. */
     let wider: number;
     /** Whether laying a text out starts the load of its font, as the first text drawn in a font does. */
@@ -1643,7 +1646,21 @@ describe('a list and the width of its frame', () => {
       wider = 1;
       startsFont = false;
       placed = new Map();
-      fonts = { listening: false, status: 'loaded' };
+      told = new Map();
+      fonts = {
+        status: 'loaded',
+        get listening(): boolean {
+          return Array.from(told.values()).some((once) => !once);
+        },
+        arrived: (): void => {
+          for (const [listener, once] of Array.from(told)) {
+            if (once) {
+              told.delete(listener);
+            }
+            listener();
+          }
+        },
+      };
       ranges.getBoundingClientRect = function (this: Range): DOMRect {
         reads++;
         if (startsFont) {
@@ -1690,12 +1707,11 @@ describe('a list and the width of its frame', () => {
           get status(): string {
             return fonts.status;
           },
-          addEventListener: (_: string, listener: () => void): void => {
-            fonts.arrived = listener;
-            fonts.listening = true;
+          addEventListener: (_: string, listener: () => void, options?: { once?: boolean }): void => {
+            told.set(listener, options?.once === true);
           },
-          removeEventListener: (): void => {
-            fonts.listening = false;
+          removeEventListener: (_: string, listener: () => void): void => {
+            told.delete(listener);
           },
         },
       });
@@ -1708,6 +1724,7 @@ describe('a list and the width of its frame', () => {
         delete ranges.getBoundingClientRect;
       }
       delete (document as { fonts?: unknown }).fonts;
+      vi.useRealTimers();
     });
 
     /** New rows, columns or sorts, drawn and read. */
@@ -1719,6 +1736,10 @@ describe('a list and the width of its frame', () => {
     };
     const widths = (): string[] => {
       return headers().map((th) => th.style.width);
+    };
+    /** Whether the list's headings and rows are drawn: not held back until a font has arrived. */
+    const drawn = (): boolean => {
+      return !frame().classList.contains('awaits-font');
     };
     const longer = { name: 'Commendations and citations', description: 'None.', enabled: false, changedBy: 'ada' };
     const shorter = { name: 'Tugs', description: 'None.', enabled: false, changedBy: 'mo' };
@@ -1801,15 +1822,30 @@ describe('a list and the width of its frame', () => {
 
       it("keeps for the arrow what the list's stylesheet draws it at: the arrow's 14 pixels and the gap of 2 before it", async () => {
         await plain();
+        await hand('sortable', false);
+        frameIs(phone);
+        // What the heading needs as words alone, and what it needs once a person can sort
+        // by it: the difference is the room the list keeps for the arrow.
+        const asWords = parseFloat(widths()[3]);
+        await hand('sortable', true);
+        const kept = parseFloat(widths()[3]) - asWords;
+        expect(asWords).toBe(wordsOf(10));
 
-        expect(declares(['.sort-icon'])).toContain('width: 14px');
-        expect(declares(['.header-label'], ['.header-words'])).toContain('gap: 2px');
-        expect(arrow).toBe(14 + 2);
+        /** How many pixels a rule of the stylesheet gives a property. */
+        const drawnAt = (rule: string, property: string): number => {
+          return Number(new RegExp(`(?:^|[\\s;])${property}:\\s*(\\d+)px`).exec(rule)?.[1]);
+        };
+        const arrowIs = drawnAt(declares(['.sort-icon']), 'width');
+        const gapIs = drawnAt(declares(['.header-label'], ['.header-words']), 'gap');
+        expect([arrowIs, gapIs]).toEqual([14, 2]);
+        expect(kept).toBe(arrowIs + gapIs);
+        expect(arrow).toBe(kept);
       });
 
-      it('grows by what a second sort draws past the room kept: the number that says which sort the column is', async () => {
+      it('grows by what a second sort draws past the room kept, and by no more: the number that says which sort the column is, the arrow being in the room kept for it', async () => {
         await plain();
         frameIs(phone);
+        const unsorted = parseFloat(widths()[3]);
         await hand('sorts', [
           { field: 'name', direction: 'asc' },
           { field: 'changedBy', direction: 'asc' },
@@ -1827,6 +1863,9 @@ describe('a list and the width of its frame', () => {
         ]);
 
         expect(widths()[3]).toBe(`${changedBy + 6}px`);
+        // The arrow and the gap before it are in the room the heading kept from the start:
+        // the column grows by the number alone, not by the arrow and the number.
+        expect(parseFloat(widths()[3]) - unsorted).toBe(6);
       });
 
       it('keeps no such room in a heading with nothing to press: a list told its rows have one order', async () => {
@@ -2128,7 +2167,7 @@ describe('a list and the width of its frame', () => {
         const first = reads;
         expect(fonts.listening).toBe(true);
 
-        fonts.arrived?.();
+        fonts.arrived();
         expect(reads).toBeGreaterThan(first);
         leave();
         expect(fonts.listening).toBe(false);
@@ -2139,45 +2178,52 @@ describe('a list and the width of its frame', () => {
         frameIs(phone);
         // The person turns to a page of shorter values, and a font the page asked for arrives.
         await hand('rowData', [shorter]);
-        fonts.arrived?.();
+        fonts.arrived();
         detect();
         expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
 
         // A font whose letters are a quarter wider: "Changed By" needs more, and "Tugs" still less than Name has.
         wider = 1.25;
-        fonts.arrived?.();
+        fonts.arrived();
         detect();
         expect(widths()[3]).toBe(`${changedBy + 20}px`);
         expect(widths()[0]).toBe(`${name}px`);
 
         // And one whose letters are narrower again narrows nothing.
         wider = 1;
-        fonts.arrived?.();
+        fonts.arrived();
         detect();
         expect(widths()[3]).toBe(`${changedBy + 20}px`);
         expect(widths()[0]).toBe(`${name}px`);
       });
 
-      it("reads nothing while a font is on its way, and what it shows once the font has arrived: the wider letters drawn in a font's place do not hold a column wide", async () => {
+      it("does not draw a list it has not read while a font is on its way, and draws it whole once the font has arrived, each column at what it needs: no column is seen at the library's width and then narrowed", async () => {
         wider = 1.25;
         fonts.status = 'loading';
         await plain();
         frameIs(phone);
+        // Nothing is read in the letters drawn in the font's place, and nothing of the
+        // list is drawn: its headings and rows are hidden, with the frame they scroll in.
         expect(reads).toBe(0);
-        expect(widths()[0]).toBe(`${text}px`);
+        expect(drawn()).toBe(false);
+        const heldBack = declares(['.impulse-grid-scroll', '.awaits-font']);
+        expect(heldBack).toMatch(/visibility:\s*hidden/);
+        expect(heldBack).toMatch(/overflow:\s*hidden/);
 
         // New rows while the font is still on its way are not read either.
         await hand('rowData', [rows[0], shorter]);
         expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
 
         wider = 1;
         fonts.status = 'loaded';
-        fonts.arrived?.();
+        fonts.arrived();
         detect();
-        expect(widths()[0]).toBe(`${name}px`);
+        expect(drawn()).toBe(true);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
       });
 
-      it("keeps nothing of a pass of reads that started a font on its way: what it read was drawn in the font's place", async () => {
+      it("keeps nothing of a pass of reads that started a font on its way, and does not draw the list it read so: what it read was drawn in the font's place", async () => {
         // The first text laid out in a font is what asks the page for it.
         wider = 1.25;
         startsFont = true;
@@ -2185,14 +2231,193 @@ describe('a list and the width of its frame', () => {
         frameIs(phone);
         expect(reads).toBeGreaterThan(0);
         expect(fonts.status).toBe('loading');
-        expect(widths()[0]).toBe(`${text}px`);
+        expect(drawn()).toBe(false);
         expect(Math.ceil(13 * character * 1.25) + aroundCell + spare).toBeLessThan(text);
 
         startsFont = false;
         wider = 1;
         fonts.status = 'loaded';
-        fonts.arrived?.();
+        fonts.arrived();
         detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+
+      it('waits three seconds for a font and no longer: the list is then read in the letters the screen shows and drawn, and a font that arrives after all grows a column and narrows none', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        wider = 1.25;
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        vi.advanceTimersByTime(2999);
+        detect();
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+
+        vi.advanceTimersByTime(1);
+        detect();
+        expect(drawn()).toBe(true);
+        // "Commendations" and "Changed By" in letters a quarter wider than the font's.
+        const inItsPlace = [
+          `${Math.ceil(13 * character * 1.25) + aroundCell + spare}px`,
+          `${Math.ceil(10 * character * 1.25) + arrow + aroundHeading + spare}px`,
+        ];
+        expect([widths()[0], widths()[3]]).toEqual(inItsPlace);
+        expect(Math.ceil(13 * character * 1.25) + aroundCell + spare).toBeGreaterThan(name);
+
+        // The font arrives after all, and its letters are narrower: nothing a person has seen narrows.
+        wider = 1;
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        expect([widths()[0], widths()[3]]).toEqual(inItsPlace);
+      });
+
+      it('counts that wait once for the page, not again for each list: a list opened while it runs waits what is left of it, and one opened after it has run out is drawn at once', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(2000);
+        leave();
+
+        // A second list, two seconds into the wait: it is held back for the third.
+        await plain([shorter]);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(1000);
+        detect();
+        expect(drawn()).toBe(true);
+        leave();
+
+        // A third, after the wait has run out, the font still on its way.
+        await plain([shorter]);
+        frameIs(phone);
+        expect(fonts.status).toBe('loading');
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('ends that wait when the fonts arrive, though no list is on the screen then: the next font to be on its way is waited for from its own start', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(1000);
+        leave();
+
+        // The fonts arrive with no list to hear of it, and long after another is on its way.
+        fonts.status = 'loaded';
+        fonts.arrived();
+        vi.advanceTimersByTime(5000);
+        fonts.status = 'loading';
+
+        await plain([shorter]);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('holds a list back from when it first knows of the font, though it is loading then, and counts the wait from then: its headings are not drawn under the loading cover and taken away when its rows arrive', async () => {
+        await plain([shorter]);
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        give('loading', true);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(2000);
+
+        // The list has loaded, two seconds into the wait: it is held back for the third.
+        await hand('loading', false);
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+        vi.advanceTimersByTime(1000);
+        detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('keeps a list it held back for a font held back until it is read: one still loading when the wait runs out is drawn whole once it has loaded', async () => {
+        await plain([shorter]);
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        give('loading', true);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        // The wait runs out, and the font arrives after all, while the list is loading.
+        vi.advanceTimersByTime(3000);
+        detect();
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+      });
+
+      it('reads nothing once it has left, though its wait for a font runs out after', async () => {
+        await plain();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        fonts.status = 'loading';
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        leave();
+        vi.advanceTimersByTime(3000);
+        expect(reads).toBe(0);
+      });
+
+      it('never takes a list a person has seen off the screen for a font: it keeps the widths it was drawn at, is not read while the font is on its way, and grows when the font has arrived', async () => {
+        await plain();
+        frameIs(phone);
+        const before = widths();
+        const first = reads;
+        expect(drawn()).toBe(true);
+
+        // A font is asked for, and a longer value arrives while it is on its way.
+        fonts.status = 'loading';
+        await hand('rowData', [longer]);
+        expect(reads).toBe(first);
+        expect(drawn()).toBe(true);
+        expect(widths()).toEqual(before);
+
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${text}px`);
+      });
+
+      it('holds back a list handed other columns while a font is on its way: those have not been read, and what they were drawn at now would narrow', async () => {
+        await plain();
+        frameIs(phone);
+        expect(drawn()).toBe(true);
+
+        fonts.status = 'loading';
+        await hand(
+          'columnDefs',
+          columns.map((col) => (col.id === 'name' ? { ...col, header: 'Flag' } : col)),
+        );
+        expect(drawn()).toBe(false);
+
+        fonts.status = 'loaded';
+        fonts.arrived();
+        detect();
+        expect(drawn()).toBe(true);
+        // "Commendations" under "Flag".
         expect(widths()[0]).toBe(`${name}px`);
       });
     });

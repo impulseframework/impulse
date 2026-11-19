@@ -3,6 +3,7 @@
     <div
       class="impulse-grid-scroll"
       #scrollContainer
+      [class.awaits-font]="awaitsFont()"
       [class.holds-first-column]="holdsFirstColumn()"
       [style.--impulse-grid-expand-left.px]="expandColumnLeft()"
       [style.--impulse-grid-first-left.px]="firstColumnLeft()"

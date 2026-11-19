@@ -3,8 +3,10 @@ import {
   afterRenderEffect,
   Component,
   computed,
+  DestroyRef,
   effect,
   ElementRef,
+  inject,
   input,
   output,
   signal,
@@ -100,11 +102,43 @@ function drawnWidth(element: Element, range: Range): number {
 }
 
 /**
- * Whether the page has a font on its way: one it asked for that has neither arrived nor
- * failed. A page whose browser keeps no account of its fonts has none.
+ * How long the lists of a page wait for the fonts the page asked for, in milliseconds,
+ * counted from when one of them first found a font on its way: the three seconds a browser
+ * itself gives a font before it draws other letters in its place. A list that has not been
+ * read is not drawn while it waits, so the wait has an end: a font that never arrives must
+ * not keep a list off the screen.
  */
-function fontOnItsWay(page: Document): boolean {
-  return (page.fonts as FontFaceSet | undefined)?.status === 'loading';
+const FONT_WAIT = 3000;
+
+/** Since when a list has known the fonts of its page to be on their way, by the page's set of fonts. */
+const fontsAwaitedSince = new WeakMap<FontFaceSet, number>();
+
+/**
+ * How much longer a list waits for the fonts of its page, in milliseconds: undefined where
+ * the page has no font on its way (one it asked for that has neither arrived nor failed),
+ * and where its browser keeps no account of its fonts; nothing once the wait has run its
+ * length (FONT_WAIT). The wait is the page's, not one list's: it starts when the first of
+ * its lists finds a font on its way and ends for all of them together, so a font that never
+ * arrives holds back the lists on the screen then, once, and no list opened after that.
+ */
+function fontWaitLeft(page: Document): number | undefined {
+  const fonts = page.fonts as FontFaceSet | undefined;
+  if (fonts === undefined) {
+    return undefined;
+  }
+  if (fonts.status !== 'loading') {
+    fontsAwaitedSince.delete(fonts);
+    return undefined;
+  }
+  let since = fontsAwaitedSince.get(fonts);
+  if (since === undefined) {
+    since = Date.now();
+    fontsAwaitedSince.set(fonts, since);
+    // The next fonts to be on their way are waited for from their own start, whether or
+    // not a list is on the screen when these arrive.
+    fonts.addEventListener('loadingdone', () => fontsAwaitedSince.delete(fonts), { once: true });
+  }
+  return Math.max(0, since + FONT_WAIT - Date.now());
 }
 
 /** What a cell takes of its column beside its content: its padding and its lines. */
@@ -255,11 +289,25 @@ export class AppGridComponent {
    * font that arrives changes how wide every text is drawn: the list is read again then,
    * and a column grows where its text needs more in the font's letters and narrows nowhere.
    * Nothing is read while a font is on its way, so no column is held as wide as the
-   * letters drawn in a font's place.
+   * letters drawn in a font's place, until the wait for it has run its length (FONT_WAIT).
    */
   private readonly needs = signal<ReadonlyMap<string, number>>(new Map());
   /** The columns `needs` was measured for, by id and heading, in order: other columns start again. */
   private measuredColumns = '';
+  /**
+   * Whether the list is held back for a font: its columns have not been read, because a
+   * font its page asked for is on its way, so how wide each is drawn is not known yet. The
+   * list's headings and rows are not drawn till it is, since a column drawn at the
+   * library's width now would narrow under a person's eyes when the font arrives. It is
+   * held back from when it first knows of the font, loading or not, and stays so until it
+   * is read: when the font arrives or fails, or when the wait has run its length
+   * (FONT_WAIT), and once it has loaded, where it is loading then. It is then drawn whole.
+   * A list that has been read with its columns is never held back: a font on its way only
+   * keeps it from being read again.
+   */
+  readonly awaitsFont = signal(false);
+  /** The end of the wait for a font, where the list has one coming: it is read then, font or no font. */
+  private fontWait: ReturnType<typeof setTimeout> | undefined;
   /** Whether the frame was not laid out when the columns were last to be read, so its first width reads them. */
   private unlaid = true;
   /** How far the frame was scrolled sideways when it last scrolled. */
@@ -419,6 +467,9 @@ export class AppGridComponent {
   });
 
   constructor() {
+    // A list that leaves while it waits for a font is not read when the wait ends.
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.fontWait));
+
     // Falls back to a measured rowHeight from the initial probe batch (INITIAL_PROBE_ROW_COUNT)
     afterRenderEffect(() => {
       if (!this.enableVirtualScroll() || this.virtualScroll.rowHeight() !== undefined) {
@@ -489,8 +540,8 @@ export class AppGridComponent {
       look.observe(page.documentElement, { attributes: true });
       look.observe(page.body, { attributes: true });
       // A font that arrives changes how wide every text is drawn. A list that waited for it
-      // is read now, for the first time; one that was read before is read again, and what a
-      // column needs only grows, so nothing a person has paged, sorted or filtered narrows.
+      // is read now, for the first time, and drawn; one that was read before is read again,
+      // and what a column needs only grows, so nothing a person has seen narrows.
       const lettered = (): void => {
         this.measureColumns();
       };
@@ -588,7 +639,10 @@ export class AppGridComponent {
    * is drawn in other letters until its font arrives, and an icon as the word that names
    * it, and a need read from those would never come down either. Laying a text out is what
    * starts its font's load, so a pass of reads that leaves a font on its way is not kept.
-   * The list is read when the font has arrived, or has failed to (`loadingdone`).
+   * The list is read when the font has arrived, or has failed to (`loadingdone`), and a
+   * list that has never been read with its columns is not drawn until then (`awaitsFont`).
+   * The wait has an end (FONT_WAIT): from then on the list is read in the letters the
+   * screen shows, and a font that arrives later only grows a column, as a longer value does.
    */
   private measureColumns(): void {
     const frame = this.scrollContainer()?.nativeElement;
@@ -598,19 +652,25 @@ export class AppGridComponent {
       return;
     }
     this.unlaid = frame.clientWidth === 0;
-    if (this.unlaid || this.loading()) {
-      return;
-    }
-    if (fontOnItsWay(frame.ownerDocument)) {
-      return;
-    }
     const range = frame.ownerDocument.createRange();
     if (typeof range.getBoundingClientRect !== 'function') {
       return;
     }
     const columns = this.columnDefs();
     const these = columns.map((col) => `${col.id}\n${col.header ?? ''}`).join('\n\n');
-    const known = these === this.measuredColumns ? this.needs() : new Map<string, number>();
+    const readBefore = these === this.measuredColumns;
+    // The wait for the page's fonts is counted from the first a list knows of them, and a
+    // list not read yet is held back from then, though it is still loading: its headings
+    // are not drawn under the loading cover only to be taken away when its rows arrive.
+    const wait = fontWaitLeft(frame.ownerDocument);
+    if (wait !== undefined && wait > 0) {
+      this.awaitFont(wait, readBefore);
+      return;
+    }
+    if (this.unlaid || this.loading()) {
+      return;
+    }
+    const known = readBefore ? this.needs() : new Map<string, number>();
     const next = new Map(known);
     // The select and expand columns come before the first of `columns`.
     const before =
@@ -645,7 +705,9 @@ export class AppGridComponent {
     });
     // The reads laid the list out, and that started the load of a font it had not asked
     // for before: what was read is in the letters drawn in the font's place.
-    if (fontOnItsWay(frame.ownerDocument)) {
+    const started = wait === undefined ? fontWaitLeft(frame.ownerDocument) : undefined;
+    if (started !== undefined && started > 0) {
+      this.awaitFont(started, readBefore);
       return;
     }
     const same =
@@ -654,6 +716,24 @@ export class AppGridComponent {
     if (!same) {
       this.needs.set(next);
     }
+    clearTimeout(this.fontWait);
+    this.fontWait = undefined;
+    this.awaitsFont.set(false);
+  }
+
+  /**
+   * Leaves the list unread until the fonts its page asked for arrive, or the wait for them
+   * runs out in `left` milliseconds, whichever is first. A list never read with the columns
+   * it has now (`readBefore` false) is not drawn from now until it is read.
+   */
+  private awaitFont(left: number, readBefore: boolean): void {
+    if (!readBefore) {
+      this.awaitsFont.set(true);
+    }
+    this.fontWait ??= setTimeout(() => {
+      this.fontWait = undefined;
+      this.measureColumns();
+    }, left);
   }
 
   /**

@@ -39,6 +39,16 @@
   isolation: isolate;
 }
 
+// A list whose columns have not been read, because a font its page asked for is on its
+// way, is not drawn: nothing of its headings and rows, and no scrollbar for a width it
+// will not keep. Its rows take their room all the same, so the list is as tall as they
+// make it before it is drawn and after. It lasts until the font arrives or the wait for it
+// runs out (the component's FONT_WAIT).
+.impulse-grid-scroll.awaits-font {
+  visibility: hidden;
+  overflow: hidden;
+}
+
 .impulse-grid-table {
   width: 100%;
   border-collapse: collapse;
