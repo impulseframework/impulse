@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/logger"
@@ -278,6 +279,19 @@ func (a *App) PatchResources() http.HandlerFunc {
 						return errors.Wrap(err, "op.ReqWithPattern()")
 					}
 
+					// The policy reads this record's rows as what a person may do, so nobody
+					// writes the row that names them while they act as someone else,
+					// whatever the session's mask keeps: the rule is asked about the person
+					// the row names before the write and the person it names after it. The
+					// caller's grants answer first.
+					subjectKey := resource.KeySet{}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+					}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "client contact", "UserID"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					}
+
 					switch op.Type {
 					case resource.OperationCreate:
 						patch, err := resources.NewClientContactCreatePatchFromPatchSet(patchSet)
@@ -347,6 +361,19 @@ func (a *App) PatchResources() http.HandlerFunc {
 						return errors.Wrap(err, "op.ReqWithPattern()")
 					}
 
+					// The policy reads this record's rows as what a person may do, so nobody
+					// writes the row that names them while they act as someone else,
+					// whatever the session's mask keeps: the rule is asked about the person
+					// the row names before the write and the person it names after it. The
+					// caller's grants answer first.
+					subjectKey := resource.KeySet{}
+					if op.Type != resource.OperationCreate {
+						subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+					}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "pilot", "UserID"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
+					}
+
 					switch op.Type {
 					case resource.OperationCreate:
 						patch, err := resources.NewPilotCreatePatchFromPatchSet(patchSet)
@@ -400,6 +427,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 					req, err := op.ReqWithPattern("/{resource}/{id1}/{id2}", resource.RequireCreatePath())
 					if err != nil {
 						return errors.Wrap(err, "op.ReqWithPattern()")
+					}
+
+					// The policy reads this record's rows as what a person may do, so nobody
+					// writes the row that names them while they act as someone else,
+					// whatever the session's mask keeps: the rule is asked about the person
+					// the row names before the write and the person it names after it. The
+					// caller's grants answer first.
+					subjectKey := resource.KeySet{}
+					subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id1"))
+					subjectKey = subjectKey.Add("CertificationID", httpio.Param[string](req, "id2"))
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "pilot certification", "UserID"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
 					}
 
 					switch op.Type {
@@ -610,6 +649,19 @@ func (a *App) PatchResources() http.HandlerFunc {
 						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						// The policy reads this record's rows as what a person may do, so nobody
+						// writes the row that names them while they act as someone else,
+						// whatever the session's mask keeps: the rule is asked about the person
+						// the row names before the write and the person it names after it. The
+						// caller's grants answer first.
+						subjectKey := resource.KeySet{}
+						if op.Type != resource.OperationCreate {
+							subjectKey = subjectKey.Add("ID", httpio.Param[impulse.UUID](req, "id"))
+						}
+						if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "hangar pass", "UserID"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
 						}
 
 						switch op.Type {
@@ -1007,6 +1059,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id1}/{id2}", resource.RequireCreatePath())
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						// The policy reads this record's rows as what a person may do, so nobody
+						// writes the row that names them while they act as someone else,
+						// whatever the session's mask keeps: the rule is asked about the person
+						// the row names before the write and the person it names after it. The
+						// caller's grants answer first.
+						subjectKey := resource.KeySet{}
+						subjectKey = subjectKey.Add("SquadronID", httpio.Param[impulse.UUID](req, "id1"))
+						subjectKey = subjectKey.Add("UserID", httpio.Param[string](req, "id2"))
+						if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "squadron membership", "UserID"); err != nil {
+							return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
 						}
 
 						switch op.Type {
