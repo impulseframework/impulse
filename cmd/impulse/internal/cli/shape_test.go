@@ -886,6 +886,93 @@ func Test_tenancyStartingPoint_byDirectory(t *testing.T) {
 	}
 }
 
+// Test_byDirectorySteps holds what add tenancy does about the methods of each auth it
+// starts as Tenant-owned users, by directory, to what the auth registers: the shape's two
+// methods are written on an auth whose roles the application gives that registers
+// neither a Google nor a Microsoft method, an auth that has either is left as its author
+// made it, an auth whose directory gives the roles holds no tenant's people and gets
+// neither a method nor a word, and the password method is named wherever it stands. A
+// construction outside an auth package is no auth of the application's.
+func Test_byDirectorySteps(t *testing.T) {
+	t.Parallel()
+
+	s := tenantsShape(t, "tenant-owned-users-by-directory")
+	password := app.Method{Kind: app.MethodPassword, Name: "password", Authority: app.AuthorityApplication}
+	google := app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication}
+	azure := app.Method{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityApplication}
+	directory := app.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityDirectory}
+	written := func(auth string) []transition {
+		return []transition{
+			&transition_.Method{Auth: auth, Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "google", Authority: app.AuthorityApplication, Slot: authpkg.SlotAnyWorkspace}},
+			&transition_.Method{Auth: auth, Spec: authpkg.Method{Kind: app.MethodAzure, Name: "azure", Authority: app.AuthorityApplication, Slot: authpkg.SlotAny}},
+		}
+	}
+	tests := []struct {
+		name        string
+		auths       []app.Auth
+		wantSteps   []transition
+		wantWritten []string
+		// wantSays are the starts of the lines said, in order.
+		wantSays []string
+	}{
+		{
+			name:        "the password alone: both methods written, and the password named",
+			auths:       []app.Auth{{File: "pkg/auth/staff/staff.go", Methods: []app.Method{password}}},
+			wantSteps:   written("staff"),
+			wantWritten: []string{"the staff auth's google method", "the staff auth's azure method"},
+			wantSays:    []string{"The staff auth registered neither a Google nor a Microsoft method, so the command writes both", "The staff auth keeps its password method"},
+		},
+		{
+			name:     "a Google method beside the password: nothing written, and the password named",
+			auths:    []app.Auth{{File: "pkg/auth/staff/staff.go", Methods: []app.Method{password, google}}},
+			wantSays: []string{"The staff auth keeps its password method"},
+		},
+		{
+			name:  "a Microsoft method alone: left as its author made it",
+			auths: []app.Auth{{File: "pkg/auth/staff/staff.go", Methods: []app.Method{azure}}},
+		},
+		{
+			name:  "an auth whose directory gives the roles: neither a method nor a word",
+			auths: []app.Auth{{File: "pkg/auth/fleet/fleet.go", Methods: []app.Method{directory}}},
+		},
+		{
+			name: "two auths, one whose directory gives the roles: the other's methods alone",
+			auths: []app.Auth{
+				{File: "pkg/auth/fleet/fleet.go", Methods: []app.Method{directory}},
+				{File: "pkg/auth/members/members.go", Methods: []app.Method{password}},
+			},
+			wantSteps:   written("members"),
+			wantWritten: []string{"the members auth's google method", "the members auth's azure method"},
+			wantSays:    []string{"The members auth registered neither a Google nor a Microsoft method, so the command writes both", "The members auth keeps its password method"},
+		},
+		{
+			name:  "a construction outside an auth package: no auth of the application's",
+			auths: []app.Auth{{File: "main.go", Methods: []app.Method{password}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			steps, wrote, says := byDirectorySteps(s, &app.App{Auths: tt.auths})
+			if diff := cmp.Diff(tt.wantSteps, steps); diff != "" {
+				t.Errorf("byDirectorySteps() steps mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantWritten, wrote); diff != "" {
+				t.Errorf("byDirectorySteps() written mismatch (-want +got):\n%s", diff)
+			}
+			if len(says) != len(tt.wantSays) {
+				t.Fatalf("byDirectorySteps() says %q, want %d line(s) starting %q", says, len(tt.wantSays), tt.wantSays)
+			}
+			for i, want := range tt.wantSays {
+				if !strings.HasPrefix(says[i], want) {
+					t.Errorf("byDirectorySteps() says[%d] = %q, want it to start %q", i, says[i], want)
+				}
+			}
+		})
+	}
+}
+
 // Test_methodStartingPoints reads what a starting point says of the method it wrote
 // against the application: without tenants an open method gives each new person a role;
 // on the auth whose people create a tenant, a person who signs up creates their own;
