@@ -39,7 +39,8 @@ var vetFileRE = regexp.MustCompile(`(?m)^(?:vet: )?(\S+\.go):\d+:\d+: `)
 type authoredApplication struct {
 	dir string
 	// newBrief is the brief impulse new left, and standing the brief as the last
-	// command left it.
+	// command left it. Both are empty where impulse new left none: a start that lists no
+	// work of its own leaves an application whose check is clean, and says so.
 	newBrief, standing string
 	// madeAs is the staff auth as impulse audit read it once impulse new was done,
 	// before any method was added.
@@ -57,18 +58,45 @@ func (a *authoredApplication) read(t *testing.T, rel string) string {
 	return string(data)
 }
 
+// run runs a command in the application's root and gives back everything it wrote.
+func (a *authoredApplication) run(t *testing.T, name string, args ...string) (string, error) {
+	t.Helper()
+	cmd := osexec.CommandContext(t.Context(), name, args...) //nolint:gosec // the test's own commands: go, git and golangci-lint, with the arguments its callers write
+	cmd.Dir = a.dir
+	out, err := cmd.CombinedOutput()
+
+	return string(out), err
+}
+
+// unchanged holds the application's tree to what its last commit holds, after a step
+// that is to leave it so.
+func (a *authoredApplication) unchanged(t *testing.T, step string) {
+	t.Helper()
+	out, err := a.run(t, "git", "status", "--porcelain")
+	if err != nil {
+		t.Fatalf("git status --porcelain: %v\n%s", err, out)
+	}
+	if out != "" {
+		t.Errorf("%s changed the application as it was committed:\n%s", step, out)
+	}
+}
+
 // author makes an application under the name with impulse new, given the sign-in
-// shape and what else the shape's start takes (the provider and the organization of
-// Directory roles; nothing for the other shapes), and one impulse add method for each of
+// shape (none for an application that starts as the base does, with a password and no
+// tenants) and what else the start takes (the provider and the organization of Directory
+// roles; the outlets composed into the creation), and one impulse add method for each of
 // the methods, a commit after each as an author checkpoints the work, and holds what the
 // commands left to the application's own formatting and lint and to the brief:
 //
 //   - every Go file is formatted, by gofmt and by the formatters the application's lint
 //     configuration names;
 //   - the application builds;
-//   - impulse check finds nothing failing in the application as impulse new made it,
-//     and the brief impulse new left is there all the same, for what the start listed
-//     itself;
+//   - impulse check finds nothing failing in the application as impulse new made it:
+//     the brief impulse new left is there all the same, for what the start listed itself,
+//     and where the start listed nothing the command says the check is clean and leaves
+//     no brief;
+//   - the application passes go vet under both of its tag sets and its own tests as
+//     impulse new made it, before any method is added (vetsAsMade, testsAsMade);
 //   - the tests that do not compile yet are files the standing brief names, and the
 //     brief impulse new left says why each suite the base carried was taken out: the two
 //     tests of sign-up where the application has tenants, and the first administrator's
@@ -84,11 +112,9 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	made := &authoredApplication{dir: filepath.Join(t.TempDir(), name)}
 	dir := made.dir
 	run := func(name string, args ...string) (string, error) {
-		cmd := osexec.CommandContext(t.Context(), name, args...) //nolint:gosec // the test's own commands: go, git and golangci-lint, with the arguments written below
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
+		t.Helper()
 
-		return string(out), err
+		return made.run(t, name, args...)
 	}
 	must := func(name string, args ...string) string {
 		t.Helper()
@@ -113,9 +139,17 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 		}
 	}
 
-	startsFrom, err := shape.Find(shapeKey, shape.OfNew(), "impulse new")
-	if err != nil {
-		t.Fatalf("shape.Find() error = %v", err)
+	// An application that names no shape starts as the base does: with a password, and
+	// with no tenants.
+	var startsFrom shape.Shape
+	args := []string{dir, "--module", authoredModule + "/" + name, "--auth", "staff", "--dev-root", checkout}
+	if shapeKey != "" {
+		named, err := shape.Find(shapeKey, shape.OfNew(), "impulse new")
+		if err != nil {
+			t.Fatalf("shape.Find() error = %v", err)
+		}
+		startsFrom = named
+		args = append(args, "--shape", shapeKey)
 	}
 
 	// The author's commands.
@@ -123,19 +157,33 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	create := newNew()
 	create.SetOut(&said)
 	create.SetErr(&said)
-	create.SetArgs(append([]string{dir, "--module", authoredModule + "/" + name, "--auth", "staff", "--shape", shapeKey, "--dev-root", checkout}, start...))
+	create.SetArgs(append(args, start...))
 	if err := create.Execute(); err != nil {
 		t.Fatalf("impulse new error = %v\n%s", err, said.String())
 	}
-	made.newBrief = brief()
-	made.standing = made.newBrief
-	// A new application passes its own check the moment it is made, so the brief is
-	// there for what the start listed itself and reports no failing check.
-	if want := "reports no FAIL. The obligations are the lines listed under \"What changed\""; !strings.Contains(made.newBrief, want) {
-		t.Errorf("the brief impulse new left does not say %q: impulse check fails in the application as it was made\n%s", want, said.String())
+	// A new application passes its own check the moment it is made. Where the start
+	// listed work of its own the brief is there for that, and reports no failing check;
+	// where it listed none, the command says the check is clean and leaves no brief.
+	switch _, err := os.Stat(filepath.Join(dir, handoff.File)); {
+	case errors.Is(err, os.ErrNotExist):
+		if want := "\nThe check is clean: "; !strings.Contains(said.String(), want) {
+			t.Errorf("impulse new left no brief and did not say %q: impulse check fails in the application as it was made, and nothing hands it on\n%s", want, said.String())
+		}
+	case err != nil:
+		t.Fatal(err)
+	default:
+		made.newBrief = brief()
+		made.standing = made.newBrief
+		if want := "reports no FAIL. The obligations are the lines listed under \"What changed\""; !strings.Contains(made.newBrief, want) {
+			t.Errorf("the brief impulse new left does not say %q: impulse check fails in the application as it was made\n%s", want, said.String())
+		}
 	}
 	checkpoint("checkpoint: the application as impulse new composed it")
 	made.madeAs = readShape(t, dir)
+	// The application as impulse new made it, before a method is added and while every
+	// test in it is the start's own: it passes go vet and its tests.
+	vetsAsMade(t, made)
+	testsAsMade(t, made)
 	for _, method := range methods {
 		said.Reset()
 		add := newAddMethod()
@@ -274,36 +322,68 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	return made
 }
 
-// vetsAsMade holds an application impulse new just made from a shape with no password
-// sign-in to passing go vet as it stands, under the default build and under the
-// simulated directory's tag, which compiles every test of every package: the start
-// writes the application's tests for the sign-in it has, so none of them waits for the
-// author to compile.
+// vetsAsMade holds an application impulse new just made to passing go vet as it stands,
+// under the default build and under the simulated directory's tag, which compiles every
+// test of every package: the start writes the application's tests for the sign-in and
+// the tenants it has, so none of them waits for the author to compile.
 func vetsAsMade(t *testing.T, made *authoredApplication) {
 	t.Helper()
 
 	for _, args := range [][]string{{"vet", "./..."}, {"vet", "-tags", "skipAuth", "./..."}} {
-		cmd := osexec.CommandContext(t.Context(), "go", args...) //nolint:gosec // the test's own command, with the arguments written above
-		cmd.Dir = made.dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Errorf("go %s: %v: an application that starts with no password sign-in passes go vet as impulse new made it\n%s", strings.Join(args, " "), err, out)
+		if out, err := made.run(t, "go", args...); err != nil {
+			t.Errorf("go %s: %v: an application passes go vet as impulse new made it\n%s", strings.Join(args, " "), err, out)
 		}
 	}
 }
 
-// testsAsMade holds an application impulse new just made from a shape with no password
-// sign-in to passing its own tests as it stands, under the simulated directory's tag,
-// which is how its Procfile and its CI run them: the start wrote them for the sign-in
-// the application has, so they prove it the moment it is made, the two served suites
-// included. Those start the Spanner emulator, which the job that asks for this test has;
-// one application's run is about twenty-five seconds.
+// testsAsMade holds an application impulse new just made to passing its own tests as it
+// stands, under the simulated directory's tag, which is how its Procfile and its CI run
+// them: the start wrote them for the sign-in and the tenants the application has, so
+// they prove it the moment it is made, the two served suites included. Those start the
+// Spanner emulator, which the job that asks for this test has; one application's run is
+// about twenty-five seconds.
 func testsAsMade(t *testing.T, made *authoredApplication) {
 	t.Helper()
 
-	cmd := osexec.CommandContext(t.Context(), "go", "test", "-tags", "skipAuth", "-count=1", "./...") //nolint:gosec // the test's own command, with the arguments written here
-	cmd.Dir = made.dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Errorf("go test -tags skipAuth ./...: %v: an application that starts with no password sign-in passes its own tests as impulse new made it\n%s", err, out)
+	if out, err := made.run(t, "go", "test", "-tags", "skipAuth", "-count=1", "./..."); err != nil {
+		t.Errorf("go test -tags skipAuth ./...: %v: an application passes its own tests as impulse new made it\n%s", err, out)
+	}
+}
+
+// everyStepAsMade holds an application impulse new just made to the rest of what its
+// author and its CI run on it, each step leaving the tree as it is committed: go
+// generate writes nothing new, so the application is committed as its generators write
+// it; it builds under the simulated directory's tag as it does under none; impulse
+// check, run as the author runs it, reports no failing check, says each of the lines
+// wanted of the options the start composed, and fixes nothing; and its tests pass under
+// no tag as well, the other way its CI runs them. With what author holds every
+// application to, that is every step.
+func everyStepAsMade(t *testing.T, made *authoredApplication, wantChecks []string) {
+	t.Helper()
+
+	if out, err := made.run(t, "go", "generate", "./..."); err != nil {
+		t.Errorf("go generate ./...: %v\n%s", err, out)
+	}
+	made.unchanged(t, "go generate ./...")
+	if out, err := made.run(t, "go", "build", "-tags", "skipAuth", "./..."); err != nil {
+		t.Errorf("go build -tags skipAuth ./...: %v\n%s", err, out)
+	}
+	var said bytes.Buffer
+	check := newCheck()
+	check.SetOut(&said)
+	check.SetErr(&said)
+	check.SetArgs([]string{"--app", made.dir})
+	if err := check.Execute(); err != nil {
+		t.Errorf("impulse check error = %v: the application passes its own check as impulse new made it\n%s", err, said.String())
+	}
+	for _, want := range wantChecks {
+		if !strings.Contains(said.String(), want) {
+			t.Errorf("impulse check does not say %q of the application:\n%s", want, said.String())
+		}
+	}
+	made.unchanged(t, "impulse check")
+	if out, err := made.run(t, "go", "test", "-count=1", "./..."); err != nil {
+		t.Errorf("go test ./...: %v: an application passes its own tests as impulse new made it\n%s", err, out)
 	}
 }
 
@@ -365,10 +445,13 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 	}
 }
 
-// TestAuthoredApplication makes four applications the way their author does, with the
+// TestAuthoredApplication makes five applications the way their author does, with the
 // commands and nothing else, and holds what the commands left to each application's own
 // formatting and lint and to the brief (author). The commands leave obligations, and
-// the brief is where each is named, so the test holds that nothing else is left.
+// the brief is where each is named, so the test holds that nothing else is left. Each
+// application passes go vet under both tag sets and its own tests under the simulated
+// directory's tag as impulse new made it, before any method is added: the tests in it
+// then are the start's own, written for the sign-in and the tenants it has.
 //
 // The first is an application whose tenants can have directories: impulse new with the
 // shape Global users, each tenant chooses, then a Google method and an organization's
@@ -386,25 +469,28 @@ func holdsNoPassword(t *testing.T, made *authoredApplication, wantMethods []stri
 // nothing said of a provider. Its auth registers a Google and a Microsoft method, each
 // open to any organization, and the persona method of the test environments; nothing
 // the commands wrote or generated serves a password; and a development run signs its
-// administrator in as the cast's persona. Its tests are the start's own, written for
-// that sign-in: go vet passes under both tag sets as the application is made, and the
-// tests pass under the simulated directory's tag.
+// administrator in as the cast's persona.
 //
 // The fourth is an application one directory gives every role of, with no password
 // sign-in either: impulse new with the shape Directory roles, Google and one Workspace
 // named. Its auth registers that one method, nobody is invited, no generated handler
 // gives a role or invites a person, and a development run signs in the person and the
-// roles the environment template names. Its tests are the start's own too: go vet
-// passes under both tag sets as the application is made, and the tests pass under the
-// tag.
+// roles the environment template names.
 //
-// It costs about eight minutes and under eight gigabytes on a machine whose Go caches and
+// The fifth is an application with a second browser application and a machine outlet,
+// both composed into the creation (--outlet, --api-outlet) and no shape named. The
+// command wires both, so it leaves no brief, and the application is held to every step
+// as it is made (everyStepAsMade): it regenerates to itself, builds and passes its tests
+// under both tag sets, and passes impulse check, which reads the three outlets and the
+// two browser applications.
+//
+// It costs about twelve minutes and under eight gigabytes on a machine whose Go caches and
 // emulator image are warm: each command regenerates against the emulator (about
-// twenty-five seconds), each of the two applications with no password sign-in runs its
-// tests (about as long), and the rest is each application's build, vet and lint runs.
+// twenty-five seconds), each application runs its tests as it is made (about as long, and
+// the fifth twice), and the rest is each application's build, vet and lint runs.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
-		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), the application's lint (golangci-lint) and the tests of the applications with no password sign-in, about eight minutes", runAuthored)
+		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about twelve minutes", runAuthored)
 	}
 	if _, err := osexec.LookPath("golangci-lint"); err != nil {
 		t.Fatalf("%s is set and golangci-lint is not on the PATH: the application's own lint is what the result is held to", runAuthored)
@@ -550,8 +636,6 @@ func TestAuthoredApplication(t *testing.T) {
 			"google: the accounts of any Google Workspace; the application gives the roles",
 			"persona: the personas of the test environments' persona provider; the application gives the roles",
 		})
-		vetsAsMade(t, made)
-		testsAsMade(t, made)
 		// A development run signs its administrator in as the cast's persona, whose
 		// account the bootstrap seeds.
 		if env, want := made.read(t, ".envrc.template"), "\nexport APP_PERSONA_USERNAME=admin\n"; !strings.Contains(env, want) {
@@ -575,8 +659,6 @@ func TestAuthoredApplication(t *testing.T) {
 			t.Errorf("impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
 		}
 		holdsNoPassword(t, made, []string{"google: the accounts of one Google Workspace; the directory gives the roles"})
-		vetsAsMade(t, made)
-		testsAsMade(t, made)
 		// Nobody is invited and nothing in the application gives a role: the auth has no
 		// foothold, and its generated management neither gives a role nor makes or
 		// invites a person.
@@ -599,6 +681,26 @@ func TestAuthoredApplication(t *testing.T) {
 		if want := "nobody is invited"; !strings.Contains(made.newBrief, want) {
 			t.Errorf("the brief impulse new left does not say %q", want)
 		}
+	})
+
+	t.Run("a second browser application and a machine outlet", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "jetty", "", []string{"--outlet", "portal=portal/api", "--api-outlet", "devices=devices/api"}, nil)
+		// The command wires both options itself, so it hands nothing on.
+		if made.newBrief != "" {
+			t.Errorf("impulse new left a brief: an application made with a second browser application and a machine outlet is wired as the command leaves it\n%s", made.newBrief)
+		}
+		// The start names no shape, so the staff auth is the base's: a password, and
+		// nobody signs up until an administrator opens it.
+		if want := "1 Invite only"; made.madeAs.Shape == nil || made.madeAs.Shape.String() != want {
+			t.Errorf("impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
+		}
+		// The console moved under its own path beside the second browser application, and
+		// the machine outlet is mounted beside both.
+		everyStepAsMade(t, made, []string{
+			"flat layout, 1 site(s); not tenanted; outlets devices, portal (sessions); generated router",
+			"3 outlet(s) mounted: default (/console/api, live), devices (/devices/api), portal (/portal/api, sessions, live)",
+			"2 browser application(s) bound to their outlets' auths",
+		})
 	})
 }
 

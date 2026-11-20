@@ -764,27 +764,32 @@ jobs:
           # shellcheck disable=SC2086
           golangci-lint run --timeout 10m $aside --build-tags skipAuth ./...
       - name: The author's path leaves nothing the brief does not name
-        # Four applications made the way their author makes one, by the commands at this
+        # Five applications made the way their author makes one, by the commands at this
         # commit and nothing else. Two are impulse new with a sign-in shape that composes
         # tenancy, then sign-in methods added: one has tenants that can have directories,
         # the other tenants with no directories, which must still read as its invite-only
         # shape once a Google method is on it. Two start with no password sign-in: one
         # whose tenants are their directories, one whose single directory gives every
-        # role; nothing in either serves a password, and each passes go vet with and
-        # without the skipAuth tag as it is made, its tests being the start's own, and
-        # passes those tests under the tag (the served suites, on the emulator). What the
-        # commands wrote is held to each application's own formatters and lint (in every
-        # package that compiles), and the tests that do not compile yet to the brief, which
-        # must name each. The rendered skeleton above proves a candidate; this proves what
-        # the transitions write over one, which nothing else lints. The test is asked for
-        # (it starts the emulator for each regeneration), so this job, which has the
-        # emulator and the lint, sets the variable; it adds about eight minutes to the
-        # solo leg.
+        # role; nothing in either serves a password. The fifth is made with a second
+        # browser application and a machine outlet (--outlet, --api-outlet), which the
+        # command wires itself, so it leaves no brief. Each of the five passes go vet with
+        # and without the skipAuth tag as impulse new made it, its tests then being the
+        # start's own, and passes those tests under the tag (the served suites, on the
+        # emulator); the fifth is also regenerated, which changes nothing, checked again
+        # by impulse check, and tested under no tag. What the commands wrote is held to
+        # each application's own formatters and lint (in every package that compiles), and
+        # the tests that do not compile once a method is added to the brief, which must
+        # name each. The rendered skeleton above proves a candidate; this proves what the
+        # transitions write over one, which nothing else lints. The test is asked for (it
+        # starts the emulator for each regeneration and each application's tests), so this
+        # job, which has the emulator and the lint, sets the variable. On a machine whose
+        # caches are warm the test takes about twelve minutes; the half hour it is given
+        # leaves a runner that starts cold its room.
         if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.GO_PART == 'true' && matrix.candidate == 'solo' }}
         working-directory: impulse
         env:
           IMPULSE_AUTHORED: "1"
-        run: go test ./cmd/impulse/internal/cli -run TestAuthoredApplication -count=1 -v -timeout 20m
+        run: go test ./cmd/impulse/internal/cli -run TestAuthoredApplication -count=1 -v -timeout 30m
       - name: impulse check
         # The same binary that rendered: the check reads the application against the
         # framework it was rendered from. The head leg's application builds against this
