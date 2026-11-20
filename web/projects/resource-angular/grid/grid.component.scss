@@ -39,14 +39,20 @@
   isolation: isolate;
 }
 
-// A list whose columns have not been read, because a font its page asked for is on its
-// way, is not drawn: nothing of its headings and rows, and no scrollbar for a width it
-// will not keep. Its rows take their room all the same, so the list is as tall as they
-// make it before it is drawn and after. It lasts until the font arrives or the wait for it
-// runs out (the component's FONT_WAIT).
-.impulse-grid-scroll.awaits-font {
+// A list that is held back, because its columns have not been read (its first load, a
+// font its page asked for that is on its way, or a moment in which something around it
+// draws it at no size), is not drawn: nothing of its headings, its rows and its pager, and
+// no scrollbar for a width it will not keep. What it holds takes its room all the same, so
+// the list is where it will be, and as tall, before it is drawn and after. It lasts until
+// the list has loaded and, where a font is on its way, until the font arrives or the wait
+// for it runs out (the component's FONT_WAIT).
+.impulse-grid-host.held-back > .impulse-grid-view > .impulse-grid-scroll {
   visibility: hidden;
   overflow: hidden;
+}
+
+.impulse-grid-host.held-back > .impulse-grid-pager {
+  visibility: hidden;
 }
 
 .impulse-grid-table {
@@ -105,6 +111,20 @@
   left: 0;
   width: 0;
   height: 0;
+  pointer-events: none;
+}
+
+// A length of a hundred pixels that is laid out with the list and never seen. How long
+// the browser draws it, against the hundred, is how much something around the list draws
+// it smaller or larger than it is laid out (a dialog that grows open), and every width the
+// component reads off the list is brought back by that.
+.scale-rule {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100px;
+  height: 0;
+  visibility: hidden;
   pointer-events: none;
 }
 

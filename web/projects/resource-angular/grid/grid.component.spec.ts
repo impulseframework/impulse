@@ -1640,10 +1640,26 @@ describe('a list and the width of its frame', () => {
     let wider: number;
     /** Whether laying a text out starts the load of its font, as the first text drawn in a font does. */
     let startsFont: boolean;
+    /**
+     * How much what is around the list draws it smaller or larger than it is laid out: 1
+     * unless a case says, as on a page. A dialog that grows open draws what it holds
+     * at nine tenths of its size and more until it has opened.
+     */
+    let scale: number;
+    /** The length the list's stylesheet gives its rule, which a browser lays out and jsdom does not. */
+    const ruleLength = 100;
+    /**
+     * A length as a browser hands back what it draws: scaled, and no finer than the
+     * numbers it keeps a drawing in, so a length brought back from it is a hair off.
+     */
+    const asDrawn = (length: number): number => {
+      return scale === 1 ? length : Math.fround(length * scale);
+    };
 
     beforeEach(() => {
       reads = 0;
       wider = 1;
+      scale = 1;
       startsFont = false;
       placed = new Map();
       told = new Map();
@@ -1673,7 +1689,7 @@ describe('a list and the width of its frame', () => {
             ? 30
             : 24
           : (drawn.textContent ?? '').trim().length * character * wider;
-        return { width } as DOMRect;
+        return { width: asDrawn(width) } as DOMRect;
       };
       const view = document.defaultView as Window;
       const real = view.getComputedStyle.bind(view);
@@ -1698,8 +1714,14 @@ describe('a list and the width of its frame', () => {
       vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
         this: HTMLElement,
       ): DOMRect {
-        const at = placed.get(this) ?? { left: 0, right: 0 };
+        const laid = this.classList.contains('scale-rule')
+          ? { left: 0, right: ruleLength }
+          : (placed.get(this) ?? { left: 0, right: 0 });
+        const at = { left: asDrawn(laid.left), right: asDrawn(laid.right) };
         return { ...at, width: at.right - at.left, top: 0, bottom: 0, height: 0 } as DOMRect;
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement): number {
+        return this.classList.contains('scale-rule') ? ruleLength : 0;
       });
       Object.defineProperty(document, 'fonts', {
         configurable: true,
@@ -1737,9 +1759,13 @@ describe('a list and the width of its frame', () => {
     const widths = (): string[] => {
       return headers().map((th) => th.style.width);
     };
-    /** Whether the list's headings and rows are drawn: not held back until a font has arrived. */
+    /** Whether the list is drawn: not held back until it has loaded for the first time, or until a font has arrived. */
     const drawn = (): boolean => {
-      return !frame().classList.contains('awaits-font');
+      return !(frame().closest('.impulse-grid-host') as HTMLElement).classList.contains('held-back');
+    };
+    /** Whether the loading cover, with its spinner, is over the list. */
+    const covered = (): boolean => {
+      return element.querySelector('.impulse-grid-loading-overlay') !== null;
     };
     const longer = { name: 'Commendations and citations', description: 'None.', enabled: false, changedBy: 'ada' };
     const shorter = { name: 'Tugs', description: 'None.', enabled: false, changedBy: 'mo' };
@@ -1923,6 +1949,177 @@ describe('a list and the width of its frame', () => {
         frameIs(0);
         expect(reads).toBe(0);
         expect(table().style.minWidth).toBe(`${columnsAtTheirNarrowest}px`);
+      });
+    });
+
+    // A dialog grows open: Material draws its surface, and the list in it, at nine tenths of
+    // its size and more until it has opened, and a browser hands back what it draws.
+    describe('a list that something around it draws smaller or larger than it is laid out', () => {
+      it('lays a rule out with the list, a hundred pixels long, that takes no room and is not seen', async () => {
+        await plain();
+        const rule = element.querySelector('.impulse-grid-host > .scale-rule');
+        expect(rule).not.toBeNull();
+        expect(rule?.textContent).toBe('');
+        // What jsdom lays out for it, the spec does (`ruleLength`): the stylesheet is what a browser goes by.
+        const drawnAs = declares(['.scale-rule']);
+        expect(drawnAs).toMatch(new RegExp(`width:\\s*${ruleLength}px`));
+        expect(drawnAs).toMatch(/position:\s*absolute/);
+        expect(drawnAs).toMatch(/height:\s*0/);
+        expect(drawnAs).toMatch(/visibility:\s*hidden/);
+      });
+
+      it('needs what it is laid out at, not what it is drawn at: a list read while its dialog grows open keeps its longest value whole once the dialog has opened', async () => {
+        for (const drawnBy of [0.8, 0.907, 0.937, 0.94, 1.1, 1.25]) {
+          scale = drawnBy;
+          await plain();
+          frameIs(phone);
+
+          expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+          expect(table().style.minWidth).toBe(`${narrowest}px`);
+        }
+        // What the same reads come to taken as drawn: seven pixels short for "Commendations" at 0.937.
+        expect(Math.ceil(Math.fround(13 * character * 0.937) + aroundCell) + spare).toBe(name - 6);
+      });
+
+      it('brings a length back to the pixel it was laid out at: what the division leaves over does not carry a whole number of pixels on to the next', async () => {
+        // "Commendations" is laid out 104 wide, and drawn at 0.937 a browser hands back a
+        // length that comes back as a hair more than 104.
+        scale = 0.937;
+        expect(asDrawn(13 * character) / (asDrawn(ruleLength) / ruleLength)).toBeGreaterThan(13 * character);
+        await plain();
+        frameIs(phone);
+
+        expect(widths()[0]).toBe(`${name}px`);
+      });
+
+      it("reads the marks beside a heading's words as they are laid out too", async () => {
+        scale = 0.907;
+        await plain();
+        await hand('sorts', [{ field: 'changedBy', direction: 'asc' }]);
+        await hand('filterability', { changedBy: 'always' });
+        const heading = headers()[3];
+        const words = heading.querySelector('.col-header') as HTMLElement;
+        const mark = heading.querySelector('.sort-icon') as HTMLElement;
+        const label = heading.querySelector('.header-label') as HTMLElement;
+        const filter = heading.querySelector('.header-cell > .filter-trigger') as HTMLElement;
+        // Laid out as in the case of the marks above: the words to 80, the arrow to 96,
+        // where the label ends, and the filter's button 22 wide after it.
+        placed.set(words, { left: 0, right: 80 });
+        placed.set(mark, { left: 82, right: 96 });
+        placed.set(label, { left: 0, right: 96 });
+        placed.set(filter, { left: 96, right: 118 });
+        frameIs(phone);
+
+        expect(widths()[3]).toBe(`${changedBy + 22}px`);
+      });
+
+      it('reads a second sort past the room kept for the arrow as it is laid out', async () => {
+        scale = 0.8;
+        await plain();
+        await hand('sorts', [
+          { field: 'name', direction: 'asc' },
+          { field: 'changedBy', direction: 'asc' },
+        ]);
+        const heading = headers()[3];
+        const words = heading.querySelector('.col-header') as HTMLElement;
+        const label = heading.querySelector('.header-label') as HTMLElement;
+        const last = label.lastElementChild as HTMLElement;
+        expect(last).not.toBe(words);
+        // The arrow and the number after it end 26 past the words: 10 past the room kept.
+        placed.set(words, { left: 0, right: 80 });
+        placed.set(last, { left: 98, right: 106 });
+        placed.set(label, { left: 0, right: 106 });
+        frameIs(phone);
+
+        expect(widths()[3]).toBe(`${changedBy + 10}px`);
+      });
+
+      describe('drawn at no size at all', () => {
+        const view = document.defaultView as Window;
+        const own = ['requestAnimationFrame', 'cancelAnimationFrame'].map((name): [string, unknown] => {
+          return [name, Reflect.get(view, name)];
+        });
+        /** The frames the list has asked the page for, which a case draws when it says. */
+        let asked: Map<number, FrameRequestCallback>;
+        const nextFrame = (): void => {
+          const due = Array.from(asked.values());
+          asked.clear();
+          due.forEach((draw) => draw(0));
+          detect();
+        };
+
+        beforeEach(() => {
+          asked = new Map();
+          let last = 0;
+          view.requestAnimationFrame = (draw: FrameRequestCallback): number => {
+            asked.set(++last, draw);
+            return last;
+          };
+          view.cancelAnimationFrame = (id: number): void => {
+            asked.delete(id);
+          };
+        });
+
+        afterEach(() => {
+          own.forEach(([name, was]) => Reflect.set(view, name, was));
+        });
+
+        it('reads nothing off it, keeps nothing and draws nothing of a list it has never read, and reads and draws it at the first frame that draws it at some size', async () => {
+          scale = 0;
+          await plain();
+          frameIs(phone);
+          expect(reads).toBe(0);
+          expect(widths()[0]).toBe(`${text}px`);
+          expect(drawn()).toBe(false);
+          expect(asked.size).toBe(1);
+
+          // A frame later it is still drawn at no size: it asks for the next, and for one only.
+          nextFrame();
+          await hand('rowData', [rows[0], shorter]);
+          expect(reads).toBe(0);
+          expect(drawn()).toBe(false);
+          expect(asked.size).toBe(1);
+
+          scale = 0.5;
+          nextFrame();
+          expect(drawn()).toBe(true);
+          expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+          expect(asked.size).toBe(0);
+        });
+
+        it('keeps a list a person has seen as it is while it is drawn at no size, and reads it again at the first frame that draws it at some size', async () => {
+          await plain([shorter]);
+          frameIs(phone);
+          expect(drawn()).toBe(true);
+          expect(widths()[0]).toBe(`${headingOf(4)}px`);
+          const read = reads;
+
+          // Something around the list draws it at no size, and a longer value arrives meanwhile.
+          scale = 0;
+          await hand('rowData', rows);
+          expect(reads).toBe(read);
+          expect(drawn()).toBe(true);
+          expect(widths()[0]).toBe(`${headingOf(4)}px`);
+          expect(asked.size).toBe(1);
+
+          scale = 1;
+          nextFrame();
+          expect(drawn()).toBe(true);
+          expect(widths()[0]).toBe(`${name}px`);
+          expect(asked.size).toBe(0);
+        });
+
+        it('gives up the frame it asked for once it has left', async () => {
+          scale = 0;
+          await plain();
+          frameIs(phone);
+          expect(asked.size).toBe(1);
+          const [its] = asked.keys();
+
+          // The page may ask for a frame of its own as the list leaves: the list's is the one given up.
+          leave();
+          expect(asked.has(its)).toBe(false);
+        });
       });
     });
 
@@ -2161,6 +2358,89 @@ describe('a list and the width of its frame', () => {
         expect(widths()[0]).toBe(`${headingOf(4)}px`);
       });
 
+      it("draws nothing of a list on its first load, not its headings at the library's width, its pager or a loading cover, and draws it whole once it has loaded, each column at what it needs", async () => {
+        await plain([]);
+        give('page', { offset: 0, hasPrev: false, hasNext: false });
+        await hand('loading', true);
+        frameIs(phone);
+        // Nothing is read, and nothing of the list is drawn: its frame and its pager are
+        // hidden where they will be, and no cover with a spinner stands in for them.
+        expect(reads).toBe(0);
+        expect(drawn()).toBe(false);
+        expect(covered()).toBe(false);
+        expect(declares(['.held-back', '.impulse-grid-scroll'])).toMatch(/visibility:\s*hidden/);
+        expect(declares(['.held-back', '.impulse-grid-pager'])).toMatch(/visibility:\s*hidden/);
+        expect(element.querySelector('.held-back > .impulse-grid-pager')).not.toBeNull();
+        expect(element.querySelector('.held-back > .impulse-grid-view > .impulse-grid-scroll')).toBe(frame());
+
+        // The rows arrive: the list is read with them and drawn, no column at the library's width first.
+        give('rowData', rows);
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(false);
+        expect(widths()).toEqual([`${name}px`, `${text}px`, '64px', `${changedBy}px`, '66px']);
+      });
+
+      it('draws a list whose first load brings no rows, or fails, once it has: its headings, each at what it needs, over what the list says', async () => {
+        await plain([]);
+        await hand('loading', true);
+        frameIs(phone);
+        expect(drawn()).toBe(false);
+
+        give('emptyMessage', 'This list could not be loaded.');
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+        expect(element.querySelector('.no-records-row')?.textContent).toContain('This list could not be loaded.');
+      });
+
+      it('keeps a list a person has seen on the screen, under the loading cover, while it is read again for a page turn, a sort or a filter, and narrows nothing when the rows arrive', async () => {
+        await plain();
+        frameIs(phone);
+        expect(drawn()).toBe(true);
+        const seen = widths();
+
+        await hand('loading', true);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(true);
+        expect(widths()).toEqual(seen);
+
+        give('rowData', [shorter]);
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(false);
+        expect(widths()).toEqual(seen);
+      });
+
+      it('holds a list handed other columns back while it loads with them: those have not been read, and it is drawn whole with their rows', async () => {
+        await plain();
+        frameIs(phone);
+        expect(drawn()).toBe(true);
+
+        // The same columns, the first under another heading, and a load for them.
+        give(
+          'columnDefs',
+          columns.map((col) => (col.id === 'name' ? { ...col, header: 'Flag' } : col)),
+        );
+        await hand('loading', true);
+        expect(drawn()).toBe(false);
+        expect(covered()).toBe(false);
+
+        // "Tugs" under "Flag": read anew with the rows the load brought, not kept at what "Commendations" needed.
+        give('rowData', [shorter]);
+        await hand('loading', false);
+        expect(drawn()).toBe(true);
+        expect(widths()[0]).toBe(`${headingOf(4)}px`);
+        expect(headingOf(4)).toBeLessThan(name);
+      });
+
+      it('holds no list back that is not laid out, though it is loading: nothing can be read to end it, and a list that cannot be seen keeps its cover for when it can', async () => {
+        await plain([]);
+        await hand('loading', true);
+        expect(drawn()).toBe(true);
+        expect(covered()).toBe(true);
+      });
+
       it('reads again when a font arrives, since every text is then drawn another width, and listens no more once the list has left', async () => {
         await plain();
         frameIs(phone);
@@ -2206,7 +2486,7 @@ describe('a list and the width of its frame', () => {
         // list is drawn: its headings and rows are hidden, with the frame they scroll in.
         expect(reads).toBe(0);
         expect(drawn()).toBe(false);
-        const heldBack = declares(['.impulse-grid-scroll', '.awaits-font']);
+        const heldBack = declares(['.held-back', '.impulse-grid-scroll']);
         expect(heldBack).toMatch(/visibility:\s*hidden/);
         expect(heldBack).toMatch(/overflow:\s*hidden/);
 

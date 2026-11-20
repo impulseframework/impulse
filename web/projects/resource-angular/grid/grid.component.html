@@ -1,9 +1,8 @@
-<div class="impulse-grid-host">
+<div class="impulse-grid-host" [class.held-back]="heldBack()">
   <div class="impulse-grid-view">
     <div
       class="impulse-grid-scroll"
       #scrollContainer
-      [class.awaits-font]="awaitsFont()"
       [class.holds-first-column]="holdsFirstColumn()"
       [style.--impulse-grid-expand-left.px]="expandColumnLeft()"
       [style.--impulse-grid-first-left.px]="firstColumnLeft()"
@@ -321,13 +320,16 @@
         </tbody>
       </table>
     </div>
-    @if (loading()) {
+    <!-- The loading cover is over a list a person is looking at, while what they asked of it
+         (another page, a sort, a filter) is read. A list held back has nothing drawn to cover. -->
+    @if (loading() && !heldBack()) {
       <div class="impulse-grid-loading-overlay">
         <mat-progress-spinner mode="indeterminate" diameter="48"></mat-progress-spinner>
       </div>
     }
   </div>
   <span class="cut-short-anchor" [impulseCutShortTooltip]="table"></span>
+  <span class="scale-rule" #rule></span>
 
   @if (page(); as position) {
     <div class="impulse-grid-pager">
