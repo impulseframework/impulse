@@ -68,12 +68,19 @@ export const hangarsConfig = rootConfig({
       // The holder by its name, in the column of its kind: the pass holds an id, which
       // nobody reads. Each column resolves its page of names with one request. The field
       // behind each column is the id, so a filter typed over it, or a sort by it, would
-      // be asked of ids: the three columns offer neither.
+      // be asked of ids: the three columns offer neither. A person is read as people know
+      // them, the name first and the login they sign in under beside it, and by the
+      // login alone where the account carries no name.
       listColumns: [
         multiColumnConfig({
           id: HangarPasses.fieldName.userId,
           header: 'Person',
           additionalIds: [
+            {
+              id: CrewSectorUsers.fieldName.id,
+              resource: Resources.CrewSectorUsers,
+              field: CrewSectorUsers.fieldName.name,
+            },
             {
               id: CrewSectorUsers.fieldName.id,
               resource: Resources.CrewSectorUsers,
@@ -133,9 +140,11 @@ export const hangarsConfig = rootConfig({
               name: HangarPasses.fieldName.userId,
               label: 'Person',
               cols: 12,
+              // Each person by name, the login beside it: two people can share a name,
+              // never a login.
               enumeratedConfig: enumeratedConfig({
-                listDisplay: [CrewSectorUsers.fieldName.username],
-                viewDisplay: [CrewSectorUsers.fieldName.username],
+                listDisplay: [CrewSectorUsers.fieldName.name, CrewSectorUsers.fieldName.username],
+                viewDisplay: [CrewSectorUsers.fieldName.name, CrewSectorUsers.fieldName.username],
               }),
             }),
             field({

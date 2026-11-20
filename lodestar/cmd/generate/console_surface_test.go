@@ -95,7 +95,7 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 				"primaryResource: Resources.HangarPasses,",
 				"parentRelation: { parentKey: Hangars.fieldName.id, childKey: HangarPasses.fieldName.hangarId },",
 				"name: HangarPasses.fieldName.userId,",
-				"listDisplay: [CrewSectorUsers.fieldName.username],",
+				"listDisplay: [CrewSectorUsers.fieldName.name, CrewSectorUsers.fieldName.username],",
 				"name: HangarPasses.fieldName.squadronId,",
 				"listDisplay: [Squadrons.fieldName.name],",
 				"name: HangarPasses.fieldName.groupId,",
