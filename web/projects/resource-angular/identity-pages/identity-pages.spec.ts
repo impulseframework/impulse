@@ -538,6 +538,7 @@ describe("identityPages, the whole application's side", () => {
     const give = narrowed(presentation(list(people).rowMethods, 'AssignCrewRole'), 'role');
     for (const [where, method] of [
       [create, 'CreateCrewUser'],
+      [invite, 'InviteCrewUser'],
       [give, 'AssignCrewRole'],
     ] as const) {
       // The roles the dialog's own method takes from the caller: one sector's where a
@@ -550,10 +551,11 @@ describe("identityPages, the whole application's side", () => {
       expect(where({ domain: '', everyDomain: '' })).toBe(`method:eq:${method},everyDomain:eq:false`);
       expect(where({ domain: '', everyDomain: true })).toBe(`method:eq:${method},everyDomain:eq:true`);
     }
-    // An invitation's dialog asks no "In every sector": until a sector is chosen it offers
-    // the whole application's roles alone, so no role is given in every sector unasked.
-    expect(invite({ email: 'pat@lakeside.example', domain: '' })).toBe('method:eq:InviteCrewUser,everyDomain:eq:false');
+    // A sector's key is quoted where the filter would read it as more than one value.
     expect(invite({ domain: 'anvil, east' })).toBe('method:eq:InviteCrewUser,domain:eq:"anvil, east"');
+    // With sectors, each of these dialogs asks where: the page fills no place.
+    expect(presentation(list(people).listMethods, 'CreateCrewUser').fill).toBeUndefined();
+    expect(presentation(list(people).listMethods, 'InviteCrewUser').fill).toBeUndefined();
   });
 
   it('asks a list that carries no method field for none, and names no place where the application has no tenants', () => {
@@ -1034,10 +1036,13 @@ describe('identityPages, what an auth and an application decide', () => {
     expect(people.listMethods).toEqual([]);
     // The roles are listed and nobody takes one away by hand.
     expect(children(pages[0]).map((child) => [child.title, child.rowMethods])).toEqual([['Roles held', []]]);
-    // An application with no tenant record names no tenant: where a role is held is said in words alone.
-    const where = children(pages[0])[0].listColumns[1];
-    expect('additionalIds' in where).toBe(false);
-    expect(where.valueGetter?.({ kind: 'global', domainId: '' })).toBe('The whole application');
+    // An auth whose description names no tenant record holds every role in the one place:
+    // the list says the role and not where, and reads nothing of a place.
+    const held = children(pages[0])[0].listColumns;
+    expect(held.map((column) => column.id)).toContain('role');
+    expect(held.map((column) => column.header)).not.toContain('Held in');
+    expect(held.map((column) => column.id)).not.toContain('kind');
+    expect(held.map((column) => column.id)).not.toContain('domainId');
   });
 
   it('takes the routes the application gives', () => {
@@ -1626,5 +1631,229 @@ describe('identityPages, the period of an assignment', () => {
       expect(presentation(people.listMethods, add).labels, add).toEqual(words);
       expect(presentation(roles.listMethods, give).labels, give).toEqual(expect.objectContaining(words));
     }
+  });
+});
+
+describe('identityPages, what the notice says once a method has run', () => {
+  const [wholeApplication, tenant] = crew.sides;
+  // Every method a side can name, each under a name of its own.
+  const groupLists = { groups: 'CrewGroups', groupUsers: 'CrewGroupUsers', groupRoles: 'CrewGroupRoles' };
+  const every: IdentityDescriptor = {
+    ...crew,
+    sides: [
+      {
+        ...wholeApplication,
+        lists: { ...wholeApplication.lists, ...groupLists, signInWays: 'CrewSignInWays' },
+        methods: {
+          ...wholeApplication.methods,
+          removePassword: 'RemoveCrewPassword',
+          createGroup: 'CreateCrewGroup',
+          describeGroup: 'DescribeCrewGroup',
+          deleteGroup: 'DeleteCrewGroup',
+          addGroupMember: 'AddCrewGroupMember',
+          removeGroupMember: 'RemoveCrewGroupMember',
+          giveGroupRole: 'GiveCrewGroupRole',
+          takeGroupRole: 'TakeCrewGroupRole',
+        },
+      },
+      tenant,
+    ],
+  };
+  const everyMetas: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
+    CrewGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt'),
+  };
+  const everyDescriptor = { ...descriptor, identity: [every] } as ApiDescriptor;
+  const sides = (['global', 'domain'] as const).map((scope) =>
+    identityPages(everyDescriptor, (resource) => everyMetas[resource], { auth: 'Crew', scope }),
+  );
+  /** Every offer of a method the pages of a side make: on the rows and above the list, of each page and of each list under a row. */
+  const offers = (pages: RootConfig[]): MethodPresentation[] =>
+    pages
+      .flatMap((page) => [list(page), ...((page.relatedConfigs ?? []) as ListViewConfig[])])
+      .flatMap((config) => [...(config.rowMethods || []), ...(config.listMethods ?? [])]);
+
+  it('says what happened in a sentence, for every method the pages offer: none is left to its label and "done"', () => {
+    const [global, domain] = sides.map(offers);
+    // The pages offer every method the two sides name.
+    const named = [...Object.values(every.sides[0].methods), ...Object.values(every.sides[1].methods)];
+    expect([...new Set([...global, ...domain].map((offer) => offer.method))].sort()).toEqual([...named].sort());
+    for (const offer of [...global, ...domain]) {
+      const said = offer.answered?.({ sent: true })?.message ?? offer.successMessage;
+      expect(said, offer.method).toMatch(/^[A-Z].*\.$/);
+      expect(said, offer.method).not.toContain(': done');
+    }
+    const words = (side: MethodPresentation[], method: string): string | undefined =>
+      presentation(side, method).successMessage;
+    // An addition is an account for the whole application and a person for a tenant.
+    expect(words(global, 'CreateCrewUser')).toBe('The account was added.');
+    expect(words(domain, 'CreateCrewSectorUser')).toBe('The person was added.');
+    expect(words(global, 'AssignCrewRole')).toBe('The role was given.');
+    expect(words(global, 'RemoveCrewRole')).toBe('The role was taken away.');
+    expect(words(global, 'GiveCrewGroupRole')).toBe('The role was given to the group.');
+    expect(words(global, 'WithdrawCrewInvitation')).toBe('The invitation is withdrawn.');
+    expect(words(global, 'DisableCrewUser')).toBe('The account is disabled.');
+    // Words a page gives an offer of its own are kept.
+    expect(words(global, 'MakeCrewInviteOnly')).toBe('The method is invite only.');
+  });
+
+  it('reads whether an invitation was mailed from its answer, and says a failed one was withdrawn and what to do', () => {
+    for (const [side, method] of [
+      [sides[0], 'InviteCrewUser'],
+      [sides[1], 'InviteCrewSectorUser'],
+    ] as const) {
+      const invite = presentation(offers(side), method);
+      expect(invite.successMessage, method).toBeUndefined();
+      expect(invite.answered?.({ id: 'i-1', sent: true }), method).toEqual({
+        message: 'The invitation is on its way.',
+      });
+      for (const unsent of [{ id: 'i-1', sent: false }, {}, undefined]) {
+        expect(invite.answered?.(unsent), method).toEqual({
+          message: 'The invitation could not be mailed, so it was withdrawn. Invite the person again.',
+          failed: true,
+        });
+      }
+    }
+  });
+});
+
+describe('identityPages, an application without tenants', () => {
+  // The generator writes the same lists and methods for every application: a role row
+  // says its kind, a mailed link carries a tenant, and each method that gives a role or
+  // keeps a group has the fields that say where.
+  const officeMetas: Record<string, ResourceMeta> = {
+    OfficeSessionUsers: fields('id', 'username', 'name', 'email', 'disabled', 'lastSignInAt'),
+    OfficeUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+    OfficeGivableRoles: fields('name', 'description', 'method', 'domain', 'everyDomain'),
+    OfficeSessionMailLinks: fields(
+      'id',
+      'kind',
+      'email',
+      'name',
+      'tenantId',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+    ),
+    OfficeGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    OfficeGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
+    OfficeGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt'),
+    OfficeUserGroupRoles: fields('userId', 'username', 'groupId', 'groupName', 'kind', 'axis', 'domainId', 'role'),
+  };
+  const office: IdentityDescriptor = {
+    auth: 'Office',
+    label: 'Office',
+    sides: [
+      {
+        scope: 'global',
+        lists: {
+          users: 'OfficeSessionUsers',
+          roles: 'OfficeUserRoles',
+          rolesToGive: 'OfficeGivableRoles',
+          invitations: 'OfficeSessionMailLinks',
+          groups: 'OfficeGroups',
+          groupUsers: 'OfficeGroupUsers',
+          groupRoles: 'OfficeGroupRoles',
+          rolesThroughGroups: 'OfficeUserGroupRoles',
+        },
+        methods: {
+          create: 'CreateOfficeUser',
+          invite: 'InviteOfficeUser',
+          withdrawInvitation: 'WithdrawOfficeInvitation',
+          assignRole: 'AssignOfficeRole',
+          removeRole: 'RemoveOfficeRole',
+          createGroup: 'CreateOfficeGroup',
+          describeGroup: 'DescribeOfficeGroup',
+          addGroupMember: 'AddOfficeGroupMember',
+          giveGroupRole: 'GiveOfficeGroupRole',
+          takeGroupRole: 'TakeOfficeGroupRole',
+        },
+      },
+    ],
+  };
+  const officeDescriptor = { ...descriptor, domainRoute: undefined, identity: [office] } as ApiDescriptor;
+  const [accounts, groups, mailed] = identityPages(officeDescriptor, (resource) => officeMetas[resource], {
+    auth: 'Office',
+    scope: 'global',
+  });
+  const [roles, throughGroups] = children(accounts);
+  const [, groupRoles] = children(groups);
+  const nowhere = { domain: null, everyDomain: false };
+
+  it('asks no dialog where: each method that gives a role or keeps a group is filled with no place, by the fields it has', () => {
+    expect(presentation(list(accounts).listMethods, 'CreateOfficeUser').fill?.({})).toEqual(nowhere);
+    expect(presentation(list(accounts).listMethods, 'InviteOfficeUser').fill?.({})).toEqual(nowhere);
+    // The id of the person's account is filled beside it, as with tenants.
+    expect(presentation(list(accounts).rowMethods, 'AssignOfficeRole').fill?.({ id: 'u-1' })).toEqual({
+      ...nowhere,
+      userId: 'u-1',
+    });
+    expect(presentation(list(groups).rowMethods, 'GiveOfficeGroupRole').fill?.({ id: 'g-1' })).toEqual(nowhere);
+    expect(presentation(groupRoles.listMethods, 'GiveOfficeGroupRole').fill?.({ id: 'g-1' })).toEqual(nowhere);
+    // A group is kept in one place: its method has no "every tenant" to fill.
+    expect(presentation(list(groups).listMethods, 'CreateOfficeGroup').fill?.({})).toEqual({ domain: null });
+    // A method that names no place is filled with none.
+    expect(presentation(list(groups).rowMethods, 'DescribeOfficeGroup').fill).toBeUndefined();
+    expect(presentation(list(groups).rowMethods, 'AddOfficeGroupMember').fill).toBeUndefined();
+  });
+
+  it('names no place in a list: what a person or a group holds is held for the whole application, which is all there is', () => {
+    expect(columns(roles)).toEqual([
+      ['role', 'Role'],
+      ['createdAt', 'Given'],
+    ]);
+    expect(columns(throughGroups)).toEqual([
+      ['role', 'Role'],
+      ['groupName', 'Group'],
+    ]);
+    expect(columns(list(groups))).toEqual([
+      ['name', 'Name'],
+      ['description', 'Description'],
+    ]);
+    expect(columns(groupRoles)).toEqual([
+      ['role', 'Role'],
+      ['createdAt', 'Given'],
+    ]);
+    expect(columns(list(mailed))).toEqual([
+      ['kind', 'Kind'],
+      ['email', 'Email'],
+      ['name', 'Name'],
+      ['roleNames', 'Roles'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+      ['consumedAt', 'Used'],
+    ]);
+    // A role is taken away from where it is held, the whole application, and the question names no place.
+    const remove = presentation(roles.rowMethods, 'RemoveOfficeRole');
+    expect(remove.fill?.({ userId: 'u-1', role: 'Clerk' })).toEqual({ userId: 'u-1', role: 'Clerk', ...nowhere });
+    expect((remove.confirm as (row: RecordData) => string)({ role: 'Clerk' })).toBe(
+      'Take Clerk away from this person?',
+    );
+    const take = presentation(groupRoles.rowMethods, 'TakeOfficeGroupRole');
+    expect(take.fill?.({ groupId: 'g-1', role: 'Clerk' })).toEqual({ groupId: 'g-1', role: 'Clerk', ...nowhere });
+  });
+
+  it('says "tenant" nowhere: no heading, no title, no button and no word above an input', () => {
+    const lists = [accounts, groups, mailed].flatMap((page) => [
+      list(page),
+      ...((page.relatedConfigs ?? []) as ListViewConfig[]),
+    ]);
+    const drawn = [
+      ...[accounts, groups, mailed].map((page) => page.page?.label),
+      ...lists.flatMap((config) => [
+        config.title,
+        ...config.listColumns.filter((column) => !column.hidden).map((column) => column.header),
+        ...[...(config.rowMethods || []), ...(config.listMethods ?? [])].flatMap((offer) => [
+          offer.label,
+          offer.successMessage,
+          ...Object.values(offer.labels ?? {}),
+        ]),
+      ]),
+    ].filter((words): words is string => typeof words === 'string');
+    expect(drawn).toContain('Add an account');
+    expect(drawn.filter((words) => /tenant|whole application/i.test(words))).toEqual([]);
   });
 });

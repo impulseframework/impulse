@@ -311,12 +311,14 @@ export interface InviteMembersUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
   domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface InviteMembersUser {
   email: string;
   name?: string;
   domain?: string;
+  everyDomain: boolean;
   roles: string[];
 }
 /** The result InviteMembersUser answers with. */
@@ -890,6 +892,7 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.MembersGivableRoles, attribute: 'role' },
     ],
   },

@@ -2323,6 +2323,7 @@ export namespace InviteCrewUser {
     email: 'email' as FieldName,
     name: 'name' as FieldName,
     domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
     roles: 'roles' as FieldName,
   };
 }

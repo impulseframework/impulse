@@ -689,5 +689,5 @@ var tokenDecoder = sessioncore.NewDecoder[tokenRequest]()
 
 // errLinkDead is the answer for a token whose link is no longer live.
 func errLinkDead() error {
-	return httpio.NewNotFoundMessage("the link has expired or was already used")
+	return httpio.NewNotFoundMessage("That link has expired or was already used. Ask for a new one")
 }

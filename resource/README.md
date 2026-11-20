@@ -3497,7 +3497,7 @@ POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"
 POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
-POST <prefix>/invite-crew-user                {"email","name","roles","domain"} → {"id","sent"}   Execute on InviteCrewUser
+POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
@@ -4373,7 +4373,14 @@ authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.Dir
 An invitation into a tenant gives its roles in that tenant; one into the application
 gives each role where the role is held, the global scope or every tenant; one that makes
 a tenant makes it there, in the same transaction, and gives the person the roles that
-administer it ("The invitation that makes a tenant", below). A role that can
+administer it ("The invitation that makes a tenant", below). The sender says where the
+roles go as the create does: `domain` for one tenant, `everyDomain` for every tenant, or
+neither. An invitation that says every tenant is held to it when it is sent: each role
+is one that exists in every tenant, a role of the whole application alone is refused
+(400), and so is a custom role whose name a role of the whole application carries too,
+since an invitation keeps its roles by name and the acceptance would give the whole
+application's. One that says neither is sent as before, each role given where it is
+held. A role that can
 no longer be given (the role file changed since the invitation was sent) fails the
 transaction: the invitation stands and no account is created. The permission engine is
 told once the transaction has committed, before the sign-in policy decides. The client

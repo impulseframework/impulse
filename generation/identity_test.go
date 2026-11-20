@@ -489,8 +489,11 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
 		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
 		"crewidentity/invite_crew_user.go": {
-			"Domain *string\n\t\t// Roles are the roles the person is given, picked from the roles that exist where",
+			// The invitation says where its roles go as the create does: one tenant, every
+			// tenant, or neither.
+			"Domain      *string\n\t\tEveryDomain bool\n\t\t// Roles are the roles the person is given, picked from the roles that exist where",
 			"// @attribute(role)\n\t\t// @enumerate(CrewGivableRoles)\n\t\tRoles []string\n\t}",
+			"invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain, EveryDomain: m.EveryDomain}",
 			"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",
 		},
 		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},

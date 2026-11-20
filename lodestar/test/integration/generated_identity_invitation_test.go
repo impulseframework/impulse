@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,8 +43,9 @@ func inviteCrew(ctx context.Context, t *testing.T, b *browser, body string) invi
 // the served stack, with the real session manager and its mail: the invitation is
 // written in the method's transaction and its message goes once that has committed,
 // the answer says whether it went, an invitation whose message could not be sent is
-// withdrawn, an invitation gives a role, the person who follows the link holds it, and
-// a withdrawal holds to invitations.
+// withdrawn, an invitation gives a role, the person who follows the link holds it, an
+// invitation into every sector is held to the sectors' roles, and a withdrawal holds to
+// invitations.
 //
 // Demonstrates: auth.generated-identity.
 func TestGeneratedIdentityInvitations(t *testing.T) {
@@ -69,6 +71,8 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 		"without a role":                       `{"email":"ensign@example.com"}`,
 		"with a role that does not exist":      `{"email":"ensign@example.com","roles":["NoSuchRole"]}`,
 		"with a global role into a sector":     `{"email":"ensign@example.com","roles":["ClientBrowser"],"domain":"` + anvil + `"}`,
+		"with a global role into every sector": `{"email":"ensign@example.com","roles":["ClientBrowser"],"everyDomain":true}`,
+		"into one sector and every sector":     `{"email":"ensign@example.com","roles":["Pilot"],"domain":"` + anvil + `","everyDomain":true}`,
 		"to something that is no address":      `{"email":"ensign at example","roles":["ClientBrowser"]}`,
 		"into a sector named by an empty name": `{"email":"ensign@example.com","roles":["Pilot"],"domain":""}`,
 	} {
@@ -166,6 +170,20 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	}
 	if status, withdrawnAtAnvil := sectorInvitation(anvil); status != http.StatusOK || cell[bool](t, withdrawnAtAnvil, "pending") {
 		t.Errorf("the withdrawn invitation in Anvil's list: status %d, row %v, want it listed and no longer pending", status, withdrawnAtAnvil)
+	}
+
+	// An invitation into every sector, as the dialog sends it when the person ticks
+	// "In every sector": it names no sector and keeps the sector role, which the
+	// acceptance gives in every sector.
+	everywhere := inviteCrew(ctx, t, hq, `{"email":"rover@example.com","roles":["Pilot"],"everyDomain":true}`)
+	if !everywhere.Sent {
+		t.Errorf("the answer of the invitation into every sector says the message did not go: %+v", everywhere)
+	}
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{everywhere.ID}, "TenantId"); got.Valid {
+		t.Errorf("the every-sector invitation's tenant = %v, want none: it is into no one sector", got)
+	}
+	if got := readColumn[[]string](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{everywhere.ID}, "RoleNames"); !slices.Equal(got, []string{"Pilot"}) {
+		t.Errorf("the every-sector invitation's roles = %v, want Pilot", got)
 	}
 
 	// A message that cannot be sent: the method still answers, the answer says the

@@ -2,12 +2,14 @@ package identity
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
@@ -30,11 +32,16 @@ func newInviter(t *testing.T, store Store, mail *fakeMail) *Manager {
 // TestManager_Invite pins the invitation: the row buffered in the caller's transaction,
 // the message sent once the transaction has committed and never when it has not, the
 // answer told how the send went, an invitation whose message could not be sent
-// withdrawn, a role required and held to where the acceptance seats it, and the caller
-// recorded as the sender: the account whose id the caller carries, where a user of the
-// auth holds it.
+// withdrawn, a role required and held to where the acceptance seats it, an invitation
+// that says every tenant held to roles of every tenant alone, and the caller recorded
+// as the sender: the account whose id the caller carries, where a user of the auth
+// holds it.
 func TestManager_Invite(t *testing.T) {
 	t.Parallel()
+
+	// A custom role of the global scope that carries the name of the tenants' Reader.
+	readerKey := access.NewMembershipKey(globalScope, "", "Reader")
+	globalReader := access.RoleKey{Kind: readerKey.Kind, Axis: readerKey.Axis, Domain: readerKey.Domain, Role: "Reader"}
 
 	row := func(email, tenant, roles, by string) string {
 		return "insert invitation " + invitationID.String() + " " + email + " tenant=" + tenant + " roles=" + roles + " by=" + by
@@ -44,6 +51,8 @@ func TestManager_Invite(t *testing.T) {
 		name   string
 		inv    Invitation
 		caller accesstypes.User
+		// custom are the rows of the roles table: the custom roles.
+		custom map[access.RoleKey]bool
 		// sendErr fails the send, rollBack fails the transaction after the call
 		// returned, and failOn fails a store call.
 		sendErr  error
@@ -79,6 +88,16 @@ func TestManager_Invite(t *testing.T) {
 			inv:        Invitation{Email: "pat@example.com", Domain: ptr("alpha"), Roles: []accesstypes.Role{"Reader"}},
 			caller:     dana,
 			wantWrites: []string{row("pat@example.com", "alpha", "Reader", userID.String())},
+			wantMailed: []string{"pat@example.com"},
+			wantSent:   ptr(true),
+		},
+		{
+			// The row names no tenant: the acceptance seats a role of the tenants' kind in
+			// every tenant where no role of the global scope carries its name.
+			name:       "an invitation into every tenant carries no tenant, and its roles are the tenants'",
+			inv:        Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Reader"}},
+			caller:     dana,
+			wantWrites: []string{row("pat@example.com", "", "Reader", userID.String())},
 			wantMailed: []string{"pat@example.com"},
 			wantSent:   ptr(true),
 		},
@@ -147,6 +166,36 @@ func TestManager_Invite(t *testing.T) {
 			wantErr: httpio.HasBadRequest,
 		},
 		{
+			// The refusal says the role is not there, not that it has a namesake.
+			name: "a global role is no role of every tenant",
+			inv:  Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Steward"}},
+			wantErr: func(err error) bool {
+				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), "does not exist where the invitation gives it")
+			},
+		},
+		{
+			name:    "a tenant and every tenant together are refused",
+			inv:     Invitation{Email: "pat@example.com", Domain: ptr("alpha"), EveryDomain: true, Roles: []accesstypes.Role{"Reader"}},
+			wantErr: httpio.HasBadRequest,
+		},
+		{
+			// The acceptance seats a role by its name, the global scope first.
+			name:   "a role of every tenant whose name a global role carries too is refused for every tenant",
+			inv:    Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Reader"}},
+			custom: map[access.RoleKey]bool{globalReader: true},
+			wantErr: func(err error) bool {
+				return httpio.HasBadRequest(err) && strings.Contains(httpio.Message(err), `The whole application has a role named "Reader" too`)
+			},
+		},
+		{
+			name:       "the same role is given as today where the invitation does not say every tenant: the global one",
+			inv:        Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Reader"}},
+			custom:     map[access.RoleKey]bool{globalReader: true},
+			wantWrites: []string{row("pat@example.com", "", "Reader", "<nobody>")},
+			wantMailed: []string{"pat@example.com"},
+			wantSent:   ptr(true),
+		},
+		{
 			name:    "an empty tenant is refused",
 			inv:     Invitation{Email: "pat@example.com", Domain: ptr(""), Roles: []accesstypes.Role{"Reader"}},
 			wantErr: httpio.HasBadRequest,
@@ -162,7 +211,7 @@ func TestManager_Invite(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, failOn: tt.failOn}
+			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, roles: tt.custom, failOn: tt.failOn}
 			mail := &fakeMail{id: invitationID, err: tt.sendErr}
 			m := newInviter(t, store, mail)
 

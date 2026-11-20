@@ -20,10 +20,11 @@ import (
 
 func (h *Handlers) InviteMembersUser() http.HandlerFunc {
 	type request struct {
-		Email  string   `json:"email"`
-		Name   *string  `json:"name"`
-		Domain *string  `json:"domain"`
-		Roles  []string `json:"roles"`
+		Email       string   `json:"email"`
+		Name        *string  `json:"name"`
+		Domain      *string  `json:"domain"`
+		EveryDomain bool     `json:"everyDomain"`
+		Roles       []string `json:"roles"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated

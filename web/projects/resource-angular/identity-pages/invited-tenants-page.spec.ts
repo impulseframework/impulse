@@ -315,8 +315,19 @@ describe('identityPages, the invitations that make a tenant', () => {
           sectorDirectoryOnly: 'Entered through its directory only',
           defaultRole: "Role its directory's people start with",
         },
+        answered: expect.any(Function),
       },
     ]);
+  });
+
+  it('says once the invitation is sent whether its message went, and what to do where it did not', () => {
+    // The server withdraws an invitation whose message could not be sent, and answers so.
+    const answered = (list(page as RootConfig).listMethods ?? [])[0]?.answered;
+    expect(answered?.({ id: 'i-1', sent: true })).toEqual({ message: 'The invitation is on its way.' });
+    expect(answered?.({ id: 'i-1', sent: false })).toEqual({
+      message: 'The invitation could not be mailed, so it was withdrawn. Invite the person again.',
+      failed: true,
+    });
   });
 
   it('asks before a withdrawal, naming the address and the tenant that will not be set up, and says how details are changed', () => {

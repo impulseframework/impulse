@@ -166,12 +166,14 @@ export interface InviteStaffUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
   domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface InviteStaffUser {
   email: string;
   name?: string;
   domain?: string;
+  everyDomain: boolean;
   roles: string[];
 }
 /** The result InviteStaffUser answers with. */
@@ -599,6 +601,7 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffGivableRoles, attribute: 'role' },
     ],
   },

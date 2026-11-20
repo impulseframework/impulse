@@ -249,8 +249,14 @@ func (a *Auth[S, U, Tx]) invitationCarried(ctx context.Context, at *signInAttemp
 // errInvitationEnded is the refusal (invitation_expired) of a sign-in that is an
 // invitation's acceptance or nothing, where the invitation no longer stands.
 func errInvitationEnded() error {
-	return signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used")
+	return signinflow.Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, signinflow.InvitationEnded)
 }
+
+// wrongCredentials is what a sign-in is told when the name and the password entered are
+// no account's: one sentence whatever the cause (no user of the name, a user with no
+// password, a wrong password, a password the user no longer holds), so the answer never
+// says which.
+const wrongCredentials = "The username or password is wrong. Check what you entered and try again"
 
 // passwordNoLongerHeld answers a sign-in that rested on a password proof and found the
 // user holding another password, or none (sessionstorage.ErrPasswordChanged): the
@@ -259,7 +265,7 @@ func errInvitationEnded() error {
 // other error is returned as it is.
 func passwordNoLongerHeld(err error) error {
 	if errors.Is(err, sessionstorage.ErrPasswordChanged) {
-		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 
 	return err
@@ -488,7 +494,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 
 	user, lookupErr := a.storage.UserByUserName(ctx, username)
 	if lookupErr != nil && !httpio.HasNotFound(lookupErr) {
-		return nil, nil, httpio.NewUnauthorizedMessageWithError(lookupErr, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(lookupErr, wrongCredentials)
 	}
 	var hash *securehash.Hash
 	if lookupErr == nil {
@@ -502,7 +508,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			err = lookupErr
 		}
 
-		return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return nil, nil, httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 	held := user.PasswordHash
 	if upgrade && methods.autoUpgrade {
@@ -513,7 +519,7 @@ func (a *Auth[S, U, Tx]) checkCredentials(
 			// the check fails as a wrong password does.
 			a.attemptFailed(ctx, username, taken)
 
-			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+			return nil, nil, httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 		case err != nil:
 			logger.FromCtx(ctx).Error(err)
 		default:

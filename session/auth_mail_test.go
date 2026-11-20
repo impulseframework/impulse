@@ -1021,7 +1021,7 @@ func authInvitationCase2(t *testing.T) {
 
 	// The invitation died meanwhile: 404, and the cookie goes.
 	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).Return(
-		httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, "the invitation has expired or was already used"))
+		httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, signinflow.InvitationEnded))
 	rr = f.asUser(f.auth.Invitation().Accept(), sessionID, nil, cookies)
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("Accept() of an invitation that died = %d, want 404", rr.Code)

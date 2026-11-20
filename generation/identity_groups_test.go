@@ -346,7 +346,7 @@ func Test_prepareIdentity_grants(t *testing.T) {
 			"func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {\n\tcaller := resource.CallerFrom(ctx)\n\tdomain, everyDomain := scopeFields(scope)\n\tswitch method {",
 			"\tcase AssignCrewRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &AssignCrewRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n" +
 				"\tcase CreateCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &CreateCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})\n" +
-				"\tcase InviteCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain})\n" +
+				"\tcase InviteCrewUser{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})\n" +
 				"\tcase GiveCrewGroupRole{}.Method():\n\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})\n\t}",
 			// A method that picks no role from the list is no answer.
 			"return false, errors.Newf(\"%s is no method of the whole application that gives a role by hand: AssignCrewRole, CreateCrewUser, InviteCrewUser, GiveCrewGroupRole\", method)",

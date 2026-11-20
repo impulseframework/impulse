@@ -124,7 +124,7 @@ const invited = {
   signUp: true,
   usernameIsEmail: false,
 };
-const dead = { status: 404, body: { message: 'the link has expired or was already used' } };
+const dead = { status: 404, body: { message: 'That link has expired or was already used. Ask for a new one' } };
 const waiting = {
   reason: 'confirmation',
   email: 'nova@fleet.example',
@@ -602,8 +602,11 @@ describe('LoginMethodsComponent signs in with the password', () => {
     },
     {
       name: "a wrong password shows the server's words",
-      answer: { status: 401, body: { message: 'Invalid Credentials' } },
-      want: 'Invalid Credentials',
+      answer: {
+        status: 401,
+        body: { message: 'The username or password is wrong. Check what you entered and try again' },
+      },
+      want: 'The username or password is wrong. Check what you entered and try again',
     },
     {
       name: "a refusal with a code the application holds no sentence for shows the server's words",
@@ -662,12 +665,20 @@ describe('LoginMethodsComponent signs in with the password', () => {
   }
 
   it("a refusal's sentence replaces the one the URL carried, and a later sign-in clears it", async () => {
-    const page = await pageOver(server({ login: { status: 401, body: { message: 'Invalid Credentials' } } }), {
-      code: 'no_roles',
-    });
+    const page = await pageOver(
+      server({
+        login: {
+          status: 401,
+          body: { message: 'The username or password is wrong. Check what you entered and try again' },
+        },
+      }),
+      {
+        code: 'no_roles',
+      },
+    );
     expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['no_roles']);
     await signIn(page, 'overseer', 'wrong');
-    expect(messageOf(page)).toBe('Invalid Credentials');
+    expect(messageOf(page)).toBe('The username or password is wrong. Check what you entered and try again');
   });
 
   it("a server fault shows the server's words in place and leaves the form", async () => {
@@ -1103,12 +1114,15 @@ describe('LoginMethodsComponent renders the pending step', () => {
     const page = await pageOver(
       server({
         status: { status: 200, body: waiting },
-        confirm: { status: 401, body: { message: 'Invalid Credentials' } },
+        confirm: {
+          status: 401,
+          body: { message: 'The username or password is wrong. Check what you entered and try again' },
+        },
       }),
       { pending: 'confirmation' },
     );
     await confirmWith(page, 'wrong');
-    expect(messageOf(page)).toBe('Invalid Credentials');
+    expect(messageOf(page)).toBe('The username or password is wrong. Check what you entered and try again');
     expect(page.component.pending()).toEqual(waiting);
     expect(page.element.querySelector('input[name="confirmation"]')).not.toBeNull();
   });

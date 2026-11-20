@@ -1446,7 +1446,8 @@ carries, whichever step completes it (`CompletePending`, the email code), and a
 sign-in held again is held with it: once the password was changed, reset or removed,
 the old password completes nothing, however long the row had left and whatever address
 the holder gives the code for. A sign-in refused this way is answered as a wrong
-password is, 401 `Invalid Credentials` in the same body, and counts as a failed
+password is, 401 in the same words ("The username or password is wrong. Check what
+you entered and try again") in the same body, and counts as a failed
 attempt where a password was entered (the login, the confirmation); a completion
 refused this way leaves its pending sign-in spent, and the person signs in again. A
 sign-in no password proved (a directory sign-in waiting for its confirmation or its
@@ -2118,7 +2119,8 @@ a pending identity's password confirmation (`Pending().ConfirmWithPassword()`,
 `ConfirmPendingWithPassword`), under the name the attempt names, as the users table
 normalizes usernames (`Pat@Lakeside.edu` and `pat@lakeside.edu` are one name). A wrong
 password, an unknown name and a password-less user all count, and all answer the same
-`401 {"message": "Invalid Credentials"}` in the same time: a name with no user or no
+401 in the same words (`{"message": "The username or password is wrong. Check what you
+entered and try again"}`) in the same time: a name with no user or no
 password is compared against a dummy hash the method's hasher made, so timing no
 longer tells an existing name from an unknown one. The password a signed-in person
 proves is held to the same limit, under their own name: the old password of a change

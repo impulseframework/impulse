@@ -51,9 +51,7 @@ type globalGiving struct {
 // role, the create and the invitation that start a person with one, and the one that
 // gives a group a role. The list offers, for each, the roles that method takes from the
 // caller (the generated CouldGive), so it reads the same conditions the methods are
-// written by and names none the instance does not hold. The invitation names no "every
-// tenant": an invitation into the application holds a role of a tenant's kind in every
-// tenant.
+// written by and names none the instance does not hold.
 func (i *identityInstance) globalGivings() []globalGiving {
 	if i.rolesSynced || !i.has(identityMemberships) {
 		return nil
@@ -63,7 +61,7 @@ func (i *identityInstance) globalGivings() []globalGiving {
 		givings = append(givings, globalGiving{Method: "Create" + i.auth + "User", Fields: "Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain"})
 	}
 	if i.has(identityMailLinks) {
-		givings = append(givings, globalGiving{Method: "Invite" + i.auth + "User", Fields: "Roles: []string{string(role)}, Domain: domain"})
+		givings = append(givings, globalGiving{Method: "Invite" + i.auth + "User", Fields: "Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain"})
 	}
 	written := slices.ContainsFunc(i.groupMethodSources(), func(file identitySourceFile) bool {
 		return !file.tenant && file.name == fileStem("Give"+i.auth+"GroupRole") &&

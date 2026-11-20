@@ -227,11 +227,14 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 
 	t.Run("a filter on everyDomain narrows the list to one of the two places, as the dialog asks it", func(t *testing.T) {
 		t.Parallel()
-		if held := list(t, desk, assign, "everyDomain:eq:false"); len(held) != 1 || !slices.Contains(held[whole], "Headquarters") {
-			t.Errorf("everyDomain false lists %v, want the whole application's roles alone", held)
-		}
-		if held := list(t, desk, assign, "everyDomain:eq:true"); len(held) != 1 || !slices.Contains(held[everySector], "Cadet") {
-			t.Errorf("everyDomain true lists %v, want every sector's roles alone", held)
+		// The invitation's dialog asks "In every sector" as the others do.
+		for _, method := range []string{assign, create, invite, giveGroup} {
+			if held := list(t, desk, method, "everyDomain:eq:false"); len(held) != 1 || !slices.Contains(held[whole], "Headquarters") {
+				t.Errorf("%s, everyDomain false lists %v, want the whole application's roles alone", method, held)
+			}
+			if held := list(t, desk, method, "everyDomain:eq:true"); len(held) != 1 || !slices.Contains(held[everySector], "Cadet") {
+				t.Errorf("%s, everyDomain true lists %v, want every sector's roles alone", method, held)
+			}
 		}
 	})
 

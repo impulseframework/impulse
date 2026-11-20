@@ -118,7 +118,7 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 	case CreateCrewUser{}.Method():
 		return couldGiveBy(ctx, caller, method, &CreateCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case InviteCrewUser{}.Method():
-		return couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain})
+		return couldGiveBy(ctx, caller, method, &InviteCrewUser{Roles: []string{string(role)}, Domain: domain, EveryDomain: everyDomain})
 	case GiveCrewGroupRole{}.Method():
 		return couldGiveBy(ctx, caller, method, &GiveCrewGroupRole{Role: string(role), Domain: domain, EveryDomain: everyDomain})
 	}

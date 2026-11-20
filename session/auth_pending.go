@@ -422,7 +422,7 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 //
 // A pending identity that a password started, or confirmed, completes only while the
 // user still holds that password: once it was changed, reset or removed, the
-// completion is refused as a wrong password is (Unauthorized, "Invalid Credentials",
+// completion is refused as a wrong password is (Unauthorized, in the same words,
 // with sessionstorage.ErrPasswordChanged as its cause), the pending identity stays
 // consumed and the person signs in again.
 //
@@ -557,7 +557,7 @@ func (a *Auth[S, U, Tx]) linkAndComplete(ctx context.Context, w http.ResponseWri
 func (a *Auth[S, U, Tx]) checkConfirmation(ctx context.Context, user *sessionstorage.SessionUser, password string, client attempts.Client) error {
 	wrong, err := a.provePassword(ctx, user, password, client)
 	if wrong {
-		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return httpio.NewUnauthorizedMessageWithError(err, wrongCredentials)
 	}
 
 	return err

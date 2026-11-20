@@ -79,7 +79,7 @@ func Test_prepareIdentity_givableRolesWithTenants(t *testing.T) {
 		nil,
 	)
 	assertFileContains(t, "crewidentity/invite_crew_user.go",
-		[]string{"// @enumerate(Ships)\n\t\tDomain *string\n\t\t// Roles are the roles the person is given", "// @enumerate(CrewGivableRoles)\n\t\tRoles []string"},
+		[]string{"// @enumerate(Ships)\n\t\tDomain      *string\n\t\tEveryDomain bool\n\t\t// Roles are the roles the person is given", "// @enumerate(CrewGivableRoles)\n\t\tRoles []string"},
 		nil,
 	)
 	// A tenant's own methods pick from the tenant's roles still.

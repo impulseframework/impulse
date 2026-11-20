@@ -678,7 +678,7 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	}
 	governor := account(t, "governor")
 	status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", superAdministrator(governor))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last super administrator who can sign in") {
+	if status != http.StatusForbidden || !strings.Contains(string(body), "You are the last super administrator who can sign in") {
 		t.Errorf("the governor giving up the last Super Administrator role: status %d, want 403 naming the last super administrator: %s", status, body)
 	}
 	if got := readColumn[string](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("SuperAdministrator", governor), "UserId"); got != string(governor) {

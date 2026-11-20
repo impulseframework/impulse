@@ -629,6 +629,10 @@ func trustedDevice(ctx context.Context, userID impulse.UUID, check TrustedDevice
 	return ok, nil
 }
 
+// InvitationEnded is what a person is told when the invitation their sign-in rests on
+// no longer stands, in every place that refuses it.
+const InvitationEnded = "That invitation has expired or was already used. Ask the person who invited you to send a new one"
+
 // errInvitationDead ends the resolution transaction of a sign-in that its invitation
 // alone admitted, or that rests on the code mailed for the invitation, once the
 // invitation turns out to be dead: nothing is committed.
@@ -798,7 +802,7 @@ func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.
 		return err
 	}
 	if dead {
-		return httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, "the invitation has expired or was already used")
+		return httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, InvitationEnded)
 	}
 
 	return stop
@@ -1039,7 +1043,7 @@ func resolveIdentity[Tx any](
 			req.Invitation.Accepted = false
 		}
 		if errors.Is(err, errInvitationDead) {
-			return "", "", nil, Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used"), nil
+			return "", "", nil, Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, InvitationEnded), nil
 		}
 
 		switch d.SignInConflict(err) {

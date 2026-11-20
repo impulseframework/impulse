@@ -4,6 +4,7 @@ import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { ApplicationRef, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MatButtonHarness } from '@angular/material/button/testing';
+import { MatCheckboxHarness } from '@angular/material/checkbox/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldHarness } from '@angular/material/form-field/testing';
@@ -181,6 +182,24 @@ describe("the crew's Accounts page brings a person in with a role", () => {
     // a sector's kind of role named with no sector is held in every sector.
     expect(rolesAsked.length).toBeGreaterThan(0);
     expect(rolesAsked.every((url) => url.includes('everyDomain:eq:false') && !url.includes('domain:eq:a'))).toBe(true);
+  });
+
+  it('invites a person into every sector by the switch, with a role chosen from the roles of every sector', async () => {
+    open(Methods.InviteCrewUser);
+    await type(/^Email/, 'pat@lakeside.example');
+    await (await loader.getHarness(MatCheckboxHarness.with({ label: 'In every sector' }))).check();
+    await TestBed.inject(ApplicationRef).whenStable();
+    await choose(/^Roles/, 'Archivist');
+    await press('Invite');
+
+    // The invitation asks where as Add an account does. Once the switch is on, the
+    // picker lists the roles of every sector, and the request says every sector.
+    expect(sent('invite-crew-user')).toEqual({
+      email: 'pat@lakeside.example',
+      roles: ['Archivist'],
+      everyDomain: true,
+    });
+    expect(rolesAsked.some((url) => url.includes('everyDomain:eq:true'))).toBe(true);
   });
 
   it('adds an account with a role chosen from the roles held for the whole application', async () => {

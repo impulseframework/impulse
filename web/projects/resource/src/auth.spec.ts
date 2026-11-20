@@ -96,7 +96,7 @@ const opened = {
   signUp: true,
   usernameIsEmail: true,
 };
-const dead = { status: 404, body: { message: 'the link has expired or was already used' } };
+const dead = { status: 404, body: { message: 'That link has expired or was already used. Ask for a new one' } };
 /** The list of a server whose people reset their own password and confirm an address an administrator set. */
 const resettingList: LoginMethods = {
   ...mailingList,
@@ -450,8 +450,15 @@ describe('a password sign-in', () => {
     },
     {
       name: 'a wrong password resolves with the words and no code',
-      answer: { status: 401, body: { message: 'Invalid Credentials' } },
-      want: { outcome: 'refused', status: 401, message: 'Invalid Credentials' },
+      answer: {
+        status: 401,
+        body: { message: 'The username or password is wrong. Check what you entered and try again' },
+      },
+      want: {
+        outcome: 'refused',
+        status: 401,
+        message: 'The username or password is wrong. Check what you entered and try again',
+      },
     },
     {
       name: 'a forbidden sign-in resolves as refused',
@@ -609,8 +616,15 @@ describe('the pending sign-in', () => {
   const confirmations: { name: string; answer: TransportResponse; want: unknown }[] = [
     {
       name: 'a wrong confirmation password resolves with the words and no code',
-      answer: { status: 401, body: { message: 'Invalid Credentials' } },
-      want: { outcome: 'refused', status: 401, message: 'Invalid Credentials' },
+      answer: {
+        status: 401,
+        body: { message: 'The username or password is wrong. Check what you entered and try again' },
+      },
+      want: {
+        outcome: 'refused',
+        status: 401,
+        message: 'The username or password is wrong. Check what you entered and try again',
+      },
     },
     {
       name: 'an expired pending sign-in resolves with its code',

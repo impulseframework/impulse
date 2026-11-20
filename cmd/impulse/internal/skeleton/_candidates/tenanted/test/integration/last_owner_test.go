@@ -32,7 +32,7 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	s := newServed(ctx, t)
 	admin := signedIn(ctx, t, s, adminUser)
 	adminID := staffUserID(ctx, t, admin, adminUser)
-	const lastSuperAdministrator = "you are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own"
+	const lastSuperAdministrator = "You are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own"
 
 	// The last holder of the Super Administrator role is refused, in the rule's words.
 	status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "SuperAdministrator", false))

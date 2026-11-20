@@ -17,10 +17,12 @@ type (
 	// InviteCrewUser invites an address to the Crew auth: a link is
 	// mailed to it, and whoever follows the link and signs in, or signs up, is given
 	// the roles. An invitation gives at least one role: into a tenant (Domain), where
-	// every role is held there, or into the application, where a role of the global
-	// scope is held there and a role of the domain kind in every tenant. Name is the
-	// name the sender gives the person: whoever accepts the invitation takes it where
-	// their account holds none.
+	// every role is held there; into every tenant (EveryDomain), where every role is
+	// one of the domain kind and none carries the name of a role of the global scope;
+	// or with neither, into the application, where a role of the global scope is held
+	// there and a role of the domain kind in every tenant. Name is the name the sender
+	// gives the person: whoever accepts the invitation takes it where their account
+	// holds none.
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
@@ -37,7 +39,8 @@ type (
 		// Sector records the caller may list.
 		//
 		// @enumerate(Sectors)
-		Domain *string
+		Domain      *string
+		EveryDomain bool
 		// Roles are the roles the person is given, picked from the roles that exist where
 		// they are given that the caller could give there (CrewGivableRoles). A
 		// grant's condition reads each of them as new.role, so a role file can limit which
@@ -59,7 +62,7 @@ type (
 // Execute buffers the invitation into the caller's transaction and registers the send
 // for after its commit.
 func (m *InviteCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*InviteCrewUserResult, error) {
-	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain, EveryDomain: m.EveryDomain}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}

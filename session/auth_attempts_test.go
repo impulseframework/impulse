@@ -472,7 +472,7 @@ func TestAuth_AttemptLimit_EveryCheck(t *testing.T) {
 					if rr.Code != http.StatusUnauthorized {
 						t.Fatalf("unknown name = %d %s, want 401", rr.Code, rr.Body.String())
 					}
-					if body := refusal(t, rr); body.Message != "Invalid Credentials" || body.Code != "" {
+					if body := refusal(t, rr); body.Message != "The username or password is wrong. Check what you entered and try again" || body.Code != "" {
 						t.Errorf("unknown name body = %+v, want the same invalid credentials as a wrong password", body)
 					}
 				}

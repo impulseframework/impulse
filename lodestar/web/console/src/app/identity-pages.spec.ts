@@ -341,6 +341,27 @@ describe("the library's pages over an auth's generated management", () => {
     }
   });
 
+  it("ask where on the crew's invitation as on the account added: one sector, or every sector by the switch", () => {
+    // The whole service's Invite takes every place its server accepts, the ones Add an
+    // account takes: the generated method carries the sector and the switch, the page
+    // words both, and the roles its picker lists follow the switch.
+    const [accounts] = identityPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    for (const method of [Methods.InviteCrewUser, Methods.CreateCrewUser] as Method[]) {
+      const takes = methodMeta(method).fields.map((field) => field.fieldName);
+      expect(takes, method).toEqual(expect.arrayContaining(['domain', 'everyDomain']));
+      const offer = (accounts?.parentConfig as ListViewConfig).listMethods?.find(
+        (presentation) => presentation.method === method,
+      );
+      expect([method, offer?.labels?.['domain'], offer?.labels?.['everyDomain']]).toEqual([
+        method,
+        'Sector',
+        'In every sector',
+      ]);
+      expect(offer?.fill, method).toBeUndefined();
+      expect(offer?.narrows?.['roles']?.({ everyDomain: true })).toBe(`method:eq:${method},everyDomain:eq:true`);
+    }
+  });
+
   it('says of the method that gives a sector role what the dialog needs to rehearse it', () => {
     // The Sector Marshal's grant carries a condition on the role given. The metadata
     // says a dry run previews the method and names the field the condition reads.
