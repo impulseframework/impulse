@@ -771,6 +771,12 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 		return names, rowsByID(t, rows, "name")
 	}
 
+	// The cases run side by side, in no order. The roles of each sector are added above,
+	// before any of them, and no case changes that list. One case writes: the last gives
+	// ada Wrench. The refused request names ada too, and the server looks her up among
+	// Anvil's people before it refuses. Its answer is the same on either side of the
+	// write: ada is one of Anvil's people from the seed on, and the refusal is by the role
+	// the request names.
 	for _, tt := range []struct {
 		name    string
 		user    accesstypes.User
@@ -794,6 +800,8 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			names, byName := list(t, tt.user, tt.sector)
 			if !slices.IsSorted(names) {
 				t.Errorf("the roles are not listed by name: %v", names)
@@ -812,6 +820,8 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	}
 
 	t.Run("each role carries its description: the role file's and a custom role's", func(t *testing.T) {
+		t.Parallel()
+
 		_, byName := list(t, "marshal", anvil)
 		if got, _ := byName["Wrench"]["description"].(string); got != "Keeps Anvil's tools" {
 			t.Errorf("Wrench's description = %q, want the one it was added with", got)
@@ -839,6 +849,8 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	// one of them but that. A request for the name alone is trimmed too, and so is
 	// the count.
 	t.Run("the role the grant's condition leaves out is a role of the sector, left out of the list, the key-only list and the count", func(t *testing.T) {
+		t.Parallel()
+
 		all, err := roles.Roles(ctx, accesstypes.DomainPolicyScope(anvil))
 		if err != nil {
 			t.Fatalf("UserManager.Roles() error = %v", err)
@@ -874,11 +886,15 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	// The method's own grant carries the same limit, so a request that names the
 	// role the list left out is refused.
 	t.Run("the role the list leaves out is refused when it is given anyway", func(t *testing.T) {
+		t.Parallel()
+
 		status, body := doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "assign-crew-sector-role"), fmt.Sprintf(`{"userId":%q,"role":"SectorMarshal"}`, w.ids["ada"]))
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
 
 	t.Run("the list is the sector's own", func(t *testing.T) {
+		t.Parallel()
+
 		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(bastion, rolesPath+"?limit=all"), "")
 		assertStatus(t, status, http.StatusNotFound, body)
 		status, body = doRequestAs(t, w.h, "cadet", http.MethodGet, sectorPath(anvil, rolesPath+"?limit=all"), "")
@@ -886,6 +902,8 @@ func TestGeneratedIdentitySectorRoles(t *testing.T) {
 	})
 
 	t.Run("a role picked from the list is given", func(t *testing.T) {
+		t.Parallel()
+
 		status, body := doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "assign-crew-sector-role"), fmt.Sprintf(`{"userId":%q,"role":"Wrench"}`, w.ids["ada"]))
 		assertStatus(t, status, http.StatusNoContent, body)
 		if held := crewHolds(t, w.db, "ada"); !slices.Contains(held, "domain/"+anvil+" Wrench") {

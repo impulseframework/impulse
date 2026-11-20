@@ -431,6 +431,8 @@ func TestMethodRequestFieldsDigest(t *testing.T) {
 	}
 	for _, tt := range probes {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			status, body := doRequestAs(t, w.h, tt.user, http.MethodGet, tt.target, "")
 			assertStatus(t, status, http.StatusOK, body)
 			var digest map[string]map[string]string
