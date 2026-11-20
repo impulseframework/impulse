@@ -32,6 +32,7 @@ import { ClientResponse, PermissionStore, Requester, RequestOptions, ResponseReq
 import { Store } from './store';
 import { dryRunHeader, warningHeader } from './transport';
 import {
+  EveryQuery,
   LinkHeader,
   ListQuery,
   ListQueryBase,
@@ -227,11 +228,10 @@ export interface Page<Row> {
 /**
  * The list operations of a handle. `Key` is the resource's key tuple: on the empty
  * tuple, a key-less resource served whole, the query type carries no `limit` and no
- * `cursor` (ListQuery), so a page asked of such a handle does not compile. There is no
- * operation that reads every row of a resource with a maximum page size: the maximum is
- * declared to keep the whole set out of memory, so such a resource is read one server
- * page at a time (`page`), and a resource with no maximum is read whole with
- * `list({ limit: 'all' })` (see readMode and wholeListQuery).
+ * `cursor` (ListQuery), so a page asked of such a handle does not compile. `list`
+ * answers one request and `page` one page with its neighbors; `every` is the one
+ * reader of every row, which asks for as many pages as the resource's declared
+ * maximum makes necessary (see readMode).
  */
 export interface Listable<Row, Key extends readonly unknown[] = readonly unknown[]> {
   /**
@@ -245,6 +245,19 @@ export interface Listable<Row, Key extends readonly unknown[] = readonly unknown
    * a key-less resource the one page is the whole list and has no neighbors.
    */
   page<Query extends ListQuery<Row, Key> | undefined = undefined>(query?: Query): Promise<Page<Returned<Row, Query>>>;
+  /**
+   * Every row the query admits, together, for a reader whose answer is wrong with a
+   * part of them (a board that counts, a picker that must offer each choice). A
+   * resource that declares no maximum page size is read in one request, as
+   * `list({ limit: 'all' })` reads it, and a key-less resource as it is always served.
+   * A resource that declares a maximum is read a page of that size at a time, by the
+   * server's own `next` relations, to the end. The rows come back once the last page is
+   * in, and a page that fails rejects the whole read: nothing is handed back in part.
+   * The query takes no `limit`, `cursor` or `count` (EveryQuery). The whole set is held
+   * in memory, which a declared maximum otherwise keeps from happening, so a list a
+   * person turns through is still read with `page`.
+   */
+  every<Query extends EveryQuery<Row> | undefined = undefined>(query?: Query): Promise<Returned<Row, Query>[]>;
 }
 
 /** The reserved property a row of a list across tenants carries: the tenant the row is in. */
@@ -722,10 +735,10 @@ function attachHandles(
 }
 
 /**
- * Every row of the feature flags resource, by name: read whole where the resource
- * declares no maximum page size, else one server page at a time to the end (a few dozen
- * flags at most, so the walk is short). An API whose descriptor has no such resource
- * (one generated before flags existed, or written by hand) is refused naming it.
+ * Every row of the feature flags resource, by name, read as a handle's `every` reads
+ * any resource (a few dozen flags at most, so a walk is short where the resource
+ * declares a maximum page size). An API whose descriptor has no such resource (one
+ * generated before flags existed, or written by hand) is refused naming it.
  */
 async function listFlags(client: ClientBase): Promise<FeatureFlag[]> {
   const descriptor = client.descriptor.resources[featureFlagsResource];
@@ -733,18 +746,7 @@ async function listFlags(client: ClientBase): Promise<FeatureFlag[]> {
     throw new Error(`this API declares no ${featureFlagsResource} resource; feature flags cannot be listed from here`);
   }
   const handle = createResourceHandle<FeatureFlag, [string]>(client, descriptor, undefined);
-  const sort = { field: 'name' as const };
-  if (readMode(descriptor) === 'whole') {
-    return handle.list(wholeListQuery<FeatureFlag>(descriptor, { sort }));
-  }
-  const rows: FeatureFlag[] = [];
-  let page = await handle.page({ sort, limit: descriptor.page?.max });
-  rows.push(...page.rows);
-  while (page.next) {
-    page = await page.next();
-    rows.push(...page.rows);
-  }
-  return rows;
+  return handle.every({ sort: { field: 'name' as const } });
 }
 
 /** The digest's field-level enumeration for a scope, as sorted names — undefined when it holds none. */
@@ -1085,6 +1087,26 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
         wanted,
       );
     }) as Listable<Row>['page'],
+    every: (async (query?: EveryQuery<Row>) => {
+      // The reader chooses the page and follows the cursors, and the rows come back
+      // with no total, so none of the three is sent, whatever a caller typed past the
+      // type; the rest of the query goes as given.
+      const rest: ListQuery<Row> = { ...query };
+      delete rest.limit;
+      delete rest.cursor;
+      delete rest.count;
+      if (readMode(descriptor) === 'whole') {
+        return handle.list(wholeListQuery<Row>(descriptor, rest));
+      }
+      const rows: Row[] = [];
+      let page = await handle.page({ ...rest, limit: descriptor.page?.max });
+      rows.push(...page.rows);
+      while (page.next) {
+        page = await page.next();
+        rows.push(...page.rows);
+      }
+      return rows;
+    }) as Listable<Row>['every'],
     read: (async (key: Key, options?: ReadOptions<Row>) => {
       const wanted = options?.live ? liveSubscription(descriptor, scopeDomain, key) : undefined;
       return client.request<Row>(

@@ -156,8 +156,9 @@ export interface PageQuery {
   /**
    * The page size, up to the resource's declared maximum, or 'all' for every row on a
    * resource that declares no maximum, the one list request that needs no order. The
-   * server refuses 0, a size over the maximum, and 'all' where a maximum is declared; a
-   * resource with a maximum is read a page at a time and never whole (see readMode).
+   * server refuses 0, a size over the maximum, and 'all' where a maximum is declared: no
+   * one request answers every row of a resource with a maximum, and a reader that needs
+   * them all asks a page at a time to the end (a handle's `every`; see readMode).
    */
   limit?: number | 'all';
   /**
@@ -202,6 +203,18 @@ export interface ListQueryBase<Row> {
  */
 export type ListQuery<Row, Key extends readonly unknown[] = readonly unknown[]> = ListQueryBase<Row> &
   (Key extends readonly [] ? unknown : PageQuery);
+
+/**
+ * The query of a read of every row (a handle's `every`): the list parameters with no
+ * page and no count. The reader chooses the page size and follows the server's cursors
+ * itself, and the rows come back together, so their count is their length. `limit`,
+ * `cursor` and `count` are typed `never`, so a call that names one does not compile.
+ */
+export type EveryQuery<Row> = Omit<ListQueryBase<Row>, 'count'> & {
+  limit?: never;
+  cursor?: never;
+  count?: never;
+};
 
 export interface ReadOptions<Row> {
   columns?: (keyof Row & string)[];

@@ -9,16 +9,15 @@ import {
   ApiError,
   Domain,
   DomainClient,
+  EveryQuery,
   Listable,
   ListQuery,
   Method,
   Page,
   Permission,
-  readMode,
   Resource,
   ResourceDescriptor,
   ResourceHandle,
-  wholeListQuery,
 } from '@impulseframework/resource';
 
 /** The generated client bound to one sector: its resources and RPC methods. */
@@ -56,29 +55,6 @@ export function grantedColumns<Row>(handle: ListHandle<Row>): ListQuery<Row> {
   }
   return { columns: [...new Set([...handle.descriptor.keys, ...fields])] as (keyof Row & string)[] };
 }
-
-/**
- * Every row of a resource, for a deck that draws them all: one request where the resource
- * declares no maximum page size, and where it declares one, a page of that size at a time
- * until the server names no next page. The rows come back together, at the end, so a deck
- * never draws a part of them.
- */
-async function everyRow<Row>(handle: ListHandle<Row>, query?: EveryQuery<Row>): Promise<Row[]> {
-  if (readMode(handle.descriptor) === 'whole') {
-    return handle.list(wholeListQuery<Row>(handle.descriptor, query));
-  }
-  const rows: Row[] = [];
-  let page = await handle.page({ ...query, limit: handle.descriptor.page?.max });
-  rows.push(...page.rows);
-  while (page.next) {
-    page = await page.next();
-    rows.push(...page.rows);
-  }
-  return rows;
-}
-
-/** The query of a read of every row: a list's, without the page it would ask for. */
-export type EveryQuery<Row> = Omit<ListQuery<Row>, 'limit' | 'cursor'>;
 
 /** What a global reader reads with: the granted handle and the query it was given, built. */
 interface GlobalRead<Row> {
@@ -297,11 +273,12 @@ export class SectorService {
   /**
    * sectorEvery is sectorList for a deck that draws every row of a resource, a board and
    * not a list: the hangar deck's bays hold every refit of the sector, however many there
-   * are. A resource with no maximum page size is read in one request (`limit: 'all'`);
-   * one that declares a maximum refuses that, so it is read a page of the maximum at a
-   * time to the end, and the deck gets the rows once, all of them. The read is asked
-   * again when the sector or the answer to the List question changes, and not when a
-   * digest arrives that changes neither, so a deck that is drawn stays drawn.
+   * are. The rows are read by the client's own reader of every row (a handle's `every`):
+   * one request where the resource declares no maximum page size, a page of the maximum
+   * at a time to the end where it declares one, and the deck gets the rows once, all of
+   * them. The read is asked again when the sector or the answer to the List question
+   * changes, and not when a digest arrives that changes neither, so a deck that is drawn
+   * stays drawn.
    */
   sectorEvery<Row>(select: (sector: SectorApi) => ListHandle<Row>, query?: EveryQuery<Row>): ResourceRef<Row[]> {
     const granted = computed(() => {
@@ -312,7 +289,7 @@ export class SectorService {
     });
     return resource({
       params: () => ({ handle: granted() }),
-      loader: ({ params }) => (params.handle ? everyRow(params.handle, query) : Promise.resolve([])),
+      loader: ({ params }) => (params.handle ? params.handle.every(query) : Promise.resolve([])),
       defaultValue: [],
     });
   }

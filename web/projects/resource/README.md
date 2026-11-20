@@ -114,15 +114,25 @@ picker pages it with Previous and Next by the server's cursors, sorted by its `@
 or else by the picker's display column, and reads the chosen row by key (a source with a
 maximum serves a read; the generator refuses one that does not); a lookup that resolves
 display values for a page of keys asks for one `filter=id:in:(…)` page over them, served
-by the key's index. There is no operation that reads every row of a bounded resource:
-the maximum was declared to keep the whole set out of memory, and nothing in the client
-walks past it. `readMode(descriptor)` answers `'whole'` or `'paged'`, and
-`wholeListQuery`, `pickerSort`, `keyBatches`, and `keyLookupQuery` are the requests
-each side makes, shared by every reader.
+by the key's index. None of these readers walks past a page.
+`readMode(descriptor)` answers `'whole'` or `'paged'`, and `wholeListQuery`,
+`pickerSort`, `keyBatches`, and `keyLookupQuery` are the requests each side makes,
+shared by every reader.
+
+`every` is the one reader of every row, for a page whose answer is wrong with a part
+of them: a board that counts what is open, a picker that must offer each choice. It
+takes the list query without `limit`, `cursor` and `count` (naming one does not
+compile) and hands the rows back together. With no maximum it makes the one
+`limit=all` request; with a maximum it asks for a page of the maximum at a time, by the
+server's `next` relations, to the end, and a page that fails rejects the whole read.
+The whole set is then in memory, which the maximum otherwise keeps from happening, so
+call it where the set is known to be small for the reader (one station's open
+missions), and turn a long list with `page`.
 
 ```ts
 const hulls = await api.shipClasses.list({ limit: 'all' }); // no maximum: the whole catalog
 const hangars = await sector.hangars.page({ count: true }); // a maximum: one page, Previous and Next
+const open = await station.missions.every({ sort: { field: 'deadline' } }); // every row, a page of the maximum at a time
 ```
 
 A resource whose descriptor lists `keys: []` (a `@computed` or `@virtual` struct with no
