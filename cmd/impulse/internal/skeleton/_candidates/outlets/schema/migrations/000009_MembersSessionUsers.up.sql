@@ -15,8 +15,8 @@ CREATE TABLE MembersSessionUsers (
   LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
-  -- An operator set the password (a first password, a reset): the person changes it
-  -- before anything else is served (the session library's forced change).
+  -- An administrator required a new password of the person: they choose it before
+  -- anything else is served (the session library's forced change).
   PasswordChangeRequired BOOL NOT NULL DEFAULT (FALSE),
   -- The database's time at the insert and at the latest sign-in (null before the
   -- first); the session library writes both as commit timestamps.

@@ -27,7 +27,6 @@ type AuthDriver interface {
 	User(ctx context.Context, id impulse.UUID) (*dbtype.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
-	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
@@ -494,6 +493,11 @@ type AuthHarness struct {
 	// MailLinkConsumedAt reads the ConsumedAt of the mail link holding tokenHash
 	// directly: nil while it is live.
 	MailLinkConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// RequirePasswordChange sets the user's password change mark directly, bypassing
+	// the driver, as an application's account management does when an administrator
+	// requires a new password: the library reads the mark and clears it, and no write of
+	// the driver's sets it.
+	RequirePasswordChange func(ctx context.Context, t *testing.T, raw any, userID impulse.UUID)
 	// ClockLead is how far the backend's clock may run ahead of the host's; see
 	// Harness.ClockLead.
 	ClockLead time.Duration
@@ -572,14 +576,12 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a session row names an existing user or no user: the schema refuses an unknown user id", run: testSessionUserForeignKey},
 		{name: "a sign-in records the provider's session id under its issuer, and a provider-initiated logout ends the sessions under that issuer and id and no other", run: testProviderSessionLogout},
 		{name: "a sign-in and everything written with it take the database's time, once", run: testDatabaseTimeOnSignIn},
-		{name: "a user is stored with its password change mark and the database's time, and listed by username", run: testUserAccounts},
-		{name: "a password is replaced with its change mark and the user's sessions ended in one transaction: both, or neither", run: testPasswordReplaced},
+		{name: "a user is stored with the database's time and under no password change mark, reads back the mark an application writes, and is listed by username", run: testUserAccounts},
 		{name: "a hash upgrade, a user's own change and a user's own removal write on proof of the hash the user holds, and nothing without one", run: testProvenPasswordWrites},
 		{name: "a hash upgrade, a user's own change and a user's own removal write nothing once another write of the password has committed since the user was read", run: testProvenPasswordWriteAfterAnotherWrite},
-		{name: "a password written over the one held stands, with its change mark, whatever write on proof of the password it replaces is asked at once", run: testProvenPasswordWriteRacesReplacement},
 		{name: "a user's own change writes the password and ends the user's sessions in one transaction: both, or neither", run: testOwnChangeEndsSessions},
 		{name: "a first password is written for a user who holds none, once, and ends no session; a user who holds one keeps it", run: testFirstPassword},
-		{name: "a sign-in on proof of a password inserts its session only while the user holds that password: refused after a change, a replacement or a removal, before the policy is asked", run: testProvenSignIn},
+		{name: "a sign-in on proof of a password inserts its session only while the user holds that password: refused after a change or a removal, before the policy is asked", run: testProvenSignIn},
 		{name: "a pending sign-in a password started keeps the proof, is inserted only while the user holds that password, and completes only while they do; one no password proved is untouched", run: testProvenPendingSignIn},
 		{name: "a link confirmed with a password is made only while the user holds that password", run: testProvenLinkConfirmed},
 		{name: "a sign-in on proof of a password and the write that replaces it, asked at once, leave no live session resting on the replaced password", run: testProvenSignInRacesPasswordWrite},

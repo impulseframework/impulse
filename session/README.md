@@ -1244,7 +1244,7 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   or disabled, the session data's `ID` is the token's, its one auth event is `token`
   with the token's kind as its connection, and `sessioninfo.TokenFromCtx(ctx)` names
   the token. See "Machine outlets and bearer tokens".
-- **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
+- **User management is by ID**: `ChangeSessionUserPassword`,
   `DeactivateSessionUser` and `DeleteSessionUser` destroy the user's sessions by
   `UserId`; `DeleteSessionUser` deletes its identity links with
   it; `UnlinkIdentity` refuses the last identity that can sign in a user with no
@@ -1293,10 +1293,9 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | --- | --- |
 | `Users(ctx)` | Every user, by username. |
 | `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
-| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
+| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, Email})` | A user, password-less when `Password` is nil. `Password` is the seam for a seed or an import, which creates an account that already holds a password: a person's own account is made by an invitation or a sign-up, where the person chooses theirs. The user is created under no password change mark. The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then continues in a new one. The new session is the continuation of the one that made the change: it records that session's auth events, how it was established and the factors it holds, read from the session and never from the request, so a person who signed in through a directory still holds the directory's session and one who entered with a password and the mailed code keeps the code. Where there is none to continue (a call outside a session of the user, a request a bearer token authenticated, or a session that views the application as them) it records the password the change proved, alone. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
-| `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (an enrollment). The library's reset link is not such a flow: it writes on proof (`AuthStore.ChangeUserPassword`, "A password reset" below). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 
 One rule holds a password's shape on every path that sets one: it is at least eight
@@ -1333,10 +1332,9 @@ not hold, and gives nothing to a user of another id who holds the persona's logi
 administrator is not seeded: no account is made ahead of the person, who is invited (see
 "The first administrator's invitation").
 
-**The forced password change.** A password an operator set at creation
-(`PasswordChangeRequired`) is temporary, and an administrator may require a new one of
-any person who holds a password (the generated user management's method, which sets
-the same mark): the user changes it before anything else is served. While the mark is set, `ValidateSession` (and
+**The forced password change.** An administrator may require a new password of
+any person who holds one (the generated user management's method, which sets
+the mark `PasswordChangeRequired` on the user's row): the user changes it before anything else is served. While the mark is set, `ValidateSession` (and
 `AuthAPI.ValidateSession`) refuses every request with 403 and `{"message", "code":
 "password_change_required"}`; the session read answers, with `"passwordChangeRequired":
 true`, and the logout and the password change go through, since they validate the
@@ -1345,10 +1343,11 @@ wiring above. A login page that reads the mark from the session read posts the c
 to the methods list's `changePassword` path before it opens the application. The change
 clears the mark and goes on in a new session that carries the auth events of the one
 that made it (`ChangeSessionUserPassword`, below); an
-impersonated session is the actor's and is not held to the user's mark. A user an
-operator creates with a password under `PasswordChangeRequired` carries the mark; the password a user chose through
-`ChangeSessionUserPassword` or `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
-mark without a password is refused.
+impersonated session is the actor's and is not held to the user's mark. No call of the
+library sets the mark: a user is created under none, with a password or without, and the
+application writes it when an administrator requires the change. The password a user chose through
+`ChangeSessionUserPassword` or at a reset link clears it. A password-less user has nothing to change, so the
+generated user management refuses to require a change of one.
 
 **Removing a password.** A person who signs in through a directory does not need the
 password they started with. Its removal follows the rule of an identity's unlinking,
@@ -1433,8 +1432,8 @@ hash and mark. An upgrade that finds the password changed fails its sign-in as a
 password does, since the password entered is no longer the person's; a change or a
 removal answers 409 and says the password has changed since it was entered and to try
 again, with no session ended. Without this an upgrade could put back a password that
-had just been changed or removed, and a change or a removal could undo an operator's
-reset on proof of the password it replaced.
+had just been changed or removed, and a change or a removal could undo a password
+written a moment before, at a reset link or in another window, on proof of the one it replaced.
 
 **What a password proves is inserted only while the person still holds that
 password.** A sign-in compares the password and inserts later: the session, or the
@@ -1464,19 +1463,16 @@ factor, a session the application starts) carries no proof and is held to none. 
 pending sign-ins table made before the proof takes the column from the auth set's
 `SessionPasswordProofs` migration.
 
-The writes that follow no proof overwrite on purpose: `SetSessionUserPassword` and
-`RemoveSessionUserPassword` write whatever the row holds (the store's
-`ReplaceUserPassword` and `RemoveUserPassword`), and so does the generated user
+One write follows no proof and overwrites on purpose, an operator's removal:
+`RemoveSessionUserPassword` writes whatever the row holds (the store's
+`RemoveUserPassword`), and so does the generated user
 management's removal, which writes the column in the caller's transaction. Neither
-claims to know the password being replaced, so there is nothing to compare. A reset
-link is not one of them: the password a person chooses there is written over the
+claims to know the password being removed, so there is nothing to compare. No call of
+the library puts one password over another without a proof of the one held. A reset
+link writes on proof too: the password a person chooses there is written over the
 password the account held when the link was followed and over no other (the store's
 `ChangeUserPassword`, on the hash read with the link), so a password changed or removed
 in that moment stands and the link answers 409 ("A password reset", below).
-A password set by `SetSessionUserPassword` ends the person's sessions as their own
-change does, in the transaction that writes it: the store's `ReplaceUserPassword` writes the hash and the
-mark and expires every session of the user together, or does neither, so a failure
-between the two cannot leave the new password in place with the old sessions alive.
 
 ### A person's first password
 
@@ -2160,7 +2156,7 @@ a name at the limit answers 429 with `too_many_attempts` and the wait before any
 is hashed, so a session of the person guesses their password no faster than the login
 lets a stranger. A matching password resets the
 name, as do an MFA completion (`CompletePending`) and a password change of any kind
-(`ChangeSessionUserPassword`, `SetSessionUserPassword`).
+(`ChangeSessionUserPassword`, the password chosen at a reset link).
 Nothing locks a user an operator must unlock: the lock passes on its own, and a
 password change lifts it. An operator who will not wait clears it: the name's row
 deleted from the sign-in attempts table (the key is `SignInAttemptName(username)`), as
@@ -2907,7 +2903,7 @@ table is the wire contract:
 | `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
 | `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or the standard account rule found no sign-in name to use as the username. |
-| `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
+| `password_change_required` | `RefusedPasswordChangeRequired` | Auth: an administrator required a new password of the signed-in user; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a personal account, a session the application started itself) by a person whose every tenant is directory only. A password sign-in by a person who administers one of those tenants is not refused: it is held for the second factor (see "The tenant policy", rule 2). |

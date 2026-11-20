@@ -1062,8 +1062,8 @@ was issued, echoed in the header. The methods route names the reset paths
 themselves (section 21, "Who may sign up"), so the login page offers "Forgot your
 password?" from the list it already reads. The password change
 (`PasswordChange`, the password method's `ChangeUserPassword`) validates the session
-itself, so it sits outside `ValidateSession`: a person whose operator-set password must
-change before anything else is served reaches it, and the methods route tells the login
+itself, so it sits outside `ValidateSession`: a person an administrator required a new
+password of, who chooses it before anything else is served, reaches it, and the methods route tells the login
 page where (`changePassword`), which renders the change form before the signed-in page
 (section 21). The removal of a person's own password (`PasswordRemove`, the password
 method's `RemoveUserPassword`) is mounted beside it the same way, and the methods route

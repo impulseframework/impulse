@@ -12,9 +12,9 @@ type ChangeSessionUserPasswordRequest struct {
 }
 
 // CreateUserRequest takes in the user information for creating a new SessionUser. A nil
-// Password creates a password-less user. PasswordChangeRequired marks the password as
-// one an operator set: the user changes it before anything else is served (see the
-// README's "Users and the forced password change"); it needs a Password. Email is
+// Password creates a password-less user. Password is the seam for a seed or an import,
+// which creates an account that already holds a password: a person's own account is
+// made by an invitation or a sign-up, where the person chooses theirs. Email is
 // the address the operator enters, unverified (see "Users and their email address").
 // Name is the person's name as people read it (see "A person's name").
 type CreateUserRequest struct {
@@ -25,11 +25,10 @@ type CreateUserRequest struct {
 	// (SeedUserID). Null, as everywhere else, has the library generate one. It is set by
 	// Go callers alone and never read from a request body. An id another user holds
 	// fails, and so does the nil id.
-	ID                     impulse.NullUUID `json:"-"`
-	Username               string           `json:"username"`
-	Password               *string          `json:"password"`
-	Disabled               bool             `json:"disabled"`
-	PasswordChangeRequired bool             `json:"passwordChangeRequired"`
+	ID       impulse.NullUUID `json:"-"`
+	Username string           `json:"username"`
+	Password *string          `json:"password"`
+	Disabled bool             `json:"disabled"`
 	// Email is the user's email address as an operator enters it, unverified: it
 	// reserves the address, and a link may be sent to it. Nil for none. When the
 	// username is the address (UsernameIsEmail) it is nil or the username.

@@ -201,12 +201,6 @@ func TestAuth_passwordRule_everyPath(t *testing.T) {
 		old(t, f, 1)
 		refused(t, f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "the old one", NewPassword: short}))
 	})
-	t.Run("a password set for a person by a flow of the application's own", func(t *testing.T) {
-		t.Parallel()
-		f := newAuthFixture(t, gomock.NewController(t))
-		old(t, f, 1)
-		refused(t, f.auth.API().SetSessionUserPassword(context.Background(), userID, short))
-	})
 	t.Run("an account created with a password", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))

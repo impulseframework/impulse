@@ -339,8 +339,8 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 		w := firstLinkWorld("Member")
 		in := w.start(ctx, t, h)
 
-		// An account created with a temporary password, as the first administrator a
-		// deployment seeds is, holds a password: the link waits for it.
+		// An account created with a password, as one a seed or an import makes is, holds
+		// a password: the link waits for it.
 		dana := passwordUser(ctx, t, in.Driver, name)
 		w.seats.give(dana.ID, "riverside", "Teacher")
 		identity := throughProvider("sub-claimed", name, name)

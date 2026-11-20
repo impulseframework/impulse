@@ -20,14 +20,15 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:                newAuthInstance,
-		CountAuthEvents:    countAuthEvents,
-		DeleteSession:      deleteSession,
-		Recorded:           recorded,
-		Record:             record,
-		PendingConsumedAt:  pendingConsumedAt,
-		MailLinkConsumedAt: mailLinkConsumedAt,
-		ClockLead:          emulatorClockLead,
+		New:                   newAuthInstance,
+		CountAuthEvents:       countAuthEvents,
+		DeleteSession:         deleteSession,
+		Recorded:              recorded,
+		Record:                record,
+		PendingConsumedAt:     pendingConsumedAt,
+		MailLinkConsumedAt:    mailLinkConsumedAt,
+		RequirePasswordChange: requirePasswordChange,
+		ClockLead:             emulatorClockLead,
 	})
 }
 
@@ -133,6 +134,17 @@ func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID impulse
 	})
 	if err != nil {
 		t.Fatalf("ReadWriteTransaction() error = %v", err)
+	}
+}
+
+// requirePasswordChange sets the user's password change mark directly, as an
+// application's account management writes it.
+func requirePasswordChange(ctx context.Context, t *testing.T, raw any, userID impulse.UUID) {
+	t.Helper()
+
+	mark := spanner.Update("SessionUsers", []string{"Id", "PasswordChangeRequired"}, []any{userID.String(), true})
+	if _, err := client(t, raw).Apply(ctx, []*spanner.Mutation{mark}); err != nil {
+		t.Fatalf("Apply() error = %v", err)
 	}
 }
 

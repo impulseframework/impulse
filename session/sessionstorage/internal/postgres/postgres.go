@@ -629,8 +629,10 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 // as sessioninfo.CleanName leaves it; the caller has validated the row.
 func (s *SessionStorageDriver) userInsertStatement(id impulse.UUID, user *dbtype.InsertSessionUser) (query string, args []any) {
 	columns := `"Id", "Username", "PasswordHash", "Disabled", "PasswordChangeRequired", "CreatedAt"`
-	values := `$1, $2, $3, $4, $5, now()`
-	args = []any{id, user.Username, user.PasswordHash, user.Disabled, user.PasswordChangeRequired}
+	// A user is created under no password change mark: the mark is the application's
+	// write, made when an administrator requires a new password.
+	values := `$1, $2, $3, $4, FALSE, now()`
+	args = []any{id, user.Username, user.PasswordHash, user.Disabled}
 	if s.users {
 		if !s.usernameIsEmail {
 			columns += `, "Email"`
@@ -905,53 +907,6 @@ func (s *SessionStorageDriver) passwordNotProven(ctx context.Context, q rowQueri
 // the row holding another hash than the proven one.
 func errPasswordChanged() error {
 	return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
-}
-
-// ReplaceUserPassword sets a user's password hash and whether the user must change the
-// password before anything else is served (false for a password the user chose, which
-// is what the session library writes), and expires every session of the user, in one
-// transaction: the password is replaced and the sessions ended together, or neither
-// is. It follows no proof of the password it replaces and overwrites whatever the row
-// holds. The
-// password is written first: the write waits for a sign-in that is inserting a session
-// on proof of the password being replaced (the flow shares the user row's lock while it
-// decides), so the expiry that follows finds that session and ends it.
-func (s *SessionStorageDriver) ReplaceUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if !s.users {
-		return errors.New("ReplaceUserPassword needs the auth schema: use Auth storage")
-	}
-
-	txn, err := s.conn.Begin(ctx)
-	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
-	}
-	defer func() {
-		_ = txn.Rollback(ctx)
-	}()
-
-	query := fmt.Sprintf(`
-		UPDATE %s SET "PasswordHash" = $2, "PasswordChangeRequired" = $3
-		WHERE "Id" = $1`, s.userTable())
-
-	cmdTag, err := txn.Exec(ctx, query, userID, hash, changeRequired)
-	if err != nil {
-		return errors.Wrap(err, "pgx.Tx.Exec()")
-	}
-	if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
-	}
-	if err := s.destroyUserSessionsIn(ctx, txn, userID); err != nil {
-		return err
-	}
-
-	if err := txn.Commit(ctx); err != nil {
-		return errors.Wrap(err, "pgx.Tx.Commit()")
-	}
-
-	return nil
 }
 
 // TouchUserSignIn moves a user's LastSignInAt to the transaction's time. It is its own

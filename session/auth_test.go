@@ -3159,70 +3159,20 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("setting a password the user chose clears the mark and ends the user's sessions in the store's one write", func(t *testing.T) {
-		t.Parallel()
-		ctrl := gomock.NewController(t)
-		f := newAuthFixture(t, ctrl)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-		// The store writes the password and ends the sessions in one transaction
-		// (ReplaceUserPassword). The mock refuses a call it was not told of: the sessions
-		// are not ended by a second call, which a failure could come before.
-		replaced := func(password string) func(context.Context, impulse.UUID, *securehash.Hash, bool) error {
-			return func(_ context.Context, _ impulse.UUID, hash *securehash.Hash, _ bool) error {
-				if hash == nil {
-					t.Errorf("ReplaceUserPassword() was handed no hash, want the hash of %q", password)
-
-					return nil
-				}
-				if _, err := securehash.New(securehash.Argon2()).Compare(hash, password); err != nil {
-					t.Errorf("ReplaceUserPassword() was handed a hash %q does not match: %v", password, err)
-				}
-
-				return nil
-			}
-		}
-		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).DoAndReturn(replaced("chosen well"))
-		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); err != nil {
-			t.Errorf("SetSessionUserPassword() error = %v", err)
-		}
-		if _, _, clears := f.counts(); clears != 1 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want once for the password", clears)
-		}
-	})
-
-	t.Run("a password the store could not set changes nothing: the failure is the caller's, and the name's attempts stay", func(t *testing.T) {
-		t.Parallel()
-		ctrl := gomock.NewController(t)
-		f := newAuthFixture(t, ctrl)
-		failed := errors.New("the sessions could not be ended")
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(failed)
-
-		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); !errors.Is(err, failed) {
-			t.Errorf("SetSessionUserPassword() error = %v, want the store's failure", err)
-		}
-		if _, _, clears := f.counts(); clears != 0 {
-			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was written", clears)
-		}
-	})
-
-	t.Run("a user created with a password an operator set carries the mark; the mark without a password is refused", func(t *testing.T) {
+	t.Run("a user created with a password holds it under no mark: the seam for a seed or an import", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, user *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-			if user.Username != "pat" || user.PasswordHash == nil || !user.PasswordChangeRequired {
-				t.Errorf("CreateUser() = %+v, want pat with a password and the mark", user)
+			if user.Username != "pat" || user.PasswordHash == nil {
+				t.Errorf("CreateUser() = %+v, want pat with a password", user)
 			}
 
-			return &sessionstorage.SessionUser{ID: userID, Username: user.Username, PasswordHash: user.PasswordHash, PasswordChangeRequired: user.PasswordChangeRequired}, nil
+			return &sessionstorage.SessionUser{ID: userID, Username: user.Username, PasswordHash: user.PasswordHash}, nil
 		})
-		temporary := "temporary"
-		if id, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "pat", Password: &temporary, PasswordChangeRequired: true}); err != nil || id != userID {
+		seeded := "a seeded password"
+		if id, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "pat", Password: &seeded}); err != nil || id != userID {
 			t.Errorf("CreateSessionUser() = %s, %v; want %s", id, err, userID)
-		}
-		if _, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "sam", PasswordChangeRequired: true}); !httpio.HasBadRequest(err) {
-			t.Errorf("CreateSessionUser() of a password-less user with the mark error = %v, want BadRequest", err)
 		}
 	})
 

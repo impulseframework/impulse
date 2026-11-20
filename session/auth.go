@@ -604,7 +604,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // Authenticated answers {"authenticated", "username", "name", "look",
 // "passwordChangeRequired", "email", "emailVerified", "emailHint", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
-// while the user must change a password an operator set (see "Users and the forced
+// while an administrator's required password change stands (see "Users and the forced
 // password change" in the README): the session read is answered under the mark, so the
 // login page can show the change form. email is the user's address when they hold one,
 // with emailVerified saying whether they have proven it; emailHint, present when the
@@ -711,8 +711,8 @@ func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 // ValidateSession validates the session and loads its user by UserId. A session
 // with no user, or whose user is missing or disabled, is refused with 401. The
 // user is available through sessioninfo.UserFromCtx. A foreign actor's
-// role-principal impersonation has no user and carries only its username. A user who
-// must change a password an operator set is refused with 403 and {"message", "code":
+// role-principal impersonation has no user and carries only its username. A user an
+// administrator required a new password of is refused with 403 and {"message", "code":
 // "password_change_required"} until the change: route the password change, the
 // session read and the logout outside this middleware, since they validate on their
 // own and are what the user reaches meanwhile. An impersonated session is not held to

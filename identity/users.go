@@ -83,8 +83,8 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 // alone: a holder who signs in through a directory and no longer knows the password is
 // shut out by it until they follow a password reset link (requireSuperAdministratorFor).
 //
-// Shared rule: the session library refuses the flag on a user without a password where
-// it creates one (CreateSessionUser), and reads it on every request.
+// Shared rule: the session library reads the flag on every request and sets it nowhere,
+// so this write is the one way a person comes under it.
 func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

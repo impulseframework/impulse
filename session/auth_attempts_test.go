@@ -412,22 +412,6 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "a password the user set through a flow of the application's own resets the name",
-			run: func(t *testing.T, f *authFixture) {
-				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(pat(), nil).Times(2)
-				f.login("pat", "wrong", "10.0.0.1", "tok")
-				f.login("pat", "wrong", "10.0.0.1", "tok")
-				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
-				f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil)
-				if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen well"); err != nil {
-					t.Fatalf("SetSessionUserPassword() error = %v", err)
-				}
-				if _, _, clears := f.counts(); clears != 1 || f.attemptsRecord("pat") != nil {
-					t.Errorf("clears = %d, record = %v; want one clear for the password set and no record", clears, f.attemptsRecord("pat"))
-				}
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

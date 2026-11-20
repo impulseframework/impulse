@@ -768,20 +768,6 @@ func (mr *MockAuthStoreMockRecorder[Tx]) RemoveUserPassword(ctx, userID, standin
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*MockAuthStore[Tx])(nil).RemoveUserPassword), ctx, userID, standing)
 }
 
-// ReplaceUserPassword mocks base method.
-func (m *MockAuthStore[Tx]) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceUserPassword", ctx, id, hash, changeRequired)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReplaceUserPassword indicates an expected call of ReplaceUserPassword.
-func (mr *MockAuthStoreMockRecorder[Tx]) ReplaceUserPassword(ctx, id, hash, changeRequired any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceUserPassword", reflect.TypeOf((*MockAuthStore[Tx])(nil).ReplaceUserPassword), ctx, id, hash, changeRequired)
-}
-
 // RevokeMailLink mocks base method.
 func (m *MockAuthStore[Tx]) RevokeMailLink(ctx context.Context, id impulse.UUID) error {
 	m.ctrl.T.Helper()

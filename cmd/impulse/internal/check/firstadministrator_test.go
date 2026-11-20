@@ -48,7 +48,7 @@ import (
 const Administrator = "administrator"
 
 func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, error) {
-	return true, a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password, PasswordChangeRequired: true})
+	return true, a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password})
 }
 
 func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest) error {

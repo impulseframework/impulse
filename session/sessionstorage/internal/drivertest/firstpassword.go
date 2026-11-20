@@ -50,13 +50,13 @@ func testFirstPassword(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Errorf("User() after the refused write = %+v, want the password as it was", got)
 	}
 
-	marked := linkedPasswordUser(ctx, t, in.Driver, "marked", temporary, true)
+	marked := markedPasswordUser(ctx, t, h, in, "marked", temporary)
 	err = in.Driver.SetFirstUserPassword(ctx, marked.ID, another)
 	if !errors.Is(err, dbtype.ErrPasswordHeld) || !httpio.HasConflict(err) {
-		t.Errorf("SetFirstUserPassword() for a user who holds a temporary password error = %v, want ErrPasswordHeld (Conflict)", err)
+		t.Errorf("SetFirstUserPassword() for a user who must change the password they hold error = %v, want ErrPasswordHeld (Conflict)", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, marked.ID); !sameHash(got.PasswordHash, temporary) || !got.PasswordChangeRequired {
-		t.Errorf("User() after the refused write = %+v, want the temporary password and its mark as they were", got)
+		t.Errorf("User() after the refused write = %+v, want the password and its mark as they were", got)
 	}
 
 	if err := in.Driver.SetFirstUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen); !httpio.HasNotFound(err) {

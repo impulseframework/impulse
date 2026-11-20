@@ -19,13 +19,14 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:                newAuthInstance,
-		CountAuthEvents:    countAuthEvents,
-		DeleteSession:      deleteSession,
-		Recorded:           recorded,
-		Record:             record,
-		PendingConsumedAt:  pendingConsumedAt,
-		MailLinkConsumedAt: mailLinkConsumedAt,
+		New:                   newAuthInstance,
+		CountAuthEvents:       countAuthEvents,
+		DeleteSession:         deleteSession,
+		Recorded:              recorded,
+		Record:                record,
+		PendingConsumedAt:     pendingConsumedAt,
+		MailLinkConsumedAt:    mailLinkConsumedAt,
+		RequirePasswordChange: requirePasswordChange,
 	})
 }
 
@@ -114,6 +115,16 @@ func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID impulse
 	t.Helper()
 
 	if _, err := queryer(t, raw).Exec(ctx, `DELETE FROM "Sessions" WHERE "Id" = $1`, sessionID); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
+// requirePasswordChange sets the user's password change mark directly, as an
+// application's account management writes it.
+func requirePasswordChange(ctx context.Context, t *testing.T, raw any, userID impulse.UUID) {
+	t.Helper()
+
+	if _, err := queryer(t, raw).Exec(ctx, `UPDATE "SessionUsers" SET "PasswordChangeRequired" = TRUE WHERE "Id" = $1`, userID); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
 }

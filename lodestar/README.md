@@ -770,8 +770,8 @@ writes for each auth (below, and [one channel](#one-channel-between-instances)):
 console serves the crew's and, by the generator program's `Manages`, the members' beside
 it, so headquarters administers both populations; a directory-signed member's roles are
 the directory's, reconciled at every login, and the members' management has no method
-that writes them. A crew login an operator creates with a password to be changed, or an
-administrator requires a new password of, carries the forced password change, which the login page serves before anything
+that writes them. A crew login an
+administrator requires a new password of carries the forced password change, which the login page serves before anything
 else.
 
 A person is named by the id of their account, never by their username. The id (the key

@@ -346,7 +346,7 @@ func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionU
 		return nil, nil, errors.Wrap(err, "sessioninfo.CleanName()")
 	}
 	user := &dbtype.SessionUser{
-		ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled, PasswordChangeRequired: insertUser.PasswordChangeRequired,
+		ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled,
 	}
 
 	passwordHash, err := passwordHashValue(user.PasswordHash)
@@ -355,7 +355,9 @@ func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionU
 	}
 	row := map[string]any{
 		idColumn: user.ID, usernameColumn: user.Username, "PasswordHash": passwordHash, "Disabled": user.Disabled,
-		"PasswordChangeRequired": user.PasswordChangeRequired, createdAtColumn: spanner.CommitTimestamp,
+		// A user is created under no password change mark: the mark is the application's
+		// write, made when an administrator requires a new password.
+		"PasswordChangeRequired": false, createdAtColumn: spanner.CommitTimestamp,
 	}
 	if s.users {
 		if !s.usernameIsEmail {
@@ -608,8 +610,8 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 
 // destroyUserSessionsIn expires every live session of a user inside txn, as
 // DestroyUserSessions does in a transaction of its own: a user's own change of
-// password and a replacement of it on another proof end the user's sessions in the
-// transaction that writes the password (ChangeUserPassword, ReplaceUserPassword).
+// password ends the user's sessions in the transaction that writes the password
+// (ChangeUserPassword).
 func (s *SessionStorageDriver) destroyUserSessionsIn(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error {
 	// The local-actor records name the actor by username.
 	var username string

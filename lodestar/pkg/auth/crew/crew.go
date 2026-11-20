@@ -444,8 +444,8 @@ func (h *Handlers) PasswordLogin() http.HandlerFunc {
 }
 
 // PasswordChange is the password method's change: {"oldPassword", "newPassword"} in
-// from a signed-in person, who may be one whose operator-set password must change before
-// anything else is served. It validates the session itself, so the generated router
+// from a signed-in person, who may be one an administrator required a new password of,
+// which they choose before anything else is served. It validates the session itself, so the generated router
 // mounts it outside ValidateSession, behind the XSRF guard.
 func (h *Handlers) PasswordChange() http.HandlerFunc {
 	return h.password.ChangeUserPassword()

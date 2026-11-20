@@ -436,22 +436,24 @@ func seamAddressChange[Tx any](ctx context.Context, t *testing.T, be backend[Tx]
 	reader.expect(ctx, http.StatusNotFound, http.MethodPost, "/email/confirm", map[string]string{"token": mistyped})
 	reader.expect(ctx, http.StatusOK, http.MethodPost, "/email/confirm", map[string]string{"token": right})
 
-	// A reset link mailed for one password does not reset the next: an operator sets
-	// another, and the link is dead.
+	// A reset link mailed for one password does not reset the next: the person changes
+	// their password, and the link is dead.
 	if err := a.api.SendPasswordReset(ctx, pat, session.AskedByApplication()); err != nil {
 		t.Fatalf("SendPasswordReset() error = %v", err)
 	}
 	_, reset := a.lastLink(t, "p.lee@lakeside.edu", "reset")
 	reader.expect(ctx, http.StatusOK, http.MethodPost, "/reset/open", map[string]string{"token": reset})
-	if err := a.api.SetSessionUserPassword(ctx, pat, seedPassword); err != nil {
-		t.Fatalf("SetSessionUserPassword() error = %v", err)
+	const changed = "a-changed-password-1"
+	change := &session.ChangeSessionUserPasswordRequest{OldPassword: seedPassword, NewPassword: changed}
+	if err := a.api.ChangeSessionUserPassword(ctx, httptest.NewRecorder(), pat, change); err != nil {
+		t.Fatalf("ChangeSessionUserPassword() error = %v", err)
 	}
 	reader.expect(ctx, http.StatusNotFound, http.MethodPost, "/reset/open", map[string]string{"token": reset})
 
 	// From now on the code goes to the new address.
 	c := a.browser(t).primed(ctx)
-	if status, mfa := c.loginAs(ctx, "pat"); status != http.StatusOK || !mfa {
-		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 requiring MFA", status, mfa)
+	if status, _, body := c.postLogin(ctx, "pat", changed); status != http.StatusOK || !strings.Contains(string(body), `"mfaIsRequired":true`) {
+		t.Fatalf("password login = %d %s, want 200 requiring MFA", status, body)
 	}
 	c.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
 	a.lastCode(t, "p.lee@lakeside.edu")

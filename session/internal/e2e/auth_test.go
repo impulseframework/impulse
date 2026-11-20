@@ -924,8 +924,8 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 	}
 }
 
-// seamForcedPasswordChange: an operator creates pat with a password under the change
-// mark. Signed in, pat reaches the session read, which reports the mark, the password
+// seamForcedPasswordChange: an administrator requires a new password of pat, which the
+// application writes as the change mark. Signed in, pat reaches the session read, which reports the mark, the password
 // change and the logout, and nothing else: a protected route answers 403 with
 // password_change_required. The change clears the mark and continues in a new session
 // that opens the application.
@@ -933,10 +933,12 @@ func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *auth
 	t.Helper()
 
 	temporary := seedPassword
-	pat, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "pat@lakeside.edu", Password: &temporary, PasswordChangeRequired: true})
+	pat, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "pat@lakeside.edu", Password: &temporary})
 	if err != nil {
 		t.Fatalf("CreateSessionUser() error = %v", err)
 	}
+	// An administrator requires a new password of pat: the application's own write.
+	a.db.requirePasswordChange(ctx, t, pat)
 	if user, err := a.api.User(ctx, pat); err != nil || !user.PasswordChangeRequired || user.LastSignInAt != nil {
 		t.Fatalf("User() = %+v, %v; want the mark and no sign-in", user, err)
 	}
