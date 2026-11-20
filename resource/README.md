@@ -4775,7 +4775,10 @@ own, outside any request, has no caller and is the application's act):
   builds on. The real person is asked about by name, in no one tenant. Both questions
   are asked on Spanner and on PostgreSQL, each in its own dialect of the one statement:
   on Spanner through the transaction's reads, on PostgreSQL through the connection the
-  PostgreSQL transaction holds. A question that cannot be asked (a patch decoded with
+  PostgreSQL transaction holds. On PostgreSQL the two questions are what is proven,
+  against real rows: this package's PostgreSQL client runs no generated write yet, so
+  the rule is proven from the request to the row there when that client does. A
+  question that cannot be asked (a patch decoded with
   no collection, a PostgreSQL transaction that holds no connection) answers an error
   and the write does not happen, never a pass. The
   caller's grants and the session's mask answer first, so a person the record's write

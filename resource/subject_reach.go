@@ -32,6 +32,9 @@ import (
 // The questions are asked on both databases the library supports: on Spanner
 // through the transaction's own reads, on PostgreSQL through the connection the
 // PostgreSQL transaction holds, each in its own dialect of the one statement.
+// On PostgreSQL the questions are what is proven, against real rows: the
+// package's PostgreSQL client runs no generated write yet, so a rule that asks
+// them is proven from the request to the row there when that client does.
 
 // SubjectSetHolds reports whether value is in the subject set named set for the
 // person subject, by the set's own definition, read inside the write's
