@@ -63,6 +63,63 @@ func TestTenancy_MeaningIn(t *testing.T) {
 	})
 }
 
+// TestTenancy_Apply_seedWords holds what tenancy says of the development tenants' seed,
+// in the file and in the change, to the sign-in the application has: the logins of the
+// bootstrap's identities file where an auth has the password method, and nothing of a
+// login made ahead where none has.
+func TestTenancy_Apply_seedWords(t *testing.T) {
+	t.Parallel()
+
+	const (
+		seed = "schema/devseed/000001_dev_tenants.up.sql"
+		did  = seed + " and .down.sql: "
+	)
+	tn := Tenancy{Table: "Tenants", OneTenantPerPerson: true}
+
+	t.Run("an application with a password is told of its logins", func(t *testing.T) {
+		t.Parallel()
+
+		a := newBase(t, "staff")
+		ch, err := tn.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Tenancy.Apply() error = %v", err)
+		}
+		if got := read(t, a, seed); !strings.HasPrefix(got, seedCommentLogins+"INSERT INTO Tenants") {
+			t.Errorf("%s does not open with the account of the development logins:\n%s", seed, got)
+		}
+		if got := linesWith(ch.Did, did, []string{"to apply before the logins"}); len(got) != 1 {
+			t.Errorf("the change does not say once that the seed is applied before the logins: %q", ch.Did)
+		}
+	})
+
+	t.Run("an application with no password is told of no login", func(t *testing.T) {
+		t.Parallel()
+
+		start := byDirectoryStart("staff")
+		start.Tenants = &tn
+		a, _ := started(t, &start)
+		ch, err := tn.Apply(t.Context(), a, &fakeExec{})
+		if err != nil {
+			t.Fatalf("Tenancy.Apply() error = %v", err)
+		}
+		got := read(t, a, seed)
+		if !strings.HasPrefix(got, seedCommentNoLogins+"INSERT INTO Tenants") {
+			t.Errorf("%s does not open with the account for an application with no password method:\n%s", seed, got)
+		}
+		for _, never := range []string{"development logins", "identities file"} {
+			if strings.Contains(got, never) {
+				t.Errorf("%s says %q, and no auth of the application has the password method", seed, never)
+			}
+		}
+		if got := linesWith(ch.Did, did, []string{"to apply before anyone is seeded"}); len(got) != 1 {
+			t.Errorf("the change does not say once that the seed is applied before anyone is seeded: %q", ch.Did)
+		}
+		if got := linesWith(ch.Did, did, []string{"logins"}); len(got) != 0 {
+			t.Errorf("the change speaks of logins, and no auth of the application has the password method: %q", got)
+		}
+	})
+}
+
 // TestTenancy_Apply_prunesRoles holds tenancy to taking out of the role file the grants
 // on what its regeneration stops serving: the engine refuses a file that grants a
 // resource the application does not serve, so the application would not start.

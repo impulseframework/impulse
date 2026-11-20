@@ -435,19 +435,36 @@ CREATE UNIQUE INDEX %[2]sByMethodConnection ON %[2]s(Method, Connection);
 `, tn.Table, tn.DirectoryTable(), tn.Record())
 }
 
-// writeSeed adds the development tenants as a data migration beside the schema.
+// The comment over the development tenants' seed, in the words that hold where an auth of
+// the application has the password method (the logins of the bootstrap's identities file
+// name a tenant by its name) and where none has (no development person is a login).
+const (
+	seedCommentLogins = `-- The development tenants, under fixed ids: a tenant's key is an id the application
+-- generates, and the development data fixes the two so the suites can name them. The
+-- development logins name a tenant by its name (the bootstrap identities file).
+`
+	seedCommentNoLogins = `-- The development tenants, under fixed ids: a tenant's key is an id the application
+-- generates, and the development data fixes the two so the suites can name them. No
+-- auth has the password method, so no development person is a login that names a
+-- tenant: where an auth has a cast, a persona's domain role is held in every tenant.
+`
+)
+
+// writeSeed adds the development tenants as a data migration beside the schema. What the
+// file and the change say of the people a development run signs in follows the sign-in
+// the application has: nothing in either speaks of a login where no auth has the
+// password method.
 func (tn Tenancy) writeSeed(a *app.App, dir string, ch *Change) error {
 	if _, err := os.Stat(a.Abs(dir)); err == nil {
 		ch.skipf("%s already exists, so no development tenants were seeded; add two to it", dir)
 
 		return nil
 	}
-	up := fmt.Sprintf(`-- The development tenants, under fixed ids: a tenant's key is an id the application
--- generates, and the development data fixes the two so the suites can name them. The
--- development logins name a tenant by its name (the bootstrap identities file).
-INSERT INTO %[1]s (Id, Name) VALUES ('%[2]s', 'North');
-INSERT INTO %[1]s (Id, Name) VALUES ('%[3]s', 'South');
-`, tn.Table, devTenantNorth, devTenantSouth)
+	comment, seeded := seedCommentLogins, "the logins"
+	if !hasPassword(a) {
+		comment, seeded = seedCommentNoLogins, "anyone is seeded"
+	}
+	up := comment + fmt.Sprintf("INSERT INTO %[1]s (Id, Name) VALUES ('%[2]s', 'North');\nINSERT INTO %[1]s (Id, Name) VALUES ('%[3]s', 'South');\n", tn.Table, devTenantNorth, devTenantSouth)
 	down := fmt.Sprintf("DELETE FROM %s WHERE Id IN ('%s', '%s');\n", tn.Table, devTenantNorth, devTenantSouth)
 	base := "000001_dev_" + tn.Segment()
 	if err := writeNew(a, path.Join(dir, base+".up.sql"), up); err != nil {
@@ -456,7 +473,7 @@ INSERT INTO %[1]s (Id, Name) VALUES ('%[3]s', 'South');
 	if err := writeNew(a, path.Join(dir, base+".down.sql"), down); err != nil {
 		return err
 	}
-	ch.didf("%s/%s.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins", dir, base)
+	ch.didf("%s/%s.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before %s", dir, base, seeded)
 
 	return nil
 }
@@ -1413,20 +1430,24 @@ func withoutPasswords(text string) string {
 }
 
 // hasPassword reports whether an auth of the application registers the password method.
-// An application whose auths the scan does not read is told the general account.
+// An application the scan reads no sign-in method of, whether it reads no auth or an
+// auth with no method, is told the general account: that no auth has the password
+// method is said only of an application whose methods were read.
 func hasPassword(a *app.App) bool {
-	if a == nil || len(a.Auths) == 0 {
+	if a == nil {
 		return true
 	}
+	read := 0
 	for i := range a.Auths {
 		for j := range a.Auths[i].Methods {
 			if a.Auths[i].Methods[j].Kind == app.MethodPassword {
 				return true
 			}
+			read++
 		}
 	}
 
-	return false
+	return read == 0
 }
 
 // The application's two test harnesses, which tenancy hands on to the author unless
