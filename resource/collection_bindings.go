@@ -325,17 +325,21 @@ func validateCollectionBindings(resources []CollectionResource) error {
 				return errors.Newf("resource %q attribute %q carries comparison type %q, which is not in the vocabulary — regenerate the collection", res.Name, attr.Name, attr.Type)
 			}
 		}
-		for _, set := range res.SubjectSets {
+		for i := range res.SubjectSets {
+			set := &res.SubjectSets[i]
 			if set.Domain != nil && (res.Scope == accesstypes.DomainPermissionScope || res.Domain != nil) {
 				return errors.Newf("resource %q subject set %q writes a domain:, which says where a row's tenant is found on a resource that is no tenant's; %q is a tenant's resource, and its own domain binding keeps the set to the request's tenant — remove the set's domain", res.Name, set.Name, res.Name)
 			}
 		}
-		for _, value := range res.SubjectValues {
+		for i := range res.SubjectValues {
+			value := &res.SubjectValues[i]
 			if value.Domain != nil {
 				return errors.Newf("resource %q subject value %q writes a domain:, which is a part of a subject set alone — remove the value's domain", res.Name, value.Name)
 			}
 		}
-		for _, subject := range slices.Concat(res.SubjectSets, res.SubjectValues) {
+		subjects := slices.Concat(res.SubjectSets, res.SubjectValues)
+		for i := range subjects {
+			subject := &subjects[i]
 			if err := claimLocal(subject.Name); err != nil {
 				return err
 			}
@@ -501,14 +505,16 @@ func (g *GeneratedCollection) SubjectValue(name string) (SubjectAnchor, bool) {
 func (g *GeneratedCollection) subjectAnchor(name string, entries func(Bindings) []SubjectBindingData) (SubjectAnchor, bool) {
 	for scope, store := range g.bindings {
 		for res, bindings := range store {
-			for _, entry := range entries(bindings) {
+			declared := entries(bindings)
+			for i := range declared {
+				entry := &declared[i]
 				if entry.Name == name {
 					domain := bindings.Domain
 					if entry.Domain != nil {
 						domain = entry.Domain
 					}
 
-					return SubjectAnchor{Resource: res, Scope: scope, Binding: entry, Domain: domain}, true
+					return SubjectAnchor{Resource: res, Scope: scope, Binding: *entry, Domain: domain}, true
 				}
 			}
 		}

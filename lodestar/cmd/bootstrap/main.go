@@ -551,8 +551,11 @@ func seedGroupPasses(ctx context.Context, client *spanner.Client, sectors *resou
 				"sector": string(domain),
 				"hangar": pass.Hangar,
 			}})
+			if err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
 
-			return err
+			return nil
 		}); err != nil {
 			return errors.Wrapf(err, "spanner.Client.ReadWriteTransaction(): the pass of the group %s to the hangar %s", group.Name, pass.Hangar)
 		}
