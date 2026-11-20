@@ -175,7 +175,15 @@ func main() {
 	t.Run("the collections of two generators are one application's", func(t *testing.T) {
 		t.Parallel()
 
-		other := strings.NewReplacer(`"Moorings"`, `"Tides"`, "accesstypes.Execute}", "accesstypes.Execute, accesstypes.Read}", `{Name: "id"}`, `{Name: "id", Permissions: []accesstypes.Permission{accesstypes.Read}}`).Replace(servedCollection)
+		// Each collection says something of a resource the other does not, so that what the
+		// application serves is neither one's alone, whichever is read first.
+		other := strings.NewReplacer(
+			`"Moorings"`, `"Tides"`,
+			"accesstypes.Execute}", "accesstypes.Execute, accesstypes.Read}",
+			`accesstypes.Permission("Approve")`, `accesstypes.Permission("Sign")`,
+			`{Name: "id"}`, `{Name: "id", Permissions: []accesstypes.Permission{accesstypes.Read}}`,
+			"{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},", "{accesstypes.Delete}},",
+		).Replace(servedCollection)
 		a := discover(t, map[string]string{
 			"cmd/generate/resourcegenerator/main.go": strings.Replace(program, "%s", "pkg/router", 1),
 			"cmd/generate/portalgenerator/main.go":   strings.Replace(program, "%s", "pkg/portalrouter", 1),
@@ -196,8 +204,12 @@ func main() {
 		if !ok || !method.Takes("Execute") || !method.Takes("Read") || method.Takes("List") {
 			t.Errorf("AssignStaffRole = %+v, want what either collection says it takes", method)
 		}
+		surveys, _ := served.Resource("Surveys")
+		if !surveys.Takes("Approve") || !surveys.Takes("Sign") {
+			t.Errorf("Surveys = %+v, want what each collection alone says it takes", surveys)
+		}
 		berths, _ := served.Resource("Berths")
-		if !berths.FieldTakes("id", "Read") || !berths.FieldTakes("name", "Update") || berths.FieldTakes("depth", "Update") || berths.FieldTakes("keel", "Read") {
+		if !berths.FieldTakes("id", "Read") || !berths.FieldTakes("name", "Update") || !berths.FieldTakes("name", "Delete") || berths.FieldTakes("depth", "Update") || berths.FieldTakes("keel", "Read") {
 			t.Errorf("Berths' fields = %v, want what either collection says each takes", berths.Fields)
 		}
 		if _, ok := served.Resource("Wharves"); ok {
