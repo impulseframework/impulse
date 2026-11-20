@@ -62,7 +62,7 @@ export const missionsConfig = rootConfig({
       { id: MissionBoards.fieldName.title },
       { id: MissionBoards.fieldName.clientName, header: 'Client' },
       { id: MissionBoards.fieldName.squadronName, header: 'Squadron' },
-      { id: MissionBoards.fieldName.statusId },
+      { id: MissionBoards.fieldName.statusId, header: 'Status' },
       { id: MissionBoards.fieldName.deadline },
       { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
     ],
