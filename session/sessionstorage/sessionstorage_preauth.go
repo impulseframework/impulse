@@ -28,10 +28,13 @@ func NewSpannerPreauth(db *cloudspanner.Client, opts ...SpannerOption) *Preauth[
 		opt.applySpanner(driver)
 	}
 
-	return &Preauth[*cloudspanner.ReadWriteTransaction]{
+	store := &Preauth[*cloudspanner.ReadWriteTransaction]{
 		sessionStorage: newSessionStorage(driver),
 		custom:         spannerCustomData{driver},
 	}
+	store.own(store)
+
+	return store
 }
 
 // NewPostgresPreauth is the function that you use to create the session manager that handles the session creation and updates.
@@ -42,10 +45,13 @@ func NewPostgresPreauth(db postgres.Queryer, opts ...PostgresOption) *Preauth[pg
 		opt.applyPostgres(driver)
 	}
 
-	return &Preauth[pgx.Tx]{
+	store := &Preauth[pgx.Tx]{
 		sessionStorage: newSessionStorage(driver),
 		custom:         postgresCustomData{driver},
 	}
+	store.own(store)
+
+	return store
 }
 
 // WithCustomSessionData attaches cfg, the store's one custom session data

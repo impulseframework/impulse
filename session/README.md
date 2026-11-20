@@ -3241,29 +3241,48 @@ application is read, with `accesstypes.AllowAll()`.
 
 **The storage beneath is sealed.** The write the session library makes once it has
 decided writes a session and its record with whatever principal, mask and actor it is
-handed, and asks nothing. So it is the session library's alone to make, and the library
-hands it to no application code. It is a method of the store's interface
+handed, and asks nothing. So it is made by the session library alone, through its API,
+and the library hands it to no application code. It is a method of the store's interface
 (`sessionstorage.BaseStore`) that is not exported, and its name belongs to a package
 inside the library (`session/internal/sealed`), which the go command lets no package
 outside the session library's directory import. Go lets no other package call a method
-named there, or declare one. So:
+named there, or declare one.
+
+**So are the reads that decide one.** Who is recorded as the actor, whom the session
+acts as, what its mask keeps and whether it has ended are read through methods of the
+same kind, which `sessionstorage.BaseStore` and `sessionstorage.UserStore` carry beside
+the write: the actor's own session and the account acted as when a session is started,
+and the session and its user on every later request. So:
 
 - **A direct call does not compile**, on the library's stores or on the store's
   interface, under any name.
-- **A store that wraps the library's keeps working.** It embeds the library's store
-  (`*sessionstorage.Auth`, `*sessionstorage.Preauth`, or the interface over one) and has
-  the write from it. It cannot replace the write, and it cannot stand in front of it: a
-  method of the same name in the wrapper's own package is another method, which the
-  library never calls, so the request and the record pass no application code on their
-  way to the database.
-- **A store written from nothing is no session store.** It cannot declare the method, so
-  a program that hands one to `NewAuth` or `NewPreauth` does not compile. A test double
-  written by hand embeds `sessionstorage.NoImpersonatedSessions`, which gives it the
-  method with a write that refuses.
+- **A store that wraps the library's keeps working, and decides no impersonated
+  session.** It embeds the library's store (`*sessionstorage.Auth`,
+  `*sessionstorage.Preauth`, or the interface over one) and has the write and those
+  reads from it. It cannot replace them: a method of the same name in the wrapper's own
+  package is another method, which the library never calls. And its own `Session`,
+  `User` and `UserByUserName` are never asked what a session that acts as someone else
+  is, because the library reads the stored rows itself. A wrapper that changes what
+  `Session` answers changes no such session's mask, actor or principal, and a read
+  cache in front of it keeps none alive after it ended. A wrapper does decide an
+  ordinary session: its `Session` is asked for every session the library's own read
+  does not find impersonated, and its `User` for that session's user. An answer of its
+  own that carries an impersonation record is refused as an invalid session. The
+  actor's own session, when a session is started from it, must be held under the same
+  account in the library's store as the one the request arrived as, or nothing is
+  started. Over a wrapper the library reads an ordinary session twice on each request,
+  once itself and once through the wrapper.
+- **A store written from nothing is no session store.** It cannot declare the methods,
+  so a program that hands one to `NewAuth` or `NewPreauth` does not compile. A test
+  double written by hand embeds `sessionstorage.NoImpersonatedSessions`, which gives it
+  the methods with a write that refuses and no read: its `Session` answers for an
+  ordinary session and never for an impersonated one.
 - **The mocks write nothing.** `mock_sessionstorage.NewMockBaseStore`,
-  `NewMockPreauthStore` and `NewMockAuthStore` mock every other method of the store, and
-  their write refuses. A test in which an impersonated session starts runs over a store
-  the library made (`sessionstorage.NewPostgresAuth` and the others, on a test database).
+  `NewMockPreauthStore`, `NewMockUserStore` and `NewMockAuthStore` mock every other
+  method of the store. Their write refuses, and a `Session` of theirs that answers an
+  impersonation record is refused as an invalid session. A test in which a session is
+  impersonated runs over a store the library made (`sessionstorage.NewPostgresAuth` and
+  the others, on a test database).
 
 A write the library did not make is refused with `sessionstorage.ErrImpersonationSealed`
 before anything is written: that is what a mock, a store that embeds
@@ -3271,12 +3290,33 @@ before anything is written: that is what a mock, a store that embeds
 impersonated session through the session API, from a request its declaration made, and
 through the library's API there is no other way.
 
-The seal is the library's API and no more. The application owns the tables, so SQL of
-its own writes any row, and the store's `NewSession` and `CreateSession` write an
-ordinary session for any username, by design. And the seal is the type checker's: a
-program that imports `unsafe` and links to a function by its name (`//go:linkname`)
-steps around what the type checker refuses, here as anywhere in Go. An application that
-must rule that out refuses the directive in its own code review or lint.
+The seal is the library's API and no more. Four things are outside it:
+
+- **The tables.** The application owns them, so SQL of its own writes any row, and the
+  store's `NewSession` and `CreateSession` write an ordinary session for any username,
+  by design.
+- **The resolver of custom session data.** An application that keeps custom session
+  data registers a resolver (`sessionstorage.NewCustomSessionData`), and the library
+  calls it inside the write's own transaction, once the session and its record are
+  written there, with the request and the transaction. It is the application's code.
+  What it changes in the request reaches no row the library writes; what it can do to
+  the session and its record is a write of its own on those tables in that transaction,
+  which is the limit above.
+- **What a store that wraps the library's still carries.** It answers for ordinary
+  sessions, as said above. And the writes that end or extend an impersonated session
+  pass through it (`DestroySession`, `DestroyImpersonatedSession`,
+  `DestroyImpersonatedSessions`, `EndImpersonation`, `UpdateSessionActivity`), as does
+  the listing of the live ones (`ActiveImpersonations`). A wrapper that drops one of
+  those writes leaves the session to its idle timeout and its hard cap, both of which
+  the library reads from its own store.
+- **What the type checker does not read.** The seal is the type checker's. A program
+  that imports `unsafe` and links to a function by its name (`//go:linkname`) steps
+  around what the type checker refuses, here as anywhere in Go. And a module whose path
+  is under the library's import path is, to the go command, inside the library's
+  directory: its packages may import the internal package and make the write
+  themselves. An application that must rule those out refuses the directive, and a
+  required module under the library's path that is not the library's own, in its own
+  code review or lint.
 
 **No option opens the session.** The session the library builds inside `NewAuth`,
 `NewPreauth` and the other constructors is the one thing that starts that write, so

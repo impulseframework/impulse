@@ -499,9 +499,14 @@ Where an application offers it, these things hold in every shape.
   three actions by name in the mask of the kind.
 - A session that acts as someone is started through the kinds the application named.
   Through the library's API there is no other way: the application's own code cannot
-  write one into the session store around them, and a store the application wraps
-  cannot change one on its way in. The application owns its tables, so SQL of its own
-  can write any row, and the library does not see that.
+  write one into the session store around them. A store the application wraps does not
+  decide one either. The library reads who started it, whom it acts as, what its mask
+  keeps and whether it has ended from its own store, and never asks the wrapper. The
+  wrapper still answers for an ordinary session, and the writes that end a session
+  that acts as someone pass through it. The application owns its tables, so SQL of its
+  own can write any row, and the library does not see that. This includes the
+  function an application registers to fill in its own session data, which the library
+  calls with the request inside the transaction that writes the session.
 
 ## Without tenants
 

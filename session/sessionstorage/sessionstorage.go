@@ -21,15 +21,31 @@ type sessionStorage struct {
 	// the driver; a sessionStorage built any other way holds the zero write, which
 	// refuses.
 	impersonatedSessionWrite
+	// sessionRead is the read of a session as this storage holds it, under a name that
+	// belongs to the session library's internal package too: the library reads what
+	// decides an impersonated session through it, so a store that wraps this one is
+	// never asked. own builds it; a sessionStorage nobody made the owner of holds the
+	// zero read, which answers ErrImpersonationSealed.
+	sessionRead
 }
 
 // newSessionStorage returns the storage over driver, with the write of an impersonated
-// session that inserts through it. Every store the library hands out is built here.
+// session that inserts through it. Every store the library hands out is built here, and
+// then made the owner of its reads (own).
 func newSessionStorage(driver db) sessionStorage {
 	return sessionStorage{
 		db:                       driver,
 		impersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(impersonatedSessions{db: driver}.create),
 	}
+}
+
+// own gives the storage its read of a session as the session library reaches it
+// (sealed.Session), and names store as the one the read was made for: the store the
+// library hands out, which holds this storage and whose Session is this storage's. A
+// constructor calls it once the store is allocated, since the read runs on the storage
+// where it lives.
+func (s *sessionStorage) own(store any) {
+	s.sessionRead = sealed.NewSessionRead(s.Session, store)
 }
 
 // SetSessionTableName sets the name of the session table.

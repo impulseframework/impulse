@@ -83,10 +83,11 @@ func (s *sessionStorage) EndImpersonation(ctx context.Context, sessionID impulse
 }
 
 // ErrImpersonationSealed is returned for a write of an impersonated session the session
-// library did not make: by a store that holds no write (a mock of the store, or a store
-// of an application's own, which embeds NoImpersonatedSessions), and by a session the
-// library did not build. The storage beneath an impersonated session is the library's
-// alone to write.
+// library did not make, and for a read that decides one: by a store that holds no write
+// and no read of the library's making (a mock of the store, or a store of an
+// application's own, which embeds NoImpersonatedSessions), and by a session the library
+// did not build. The storage beneath an impersonated session is written, and read for
+// what decides the session, by the session library alone.
 var ErrImpersonationSealed = sealed.ErrSealed
 
 // impersonatedSessionWrite is the write of an impersonated session a store embeds, under
@@ -94,17 +95,31 @@ var ErrImpersonationSealed = sealed.ErrSealed
 // that holds a store can neither take the write out of it nor put another in its place.
 type impersonatedSessionWrite = sealed.ImpersonatedSessionWrite
 
-// NoImpersonatedSessions gives a store written outside the session library the one
-// method of BaseStore that no package outside the library can declare: the write of an
-// impersonated session. The write it gives refuses with ErrImpersonationSealed and
-// writes nothing, so the store that embeds it is a session store that starts no
-// impersonated session. It is for a test double written by hand, and it is what the
-// mocks of the store hold (mock_sessionstorage).
+// sessionRead is the read of a session a store embeds for the session library, under a
+// name of this package's, and userRead the reads of an account. Their fields in a store
+// are unexported for the reason the write's is.
+type (
+	sessionRead = sealed.SessionRead
+	userRead    = sealed.UserRead
+)
+
+// NoImpersonatedSessions gives a store written outside the session library the methods
+// of BaseStore and UserStore that no package outside the library can declare: the write
+// of an impersonated session, and the reads that decide one (the actor's own session,
+// the account acted as, and the session of every later request). The write it gives
+// refuses with ErrImpersonationSealed and writes nothing, and the reads answer the same
+// error, so the store that embeds it is a session store that starts no impersonated
+// session and whose sessions are never impersonated: a Session of its own that answers
+// one with an impersonation record is refused as an invalid session. It is for a test
+// double written by hand, and it is what the mocks of the store hold
+// (mock_sessionstorage).
 //
 // An application's store that wraps one of the library's embeds that store instead, and
-// has the library's write by promotion.
+// has the library's write and reads by promotion.
 type NoImpersonatedSessions struct {
 	impersonatedSessionWrite
+	sessionRead
+	userRead
 }
 
 // impersonatedSessions is the storage's insert of an impersonated session and its

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -195,8 +196,9 @@ func TestSealedStorage_writeIsTheLibrarysAlone(t *testing.T) {
 		default:
 		}
 	}
-	if want := []string{inside + "." + sealedWrite}; !slices.Equal(unexported, want) {
-		t.Errorf("the methods of sessionstorage.BaseStore that are not exported = %v, want %v: the write beneath an impersonated session, named in the session library's internal package, and nothing else", unexported, want)
+	slices.Sort(unexported)
+	if want := []string{inside + "." + sealedWrite, inside + ".readSession", inside + ".sessionReadOwner"}; !slices.Equal(unexported, want) {
+		t.Errorf("the methods of sessionstorage.BaseStore that are not exported = %v, want %v: the write beneath an impersonated session and the read of a session that decides one, named in the session library's internal package, and nothing else", unexported, want)
 	}
 
 	holders := map[string]reflect.Type{
@@ -207,6 +209,9 @@ func TestSealedStorage_writeIsTheLibrarysAlone(t *testing.T) {
 		"mock_sessionstorage.MockBaseStore":     reflect.TypeFor[mock_sessionstorage.MockBaseStore](),
 		"mock_sessionstorage.MockPreauthStore":  reflect.TypeFor[mock_sessionstorage.MockPreauthStore](),
 		"mock_sessionstorage.MockAuthStore":     reflect.TypeFor[mock_sessionstorage.MockAuthStore[struct{}]](),
+		"mock_sessionstorage.MockUserStore":     reflect.TypeFor[mock_sessionstorage.MockUserStore](),
+		"sealed.SessionRead":                    reflect.TypeFor[sealed.SessionRead](),
+		"sealed.UserRead":                       reflect.TypeFor[sealed.UserRead](),
 	}
 	for name, holder := range holders {
 		held := 0
@@ -231,6 +236,62 @@ func TestSealedStorage_writeIsTheLibrarysAlone(t *testing.T) {
 	}
 	if _, err := sealed.CreateImpersonatedSession(context.Background(), sessionstorage.NoImpersonatedSessions{}, req, imp); !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
 		t.Errorf("the write of a store an application writes for itself: error = %v, want %v", err, sessionstorage.ErrImpersonationSealed)
+	}
+}
+
+// TestSealedStorage_readsAreTheLibrarysAlone pins the shape that keeps what decides an
+// impersonated session to the library's own store. The store's interfaces have the
+// reads the library decides one by (the session, for the actor's own when one starts
+// and for every later request, and the account acted as) as methods that are not
+// exported, named in the session library's internal package: a store that wraps the
+// library's has them by promotion and cannot replace them. The reads nobody built,
+// which are all a store written outside the library and a mock of the store can hold,
+// answer the sealed refusal and call nothing: the controller fails the test if the
+// library's call reached a method of the same name the generated mocks carry.
+func TestSealedStorage_readsAreTheLibrarysAlone(t *testing.T) {
+	t.Parallel()
+
+	inside := reflect.TypeFor[sealed.SessionRead]().PkgPath()
+	users := reflect.TypeFor[sessionstorage.UserStore]()
+	var unexported []string
+	for i := range users.NumMethod() {
+		if method := users.Method(i); !method.IsExported() {
+			unexported = append(unexported, method.PkgPath+"."+method.Name)
+		}
+	}
+	slices.Sort(unexported)
+	if want := []string{inside + ".readUser", inside + ".readUserByUserName"}; !slices.Equal(unexported, want) {
+		t.Errorf("the methods of sessionstorage.UserStore that are not exported = %v, want %v: the reads of the account an impersonated session acts as, named in the session library's internal package, and nothing else", unexported, want)
+	}
+
+	ctrl := gomock.NewController(t)
+	stores := map[string]sealed.SessionReader{
+		"the read nobody built":                     sessionstorage.NoImpersonatedSessions{},
+		"mock_sessionstorage.MockBaseStore":         mock_sessionstorage.NewMockBaseStore(ctrl),
+		"mock_sessionstorage.MockPreauthStore":      mock_sessionstorage.NewMockPreauthStore(ctrl),
+		"mock_sessionstorage.MockAuthStore":         mock_sessionstorage.NewMockAuthStore[struct{}](ctrl),
+		"a store that embeds the read that refuses": struct{ sessionstorage.BaseStore }{mock_sessionstorage.NewMockBaseStore(ctrl)},
+	}
+	for name, store := range stores {
+		if _, err := sealed.Session(context.Background(), store, impulse.NilUUID); !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
+			t.Errorf("the read of a session of %s: error = %v, want %v", name, err, sessionstorage.ErrImpersonationSealed)
+		}
+		if sealed.SessionIsOwn(store) {
+			t.Errorf("%s passes for a store the library made, handed over as it is: its own Session would be taken for the library's", name)
+		}
+	}
+	accounts := map[string]sealed.UserReader{
+		"the read nobody built":             sessionstorage.NoImpersonatedSessions{},
+		"mock_sessionstorage.MockUserStore": mock_sessionstorage.NewMockUserStore(ctrl),
+		"mock_sessionstorage.MockAuthStore": mock_sessionstorage.NewMockAuthStore[struct{}](ctrl),
+	}
+	for name, store := range accounts {
+		if _, err := sealed.User(context.Background(), store, impulse.NilUUID); !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
+			t.Errorf("the read of an account of %s: error = %v, want %v", name, err, sessionstorage.ErrImpersonationSealed)
+		}
+		if _, err := sealed.UserByUserName(context.Background(), store, "mallory"); !errors.Is(err, sessionstorage.ErrImpersonationSealed) {
+			t.Errorf("the read of an account by name of %s: error = %v, want %v", name, err, sessionstorage.ErrImpersonationSealed)
+		}
 	}
 }
 
@@ -268,9 +329,11 @@ func TestSealedStorage_mocksWriteNothing(t *testing.T) {
 //   - no exported function or method is handed a request for a session and an
 //     impersonation record together, which is what the write takes, whether as arguments
 //     of its own or inside one, and none has the write's name, however it is capitalized;
-//   - the exported types that have the write are the ones listed here and no other: the
-//     store's interfaces, the library's two stores (whose write is the library's), and
-//     the store an application writes for itself and the mocks (whose write refuses).
+//   - the exported types that have the write, or a read that decides an impersonated
+//     session, are the ones listed here and no other: the store's interfaces, the
+//     library's two stores (whose write and reads are the library's), and the store an
+//     application writes for itself and the mocks (whose write refuses and whose reads
+//     answer nothing).
 func TestSealedStorage_nothingExportedReachesTheWrite(t *testing.T) {
 	t.Parallel()
 
@@ -305,15 +368,17 @@ func TestSealedStorage_nothingExportedReachesTheWrite(t *testing.T) {
 		"mock_sessionstorage.MockAuthStore",
 		"mock_sessionstorage.MockBaseStore",
 		"mock_sessionstorage.MockPreauthStore",
+		"mock_sessionstorage.MockUserStore",
 		"sessionstorage.Auth",
 		"sessionstorage.AuthStore",
 		"sessionstorage.BaseStore",
 		"sessionstorage.NoImpersonatedSessions",
 		"sessionstorage.Preauth",
 		"sessionstorage.PreauthStore",
+		"sessionstorage.UserStore",
 	}
 	if holders := sortedSet(walk.holders); !slices.Equal(holders, wantHolders) {
-		t.Errorf("the exported types that have the write beneath an impersonated session = %v, want %v: a type added to them has a write of the library's making or one that refuses, and is listed here once that is seen", holders, wantHolders)
+		t.Errorf("the exported types that have the write beneath an impersonated session, or a read that decides one = %v, want %v: a type added to them has a write and reads of the library's making or ones that refuse, and is listed here once that is seen", holders, wantHolders)
 	}
 }
 

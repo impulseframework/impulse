@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -318,17 +319,15 @@ func (a *Auth[S, U, Tx]) validate(ctx context.Context) (context.Context, error) 
 // user is missing or disabled, is unauthorized. A role-principal impersonation has
 // no user. A foreign actor's carries only its username. A local actor's is checked
 // against the actor's own user.
+//
+// The user of an impersonated session is read through the library's own store
+// (impersonatedSessionUser), never through the exported User of a store that wraps it:
+// which account a session that acts as someone else answers for is what the library's
+// own rows say. An ordinary session's user is the store's User, as the session is the
+// store's Session.
 func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
-	if imp := sessData.Impersonation; imp != nil && imp.Principal.IsRole() {
-		if !imp.IsLocalActor() {
-			return &sessioninfo.UserInfo{Username: sessData.Username}, nil
-		}
-		user, err := a.storage.UserByUserName(ctx, sessData.Username)
-		if err != nil {
-			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
-		}
-
-		return enabledUser(user)
+	if imp := sessData.Impersonation; imp != nil {
+		return a.impersonatedSessionUser(ctx, sessData, imp)
 	}
 
 	if !sessData.UserID.Valid {
@@ -341,6 +340,44 @@ func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.
 		}
 
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+
+	return enabledUser(user)
+}
+
+// impersonatedSessionUser is sessionUser for a session that acts as someone else: the
+// account acted as for a user principal, the actor's own for a role principal a person
+// of this application holds, and the actor's name alone for one an actor from another
+// application holds. Each account is read through the library's own store (sealed.User,
+// sealed.UserByUserName), so the User and UserByUserName of a store that wraps it are
+// never asked.
+func (a *Auth[S, U, Tx]) impersonatedSessionUser(ctx context.Context, sessData *sessioninfo.SessionData, imp *sessioninfo.Impersonation) (*sessioninfo.UserInfo, error) {
+	if imp.Principal.IsRole() {
+		if !imp.IsLocalActor() {
+			return &sessioninfo.UserInfo{Username: sessData.Username}, nil
+		}
+		user, err := sealed.UserByUserName(ctx, a.storage, sessData.Username)
+		if err != nil {
+			if errors.Is(err, sealed.ErrSealed) {
+				return nil, errors.Wrap(err, "sealed.UserByUserName()")
+			}
+
+			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
+		}
+
+		return enabledUser(user)
+	}
+
+	if !sessData.UserID.Valid {
+		return nil, httpio.NewUnauthorizedMessage("invalid session")
+	}
+	user, err := sealed.User(ctx, a.storage, sessData.UserID.UUID)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
+		}
+
+		return nil, errors.Wrap(err, "sealed.User()")
 	}
 
 	return enabledUser(user)

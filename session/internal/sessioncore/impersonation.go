@@ -11,8 +11,8 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/basesession"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -191,16 +191,13 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 	return resolve.User(ctx, user)
 }
 
-// UserStore is the user lookup the identity resolver needs: the Auth store has it.
-type UserStore interface {
-	User(ctx context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error)
-	UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error)
-}
-
 // UserIdentity is the identity resolver of Auth, whose users are SessionUsers records.
 // A user principal resolves against storage. A foreign actor's role principal is
-// refused when the actor's name is already a user there.
-func UserIdentity(storage UserStore) IdentityResolver {
+// refused when the actor's name is already a user there. Both are read through the
+// library's own store (sealed.User, sealed.UserByUserName), never through the exported
+// User of a store that wraps it: the account a session acts as is the one the library's
+// own row names.
+func UserIdentity(storage sealed.UserReader) IdentityResolver {
 	return IdentityResolver{
 		User: func(ctx context.Context, user accesstypes.User) (string, impulse.UUID, error) {
 			return impersonatedUser(ctx, storage, user)
@@ -231,14 +228,14 @@ func refuseActorNamedAsAccount(actor string) error {
 // principal names the user by the id of their account, as the permission store does: a
 // principal that is no id names nobody. A missing user is an error, and a disabled one
 // is refused.
-func impersonatedUser(ctx context.Context, storage UserStore, user accesstypes.User) (string, impulse.UUID, error) {
+func impersonatedUser(ctx context.Context, storage sealed.UserReader, user accesstypes.User) (string, impulse.UUID, error) {
 	id, err := impulse.UUIDFromString(string(user))
 	if err != nil {
 		return "", impulse.NilUUID, httpio.NewBadRequestMessageWithErrorf(err, "a user principal names the person by the id of their account, and %q is not one", string(user))
 	}
-	record, err := storage.User(ctx, id)
+	record, err := sealed.User(ctx, storage, id)
 	if err != nil {
-		return "", impulse.NilUUID, errors.Wrap(err, "UserStore.User()")
+		return "", impulse.NilUUID, errors.Wrap(err, "sealed.User()")
 	}
 	if record.Disabled {
 		return "", impulse.NilUUID, httpio.NewUnauthorizedMessage("User disabled")
@@ -252,15 +249,15 @@ func impersonatedUser(ctx context.Context, storage UserStore, user accesstypes.U
 // name, and the store's username-keyed operations could not tell the two apart; the
 // actor logs in as that user or impersonates it as a user principal instead. A local
 // actor's name is their own user and is never checked here.
-func refuseShadowedActor(ctx context.Context, storage UserStore, actor string) error {
-	_, err := storage.UserByUserName(ctx, actor)
+func refuseShadowedActor(ctx context.Context, storage sealed.UserReader, actor string) error {
+	_, err := sealed.UserByUserName(ctx, storage, actor)
 	switch {
 	case err == nil:
 		return httpio.NewForbiddenMessagef("%q is a user of this application: log in as that user or impersonate it as a user principal", actor)
 	case httpio.HasNotFound(err):
 		return nil
 	default:
-		return errors.Wrap(err, "UserStore.UserByUserName()")
+		return errors.Wrap(err, "sealed.UserByUserName()")
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 
 	impulse "github.com/impulseframework/impulse"
 	securehash "github.com/impulseframework/impulse/securehash"
+	dbtype "github.com/impulseframework/impulse/session/internal/dbtype"
 	signinflow "github.com/impulseframework/impulse/session/internal/signinflow"
 	sessioninfo "github.com/impulseframework/impulse/session/sessioninfo"
 	sessionstorage "github.com/impulseframework/impulse/session/sessionstorage"
@@ -1420,4 +1421,63 @@ func (m *MockAuthStoreMethods[Tx]) createImpersonatedSession(ctx context.Context
 func (mr *MockAuthStoreMethodsMockRecorder[Tx]) createImpersonatedSession(ctx, req, imp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "createImpersonatedSession", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).createImpersonatedSession), ctx, req, imp)
+}
+
+// readSession mocks base method.
+func (m *MockAuthStoreMethods[Tx]) readSession(ctx context.Context, sessionID impulse.UUID) (*sessioninfo.SessionData, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "readSession", ctx, sessionID)
+	ret0, _ := ret[0].(*sessioninfo.SessionData)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// readSession indicates an expected call of readSession.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) readSession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "readSession", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).readSession), ctx, sessionID)
+}
+
+// readUser mocks base method.
+func (m *MockAuthStoreMethods[Tx]) readUser(ctx context.Context, id impulse.UUID) (*dbtype.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "readUser", ctx, id)
+	ret0, _ := ret[0].(*dbtype.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// readUser indicates an expected call of readUser.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) readUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "readUser", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).readUser), ctx, id)
+}
+
+// readUserByUserName mocks base method.
+func (m *MockAuthStoreMethods[Tx]) readUserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "readUserByUserName", ctx, username)
+	ret0, _ := ret[0].(*dbtype.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// readUserByUserName indicates an expected call of readUserByUserName.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) readUserByUserName(ctx, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "readUserByUserName", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).readUserByUserName), ctx, username)
+}
+
+// sessionReadOwner mocks base method.
+func (m *MockAuthStoreMethods[Tx]) sessionReadOwner() any {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "sessionReadOwner")
+	ret0, _ := ret[0].(any)
+	return ret0
+}
+
+// sessionReadOwner indicates an expected call of sessionReadOwner.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) sessionReadOwner() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "sessionReadOwner", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).sessionReadOwner))
 }

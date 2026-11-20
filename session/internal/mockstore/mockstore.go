@@ -1,13 +1,15 @@
 // Package mockstore holds the mocks of a session store that the session library's own
 // tests run over. The mocks an application gets (mock_sessionstorage) refuse the write
-// of an impersonated session, because nothing outside the session library reaches that
-// write. The library's tests have to see the library make it, so the mocks here take it
-// as an expectation: each is the generated mock of the store's methods with a write
-// built by the library's internal package (sealed.NewImpersonatedSessionWrite) over a
-// mock of its own, Sealed.
+// of an impersonated session and hold none of the reads that decide one, because nothing
+// outside the session library reaches them. The library's tests have to see the library
+// make the write and take what the reads answer, so the mocks here take them as
+// expectations: each is the generated mock of the store's methods with a write built by
+// the library's internal package (sealed.NewImpersonatedSessionWrite) over a mock of its
+// own, Sealed, and with the reads built over the mock's own Session, User and
+// UserByUserName, as a store the library made has them.
 //
-// The package is internal, so no application can import it: a store whose write runs
-// code of a caller's choosing is the library's alone to build.
+// The package is internal, so no application can import it: a store whose write and
+// reads run code of a caller's choosing is the library's alone to build.
 package mockstore
 
 import (
@@ -31,10 +33,12 @@ type SealedWrite interface {
 }
 
 // BaseStore is a mock of sessionstorage.BaseStore whose write of an impersonated
-// session is expected on Sealed.
+// session is expected on Sealed, and whose read of a session for the library is the
+// mock's own Session.
 type BaseStore struct {
 	*mock_sessionstorage.MockBaseStoreMethods
 	sealed.ImpersonatedSessionWrite
+	sealed.SessionRead
 	// Sealed takes the expectations of the write of an impersonated session:
 	// Sealed.EXPECT().CreateImpersonatedSession(ctx, req, imp).
 	Sealed *MockSealedWrite
@@ -44,18 +48,23 @@ type BaseStore struct {
 func NewBaseStore(ctrl *gomock.Controller) *BaseStore {
 	write := NewMockSealedWrite(ctrl)
 
-	return &BaseStore{
+	store := &BaseStore{
 		MockBaseStoreMethods:     mock_sessionstorage.NewMockBaseStoreMethods(ctrl),
 		ImpersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(write.CreateImpersonatedSession),
 		Sealed:                   write,
 	}
+	store.SessionRead = sealed.NewSessionRead(store.MockBaseStoreMethods.Session, store)
+
+	return store
 }
 
 // PreauthStore is a mock of sessionstorage.PreauthStore whose write of an impersonated
-// session is expected on Sealed.
+// session is expected on Sealed, and whose read of a session for the library is the
+// mock's own Session.
 type PreauthStore struct {
 	*mock_sessionstorage.MockPreauthStoreMethods
 	sealed.ImpersonatedSessionWrite
+	sealed.SessionRead
 	// Sealed takes the expectations of the write of an impersonated session:
 	// Sealed.EXPECT().CreateImpersonatedSession(ctx, req, imp).
 	Sealed *MockSealedWrite
@@ -65,18 +74,24 @@ type PreauthStore struct {
 func NewPreauthStore(ctrl *gomock.Controller) *PreauthStore {
 	write := NewMockSealedWrite(ctrl)
 
-	return &PreauthStore{
+	store := &PreauthStore{
 		MockPreauthStoreMethods:  mock_sessionstorage.NewMockPreauthStoreMethods(ctrl),
 		ImpersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(write.CreateImpersonatedSession),
 		Sealed:                   write,
 	}
+	store.SessionRead = sealed.NewSessionRead(store.MockPreauthStoreMethods.Session, store)
+
+	return store
 }
 
 // AuthStore is a mock of sessionstorage.AuthStore whose write of an impersonated
-// session is expected on Sealed.
+// session is expected on Sealed, and whose reads of a session and of an account for the
+// library are the mock's own Session, User and UserByUserName.
 type AuthStore[Tx any] struct {
 	*mock_sessionstorage.MockAuthStoreMethods[Tx]
 	sealed.ImpersonatedSessionWrite
+	sealed.SessionRead
+	sealed.UserRead
 	// Sealed takes the expectations of the write of an impersonated session:
 	// Sealed.EXPECT().CreateImpersonatedSession(ctx, req, imp).
 	Sealed *MockSealedWrite
@@ -86,11 +101,15 @@ type AuthStore[Tx any] struct {
 func NewAuthStore[Tx any](ctrl *gomock.Controller) *AuthStore[Tx] {
 	write := NewMockSealedWrite(ctrl)
 
-	return &AuthStore[Tx]{
+	store := &AuthStore[Tx]{
 		MockAuthStoreMethods:     mock_sessionstorage.NewMockAuthStoreMethods[Tx](ctrl),
 		ImpersonatedSessionWrite: sealed.NewImpersonatedSessionWrite(write.CreateImpersonatedSession),
 		Sealed:                   write,
 	}
+	store.SessionRead = sealed.NewSessionRead(store.MockAuthStoreMethods.Session, store)
+	store.UserRead = sealed.NewUserRead(store.MockAuthStoreMethods.User, store.MockAuthStoreMethods.UserByUserName)
+
+	return store
 }
 
 var (

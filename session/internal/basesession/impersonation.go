@@ -152,6 +152,13 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 // session (Impersonation.ActorID), which is what the permission store names the actor
 // by; a session type whose sessions belong to no account leaves it null. A foreign
 // actor (ActorRealm set) was authenticated elsewhere and has nothing here to check.
+//
+// The actor's session is read through the library's own store (sealed.Session), never
+// through the exported Session of a store that wraps it: who is recorded as the actor is
+// what the library's own row says. And when the call arrived on a validated session,
+// which bindActorToSession has held to be that same session, the row must name the
+// account that session names as well as its username: a session that reached the request
+// as another account's than the store holds it under starts nothing.
 func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Impersonation) error {
 	if !imp.IsLocalActor() {
 		return nil
@@ -160,12 +167,22 @@ func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Imp
 		return httpio.NewBadRequestMessage("a person of this application acts from their own session, and the call names none: name it, or, for an actor another system signed in, name that system")
 	}
 
-	src, err := s.Storage.Session(ctx, imp.SourceSessionID.UUID)
+	src, err := sealed.Session(ctx, s.Storage, imp.SourceSessionID.UUID)
 	if err != nil {
+		if errors.Is(err, sealed.ErrSealed) {
+			return errors.Wrap(err, "sealed.Session()")
+		}
+
 		return httpio.NewForbiddenMessageWithError(err, "the actor's source session is not a session of this application")
 	}
 	if !s.live(src) || src.Impersonation != nil || src.Username != imp.Actor {
 		return httpio.NewForbiddenMessagef("session %s is not a live session of %q in this application", src.ID, imp.Actor)
+	}
+	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil && current.UserID != src.UserID {
+		return httpio.NewForbiddenMessagef(
+			"session %s reached this request as the session of another account than the one the session store holds it under, so it starts no session that acts as someone else",
+			src.ID,
+		)
 	}
 	imp.ActorID = src.UserID
 
@@ -251,10 +268,12 @@ func (s *BaseSession) restorableSource(ctx context.Context, imp *sessioninfo.Imp
 		return nil, false
 	}
 
-	src, err := s.Storage.Session(ctx, imp.SourceSessionID.UUID)
+	// The library's own read (sealed.Session): the session the actor is returned to is
+	// the one the library's own store holds, whatever a store that wraps it answers.
+	src, err := sealed.Session(ctx, s.Storage, imp.SourceSessionID.UUID)
 	if err != nil {
 		if !httpio.HasNotFound(err) {
-			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.BaseStore.Session()"))
+			logger.FromCtx(ctx).Error(errors.Wrap(err, "sealed.Session()"))
 		}
 
 		return nil, false

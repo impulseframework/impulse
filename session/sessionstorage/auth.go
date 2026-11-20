@@ -559,7 +559,10 @@ func NewSpannerAuth(client *cloudspanner.Client, opts ...SpannerOption) *Auth[*c
 		opt.applySpanner(driver)
 	}
 
-	return &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: spannerCustomData{driver}}
+	store := &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: spannerCustomData{driver}}
+	store.own(store)
+
+	return store
 }
 
 // NewPostgresAuth creates PostgreSQL Auth storage over the auth schema (the base
@@ -573,7 +576,10 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 		opt.applyPostgres(driver)
 	}
 
-	return &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: postgresCustomData{driver}}
+	store := &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: newSessionStorage(driver)}, flow: driver, custom: postgresCustomData{driver}}
+	store.own(store)
+
+	return store
 }
 
 // SignInRules are the application's rules a sign-in runs under, handed to

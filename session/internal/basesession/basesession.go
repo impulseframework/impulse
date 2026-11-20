@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
+	"github.com/impulseframework/impulse/session/internal/sealed"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/tracer"
@@ -175,7 +176,7 @@ func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) 
 	defer span.End()
 
 	// Validate that the sessionID is in database
-	sessInfo, err := s.Storage.Session(ctx, sessioninfo.IDFromCtx(ctx))
+	sessInfo, err := s.session(ctx, sessioninfo.IDFromCtx(ctx))
 	if err != nil {
 		return ctx, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
 	}
@@ -211,6 +212,53 @@ func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) 
 	}
 
 	return s.Establish(ctx, evidence, sessInfo)
+}
+
+// session reads the session of a request. What decides an impersonated session is the
+// library's own store's to say, so the library's own read is asked first
+// (sealed.Session), which a store that wraps the library's cannot replace:
+//   - A store the library made, handed over as it is, answers there, once.
+//   - A session the library's own read finds impersonated is that session: its record,
+//     its mask, its principal and whether it has ended are the stored ones, and the
+//     wrapper's Session is never asked. A read cache in front of the store therefore
+//     cannot keep an ended one alive.
+//   - Every other session is an ordinary one, and the store's exported Session answers
+//     for it: one the library's own read finds ordinary, one it does not hold, and
+//     every session of a store that holds no read of the library's making (a mock, or
+//     a store of an application's own). An answer that carries an impersonation record
+//     there is refused: a session is impersonated only where the library's own store
+//     says so.
+//
+// A failure of the library's own read that is not one of those is the request's
+// failure: the session is not handed to the wrapper to decide.
+func (s *BaseSession) session(ctx context.Context, sessionID impulse.UUID) (*sessioninfo.SessionData, error) {
+	own, err := sealed.Session(ctx, s.Storage, sessionID)
+	switch {
+	case sealed.SessionIsOwn(s.Storage):
+		if err != nil {
+			return nil, errors.Wrap(err, "sessionstorage.BaseStore.Session()")
+		}
+
+		return own, nil
+	case err == nil && own.Impersonation != nil:
+		return own, nil
+	case err != nil && !httpio.HasNotFound(err) && !errors.Is(err, sealed.ErrSealed):
+		return nil, errors.Wrap(err, "sealed.Session()")
+	}
+
+	sess, err := s.Storage.Session(ctx, sessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.BaseStore.Session()")
+	}
+	if sess.Impersonation != nil {
+		return nil, errors.Newf(
+			"the store's Session answered session %s with an impersonation record that the session library's own store does not hold: "+
+				"a session is impersonated only when the library started it (StartImpersonatedSession) over a store the library made, or one that embeds it",
+			sessionID,
+		)
+	}
+
+	return sess, nil
 }
 
 // Establish puts the validated session in ctx, resolves its principal, and stamps the

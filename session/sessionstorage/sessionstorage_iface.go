@@ -66,6 +66,20 @@ type BaseStore interface {
 	//     double embeds NoImpersonatedSessions, whose write refuses with
 	//     ErrImpersonationSealed.
 	sealed.ImpersonatedSessionWriter
+	// SessionReader is the read of a session as the library's own store holds it, by
+	// which the session library reads what decides an impersonated session: the actor's
+	// own session when one starts, and the session of every later request. Its methods
+	// have unexported names declared inside the session library too, so a store that
+	// embeds one of the library's has them by promotion and cannot replace them:
+	//   - the Session of a store that wraps the library's is never asked whether a
+	//     session is impersonated, what its mask keeps, who its actor is or whether it
+	//     has ended. It is asked for every session the library's own read does not find
+	//     impersonated, and an answer of its own that carries an impersonation record
+	//     is refused as an invalid session;
+	//   - a test double, which embeds NoImpersonatedSessions, holds no read of the
+	//     library's: its Session answers for an ordinary session, and never an
+	//     impersonated one.
+	sealed.SessionReader
 	// DestroyImpersonatedSessions expires every live impersonated session established
 	// by actor and ends their records with reason Revoked. It errors when no
 	// impersonation table is configured.
@@ -109,6 +123,13 @@ type InsertSessionUser = dbtype.InsertSessionUser
 
 // UserStore is the user management of a store that has users: the Auth storage.
 type UserStore interface {
+	// UserReader is the read of an account as the library's own store holds it, by
+	// which the session library reads the account an impersonated session acts as, and
+	// whether an actor's name is an account's. Its methods have unexported names
+	// declared inside the session library (session/internal/sealed), so the User and
+	// UserByUserName of a store that wraps the library's are never asked which account
+	// a session acts as. A test double embeds NoImpersonatedSessions.
+	sealed.UserReader
 	// User returns a session user for give user id
 	User(ctx context.Context, id impulse.UUID) (*SessionUser, error)
 	// UserByUsername returns a session user for give username

@@ -359,6 +359,87 @@ func Test_stores_holdTheWrite(t *testing.T) {
 	}
 }
 
+// Test_stores_holdTheReads pins that every store the package hands out is built with the
+// reads the session library decides an impersonated session by (own): the read of a
+// session, made for that very store, and, where the store has users, the reads of an
+// account. A constructor that left them out would hand out a store whose sessions are
+// read twice on every request and that starts no impersonated session. A store that
+// wraps one has the reads by promotion and is not the store they were made for, and a
+// storage nothing built holds none.
+func Test_stores_holdTheReads(t *testing.T) {
+	t.Parallel()
+
+	stores := map[string]BaseStore{
+		"NewSpannerAuth":     NewSpannerAuth(nil),
+		"NewPostgresAuth":    NewPostgresAuth(nil),
+		"NewSpannerPreauth":  NewSpannerPreauth(nil),
+		"NewPostgresPreauth": NewPostgresPreauth(nil),
+	}
+	for name, store := range stores {
+		if !sealed.SessionIsOwn(store) {
+			t.Errorf("the store of %s is not the store its read of a session was made for: its constructor makes it the owner of its reads (own)", name)
+		}
+		wrapper := struct{ BaseStore }{store}
+		if sealed.SessionIsOwn(wrapper) {
+			t.Errorf("a store that wraps the store of %s passes for the store the read was made for: its own Session would be taken for the library's", name)
+		}
+	}
+
+	users := map[string]userStorage{
+		"NewSpannerAuth":  NewSpannerAuth(nil).userStorage,
+		"NewPostgresAuth": NewPostgresAuth(nil).userStorage,
+	}
+	for name, storage := range users {
+		if reflect.ValueOf(storage.userRead).IsZero() {
+			t.Errorf("the store of %s holds the zero read of an account, which answers nothing: its constructor makes it the owner of its reads (own)", name)
+		}
+	}
+
+	nothing := &Preauth[struct{}]{}
+	if sealed.SessionIsOwn(nothing) {
+		t.Error("a store nothing built passes for the store its read was made for, want it to hold no read")
+	}
+	if _, err := sealed.Session(context.Background(), nothing, impulse.NilUUID); !errors.Is(err, ErrImpersonationSealed) {
+		t.Errorf("the read of a session of a store nothing built: error = %v, want %v", err, ErrImpersonationSealed)
+	}
+	if _, err := sealed.User(context.Background(), &Auth[struct{}]{}, impulse.NilUUID); !errors.Is(err, ErrImpersonationSealed) {
+		t.Errorf("the read of an account of a store nothing built: error = %v, want %v", err, ErrImpersonationSealed)
+	}
+	if _, err := sealed.UserByUserName(context.Background(), &Auth[struct{}]{}, "alice"); !errors.Is(err, ErrImpersonationSealed) {
+		t.Errorf("the read of an account by name of a store nothing built: error = %v, want %v", err, ErrImpersonationSealed)
+	}
+}
+
+// Test_sessionStorage_readsForTheLibrary pins what the reads the library reaches run: the
+// storage's own Session, User and UserByUserName, over its driver.
+func Test_sessionStorage_readsForTheLibrary(t *testing.T) {
+	t.Parallel()
+
+	sessionID := impulse.Must(impulse.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
+	userID := impulse.Must(impulse.UUIDFromString("223e4567-e89b-12d3-a456-426614174000"))
+	ctrl := gomock.NewController(t)
+	mockDB := NewMockdb(ctrl)
+	mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{ID: sessionID, Username: "bob"}}, nil)
+	mockDB.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "bob"}, nil)
+	mockDB.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&dbtype.SessionUser{ID: userID, Username: "bob"}, nil)
+
+	store := &Auth[struct{}]{userStorage: userStorage{sessionStorage: newSessionStorage(mockDB)}}
+	store.own(store)
+
+	sess, err := sealed.Session(context.Background(), store, sessionID)
+	if err != nil || sess.ID != sessionID || sess.Username != "bob" {
+		t.Errorf("sealed.Session() = (%v, %v), want the session the driver holds", sess, err)
+	}
+	user, err := sealed.User(context.Background(), store, userID)
+	if err != nil || user.ID != userID {
+		t.Errorf("sealed.User() = (%v, %v), want the account the driver holds", user, err)
+	}
+	user, err = sealed.UserByUserName(context.Background(), store, "bob")
+	if err != nil || user.ID != userID {
+		t.Errorf("sealed.UserByUserName() = (%v, %v), want the account the driver holds", user, err)
+	}
+}
+
 func Test_sessionStorage_ImpersonationDelegates(t *testing.T) {
 	t.Parallel()
 

@@ -6,19 +6,23 @@ import (
 )
 
 // The mocks of a session store are written here, around the generated mocks of the
-// store's methods (MockBaseStoreMethods, MockPreauthStoreMethods and
-// MockAuthStoreMethods). A store has one method the generated mocks cannot give it: the
-// write of an impersonated session, whose name belongs to the session library's
-// internal package, so that no package outside the library's directory can call it or
-// declare it. Each mock here has it by embedding sessionstorage.NoImpersonatedSessions,
-// whose write refuses with sessionstorage.ErrImpersonationSealed and writes nothing: a
-// session over a mocked store starts no impersonated session, and no expectation can be
-// set on that write. A test of an impersonated session starting runs over a store the
-// library made.
+// store's methods (MockBaseStoreMethods, MockPreauthStoreMethods, MockUserStoreMethods
+// and MockAuthStoreMethods). A store has methods the generated mocks cannot give it:
+// the write of an impersonated session, and the reads that decide one (the actor's own
+// session, the account acted as, and the session of every later request). Their names
+// belong to the session library's internal package, so that no package outside the
+// library's directory can call them or declare them. Each mock here has them by
+// embedding sessionstorage.NoImpersonatedSessions, whose write refuses with
+// sessionstorage.ErrImpersonationSealed and writes nothing, and whose reads answer the
+// same error: a session over a mocked store starts no impersonated session, no
+// expectation can be set on that write, and a Session expectation that answers a session
+// with an impersonation record is refused as an invalid session. A test of an
+// impersonated session runs over a store the library made, or puts the session it wants
+// in the request's context itself.
 //
-// The generated mocks carry a method named createImpersonatedSession of their own, from
-// the interface's source. It belongs to this package, it is not the store's write, and
-// nothing calls it.
+// The generated mocks carry methods named createImpersonatedSession, readSession,
+// sessionReadOwner, readUser and readUserByUserName of their own, from the interfaces'
+// source. They belong to this package, they are not the store's, and nothing calls them.
 
 // MockBaseStore is a mock of the BaseStore interface.
 type MockBaseStore struct {
@@ -42,6 +46,17 @@ func NewMockPreauthStore(ctrl *gomock.Controller) *MockPreauthStore {
 	return &MockPreauthStore{MockPreauthStoreMethods: NewMockPreauthStoreMethods(ctrl)}
 }
 
+// MockUserStore is a mock of the UserStore interface.
+type MockUserStore struct {
+	*MockUserStoreMethods
+	sessionstorage.NoImpersonatedSessions
+}
+
+// NewMockUserStore creates a new mock instance.
+func NewMockUserStore(ctrl *gomock.Controller) *MockUserStore {
+	return &MockUserStore{MockUserStoreMethods: NewMockUserStoreMethods(ctrl)}
+}
+
 // MockAuthStore is a mock of the AuthStore interface.
 type MockAuthStore[Tx any] struct {
 	*MockAuthStoreMethods[Tx]
@@ -56,5 +71,6 @@ func NewMockAuthStore[Tx any](ctrl *gomock.Controller) *MockAuthStore[Tx] {
 var (
 	_ sessionstorage.BaseStore         = (*MockBaseStore)(nil)
 	_ sessionstorage.PreauthStore      = (*MockPreauthStore)(nil)
+	_ sessionstorage.UserStore         = (*MockUserStore)(nil)
 	_ sessionstorage.AuthStore[string] = (*MockAuthStore[string])(nil)
 )
