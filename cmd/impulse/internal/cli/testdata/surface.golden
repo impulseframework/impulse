@@ -192,6 +192,8 @@ checks:
   file-store
   secret-holders
   pins
+  framework-modules
+  framework-linkname
   gofmt
   prettier
   gowork-off

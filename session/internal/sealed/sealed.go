@@ -21,11 +21,7 @@
 // calls them, nor implements them, nor replaces them on a store it wraps: a wrapper's
 // own Session and User are never asked what an impersonated session is.
 //
-// What holds this is the type checker, and four things remain outside it:
-//   - A program that imports unsafe, or names a symbol of this package by a go:linkname
-//     directive, goes around the type checker here as anywhere.
-//   - A module whose path is under the library's import path is, to the go command,
-//     inside the library's directory, and its packages may import this one.
+// What holds this is the type checker. These remain outside it:
 //   - An application owns the tables the write lands in. SQL on them changes any row,
 //     and the resolver of custom session data an application registers
 //     (sessionstorage.NewCustomSessionData) runs inside the write's own transaction,
@@ -41,6 +37,23 @@
 //     UpdateSessionActivity) and the listing of the live ones (ActiveImpersonations). A
 //     wrapper that drops one of those writes leaves the session to its idle timeout and
 //     its hard cap, both of which the library reads from its own store.
+//   - A program that imports unsafe, or brings assembly or C of its own, goes around
+//     the type checker here as anywhere. The plainest form is a go:linkname directive,
+//     which links to a function or a variable of this package by its symbol's name, and
+//     the linker accepts it. impulse check refuses the directive in an application's
+//     tree (the check framework-linkname) and nothing else of this kind: unsafe reaches
+//     the memory of a value a program holds with no directive.
+//   - A module whose path is under the library's import path is, to the go command,
+//     inside the library's directory, wherever a replace or a workspace finds its code,
+//     and its packages may import this one. impulse check refuses such a module in an
+//     application's go.mod and in a go.work at its root (the check framework-modules).
+//   - An application that builds against a copy of the library it changed, through a
+//     replace of the library's module or a vendor directory edited by hand, builds
+//     another library. impulse check warns of the replace (the check pins).
+//
+// The two checks read the application's own tree: its Go files, its go.mod and a
+// go.work at its root. The code of the modules it requires, and a build told to read
+// another module file, are read by neither.
 //
 // The seal is on the library's API, for code the type checker reads.
 package sealed

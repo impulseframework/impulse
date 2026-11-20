@@ -3290,7 +3290,7 @@ before anything is written: that is what a mock, a store that embeds
 impersonated session through the session API, from a request its declaration made, and
 through the library's API there is no other way.
 
-The seal is the library's API and no more. Four things are outside it:
+The seal is the library's API and no more. These are outside it:
 
 - **The tables.** The application owns them, so SQL of its own writes any row, and the
   store's `NewSession` and `CreateSession` write an ordinary session for any username,
@@ -3309,14 +3309,37 @@ The seal is the library's API and no more. Four things are outside it:
   the listing of the live ones (`ActiveImpersonations`). A wrapper that drops one of
   those writes leaves the session to its idle timeout and its hard cap, both of which
   the library reads from its own store.
-- **What the type checker does not read.** The seal is the type checker's. A program
-  that imports `unsafe` and links to a function by its name (`//go:linkname`) steps
-  around what the type checker refuses, here as anywhere in Go. And a module whose path
-  is under the library's import path is, to the go command, inside the library's
-  directory: its packages may import the internal package and make the write
-  themselves. An application that must rule those out refuses the directive, and a
-  required module under the library's path that is not the library's own, in its own
-  code review or lint.
+- **Code the type checker does not read.** The seal is the type checker's, and a
+  program that imports `unsafe`, or brings assembly or C of its own, steps around what
+  the type checker refuses, here as anywhere in Go. The plainest form is a
+  `//go:linkname` directive in a file that imports `unsafe`: it links to a function or
+  a variable of the library by its symbol's name, the sealed write among them, and the
+  linker accepts it. `impulse check` refuses the directive (`framework-linkname`): a
+  `//go:linkname` that names a package of the library in any Go file under the
+  application's root, a test file, a generated file and a vendored file included. It
+  refuses nothing else of this kind: `unsafe` reaches the memory of a value a program
+  holds with no directive at all.
+- **A module under the library's import path.** The go command opens an internal
+  directory to every package whose import path is under the directory's parent, and it
+  goes by the path, not by where the code is kept. A module whose path is under the
+  library's is inside the library to it: a `replace` in `go.mod` or a workspace gives
+  a directory of the application's own such a path, and its packages may then import
+  the internal package and make the write themselves. `impulse check` refuses it
+  (`framework-modules`): a module path under the library's that is not one of the
+  library's own modules, as the application's own module path, a requirement or a
+  replace in `go.mod`, and as a used directory's module or a replace in a `go.work` at
+  the application's root.
+- **A copy of the library the application changed.** An application that builds against
+  a copy of the library with a change of its own in it, through a `replace` of the
+  library's module or a vendor directory edited by hand, builds another library, and
+  nothing this one refuses holds there. `impulse check` warns of the replace (`pins`);
+  nothing compares a vendor directory with the release.
+
+The two checks read the application's own tree as it stands: its Go files, its `go.mod`
+and a `go.work` at its root. They do not read the code of the modules the application
+requires, or a build told to read another module file (`go build -modfile`). An
+application that must rule those out reads its dependencies and its build's commands in
+its own review.
 
 **No option opens the session.** The session the library builds inside `NewAuth`,
 `NewPreauth` and the other constructors is the one thing that starts that write, so
