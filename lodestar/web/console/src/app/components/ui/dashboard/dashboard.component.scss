@@ -3,106 +3,12 @@
   margin: 16px 0;
 }
 
-// The card measures itself, so the badge inside is laid out by the room the card has,
-// whatever the window's width and whether the menu is open beside the page.
-.card-badge {
+// The badge is the library's card, laid out by its own width; the page gives it room.
+impulse-permissions-card {
   margin: 16px 0;
-  container-type: inline-size;
 }
 
-.badge {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-
-  th,
-  td {
-    text-align: left;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--mat-sys-outline-variant);
-  }
-
-  th {
-    font-weight: 500;
-    color: var(--mat-sys-on-surface-variant);
-  }
-
-  .label {
-    font-weight: 500;
-  }
-
-  .scope {
-    margin-left: 6px;
-    font-size: 11px;
-    color: var(--mat-sys-on-surface-variant);
-  }
-
-  // The permission's name beside its answer: shown where the table is drawn as blocks
-  // (below), where no column heading stands over the cell.
-  .permission {
-    display: none;
-    font-size: 11px;
-    color: var(--mat-sys-on-surface-variant);
-  }
-
-  .masked {
-    background: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 6px,
-      color-mix(in srgb, var(--mat-sys-primary) 15%, transparent) 6px,
-      color-mix(in srgb, var(--mat-sys-primary) 15%, transparent) 12px
-    );
-  }
-}
-
-// A page too narrow for the six columns draws each resource as a block of its own: the
-// name on a line, and under it the five permissions, each named beside its answer, wrapping
-// as the page needs. The badge is not a list of records, so it fits by its own layout and
-// never by a frame that scrolls sideways. The width below is the room the six columns
-// need with every pill on one line and the longest resource name the console has.
-@container (max-width: 760px) {
-  .badge {
-    display: block;
-
-    thead {
-      display: none;
-    }
-
-    tbody {
-      display: block;
-    }
-
-    tr {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px 6px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--mat-sys-outline-variant);
-    }
-
-    td {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 2px 6px;
-      border-bottom: 0;
-      border-radius: 10px;
-    }
-
-    .label {
-      display: block;
-      flex: 0 0 100%;
-      padding: 0;
-      overflow-wrap: anywhere;
-    }
-
-    .permission {
-      display: inline;
-    }
-  }
-}
-
+// The methods the session may fire, under the card's table: the page's own.
 .pill {
   display: inline-block;
   padding: 1px 8px;
@@ -119,10 +25,6 @@
     background: var(--mat-sys-tertiary-container);
     color: var(--mat-sys-on-tertiary-container);
   }
-
-  &.absent {
-    color: var(--mat-sys-on-surface-variant);
-  }
 }
 
 .methods {
@@ -134,12 +36,4 @@
 h3 {
   margin: 16px 0 8px;
   font-weight: 500;
-}
-
-.email-card {
-  margin-top: 16px;
-}
-
-.appearance-card {
-  margin-top: 16px;
 }

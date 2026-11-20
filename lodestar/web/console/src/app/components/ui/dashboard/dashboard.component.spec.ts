@@ -14,6 +14,7 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { RESOURCE_META } from '@impulseframework/resource-angular/types';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
+import { ImpersonationRecord } from '@components/sector/impersonation.service';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
 import { DashboardComponent } from './dashboard.component';
@@ -42,19 +43,41 @@ const ledger = [
 ];
 
 /**
- * The server as the spec plays it for one person: the session, the global digest (empty
- * for a marshal, who holds nothing outside a sector), the user's domains with their
- * names, the digest of the sector asked for, and the service ledger. Anything else is a
- * 404 the request log would show.
+ * The record of a "view as" session the governor minted: the session works as the person
+ * viewed, with every permission but List and Read masked off.
  */
-function serverFor(username: string, global: PermissionDigest): (request: TransportRequest) => TransportResponse {
+const viewAs: ImpersonationRecord = {
+  actor: 'governor',
+  principalKind: 'User',
+  principal: 'b3333333-3333-4333-8333-333333333333',
+  mask: ['List', 'Read'],
+  expiresAt: '2099-01-01T00:00:00Z',
+};
+
+/**
+ * The server as the spec plays it for one person: the session (with its impersonation
+ * record where it was minted), the global digest (empty for a marshal, who holds nothing
+ * outside a sector), the user's domains with their names, the digest of the sector asked
+ * for, and the service ledger. Anything else is a 404 the request log would show.
+ */
+function serverFor(
+  username: string,
+  global: PermissionDigest,
+  impersonation?: ImpersonationRecord,
+): (request: TransportRequest) => TransportResponse {
   return (request) => {
     const url = new URL(request.url, 'http://lodestar.test');
     switch (url.pathname) {
       case `${environment.apiUrl}/user/session`:
         return {
           status: 200,
-          body: { authenticated: true, username, email: `${username}@lodestar.test`, emailVerified: true },
+          body: {
+            authenticated: true,
+            username,
+            email: `${username}@lodestar.test`,
+            emailVerified: true,
+            ...(impersonation ? { impersonation } : {}),
+          },
         };
       case `${environment.apiUrl}/permission-digest`:
         return { status: 200, body: url.searchParams.get('domain') === anvilID ? anvil : global };
@@ -75,8 +98,12 @@ interface Opened {
 }
 
 /** Signs the person in, opens Anvil, and draws the dashboard there. */
-async function openDashboard(username: string, global: PermissionDigest): Promise<Opened> {
-  const transport = scriptedTransport(serverFor(username, global));
+async function openDashboard(
+  username: string,
+  global: PermissionDigest,
+  impersonation?: ImpersonationRecord,
+): Promise<Opened> {
+  const transport = scriptedTransport(serverFor(username, global, impersonation));
   await TestBed.configureTestingModule({
     imports: [DashboardComponent],
     providers: [
@@ -122,21 +149,38 @@ describe('DashboardComponent', () => {
   it('renders the service card for the open sector, by its name, from its digest', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(element.querySelector('h1')?.textContent).toContain('Welcome aboard, marshal');
-    expect(element.querySelector('.card-badge mat-card-title')?.textContent).toContain('Service card — Anvil');
+    // The badge is the library's card for what a person may do, under the page's heading.
+    const card = element.querySelector('impulse-permissions-card');
+    expect(card?.querySelector('mat-card-title')?.textContent).toBe('Service card — Anvil');
+    expect(card?.querySelector('mat-card-subtitle')?.textContent).toContain('The permission digest as a badge');
 
-    const rows = Array.from(element.querySelectorAll('table.badge tbody tr'));
-    const missions = rows.find((row) => row.querySelector('td.label')?.textContent?.trim().startsWith('Missions'));
-    const ships = rows.find((row) => row.querySelector('td.label')?.textContent?.trim().startsWith('Ships'));
-    // The columns are List, Read, Create, Update, Delete.
+    const rows = Array.from(card?.querySelectorAll('table.permissions tbody tr') ?? []);
+    const missions = rows.find((row) => row.querySelector('td.resource-name')?.textContent?.trim().startsWith('Missions'));
+    const ships = rows.find((row) => row.querySelector('td.resource-name')?.textContent?.trim().startsWith('Ships'));
+    // A sector's resource says where it is held; the columns are List, Read, Create, Update, Delete.
+    expect(missions?.querySelector('td.resource-name .scope')?.textContent).toBe('domain');
+    expect(Array.from(card?.querySelectorAll('thead th') ?? []).map((heading) => heading.textContent)).toEqual([
+      'Resource',
+      'List',
+      'Read',
+      'Create',
+      'Update',
+      'Delete',
+    ]);
     const pills = (row: Element | undefined): string[] =>
-      Array.from(row?.querySelectorAll('td:not(.label) .pill') ?? []).map((pill) => pill.textContent?.trim() ?? '');
+      Array.from(row?.querySelectorAll('td.held .pill') ?? []).map((pill) => pill.textContent?.trim() ?? '');
     expect(pills(missions)).toEqual(['granted', 'granted', 'granted', 'granted', 'granted']);
     expect(pills(ships)).toEqual(['terms apply', 'terms apply', '—', '—', '—']);
     // Each answer carries its permission's name beside it, for a page too narrow for the
     // column headings: the block the badge is drawn as there has no heading over a cell.
     const named = (row: Element | undefined): string[] =>
-      Array.from(row?.querySelectorAll('td:not(.label) .permission') ?? []).map((name) => name.textContent ?? '');
+      Array.from(row?.querySelectorAll('td.held .permission') ?? []).map((name) => name.textContent ?? '');
     expect(named(ships)).toEqual(['List', 'Read', 'Create', 'Update', 'Delete']);
+    // No mask is on the session, so no column is striped.
+    expect(card?.querySelectorAll('.masked')).toHaveLength(0);
+    // The methods the session may fire are the page's own, under the card's table: none here.
+    expect(card?.querySelector('h3')?.textContent).toBe('Methods you may fire');
+    expect(card?.querySelector('.methods .empty')?.textContent).toBe('Your posting in Anvil lets you fire no method.');
   });
 
   it('asked the server for the session, both digests, and the domains, and nothing it was not granted', () => {
@@ -150,6 +194,24 @@ describe('DashboardComponent', () => {
     expect(asked.filter((line) => line.includes('service-ledgers') || line.includes('pilot-cards'))).toEqual([]);
     expect(ledgerList(fixture)).toBeUndefined();
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Service ledger');
+  });
+});
+
+describe('DashboardComponent, in a "view as" session masked to List and Read', () => {
+  it('stripes the permissions the mask has removed, heading and answers alike', async () => {
+    const { fixture } = await openDashboard('marshal', {}, viewAs);
+    const card = (fixture.nativeElement as HTMLElement).querySelector('impulse-permissions-card');
+
+    expect(Array.from(card?.querySelectorAll('thead th.masked') ?? []).map((heading) => heading.textContent)).toEqual([
+      'Create',
+      'Update',
+      'Delete',
+    ]);
+    const rows = Array.from(card?.querySelectorAll('table.permissions tbody tr') ?? []);
+    const ships = rows.find((row) => row.querySelector('td.resource-name')?.textContent?.trim().startsWith('Ships'));
+    expect(
+      Array.from(ships?.querySelectorAll('td.held') ?? []).map((cell) => cell.classList.contains('masked')),
+    ).toEqual([false, false, true, true, true]);
   });
 });
 
@@ -191,6 +253,7 @@ describe('DashboardComponent, for a person who may list the service ledger', () 
     // The page draws no table of its own for the ledger: the badge is the only one it draws.
     expect(element.querySelector('table.mat-mdc-table')).toBeNull();
     expect(element.querySelectorAll('mat-card table')).toHaveLength(1);
+    expect(element.querySelectorAll('impulse-permissions-card table.permissions')).toHaveLength(1);
   });
 
   it('asks for the ledger once, as the list does', () => {

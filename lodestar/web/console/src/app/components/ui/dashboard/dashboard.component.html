@@ -16,59 +16,19 @@
     [isRootList]="false" />
 }
 
-<mat-card appearance="outlined" class="card-badge">
-  <mat-card-header>
-    <mat-card-title>Service card — {{ sectors.placeName() }}</mat-card-title>
-    <mat-card-subtitle>
-      The permission digest as a badge. A striped permission is one your session mask has removed.
-    </mat-card-subtitle>
-  </mat-card-header>
-  <mat-card-content>
-    <table class="badge">
-      <thead>
-        <tr>
-          <th>Resource</th>
-          @for (p of permissions; track p) {
-            <th [class.masked]="masked(p)">{{ p }}</th>
-          }
-        </tr>
-      </thead>
-      <tbody>
-        @for (row of rows(); track row.target) {
-          <tr>
-            <td class="label">
-              {{ row.label }}
-              <span class="scope">{{ row.scope }}</span>
-            </td>
-            @for (p of permissions; track p) {
-              <td [class.masked]="masked(p)">
-                <span class="permission">{{ p }}</span>
-                @switch (row.states[p]) {
-                  @case ('granted') {
-                    <span class="pill granted">granted</span>
-                  }
-                  @case ('conditional') {
-                    <span class="pill conditional">terms apply</span>
-                  }
-                  @default {
-                    <span class="pill absent">—</span>
-                  }
-                }
-              </td>
-            }
-          </tr>
-        }
-      </tbody>
-    </table>
-    <h3>Methods you may fire</h3>
-    <div class="methods">
-      @for (m of methods(); track m.method) {
-        <span class="pill" [class.granted]="m.state === 'granted'" [class.conditional]="m.state === 'conditional'">
-          {{ m.method }}{{ m.state === 'conditional' ? ' · terms apply' : '' }}
-        </span>
-      } @empty {
-        <span class="empty">{{ emptyMessage() }}</span>
-      }
-    </div>
-  </mat-card-content>
-</mat-card>
+<impulse-permissions-card
+  [heading]="heading()"
+  subheading="The permission digest as a badge. A striped permission is one your session mask has removed."
+  [resources]="rows()"
+  [masked]="masked()">
+  <h3>Methods you may fire</h3>
+  <div class="methods">
+    @for (m of methods(); track m.method) {
+      <span class="pill" [class.granted]="m.state === 'granted'" [class.conditional]="m.state === 'conditional'">
+        {{ m.method }}{{ m.state === 'conditional' ? ' · terms apply' : '' }}
+      </span>
+    } @empty {
+      <span class="empty">{{ emptyMessage() }}</span>
+    }
+  </div>
+</impulse-permissions-card>
