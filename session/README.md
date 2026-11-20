@@ -2091,7 +2091,11 @@ Auth sent, which only the application acting for itself writes. Those are the
 invitations the two calls read and withdraw, and they touch no invitation a user sent,
 none into a tenant, none that makes a tenant and none that gives other roles alone. The
 roles are given by the application's acceptance hook
-(`SetInvitationAccepted`), as any invitation's are. An Auth with no such hook gives an
+(`SetInvitationAccepted`), as any invitation's are. The invitation is for the whole
+application and stores no tenant; an application whose first administrator holds roles
+in every tenant as well tells its hook which roles those are, and the hook gives each
+role where the application declared it (the generated management's
+`identity.WithFirstAdministratorRoles`). An Auth with no such hook gives an
 accepted invitation nothing: nobody would come to hold the role and every release would
 mail the address again, so both calls refuse such an Auth, whoever holds the role, as
 they refuse a call handed no role store.

@@ -533,7 +533,10 @@ impulse new ./harbor --module example.com/harbor --auth staff
 The first administrator of a deployed environment is invited too. While nobody in the
 auth holds the Super Administrator role, the deployment mails an invitation that gives
 the role to the address in the setting `APP_<AUTH>_ADMINISTRATOR`
-(`APP_STAFF_ADMINISTRATOR` for an auth named `staff`). This holds for every auth whose
+(`APP_STAFF_ADMINISTRATOR` for an auth named `staff`). It is the one invitation that
+gives roles in two places: beside the Super Administrator role it gives the roles the
+auth names for its first administrator, each where the auth says it is held, for the
+whole application or in every tenant. This holds for every auth whose
 roles the application gives, so in every shape but
 [Directory roles](#3-directory-roles). It is described with `add auth` in
 [cmd/impulse/README.md](../cmd/impulse/README.md).

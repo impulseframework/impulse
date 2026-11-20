@@ -458,6 +458,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// removes a role from themselves in a tenant is judged by the rule on the tenant's
 	// last administrator. The application's last administrator is its last super
 	// administrator, kept by the client's own rule.
+	// It knows where the first administrator's roles are held, too
+	// (identity.WithFirstAdministratorRoles over FirstAdministratorRoles): that one
+	// invitation is sent for the whole application and gives each role where the
+	// foothold declares it, for the whole application or in every tenant.
 	//
 	// The client makes the tenants too. Nobody creates a Tenant directly: staff invite
 	// one person with the tenant's details, which the client checks against the record's
@@ -466,7 +470,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// roles that administer it and, where they came through an organization's
 	// directory, makes that directory the tenant's own, all in the transaction that
 	// consumes the invitation.
-	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))
+	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")
 	}

@@ -1334,7 +1334,9 @@ environment comes in by an invitation, as everyone after them does. While nobody
 auth holds the Super Administrator role, the migrate command has one mailed to the
 address the placement names for the environment (`InviteAdministrator`, handed the setting `APP_<AUTH>_ADMINISTRATOR`, an
 email address and no secret), giving the Super Administrator role and the roles
-`FirstAdministratorRoles` names. The person opens the link and signs in by a method of
+`FirstAdministratorRoles` names, each where the function says it is held: its first
+list for the whole application and its second in every tenant (the auth's `New` hands
+both to its identity client, `identity.WithFirstAdministratorRoles`). The person opens the link and signs in by a method of
 the auth: with the password method they choose a password there and enter the code mailed to
 the address, and through a directory the invitation is what ties the sign-in to the roles,
 whoever else the directory admits and however many organizations the method is open to,

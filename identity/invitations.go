@@ -61,7 +61,7 @@ type Invitation struct {
 // refused there with what to choose: nobody is seated in every tenant who was not
 // invited there in so many words. The row keeps the place (the tenant, the mark for
 // every tenant, or neither), and the acceptance gives each role there and nowhere else
-// (giveInvitedRole), so a role of every tenant whose name a role of the global scope
+// (giveInvitedRoles), so a role of every tenant whose name a role of the global scope
 // carries too is invited like any other: the person is given the tenants' one. The
 // request's caller is recorded as its sender where they are a user of the auth. An
 // invitation that gives the Super Administrator role is written by a caller who holds

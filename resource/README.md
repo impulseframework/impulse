@@ -4399,6 +4399,7 @@ and handed to the handler type, which returns it from an accessor named for the 
 identityClient, err := crewidentity.NewClient(accessClient,  // the Auth's permission engine
 	authSession.API(),                                        // the API of the session.Auth that signs its people in
 	settings.TenantMaker,                                     // what makes a tenant, for the Auth a tenant is made through
+	identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), // the first administrator's roles, by where they are held
 	identity.WithAdministratorRoles(tenantAdministrators))    // the roles that administer a tenant
 
 // In the handler type's package.
@@ -4416,8 +4417,11 @@ Auth is built, so the roster is built before that Auth; the client hands it to t
 `identity` package (`identity.WithTenantMaker`), which an application never calls. The
 same client needs the roles that administer a tenant
 (`identity.WithAdministratorRoles`): the person who accepts is seated with them, and an
-invitation is refused while the Auth names none. The client of every other Auth takes
-the engine and the session API alone.
+invitation is refused while the Auth names none. An Auth whose first administrator the
+deployment invites hands its client the roles that person is given, by where they are
+held (`identity.WithFirstAdministratorRoles`, handed the two lists the foothold's
+`FirstAdministratorRoles` returns; "At a sign-in", below). The client of every other Auth
+takes the engine and the session API alone.
 
 The generated `zz_gen_identity.go` in the handlers package asserts the accessor
 (`var _ crewhandlers.Deps = (*App)(nil)`) and holds the Auth package's `TablePrefix` equal
@@ -4470,7 +4474,15 @@ tenant: a role of the whole application alone is refused (400), and a custom rol
 name a role of the whole application carries too is invited like any other, the person
 being given the tenants' one. One that says neither takes roles of the
 whole application alone: a role that exists only in the tenants is refused (400), in
-words that say to choose the tenant it is for, or every tenant. A role that its place
+words that say to choose the tenant it is for, or every tenant. The first
+administrator's invitation is the one invitation whose roles are held in two places.
+The deployment sends it for the whole application, and the acceptance gives each of its
+roles where the Auth's first-administrator setup declares it
+(`identity.WithFirstAdministratorRoles`): the roles the setup names for the whole
+application there, with the Super Administrator role, and the roles it names for the
+tenants in every tenant. No other invitation reads that declaration, and a client built
+without it gives the first administrator's roles in the whole application alone. A role
+that its place
 no longer holds when the person accepts (the role file changed, or a custom role was
 deleted, since the invitation was sent) fails the
 transaction: the invitation stands and no account is created. The permission engine is

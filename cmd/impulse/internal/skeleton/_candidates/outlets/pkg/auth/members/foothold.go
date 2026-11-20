@@ -104,11 +104,12 @@ func (a *Auth) ReinviteAdministrator(ctx context.Context, email string) (*sessio
 // firstAdministratorRoleNames are the roles the first administrator's invitation
 // carries: the role the framework defines in every auth (accesstypes.SuperAdministrator),
 // held for the whole application, whose holder alone makes another, and the
-// application's own (FirstAdministratorRoles). The acceptance gives each role where the
-// role file holds it, a global role for the whole application and a domain role in every
-// tenant, so the invitation names nothing the file does not define where
-// FirstAdministratorRoles says it is held: a role the release does not ship there is
-// refused here, before an invitation is mailed that nobody could accept.
+// application's own (FirstAdministratorRoles). The acceptance gives each role where
+// FirstAdministratorRoles says it is held, the first list for the whole application and
+// the second in every tenant (identity.WithFirstAdministratorRoles, which New hands the
+// two lists), so the invitation names nothing the role file does not define there: a
+// role the release does not ship there is refused here, before an invitation is mailed
+// that nobody could accept.
 func firstAdministratorRoleNames() ([]string, error) {
 	defined, err := Roles().Parse()
 	if err != nil {

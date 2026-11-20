@@ -594,7 +594,7 @@ func TestAuthApply(t *testing.T) {
 					"\t_, tenantAdministrators := AdministratorRoles()\n\taccessClient, err := access.New(store,",
 					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n",
 					"\t\t// its directory has a problem; the sign-in rule and each request ask the engine.\n\t\taccess.WithTenantAdministratorRoles(tenantAdministrators...),\n\t)",
-					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
+					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
 					// What a sign-in clears is set before what a sign-in gives: the identity
 					// client's hook for a sign-in that stands, over the application's database.
 					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// The directory admission",
@@ -637,7 +637,7 @@ func TestAuthApply(t *testing.T) {
 					"\tTenantMaker identity.TenantMaker\n}",
 					"\tif settings.TenantDeclarations == nil {\n",
 					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
-					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n",
+					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n",
 					// With no directory admission between them, what a sign-in clears is followed
 					// at once by what an accepted invitation gives.
 					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// An accepted invitation gives its roles",

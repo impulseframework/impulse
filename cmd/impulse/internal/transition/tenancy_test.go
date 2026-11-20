@@ -1041,7 +1041,7 @@ func TestTenancyApply_theAuthATenantIsMadeThrough(t *testing.T) {
 	inAuth := []string{
 		"\t// TenantMaker makes a Tenant from an accepted invitation: the generated maker over\n\t// the record's own create patch (app.NewTenantMaker). Nobody creates a tenant\n\t// directly: staff invite one person with its details, which the auth's identity\n\t// client checks with the maker when the invitation is sent, and that person's first\n\t// sign-in makes the tenant with it. Required; New refuses nil.\n\tTenantMaker identity.TenantMaker\n}",
 		"\tif settings.TenantMaker == nil {\n\t\treturn nil, errors.New(\"staff.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the Tenant record (app.NewTenantMaker), which the data level hands in\")\n\t}\n\n\tstore, err := spannerstore.New(",
-		"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators))\n",
+		"\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))\n",
 	}
 	carried := "pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations), the directory reader (TenantDirectories) and what makes a tenant from an accepted invitation (TenantMaker, which New hands the identity client), New refuses a nil one, and New sets the sign-in rule on the session"
 	obligation := "the staff auth is not handed what makes a tenant from an accepted invitation, and refuses to start without it (staff.Settings.TenantMaker is nil): a tenant is made through this auth, by the first sign-in of a person its staff invited, so build the roster before the auth where the data level is opened (app.NewTenantRoster(<the client>, resource.WithTenantSignals(<the live service>)), which startTenants then only starts) and pass app.NewTenantMaker(<the roster>, <the live service>) in the auth's Settings"
@@ -1203,7 +1203,7 @@ func TestTenancyApply_oneTenantPerPerson(t *testing.T) {
 			t.Fatalf("Apply() error = %v", err)
 		}
 		staff := read(t, a, "pkg/auth/staff/staff.go")
-		if want := "\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithAdministratorRoles(tenantAdministrators), " + option + ")\n"; !strings.Contains(staff, want) {
+		if want := "\tidentityClient, err := staffidentity.NewClient(accessClient, authSession.API(), settings.TenantMaker, identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators), " + option + ")\n"; !strings.Contains(staff, want) {
 			t.Errorf("staff.go lacks %q:\n%s", want, staff)
 		}
 		if !slices.Contains(ch.Did, did) {

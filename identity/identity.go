@@ -317,6 +317,11 @@ type Manager struct {
 	// application named none (WithAdministratorRoles). The application as a whole is
 	// administered by the holders of the Super Administrator role, which needs no naming.
 	administrators *administratorRoles
+	// firstAdministrator are the roles the first administrator's invitation gives, by
+	// where they are held; nil where the application named none
+	// (WithFirstAdministratorRoles), and the invitation then gives every role in the
+	// one place it stores, as any other does.
+	firstAdministrator *firstAdministratorRoles
 	// superMethods are the methods that give and take the auth's roles for the whole
 	// application, which the permission engine must let a super administrator execute
 	// (WithSuperAdministratorMethods); New holds the engine to it.
@@ -345,6 +350,13 @@ type administratorRoles struct {
 	domain []accesstypes.Role
 }
 
+// firstAdministratorRoles are the roles the first administrator's invitation gives, by
+// where they are held: global for the whole application, everyDomain in every tenant.
+type firstAdministratorRoles struct {
+	global      []accesstypes.Role
+	everyDomain []accesstypes.Role
+}
+
 // Option configures a manager.
 type Option func(*Manager)
 
@@ -364,6 +376,32 @@ type Option func(*Manager)
 func WithAdministratorRoles(domain []accesstypes.Role) Option {
 	return func(m *Manager) {
 		m.administrators = &administratorRoles{domain: domain}
+	}
+}
+
+// WithFirstAdministratorRoles names the roles the first administrator's invitation
+// gives, by where they are held: global for the whole application, everyDomain in every
+// tenant. They are the two lists the auth's first-administrator setup declares
+// (FirstAdministratorRoles in the auth package's foothold file), handed here as that
+// function returns them.
+//
+// The first administrator's invitation is the one invitation whose roles are held in
+// two places. The deployment sends it for the whole application, so its row stores no
+// tenant, and the acceptance gives each of its roles where these lists say
+// (giveInvitedRoles): a role everyDomain names in every tenant, a role both lists name
+// in both places, and every other in the whole application, which is where the Super
+// Administrator role it always carries is held. The lists are the application's own
+// declaration, read when the person accepts; nothing is looked up by what kind of role
+// a name happens to be.
+//
+// No other invitation reads the lists: one a user sent, one for a tenant or for every
+// tenant, and one that does not give the Super Administrator role each give their roles
+// in the one place they store, whatever is named here. Without the option the first
+// administrator's invitation does too, so one that names a role of the tenants is not
+// accepted.
+func WithFirstAdministratorRoles(global, everyDomain []accesstypes.Role) Option {
+	return func(m *Manager) {
+		m.firstAdministrator = &firstAdministratorRoles{global: global, everyDomain: everyDomain}
 	}
 }
 
@@ -415,7 +453,7 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	}
 	m := &Manager{
 		auth: auth, store: store, access: controller, sessions: sessions,
-		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
+		administrators: nil, firstAdministrator: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, tenants: nil, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(m)

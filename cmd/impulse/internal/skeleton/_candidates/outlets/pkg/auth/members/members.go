@@ -443,7 +443,11 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// removes a role from themselves in a tenant is judged by the rule on the tenant's
 	// last administrator. The application's last administrator is its last super
 	// administrator, kept by the client's own rule.
-	identityClient, err := membersidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))
+	// It knows where the first administrator's roles are held, too
+	// (identity.WithFirstAdministratorRoles over FirstAdministratorRoles): that one
+	// invitation is sent for the whole application and gives each role where the
+	// foothold declares it, for the whole application or in every tenant.
+	identityClient, err := membersidentity.NewClient(accessClient, authSession.API(), identity.WithFirstAdministratorRoles(FirstAdministratorRoles()), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "membersidentity.NewClient()")
 	}

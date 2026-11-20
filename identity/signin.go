@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,12 +53,13 @@ import (
 // InvitationAccepted answers the session library's hook for an accepted invitation
 // (session.Auth.SetInvitationAccepted): the roles the invitation carries are buffered
 // as memberships of the person in the transaction that consumes the invitation. An
-// invitation into a tenant gives its roles in that tenant; one that stores no tenant
-// gives each role where that role is held, the global scope for a role of the global
-// kind and every tenant for one of the domain kind. Invite held its roles to one of
-// the two when it wrote the invitation: the whole application's where the sender named
-// neither a tenant nor every tenant, the tenants' where the sender said every tenant.
-// A role that can no longer be given (the role file changed since) fails
+// invitation gives its roles in the place it stores and nowhere else: its tenant, every
+// tenant for one that says so, and the global scope for one that names neither, which
+// is an invitation into the whole application. Invite held its roles to that place when
+// it wrote the invitation. The first administrator's invitation alone gives roles in
+// two places, the whole application and every tenant, each role where the
+// application's first-administrator setup declares it (WithFirstAdministratorRoles).
+// A role that can no longer be given there (the role file changed since) fails
 // the transaction: the invitation stands, and a person the sign-in would have created
 // is not created. An invitation that makes a tenant carries no role: its acceptance
 // makes the tenant and seats the person as its first administrator
@@ -137,49 +139,104 @@ func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*span
 }
 
 // giveInvitedRoles buffers the memberships an accepted invitation gives the person:
-// userID is who holds them, and username what an error reads.
+// userID is who holds them, and username what an error reads. Each role is given in
+// the place the invitation stores and nowhere else (invitedPlace). The place is the
+// sender's choice, kept on the invitation when it was sent (Invite), and the roles that
+// exist when it is accepted do not move it: a role that has gone from that place since
+// is not looked for in another, and a role of the same name that another place has
+// gained is not given in its stead.
+//
+// The first administrator's invitation is the one exception, and only where the
+// application declared the roles it gives by where they are held
+// (WithFirstAdministratorRoles): each role is given where the declaration says
+// (firstAdministratorRoles.places).
 func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	stored := invitedPlace(inv)
+	declared := m.firstAdministrator != nil && firstAdministratorInvitation(inv)
 	for _, name := range inv.RoleNames {
-		if err := m.giveInvitedRole(ctx, txn, userID, username, inv, accesstypes.Role(name)); err != nil {
-			return err
+		role := accesstypes.Role(name)
+		places := []rolePlace{stored}
+		if declared {
+			places = m.firstAdministrator.places(role, stored)
+		}
+		for _, place := range places {
+			if err := m.giveInvitedRole(ctx, txn, userID, username, inv, role, place); err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-// giveInvitedRole buffers one role of an invitation in the place the invitation stores
-// (invitedPlace) and nowhere else. The place is the sender's choice, kept on the
-// invitation when it was sent (Invite), and the roles that exist when it is accepted do
-// not move it: a role that has gone from that place since is not looked for in another,
-// and a role of the same name that another place has gained is not given in its stead.
-// The membership write answers NotFound for a role that does not exist where it is
-// asked for, with nothing written, which fails the acceptance. A role the person holds
-// there already is left as it stands (giveUnlessHeld).
-func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation, role accesstypes.Role) error {
-	scope, where := invitedPlace(inv)
-	if err := m.giveUnlessHeld(ctx, txn, scope, userID, role); err != nil {
-		return errors.Wrapf(err, "the invitation to %s gives %q the role %s %s, and nowhere else", inv.Email, username, role, where)
+// giveInvitedRole buffers one role of an invitation in one place. The membership write
+// answers NotFound for a role that does not exist where it is asked for, with nothing
+// written, which fails the acceptance. A role the person holds there already is left as
+// it stands (giveUnlessHeld).
+func (m *Manager) giveInvitedRole(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation, role accesstypes.Role, place rolePlace,
+) error {
+	if err := m.giveUnlessHeld(ctx, txn, place.scope, userID, role); err != nil {
+		return errors.Wrapf(err, "the invitation to %s gives %q the role %s %s, and nowhere else", inv.Email, username, role, place.where)
 	}
 
 	return nil
 }
 
-// invitedPlace is the place an invitation stores for its roles, as the scope they are
-// held in and as an error says it: the invitation's tenant, every tenant for an
-// invitation that says so (EveryTenant), and the global scope for one that names
-// neither, which is an invitation into the whole application.
-func invitedPlace(inv *sessioninfo.Invitation) (scope accesstypes.PolicyScope, where string) {
+// rolePlace is a place an invitation's role is given in: the scope it is held in, and
+// the place as an error says it.
+type rolePlace struct {
+	scope accesstypes.PolicyScope
+	where string
+}
+
+// invitedPlace is the place an invitation stores for its roles: the invitation's
+// tenant, every tenant for an invitation that says so (EveryTenant), and the global
+// scope for one that names neither, which is an invitation into the whole application.
+func invitedPlace(inv *sessioninfo.Invitation) rolePlace {
 	switch {
 	case inv.TenantID != "":
-		return accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), "in " + inv.TenantID
+		return rolePlace{scope: accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), where: "in " + inv.TenantID}
 	case inv.EveryTenant:
-		return accesstypes.EveryDomainPolicyScope(), "in every tenant"
+		return everyTenantPlace()
 	default:
-		return accesstypes.GlobalPolicyScope(), "in the whole application"
+		return rolePlace{scope: accesstypes.GlobalPolicyScope(), where: "in the whole application"}
+	}
+}
+
+// everyTenantPlace is every tenant as a place a role is given in.
+func everyTenantPlace() rolePlace {
+	return rolePlace{scope: accesstypes.EveryDomainPolicyScope(), where: "in every tenant"}
+}
+
+// firstAdministratorInvitation reports whether inv is the deployment's own invitation,
+// the first administrator's, by the rule the session library tells it from every other
+// by (session.AuthAPI.InviteFirstAdministrator): an invitation into the whole
+// application that gives the Super Administrator role and that no user of the auth
+// sent. A user who invites to that role is a super administrator of the auth and is
+// named on the row (Invite), and an invitation into a tenant, into every tenant, or
+// one that makes a tenant is never the deployment's.
+func firstAdministratorInvitation(inv *sessioninfo.Invitation) bool {
+	return !inv.InvitedByUserID.Valid && inv.TenantID == "" && !inv.EveryTenant && inv.NewTenant == nil &&
+		slices.Contains(inv.RoleNames, string(accesstypes.SuperAdministrator))
+}
+
+// places are the places the first administrator's invitation gives role in, where
+// stored is the place the invitation stores, the whole application: every tenant for a
+// role the declaration names there, both places for one it names in both, and the
+// whole application for every other, which is the Super Administrator role, a role the
+// declaration names for the whole application, and a role it does not name at all.
+func (f *firstAdministratorRoles) places(role accesstypes.Role, stored rolePlace) []rolePlace {
+	switch {
+	case !slices.Contains(f.everyDomain, role):
+		return []rolePlace{stored}
+	case slices.Contains(f.global, role):
+		return []rolePlace{stored, everyTenantPlace()}
+	default:
+		return []rolePlace{everyTenantPlace()}
 	}
 }
 
