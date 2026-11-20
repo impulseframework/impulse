@@ -94,11 +94,14 @@ type DomainBindingData struct {
 //
 // Domain is the set's own way to a row's tenant, for a set declared on a
 // resource that is no tenant's (a global one) whose rows still belong to
-// tenants through a parent: the foreign key the path leaves through, and the
-// path to the column that holds the tenant's key. In a request with a tenant
-// the set then holds that tenant's rows alone; a row whose path ends at
-// another tenant, or at none, is left out. Nil, the declaring resource's own
+// tenants: the column of the row that holds the tenant's key (an empty Path),
+// or, where a row belongs to a tenant through a parent, the foreign key the
+// path leaves through and the path to the column that holds it. In a request
+// with a tenant the set then holds that tenant's rows alone; a row that names
+// another tenant, or none, is left out. Nil, the declaring resource's own
 // tenancy binding is the filter, and a global resource's set reads every row.
+// A set of a tenant's resource carries none, and a subject value never does
+// (validateCollectionBindings).
 type SubjectBindingData struct {
 	Name       string
 	UserColumn string
@@ -284,7 +287,14 @@ func (g *GeneratedCollection) attributeData(scope accesstypes.PermissionScope, r
 // every attribute and subject entry carrying a comparison type from the
 // vocabulary, and subject names unique across the whole collection —
 // subject.<name> is one application-wide namespace, so two resources
-// anchoring the same name would make a condition ambiguous.
+// anchoring the same name would make a condition ambiguous. It also holds a
+// subject entry's own way to a row's tenant (SubjectBindingData.Domain) to
+// where the generator admits one: on a subject set of a resource that is no
+// tenant's. The lowering reads that binding in place of the resource's own, so
+// on a tenant's resource it would take the place of the filter every other
+// query of the resource is kept to its tenant by. The generator refuses the
+// same with the struct named; reaching it here means the collection was
+// written by hand.
 func validateCollectionBindings(resources []CollectionResource) error {
 	type subjectClaim struct {
 		resource accesstypes.Resource
@@ -313,6 +323,16 @@ func validateCollectionBindings(resources []CollectionResource) error {
 			}
 			if !accesstypes.ValidAttributeType(attr.Type) {
 				return errors.Newf("resource %q attribute %q carries comparison type %q, which is not in the vocabulary — regenerate the collection", res.Name, attr.Name, attr.Type)
+			}
+		}
+		for _, set := range res.SubjectSets {
+			if set.Domain != nil && (res.Scope == accesstypes.DomainPermissionScope || res.Domain != nil) {
+				return errors.Newf("resource %q subject set %q writes a domain:, which says where a row's tenant is found on a resource that is no tenant's; %q is a tenant's resource, and its own domain binding keeps the set to the request's tenant — remove the set's domain", res.Name, set.Name, res.Name)
+			}
+		}
+		for _, value := range res.SubjectValues {
+			if value.Domain != nil {
+				return errors.Newf("resource %q subject value %q writes a domain:, which is a part of a subject set alone — remove the value's domain", res.Name, value.Name)
 			}
 		}
 		for _, subject := range slices.Concat(res.SubjectSets, res.SubjectValues) {
