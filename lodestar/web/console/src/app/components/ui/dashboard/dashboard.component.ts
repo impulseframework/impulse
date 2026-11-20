@@ -1,15 +1,16 @@
 import { Component, computed, inject } from '@angular/core';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { MatTableModule } from '@angular/material/table';
 import { RouterModule } from '@angular/router';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { CompoundResourceComponent, ResourceListComponent } from '@impulseframework/resource-angular/resource';
 import { Method, Permission, Resource } from '@impulseframework/resource';
 import { ImpersonationService } from '@components/sector/impersonation.service';
 import { SectorService } from '@components/sector/sector.service';
 import { PilotCardComponent } from '@components/shared/pilot-card/pilot-card.component';
+import { serviceLedgerList } from '../../../configs/serviceLedgers.config';
 
 /** One row of the service card: a resource and what the session holds on it here. */
 interface CardRow {
@@ -33,7 +34,10 @@ const READ_WRITE: Permission[] = [
  * permission digest rendered as an object in the world; every deck consults the same
  * digest before issuing a request. Under a masked "view as" session the write column
  * carries a stripe: Masked drops those permissions from the digest itself. Above it, the
- * signed-in pilot's standing (the pilot card), and in Headquarters the service ledger.
+ * signed-in pilot's standing (the pilot card), and for a person who may list it the
+ * service ledger, a list of records the library's list draws. The badge is no list of
+ * records: on a narrow page each resource is a block of its own, its name over its
+ * permissions, each permission named beside its answer, so nothing runs past the edge.
  * The person's email address and the look of the console are theirs, not a place's: the
  * account page and Appearance in the person's menu, which the frame draws.
  *
@@ -41,7 +45,7 @@ const READ_WRITE: Permission[] = [
  */
 @Component({
   selector: 'app-dashboard',
-  imports: [MatCardModule, MatIconModule, MatTableModule, PilotCardComponent, RouterModule],
+  imports: [MatCardModule, MatIconModule, PilotCardComponent, ResourceListComponent, RouterModule],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
@@ -54,9 +58,13 @@ export class DashboardComponent {
   readonly columns = ['label', ...READ_WRITE.map((p) => String(p)), 'execute'];
 
   // ServiceLedgers is a computed resource aggregated across every sector — the
-  // Governor's view. The list gate is the handle's own.
-  ledger = this.sectors.globalList((api) => api.serviceLedgers);
-  ledgerColumns = ['name', 'openMissions', 'feesOutstanding', 'settlements'];
+  // Governor's view. The library's list draws it and asks for its rows; the page shows
+  // the list only where the digest grants List on the ledger, so a person without the
+  // grant asks the server for nothing.
+  readonly ledgerList = serviceLedgerList;
+  /** The page a list opens a row in: the library's, which the ledger never opens (a row has no page). */
+  readonly rowPage = CompoundResourceComponent;
+  seesLedger = computed(() => this.sectors.can(Permissions.List, Resources.ServiceLedgers));
 
   // The card's rows: every resource the descriptor knows, sector-scoped ones asked in
   // the open sector. Absent everywhere means the row still renders, greyed — the
