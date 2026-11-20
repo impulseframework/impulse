@@ -1,194 +1,188 @@
-<h1>Flight Deck</h1>
-<p>
-  Every mission is a live state graph. The call sheets show what your posting lets you see; open one and the edges you
-  may fire right now are drawn live — they come from the row's own capability envelope, so a Cadet and the Marshal see
-  the same graph with different edges lit. Redacted fees print a stamp; an overdue deadline turns red.
-</p>
+<!--
+  The deck holds itself back until it knows what it will draw (the grants and every list it
+  reads), and then draws whole: nothing here is drawn and then taken away.
+-->
+@if (ready()) {
+  <h1>Flight Deck</h1>
+  <p>
+    The missions of this sector, by deadline. Open one to see where it stands and what you may do with it now. A fee you
+    may not see is shown as REDACTED, and a deadline that has passed is shown in red.
+  </p>
 
-@if (canBook()) {
-  <div class="actions">
-    <button mat-flat-button type="button" class="book" (click)="openBook(bookForm)">Book a mission</button>
-  </div>
-}
+  @if (canBook()) {
+    <div class="actions">
+      <button mat-flat-button type="button" class="book" (click)="openBook(bookForm)">Book a mission</button>
+    </div>
+  }
 
-@if (sectors.refusalOf(missionsPage); as refusal) {
-  <mat-card appearance="outlined" class="table-card refusal-slot">
-    <p class="refusal"><b>Refused by the server:</b> {{ refusal }}</p>
-  </mat-card>
-} @else if (!canList()) {
-  <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover missions.</p>
-  </mat-card>
-} @else {
-  <div class="pager">
-    <button mat-button type="button" [disabled]="!missionsPage.value()?.prev" (click)="turnPage('prev')">
-      <mat-icon>chevron_left</mat-icon> Previous
-    </button>
-    <span class="pager-total">
-      @if (missionTotal() !== undefined) {
-        {{ missions().length }} of {{ missionTotal() }} missions, {{ pageSize }} a page from the descriptor
-      } @else {
-        {{ missions().length }} missions
-      }
-    </span>
-    <button mat-button type="button" [disabled]="!missionsPage.value()?.next" (click)="turnPage('next')">
-      Next <mat-icon>chevron_right</mat-icon>
-    </button>
-  </div>
-  <div class="sheets">
-    @for (mission of missions(); track mission.id) {
-      <button type="button" class="sheet" [class.selected]="selected()?.id === mission.id" (click)="select(mission)">
-        <div class="sheet-head">
-          <span class="title">{{ mission.title }}</span>
-          <span class="state-chip">{{ mission.statusId }}</span>
-        </div>
-        <div class="sheet-row">
-          <span class="kind">{{ mission.kindId }}</span>
-          <span class="client">{{ clientName(mission.clientId) }}</span>
-        </div>
-        <div class="sheet-row">
-          <span class="hazard" title="Hazard {{ mission.hazard }}">{{ pips(mission.hazard) }}</span>
-          <span class="fee">
-            @if (feeMasked(mission)) {
-              <span class="redacted">REDACTED</span>
-            } @else {
-              {{ mission.fee | number: '1.0-0' }} cr
-            }
-          </span>
-        </div>
-        <div class="sheet-row">
-          <span class="squadron">{{ squadronName(mission.assignedSquadronId) }}</span>
-          <span class="deadline" [class.overdue]="overdue(mission)">{{ countdown(mission) }}</span>
-        </div>
-      </button>
-    } @empty {
+  @if (sectors.saidBy(missionsPage); as said) {
+    <mat-card appearance="outlined" class="table-card refusal-slot">
+      <p class="refusal">The server would not list the missions: {{ said }}</p>
+    </mat-card>
+  } @else if (!canList()) {
+    <mat-card appearance="outlined" class="table-card">
+      <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover missions.</p>
+    </mat-card>
+  } @else if (missions().length === 0) {
+    <mat-card appearance="outlined" class="table-card">
       <p class="empty">No missions on your board in {{ sectorName() }}.</p>
-    }
-  </div>
-}
+    </mat-card>
+  } @else {
+    <div class="pager">
+      <button mat-button type="button" [disabled]="!page()?.prev" (click)="turnPage('prev')">
+        <mat-icon>chevron_left</mat-icon> Previous
+      </button>
+      <span class="pager-total">{{ missionCount() }}</span>
+      <button mat-button type="button" [disabled]="!page()?.next" (click)="turnPage('next')">
+        Next <mat-icon>chevron_right</mat-icon>
+      </button>
+    </div>
+    <div class="sheets">
+      @for (mission of missions(); track mission.id) {
+        <button type="button" class="sheet" [class.selected]="selectedID() === mission.id" (click)="select(mission)">
+          <div class="sheet-head">
+            <span class="title">{{ mission.title }}</span>
+            <span class="state-chip">{{ stateWords(mission.statusId) }}</span>
+          </div>
+          <div class="sheet-row">
+            <span class="kind">{{ mission.kindId }}</span>
+            <span class="client">{{ clientName(mission.clientId) }}</span>
+          </div>
+          <div class="sheet-row">
+            <span class="hazard" title="Hazard {{ mission.hazard }}">{{ pips(mission.hazard) }}</span>
+            <span class="fee">
+              @if (feeMasked(mission)) {
+                <span class="redacted">REDACTED</span>
+              } @else {
+                {{ mission.fee | number: '1.0-0' }} cr
+              }
+            </span>
+          </div>
+          <div class="sheet-row">
+            <span class="squadron">{{ squadronName(mission.assignedSquadronId) }}</span>
+            <span class="deadline" [class.overdue]="overdue(mission)">{{ countdown(mission) }}</span>
+          </div>
+        </button>
+      }
+    </div>
+  }
 
-@if (selected(); as mission) {
-  <mat-card appearance="outlined" class="detail-card">
-    <mat-card-header>
-      <mat-card-title>{{ mission.title }}</mat-card-title>
-      <mat-card-subtitle>
-        Booked by {{ mission.bookedByName || '—' }} · {{ mission.brief || 'no brief' }}
-        @if (overdue(mission)) {
-          · <span class="overdue">overdue</span>
-        }
-      </mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <app-workflow-graph
-        [root]="resources.Missions"
-        [current]="mission.statusId ?? ''"
-        [executable]="executable(mission)"
-        [words]="words"
-        (fire)="onEdge(mission, $event)"></app-workflow-graph>
+  <!-- The open mission, drawn once the server has answered for each of its edges. -->
+  @if (selected(); as mission) {
+    <mat-card appearance="outlined" class="detail-card">
+      <mat-card-header>
+        <mat-card-title>{{ mission.title }}</mat-card-title>
+        <mat-card-subtitle>
+          Booked by {{ mission.bookedByName || '—' }} · {{ mission.brief || 'no brief' }}
+          @if (overdue(mission)) {
+            · <span class="overdue">overdue</span>
+          }
+        </mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <app-workflow-graph
+          [root]="resources.Missions"
+          [current]="mission.statusId ?? ''"
+          [executable]="edges(mission)"
+          [words]="words"
+          (fire)="onEdge($event)"></app-workflow-graph>
 
-      <div class="edges">
-        @for (method of executable(mission); track method) {
-          <span class="edge">
-            <button mat-stroked-button (click)="onEdge(mission, method)">{{ words(method) }}</button>
-            @if (check(method); as verdict) {
-              <span
-                class="probe"
-                [class.refused]="!verdict.ok"
-                [title]="verdict.message ?? 'The dry run says this edge would commit for you.'">
-                {{ verdict.ok ? 'dry run: would commit' : 'dry run: ' + verdict.message }}
-              </span>
+        <div class="edges">
+          @for (method of edges(mission); track method) {
+            <div class="edge">
+              <button mat-stroked-button type="button" (click)="onEdge(method)">{{ words(method) }}</button>
+              @if (verdict(method); as verdict) {
+                <span class="probe" [class.refused]="verdict.ok === false" [class.untried]="verdict.ok === undefined">
+                  {{ verdict.says }}
+                </span>
+              }
+            </div>
+          } @empty {
+            <span class="empty">There is no next step you may take with this mission now.</span>
+          }
+        </div>
+
+        @if (editable(mission) || canRemove(mission)) {
+          <div class="actions">
+            @if (editable(mission)) {
+              <button mat-stroked-button type="button" class="edit" (click)="openEdit(mission, editForm)">
+                Edit call sheet
+              </button>
             }
-          </span>
-        } @empty {
-          <span class="empty">No edges are lit for you on this mission.</span>
-        }
-      </div>
-
-      @if (!pendingEdge()) {
-        @if (refusal(); as refusal) {
-          <p class="refusal">{{ refusal }}</p>
-        }
-      }
-
-      @if (editable(mission) || canRemove(mission)) {
-        <div class="actions">
-          @if (editable(mission)) {
-            <button mat-stroked-button type="button" class="edit" (click)="openEdit(mission, editForm)">
-              Edit call sheet
-            </button>
-          }
-          @if (canRemove(mission)) {
-            <button mat-stroked-button type="button" class="remove" (click)="remove(mission)">Delete</button>
-          }
-        </div>
-      }
-
-      <h3>Documents</h3>
-      @for (document of documentsOf(mission); track document.id) {
-        <div class="sortie">
-          <a [href]="documentUrl(document)" target="_blank">{{ document.title }} — {{ document.fileName }}</a>
-          ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedByName }}</b>
-          {{ document.uploadedAt | date: 'medium' }}
-        </div>
-      } @empty {
-        <p class="empty">No documents attached.</p>
-      }
-      @if (canAttach()) {
-        <div class="actions">
-          <button mat-stroked-button type="button" class="attach" (click)="openAttach(attachForm)">
-            Attach document
-          </button>
-        </div>
-      }
-
-      <h3>Sorties</h3>
-      @for (sortie of sortiesOf(mission); track sortie.id) {
-        <div class="sortie">
-          <div>
-            <b>{{ pilotName(sortie.pilotUserId) }}</b> launched {{ sortie.launchedAt | date: 'medium' }}
-            @if (sortie.returnedAt) {
-              · returned {{ sortie.returnedAt | date: 'medium' }}
+            @if (canRemove(mission)) {
+              <button mat-stroked-button type="button" class="remove" (click)="openRemove(removeForm)">Delete</button>
             }
           </div>
-          <ul class="expenses">
-            @for (expense of expensesOf(sortie); track expense.id) {
-              <li>
-                {{ expense.category }} — {{ expense.amount }} cr {{ expense.memo ? '(' + expense.memo + ')' : '' }}
-              </li>
-            }
-          </ul>
-          @if (canAddExpense(sortie)) {
-            <button mat-stroked-button type="button" class="add-expense" (click)="openExpense(sortie, expenseForm)">
-              Add expense
+        }
+
+        <h3>Documents</h3>
+        @for (document of documentsOf(mission); track document.id) {
+          <div class="sortie">
+            <a [href]="documentUrl(document)" target="_blank">{{ document.title }} — {{ document.fileName }}</a>
+            ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedByName }}</b>
+            {{ document.uploadedAt | date: 'medium' }}
+          </div>
+        } @empty {
+          <p class="empty">No documents attached.</p>
+        }
+        @if (canAttach(mission)) {
+          <div class="actions">
+            <button mat-stroked-button type="button" class="attach" (click)="openAttach(attachForm)">
+              Attach document
             </button>
-          }
-        </div>
-      } @empty {
-        <p class="empty">No sorties flown yet.</p>
-      }
-      @if (canAddSortie(mission)) {
-        <div class="actions">
-          <button mat-stroked-button type="button" class="add-sortie" (click)="openSortie(sortieForm)">
-            Add sortie
-          </button>
-        </div>
-      }
-    </mat-card-content>
-  </mat-card>
+          </div>
+        }
+
+        <h3>Sorties</h3>
+        @for (sortie of sortiesOf(mission); track sortie.id) {
+          <div class="sortie">
+            <div>
+              <b>{{ pilotName(sortie.pilotUserId) }}</b> launched {{ sortie.launchedAt | date: 'medium' }}
+              @if (sortie.returnedAt) {
+                · returned {{ sortie.returnedAt | date: 'medium' }}
+              }
+            </div>
+            <ul class="expenses">
+              @for (expense of expensesOf(sortie); track expense.id) {
+                <li>
+                  {{ expense.category }} — {{ expense.amount }} cr {{ expense.memo ? '(' + expense.memo + ')' : '' }}
+                </li>
+              }
+            </ul>
+            @if (canAddExpense(sortie)) {
+              <button mat-stroked-button type="button" class="add-expense" (click)="openExpense(sortie, expenseForm)">
+                Add expense
+              </button>
+            }
+          </div>
+        } @empty {
+          <p class="empty">No sorties flown yet.</p>
+        }
+        @if (canAddSortie(mission)) {
+          <div class="actions">
+            <button mat-stroked-button type="button" class="add-sortie" (click)="openSortie(sortieForm)">
+              Add sortie
+            </button>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+  }
 }
 
 <!--
-  The deck's forms. Each opens in a dialog over the page from the button that names it:
-  the title and the button that sends are that button's words, Cancel and Escape close it
-  with nothing sent, and what the server refuses is shown in the form.
+  The deck's dialogs. Each opens over the page from the button that names it: the title and
+  the button that sends are that button's words, Cancel and Escape close it with nothing
+  sent, and what the server refuses is shown in the dialog. An edge's dialog and the
+  delete's name the mission and say what will happen to it.
 -->
 <ng-template #bookForm>
   <div mat-dialog-title>Book a mission</div>
   <form class="dialog-form" (ngSubmit)="book()">
     <mat-dialog-content>
       <p class="hint">
-        The Booking Agent may book only up to their fee limit (an insert-image condition on the new row). Inputs render
-        from the digest's field-level Create entries.
+        You are asked only for what your role may set. Some roles may book only up to a fee limit: a booking over the
+        limit is refused, and the refusal is shown here.
       </p>
       @if (canBookField('title')) {
         <mat-form-field appearance="outline">
@@ -265,6 +259,7 @@
       <div mat-dialog-title>{{ words(edge) }}</div>
       <form class="dialog-form" (ngSubmit)="fire(mission, edge)">
         <mat-dialog-content>
+          <p class="asks">{{ asks(edge, mission) }}</p>
           @switch (edge) {
             @case (methods.ClaimMission) {
               <mat-form-field appearance="outline">
@@ -299,11 +294,9 @@
                 <mat-label>Reason</mat-label>
                 <input matInput name="holdReason" [(ngModel)]="holdReason" required />
               </mat-form-field>
-              @if (holdCheck(); as check) {
-                @if (check.ok) {
-                  <p class="probe">The dry run says this hold would commit for you.</p>
-                } @else {
-                  <p class="refusal dry-run">The dry run refused before you touched anything: {{ check.message }}</p>
+              @if (pendingVerdict(); as verdict) {
+                @if (verdict.ok === false) {
+                  <p class="refusal ahead">{{ verdict.says }}</p>
                 }
               }
             }
@@ -329,7 +322,7 @@
             type="submit"
             color="accent"
             class="send"
-            [disabled]="edge === methods.HoldMission && holdCheck()?.ok === false">
+            [disabled]="edge === methods.HoldMission && pendingVerdict()?.ok === false">
             {{ words(edge) }}
           </button>
         </mat-dialog-actions>
@@ -381,8 +374,8 @@
         }
         @if (conditionalEdits(); as fields) {
           <p class="hint">
-            Your grant on {{ fields }} is conditional: the digest says you may write it, the server judges each change
-            against the grant's condition when you save.
+            You may change {{ fields }} only within limits. The server checks each change when you save, and a change it
+            refuses is said here.
           </p>
         }
         @if (editRefusal(); as refusal) {
@@ -392,6 +385,24 @@
       <mat-dialog-actions align="end">
         <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
         <button mat-raised-button type="submit" color="accent" class="send">Save</button>
+      </mat-dialog-actions>
+    </form>
+  }
+</ng-template>
+
+<ng-template #removeForm>
+  @if (selected(); as mission) {
+    <div mat-dialog-title>Delete</div>
+    <form class="dialog-form" (ngSubmit)="remove(mission)">
+      <mat-dialog-content>
+        <p class="asks">Delete the mission {{ mission.title }}? It is taken off the board for good.</p>
+        @if (formRefusal(); as refusal) {
+          <p class="refusal" role="alert">{{ refusal }}</p>
+        }
+      </mat-dialog-content>
+      <mat-dialog-actions align="end">
+        <button mat-raised-button type="button" color="warn" class="cancel" (click)="close()">Cancel</button>
+        <button mat-raised-button type="submit" color="accent" class="send">Delete</button>
       </mat-dialog-actions>
     </form>
   }

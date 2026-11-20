@@ -24,6 +24,12 @@ import { RosterComponent } from './roster.component';
 // the role by its name, and the dialog closes once the session is minted; a mint the
 // server refuses is shown in the dialog in the server's words. A session that holds
 // neither grant, or one that is already minted, is offered neither button.
+//
+// The roster draws once it knows: nothing until the grants and its lists are in, then the
+// whole page, "does not cover" only where the grants say so and "no squadrons" only where
+// the sector has none. Nothing is drawn and then taken away. What it says, it says in
+// plain words: a role by its name in words, a refusal in the server's words, and nothing
+// of how the page is made.
 
 /** Anvil's id: a sector's key is an id its create generates, and the name is a field. */
 const anvilID = 'a1111111-1111-4111-8111-111111111111';
@@ -49,9 +55,33 @@ interface World {
   minted?: ImpersonationRecord;
   /** What the mint route answers with instead of a session. */
   refuses?: HttpErrorResponse;
+  /** The answer to the squadrons' read, instead of the sector's one squadron. */
+  squadrons?: TransportResponse;
+  /** The sector's digest and every list answer late, so the page is seen while it waits. */
+  slow?: boolean;
 }
 
-function server(grants: PermissionDigest): (request: TransportRequest) => TransportResponse {
+/**
+ * The scripted server. A slow world answers the sector's digest and every list a few
+ * milliseconds late, the digest first, as a real server answers them one after another.
+ */
+function serverFor(world: World): (request: TransportRequest) => TransportResponse | Promise<TransportResponse> {
+  const answer = answerFor(world);
+  if (!world.slow) {
+    return answer;
+  }
+  return (request) => {
+    const url = new URL(request.url, 'http://lodestar.test');
+    const late = url.pathname.endsWith('/permission-digest') ? (url.searchParams.get('domain') ? 4 : 0) : 8;
+    if (request.method !== 'GET' || late === 0) {
+      return answer(request);
+    }
+    return new Promise((resolve) => setTimeout(() => resolve(answer(request)), late));
+  };
+}
+
+function answerFor(world: World): (request: TransportRequest) => TransportResponse {
+  const grants = world.grants;
   return (request) => {
     const url = new URL(request.url, 'http://lodestar.test');
     switch (url.pathname) {
@@ -67,7 +97,7 @@ function server(grants: PermissionDigest): (request: TransportRequest) => Transp
       case `${environment.apiUrl}/sectors/${anvilID}/wings`:
         return { status: 200, body: [{ id: 'w-1', name: 'Forge Wing' }] };
       case `${environment.apiUrl}/sectors/${anvilID}/squadrons`:
-        return { status: 200, body: [{ id: 's-1', name: 'Kestrel Flight', wingId: 'w-1' }] };
+        return world.squadrons ?? { status: 200, body: [{ id: 's-1', name: 'Kestrel Flight', wingId: 'w-1' }] };
       case `${environment.apiUrl}/sectors/${anvilID}/squadron-memberships`:
         return { status: 200, body: [{ squadronId: 's-1', userId: 'u-cadet' }] };
       case `${environment.apiUrl}/sectors/${anvilID}/crew-sector-users`:
@@ -75,7 +105,7 @@ function server(grants: PermissionDigest): (request: TransportRequest) => Transp
           status: 200,
           body: [
             { id: 'u-cadet', username: 'cadet' },
-            { id: 'u-guest', username: 'guest' },
+            { id: 'u-guest', username: 'guest', name: 'Guest Gale' },
           ],
         };
       case `${environment.apiUrl}/pilots`:
@@ -92,18 +122,34 @@ describe('RosterComponent', () => {
   /** The sessions the page asked the mint route for, in order. */
   let mints: { kind: 'user' | 'role'; principal: string }[];
 
+  /** What the page read each time it was drawn, one after another: the film of the page. */
+  let film: string[];
+
+  /** Draws the page and keeps what it reads where that is not what it read the time before. */
+  const draw = (): void => {
+    fixture.detectChanges();
+    const frame = text(element());
+    if (film[film.length - 1] !== frame) {
+      film.push(frame);
+    }
+  };
+
   /** Draws the page and lets pending answers land until `done` answers true, for at most `rounds` rounds. */
   const settle = async (done: () => boolean = () => false, rounds = 10): Promise<void> => {
     for (let i = 0; i < rounds && !done(); i++) {
-      fixture.detectChanges();
+      draw();
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    fixture.detectChanges();
+    draw();
   };
 
-  /** Signs in, opens the roster in Anvil as the tenant guard does, and waits for the squadrons. */
-  const pageFor = async (world: World): Promise<void> => {
-    transport = scriptedTransport(server(world.grants));
+  /**
+   * Signs in, opens the roster in Anvil as the tenant guard does, and waits until the page
+   * has drawn `drawn`: a row of the table, unless the world's roster has none.
+   */
+  const pageFor = async (world: World, drawn = 'tr[mat-row]'): Promise<void> => {
+    film = [];
+    transport = scriptedTransport(serverFor(world));
     mints = [];
     // The mint route is hand-written and asked through HttpClient: the spec plays it at
     // the service, which records what the page asked for and refuses as the world says.
@@ -128,7 +174,7 @@ describe('RosterComponent', () => {
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     TestBed.inject(TenantService).enter(anvilID);
     fixture = TestBed.createComponent(RosterComponent);
-    await settle(() => rows().length > 0, 50);
+    await settle(() => element().querySelector(drawn) !== null, 300);
   };
 
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
@@ -226,8 +272,7 @@ describe('RosterComponent', () => {
   it('View as mints a session as the person picked, named by the id of their account, and the dialog closes', async () => {
     await pageFor({ grants: marshal });
     await open('button.view-as');
-    // A person of the cast reads by the persona's name, anyone else by their username.
-    await pick('guest');
+    await pick('Guest Gale (guest)');
     await send();
     await settle(() => !dialogOpen());
 
@@ -249,6 +294,42 @@ describe('RosterComponent', () => {
 
     expect(mints).toEqual([{ kind: 'role', principal: 'Dispatcher' }]);
     expect(dialogOpen()).toBe(false);
+  });
+
+  it('offers each person by the name their account carries with the username beside it, and by the username alone where it carries none', async () => {
+    await pageFor({ grants: marshal });
+    await open('button.view-as');
+
+    inDialog('.mat-mdc-select-trigger')?.click();
+    await settle();
+    const offered = Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container mat-option'));
+
+    expect(offered.map(text)).toEqual(['cadet', 'Guest Gale (guest)']);
+  });
+
+  it('offers each role by its name in words, and mints under the name the server knows it by', async () => {
+    await pageFor({ grants: marshal });
+    await open('button.assume-role');
+
+    inDialog('.mat-mdc-select-trigger')?.click();
+    await settle();
+    const offered = Array.from(document.querySelectorAll<HTMLElement>('.cdk-overlay-container mat-option'));
+    expect(offered.map(text)).toEqual([
+      'Dispatcher',
+      'Cadet',
+      'Pilot',
+      'Engineer',
+      'Archivist',
+      'Booking agent',
+      'Sector marshal',
+    ]);
+
+    offered.find((option) => text(option) === 'Sector marshal')?.click();
+    await settle();
+    await send();
+    await settle(() => !dialogOpen());
+
+    expect(mints).toEqual([{ kind: 'role', principal: 'SectorMarshal' }]);
   });
 
   it('sends nothing while nothing is picked', async () => {
@@ -275,5 +356,77 @@ describe('RosterComponent', () => {
     expect(dialogOpen()).toBe(true);
     expect(dialogTexts('.refusal')).toEqual([sentence]);
     expect(element().querySelector('.refusal')).toBeNull();
+  });
+
+  it('a mint the server refuses without a word says so, and never a status code', async () => {
+    await pageFor({ grants: marshal, refuses: new HttpErrorResponse({ status: 403, error: null }) });
+    await open('button.assume-role');
+    await pick('Cadet');
+    await send();
+    await settle(() => dialogTexts('.refusal').length > 0, 50);
+
+    expect(dialogTexts('.refusal')).toEqual(['The server gave no reason.']);
+  });
+
+  it('draws nothing until it knows, and then the whole page: nothing is drawn and then taken away', async () => {
+    await pageFor({ grants: marshal, slow: true });
+    await settle(() => false, 20);
+
+    expect(film[0]).toBe('');
+    expect(film).toHaveLength(2);
+    expect(rows()).toEqual([['Kestrel Flight', 'Forge Wing', 'Cass']]);
+    expect(texts('.impersonation-card .actions button')).toEqual(['View as', 'Act as role']);
+    expect(texts('.empty')).toEqual([]);
+  });
+
+  it('draws the same way for a session that only reads: nothing, then the table alone', async () => {
+    await pageFor({ grants: reads, slow: true });
+    await settle(() => false, 20);
+
+    expect(film[0]).toBe('');
+    expect(film).toHaveLength(2);
+    expect(rows()).toEqual([['Kestrel Flight', 'Forge Wing', 'Cass']]);
+    expect(element().querySelector('.impersonation-card')).toBeNull();
+    expect(texts('.empty')).toEqual([]);
+  });
+
+  it('says the posting does not cover the roster only where the grants say so', async () => {
+    await pageFor({ grants: { Wings: { List: 'granted' } }, slow: true }, 'h1');
+    await settle(() => false, 20);
+
+    expect(film[0]).toBe('');
+    expect(film).toHaveLength(2);
+    expect(texts('.empty')).toEqual(['Your posting in Anvil does not cover the squadron roster.']);
+    expect(element().querySelector('table')).toBeNull();
+  });
+
+  it('says the sector has no squadrons only once the server said so', async () => {
+    await pageFor({ grants: reads, squadrons: { status: 200, body: [] }, slow: true }, 'h1');
+    await settle(() => false, 20);
+
+    expect(film[0]).toBe('');
+    expect(film).toHaveLength(2);
+    expect(texts('.empty')).toEqual(['No squadrons visible in Anvil for your posting.']);
+  });
+
+  it("says a roster the server refused in the server's words, and no status code", async () => {
+    const sentence = 'Squadrons: the roster is closed for the muster.';
+    await pageFor({ grants: reads, squadrons: { status: 403, body: { message: sentence } } }, 'h1');
+
+    expect(texts('.refusal')).toEqual([`The server would not list the squadrons: ${sentence}`]);
+    expect(element().querySelector('table')).toBeNull();
+    expect(text(element())).not.toMatch(/\b403\b|HTTP|Refused by the server/);
+  });
+
+  it('says what the page is for in plain words, and nothing of how it is made', async () => {
+    await pageFor({ grants: marshal });
+
+    expect(text(element().querySelector('h1 + p'))).toBe(
+      "The sector's wings and squadrons, and who flies with whom. Headquarters and the Marshal may also see the " +
+        'console as another crew member does, read-only, or act as a role: the role lends what it may do, never ' +
+        "anyone's identity.",
+    );
+    expect(element().querySelector('code')).toBeNull();
+    expect(text(element())).not.toMatch(/subject\.|anchors|minted|Chaining|grants/);
   });
 });

@@ -8,7 +8,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
-import { CREW_MANIFEST } from '@components/login/login.component';
+import { CrewSectorUsers } from '@app/service/zz_gen_resources';
+import { nameInWords } from '@impulseframework/resource-angular/types';
 import { openFormDialog } from '../form-dialog';
 import { ImpersonationService } from '../impersonation.service';
 import { SectorService } from '../sector.service';
@@ -27,6 +28,14 @@ import { SectorService } from '../sector.service';
  * close it with nothing minted, and a click outside does nothing. A mint the server
  * refuses is shown in the dialog, in the server's words. The table of squadrons is the
  * page's own and reads only.
+ *
+ * The page draws once it knows: nothing until the grants and its lists are in, then the
+ * whole page, "not for your posting" only where the grants say so and "no squadrons" only
+ * where the sector has none. Nothing is drawn and then taken away. A role is offered by
+ * its name in words ("Sector marshal"), and sent to the server by its name. A person is
+ * offered by the name their account carries with the username beside it ("Cadet Cass
+ * (cadet)"), by the username alone where the account has no name, and sent by the id of
+ * the account.
  *
  * Demonstrates: impersonation.view-as, impersonation.act-as-role, @manualAddResource.execute, paging.limit-all, @subjectSet.dotted-value.
  */
@@ -71,6 +80,8 @@ export class RosterComponent {
   );
   canAssumeRole = computed(() => this.sectors.can(Permissions.Execute, Methods.AssumeRole));
   alreadyImpersonating = computed(() => this.impersonation.record() !== undefined);
+  /** Whether the page knows what it will draw: the grants are in, and each list it reads has answered. */
+  ready = computed(() => this.sectors.settled(this.wings, this.squadrons, this.memberships, this.pilots, this.people));
 
   readonly roles = ['Dispatcher', 'Cadet', 'Pilot', 'Engineer', 'Archivist', 'BookingAgent', 'SectorMarshal'];
 
@@ -87,10 +98,22 @@ export class RosterComponent {
     inject(DestroyRef).onDestroy(() => this.close());
   }
 
-  /** A person of the sector as the picker names them: the persona's name where the login is one of the cast's. */
-  personLabel(username: string | undefined): string {
-    const persona = CREW_MANIFEST.find((p) => p.login === username);
-    return persona ? `${persona.name} (${username})` : (username ?? 'No name to show');
+  /** A role as the picker names it: its name in words, "Booking agent" for BookingAgent. */
+  roleWords(role: string): string {
+    return nameInWords(role);
+  }
+
+  /**
+   * A person of the sector as the picker names them: the name their account carries with
+   * the username beside it, and the username alone where the account has no name.
+   */
+  personLabel(person: CrewSectorUsers): string {
+    const name = person.name?.trim() ?? '';
+    const username = person.username ?? '';
+    if (name !== '' && username !== '') {
+      return `${name} (${username})`;
+    }
+    return name || username || 'No name to show';
   }
 
   wingName(id: string | undefined): string {
@@ -145,7 +168,7 @@ export class RosterComponent {
       await ask();
     } catch (e) {
       if (e instanceof HttpErrorResponse && e.status > 0) {
-        this.refusal.set((e.error as { message?: string } | null)?.message ?? `HTTP ${e.status}`);
+        this.refusal.set((e.error as { message?: string } | null)?.message || 'The server gave no reason.');
         return;
       }
       throw e;

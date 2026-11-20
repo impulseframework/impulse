@@ -262,8 +262,7 @@ func TestConsoleHandsTheClientItsHooks(t *testing.T) {
 			want: []string{
 				"if (answer.status === 409) {",
 				"this.refusal.set(",
-				"if (e instanceof ApiError && e.status === 403) {",
-				"this.editRefusal.set(e.message);",
+				"this.editRefusal.set(serverWords(e));",
 			},
 		},
 	}
