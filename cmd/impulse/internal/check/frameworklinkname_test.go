@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -212,6 +213,46 @@ func TestFrameworkLinkname_aLinkedFile(t *testing.T) {
 		t.Fatalf("Run() = %s %q %v, want one directive refused in the linked file", got.Status, got.Summary, got.Details)
 	}
 	if want := "reach.go:5: //go:linkname write github.com/impulseframework/impulse/session/internal/sealed.CreateImpersonatedSession"; len(got.Details[0]) < len(want) || got.Details[0][:len(want)] != want {
+		t.Errorf("Details[0] = %q, want it to open %q", got.Details[0], want)
+	}
+}
+
+// TestFrameworkLinkname_aLinkedDirectory follows a symbolic link to a directory, as the
+// go command does when a package behind one is imported by its path: a directive in a
+// file there is refused under the path the link gives it, wherever the link leads. A
+// link that leads back above itself ends the walk, and one that leads nowhere is passed
+// over.
+func TestFrameworkLinkname_aLinkedDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	elsewhere := t.TempDir()
+	src := "package shim\n\nimport _ \"unsafe\"\n\n//go:linkname create github.com/impulseframework/impulse/session/internal/sealed.CreateImpersonatedSession\nfunc create()\n"
+	if err := os.WriteFile(filepath.Join(elsewhere, "shim.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "internal"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(root, "internal", "shim")); err != nil {
+		t.Skipf("the file system makes no symbolic link: %v", err)
+	}
+	// A second link to the same directory, a link back to the root and a link to nowhere.
+	for name, target := range map[string]string{"again": elsewhere, "loop": root, "gone": filepath.Join(elsewhere, "missing")} {
+		if err := os.Symlink(target, filepath.Join(root, "internal", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := frameworkLinkname{}.Run(context.Background(), &Env{App: &app.App{Root: root}})
+	if got.Status != Fail || len(got.Details) != 1 {
+		t.Fatalf("Run() = %s %q %v, want one directive refused in the linked directory, read once", got.Status, got.Summary, got.Details)
+	}
+	// The directory is read under the first of its two names.
+	if want := "internal/again/shim.go:5: //go:linkname create github.com/impulseframework/impulse/session/internal/sealed.CreateImpersonatedSession"; !strings.HasPrefix(got.Details[0], want) {
 		t.Errorf("Details[0] = %q, want it to open %q", got.Details[0], want)
 	}
 }

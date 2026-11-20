@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -31,7 +32,10 @@ import (
 // version control's own: a vendor directory, a browser side's dependencies, and the
 // directories a ./... pattern passes over (testdata, a name that begins with "_" or
 // "."), since a package there is still built when another imports it by its path. A
-// file whose own name begins with "_" or "." is in no package's build and is not read.
+// symbolic link to a directory is followed for the same reason, wherever it leads: a
+// ./... pattern passes over it, and the go command builds the package behind it when
+// another imports it by its path. A file whose own name begins with "_" or "." is in
+// no package's build and is not read.
 //
 // A directive is refused when the symbol it links to is of a package under the
 // framework's import path or of the framework's root package; the directive with one
@@ -94,48 +98,68 @@ func (c frameworkLinkname) Run(_ context.Context, env *Env) Result {
 }
 
 // goFiles lists every Go file the Go tool reads under the root, root-relative with
-// forward slashes, entering every directory but version control's.
+// forward slashes, entering every directory but version control's and following every
+// symbolic link to a directory. A file behind a link is named by the path the link gives
+// it under the root.
 func (frameworkLinkname) goFiles(root string) ([]string, error) {
-	var files []string
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			if d.Name() == gitDir && p != root {
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-		if !app.GoToolReads(d.Name()) {
-			return nil
-		}
-		if d.Type()&fs.ModeSymlink != 0 && !linksToAFile(p) {
-			return nil
-		}
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			return errors.Wrap(err, "filepath.Rel()")
-		}
-		files = append(files, filepath.ToSlash(rel))
-
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "filepath.WalkDir()")
+	w := &goFileWalk{seen: map[string]bool{}}
+	if err := w.dir(root, ""); err != nil {
+		return nil, err
 	}
 
-	return files, nil
+	return w.files, nil
 }
 
-// linksToAFile reports whether the link at p leads to a file. The Go tool reads a link
-// to a file as the file, and takes a link to a directory, or one that leads nowhere,
-// for no source file.
-func linksToAFile(p string) bool {
-	info, err := os.Stat(p)
+// goFileWalk is one walk of an application's tree for the Go files the Go tool reads.
+// It keeps the directories it has entered, by the path they resolve to, so that a
+// directory reached twice (directly and through a link, or through a link that leads
+// back above itself) is read once and the walk ends.
+type goFileWalk struct {
+	seen  map[string]bool
+	files []string
+}
 
-	return err == nil && !info.IsDir()
+// dir reads the directory at abs, which stands at rel under the root ("" for the root
+// itself), and every directory under it.
+func (w *goFileWalk) dir(abs, rel string) error {
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return errors.Wrap(err, "filepath.EvalSymlinks()")
+	}
+	if w.seen[resolved] {
+		return nil
+	}
+	w.seen[resolved] = true
+
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return errors.Wrap(err, "os.ReadDir()")
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		at, under := filepath.Join(abs, name), path.Join(rel, name)
+		isDir := entry.IsDir()
+		if entry.Type()&fs.ModeSymlink != 0 {
+			// The Go tool reads a link to a file as the file and builds the package
+			// behind a link to a directory. A link that leads nowhere is no source.
+			info, err := os.Stat(at)
+			if err != nil {
+				continue
+			}
+			isDir = info.IsDir()
+		}
+		switch {
+		case isDir && name == gitDir:
+		case isDir:
+			if err := w.dir(at, under); err != nil {
+				return err
+			}
+		case app.GoToolReads(name):
+			w.files = append(w.files, under)
+		}
+	}
+
+	return nil
 }
 
 // linkname is one //go:linkname directive that names a symbol: the line it is on, the
