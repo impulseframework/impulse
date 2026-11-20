@@ -1108,8 +1108,8 @@ kind gives (`"kind":"view"` with `Execute` in its mask) is refused, 403, with no
 started, and so is `"kind":"act"` from a holder of `CommandStaff` alone: the grant to
 view is not the grant to act. The answer, the session route's `impersonation.maskWords`,
 the banner and the watch desk say the session's mask in words ("reading only", and for
-the `act` kind "everything except access actions and credential actions"), and so does
-the generated list of
+the `act` kind "everything except access actions (still allowed: writing HangarPasses)
+and credential actions"), and so does the generated list of
 the impersonation records (`crew-session-impersonations`), whose `mask` column reads the
 stored text as words.
 
@@ -1171,15 +1171,25 @@ it (`NoRole: true`), a role file that grants it is refused, with the reason, by 
 permission engine and by `impulse check`, and the console's generated `Methods`
 constants leave it out.
 
-What the rule cannot see stays open to a session whose mask does not refuse it (the
-class `access` for a role, the record's writes for a row), and that is a stated limit
-of the rule, not something it promises. The marshal who acts as the
-`Headquarters` role is refused a role, a pass or a place in a squadron given to her own
-account. She is not refused a hangar pass given to a squadron she is in, or her own
-squadron moved to another wing: each reaches her through a row that does not name her,
-as a role given to a group she is in does. An application closes this through its
-mask, as the `act` kind does: the kind that is not to change anyone's standing says
-so, by the class and by the records it names. A hangar pass also goes with its hangar,
+The rule also sees a row that reaches a person without naming them. The marshal who
+acts as the `Headquarters` role is refused a role, a pass or a place in a squadron
+given to her own account, and she is refused a hangar pass given to a squadron she is
+in, and her own squadron moved to another wing ("you are acting as someone else, so you
+cannot add a hangar pass record for one of your own squadrons"). The generated writes
+of `HangarPasses` and `Squadrons` name the column and the set, and the library asks the
+set by its own declaration, so the rule and the policy agree on who is in a squadron.
+A squadron's new name asks nothing: only a change that sets the wing does. The `act`
+kind keeps the writes of `HangarPasses` out of its refusal of the class `access`
+(`accesstypes.RefuseClassExcept`), because giving passes is the marshal's daily work:
+a person standing in for the marshal gives a pass to another person or another
+squadron, is refused one for themselves or a squadron they are in, and is refused
+everything else the class holds. The banner and the watch desk say the exception in
+words ("everything except access actions (still allowed: writing HangarPasses) and
+credential actions"), a request to start the session may drop it (`refuseClasses:
+["access"]` with no `exceptWrites`), and a request that names a record the kind does
+not keep is refused with nothing started. What the rule cannot see is a role given to
+a group she is in: that stays open to a session whose mask does not refuse the class
+`access`, and it is a stated limit of the rule. A hangar pass also goes with its hangar,
 its squadron or its sector when one is deleted, whoever the pass names. No write of the
 pass is made, so neither the rule nor the `act` kind's mask is asked, and neither kind
 refuses those deletes: every pass gives something, so such a delete only takes away.

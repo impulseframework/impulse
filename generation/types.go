@@ -1341,6 +1341,9 @@ type resourceInfo struct {
 	DomainBinding *domainBinding
 	SubjectSets   []*subjectBinding
 	SubjectValues []*subjectBinding
+	// subjectReadThroughs are the record's columns that facts about people declared on
+	// other records are read through (attachSubjectReadThroughs).
+	subjectReadThroughs []subjectReadThrough
 
 	// Files are the resource's @file routes, one per field-scope declaration: a
 	// stored file served under the read route, its key column off the wire.

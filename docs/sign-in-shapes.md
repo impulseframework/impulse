@@ -471,15 +471,14 @@ Where an application offers it, these things hold in every shape.
   as a role cannot create a tenant, since they would become its administrator themselves.
   The same holds for a row of the application's own that names them and decides what
   they may do. They stop acting as the other person first.
-- That rule sees what names the person, and no more. It does not see a role given to a
-  group they are in: a session whose mask does not refuse that class of actions can give
-  one. In the same way, it does not see a row of the application's own that reaches them
-  without naming them: a pass given to a team they are in, or their own team moved to
-  another division. A session whose mask does not refuse the record's writes can write
-  such a row, whether or not the mask refuses the class: writing a record is not an
-  action of that class. These are stated limits of the rule. An application closes them
-  through the mask of the kind: a kind that is not to change what anyone may do refuses
-  that class of actions, and the writes of each such record by name.
+- The rule also sees a row of the application's own that reaches the person without
+  naming them. A pass given to a team they are in is refused, and so is their own team
+  moved to another division. This holds whatever the session's mask keeps, so a kind
+  that is allowed to give passes gives them to other people and other teams only.
+- The rule does not see a role given to a group they are in: a session whose mask does
+  not refuse that class of actions can give one. This is a stated limit of the rule. An
+  application closes it through the mask of the kind: a kind that is not to change what
+  anyone may do refuses that class of actions.
 - A row removed with its parent, which may name the person, is a stated limit of its
   own. A pass is removed when the place it opens is deleted. No write of the pass is
   made, so neither the rule nor a mask that refuses the writes of passes is asked. An

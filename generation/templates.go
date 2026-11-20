@@ -910,40 +910,56 @@ const (
 					}`
 
 	// subjectGuarded is spliced into the generated write of a record that decides what
-	// a person may do, one whose rows the policy reads as a subject value or a subject
-	// set (resourceInfo.SubjectUserFields), once the operation is decoded and before its
-	// create, update or delete is built (op, patchSet and $subjectReq, the request that
-	// carries the row's key, which the splice's place sets). In a session that acts as
-	// someone else nobody is the subject of what they do, so the write is refused when
-	// the row names the real person behind the session
-	// (identity.RefuseImpersonatorAsRowSubject): the person the stored row names, read
-	// by the key the operation's path carries, and the person the write names, read
-	// from the decoded fields and the key. It sits ahead of the three arms so that none
-	// of them can be reached around it. A create under a generated id has no key in its
-	// path, and no stored row. The splice reads the resource as its dot.
+	// a person may do (resourceInfo.SubjectGuarded), once the operation is decoded and
+	// before its create, update or delete is built (op, patchSet and $subjectReq, the
+	// request that carries the row's key, which the splice's place sets). In a session
+	// that acts as someone else nobody is the subject of what they do, so the write is
+	// refused when the row gives something to the real person behind the session, by
+	// each road a row reaches a person. A row that names them
+	// (identity.RefuseImpersonatorAsRowSubject, for resourceInfo.SubjectUserFields): the
+	// person the stored row names, read by the key the operation's path carries, and
+	// the person the write names, read from the decoded fields and the key. A row that
+	// names a set they are in (identity.RefuseImpersonatorAsSetSubject, once for each
+	// of resourceInfo.SubjectSetTests): the splice names the column and the set, and
+	// the library asks the set by its own declaration. The row a fact of theirs is read
+	// through (identity.RefuseImpersonatorAsReadThroughSubject, once for each of
+	// resourceInfo.SubjectReadThroughs), asked only of a change that sets the column.
+	// The splice sits ahead of the three arms so that none of them can be reached
+	// around it. A create under a generated id has no key in its path, and no stored
+	// row. The splice reads the resource as its dot.
 	//
-	// The generated comment states the rule's limit where a reader of the handler meets
-	// the rule: a row that reaches a person without naming them is written by a session
-	// whose mask does not refuse the record's writes, and an application closes that
-	// through its mask, which refuses the class access the record's writes carry. The
-	// comment names the two limits beside it, a row removed with its parent and a column
-	// that records who made a row, and where each is described.
-	subjectGuarded = `// The policy reads this record's rows as what a person may do, so nobody
-					// writes the row that names them while they act as someone else,
-					// whatever the session's mask keeps: the rule is asked about the person
-					// the row names before the write and the person it names after it. The
-					// caller's grants answer first.
+	// The generated comment says, where a reader of the handler meets the rule, which of
+	// the three questions the record is asked and that they hold whatever the session's
+	// mask keeps. It names the two limits that remain, a row removed with its parent and
+	// a column that records who made a row, and where each is described.
+	subjectGuarded = `// This record's rows decide what a person may do, so nobody writes the
+					// row that decides it for themselves while they act as someone else,
+					// whatever the session's mask keeps, an exception that keeps this
+					// record's writes included. The caller's grants answer first.
+					{{- if .SubjectUserFields }}
 					//
-					// The rule sees the rows that name a person. A row that reaches them
-					// without naming them (one that names a set they are in, or the row a
-					// value of theirs is read through) is its stated limit, beside a role
-					// given to a group they are in: a session whose mask does not refuse
-					// the record's writes writes it, and an application closes that
-					// through its mask, which refuses the class access this record's
-					// writes carry (accesstypes.RefuseClass). A row removed with its
-					// parent, and a column that records who made a row, are limits of
-					// their own: identity.RefuseImpersonatorAsRowSubject says what
-					// closes each.
+					// A row that names a person: the rule is asked about the person the
+					// row names before the write and the person it names after it.
+					{{- end }}
+					{{- if .SubjectSetTests }}
+					//
+					// A row that names a set of people reaches every person in the set:
+					// the rule is asked whether the real person is in the set the row
+					// names, before the write and after it. The set is asked by its own
+					// declaration, so the rule and the policy agree on who is in it.
+					{{- end }}
+					{{- if .SubjectReadThroughs }}
+					//
+					// A row a person's set or value is read through: a change that sets
+					// the column it is read from is refused on the row the real person's
+					// own is read through, and a change that leaves the column alone
+					// asks nothing.
+					{{- end }}
+					//
+					// A row removed with its parent, and a column that records who made a
+					// row, are the rule's stated limits:
+					// identity.RefuseImpersonatorAsRowSubject says what closes each.
+					{{- $subjectRecord := .SubjectRecordWords }}
 					subjectKey := resource.KeySet{}
 					{{- if .PrimaryKeyIsGeneratedUUID }}
 					if op.Type != resource.OperationCreate {
@@ -956,9 +972,21 @@ const (
 					{{- else }}
 					subjectKey = subjectKey.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ .PrimaryKeyType }}]({{ $subjectReq }}, "id"))
 					{{- end }}
-					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ .SubjectRecordWords }}"{{ range .SubjectUserFields }}, "{{ .Name }}"{{ end }}); err != nil {
+					{{- if .SubjectUserFields }}
+					if err := identity.RefuseImpersonatorAsRowSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}"{{ range .SubjectUserFields }}, "{{ .Name }}"{{ end }}); err != nil {
 						return errors.Wrap(err, "identity.RefuseImpersonatorAsRowSubject()")
-					}`
+					}
+					{{- end }}
+					{{- range .SubjectSetTests }}
+					if err := identity.RefuseImpersonatorAsSetSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Set }}"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsSetSubject()")
+					}
+					{{- end }}
+					{{- range .SubjectReadThroughs }}
+					if err := identity.RefuseImpersonatorAsReadThroughSubject(ctx, txn, op.Type, subjectKey, patchSet, "{{ $subjectRecord }}", "{{ .Field.Name }}", "{{ .Fact }}"); err != nil {
+						return errors.Wrap(err, "identity.RefuseImpersonatorAsReadThroughSubject()")
+					}
+					{{- end }}`
 
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
@@ -3431,7 +3459,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 				{{- if .Resource.SignalsTenants }}
 				tenantsWritten = true
 				{{- end }}
-				{{- if .Resource.SubjectUserFields }}
+				{{- if .Resource.SubjectGuarded }}
 				{{- with .Resource }}
 				{{- $subjectReq := "op.Req" }}
 
@@ -3738,7 +3766,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
-						{{- if .SubjectUserFields }}
+						{{- if .SubjectGuarded }}
 						{{- $subjectReq := "req" }}
 
 						` + subjectGuarded + `

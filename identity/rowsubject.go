@@ -43,17 +43,17 @@ import (
 // the read decides only whether to refuse, and the write that follows is held to its
 // tenant as ever.
 //
-// What it cannot see is a row that reaches the person without naming them: a row that
-// names a set the person is in (a pass given to their team), and the row another
-// record's value is read through (the team's own row, which says which division the
-// team is in). They are a stated limit of the rule, beside the one
-// RefuseImpersonatorAsSubject names for a role given to a group the person is in: a
-// session whose mask does not refuse the record's writes writes such a row, and the
-// rule does not look for the person in the set or behind the value. An application
-// closes that through its mask: the generator gives the class access to the writes of
-// every record that decides what a person may do and to the change of a record a value
-// is read through, so a kind of impersonation that refuses the class
-// (accesstypes.RefuseClass) refuses them, for every person.
+// A row that reaches the person without naming them is held to the same rule by the two
+// functions beside this one, which the generated write asks as well. A row that names a
+// set the person is in (a pass given to their team) is refused by
+// RefuseImpersonatorAsSetSubject, and a change to the row another record's value is
+// read through (the team's own row, which says which division the team is in) by
+// RefuseImpersonatorAsReadThroughSubject. Both hold under every mask, the one that
+// keeps the record's writes included: a kind of impersonation that makes the record an
+// exception of the class access (accesstypes.RefuseClassExcept) lets a person write it
+// for other people, and never for themselves, their own set or the row their own
+// standing is read through. What stays a stated limit is the one
+// RefuseImpersonatorAsSubject names, a role given to a group the person is in.
 //
 // A row removed with its parent, which may name the person, is a limit of its own. The
 // database removes the row when the parent's row is deleted (an interleaved table or a
@@ -155,6 +155,199 @@ func RefuseImpersonatorAsRowSubject[Resource resource.Resourcer](
 	return nil
 }
 
+// RefuseImpersonatorAsSetSubject is the rule of RefuseImpersonatorAsRowSubject for a row
+// that reaches a person through a set they are in: the row's column holds no account,
+// it holds a value the policy tests against one of the person's subject sets (a hangar
+// pass given to a squadron, read as given to every person in the squadron). In a
+// session that acts as someone else, the real person behind the session writes no such
+// row for a set they are in themselves: they do not add one, change or remove one that
+// is there, or move another onto their own set. A person acting as an administrator
+// gives other people's squadrons a pass, and not their own.
+//
+// column is the record's column the set is asked about and set is the subject set's
+// name, both named by the generated code from the record's own declaration (the who:
+// test of a @subjectSet that follows another set). Whether a value is in the person's
+// set is asked of the library, which builds the statement from the set's declaration
+// (resource.PatchSet.SubjectSetHolds), so the rule and the policy share one definition
+// of who is in a set: its who:, its where: and the sets it builds on. The real person
+// is the one asked about, never the person acted as. The rule is asked about the row
+// twice, as the row rule is: the value the stored row holds, read by its key inside the
+// transaction, and the value the write gives the column.
+//
+// It answers nil outside an impersonated session, without reading anything, and for a
+// row whose value is in no set of the real person's. The caller's grants answer first.
+// It holds whatever the session's mask keeps, and it cannot be asked on a database the
+// library builds no such statement for: that is an error, and the write does not happen.
+func RefuseImpersonatorAsSetSubject[Resource resource.Resourcer](
+	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
+	patchSet *resource.PatchSet[Resource], record string, column accesstypes.Field, set string,
+) error {
+	stored := func() (any, bool, error) {
+		return storedColumn[Resource](ctx, txn, key, column)
+	}
+
+	return refuseImpersonatorAsSetSubject(ctx, txn, op, key, patchSet, stored, record, column, set)
+}
+
+// subjectReach is what the rules for a row that reaches a person without naming them
+// ask of the write: the caller's grants, the fields the write sets, and the library's
+// two questions about a named person and the application's subject sets. A
+// resource.PatchSet answers all of it.
+type subjectReach interface {
+	Permitted(ctx context.Context, txn resource.ReadWriteTransaction) error
+	IsSet(field accesstypes.Field) bool
+	Get(field accesstypes.Field) any
+	SubjectSetHolds(ctx context.Context, txn resource.ReadWriteTransaction, set string, subject accesstypes.User, value any) (bool, error)
+	SubjectReadThrough(ctx context.Context, txn resource.ReadWriteTransaction, name string, field accesstypes.Field, subject accesstypes.User, key resource.KeySet) (bool, error)
+}
+
+// refuseImpersonatorAsSetSubject is RefuseImpersonatorAsSetSubject over what it asks of
+// the write, with stored reading the value the stored row holds in the column.
+func refuseImpersonatorAsSetSubject(
+	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
+	patchSet subjectReach, stored func() (value any, found bool, err error), record string, column accesstypes.Field, set string,
+) error {
+	actor, acting := impersonatorOf(ctx)
+	if !acting {
+		return nil
+	}
+	if err := patchSet.Permitted(ctx, txn); err != nil {
+		return errors.Wrap(err, "resource.PatchSet.Permitted()")
+	}
+
+	person := User(actor)
+	holds := func(value any) (bool, error) {
+		if holdsNothing(value) {
+			return false, nil
+		}
+		in, err := patchSet.SubjectSetHolds(ctx, txn, set, person, value)
+		if err != nil {
+			return false, errors.Wrap(err, "resource.PatchSet.SubjectSetHolds()")
+		}
+
+		return in, nil
+	}
+
+	// A column of the key holds the same value before the write and after it. Any
+	// other column is read off the stored row for the value before, and off the
+	// operation's fields for the value after.
+	var before, after bool
+	if value, inKey := keyValue(key, column); inKey {
+		in, err := holds(value)
+		if err != nil {
+			return err
+		}
+		before, after = in, in
+	} else {
+		if op != resource.OperationCreate {
+			held, found, err := stored()
+			if err != nil {
+				return err
+			}
+			if found {
+				if before, err = holds(held); err != nil {
+					return err
+				}
+			}
+		}
+		if op != resource.OperationDelete && patchSet.IsSet(column) {
+			var err error
+			if after, err = holds(patchSet.Get(column)); err != nil {
+				return err
+			}
+		}
+	}
+
+	switch {
+	case op == resource.OperationCreate && after:
+		return impersonatorRefused(ctx, actor, fmt.Sprintf("add a %s record for one of your own %s", record, set))
+	case op == resource.OperationCreate:
+		return nil
+	case op == resource.OperationDelete && before:
+		return impersonatorRefused(ctx, actor, fmt.Sprintf("remove a %s record of one of your own %s", record, set))
+	case op == resource.OperationDelete:
+		return nil
+	case before:
+		return impersonatorRefused(ctx, actor, fmt.Sprintf("change a %s record of one of your own %s", record, set))
+	case after:
+		return impersonatorRefused(ctx, actor, fmt.Sprintf("move a %s record to one of your own %s", record, set))
+	}
+
+	return nil
+}
+
+// RefuseImpersonatorAsReadThroughSubject is the rule of RefuseImpersonatorAsRowSubject
+// for the row a person's standing is read through: a subject set or a subject value
+// whose value is declared as a path (`value: SquadronID.WingID`) is read through a
+// column of another record, and a change that sets that column changes what the person
+// may do without touching a row that names them. In a session that acts as someone
+// else, the real person behind the session does not set that column on the row their
+// own set or value is read through: a person acting as an administrator moves other
+// people's squadrons to another wing, and not their own.
+//
+// column is the record's column the fact is read through and fact is the subject set's
+// or the subject value's name, both named by the generated code from the declaration
+// that reads through this record. Whether a row of the real person's reaches the row
+// under key is asked of the library, which builds the statement from the fact's own
+// declaration (resource.PatchSet.SubjectReadThrough).
+//
+// The rule is asked only of a change that sets the column: a change that leaves it
+// alone (the squadron's new name) asks nothing and reads nothing, and so does an add,
+// which no row of anyone's points at yet. A removal is not this rule's: the rows that
+// point at the removed row go with a constraint of the database or stop the delete.
+// It answers nil outside an impersonated session. The caller's grants answer first.
+func RefuseImpersonatorAsReadThroughSubject[Resource resource.Resourcer](
+	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
+	patchSet *resource.PatchSet[Resource], record string, column accesstypes.Field, fact string,
+) error {
+	return refuseImpersonatorAsReadThroughSubject(ctx, txn, op, key, patchSet, record, column, fact)
+}
+
+// refuseImpersonatorAsReadThroughSubject is RefuseImpersonatorAsReadThroughSubject over
+// what it asks of the write.
+func refuseImpersonatorAsReadThroughSubject(
+	ctx context.Context, txn resource.ReadWriteTransaction, op resource.OperationType, key resource.KeySet,
+	patchSet subjectReach, record string, column accesstypes.Field, fact string,
+) error {
+	actor, acting := impersonatorOf(ctx)
+	if !acting || op != resource.OperationUpdate || !patchSet.IsSet(column) {
+		return nil
+	}
+	if err := patchSet.Permitted(ctx, txn); err != nil {
+		return errors.Wrap(err, "resource.PatchSet.Permitted()")
+	}
+
+	reads, err := patchSet.SubjectReadThrough(ctx, txn, fact, column, User(actor), key)
+	if err != nil {
+		return errors.Wrap(err, "resource.PatchSet.SubjectReadThrough()")
+	}
+	if reads {
+		return impersonatorRefused(ctx, actor, fmt.Sprintf("change the %s of the %s record that decides your own %s", column, record, fact))
+	}
+
+	return nil
+}
+
+// holdsNothing reports whether a column's value is no value at all: a NULL is in no
+// set, so nothing is asked about it.
+func holdsNothing(value any) bool {
+	v := reflect.ValueOf(value)
+	for v.IsValid() && v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return true
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() {
+		return true
+	}
+	if id, ok := v.Interface().(impulse.NullUUID); ok {
+		return !id.Valid
+	}
+
+	return false
+}
+
 // keyValue answers the value the key holds for the field, and whether the field is part
 // of the key.
 func keyValue(key resource.KeySet, field accesstypes.Field) (value any, inKey bool) {
@@ -176,10 +369,52 @@ func keyValue(key resource.KeySet, field accesstypes.Field) (value any, inKey bo
 func storedRowNames[Resource resource.Resourcer](
 	ctx context.Context, txn resource.ReadWriteTransaction, key resource.KeySet, columns []accesstypes.Field, account impulse.UUID,
 ) (bool, error) {
+	data, found, err := storedRow[Resource](ctx, txn, key, columns)
+	if err != nil || !found {
+		return false, err
+	}
+	for _, column := range columns {
+		value := data.FieldByName(string(column))
+		if !value.IsValid() {
+			return false, errors.Newf("identity: %s has no field %s to read the person its row names from", data.Type(), column)
+		}
+		if columnNames(value.Interface(), account) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// storedColumn answers the value the stored row under the key holds in the column, for
+// RefuseImpersonatorAsSetSubject: the value the row holds before a write. A row that is
+// not there holds none, and the write that follows finds it missing and says so.
+func storedColumn[Resource resource.Resourcer](
+	ctx context.Context, txn resource.ReadWriteTransaction, key resource.KeySet, column accesstypes.Field,
+) (value any, found bool, err error) {
+	data, found, err := storedRow[Resource](ctx, txn, key, []accesstypes.Field{column})
+	if err != nil || !found {
+		return nil, false, err
+	}
+	held := data.FieldByName(string(column))
+	if !held.IsValid() {
+		return nil, false, errors.Newf("identity: %s has no field %s to read the stored value from", data.Type(), column)
+	}
+
+	return held.Interface(), true, nil
+}
+
+// storedRow reads the stored row under the key, for the columns alone, inside the
+// transaction, and answers its fields; found is false for a row that is not there. A
+// change or a removal that carries no key is not one a row can be read for, and is
+// refused as the fault it is.
+func storedRow[Resource resource.Resourcer](
+	ctx context.Context, txn resource.ReadWriteTransaction, key resource.KeySet, columns []accesstypes.Field,
+) (data reflect.Value, found bool, err error) {
 	if key.Len() == 0 {
 		var record Resource
 
-		return false, errors.Newf("identity: no key to read the %s row by, so the person it names cannot be known", record.Resource())
+		return reflect.Value{}, false, errors.Newf("identity: no key to read the %s row by, so what it holds cannot be known", record.Resource())
 	}
 
 	qSet := resource.NewQuerySet(resource.NewMetadata[Resource]())
@@ -192,24 +427,13 @@ func storedRowNames[Resource resource.Resourcer](
 	row, err := qSet.Read(ctx, txn)
 	if err != nil {
 		if httpio.HasNotFound(err) {
-			return false, nil
+			return reflect.Value{}, false, nil
 		}
 
-		return false, errors.Wrap(err, "resource.QuerySet.Read()")
+		return reflect.Value{}, false, errors.Wrap(err, "resource.QuerySet.Read()")
 	}
 
-	data := reflect.Indirect(reflect.ValueOf(row.Data))
-	for _, column := range columns {
-		value := data.FieldByName(string(column))
-		if !value.IsValid() {
-			return false, errors.Newf("identity: %s has no field %s to read the person its row names from", data.Type(), column)
-		}
-		if columnNames(value.Interface(), account) {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return reflect.Indirect(reflect.ValueOf(row.Data)), true, nil
 }
 
 // columnNames reports whether a column that holds a person's account id holds the

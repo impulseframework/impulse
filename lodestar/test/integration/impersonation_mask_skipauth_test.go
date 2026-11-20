@@ -466,6 +466,17 @@ func TestImpersonationMask_grantsAndCeilings(t *testing.T) {
 	if classes, _ := record["refusedClasses"].([]any); record["actor"] != "governor" || record["mask"] != nil || !slices.Equal(classes, []any{"access", "credential"}) || record["maskWords"] != actMaskWords {
 		t.Errorf("the acting session's record = %v, want the actor governor, every kind kept, the classes access and credential refused, and the mask in words", record)
 	}
+	// The record keeps what the kind keeps out of the class access: the three writes of
+	// HangarPasses, each by the class, the permission and the record.
+	var kept []string
+	excepted, _ := record["excepted"].([]any)
+	for _, entry := range excepted {
+		exception, _ := entry.(map[string]any)
+		kept = append(kept, fmt.Sprintf("%v:%v:%v", exception["class"], exception["permission"], exception["resource"]))
+	}
+	if want := []string{"access:Create:HangarPasses", "access:Delete:HangarPasses", "access:Update:HangarPasses"}; !slices.Equal(kept, want) {
+		t.Errorf("the acting session's record keeps %v out of the classes it refuses, want %v", kept, want)
+	}
 	// The record names no write: the class access is on the writes of the records that
 	// decide what a person may do, so the kind refuses them without naming one.
 	if named, _ := record["refused"].([]any); len(named) != 0 {

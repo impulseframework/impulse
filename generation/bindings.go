@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"regexp"
@@ -199,6 +200,136 @@ func (r *resourceInfo) SubjectUserFields() []*resourceField {
 	}
 
 	return fields
+}
+
+// subjectSetTest is a column of a record that a who: part tests against another subject
+// set (TeamID IN subject.teams): a row that holds a value there speaks for every person
+// in the set of that value.
+type subjectSetTest struct {
+	Field *resourceField
+	Set   string
+}
+
+// SubjectSetTests are the record's columns that name a set of people its rows speak
+// for: each column a who: part of the record's subject sets looks up in another subject
+// set, with that set's name, each pair once, in the order the struct declares the
+// columns and then by the set's name.
+//
+// A row of such a record gives something to every person in the set its column names,
+// without naming any of them. Its generated write asks, for each pair, whether the real
+// person behind a session that acts as someone else is in the set the row names
+// (identity.RefuseImpersonatorAsSetSubject, the subjectGuarded splice): the generated
+// code names the column and the set, and the library builds the question from the set's
+// own declaration.
+func (r *resourceInfo) SubjectSetTests() []subjectSetTest {
+	sets := make(map[string][]string)
+	for _, subject := range slices.Concat(r.SubjectValues, r.SubjectSets) {
+		for _, who := range subject.whoTests() {
+			if who.Set != "" && !slices.Contains(sets[who.Field.Name()], who.Set) {
+				sets[who.Field.Name()] = append(sets[who.Field.Name()], who.Set)
+			}
+		}
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+
+	var tests []subjectSetTest
+	for _, field := range r.Fields {
+		names := sets[field.Name()]
+		slices.Sort(names)
+		for _, set := range names {
+			tests = append(tests, subjectSetTest{Field: field, Set: set})
+		}
+	}
+
+	return tests
+}
+
+// subjectReadThrough is a column of a record that a fact about a person, a subject set
+// or a subject value declared on another record, is read through: a hop of the fact's
+// dotted value lands on this record and reads this column (value: SquadID.DivisionID
+// reads DivisionID off the squad's row).
+type subjectReadThrough struct {
+	Field *resourceField
+	Fact  string
+}
+
+// SubjectReadThroughs are the record's columns that facts about people are read
+// through, with each fact's name, in the order the struct declares the columns and then
+// by the fact's name (attachSubjectReadThroughs, which needs every record of the run).
+//
+// A change that sets such a column moves every person whose fact is read through the
+// row. The record's generated write asks, for each pair, whether the real person behind
+// a session that acts as someone else is one of them
+// (identity.RefuseImpersonatorAsReadThroughSubject, the subjectGuarded splice).
+func (r *resourceInfo) SubjectReadThroughs() []subjectReadThrough {
+	return r.subjectReadThroughs
+}
+
+// SubjectGuarded reports whether the record's generated write carries the subjectGuarded
+// splice: its rows name a person, name a set of people, or are what a person's fact is
+// read through.
+func (r *resourceInfo) SubjectGuarded() bool {
+	return len(r.SubjectUserFields()) > 0 || len(r.SubjectSetTests()) > 0 || len(r.subjectReadThroughs) > 0
+}
+
+// subjectReadThroughs lists, for each record of resources by its table's name, the
+// columns facts about people are read through: every hop of every subject set's and
+// subject value's dotted value that lands on the record, as the field that holds the
+// hop's column and the fact's name, each pair once. A hop onto a table no record of the
+// run declares has no generated write to ask the rule in.
+func subjectReadThroughs(resources []*resourceInfo, table func(*resourceInfo) string) map[*resourceInfo][]subjectReadThrough {
+	byTable := make(map[string]*resourceInfo, len(resources))
+	for _, res := range resources {
+		byTable[table(res)] = res
+	}
+
+	found := make(map[*resourceInfo][]subjectReadThrough)
+	for _, res := range resources {
+		for _, subject := range slices.Concat(res.SubjectValues, res.SubjectSets) {
+			for _, hop := range subject.Path {
+				through, ok := byTable[hop.Table]
+				if !ok {
+					continue
+				}
+				for _, field := range through.Fields {
+					column, ok := field.LookupTag(spannerTagKey)
+					if !ok || column != hop.Column {
+						continue
+					}
+					if !slices.ContainsFunc(found[through], func(have subjectReadThrough) bool {
+						return have.Field == field && have.Fact == subject.Name
+					}) {
+						found[through] = append(found[through], subjectReadThrough{Field: field, Fact: subject.Name})
+					}
+				}
+			}
+		}
+	}
+	for through, columns := range found {
+		order := make(map[*resourceField]int, len(through.Fields))
+		for i, field := range through.Fields {
+			order[field] = i
+		}
+		slices.SortFunc(columns, func(a, b subjectReadThrough) int {
+			return cmp.Or(cmp.Compare(order[a.Field], order[b.Field]), cmp.Compare(a.Fact, b.Fact))
+		})
+	}
+
+	return found
+}
+
+// attachSubjectReadThroughs gives every record of the run the columns facts about
+// people are read through (resourceInfo.SubjectReadThroughs), once every record's
+// bindings are resolved.
+func (r *resourceGenerator) attachSubjectReadThroughs() {
+	found := subjectReadThroughs(r.resources, func(res *resourceInfo) string {
+		return r.pluralize(res.Name())
+	})
+	for _, res := range r.resources {
+		res.subjectReadThroughs = found[res]
+	}
 }
 
 // SubjectRecordWords is the record's name as a refusal of the subjectGuarded splice

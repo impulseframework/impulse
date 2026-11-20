@@ -3637,15 +3637,22 @@ someone else's row onto themselves. An application's own action that names a per
 asks the same rule (`identity.RefuseImpersonatorAsSubject`; the resource package's "User
 management", "The rules on who is asking"). The class `access` is for what that rule
 cannot see: a role that reaches the person through a group they are in, through another
-account or through a colleague. A row of the application's own that reaches the person
-without naming them is beside it: a pass given to a team they are in, or their own team
-moved to another division. These are the rule's stated limits. A session whose mask
-does not refuse the class gives such a role and writes such a row: the generator gives
+account or through a colleague. That is the rule's stated limit: a session whose mask
+does not refuse the class gives such a role. A row of the application's own that
+reaches the person without naming them is not a limit: the generated write refuses the
+real person a pass given to a team they are in
+(`identity.RefuseImpersonatorAsSetSubject`) and their own team moved to another
+division (`identity.RefuseImpersonatorAsReadThroughSubject`), under every mask. The
+generated code names the column and the set, and the library asks the set by its own
+declaration, so the rule and the policy agree on who is in it. The generator also gives
 the class to the create, the change and the delete of every record that decides what a
 person may do (one that carries `@subjectValue` or `@subjectSet`) and to the change of
-a record such a value is read through, so no application lists those records by hand.
-To let someone act as a person with no mask is to give them what the person holds, and
-an application closes each limit through its mask.
+a record such a value is read through, so no application lists those records by hand,
+and a kind that is to keep one of them names it as an exception to the class
+(`accesstypes.RefuseClassExcept`): the session then writes the record for other people,
+and never for the real person, a set they are in, or the row their own standing is read
+through. To let someone act as a person with no mask is to give them what the person
+holds, and an application closes the limit through its mask.
 A row removed with its parent, which may name the person, is a limit of its own: the
 database removes a pass with the place it opens, no write of the pass is made, and so
 neither the rule nor a mask that refuses the writes of passes is asked. An application
@@ -3675,10 +3682,14 @@ administrator can. An application that must hold this refuses the three actions 
 in the kind's mask (`accesstypes.RefuseAction`).
 An application that lets people act as a person and
 does not mean them to change who may do what refuses both classes, as the declaration
-above does, and refuses by name the writes of its own records that decide what a person
-may do (`accesstypes.RefuseWrites(record)`) and the delete of a record such rows are
-removed with: the rule holds the real person alone, and the mask is what keeps such a
-session from changing anyone else's.
+above does. The class `access` holds the writes of its own records that decide what a
+person may do, so the kind names none of them; a record the kind is to keep is named
+as an exception to the class (`accesstypes.RefuseClassExcept(class,
+accesstypes.ExceptWrites(record)...)`), and the session then writes it for everyone
+but the real person, the sets they are in and the row their own standing is read
+through. The kind refuses by name the delete of a record such rows are removed with
+(`accesstypes.RefusePermission(accesstypes.Delete, parent)`): the rule holds the real
+person alone, and the mask is what keeps such a session from changing anyone else's.
 
 A masked check is refused when the mask does not keep its kind, refuses one of its
 resource's classes, or refuses the permission on the resource by name. The refusal comes

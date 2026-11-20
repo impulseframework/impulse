@@ -188,7 +188,7 @@ func TestImpersonationKinds(t *testing.T) {
 		{Name: "view", Grant: "ViewAsUser", Widest: "reading only"},
 		{
 			Name: "act", Grant: "ActAsUser",
-			Widest: "everything except access actions and credential actions",
+			Widest: "everything except access actions (still allowed: writing HangarPasses) and credential actions",
 		},
 		{Name: "role", Grant: "AssumeRole", AsRole: true, Widest: "everything"},
 	}
@@ -203,13 +203,17 @@ func TestImpersonationKinds(t *testing.T) {
 
 // TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo holds the kind that acts as a
 // person to the promise its role makes, that a stand-in does not change who may do
-// what, for the records of Lodestar's own. The kind names no record: its mask refuses
-// the class access, and the generator gives that class to the writes of every record
-// the policy reads as a subject value or a subject set, and to the change of a record a
-// dotted value is read through (the squadron, whose row says which wing its members are
-// in). The writes are read off the generated collection, so the list here is the
-// generator's and changes when a record gains a @subjectValue or a @subjectSet, or a
-// value takes a new path; the kind refuses each without an edit to its declaration.
+// what, for the records of Lodestar's own. The kind names no record to refuse it: its
+// mask refuses the class access, and the generator gives that class to the writes of
+// every record the policy reads as a subject value or a subject set, and to the change
+// of a record a dotted value is read through (the squadron, whose row says which wing
+// its members are in). The writes are read off the generated collection, so the list
+// here is the generator's and changes when a record gains a @subjectValue or a
+// @subjectSet, or a value takes a new path; the kind refuses each without an edit to
+// its declaration.
+// It names one record to keep it: the writes of a hangar pass are the kind's exception
+// to the class, so they reach policy, and every other write of the class stays refused,
+// whatever the generator adds to the class later.
 func TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo(t *testing.T) {
 	t.Parallel()
 
@@ -248,16 +252,25 @@ func TestActKindRefusesTheRecordsThatDecideWhatAPersonMayDo(t *testing.T) {
 		t.Errorf("the writes the generator classes access, read off the generated collection = %q, want %q", classed, want)
 	}
 
+	// What the kind keeps out of the class: the three writes of a hangar pass.
+	kept := []string{"Create on HangarPasses", "Update on HangarPasses", "Delete on HangarPasses"}
+	for _, write := range kept {
+		if !slices.Contains(classed, write) {
+			t.Errorf("the kind keeps %s out of the class access, and the generator does not class it: the exception names what the class does not cover", write)
+		}
+	}
+
 	for _, record := range collection.Resources() {
 		for _, perm := range []accesstypes.Permission{accesstypes.Create, accesstypes.Update, accesstypes.Delete} {
-			classed := slices.Contains(classed, fmt.Sprintf("%s on %s", perm, record))
+			write := fmt.Sprintf("%s on %s", perm, record)
+			refused := slices.Contains(classed, write) && !slices.Contains(kept, write)
 			policy := &policyAsked{}
 			masked := resource.Masked(policy, act, collection)
 			if _, err := masked.Check(t.Context(), accesstypes.NewEnvironment(), accesstypes.GlobalScope(), perm, record); err != nil {
 				t.Fatalf("Check(%s, %s) error = %v", perm, record, err)
 			}
-			if asked := len(policy.asked) != 0; asked == classed {
-				t.Errorf("%s on %s: policy asked = %t and the write is classed access = %t: the kind refuses the classed writes and leaves the rest to policy", perm, record, asked, classed)
+			if asked := len(policy.asked) != 0; asked == refused {
+				t.Errorf("%s: policy asked = %t and the kind refuses the write = %t: the kind refuses the writes classed access, but for the hangar pass's, and leaves the rest to policy", write, asked, refused)
 			}
 		}
 	}

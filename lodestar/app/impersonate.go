@@ -54,7 +54,14 @@ const (
 //     whose row says which wing its members are in). Nobody lists them here, and a
 //     record that gains a subject value is refused once the application is generated
 //     again, so the session keeps the promise the StandIn role makes: it does what
-//     the person may do, except change how they sign in or who may do what. An
+//     the person may do, except change how they sign in or who may do what. One
+//     thing is kept out of that refusal by name: the writes of HangarPasses
+//     (accesstypes.RefuseClassExcept with accesstypes.ExceptWrites). Giving a hangar
+//     pass is the marshal's daily work, so a person standing in for the marshal
+//     gives, changes and withdraws passes, and everything else the class holds stays
+//     refused, whatever joins the class later. An exception that named a record the
+//     application lacks, or one the class does not cover, would stop the server at
+//     start-up. An
 //     account disabled, enabled or deleted carries neither class, so the session does
 //     those as the person would, on any account but the real person's own (the rule
 //     below). The constants are the generated collection's, so the mask names classes
@@ -72,12 +79,15 @@ const (
 // The class access refuses what that rule cannot see, a role that reaches them through
 // a group or a colleague.
 //
-// A row that reaches a person without naming them is beside that: a hangar pass given
-// to a squadron the real person is in, or their own squadron moved to another wing.
-// A session whose mask does not refuse the record's writes, here the role kind's,
-// writes such a row: it is a stated limit of the rule, and an application closes it
-// through its mask, as the act kind does here by refusing the class access, which the
-// writes of both records carry.
+// A row that reaches a person without naming them is held to the same rule: a hangar
+// pass given to a squadron the real person is in
+// (identity.RefuseImpersonatorAsSetSubject), and their own squadron moved to another
+// wing (identity.RefuseImpersonatorAsReadThroughSubject). The generated writes of
+// HangarPasses and Squadrons ask both, under every mask. So the exception the act kind
+// keeps lets a person standing in for the marshal give other people and other
+// squadrons a pass, and never themselves or a squadron they are in, and the role
+// kind, which has no mask, moves other people's squadrons to another wing and never
+// the real person's own.
 //
 // A row removed with its parent, which may name the person, is a limit of its own: a
 // hangar pass goes with its hangar, its squadron or its sector, a hangar goes with its
@@ -111,7 +121,8 @@ func impersonationKinds() []session.ImpersonationKind {
 	return []session.ImpersonationKind{
 		session.ImpersonatesUser(kindView, resources.ViewAsUser, accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)),
 		session.ImpersonatesUser(kindAct, resources.ActAsUser, accesstypes.AllowAll().Refusing(
-			accesstypes.RefuseClass(router.ClassCredential), accesstypes.RefuseClass(router.ClassAccess),
+			accesstypes.RefuseClass(router.ClassCredential),
+			accesstypes.RefuseClassExcept(router.ClassAccess, accesstypes.ExceptWrites(resources.HangarPass{}.Resource())...),
 		)),
 		session.ImpersonatesRole(kindRole, resources.AssumeRole, accesstypes.AllowAll()),
 	}
@@ -135,6 +146,12 @@ type impersonateRequest struct {
 	// refuses: classes of action (irreversible), and actions by name (ScrapShip).
 	RefuseClasses []accesstypes.ActionClass `json:"refuseClasses"`
 	RefuseActions []accesstypes.Resource    `json:"refuseActions"`
+	// ExceptWrites are the records whose writes the session keeps out of each class
+	// it names in RefuseClasses (HangarPasses). A class the body names is refused
+	// whole unless the body names what it keeps, so a body that names the class
+	// access and no record drops the exception the act kind carries, and one that
+	// names a record the kind does not keep is refused, never trimmed.
+	ExceptWrites []accesstypes.Resource `json:"exceptWrites"`
 	// Reason is free text recorded on the impersonation record.
 	Reason string `json:"reason"`
 }
@@ -143,8 +160,12 @@ type impersonateRequest struct {
 // mask, which asks for none.
 func (r *impersonateRequest) mask() accesstypes.PermissionMask {
 	mask := accesstypes.MaskPermissions(accesstypes.AllowAll(), r.Mask...)
+	var kept []accesstypes.MaskException
+	for _, record := range r.ExceptWrites {
+		kept = append(kept, accesstypes.ExceptWrites(record)...)
+	}
 	for _, class := range r.RefuseClasses {
-		mask = mask.Refusing(accesstypes.RefuseClass(class))
+		mask = mask.Refusing(accesstypes.RefuseClassExcept(class, kept...))
 	}
 	for _, action := range r.RefuseActions {
 		mask = mask.Refusing(accesstypes.RefuseAction(action))

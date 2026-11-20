@@ -701,7 +701,10 @@ about it:
   refuses every such act whatever the mask keeps. The generated write of a record that
   carries a `@subjectValue` or a `@subjectSet` asks the same rule about the person the
   row names, before the write and after it (`identity.RefuseImpersonatorAsRowSubject`),
-  with nothing declared for it. An application's own action that names a person asks it
+  about a set of theirs the row names (`identity.RefuseImpersonatorAsSetSubject`), and
+  the write of a record a dotted `value:` is read through asks it about the row their
+  own value is read through (`identity.RefuseImpersonatorAsReadThroughSubject`), with
+  nothing declared for it. An application's own action that names a person asks it
   with `identity.RefuseImpersonatorAsSubject(ctx, account, act)` (section 21, "The rules
   on who is asking", which also says what the rule cannot see, and the class `access`
   and the named refusals a mask carries for it).
@@ -4728,9 +4731,34 @@ own, outside any request, has no caller and is the application's act):
 
   The columns asked are the ones that name a person: the column each annotation is
   written on, and every column a `who:` part compares to the requester (`Field =
-  subject`). A column a `who:` part looks up in another set (`Field IN subject.<set>`)
-  names a set and no person, and a record whose sets are all drawn that way gets no
-  call. The refusal names the record by its struct's name in lower-case words. The
+  subject`). The refusal names the record by its struct's name in lower-case words.
+
+  A row reaches a person by two more roads, and the generated write asks about each:
+
+  - **A row that names a set the person is in.** A column a `who:` part looks up in
+    another set (`TeamID IN subject.teams`) names a set and no person: a pass given to
+    a team is given to everyone in it. For each such column and set the write asks
+    `identity.RefuseImpersonatorAsSetSubject`, before the write about the value the
+    stored row holds and after it about the value the write gives the column. The real
+    person adds no such row for a set they are in ("add a pass record for one of your
+    own teams"), changes and removes none, and moves none onto their own set.
+  - **The row a person's value is read through.** A set or a value declared with a
+    dotted `value:` (`TeamID.DivisionID`) is read through a column of another record,
+    the team's own row. The write of that record asks
+    `identity.RefuseImpersonatorAsReadThroughSubject` for each such column: a change
+    that sets the column is refused on the row the real person's own value is read
+    through ("change the DivisionID of the team record that decides your own
+    divisions"). A change that leaves the column alone asks nothing and reads nothing,
+    and neither does an add or a removal.
+
+  The generated code names the column and the set, and nothing else. The library builds
+  the statement at run time from the set's own declaration
+  (`resource.PatchSet.SubjectSetHolds`, `resource.PatchSet.SubjectReadThrough`), with
+  the pieces a condition's `x IN subject.<set>` renders, so the rule and the policy
+  share one definition of who is in a set: its `who:`, its `where:` and the sets it
+  builds on. The real person is asked about by name, in no one tenant. A database the
+  statement is not built for yet (PostgreSQL) answers an error and the write does not
+  happen, never a pass. The
   caller's grants and the session's mask answer first, so a person the record's write
   is refused gets the same Forbidden as on any record and learns nothing from the
   rule's sentence. Outside an impersonated session nothing is read: the same write
@@ -4742,22 +4770,22 @@ own, outside any request, has no caller and is the application's act):
   What the rule cannot see is whatever reaches the person by another road: a role
   given to a group they are in, an account made for another address of theirs, an
   invitation to an address they hold and never confirmed on the account, a colleague
-  who returns the favor, and an action of the application's own that does not ask. Of
-  a record's rows it sees the ones that name the person, and not a row that reaches
-  them without naming them: a row that names a set they are in (a pass given to their
-  team), and the row a dotted `value:` is read through (the team's own row, which says
-  which division the team is in). These are the rule's stated limits, the rows that
-  reach a person without naming them beside the role given to a group they are in. A
-  session whose mask does not refuse the class `access` gives such a role and writes
-  such a row. To let someone act as a person with no mask is to give them what the
-  person holds. An application closes them through its mask: a kind of impersonation
-  that is not to change who may do what refuses the class `access`. The generator
-  gives that class to the create, the change and the delete of every record that
-  carries `@subjectValue` or `@subjectSet`, and to the change of a record a dotted
+  who returns the favor, and an action of the application's own that does not ask.
+  These are the rule's stated limits. A session whose mask does not refuse the class
+  `access` gives such a role. To let someone act as a person with no mask is to give
+  them what the person holds. An application closes them through its mask: a kind of
+  impersonation that is not to change who may do what refuses the class `access`. The
+  generator gives that class to the create, the change and the delete of every record
+  that carries `@subjectValue` or `@subjectSet`, and to the change of a record a dotted
   `value:` is read through, so the mask refuses those writes for every person and not
   the real one alone, with no list of records kept by hand
   (`resource.CollectionResource.WriteClasses`; a record that gains a subject value is
-  covered when the application is generated again).
+  covered when the application is generated again). A kind that is to keep one of
+  those records names it as an exception to the class
+  (`accesstypes.RefuseClassExcept(class, accesstypes.ExceptWrites(record)...)`): the
+  session writes the record for other people, and the three questions above still
+  refuse the real person their own row, their own set and the row their own value is
+  read through.
 
   A row removed with its parent, which may name the person, is a limit of its own. The
   database removes the row when the parent's row is deleted (an interleaved table or a

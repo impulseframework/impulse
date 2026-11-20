@@ -43,7 +43,9 @@ import (
 // Manager's methods holds. The rule reaches past the account to a record of the
 // application's that decides what a person may do, a clearance or a place in a team:
 // the generated write of such a record asks it about the person the row names, before
-// the write and after it (RefuseImpersonatorAsRowSubject).
+// the write and after it (RefuseImpersonatorAsRowSubject), about a set of theirs the row
+// names (RefuseImpersonatorAsSetSubject), and about the row a value of theirs is read
+// through (RefuseImpersonatorAsReadThroughSubject).
 //
 // A caller is named as the permission store names a person, by the id of their account
 // (User), and no two accounts share an id, in one auth or across two. An outlet that
@@ -173,27 +175,27 @@ func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impuls
 // Every method of the Manager that changes something of a person asks it, so the
 // generated management is held to it without a line in the application, and so does
 // the generated write of a record that decides what a person may do, through
-// RefuseImpersonatorAsRowSubject. An application calls it in an action of its own that
-// names a person, before the action changes anything. The person is named by the id of
-// their account, which is no other account's, in one auth or across two, so the id
-// alone says whether the person named is the one acting:
+// RefuseImpersonatorAsRowSubject and the two rules beside it for a row that reaches the
+// person without naming them: a pass given to a team they are in is refused
+// (RefuseImpersonatorAsSetSubject), and so is their own team moved to another division
+// (RefuseImpersonatorAsReadThroughSubject). An application calls it in an action of its
+// own that names a person, before the action changes anything. The person is named by
+// the id of their account, which is no other account's, in one auth or across two, so
+// the id alone says whether the person named is the one acting:
 //
 //	if err := identity.RefuseImpersonatorAsSubject(ctx, m.PilotID, "assign yourself a mission"); err != nil {
 //		return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
 //	}
 //
 // What it cannot see is whatever reaches the person by another road: a role given to a
-// group they are in, a row of the application's that reaches them without naming them
-// (a pass given to a team they are in, or their own team moved to another division;
-// RefuseImpersonatorAsRowSubject says which), an invitation to an address they hold and
-// never confirmed on the account, an act on a colleague who returns the favor. These
-// are stated limits: a session does each of them unless its mask refuses it, and a
-// mask that refuses a class does not refuse a record's writes, which carry none. An
-// application closes them through its mask. A second account of the person's own is
-// one more: the rule knows the real person by the account they signed in with, so
-// another account of theirs is someone else's to it, and a person who acts as an
-// administrator can enable it again, or disable or delete it, as the administrator
-// can. No class refuses those three; an application that must hold this refuses them
+// group they are in, an invitation to an address they hold and never confirmed on the
+// account, an act on a colleague who returns the favor. These are stated limits: a
+// session does each of them unless its mask refuses it. An application closes them
+// through its mask. A second account of the person's own is one more: the rule knows
+// the real person by the account they signed in with, so another account of theirs is
+// someone else's to it, and a person who acts as an administrator can enable it again,
+// or disable or delete it, as the administrator can. No class refuses those three; an
+// application that must hold this refuses them
 // by name in the kind's mask (accesstypes.RefuseAction). The unlock knows the account by
 // its username, its id and the address it confirmed, so a count the library keeps under
 // an address the account holds unconfirmed (the mail of a first password or of an

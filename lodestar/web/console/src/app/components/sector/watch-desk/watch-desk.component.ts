@@ -17,7 +17,8 @@ interface ActiveImpersonation {
   kind: 'user' | 'role';
   /**
    * What the session may do, in the server's words: "reading only", or for a session that
-   * acts as a person "everything except access actions and credential actions".
+   * acts as a person "everything except access actions (still allowed: writing
+   * HangarPasses) and credential actions".
    */
   mask: string;
   reason: string;

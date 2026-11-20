@@ -44,15 +44,17 @@ func viewAs(t *testing.T, username accesstypes.User, reason string) string {
 // The mask Lodestar's act kind gives, as the mint route, the session's record, the watch
 // desk and the log say it: everything, except what is classed access or credential. The
 // generator classes access the writes of every record that decides what a person may do
-// and a squadron's change, which is where its wing is written, so the mask names none.
+// and a squadron's change, which is where its wing is written, so the mask names none
+// to refuse it. It names one to keep it: the writes of HangarPasses are the kind's
+// exception to the class access, said in the words and kept in the stored form.
 const (
 	// actMaskRefusalWords is what the act kind refuses, in words.
-	actMaskRefusalWords = "access actions and credential actions"
+	actMaskRefusalWords = "access actions (still allowed: writing HangarPasses) and credential actions"
 	// actMaskWords is the kind's widest mask, in words.
 	actMaskWords = "everything except " + actMaskRefusalWords
 	// actMaskRefusalText is what the act kind refuses, in the form a mask is stored and
 	// logged in.
-	actMaskRefusalText = "-class:access;-class:credential"
+	actMaskRefusalText = "-class:access;+class:access:Create:HangarPasses;+class:access:Delete:HangarPasses;+class:access:Update:HangarPasses;-class:credential"
 	// actMaskText is the kind's widest mask, in the form a mask is stored and logged in.
 	actMaskText = "*;" + actMaskRefusalText
 )

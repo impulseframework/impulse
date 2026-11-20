@@ -1251,7 +1251,7 @@ r=$(req marshal GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "the m
 r=$(req marshal POST "$ANVIL/create-crew-sector-user" '{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet"]}'); check "the marshal makes a person Anvil holds alone" 200 "$r"
 GUS_ID=$(body "$r" | py "print(rows['id'])")
 r=$(dryrun marshal POST "$ANVIL/set-crew-sector-user-email" "{\"userId\":\"$GUS_ID\",\"email\":\"gus.new@example.com\"}"); check "the marshal herself may set that person's address: her dry run would commit" 200 "$r"
-ACT_MASK='everything except access actions and credential actions'
+ACT_MASK='everything except access actions (still allowed: writing HangarPasses) and credential actions'
 r=$(req governor POST "$API/impersonate" "{\"kind\":\"act\",\"principal\":\"$MARSHAL_ID\",\"reason\":\"walkthrough\"}"); check "governor mints a session that acts as the marshal" 200 "$r"
 assert_py "and is told what the session may do" "$r" "rows['mask']=='$ACT_MASK'"
 ACTING=$(body "$r" | py "print(rows['sessionId'])")
