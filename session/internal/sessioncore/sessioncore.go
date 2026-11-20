@@ -47,7 +47,10 @@ func NewBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, o
 			cookieOpts = append(cookieOpts, internalcookie.Option(o))
 		case BaseSessionOption:
 			if !o.apply(baseSession) {
-				return nil, nil, errors.New("a session option was made by no With function (it is the zero session.BaseSessionOption, which sets nothing): pass the options the session package's With functions return, such as session.WithSessionTimeout, and remove the one declared without them")
+				return nil, nil, errors.New(
+					"a session option was made by no With function (it is the zero session.BaseSessionOption, which sets nothing): " +
+						"pass the options the session package's With functions return, such as session.WithSessionTimeout, and remove the one declared without them",
+				)
 			}
 		}
 	}

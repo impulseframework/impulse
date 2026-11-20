@@ -89,9 +89,10 @@ func openAuth(importPath string) *outletAuth {
 	return &outletAuth{importPath: importPath, methods: []AuthMethod{PasswordMethod(), GoogleMethod("sign-up")}}
 }
 
-// syncedAuth is an outlet auth whose one registration's directory writes the roles.
-func syncedAuth(importPath string) *outletAuth {
-	return &outletAuth{importPath: importPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
+// syncedAuth is the staff's outlet auth with one registration, whose directory writes
+// the roles.
+func syncedAuth() *outletAuth {
+	return &outletAuth{importPath: "example.com/app/pkg/auth/staff", methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
 }
 
 // Test_validateTenantCreation pins where the invitation that makes a tenant and the
@@ -137,7 +138,7 @@ func Test_validateTenantCreation(t *testing.T) {
 		{
 			name:   "a record whose auth's roles a directory writes has neither: the directory decides who holds a role",
 			record: "Station",
-			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff") },
+			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth() },
 		},
 		{
 			name:   "a record served by outlets bound to different auths is refused: one auth's people are invited and seated",
@@ -386,7 +387,7 @@ func Test_collectTenantCreationRegistration(t *testing.T) {
 
 		r := tenantCreationFixtureGenerator(t, "Station", func(r *resourceGenerator) {
 			r.genRoutes = true
-			r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff")
+			r.defaultOutlet.auth = syncedAuth()
 		})
 		b := resource.NewCollectionBuilder()
 		if err := r.collectTenantCreationRegistration(b); err != nil {
@@ -607,7 +608,7 @@ func Test_accumulateTenantCreationRoute(t *testing.T) {
 		{
 			name:       "a record whose auth's roles a directory writes registers no route",
 			record:     "Station",
-			mutate:     func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth("example.com/app/pkg/auth/staff") },
+			mutate:     func(r *resourceGenerator) { r.defaultOutlet.auth = syncedAuth() },
 			wantRoutes: map[string]*generatedRoute{},
 		},
 		{

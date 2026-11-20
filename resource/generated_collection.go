@@ -575,6 +575,32 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 		g.setFormerName(res.Scope, res.Name, res.Formerly)
 	}
 
+	if err := g.addActionDeclarations(res); err != nil {
+		return err
+	}
+
+	if len(res.Order) > 0 || len(res.QueryKeys) > 0 {
+		for _, tag := range slices.Concat(res.Order, res.QueryKeys) {
+			if _, ok := g.tagStore[res.Scope][res.Name][tag]; !ok {
+				return errors.Newf("resource %q orders or filters by %q, which is not one of its tags", res.Name, tag)
+			}
+		}
+		g.setResourceQueryKeys(res.Scope, res.Name, res.Order, res.QueryKeys)
+	}
+
+	for _, tag := range res.RequiredTags {
+		if !slices.Contains(g.tagStore[res.Scope][res.Name][tag], accesstypes.Create) {
+			return errors.Newf("resource %q requires %q on a create, which is not one of its tags that carry Create", res.Name, tag)
+		}
+	}
+	g.setResourceRequiredTags(res.Scope, res.Name, res.RequiredTags)
+
+	return nil
+}
+
+// addActionDeclarations validates and stores what one CollectionResource declares as an
+// action: the classes it carries, and the mark of an action no role is given.
+func (g *GeneratedCollection) addActionDeclarations(res *CollectionResource) error {
 	if len(res.Classes) > 0 {
 		if len(res.Permissions) == 0 {
 			return errors.Newf("resource %q carries the classes %v and registers no permission: a class is carried by an action, which a permission is checked on", res.Name, res.Classes)
@@ -596,22 +622,6 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 		}
 		g.setActionNoRole(res.Scope, res.Name)
 	}
-
-	if len(res.Order) > 0 || len(res.QueryKeys) > 0 {
-		for _, tag := range slices.Concat(res.Order, res.QueryKeys) {
-			if _, ok := g.tagStore[res.Scope][res.Name][tag]; !ok {
-				return errors.Newf("resource %q orders or filters by %q, which is not one of its tags", res.Name, tag)
-			}
-		}
-		g.setResourceQueryKeys(res.Scope, res.Name, res.Order, res.QueryKeys)
-	}
-
-	for _, tag := range res.RequiredTags {
-		if !slices.Contains(g.tagStore[res.Scope][res.Name][tag], accesstypes.Create) {
-			return errors.Newf("resource %q requires %q on a create, which is not one of its tags that carry Create", res.Name, tag)
-		}
-	}
-	g.setResourceRequiredTags(res.Scope, res.Name, res.RequiredTags)
 
 	return nil
 }
@@ -1443,24 +1453,7 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 			res.Permissions = nil
 		}
 
-		tagMap := g.tagStore[key.scope][key.name]
-		if len(tagMap) > 0 {
-			tagNames := make([]accesstypes.Tag, 0, len(tagMap))
-			for tag := range tagMap {
-				tagNames = append(tagNames, tag)
-			}
-			slices.Sort(tagNames)
-
-			res.Tags = make([]TagData, 0, len(tagNames))
-			for _, tag := range tagNames {
-				tagPerms := slices.Clone(tagMap[tag])
-				slices.Sort(tagPerms)
-				if len(tagPerms) == 0 {
-					tagPerms = nil
-				}
-				res.Tags = append(res.Tags, TagData{Name: tag, Permissions: tagPerms, Masking: g.masking[key.scope][key.name][tag], Formerly: g.formerTags[key.scope][key.name][tag]})
-			}
-		}
+		res.Tags = collectionTagData(g, key)
 
 		immutable := g.immutableFields[key.scope][key.name]
 		if len(immutable) > 0 {
@@ -1506,6 +1499,33 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 	}
 
 	return data
+}
+
+// collectionTagData returns a resource's tags in their serializable form: sorted by
+// name, each with its permissions sorted. A resource with no tag has none.
+func collectionTagData(g *GeneratedCollection, key resourceKey) []TagData {
+	tagMap := g.tagStore[key.scope][key.name]
+	if len(tagMap) == 0 {
+		return nil
+	}
+
+	tagNames := make([]accesstypes.Tag, 0, len(tagMap))
+	for tag := range tagMap {
+		tagNames = append(tagNames, tag)
+	}
+	slices.Sort(tagNames)
+
+	tags := make([]TagData, 0, len(tagNames))
+	for _, tag := range tagNames {
+		tagPerms := slices.Clone(tagMap[tag])
+		slices.Sort(tagPerms)
+		if len(tagPerms) == 0 {
+			tagPerms = nil
+		}
+		tags = append(tags, TagData{Name: tag, Permissions: tagPerms, Masking: g.masking[key.scope][key.name][tag], Formerly: g.formerTags[key.scope][key.name][tag]})
+	}
+
+	return tags
 }
 
 // applyBindingData copies a resource's stored binding vocabulary onto its
