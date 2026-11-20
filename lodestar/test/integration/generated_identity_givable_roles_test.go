@@ -37,6 +37,10 @@ import (
 // both. This suite serves no session manager, so the invitation the check let through
 // fails where its link would be made (500): the status that tells the check was passed,
 // since a refused check answers 403 and never reaches that step.
+//
+// The cases share the world and run in parallel. The one write among them gives the
+// Headquarters person a role that carries no grant to give any, so it changes nothing
+// another case reads.
 func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -92,6 +96,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	whole, everySector, inAnvil := place{}, place{everyDomain: true}, place{domain: anvil}
 
 	t.Run("for the whole application: every role the grants let the caller give, by any one of the methods", func(t *testing.T) {
+		t.Parallel()
 		held := list(t, desk, "")
 		for _, role := range []string{"Headquarters", "CrewCommon", invitedOnly} {
 			if !slices.Contains(held[whole], role) {
@@ -119,6 +124,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	})
 
 	t.Run("in one sector: the sector's roles, each naming the sector", func(t *testing.T) {
+		t.Parallel()
 		held := list(t, desk, "domain:eq:"+anvil)
 		if len(held) != 1 || len(held[inAnvil]) == 0 {
 			t.Fatalf("the roles listed are held at %v, want Anvil's alone", held)
@@ -137,6 +143,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	})
 
 	t.Run("a filter on everyDomain narrows the list to one of the two places, as the dialog asks it", func(t *testing.T) {
+		t.Parallel()
 		if held := list(t, desk, "everyDomain:eq:false"); len(held) != 1 || !slices.Contains(held[whole], "Headquarters") {
 			t.Errorf("everyDomain false lists %v, want the whole application's roles alone", held)
 		}
@@ -146,6 +153,7 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	})
 
 	t.Run("a super administrator is offered the Super Administrator role, for the whole application alone", func(t *testing.T) {
+		t.Parallel()
 		held := list(t, "governor", "")
 		if !slices.Contains(held[whole], string(accesstypes.SuperAdministrator)) {
 			t.Errorf("the governor's whole-application roles = %v, want the Super Administrator role among them", held[whole])
@@ -156,16 +164,19 @@ func TestGeneratedIdentityGivableRoles(t *testing.T) {
 	})
 
 	t.Run("a person with no grant on the list is refused it", func(t *testing.T) {
+		t.Parallel()
 		status, body := doRequestAs(t, w.h, "cadet", http.MethodGet, rolesPath, "")
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
 
 	t.Run("a filter that names sectors any other way is refused, saying what to send", func(t *testing.T) {
+		t.Parallel()
 		status, body := doRequestAs(t, w.h, desk, http.MethodGet, rolesPath+"&filter="+url.QueryEscape("domain:ne:"+anvil), "")
 		assertStatus(t, status, http.StatusBadRequest, body)
 	})
 
 	t.Run("a role the list offers by the invitation alone passes the invitation's check and no other method's, and the one it left out passes none", func(t *testing.T) {
+		t.Parallel()
 		invitation := func(role string) string {
 			return fmt.Sprintf(`{"email":"surveyor-%s@lakeside.example","roles":[%q]}`, identitySuffix(), role)
 		}
